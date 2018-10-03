@@ -8,7 +8,7 @@ type protocolVersion struct {
 /*
  The TLS Record Layer which handles all data transport.
  The record layer is assumed to sit directly on top of some
- reliable transport such as TCP. The record layer can carry four kinds of payloads:
+ reliable transport such as TCP. The record layer can carry four types of content:
 
  1. Handshake messages—used for algorithm negotiation and key establishment.
  2. ChangeCipherSpec messages—really part of the handshake but technically a separate kind of message.
@@ -28,10 +28,10 @@ type recordLayer struct {
 	content         content
 }
 
-func (r *recordLayer) Marshal() ([]byte, error) {
+func (r *recordLayer) marshal() ([]byte, error) {
 	return nil, nil
 }
 
-func (r *recordLayer) Unmarshal(data []byte) error {
+func (r *recordLayer) unmarshal(data []byte) error {
 	return nil
 }
