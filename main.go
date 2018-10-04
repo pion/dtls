@@ -23,6 +23,10 @@ func startListener() {
 		if i == 0 || err != nil {
 			panic(fmt.Sprintf("%d %s", i, err.Error()))
 		}
-		fmt.Println(buffer[:i])
+		pkts, err := decodeUDPPacket(buffer[:i])
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(pkts)
 	}
 }

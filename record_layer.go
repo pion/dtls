@@ -35,3 +35,32 @@ func (r *recordLayer) marshal() ([]byte, error) {
 func (r *recordLayer) unmarshal(data []byte) error {
 	return nil
 }
+
+const (
+	dtlsMinimumLength = 14
+	recordLayerSize   = 13
+)
+
+// decodeUDPPacket proccesses a UDP packet which may contain multiple DTLS packets
+func decodeUDPPacket(buf []byte) ([]*recordLayer, error) {
+	out := []*recordLayer{}
+
+	for offset := 0; ; {
+		if len(buf) == offset {
+			break
+		} else if len(buf)-offset <= dtlsMinimumLength {
+			return nil, errDTLSPacketInvalidLength
+		}
+
+		pktLen := (recordLayerSize + int(buf[11]))
+		r := &recordLayer{}
+		if err := r.unmarshal(buf[offset : offset+pktLen]); err != nil {
+			return nil, err
+		}
+
+		out = append(out, r)
+		offset += pktLen
+	}
+
+	return out, nil
+}
