@@ -11,3 +11,11 @@ type applicationData struct {
 func (a applicationData) contentType() contentType {
 	return contentTypeApplicationData
 }
+
+func (a *applicationData) marshal() ([]byte, error) {
+	return nil, nil
+}
+
+func (a *applicationData) unmarshal(data []byte) error {
+	return nil
+}

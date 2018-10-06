@@ -16,3 +16,11 @@ type alert struct {
 func (a alert) contentType() contentType {
 	return contentTypeAlert
 }
+
+func (a *alert) marshal() ([]byte, error) {
+	return nil, nil
+}
+
+func (a *alert) unmarshal(data []byte) error {
+	return nil
+}

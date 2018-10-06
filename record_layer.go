@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/binary"
-	"fmt"
 )
 
 const (
@@ -42,6 +41,31 @@ func (r *recordLayer) marshal() ([]byte, error) {
 }
 
 func (r *recordLayer) unmarshal(data []byte) error {
+	r.protocolVersion.major = data[1]
+	r.protocolVersion.minor = data[2]
+	r.epoch = binary.BigEndian.Uint16(data[3:])
+
+	// SequenceNumber is stored as uint48, make into uint64
+	seqCopy := make([]byte, 8)
+	copy(seqCopy[2:], data[5:11])
+	r.sequenceNumber = binary.BigEndian.Uint64(seqCopy)
+
+	switch contentType(data[0]) {
+	case contentTypeChangeCipherSpec:
+		r.content = &changeCipherSpec{}
+	case contentTypeAlert:
+		r.content = &alert{}
+	case contentTypeHandshake:
+		r.content = &handshake{}
+	case contentTypeApplicationData:
+		r.content = &applicationData{}
+	default:
+		return errInvalidContentType
+	}
+	if err := r.content.unmarshal(data[recordLayerSize:]); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -51,7 +75,6 @@ func decodeUDPPacket(buf []byte) ([]*recordLayer, error) {
 
 	for offset := 0; len(buf) != offset; {
 		if len(buf)-offset <= recordLayerSize {
-			fmt.Println(len(buf) - offset)
 			return nil, errDTLSPacketInvalidLength
 		}
 

@@ -12,4 +12,6 @@ const (
 
 type content interface {
 	contentType() contentType
+	marshal() ([]byte, error)
+	unmarshal(data []byte) error
 }
