@@ -1,4 +1,4 @@
-package main
+package dtls
 
 import (
 	"reflect"

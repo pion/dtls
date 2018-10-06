@@ -1,4 +1,4 @@
-package main
+package dtls
 
 // https://tools.ietf.org/html/rfc4346#section-6.2.1
 type contentType uint8

@@ -1,4 +1,4 @@
-package main
+package dtls
 
 // https://tools.ietf.org/html/rfc5246#section-7.4
 type handshakeType uint8
@@ -16,7 +16,10 @@ const (
 	handshakeTypeFinished           handshakeType = 20
 )
 
-type handshakePayload interface {
+type handshakeMessage interface {
+	marshal() ([]byte, error)
+	unmarshal(data []byte) error
+
 	handshakeType() handshakeType
 }
 
@@ -30,7 +33,7 @@ type handshake struct {
 	messageSequence  uint16
 	fragmentOffset   uint32 // uint24 in spec
 	fragmentLength   uint32 // uint24 in spec
-	handshakePayload handshakePayload
+	handshakeMessage handshakeMessage
 }
 
 func (h handshake) contentType() contentType {
@@ -38,9 +41,9 @@ func (h handshake) contentType() contentType {
 }
 
 func (h *handshake) marshal() ([]byte, error) {
-	return nil, nil
+	return nil, errNotImplemented
 }
 
 func (h *handshake) unmarshal(data []byte) error {
-	return nil
+	return errNotImplemented
 }

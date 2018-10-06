@@ -1,4 +1,4 @@
-package main
+package dtls
 
 // One of the content types supported by the TLS record layer is the
 // alert type.  Alert messages convey the severity of the message
@@ -18,9 +18,9 @@ func (a alert) contentType() contentType {
 }
 
 func (a *alert) marshal() ([]byte, error) {
-	return nil, nil
+	return nil, errNotImplemented
 }
 
 func (a *alert) unmarshal(data []byte) error {
-	return nil
+	return errNotImplemented
 }

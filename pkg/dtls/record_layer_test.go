@@ -1,4 +1,4 @@
-package main
+package dtls
 
 import (
 	"reflect"
@@ -22,10 +22,15 @@ func TestUDPDecode(t *testing.T) {
 				content:         &changeCipherSpec{},
 			}},
 		},
+		{
+			Name:      "Invalid packet length",
+			Data:      []byte{0x14, 0xfe},
+			WantError: errDTLSPacketInvalidLength,
+		},
 	} {
 		dtlsPkts, err := decodeUDPPacket(test.Data)
-		if err != nil {
-			t.Errorf("Unmarshal %q: %v", test.Name, err)
+		if err != test.WantError {
+			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantError, err)
 		} else if !reflect.DeepEqual(test.Want, dtlsPkts) {
 			t.Errorf("%q UDP decode: got %q, want %q", test.Name, dtlsPkts, test.Want)
 		}

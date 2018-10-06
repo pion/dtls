@@ -1,4 +1,4 @@
-package main
+package dtls
 
 // Application data messages are carried by the record layer and are
 // fragmented, compressed, and encrypted based on the current connection
@@ -13,9 +13,9 @@ func (a applicationData) contentType() contentType {
 }
 
 func (a *applicationData) marshal() ([]byte, error) {
-	return nil, nil
+	return nil, errNotImplemented
 }
 
 func (a *applicationData) unmarshal(data []byte) error {
-	return nil
+	return errNotImplemented
 }

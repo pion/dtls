@@ -1,4 +1,4 @@
-package main
+package dtls
 
 // The change cipher spec protocol exists to signal transitions in
 // ciphering strategies.  The protocol consists of a single message,

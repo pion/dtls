@@ -1,4 +1,4 @@
-package main
+package dtls
 
 import (
 	"encoding/binary"
@@ -37,7 +37,7 @@ type recordLayer struct {
 }
 
 func (r *recordLayer) marshal() ([]byte, error) {
-	return nil, nil
+	return nil, errNotImplemented
 }
 
 func (r *recordLayer) unmarshal(data []byte) error {
