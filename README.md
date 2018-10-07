@@ -7,3 +7,13 @@ Don't depend on this, it will be orphaned/deleted after it lands
   openssl s_server -cert cert.pem -key key.pem -dtls1 -accept 4444
   openssl s_client -dtls1 -connect 127.0.0.1:4444 -debug -cert cert.pem -key key.pem
 ```
+
+# Run the example
+
+```sh
+go run server.go
+```
+
+```sh
+go run client.go
+```
