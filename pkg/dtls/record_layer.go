@@ -5,7 +5,8 @@ import (
 )
 
 const (
-	recordLayerSize = 13
+	recordLayerSize   = 13
+	maxSequenceNumber = 0x0000FFFFFFFFFFFF
 )
 
 // https://tools.ietf.org/html/rfc4346#section-6.2.1
@@ -37,7 +38,27 @@ type recordLayer struct {
 }
 
 func (r *recordLayer) marshal() ([]byte, error) {
-	return nil, errNotImplemented
+	if r.sequenceNumber > maxSequenceNumber {
+		return nil, errSequenceNumberOverflow
+	}
+
+	contentRaw, err := r.content.marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, recordLayerSize)
+
+	// SequenceNumber MUST be set first
+	// we only want to set uint48, but are clobbering an extra 2 (using uint64)
+	binary.BigEndian.PutUint64(out[3:], r.sequenceNumber)
+	out[0] = byte(r.content.contentType())
+	out[1] = r.protocolVersion.major
+	out[2] = r.protocolVersion.minor
+	binary.BigEndian.PutUint16(out[3:], r.epoch)
+	binary.BigEndian.PutUint16(out[recordLayerSize-2:], uint16(len(contentRaw)))
+
+	return append(out, contentRaw...), nil
 }
 
 func (r *recordLayer) unmarshal(data []byte) error {

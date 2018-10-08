@@ -3,39 +3,35 @@ package dtls
 import (
 	"fmt"
 	"net"
+	"time"
 )
 
 // Conn represents a DTLS connection
 type Conn struct {
 	nextConn net.Conn
-	isClient bool
+
+	isClient   bool // Should we start the handshake
+	currFlight flight
 
 	// Decrypted Application Data, Accessed by calling `Read`
 	decrypted chan []byte
 
-	// closeNotify is used to close goroutine reading from nextConn
-	closeNotify chan bool
+	workerTicker *time.Ticker
 }
 
 func createConn(isClient bool, nextConn net.Conn) *Conn {
+
 	c := &Conn{
-		nextConn:    nextConn,
-		isClient:    isClient,
-		decrypted:   make(chan []byte),
-		closeNotify: make(chan bool),
+		nextConn:   nextConn,
+		isClient:   isClient,
+		currFlight: newFlight(isClient),
+
+		decrypted:    make(chan []byte),
+		workerTicker: time.NewTicker(1 * time.Second),
 	}
 
-	go func() {
-		b := make([]byte, 8192)
-		for {
-			i, err := nextConn.Read(b)
-			if err != nil {
-				panic(err)
-			}
-			c.handleIncoming(b[:i])
-		}
-	}()
-
+	go c.readThread()
+	go c.timerThread()
 	return c
 }
 
@@ -66,9 +62,28 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 }
 
 // Close closes the connection.
-// Any blocked Read or Write operations will be unblocked and return errors.
 func (c *Conn) Close() error {
-	return errNotImplemented
+	c.nextConn.Close() // TODO Is there a better way to stop read in readThread?
+	return nil
+}
+
+// Pulls from nextConn
+func (c *Conn) readThread() {
+	b := make([]byte, 8192)
+	for {
+		i, err := c.nextConn.Read(b)
+		if err != nil {
+			panic(err)
+		}
+		c.handleIncoming(b[:i])
+	}
+}
+
+// Handles scheduled tasks like sending ClientHello
+func (c *Conn) timerThread() {
+	for range c.workerTicker.C {
+		fmt.Println("tick")
+	}
 }
 
 func (c *Conn) handleIncoming(buf []byte) {
