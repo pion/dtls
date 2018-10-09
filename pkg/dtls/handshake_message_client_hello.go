@@ -16,7 +16,7 @@ type clientHello struct {
 	random  handshakeRandom
 
 	// SessionID session_id;
-	// CipherSuite cipher_suites<2..2^16-1>;
+	cipherSuites []*cipherSuite
 	// CompressionMethod compression_methods<1..2^8-1>;
 
 }
