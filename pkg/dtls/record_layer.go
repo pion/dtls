@@ -38,19 +38,16 @@ type recordLayer struct {
 }
 
 func (r *recordLayer) marshal() ([]byte, error) {
-	if r.sequenceNumber > maxSequenceNumber {
-		return nil, errSequenceNumberOverflow
-	}
-
 	contentRaw, err := r.content.marshal()
 	if err != nil {
 		return nil, err
+	} else if r.sequenceNumber > maxSequenceNumber {
+		return nil, errSequenceNumberOverflow
 	}
 
 	out := make([]byte, recordLayerSize)
-
 	// SequenceNumber MUST be set first
-	// we only want to set uint48, but are clobbering an extra 2 (using uint64)
+	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
 	binary.BigEndian.PutUint64(out[3:], r.sequenceNumber)
 	out[0] = byte(r.content.contentType())
 	out[1] = r.protocolVersion.major
@@ -83,11 +80,8 @@ func (r *recordLayer) unmarshal(data []byte) error {
 	default:
 		return errInvalidContentType
 	}
-	if err := r.content.unmarshal(data[recordLayerSize:]); err != nil {
-		return err
-	}
 
-	return nil
+	return r.content.unmarshal(data[recordLayerSize:])
 }
 
 // decodeUDPPacket proccesses a UDP packet which may contain multiple DTLS packets

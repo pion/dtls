@@ -1,5 +1,7 @@
 package dtls
 
+import "time"
+
 // https://tools.ietf.org/html/rfc5246#section-7.4
 type handshakeType uint8
 
@@ -46,4 +48,23 @@ func (h *handshake) marshal() ([]byte, error) {
 
 func (h *handshake) unmarshal(data []byte) error {
 	return errNotImplemented
+}
+
+// https://tools.ietf.org/html/rfc4346#section-7.4.1.2
+type handshakeRandom struct {
+	gmtUnixTime time.Time
+	randomBytes [28]byte
+}
+
+func (h *handshakeRandom) marshal() ([]byte, error) {
+	return nil, errNotImplemented
+}
+
+func (h *handshakeRandom) unmarshal(data []byte) error {
+	return errNotImplemented
+}
+
+// populate fills the handshakeRandom with random values
+// may be called multiple times
+func (h *handshakeRandom) populate() {
 }
