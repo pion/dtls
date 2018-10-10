@@ -1,5 +1,9 @@
 package dtls
 
+import (
+	"encoding/binary"
+)
+
 /*
 When a client first connects to a server it is required to send
 the client hello as its first message.  The client can also send a
@@ -30,5 +34,19 @@ func (c *clientHello) marshal() ([]byte, error) {
 }
 
 func (c *clientHello) unmarshal(data []byte) error {
-	return errNotImplemented
+	if handshakeType(data[0]) != c.handshakeType() {
+		return errInvalidHandshakeType
+	}
+	if (len(data) - handshakeMessageAssumedLen) != int(binary.BigEndian.Uint16(data[2:])) {
+		return errLengthMismatch
+	}
+
+	c.messageSequence = binary.BigEndian.Uint16(data[4:])
+	c.fragmentOffset = bigEndianUint24(data[6:])
+	c.fragmentLength = bigEndianUint24(data[9:])
+
+	c.version.major = data[12]
+	c.version.minor = data[13]
+
+	return nil
 }

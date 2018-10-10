@@ -16,6 +16,10 @@ const (
 	handshakeTypeCertificateVerify  handshakeType = 15
 	handshakeTypeClientKeyExchange  handshakeType = 16
 	handshakeTypeFinished           handshakeType = 20
+
+	// msg_len for Handshake messages assumes an extra 12 bytes for
+	// sequence, fragment and version information
+	handshakeMessageAssumedLen = 12
 )
 
 type handshakeMessage interface {
