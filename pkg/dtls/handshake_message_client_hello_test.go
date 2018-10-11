@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageClientHello(t *testing.T) {
@@ -20,7 +22,7 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 		fragmentLength:  123,
 		version:         protocolVersion{0xFE, 0xFF},
 		random: handshakeRandom{
-			time.Unix(3056539021, 0),
+			time.Unix(3056586332, 0),
 			[28]byte{0x42, 0x54, 0xff, 0x86, 0xe1, 0x24, 0x41, 0x91, 0x42, 0x62, 0x15, 0xad, 0x16, 0xc9, 0x15, 0x8d, 0x95, 0x71, 0x8a, 0xbb, 0x22, 0xd7, 0x47, 0xec, 0xd8, 0x3d, 0xdc, 0x4b},
 		},
 		cipherSuites: []*cipherSuite{
@@ -36,7 +38,7 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 		t.Errorf("clientHello unmarshal: got %#v, want %#v", c, parsedClientHello)
 	}
 
-	// assert.Equal(t, c, parsedClientHello)
+	assert.Equal(t, c, parsedClientHello)
 
 	raw, err := c.marshal()
 	if err != nil {

@@ -2,6 +2,8 @@ package dtls
 
 import (
 	"encoding/binary"
+	"fmt"
+	"time"
 )
 
 /*
@@ -25,6 +27,8 @@ type clientHello struct {
 
 }
 
+const clientHelloVariableWidthStart = 46
+
 func (c clientHello) handshakeType() handshakeType {
 	return handshakeTypeClientHello
 }
@@ -47,6 +51,17 @@ func (c *clientHello) unmarshal(data []byte) error {
 
 	c.version.major = data[12]
 	c.version.minor = data[13]
+
+	c.random.gmtUnixTime = time.Unix(int64(binary.BigEndian.Uint32(data[14:])), 0)
+	copy(c.random.randomBytes[:], data[18:clientHelloVariableWidthStart])
+
+	// rest of packet has variable width sections
+	currOffset := clientHelloVariableWidthStart
+	currOffset += int(data[currOffset]) + 1 // SessionID
+	currOffset += int(data[currOffset]) + 1 // Cookie
+
+	cipherSuitesLength := binary.BigEndian.Uint16(data[currOffset:])
+	fmt.Println(cipherSuitesLength)
 
 	return nil
 }
