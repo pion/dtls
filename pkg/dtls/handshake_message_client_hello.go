@@ -2,7 +2,6 @@ package dtls
 
 import (
 	"encoding/binary"
-	"fmt"
 	"time"
 )
 
@@ -60,8 +59,14 @@ func (c *clientHello) unmarshal(data []byte) error {
 	currOffset += int(data[currOffset]) + 1 // SessionID
 	currOffset += int(data[currOffset]) + 1 // Cookie
 
-	cipherSuitesLength := binary.BigEndian.Uint16(data[currOffset:])
-	fmt.Println(cipherSuitesLength)
+	cipherSuitesLength := int(binary.BigEndian.Uint16(data[currOffset:])) / 2
+	currOffset += 2
 
+	for i := 0; i < cipherSuitesLength; i++ {
+		id := cipherSuiteID(binary.BigEndian.Uint16(data[currOffset+(i*2):]))
+		if cipherSuite, ok := cipherSuites[id]; ok {
+			c.cipherSuites = append(c.cipherSuites, cipherSuite)
+		}
+	}
 	return nil
 }
