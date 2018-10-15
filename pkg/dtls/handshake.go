@@ -1,6 +1,9 @@
 package dtls
 
-import "time"
+import (
+	"encoding/binary"
+	"time"
+)
 
 // https://tools.ietf.org/html/rfc5246#section-7.4
 type handshakeType uint8
@@ -60,12 +63,20 @@ type handshakeRandom struct {
 	randomBytes [28]byte
 }
 
+const handshakeRandomLength = 32
+
 func (h *handshakeRandom) marshal() ([]byte, error) {
 	return nil, errNotImplemented
 }
 
 func (h *handshakeRandom) unmarshal(data []byte) error {
-	return errNotImplemented
+	if len(data) != handshakeRandomLength {
+		return errBufferTooSmall
+	}
+	h.gmtUnixTime = time.Unix(int64(binary.BigEndian.Uint32(data[0:])), 0)
+	copy(h.randomBytes[:], data[4:])
+
+	return nil
 }
 
 // populate fills the handshakeRandom with random values

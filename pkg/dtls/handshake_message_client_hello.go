@@ -2,7 +2,6 @@ package dtls
 
 import (
 	"encoding/binary"
-	"time"
 )
 
 /*
@@ -20,10 +19,8 @@ type clientHello struct {
 	version protocolVersion
 	random  handshakeRandom
 
-	// SessionID session_id;
-	cipherSuites []*cipherSuite
-	// CompressionMethod compression_methods<1..2^8-1>;
-
+	cipherSuites       []*cipherSuite
+	compressionMethods []*compressionMethod
 }
 
 const clientHelloVariableWidthStart = 46
@@ -51,22 +48,42 @@ func (c *clientHello) unmarshal(data []byte) error {
 	c.version.major = data[12]
 	c.version.minor = data[13]
 
-	c.random.gmtUnixTime = time.Unix(int64(binary.BigEndian.Uint32(data[14:])), 0)
-	copy(c.random.randomBytes[:], data[18:clientHelloVariableWidthStart])
+	if err := c.random.unmarshal(data[14 : 14+handshakeRandomLength]); err != nil {
+		return err
+	}
 
 	// rest of packet has variable width sections
 	currOffset := clientHelloVariableWidthStart
 	currOffset += int(data[currOffset]) + 1 // SessionID
 	currOffset += int(data[currOffset]) + 1 // Cookie
 
-	cipherSuitesLength := int(binary.BigEndian.Uint16(data[currOffset:])) / 2
-	currOffset += 2
-
-	for i := 0; i < cipherSuitesLength; i++ {
-		id := cipherSuiteID(binary.BigEndian.Uint16(data[currOffset+(i*2):]))
+	// Cipher Suites
+	cipherSuitesCount := int(binary.BigEndian.Uint16(data[currOffset:])) / 2
+	for i := 0; i < cipherSuitesCount; i++ {
+		currOffset += 2
+		id := cipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))
 		if cipherSuite, ok := cipherSuites[id]; ok {
 			c.cipherSuites = append(c.cipherSuites, cipherSuite)
 		}
 	}
+	if cipherSuitesCount != 0 {
+		currOffset += 2
+	}
+
+	// Compression Methods
+	compressionMethodsCount := int(data[currOffset])
+	for i := 0; i < compressionMethodsCount; i++ {
+		currOffset++
+		id := compressionMethodID(data[currOffset])
+		if compressionMethod, ok := compressionMethods[id]; ok {
+			c.compressionMethods = append(c.compressionMethods, compressionMethod)
+		}
+	}
+	if compressionMethodsCount != 0 {
+		currOffset++
+	}
+
+	// Extensions
+
 	return nil
 }

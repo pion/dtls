@@ -29,6 +29,9 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 			cipherSuites[TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA],
 			cipherSuites[TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256],
 		},
+		compressionMethods: []*compressionMethod{
+			compressionMethods[compressionMethodNull],
+		},
 	}
 
 	c := &clientHello{}
