@@ -1,9 +1,10 @@
 package dtls
 
 import (
-	"fmt"
 	"net"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 // Conn represents a DTLS connection
@@ -82,7 +83,6 @@ func (c *Conn) readThread() {
 // Handles scheduled tasks like sending ClientHello
 func (c *Conn) timerThread() {
 	for range c.workerTicker.C {
-		fmt.Println("tick")
 	}
 }
 
@@ -93,5 +93,5 @@ func (c *Conn) handleIncoming(buf []byte) {
 	}
 
 	// TODO handle+process
-	fmt.Println(pkts)
+	spew.Dump(pkts)
 }

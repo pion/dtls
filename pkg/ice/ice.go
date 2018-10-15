@@ -46,7 +46,7 @@ func (a *Agent) Read(p []byte) (int, error) {
 	}
 
 	copy(p, out)
-	return len(p), nil
+	return len(out), nil
 }
 
 // Write writes len(p) bytes from p to the DTLS connection

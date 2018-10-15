@@ -12,10 +12,6 @@ initiative in order to renegotiate the security parameters in an
 existing connection.
 */
 type clientHello struct {
-	messageSequence uint16
-	fragmentOffset  uint32
-	fragmentLength  uint32
-
 	version protocolVersion
 	random  handshakeRandom
 
@@ -40,10 +36,6 @@ func (c *clientHello) unmarshal(data []byte) error {
 	if (len(data) - handshakeMessageAssumedLen) != int(binary.BigEndian.Uint16(data[2:])) {
 		return errLengthMismatch
 	}
-
-	c.messageSequence = binary.BigEndian.Uint16(data[4:])
-	c.fragmentOffset = bigEndianUint24(data[6:])
-	c.fragmentLength = bigEndianUint24(data[9:])
 
 	c.version.major = data[12]
 	c.version.minor = data[13]

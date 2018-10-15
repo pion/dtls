@@ -1,9 +1,6 @@
 package dtls
 
-import (
-	"encoding/binary"
-	"time"
-)
+import "encoding/binary"
 
 // https://tools.ietf.org/html/rfc5246#section-7.4
 type handshakeType uint8
@@ -54,32 +51,16 @@ func (h *handshake) marshal() ([]byte, error) {
 }
 
 func (h *handshake) unmarshal(data []byte) error {
-	return errNotImplemented
-}
-
-// https://tools.ietf.org/html/rfc4346#section-7.4.1.2
-type handshakeRandom struct {
-	gmtUnixTime time.Time
-	randomBytes [28]byte
-}
-
-const handshakeRandomLength = 32
-
-func (h *handshakeRandom) marshal() ([]byte, error) {
-	return nil, errNotImplemented
-}
-
-func (h *handshakeRandom) unmarshal(data []byte) error {
-	if len(data) != handshakeRandomLength {
-		return errBufferTooSmall
+	switch handshakeType(data[0]) {
+	case handshakeTypeClientHello:
+		h.handshakeMessage = &clientHello{}
 	}
-	h.gmtUnixTime = time.Unix(int64(binary.BigEndian.Uint32(data[0:])), 0)
-	copy(h.randomBytes[:], data[4:])
+	if h.handshakeMessage == nil {
+		return errNotImplemented
+	}
 
-	return nil
-}
-
-// populate fills the handshakeRandom with random values
-// may be called multiple times
-func (h *handshakeRandom) populate() {
+	h.messageSequence = binary.BigEndian.Uint16(data[4:])
+	h.fragmentOffset = bigEndianUint24(data[6:])
+	h.fragmentLength = bigEndianUint24(data[9:])
+	return h.handshakeMessage.unmarshal(data)
 }
