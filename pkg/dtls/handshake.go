@@ -62,5 +62,5 @@ func (h *handshake) unmarshal(data []byte) error {
 	h.messageSequence = binary.BigEndian.Uint16(data[4:])
 	h.fragmentOffset = bigEndianUint24(data[6:])
 	h.fragmentLength = bigEndianUint24(data[9:])
-	return h.handshakeMessage.unmarshal(data)
+	return h.handshakeMessage.unmarshal(data[12:])
 }

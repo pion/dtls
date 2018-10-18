@@ -7,8 +7,9 @@ const (
 )
 
 type compressionMethod struct {
+	id compressionMethodID
 }
 
 var compressionMethods = map[compressionMethodID]*compressionMethod{
-	compressionMethodNull: {},
+	compressionMethodNull: {id: compressionMethodNull},
 }

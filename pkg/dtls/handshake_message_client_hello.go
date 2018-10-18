@@ -19,28 +19,45 @@ type clientHello struct {
 	compressionMethods []*compressionMethod
 }
 
-const clientHelloVariableWidthStart = 46
+const clientHelloVariableWidthStart = 34
 
 func (c clientHello) handshakeType() handshakeType {
 	return handshakeTypeClientHello
 }
 
 func (c *clientHello) marshal() ([]byte, error) {
-	return nil, errNotImplemented
+	out := make([]byte, clientHelloVariableWidthStart)
+	out[0] = c.version.major
+	out[1] = c.version.minor
+
+	rand, err := c.random.marshal()
+	if err != nil {
+		return nil, err
+	}
+	copy(out[2:], rand)
+
+	out = append(out, 0x00) // SessionID
+	out = append(out, 0x00) // Cookie
+
+	out = append(out, []byte{0x00, 0x00}...)
+	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(c.cipherSuites)*2))
+	for i := len(c.cipherSuites); i > 0; i-- {
+		out = append(out, []byte{0x00, 0x00}...)
+		binary.BigEndian.PutUint16(out[len(out)-2:], uint16(c.cipherSuites[i-1].id))
+	}
+
+	out = append(out, byte(len(c.compressionMethods)))
+	for i := len(c.compressionMethods); i > 0; i-- {
+		out = append(out, byte(c.compressionMethods[i-1].id))
+	}
+	return out, nil
 }
 
 func (c *clientHello) unmarshal(data []byte) error {
-	if handshakeType(data[0]) != c.handshakeType() {
-		return errInvalidHandshakeType
-	}
-	if (len(data) - handshakeMessageAssumedLen) != int(binary.BigEndian.Uint16(data[2:])) {
-		return errLengthMismatch
-	}
+	c.version.major = data[0]
+	c.version.minor = data[1]
 
-	c.version.major = data[12]
-	c.version.minor = data[13]
-
-	if err := c.random.unmarshal(data[14 : 14+handshakeRandomLength]); err != nil {
+	if err := c.random.unmarshal(data[2 : 2+handshakeRandomLength]); err != nil {
 		return err
 	}
 

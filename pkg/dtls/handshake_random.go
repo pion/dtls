@@ -14,7 +14,12 @@ type handshakeRandom struct {
 }
 
 func (h *handshakeRandom) marshal() ([]byte, error) {
-	return nil, errNotImplemented
+	out := make([]byte, handshakeRandomLength)
+
+	binary.BigEndian.PutUint32(out[0:], uint32(h.gmtUnixTime.Unix()))
+	copy(out[4:], h.randomBytes[:])
+
+	return out, nil
 }
 
 func (h *handshakeRandom) unmarshal(data []byte) error {
