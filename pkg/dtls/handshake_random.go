@@ -1,16 +1,18 @@
 package dtls
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"time"
 )
 
-const handshakeRandomLength = 32
+const randomBytesLength = 28
+const handshakeRandomLength = randomBytesLength + 4
 
 // https://tools.ietf.org/html/rfc4346#section-7.4.1.2
 type handshakeRandom struct {
 	gmtUnixTime time.Time
-	randomBytes [28]byte
+	randomBytes [randomBytesLength]byte
 }
 
 func (h *handshakeRandom) marshal() ([]byte, error) {
@@ -34,5 +36,12 @@ func (h *handshakeRandom) unmarshal(data []byte) error {
 
 // populate fills the handshakeRandom with random values
 // may be called multiple times
-func (h *handshakeRandom) populate() {
+func (h *handshakeRandom) populate() error {
+	h.gmtUnixTime = time.Now()
+
+	tmp := make([]byte, randomBytesLength)
+	_, err := rand.Read(tmp)
+	copy(h.randomBytes[:], tmp)
+
+	return err
 }

@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"fmt"
 	"net"
 	"time"
 
@@ -83,6 +84,12 @@ func (c *Conn) readThread() {
 // Handles scheduled tasks like sending ClientHello
 func (c *Conn) timerThread() {
 	for range c.workerTicker.C {
+		switch c.currFlight.val {
+		case flight1:
+			fmt.Println("Send ClientHello")
+		default:
+			fmt.Printf("Unhandled flight %d \n", c.currFlight.val)
+		}
 	}
 }
 

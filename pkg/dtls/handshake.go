@@ -1,6 +1,8 @@
 package dtls
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 // https://tools.ietf.org/html/rfc5246#section-7.4
 type handshakeType uint8
@@ -51,16 +53,21 @@ func (h *handshake) marshal() ([]byte, error) {
 }
 
 func (h *handshake) unmarshal(data []byte) error {
-	switch handshakeType(data[0]) {
-	case handshakeTypeClientHello:
-		h.handshakeMessage = &clientHello{}
-	}
-	if h.handshakeMessage == nil {
-		return errNotImplemented
-	}
-
+	reportedLen := bigEndianUint24(data[1:])
 	h.messageSequence = binary.BigEndian.Uint16(data[4:])
 	h.fragmentOffset = bigEndianUint24(data[6:])
 	h.fragmentLength = bigEndianUint24(data[9:])
+	if uint32(len(data)+handshakeMessageAssumedLen) != reportedLen {
+		return errLengthMismatch
+	} else if reportedLen != h.fragmentLength {
+		return errLengthMismatch
+	}
+
+	switch handshakeType(data[0]) {
+	case handshakeTypeClientHello:
+		h.handshakeMessage = &clientHello{}
+	default:
+		return errNotImplemented
+	}
 	return h.handshakeMessage.unmarshal(data[12:])
 }
