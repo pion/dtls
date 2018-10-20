@@ -21,7 +21,7 @@ const (
 
 	// msg_len for Handshake messages assumes an extra 12 bytes for
 	// sequence, fragment and version information
-	handshakeMessageAssumedLen = 12
+	handshakeMessageHeaderLength = 12
 )
 
 type handshakeMessage interface {
@@ -49,7 +49,28 @@ func (h handshake) contentType() contentType {
 }
 
 func (h *handshake) marshal() ([]byte, error) {
-	return nil, errNotImplemented
+	if h.handshakeMessage == nil {
+		return nil, errHandshakeMessageUnset
+	}
+
+	messageBody, err := h.handshakeMessage.marshal()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, handshakeMessageHeaderLength)
+	out[0] = byte(h.handshakeMessage.handshakeType())
+
+	binary.BigEndian.PutUint16(out[4:], h.messageSequence)
+	putBigEndianUint24(out[6:], h.fragmentOffset)
+
+	out = append(out, messageBody...)
+
+	// TODO currently ignoring fragment lengths, do not support fragmented messages
+	h.fragmentLength = uint32(len(out) + handshakeMessageHeaderLength)
+	putBigEndianUint24(out[1:], h.fragmentLength)
+	putBigEndianUint24(out[9:], h.fragmentLength)
+
+	return out, nil
 }
 
 func (h *handshake) unmarshal(data []byte) error {
@@ -57,7 +78,7 @@ func (h *handshake) unmarshal(data []byte) error {
 	h.messageSequence = binary.BigEndian.Uint16(data[4:])
 	h.fragmentOffset = bigEndianUint24(data[6:])
 	h.fragmentLength = bigEndianUint24(data[9:])
-	if uint32(len(data)+handshakeMessageAssumedLen) != reportedLen {
+	if uint32(len(data)+handshakeMessageHeaderLength) != reportedLen {
 		return errLengthMismatch
 	} else if reportedLen != h.fragmentLength {
 		return errLengthMismatch
@@ -69,5 +90,5 @@ func (h *handshake) unmarshal(data []byte) error {
 	default:
 		return errNotImplemented
 	}
-	return h.handshakeMessage.unmarshal(data[12:])
+	return h.handshakeMessage.unmarshal(data[handshakeMessageHeaderLength:])
 }

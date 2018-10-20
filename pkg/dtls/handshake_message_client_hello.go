@@ -68,6 +68,7 @@ func (c *clientHello) unmarshal(data []byte) error {
 
 	// Cipher Suites
 	cipherSuitesCount := int(binary.BigEndian.Uint16(data[currOffset:])) / 2
+	c.cipherSuites = []*cipherSuite{}
 	for i := 0; i < cipherSuitesCount; i++ {
 		currOffset += 2
 		id := cipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))
@@ -81,6 +82,7 @@ func (c *clientHello) unmarshal(data []byte) error {
 
 	// Compression Methods
 	compressionMethodsCount := int(data[currOffset])
+	c.compressionMethods = []*compressionMethod{}
 	for i := 0; i < compressionMethodsCount; i++ {
 		currOffset++
 		id := compressionMethodID(data[currOffset])
