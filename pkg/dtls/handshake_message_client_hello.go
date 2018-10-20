@@ -50,6 +50,8 @@ func (c *clientHello) marshal() ([]byte, error) {
 	for i := len(c.compressionMethods); i > 0; i-- {
 		out = append(out, byte(c.compressionMethods[i-1].id))
 	}
+
+	out = append(out, []byte{0x00, 0x00}...)
 	return out, nil
 }
 

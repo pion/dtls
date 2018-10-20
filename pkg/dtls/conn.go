@@ -12,8 +12,9 @@ import (
 type Conn struct {
 	nextConn net.Conn
 
-	isClient   bool // Should we start the handshake
-	currFlight flight
+	isClient        bool // Should we start the handshake
+	currFlight      flight
+	handshakeRandom handshakeRandom
 
 	// Decrypted Application Data, Accessed by calling `Read`
 	decrypted chan []byte
@@ -31,6 +32,7 @@ func createConn(isClient bool, nextConn net.Conn) *Conn {
 		decrypted:    make(chan []byte),
 		workerTicker: time.NewTicker(1 * time.Second),
 	}
+	c.handshakeRandom.populate()
 
 	go c.readThread()
 	go c.timerThread()
@@ -86,7 +88,20 @@ func (c *Conn) timerThread() {
 	for range c.workerTicker.C {
 		switch c.currFlight.val {
 		case flight1:
-			fmt.Println("Send ClientHello")
+			pkt := &recordLayer{
+				protocolVersion: protocolVersion1_2,
+				content: &handshake{handshakeMessage: &clientHello{
+					version:            protocolVersion1_2,
+					random:             c.handshakeRandom,
+					cipherSuites:       defaultCipherSuites,
+					compressionMethods: defaultCompressionMethods,
+				}},
+			}
+			raw, err := pkt.marshal()
+			if err != nil {
+				panic(err)
+			}
+			c.nextConn.Write(raw)
 		default:
 			fmt.Printf("Unhandled flight %d \n", c.currFlight.val)
 		}

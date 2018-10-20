@@ -18,3 +18,8 @@ var cipherSuites = map[cipherSuiteID]*cipherSuite{
 	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA:    {id: TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256},
 	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256: {id: TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA},
 }
+
+var defaultCipherSuites = []*cipherSuite{
+	cipherSuites[TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA],
+	cipherSuites[TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256],
+}

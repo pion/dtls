@@ -13,3 +13,7 @@ type compressionMethod struct {
 var compressionMethods = map[compressionMethodID]*compressionMethod{
 	compressionMethodNull: {id: compressionMethodNull},
 }
+
+var defaultCompressionMethods = []*compressionMethod{
+	compressionMethods[compressionMethodNull],
+}
