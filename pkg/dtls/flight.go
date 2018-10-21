@@ -1,5 +1,7 @@
 package dtls
 
+import "sync"
+
 /*
   DTLS messages are grouped into a series of message flights, according
   to the diagrams below.  Although each flight of messages may consist
@@ -44,6 +46,7 @@ const (
 )
 
 type flight struct {
+	sync.RWMutex
 	val flightVal
 }
 
@@ -56,10 +59,15 @@ func newFlight(isClient bool) flight {
 }
 
 func (f *flight) get() flightVal {
+	f.RLock()
+	defer f.RUnlock()
 	return f.val
 }
 
-func (f *flight) set(val flightVal) {
+func (f *flight) set(val flightVal) error {
+	f.RLock()
+	defer f.RUnlock()
 	// TODO ensure no invalid transitions
 	f.val = val
+	return nil
 }

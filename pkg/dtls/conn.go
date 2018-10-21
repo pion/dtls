@@ -3,33 +3,33 @@ package dtls
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
-
-	"github.com/davecgh/go-spew/spew"
 )
+
+const initialTickerInterval = time.Second
+const finalTickerInternal = 90 * time.Second
 
 // Conn represents a DTLS connection
 type Conn struct {
-	nextConn net.Conn // Embedded Conn, typically a udpconn we read/write from
-
-	isClient   bool
+	lock       sync.RWMutex // Internal lock (must not be public) used for Cookie/Random
+	nextConn   net.Conn     // Embedded Conn, typically a udpconn we read/write from
 	currFlight flight
 
 	handshakeRandom handshakeRandom
-	decrypted       chan []byte // Decrypted Application Data, Accessed by calling `Read`
+	cookie          []byte
 
+	decrypted    chan []byte // Decrypted Application Data, pull by calling `Read`
 	workerTicker *time.Ticker
 }
 
 func createConn(isClient bool, nextConn net.Conn) *Conn {
-
 	c := &Conn{
 		nextConn:   nextConn,
-		isClient:   isClient,
 		currFlight: newFlight(isClient),
 
 		decrypted:    make(chan []byte),
-		workerTicker: time.NewTicker(1 * time.Second),
+		workerTicker: time.NewTicker(initialTickerInterval),
 	}
 	c.handshakeRandom.populate()
 
@@ -113,6 +113,20 @@ func (c *Conn) handleIncoming(buf []byte) {
 		panic(err)
 	}
 
-	// TODO handle+process
-	spew.Dump(pkts)
+	for _, p := range pkts {
+		switch content := p.content.(type) {
+		case *handshake:
+			switch h := content.handshakeMessage.(type) {
+			case *helloVerifyRequest:
+				c.lock.Lock()
+				copy(c.cookie, h.cookie)
+				c.currFlight.set(flight3)
+				c.lock.Unlock()
+			default:
+				panic(fmt.Sprintf("Unhandled handshake %d \n", h.handshakeType()))
+			}
+		default:
+			panic(fmt.Sprintf("Unhandled contentType %d \n", content.contentType()))
+		}
+	}
 }

@@ -17,3 +17,5 @@ go run server.go
 ```sh
 go run client.go
 ```
+
+# Design/Architecture
