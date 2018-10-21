@@ -12,4 +12,5 @@ var (
 	errNotImplemented          = errors.New("dtls: feature has not been implemented yet")
 	errLengthMismatch          = errors.New("dtls: data length and declared length do not match")
 	errHandshakeMessageUnset   = errors.New("dtls: handshake message unset, unable to marshal")
+	errCookieTooLong           = errors.New("dtls: cookie must not be longer then 255 bytes")
 )

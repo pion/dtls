@@ -11,6 +11,7 @@ const (
 	handshakeTypeHelloRequest       handshakeType = 0
 	handshakeTypeClientHello        handshakeType = 1
 	handshakeTypeServerHello        handshakeType = 2
+	handshakeTypeHelloVerifyRequest handshakeType = 3
 	handshakeTypeCertificate        handshakeType = 11
 	handshakeTypeServerKeyExchange  handshakeType = 12
 	handshakeTypeCertificateRequest handshakeType = 13
@@ -87,6 +88,8 @@ func (h *handshake) unmarshal(data []byte) error {
 	switch handshakeType(data[0]) {
 	case handshakeTypeClientHello:
 		h.handshakeMessage = &clientHello{}
+	case handshakeTypeHelloVerifyRequest:
+		h.handshakeMessage = &helloVerifyRequest{}
 	default:
 		return errNotImplemented
 	}

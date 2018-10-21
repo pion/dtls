@@ -10,14 +10,13 @@ import (
 
 // Conn represents a DTLS connection
 type Conn struct {
-	nextConn net.Conn
+	nextConn net.Conn // Embedded Conn, typically a udpconn we read/write from
 
-	isClient        bool // Should we start the handshake
-	currFlight      flight
+	isClient   bool
+	currFlight flight
+
 	handshakeRandom handshakeRandom
-
-	// Decrypted Application Data, Accessed by calling `Read`
-	decrypted chan []byte
+	decrypted       chan []byte // Decrypted Application Data, Accessed by calling `Read`
 
 	workerTicker *time.Ticker
 }
