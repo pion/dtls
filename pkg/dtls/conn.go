@@ -5,6 +5,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 const initialTickerInterval = time.Second
@@ -129,6 +131,8 @@ func (c *Conn) handleIncoming(buf []byte) {
 
 	for _, p := range pkts {
 		switch content := p.content.(type) {
+		case *alert:
+			panic(spew.Sdump(content))
 		case *handshake:
 			switch h := content.handshakeMessage.(type) {
 			case *helloVerifyRequest:
