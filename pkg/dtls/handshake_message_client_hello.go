@@ -14,6 +14,7 @@ existing connection.
 type clientHello struct {
 	version protocolVersion
 	random  handshakeRandom
+	cookie  []byte
 
 	cipherSuites       []*cipherSuite
 	compressionMethods []*compressionMethod
@@ -26,6 +27,10 @@ func (c clientHello) handshakeType() handshakeType {
 }
 
 func (c *clientHello) marshal() ([]byte, error) {
+	if len(c.cookie) > 255 {
+		return nil, errCookieTooLong
+	}
+
 	out := make([]byte, clientHelloVariableWidthStart)
 	out[0] = c.version.major
 	out[1] = c.version.minor
@@ -37,7 +42,9 @@ func (c *clientHello) marshal() ([]byte, error) {
 	copy(out[2:], rand)
 
 	out = append(out, 0x00) // SessionID
-	out = append(out, 0x00) // Cookie
+
+	out = append(out, byte(len(c.cookie)))
+	out = append(out, c.cookie...)
 
 	out = append(out, []byte{0x00, 0x00}...)
 	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(c.cipherSuites)*2))
@@ -66,7 +73,10 @@ func (c *clientHello) unmarshal(data []byte) error {
 	// rest of packet has variable width sections
 	currOffset := clientHelloVariableWidthStart
 	currOffset += int(data[currOffset]) + 1 // SessionID
-	currOffset += int(data[currOffset]) + 1 // Cookie
+
+	currOffset++
+	c.cookie = append([]byte{}, data[currOffset:currOffset+int(data[currOffset-1])]...)
+	currOffset += len(c.cookie)
 
 	// Cipher Suites
 	cipherSuitesCount := int(binary.BigEndian.Uint16(data[currOffset:])) / 2

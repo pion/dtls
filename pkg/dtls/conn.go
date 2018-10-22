@@ -12,9 +12,11 @@ const finalTickerInternal = 90 * time.Second
 
 // Conn represents a DTLS connection
 type Conn struct {
-	lock       sync.RWMutex // Internal lock (must not be public) used for Cookie/Random
-	nextConn   net.Conn     // Embedded Conn, typically a udpconn we read/write from
-	currFlight flight
+	lock     sync.RWMutex // Internal lock (must not be public) used for Cookie/Random
+	nextConn net.Conn     // Embedded Conn, typically a udpconn we read/write from
+
+	currSequenceNumber uint64 // uint48
+	currFlight         flight
 
 	handshakeRandom handshakeRandom
 	cookie          []byte
@@ -84,23 +86,35 @@ func (c *Conn) readThread() {
 
 // Handles scheduled tasks like sending ClientHello
 func (c *Conn) timerThread() {
+	sendPkt := func(pkt *recordLayer) {
+		raw, err := pkt.marshal()
+		if err != nil {
+			panic(err)
+		}
+		c.nextConn.Write(raw)
+	}
+
 	for range c.workerTicker.C {
-		switch c.currFlight.val {
+		switch c.currFlight.get() {
 		case flight1:
-			pkt := &recordLayer{
+			fallthrough
+		case flight3:
+			c.lock.RLock()
+			sendPkt(&recordLayer{
+				sequenceNumber:  c.currSequenceNumber,
 				protocolVersion: protocolVersion1_2,
-				content: &handshake{handshakeMessage: &clientHello{
-					version:            protocolVersion1_2,
-					random:             c.handshakeRandom,
-					cipherSuites:       defaultCipherSuites,
-					compressionMethods: defaultCompressionMethods,
-				}},
-			}
-			raw, err := pkt.marshal()
-			if err != nil {
-				panic(err)
-			}
-			c.nextConn.Write(raw)
+				content: &handshake{
+					// sequenceNumber and messageSequence line up, may need to be re-evaluated
+					messageSequence: uint16(c.currSequenceNumber),
+					handshakeMessage: &clientHello{
+						version:            protocolVersion1_2,
+						cookie:             c.cookie,
+						random:             c.handshakeRandom,
+						cipherSuites:       defaultCipherSuites,
+						compressionMethods: defaultCompressionMethods,
+					}},
+			})
+			c.lock.RUnlock()
 		default:
 			fmt.Printf("Unhandled flight %d \n", c.currFlight.val)
 		}
@@ -119,7 +133,8 @@ func (c *Conn) handleIncoming(buf []byte) {
 			switch h := content.handshakeMessage.(type) {
 			case *helloVerifyRequest:
 				c.lock.Lock()
-				copy(c.cookie, h.cookie)
+				c.cookie = append([]byte{}, h.cookie...)
+				c.currSequenceNumber = 1
 				c.currFlight.set(flight3)
 				c.lock.Unlock()
 			default:
