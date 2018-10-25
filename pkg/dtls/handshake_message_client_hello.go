@@ -18,6 +18,7 @@ type clientHello struct {
 
 	cipherSuites       []*cipherSuite
 	compressionMethods []*compressionMethod
+	extensions         []extension
 }
 
 const clientHelloVariableWidthStart = 34
@@ -57,8 +58,19 @@ func (c *clientHello) marshal() ([]byte, error) {
 	for i := len(c.compressionMethods); i > 0; i-- {
 		out = append(out, byte(c.compressionMethods[i-1].id))
 	}
-
+	// Extensions
+	extensions := []byte{}
+	for _, e := range c.extensions {
+		raw, err := e.marshal()
+		if err != nil {
+			return nil, err
+		}
+		extensions = append(extensions, raw...)
+	}
 	out = append(out, []byte{0x00, 0x00}...)
+	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(extensions)))
+	out = append(out, extensions...)
+
 	return out, nil
 }
 

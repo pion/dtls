@@ -114,6 +114,11 @@ func (c *Conn) timerThread() {
 						random:             c.handshakeRandom,
 						cipherSuites:       defaultCipherSuites,
 						compressionMethods: defaultCompressionMethods,
+						extensions: []extension{
+							&extensionSupportedGroups{
+								supportedGroups: []supportedGroup{supportedGroupP256},
+							},
+						},
 					}},
 			})
 			c.lock.RUnlock()

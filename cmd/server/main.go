@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/sean-der/dtls/pkg/dtls"
-	"github.com/sean-der/dtls/pkg/ice"
+	"github.com/pions/dtls/pkg/dtls"
+	"github.com/pions/dtls/pkg/ice"
 )
 
 const bufSize = 8192
