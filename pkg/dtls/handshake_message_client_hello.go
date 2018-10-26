@@ -46,32 +46,15 @@ func (c *handshakeMessageClientHello) marshal() ([]byte, error) {
 
 	out = append(out, byte(len(c.cookie)))
 	out = append(out, c.cookie...)
+	out = append(out, encodeCipherSuites(c.cipherSuites)...)
+	out = append(out, encodeCompressionMethods(c.compressionMethods)...)
 
-	out = append(out, []byte{0x00, 0x00}...)
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(c.cipherSuites)*2))
-	for i := len(c.cipherSuites); i > 0; i-- {
-		out = append(out, []byte{0x00, 0x00}...)
-		binary.BigEndian.PutUint16(out[len(out)-2:], uint16(c.cipherSuites[i-1].id))
+	extensions, err := encodeExtensions(c.extensions)
+	if err != nil {
+		return nil, err
 	}
 
-	out = append(out, byte(len(c.compressionMethods)))
-	for i := len(c.compressionMethods); i > 0; i-- {
-		out = append(out, byte(c.compressionMethods[i-1].id))
-	}
-	// Extensions
-	extensions := []byte{}
-	for _, e := range c.extensions {
-		raw, err := e.marshal()
-		if err != nil {
-			return nil, err
-		}
-		extensions = append(extensions, raw...)
-	}
-	out = append(out, []byte{0x00, 0x00}...)
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(extensions)))
-	out = append(out, extensions...)
-
-	return out, nil
+	return append(out, extensions...), nil
 }
 
 func (c *handshakeMessageClientHello) unmarshal(data []byte) error {
@@ -91,34 +74,22 @@ func (c *handshakeMessageClientHello) unmarshal(data []byte) error {
 	currOffset += len(c.cookie)
 
 	// Cipher Suites
-	cipherSuitesCount := int(binary.BigEndian.Uint16(data[currOffset:])) / 2
-	c.cipherSuites = []*cipherSuite{}
-	for i := 0; i < cipherSuitesCount; i++ {
-		currOffset += 2
-		id := cipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))
-		if cipherSuite, ok := cipherSuites[id]; ok {
-			c.cipherSuites = append(c.cipherSuites, cipherSuite)
-		}
+	cipherSuites, err := decodeCipherSuites(data[currOffset:])
+	if err != nil {
+		return err
 	}
-	if cipherSuitesCount != 0 {
-		currOffset += 2
-	}
+	c.cipherSuites = cipherSuites
+	currOffset += int(binary.BigEndian.Uint16(data[currOffset:])) + 2
 
 	// Compression Methods
-	compressionMethodsCount := int(data[currOffset])
-	c.compressionMethods = []*compressionMethod{}
-	for i := 0; i < compressionMethodsCount; i++ {
-		currOffset++
-		id := compressionMethodID(data[currOffset])
-		if compressionMethod, ok := compressionMethods[id]; ok {
-			c.compressionMethods = append(c.compressionMethods, compressionMethod)
-		}
+	compressionMethods, err := decodeCompressionMethods(data[currOffset:])
+	if err != nil {
+		return err
 	}
-	if compressionMethodsCount != 0 {
-		currOffset++
-	}
+	c.compressionMethods = compressionMethods
+	currOffset += int(data[currOffset]) + 1
 
-	// Extensions
+	// TODO Extensions
 
 	return nil
 }
