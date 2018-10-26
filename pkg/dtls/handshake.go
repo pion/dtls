@@ -87,7 +87,7 @@ func (h *handshake) unmarshal(data []byte) error {
 
 	switch handshakeType(data[0]) {
 	case handshakeTypeClientHello:
-		h.handshakeMessage = &clientHello{}
+		h.handshakeMessage = &handshakeMessageClientHello{}
 	case handshakeTypeHelloVerifyRequest:
 		h.handshakeMessage = &helloVerifyRequest{}
 	default:

@@ -19,13 +19,13 @@ func TestHandshakeMessageHelloVerifyRequest(t *testing.T) {
 	if err := h.unmarshal(rawHelloVerifyRequest); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(h, parsedHelloVerifyRequest) {
-		t.Errorf("clientHello unmarshal: got %#v, want %#v", h, parsedHelloVerifyRequest)
+		t.Errorf("handshakeMessageClientHello unmarshal: got %#v, want %#v", h, parsedHelloVerifyRequest)
 	}
 
 	raw, err := h.marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawHelloVerifyRequest) {
-		t.Errorf("clientHello marshal: got %#v, want %#v", raw, rawHelloVerifyRequest)
+		t.Errorf("handshakeMessageClientHello marshal: got %#v, want %#v", raw, rawHelloVerifyRequest)
 	}
 }

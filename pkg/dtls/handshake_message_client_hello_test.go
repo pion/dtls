@@ -14,7 +14,7 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 		0xd6, 0x6c, 0x57, 0xd0, 0x0e, 0x32, 0x85, 0x76, 0x18, 0xde, 0xd8, 0x00, 0x02, 0xc0, 0x2b,
 		0x01, 0x00, 0x00, 0x00,
 	}
-	parsedClientHello := &clientHello{
+	parsedClientHello := &handshakeMessageClientHello{
 		version: protocolVersion{0xFE, 0xFD},
 		random: handshakeRandom{
 			time.Unix(3056586332, 0),
@@ -29,17 +29,17 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 		},
 	}
 
-	c := &clientHello{}
+	c := &handshakeMessageClientHello{}
 	if err := c.unmarshal(rawClientHello); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(c, parsedClientHello) {
-		t.Errorf("clientHello unmarshal: got %#v, want %#v", c, parsedClientHello)
+		t.Errorf("handshakeMessageClientHello unmarshal: got %#v, want %#v", c, parsedClientHello)
 	}
 
 	raw, err := c.marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawClientHello) {
-		t.Errorf("clientHello marshal: got %#v, want %#v", raw, rawClientHello)
+		t.Errorf("handshakeMessageClientHello marshal: got %#v, want %#v", raw, rawClientHello)
 	}
 }

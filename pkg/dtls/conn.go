@@ -108,7 +108,7 @@ func (c *Conn) timerThread() {
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					messageSequence: uint16(c.currSequenceNumber),
-					handshakeMessage: &clientHello{
+					handshakeMessage: &handshakeMessageClientHello{
 						version:            protocolVersion1_2,
 						cookie:             c.cookie,
 						random:             c.handshakeRandom,

@@ -11,7 +11,7 @@ client hello in response to a hello request or on its own
 initiative in order to renegotiate the security parameters in an
 existing connection.
 */
-type clientHello struct {
+type handshakeMessageClientHello struct {
 	version protocolVersion
 	random  handshakeRandom
 	cookie  []byte
@@ -21,18 +21,18 @@ type clientHello struct {
 	extensions         []extension
 }
 
-const clientHelloVariableWidthStart = 34
+const handshakeMessageClientHelloVariableWidthStart = 34
 
-func (c clientHello) handshakeType() handshakeType {
+func (c handshakeMessageClientHello) handshakeType() handshakeType {
 	return handshakeTypeClientHello
 }
 
-func (c *clientHello) marshal() ([]byte, error) {
+func (c *handshakeMessageClientHello) marshal() ([]byte, error) {
 	if len(c.cookie) > 255 {
 		return nil, errCookieTooLong
 	}
 
-	out := make([]byte, clientHelloVariableWidthStart)
+	out := make([]byte, handshakeMessageClientHelloVariableWidthStart)
 	out[0] = c.version.major
 	out[1] = c.version.minor
 
@@ -74,7 +74,7 @@ func (c *clientHello) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (c *clientHello) unmarshal(data []byte) error {
+func (c *handshakeMessageClientHello) unmarshal(data []byte) error {
 	c.version.major = data[0]
 	c.version.minor = data[1]
 
@@ -83,7 +83,7 @@ func (c *clientHello) unmarshal(data []byte) error {
 	}
 
 	// rest of packet has variable width sections
-	currOffset := clientHelloVariableWidthStart
+	currOffset := handshakeMessageClientHelloVariableWidthStart
 	currOffset += int(data[currOffset]) + 1 // SessionID
 
 	currOffset++
