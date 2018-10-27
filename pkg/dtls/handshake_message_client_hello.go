@@ -23,20 +23,20 @@ type handshakeMessageClientHello struct {
 
 const handshakeMessageClientHelloVariableWidthStart = 34
 
-func (c handshakeMessageClientHello) handshakeType() handshakeType {
+func (h handshakeMessageClientHello) handshakeType() handshakeType {
 	return handshakeTypeClientHello
 }
 
-func (c *handshakeMessageClientHello) marshal() ([]byte, error) {
-	if len(c.cookie) > 255 {
+func (h *handshakeMessageClientHello) marshal() ([]byte, error) {
+	if len(h.cookie) > 255 {
 		return nil, errCookieTooLong
 	}
 
 	out := make([]byte, handshakeMessageClientHelloVariableWidthStart)
-	out[0] = c.version.major
-	out[1] = c.version.minor
+	out[0] = h.version.major
+	out[1] = h.version.minor
 
-	rand, err := c.random.marshal()
+	rand, err := h.random.marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -44,12 +44,12 @@ func (c *handshakeMessageClientHello) marshal() ([]byte, error) {
 
 	out = append(out, 0x00) // SessionID
 
-	out = append(out, byte(len(c.cookie)))
-	out = append(out, c.cookie...)
-	out = append(out, encodeCipherSuites(c.cipherSuites)...)
-	out = append(out, encodeCompressionMethods(c.compressionMethods)...)
+	out = append(out, byte(len(h.cookie)))
+	out = append(out, h.cookie...)
+	out = append(out, encodeCipherSuites(h.cipherSuites)...)
+	out = append(out, encodeCompressionMethods(h.compressionMethods)...)
 
-	extensions, err := encodeExtensions(c.extensions)
+	extensions, err := encodeExtensions(h.extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +57,11 @@ func (c *handshakeMessageClientHello) marshal() ([]byte, error) {
 	return append(out, extensions...), nil
 }
 
-func (c *handshakeMessageClientHello) unmarshal(data []byte) error {
-	c.version.major = data[0]
-	c.version.minor = data[1]
+func (h *handshakeMessageClientHello) unmarshal(data []byte) error {
+	h.version.major = data[0]
+	h.version.minor = data[1]
 
-	if err := c.random.unmarshal(data[2 : 2+handshakeRandomLength]); err != nil {
+	if err := h.random.unmarshal(data[2 : 2+handshakeRandomLength]); err != nil {
 		return err
 	}
 
@@ -70,15 +70,15 @@ func (c *handshakeMessageClientHello) unmarshal(data []byte) error {
 	currOffset += int(data[currOffset]) + 1 // SessionID
 
 	currOffset++
-	c.cookie = append([]byte{}, data[currOffset:currOffset+int(data[currOffset-1])]...)
-	currOffset += len(c.cookie)
+	h.cookie = append([]byte{}, data[currOffset:currOffset+int(data[currOffset-1])]...)
+	currOffset += len(h.cookie)
 
 	// Cipher Suites
 	cipherSuites, err := decodeCipherSuites(data[currOffset:])
 	if err != nil {
 		return err
 	}
-	c.cipherSuites = cipherSuites
+	h.cipherSuites = cipherSuites
 	currOffset += int(binary.BigEndian.Uint16(data[currOffset:])) + 2
 
 	// Compression Methods
@@ -86,7 +86,7 @@ func (c *handshakeMessageClientHello) unmarshal(data []byte) error {
 	if err != nil {
 		return err
 	}
-	c.compressionMethods = compressionMethods
+	h.compressionMethods = compressionMethods
 	currOffset += int(data[currOffset]) + 1
 
 	// TODO Extensions
