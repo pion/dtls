@@ -26,11 +26,24 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 	}
 
 	extensions := []extension{}
-	for offset := 2; offset < len(buf); {
+	unmarshalAndAppend := func(data []byte, e extension) error {
+		err := e.unmarshal(data)
+		if err != nil {
+			return err
+		}
+		extensions = append(extensions, e)
+		return nil
+	}
+
+	for offset := 2; offset+2 < len(buf); {
+		var err error
 		switch extensionValue(binary.BigEndian.Uint16(buf[offset:])) {
 		case extensionSupportedGroupsValue:
-		case extensionUseSRTPValue:
+			err = unmarshalAndAppend(buf[offset:], &extensionSupportedGroups{})
 		default:
+		}
+		if err != nil {
+			return nil, err
 		}
 
 		extensionLength := binary.BigEndian.Uint16(buf[offset+2:])

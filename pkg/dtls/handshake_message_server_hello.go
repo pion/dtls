@@ -27,7 +27,35 @@ func (h handshakeMessageServerHello) handshakeType() handshakeType {
 }
 
 func (h *handshakeMessageServerHello) marshal() ([]byte, error) {
-	return nil, errNotImplemented
+	if h.cipherSuite == nil {
+		return nil, errCipherSuiteUnset
+	} else if h.compressionMethod == nil {
+		return nil, errCompressionmethodUnset
+	}
+
+	out := make([]byte, handshakeMessageServerHelloVariableWidthStart)
+	out[0] = h.version.major
+	out[1] = h.version.minor
+
+	rand, err := h.random.marshal()
+	if err != nil {
+		return nil, err
+	}
+	copy(out[2:], rand)
+
+	out = append(out, 0x00) // SessionID
+
+	out = append(out, []byte{0x00, 0x00}...)
+	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(h.cipherSuite.id))
+
+	out = append(out, byte(h.compressionMethod.id))
+
+	extensions, err := encodeExtensions(h.extensions)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(out, extensions...), nil
 }
 
 func (h *handshakeMessageServerHello) unmarshal(data []byte) error {

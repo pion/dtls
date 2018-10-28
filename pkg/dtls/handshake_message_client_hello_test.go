@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageClientHello(t *testing.T) {
@@ -12,7 +14,7 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 		0x62, 0x15, 0xad, 0x16, 0xc9, 0x15, 0x8d, 0x95, 0x71, 0x8a, 0xbb, 0x22, 0xd7, 0x47, 0xec,
 		0xd8, 0x3d, 0xdc, 0x4b, 0x00, 0x14, 0xe6, 0x14, 0x3a, 0x1b, 0x04, 0xea, 0x9e, 0x7a, 0x14,
 		0xd6, 0x6c, 0x57, 0xd0, 0x0e, 0x32, 0x85, 0x76, 0x18, 0xde, 0xd8, 0x00, 0x02, 0xc0, 0x2b,
-		0x01, 0x00, 0x00, 0x00,
+		0x01, 0x00, 0x00, 0x08, 0x00, 0x0a, 0x00, 0x04, 0x00, 0x02, 0x00, 0x17,
 	}
 	parsedClientHello := &handshakeMessageClientHello{
 		version: protocolVersion{0xFE, 0xFD},
@@ -27,12 +29,16 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 		compressionMethods: []*compressionMethod{
 			compressionMethods[compressionMethodNull],
 		},
+		extensions: []extension{
+			&extensionSupportedGroups{supportedGroups: []supportedGroup{supportedGroupP256}},
+		},
 	}
 
 	c := &handshakeMessageClientHello{}
 	if err := c.unmarshal(rawClientHello); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(c, parsedClientHello) {
+		assert.Equal(t, c, parsedClientHello)
 		t.Errorf("handshakeMessageClientHello unmarshal: got %#v, want %#v", c, parsedClientHello)
 	}
 

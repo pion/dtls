@@ -9,11 +9,13 @@ type supportedGroup uint16
 
 const (
 	supportedGroupP256 supportedGroup = 23
-)
 
-const (
 	extensionSupportedGroupsHeaderSize = 6
 )
+
+var supportedGroups = map[supportedGroup]bool{
+	supportedGroupP256: true,
+}
 
 // https://tools.ietf.org/html/rfc8422
 type extensionSupportedGroups struct {
@@ -40,5 +42,22 @@ func (e *extensionSupportedGroups) marshal() ([]byte, error) {
 }
 
 func (e *extensionSupportedGroups) unmarshal(data []byte) error {
-	return errNotImplemented
+	if len(data) <= extensionSupportedGroupsHeaderSize {
+		return errBufferTooSmall
+	} else if extensionValue(binary.BigEndian.Uint16(data)) != e.extensionValue() {
+		return errInvalidExtensionType
+	}
+
+	groupCount := int(binary.BigEndian.Uint16(data[4:]) / 2)
+	if extensionSupportedGroupsHeaderSize+(groupCount*2) > len(data) {
+		return errLengthMismatch
+	}
+
+	for i := 0; i < groupCount; i++ {
+		supportedGroupID := supportedGroup(binary.BigEndian.Uint16(data[(extensionSupportedGroupsHeaderSize + (i * 2)):]))
+		if _, ok := supportedGroups[supportedGroupID]; ok {
+			e.supportedGroups = append(e.supportedGroups, supportedGroupID)
+		}
+	}
+	return nil
 }

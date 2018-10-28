@@ -24,6 +24,7 @@ func TestHandshakeMessage(t *testing.T) {
 			cookie:             []byte{},
 			cipherSuites:       []*cipherSuite{},
 			compressionMethods: []*compressionMethod{},
+			extensions:         []extension{},
 		},
 	}
 

@@ -89,7 +89,12 @@ func (h *handshakeMessageClientHello) unmarshal(data []byte) error {
 	h.compressionMethods = compressionMethods
 	currOffset += int(data[currOffset]) + 1
 
-	// TODO Extensions
+	// Extensions
+	extensions, err := decodeExtensions(data[currOffset:])
+	if err != nil {
+		return err
+	}
+	h.extensions = extensions
 
 	return nil
 }
