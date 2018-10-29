@@ -1,9 +1,5 @@
 package dtls
 
-import (
-	"encoding/binary"
-)
-
 // https://tools.ietf.org/html/rfc5246#section-7.4
 type handshakeType uint8
 
@@ -39,9 +35,7 @@ type handshakeMessage interface {
 // certificates signed by a trusted certificate authority.
 // https://tools.ietf.org/html/rfc5246#section-7.3
 type handshake struct {
-	messageSequence  uint16
-	fragmentOffset   uint32 // uint24 in spec
-	fragmentLength   uint32 // uint24 in spec
+	handshakeHeader  handshakeHeader
 	handshakeMessage handshakeMessage
 }
 
@@ -52,36 +46,35 @@ func (h handshake) contentType() contentType {
 func (h *handshake) marshal() ([]byte, error) {
 	if h.handshakeMessage == nil {
 		return nil, errHandshakeMessageUnset
+	} else if h.handshakeHeader.fragmentOffset != 0 {
+		return nil, errUnableToMarshalFragmented
 	}
 
-	messageBody, err := h.handshakeMessage.marshal()
+	msg, err := h.handshakeMessage.marshal()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, handshakeMessageHeaderLength)
-	out[0] = byte(h.handshakeMessage.handshakeType())
 
-	binary.BigEndian.PutUint16(out[4:], h.messageSequence)
-	putBigEndianUint24(out[6:], h.fragmentOffset)
+	h.handshakeHeader.length = uint32(len(msg))
+	h.handshakeHeader.fragmentLength = h.handshakeHeader.length
+	h.handshakeHeader.handshakeType = h.handshakeMessage.handshakeType()
+	header, err := h.handshakeHeader.marshal()
+	if err != nil {
+		return nil, err
+	}
 
-	out = append(out, messageBody...)
-
-	// TODO currently ignoring fragment lengths, do not support fragmented messages
-	h.fragmentLength = uint32(len(out) - handshakeMessageHeaderLength)
-	putBigEndianUint24(out[1:], h.fragmentLength)
-	putBigEndianUint24(out[9:], h.fragmentLength)
-
-	return out, nil
+	return append(header, msg...), nil
 }
 
 func (h *handshake) unmarshal(data []byte) error {
+	if err := h.handshakeHeader.unmarshal(data); err != nil {
+		return err
+	}
+
 	reportedLen := bigEndianUint24(data[1:])
-	h.messageSequence = binary.BigEndian.Uint16(data[4:])
-	h.fragmentOffset = bigEndianUint24(data[6:])
-	h.fragmentLength = bigEndianUint24(data[9:])
 	if uint32(len(data)-handshakeMessageHeaderLength) != reportedLen {
 		return errLengthMismatch
-	} else if reportedLen != h.fragmentLength {
+	} else if reportedLen != h.handshakeHeader.fragmentLength {
 		return errLengthMismatch
 	}
 

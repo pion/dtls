@@ -14,7 +14,11 @@ func TestHandshakeMessage(t *testing.T) {
 		0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
 	parsedHandshake := &handshake{
-		fragmentLength: 0x29,
+		handshakeHeader: handshakeHeader{
+			length:         0x29,
+			fragmentLength: 0x29,
+			handshakeType:  handshakeTypeClientHello,
+		},
 		handshakeMessage: &handshakeMessageClientHello{
 			version: protocolVersion{0xFE, 0xFD},
 			random: handshakeRandom{
