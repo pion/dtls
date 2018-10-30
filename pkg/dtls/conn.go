@@ -131,13 +131,18 @@ func (c *Conn) timerThread() {
 }
 
 func (c *Conn) handleIncoming(buf []byte) {
-	pkts, err := decodeUDPPacket(buf)
+	pkts, err := unpackDatagram(buf)
 	if err != nil {
 		panic(err)
 	}
 
 	for _, p := range pkts {
-		switch content := p.content.(type) {
+		r := &recordLayer{}
+		if err := r.unmarshal(p); err != nil {
+			panic(err)
+		}
+
+		switch content := r.content.(type) {
 		case *alert:
 			panic(spew.Sdump(content))
 		case *handshake:

@@ -89,22 +89,22 @@ func (r *recordLayer) unmarshal(data []byte) error {
 	return r.content.unmarshal(data[recordLayerSize:])
 }
 
-// decodeUDPPacket proccesses a UDP packet which may contain multiple DTLS packets
-func decodeUDPPacket(buf []byte) ([]*recordLayer, error) {
-	out := []*recordLayer{}
+// Note that as with TLS, multiple handshake messages may be placed in
+// the same DTLS record, provided that there is room and that they are
+// part of the same flight.  Thus, there are two acceptable ways to pack
+// two DTLS messages into the same datagram: in the same record or in
+// separate records.
+// https://tools.ietf.org/html/rfc6347#section-4.2.3
+func unpackDatagram(buf []byte) ([][]byte, error) {
+	out := [][]byte{}
 
 	for offset := 0; len(buf) != offset; {
 		if len(buf)-offset <= recordLayerSize {
 			return nil, errDTLSPacketInvalidLength
 		}
 
-		pktLen := (recordLayerSize + int(binary.BigEndian.Uint16(buf[11:])))
-		r := &recordLayer{}
-		if err := r.unmarshal(buf[offset : offset+pktLen]); err != nil {
-			return nil, err
-		}
-
-		out = append(out, r)
+		pktLen := (recordLayerSize + int(binary.BigEndian.Uint16(buf[offset+11:])))
+		out = append(out, buf[offset:offset+pktLen])
 		offset += pktLen
 	}
 

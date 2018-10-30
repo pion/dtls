@@ -9,18 +9,15 @@ func TestUDPDecode(t *testing.T) {
 	for _, test := range []struct {
 		Name      string
 		Data      []byte
-		Want      []*recordLayer
+		Want      [][]byte
 		WantError error
 	}{
 		{
 			Name: "Change Cipher Spec, single packet",
 			Data: []byte{0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
-			Want: []*recordLayer{&recordLayer{
-				protocolVersion: protocolVersion{0xfe, 0xff},
-				epoch:           0,
-				sequenceNumber:  18,
-				content:         &changeCipherSpec{},
-			}},
+			Want: [][]byte{
+				[]byte{0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
+			},
 		},
 		{
 			Name: "Change Cipher Spec, multi packet",
@@ -28,19 +25,9 @@ func TestUDPDecode(t *testing.T) {
 				0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01,
 				0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01,
 			},
-			Want: []*recordLayer{
-				&recordLayer{
-					protocolVersion: protocolVersion{0xfe, 0xff},
-					epoch:           0,
-					sequenceNumber:  18,
-					content:         &changeCipherSpec{},
-				},
-				&recordLayer{
-					protocolVersion: protocolVersion{0xfe, 0xff},
-					epoch:           0,
-					sequenceNumber:  19,
-					content:         &changeCipherSpec{},
-				},
+			Want: [][]byte{
+				[]byte{0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
+				[]byte{0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01},
 			},
 		},
 
@@ -50,7 +37,7 @@ func TestUDPDecode(t *testing.T) {
 			WantError: errDTLSPacketInvalidLength,
 		},
 	} {
-		dtlsPkts, err := decodeUDPPacket(test.Data)
+		dtlsPkts, err := unpackDatagram(test.Data)
 		if err != test.WantError {
 			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantError, err)
 		} else if !reflect.DeepEqual(test.Want, dtlsPkts) {
