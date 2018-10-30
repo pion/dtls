@@ -17,16 +17,16 @@ package dtls
 
    https://tools.ietf.org/html/rfc6347#section-4.2.1
 */
-type helloVerifyRequest struct {
+type handshakeMessageHelloVerifyRequest struct {
 	version protocolVersion
 	cookie  []byte
 }
 
-func (h helloVerifyRequest) handshakeType() handshakeType {
+func (h handshakeMessageHelloVerifyRequest) handshakeType() handshakeType {
 	return handshakeTypeHelloVerifyRequest
 }
 
-func (h *helloVerifyRequest) marshal() ([]byte, error) {
+func (h *handshakeMessageHelloVerifyRequest) marshal() ([]byte, error) {
 	if len(h.cookie) > 255 {
 		return nil, errCookieTooLong
 	}
@@ -40,7 +40,7 @@ func (h *helloVerifyRequest) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (h *helloVerifyRequest) unmarshal(data []byte) error {
+func (h *handshakeMessageHelloVerifyRequest) unmarshal(data []byte) error {
 	h.version.major = data[0]
 	h.version.minor = data[1]
 	cookieLength := data[2]

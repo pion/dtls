@@ -20,8 +20,9 @@ type Conn struct {
 	currSequenceNumber uint64 // uint48
 	currFlight         flight
 
-	handshakeRandom handshakeRandom
-	cookie          []byte
+	cipherSuite               *cipherSuite // nil if a cipherSuite hasn't been chosen
+	localRandom, remoteRandom handshakeRandom
+	cookie                    []byte
 
 	decrypted    chan []byte // Decrypted Application Data, pull by calling `Read`
 	workerTicker *time.Ticker
@@ -35,7 +36,7 @@ func createConn(isClient bool, nextConn net.Conn) *Conn {
 		decrypted:    make(chan []byte),
 		workerTicker: time.NewTicker(initialTickerInterval),
 	}
-	c.handshakeRandom.populate()
+	c.localRandom.populate()
 
 	go c.readThread()
 	go c.timerThread()
@@ -82,7 +83,9 @@ func (c *Conn) readThread() {
 		if err != nil {
 			panic(err)
 		}
-		c.handleIncoming(b[:i])
+		if err := c.handleIncoming(b[:i]); err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -113,7 +116,7 @@ func (c *Conn) timerThread() {
 					handshakeMessage: &handshakeMessageClientHello{
 						version:            protocolVersion1_2,
 						cookie:             c.cookie,
-						random:             c.handshakeRandom,
+						random:             c.localRandom,
 						cipherSuites:       defaultCipherSuites,
 						compressionMethods: defaultCompressionMethods,
 						extensions: []extension{
@@ -130,34 +133,47 @@ func (c *Conn) timerThread() {
 	}
 }
 
-func (c *Conn) handleIncoming(buf []byte) {
+func (c *Conn) handleHandshakeMessage(rawHandshake handshakeMessage) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	switch h := rawHandshake.(type) {
+	case *handshakeMessageHelloVerifyRequest:
+		c.cookie = append([]byte{}, h.cookie...)
+		c.currSequenceNumber = 1
+		c.currFlight.set(flight3)
+	case *handshakeMessageServerHello:
+		c.cipherSuite = h.cipherSuite
+		c.remoteRandom = h.random
+	default:
+		return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
+	}
+
+	return nil
+}
+
+func (c *Conn) handleIncoming(buf []byte) error {
 	pkts, err := unpackDatagram(buf)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	for _, p := range pkts {
 		r := &recordLayer{}
 		if err := r.unmarshal(p); err != nil {
-			panic(err)
+			return err
 		}
 
 		switch content := r.content.(type) {
 		case *alert:
-			panic(spew.Sdump(content))
+			return fmt.Errorf(spew.Sdump(content))
 		case *handshake:
-			switch h := content.handshakeMessage.(type) {
-			case *helloVerifyRequest:
-				c.lock.Lock()
-				c.cookie = append([]byte{}, h.cookie...)
-				c.currSequenceNumber = 1
-				c.currFlight.set(flight3)
-				c.lock.Unlock()
-			default:
-				panic(fmt.Sprintf("Unhandled handshake %d \n", h.handshakeType()))
+			if err := c.handleHandshakeMessage(content.handshakeMessage); err != nil {
+				return err
 			}
 		default:
-			panic(fmt.Sprintf("Unhandled contentType %d \n", content.contentType()))
+			return fmt.Errorf("Unhandled contentType %d", content.contentType())
 		}
 	}
+	return nil
 }

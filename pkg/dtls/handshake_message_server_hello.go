@@ -83,6 +83,11 @@ func (h *handshakeMessageServerHello) unmarshal(data []byte) error {
 		return errInvalidCompressionMethod
 	}
 
+	if len(data) <= currOffset {
+		h.extensions = []extension{}
+		return nil
+	}
+
 	extensions, err := decodeExtensions(data[currOffset:])
 	if err != nil {
 		return err

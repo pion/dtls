@@ -82,7 +82,9 @@ func (h *handshake) unmarshal(data []byte) error {
 	case handshakeTypeClientHello:
 		h.handshakeMessage = &handshakeMessageClientHello{}
 	case handshakeTypeHelloVerifyRequest:
-		h.handshakeMessage = &helloVerifyRequest{}
+		h.handshakeMessage = &handshakeMessageHelloVerifyRequest{}
+	case handshakeTypeServerHello:
+		h.handshakeMessage = &handshakeMessageServerHello{}
 	default:
 		return errNotImplemented
 	}
