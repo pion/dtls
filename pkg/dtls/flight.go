@@ -50,12 +50,12 @@ type flight struct {
 	val flightVal
 }
 
-func newFlight(isClient bool) flight {
+func newFlight(isClient bool) *flight {
 	val := flight2
 	if isClient {
 		val = flight1
 	}
-	return flight{val: val}
+	return &flight{val: val}
 }
 
 func (f *flight) get() flightVal {
@@ -65,9 +65,8 @@ func (f *flight) get() flightVal {
 }
 
 func (f *flight) set(val flightVal) error {
-	f.RLock()
-	defer f.RUnlock()
-	// TODO ensure no invalid transitions
-	f.val = val
+	f.Lock()
+	defer f.Unlock()
+	f.val = val // TODO ensure no invalid transitions
 	return nil
 }

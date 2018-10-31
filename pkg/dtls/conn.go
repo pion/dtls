@@ -18,7 +18,7 @@ type Conn struct {
 	nextConn net.Conn     // Embedded Conn, typically a udpconn we read/write from
 
 	currSequenceNumber uint64 // uint48
-	currFlight         flight
+	currFlight         *flight
 
 	cipherSuite               *cipherSuite // nil if a cipherSuite hasn't been chosen
 	localRandom, remoteRandom handshakeRandom
@@ -128,7 +128,7 @@ func (c *Conn) timerThread() {
 			})
 			c.lock.RUnlock()
 		default:
-			fmt.Printf("Unhandled flight %d \n", c.currFlight.val)
+			fmt.Printf("Unhandled flight %d \n", c.currFlight.get())
 		}
 	}
 }
