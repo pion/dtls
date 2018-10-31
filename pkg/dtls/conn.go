@@ -17,8 +17,9 @@ type Conn struct {
 	lock     sync.RWMutex // Internal lock (must not be public) used for Cookie/Random
 	nextConn net.Conn     // Embedded Conn, typically a udpconn we read/write from
 
-	currSequenceNumber uint64 // uint48
-	currFlight         *flight
+	outboundSequenceNumber uint64 // uint48
+
+	currFlight *flight
 
 	cipherSuite               *cipherSuite // nil if a cipherSuite hasn't been chosen
 	localRandom, remoteRandom handshakeRandom
@@ -106,12 +107,12 @@ func (c *Conn) timerThread() {
 		case flight3:
 			c.lock.RLock()
 			sendPkt(&recordLayer{
-				sequenceNumber:  c.currSequenceNumber,
+				sequenceNumber:  c.outboundSequenceNumber,
 				protocolVersion: protocolVersion1_2,
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.currSequenceNumber),
+						messageSequence: uint16(c.outboundSequenceNumber),
 					},
 					handshakeMessage: &handshakeMessageClientHello{
 						version:            protocolVersion1_2,
@@ -140,7 +141,7 @@ func (c *Conn) handleHandshakeMessage(rawHandshake handshakeMessage) error {
 	switch h := rawHandshake.(type) {
 	case *handshakeMessageHelloVerifyRequest:
 		c.cookie = append([]byte{}, h.cookie...)
-		c.currSequenceNumber = 1
+		c.outboundSequenceNumber = 1
 		c.currFlight.set(flight3)
 	case *handshakeMessageServerHello:
 		c.cipherSuite = h.cipherSuite
