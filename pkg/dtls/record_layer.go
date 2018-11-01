@@ -4,21 +4,6 @@ import (
 	"encoding/binary"
 )
 
-const (
-	recordLayerSize   = 13
-	maxSequenceNumber = 0x0000FFFFFFFFFFFF
-
-	dtls1_2Major = 0xfe
-	dtls1_2Minor = 0xfd
-)
-
-var protocolVersion1_2 = protocolVersion{dtls1_2Major, dtls1_2Minor}
-
-// https://tools.ietf.org/html/rfc4346#section-6.2.1
-type protocolVersion struct {
-	major, minor uint8
-}
-
 /*
  The TLS Record Layer which handles all data transport.
  The record layer is assumed to sit directly on top of some
@@ -36,42 +21,31 @@ type protocolVersion struct {
  https://tools.ietf.org/html/rfc4347#section-4.1
 */
 type recordLayer struct {
-	protocolVersion protocolVersion
-	epoch           uint16
-	sequenceNumber  uint64 // uint48 in spec
-	content         content
+	recordLayerHeader recordLayerHeader
+	content           content
 }
 
 func (r *recordLayer) marshal() ([]byte, error) {
 	contentRaw, err := r.content.marshal()
 	if err != nil {
 		return nil, err
-	} else if r.sequenceNumber > maxSequenceNumber {
-		return nil, errSequenceNumberOverflow
 	}
 
-	out := make([]byte, recordLayerSize)
-	// SequenceNumber MUST be set first
-	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
-	binary.BigEndian.PutUint64(out[3:], r.sequenceNumber)
-	out[0] = byte(r.content.contentType())
-	out[1] = r.protocolVersion.major
-	out[2] = r.protocolVersion.minor
-	binary.BigEndian.PutUint16(out[3:], r.epoch)
-	binary.BigEndian.PutUint16(out[recordLayerSize-2:], uint16(len(contentRaw)))
+	r.recordLayerHeader.contentLen = uint16(len(contentRaw))
+	r.recordLayerHeader.contentType = r.content.contentType()
 
-	return append(out, contentRaw...), nil
+	headerRaw, err := r.recordLayerHeader.marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	return append(headerRaw, contentRaw...), nil
 }
 
 func (r *recordLayer) unmarshal(data []byte) error {
-	r.protocolVersion.major = data[1]
-	r.protocolVersion.minor = data[2]
-	r.epoch = binary.BigEndian.Uint16(data[3:])
-
-	// SequenceNumber is stored as uint48, make into uint64
-	seqCopy := make([]byte, 8)
-	copy(seqCopy[2:], data[5:11])
-	r.sequenceNumber = binary.BigEndian.Uint64(seqCopy)
+	if err := r.recordLayerHeader.unmarshal(data); err != nil {
+		return err
+	}
 
 	switch contentType(data[0]) {
 	case contentTypeChangeCipherSpec:
@@ -86,7 +60,7 @@ func (r *recordLayer) unmarshal(data []byte) error {
 		return errInvalidContentType
 	}
 
-	return r.content.unmarshal(data[recordLayerSize:])
+	return r.content.unmarshal(data[recordLayerHeaderSize:])
 }
 
 // Note that as with TLS, multiple handshake messages may be placed in
@@ -99,11 +73,11 @@ func unpackDatagram(buf []byte) ([][]byte, error) {
 	out := [][]byte{}
 
 	for offset := 0; len(buf) != offset; {
-		if len(buf)-offset <= recordLayerSize {
+		if len(buf)-offset <= recordLayerHeaderSize {
 			return nil, errDTLSPacketInvalidLength
 		}
 
-		pktLen := (recordLayerSize + int(binary.BigEndian.Uint16(buf[offset+11:])))
+		pktLen := (recordLayerHeaderSize + int(binary.BigEndian.Uint16(buf[offset+11:])))
 		out = append(out, buf[offset:offset+pktLen])
 		offset += pktLen
 	}

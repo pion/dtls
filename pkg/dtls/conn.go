@@ -107,8 +107,10 @@ func (c *Conn) timerThread() {
 		case flight3:
 			c.lock.RLock()
 			sendPkt(&recordLayer{
-				sequenceNumber:  c.outboundSequenceNumber,
-				protocolVersion: protocolVersion1_2,
+				recordLayerHeader: recordLayerHeader{
+					sequenceNumber:  c.outboundSequenceNumber,
+					protocolVersion: protocolVersion1_2,
+				},
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
