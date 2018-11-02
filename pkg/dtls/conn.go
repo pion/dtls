@@ -159,7 +159,6 @@ func (c *Conn) handleHandshakeMessage() error {
 		default:
 			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
 		}
-
 	}
 
 	return nil
