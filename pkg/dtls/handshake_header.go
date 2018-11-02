@@ -1,6 +1,8 @@
 package dtls
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 // msg_len for Handshake messages assumes an extra 12 bytes for
 // sequence, fragment and version information

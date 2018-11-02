@@ -59,6 +59,7 @@ func TestRecordLayerRoundTrip(t *testing.T) {
 			Data: []byte{0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
 			Want: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
+					contentType:     contentTypeChangeCipherSpec,
 					protocolVersion: protocolVersion{0xfe, 0xff},
 					epoch:           0,
 					sequenceNumber:  18,

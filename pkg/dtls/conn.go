@@ -14,8 +14,9 @@ const finalTickerInternal = 90 * time.Second
 
 // Conn represents a DTLS connection
 type Conn struct {
-	lock     sync.RWMutex // Internal lock (must not be public) used for Cookie/Random
-	nextConn net.Conn     // Embedded Conn, typically a udpconn we read/write from
+	lock           sync.RWMutex // Internal lock (must not be public) used for Cookie/Random
+	nextConn       net.Conn     // Embedded Conn, typically a udpconn we read/write from
+	fragmentBuffer *fragmentBuffer
 
 	outboundSequenceNumber uint64 // uint48
 
@@ -31,8 +32,9 @@ type Conn struct {
 
 func createConn(isClient bool, nextConn net.Conn) *Conn {
 	c := &Conn{
-		nextConn:   nextConn,
-		currFlight: newFlight(isClient),
+		nextConn:       nextConn,
+		currFlight:     newFlight(isClient),
+		fragmentBuffer: newFragmentBuffer(),
 
 		decrypted:    make(chan []byte),
 		workerTicker: time.NewTicker(initialTickerInterval),
@@ -131,25 +133,33 @@ func (c *Conn) timerThread() {
 			})
 			c.lock.RUnlock()
 		default:
-			fmt.Printf("Unhandled flight %d \n", c.currFlight.get())
+			panic(fmt.Errorf("Unhandled flight %d", c.currFlight.get()))
 		}
 	}
 }
 
-func (c *Conn) handleHandshakeMessage(rawHandshake handshakeMessage) error {
+func (c *Conn) handleHandshakeMessage() error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	switch h := rawHandshake.(type) {
-	case *handshakeMessageHelloVerifyRequest:
-		c.cookie = append([]byte{}, h.cookie...)
-		c.outboundSequenceNumber = 1
-		c.currFlight.set(flight3)
-	case *handshakeMessageServerHello:
-		c.cipherSuite = h.cipherSuite
-		c.remoteRandom = h.random
-	default:
-		return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
+	for out := c.fragmentBuffer.pop(); out != nil; out = c.fragmentBuffer.pop() {
+		rawHandshake := &handshake{}
+		if err := rawHandshake.unmarshal(out); err != nil {
+			return err
+		}
+
+		switch h := rawHandshake.handshakeMessage.(type) {
+		case *handshakeMessageHelloVerifyRequest:
+			c.cookie = append([]byte{}, h.cookie...)
+			c.outboundSequenceNumber = 1
+			c.currFlight.set(flight3)
+		case *handshakeMessageServerHello:
+			c.cipherSuite = h.cipherSuite
+			c.remoteRandom = h.random
+		default:
+			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
+		}
+
 	}
 
 	return nil
@@ -162,18 +172,21 @@ func (c *Conn) handleIncoming(buf []byte) error {
 	}
 
 	for _, p := range pkts {
+		pushSuccess, err := c.fragmentBuffer.push(p)
+		if err != nil {
+			return err
+		} else if pushSuccess {
+			// This was a fragmented buffer, drain the fragmentBuffer
+			return c.handleHandshakeMessage()
+		}
+
 		r := &recordLayer{}
 		if err := r.unmarshal(p); err != nil {
 			return err
 		}
-
 		switch content := r.content.(type) {
 		case *alert:
 			return fmt.Errorf(spew.Sdump(content))
-		case *handshake:
-			if err := c.handleHandshakeMessage(content.handshakeMessage); err != nil {
-				return err
-			}
 		default:
 			return fmt.Errorf("Unhandled contentType %d", content.contentType())
 		}

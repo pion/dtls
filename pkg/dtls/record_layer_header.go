@@ -44,6 +44,7 @@ func (r *recordLayerHeader) marshal() ([]byte, error) {
 }
 
 func (r *recordLayerHeader) unmarshal(data []byte) error {
+	r.contentType = contentType(data[0])
 	r.protocolVersion.major = data[1]
 	r.protocolVersion.minor = data[2]
 	r.epoch = binary.BigEndian.Uint16(data[3:])
