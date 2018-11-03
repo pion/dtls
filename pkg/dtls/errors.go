@@ -19,4 +19,5 @@ var (
 	errCipherSuiteUnset          = errors.New("dtls: server hello can not be created without a cipher suite")
 	errCompressionmethodUnset    = errors.New("dtls: server hello can not be created without a compression method")
 	errUnableToMarshalFragmented = errors.New("dtls: unable to marshal fragmented handshakes")
+	errCertificateUnset          = errors.New("dtls: handshakeMessageCertificate can not be marshalled without a certificate")
 )

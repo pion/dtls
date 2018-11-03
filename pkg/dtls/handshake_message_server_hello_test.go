@@ -4,8 +4,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageServerHello(t *testing.T) {
@@ -37,7 +35,6 @@ func TestHandshakeMessageServerHello(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawServerHello) {
-		assert.Equal(t, raw, rawServerHello)
 		t.Errorf("handshakeMessageServerHello marshal: got %#v, want %#v", raw, rawServerHello)
 	}
 }
