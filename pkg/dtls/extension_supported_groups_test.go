@@ -8,7 +8,7 @@ import (
 func TestExtensionSupportedGroups(t *testing.T) {
 	rawSupportedGroups := []byte{0x0, 0xa, 0x0, 0x4, 0x0, 0x2, 0x0, 0x17}
 	parsedSupportedGroups := &extensionSupportedGroups{
-		supportedGroups: []supportedGroup{supportedGroupP256},
+		supportedGroups: []namedCurve{namedCurveP256},
 	}
 
 	raw, err := parsedSupportedGroups.marshal()

@@ -4,22 +4,13 @@ import (
 	"encoding/binary"
 )
 
-// https://www.iana.org/assignments/tls-parameters/tls-parameters.xml#tls-parameters-8
-type supportedGroup uint16
-
 const (
-	supportedGroupP256 supportedGroup = 23
-
 	extensionSupportedGroupsHeaderSize = 6
 )
 
-var supportedGroups = map[supportedGroup]bool{
-	supportedGroupP256: true,
-}
-
 // https://tools.ietf.org/html/rfc8422
 type extensionSupportedGroups struct {
-	supportedGroups []supportedGroup
+	supportedGroups []namedCurve
 }
 
 func (e extensionSupportedGroups) extensionValue() extensionValue {
@@ -54,8 +45,8 @@ func (e *extensionSupportedGroups) unmarshal(data []byte) error {
 	}
 
 	for i := 0; i < groupCount; i++ {
-		supportedGroupID := supportedGroup(binary.BigEndian.Uint16(data[(extensionSupportedGroupsHeaderSize + (i * 2)):]))
-		if _, ok := supportedGroups[supportedGroupID]; ok {
+		supportedGroupID := namedCurve(binary.BigEndian.Uint16(data[(extensionSupportedGroupsHeaderSize + (i * 2)):]))
+		if _, ok := namedCurves[supportedGroupID]; ok {
 			e.supportedGroups = append(e.supportedGroups, supportedGroupID)
 		}
 	}

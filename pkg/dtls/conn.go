@@ -125,7 +125,7 @@ func (c *Conn) timerThread() {
 						compressionMethods: defaultCompressionMethods,
 						extensions: []extension{
 							&extensionSupportedGroups{
-								supportedGroups: []supportedGroup{supportedGroupP256},
+								supportedGroups: []namedCurve{namedCurveP256},
 							},
 						},
 					}},
