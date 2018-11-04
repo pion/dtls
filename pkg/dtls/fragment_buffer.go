@@ -53,7 +53,7 @@ func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 	}
 
 	// Discard all headers, when rebuilding the packet we will re-build
-	frag.data = buf[recordLayerHeaderSize+handshakeHeaderLength:]
+	frag.data = append([]byte{}, buf[recordLayerHeaderSize+handshakeHeaderLength:]...)
 	f.cache[frag.handshakeHeader.messageSequence] = append(f.cache[frag.handshakeHeader.messageSequence], frag)
 
 	return true, nil

@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"crypto/x509"
 	"fmt"
 	"net"
 	"sync"
@@ -14,20 +15,18 @@ const finalTickerInternal = 90 * time.Second
 
 // Conn represents a DTLS connection
 type Conn struct {
-	lock           sync.RWMutex // Internal lock (must not be public) used for Cookie/Random
+	lock           sync.RWMutex // Internal lock (must not be public)
 	nextConn       net.Conn     // Embedded Conn, typically a udpconn we read/write from
 	fragmentBuffer *fragmentBuffer
+	decrypted      chan []byte // Decrypted Application Data, pull by calling `Read`
+	workerTicker   *time.Ticker
 
-	outboundSequenceNumber uint64 // uint48
-
-	currFlight *flight
-
-	cipherSuite               *cipherSuite // nil if a cipherSuite hasn't been chosen
-	localRandom, remoteRandom handshakeRandom
-	cookie                    []byte
-
-	decrypted    chan []byte // Decrypted Application Data, pull by calling `Read`
-	workerTicker *time.Ticker
+	outboundSequenceNumber              uint64 // uint48
+	currFlight                          *flight
+	cipherSuite                         *cipherSuite // nil if a cipherSuite hasn't been chosen
+	localRandom, remoteRandom           handshakeRandom
+	localCertificate, remoteCertificate *x509.Certificate
+	cookie                              []byte
 }
 
 func createConn(isClient bool, nextConn net.Conn) *Conn {
@@ -156,6 +155,8 @@ func (c *Conn) handleHandshakeMessage() error {
 		case *handshakeMessageServerHello:
 			c.cipherSuite = h.cipherSuite
 			c.remoteRandom = h.random
+		case *handshakeMessageCertificate:
+			c.remoteCertificate = h.certificate
 		default:
 			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
 		}
@@ -175,7 +176,7 @@ func (c *Conn) handleIncoming(buf []byte) error {
 		if err != nil {
 			return err
 		} else if pushSuccess {
-			// This was a fragmented buffer, drain the fragmentBuffer
+			// This was a fragmented buffer, therefore a handshake
 			return c.handleHandshakeMessage()
 		}
 
