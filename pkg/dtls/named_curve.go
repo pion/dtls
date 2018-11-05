@@ -4,7 +4,7 @@ package dtls
 type namedCurve uint16
 
 const (
-	namedCurveP256 namedCurve = 23
+	namedCurveP256 namedCurve = 0x0017
 )
 
 var namedCurves = map[namedCurve]bool{

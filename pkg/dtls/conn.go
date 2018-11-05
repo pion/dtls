@@ -27,6 +27,8 @@ type Conn struct {
 	localRandom, remoteRandom           handshakeRandom
 	localCertificate, remoteCertificate *x509.Certificate
 	cookie                              []byte
+
+	serverKeys *handshakeMessageServerKeyExchange
 }
 
 func createConn(isClient bool, nextConn net.Conn) *Conn {
@@ -131,6 +133,8 @@ func (c *Conn) timerThread() {
 					}},
 			})
 			c.lock.RUnlock()
+		case flight5:
+			fmt.Println("flight5")
 		default:
 			panic(fmt.Errorf("Unhandled flight %d", c.currFlight.get()))
 		}
@@ -157,6 +161,13 @@ func (c *Conn) handleHandshakeMessage() error {
 			c.remoteRandom = h.random
 		case *handshakeMessageCertificate:
 			c.remoteCertificate = h.certificate
+		case *handshakeMessageServerKeyExchange:
+			c.serverKeys = h
+		case *handshakeMessageServerHelloDone:
+			if c.serverKeys != nil && c.remoteCertificate != nil {
+				c.outboundSequenceNumber = 2
+				c.currFlight.set(flight5)
+			}
 		default:
 			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
 		}

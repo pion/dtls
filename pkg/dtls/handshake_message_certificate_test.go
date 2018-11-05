@@ -4,8 +4,6 @@ import (
 	"crypto/x509"
 	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageCertificate(t *testing.T) {
@@ -65,7 +63,6 @@ func TestHandshakeMessageCertificate(t *testing.T) {
 	} else {
 		copyCertificatePrivateMembers(c.certificate, parsedCertificate.certificate)
 		if !reflect.DeepEqual(c, parsedCertificate) {
-			assert.Equal(t, c, parsedCertificate)
 			t.Errorf("handshakeMessageCertificate unmarshal: got %#v, want %#v", c, parsedCertificate)
 		}
 	}
