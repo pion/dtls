@@ -4,9 +4,9 @@ package dtls
 type namedCurve uint16
 
 const (
-	namedCurveP256 namedCurve = 0x0017
+	namedCurveX25519 namedCurve = 0x001d
 )
 
 var namedCurves = map[namedCurve]bool{
-	namedCurveP256: true,
+	namedCurveX25519: true,
 }

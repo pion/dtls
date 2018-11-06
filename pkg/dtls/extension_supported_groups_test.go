@@ -6,9 +6,9 @@ import (
 )
 
 func TestExtensionSupportedGroups(t *testing.T) {
-	rawSupportedGroups := []byte{0x0, 0xa, 0x0, 0x4, 0x0, 0x2, 0x0, 0x17}
+	rawSupportedGroups := []byte{0x0, 0xa, 0x0, 0x4, 0x0, 0x2, 0x0, 0x1d}
 	parsedSupportedGroups := &extensionSupportedGroups{
-		supportedGroups: []namedCurve{namedCurveP256},
+		supportedGroups: []namedCurve{namedCurveX25519},
 	}
 
 	raw, err := parsedSupportedGroups.marshal()

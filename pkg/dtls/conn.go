@@ -93,23 +93,23 @@ func (c *Conn) readThread() {
 	}
 }
 
+func (c *Conn) encryptAndSend(pkt *recordLayer) {
+	raw, err := pkt.marshal()
+	if err != nil {
+		panic(err)
+	}
+	c.nextConn.Write(raw)
+}
+
 // Handles scheduled tasks like sending ClientHello
 func (c *Conn) timerThread() {
-	sendPkt := func(pkt *recordLayer) {
-		raw, err := pkt.marshal()
-		if err != nil {
-			panic(err)
-		}
-		c.nextConn.Write(raw)
-	}
-
 	for range c.workerTicker.C {
 		switch c.currFlight.get() {
 		case flight1:
 			fallthrough
 		case flight3:
 			c.lock.RLock()
-			sendPkt(&recordLayer{
+			c.encryptAndSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					sequenceNumber:  c.outboundSequenceNumber,
 					protocolVersion: protocolVersion1_2,
@@ -127,7 +127,7 @@ func (c *Conn) timerThread() {
 						compressionMethods: defaultCompressionMethods,
 						extensions: []extension{
 							&extensionSupportedGroups{
-								supportedGroups: []namedCurve{namedCurveP256},
+								supportedGroups: []namedCurve{namedCurveX25519},
 							},
 						},
 					}},
