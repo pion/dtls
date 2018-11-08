@@ -26,9 +26,8 @@ type Conn struct {
 	cipherSuite                         *cipherSuite // nil if a cipherSuite hasn't been chosen
 	localRandom, remoteRandom           handshakeRandom
 	localCertificate, remoteCertificate *x509.Certificate
+	localKeypair, remoteKeypair         *namedCurveKeypair
 	cookie                              []byte
-
-	serverKeys *handshakeMessageServerKeyExchange
 }
 
 func createConn(isClient bool, nextConn net.Conn) *Conn {
@@ -41,6 +40,7 @@ func createConn(isClient bool, nextConn net.Conn) *Conn {
 		workerTicker: time.NewTicker(initialTickerInterval),
 	}
 	c.localRandom.populate()
+	c.localKeypair, _ = generateKeypair(namedCurveX25519)
 
 	go c.readThread()
 	go c.timerThread()
@@ -127,7 +127,7 @@ func (c *Conn) timerThread() {
 						compressionMethods: defaultCompressionMethods,
 						extensions: []extension{
 							&extensionSupportedGroups{
-								supportedGroups: []namedCurve{namedCurveX25519},
+								supportedGroups: []namedCurve{namedCurveX25519, namedCurveP256},
 							},
 						},
 					}},
@@ -162,9 +162,9 @@ func (c *Conn) handleHandshakeMessage() error {
 		case *handshakeMessageCertificate:
 			c.remoteCertificate = h.certificate
 		case *handshakeMessageServerKeyExchange:
-			c.serverKeys = h
+			c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
 		case *handshakeMessageServerHelloDone:
-			if c.serverKeys != nil && c.remoteCertificate != nil {
+			if c.remoteKeypair != nil && c.remoteCertificate != nil {
 				c.outboundSequenceNumber = 2
 				c.currFlight.set(flight5)
 			}
