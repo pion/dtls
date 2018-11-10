@@ -10,6 +10,8 @@ import (
 const (
 	prfMasterSecretLabel = "master secret"
 	prfKeyExpansionLabel = "key expansion"
+	prfVerifyDataClient  = "client finished"
+	prfVerifyDataServer  = "server finished"
 )
 
 type encryptionKeys struct {
@@ -19,6 +21,12 @@ type encryptionKeys struct {
 	serverWriteKey []byte
 	clientWriteIV  []byte
 	serverWriteIV  []byte
+}
+
+func hmacSHA256(key, data []byte) []byte {
+	mac := hmac.New(sha256.New, key)
+	mac.Write(data)
+	return mac.Sum(nil)
 }
 
 func prfPreMasterSecret(publicKey, privateKey [32]byte, curve namedCurve) ([]byte, error) {
@@ -32,12 +40,6 @@ func prfPreMasterSecret(publicKey, privateKey [32]byte, curve namedCurve) ([]byt
 }
 
 func prfMasterSecret(preMasterSecret, clientRandom, serverRandom []byte) []byte {
-	hmacSHA256 := func(key, data []byte) []byte {
-		mac := hmac.New(sha256.New, key)
-		mac.Write(data)
-		return mac.Sum(nil)
-	}
-
 	seed := append(append([]byte(prfMasterSecretLabel), clientRandom...), serverRandom...)
 	a0 := seed
 	a1 := hmacSHA256(preMasterSecret, a0)
@@ -49,12 +51,6 @@ func prfMasterSecret(preMasterSecret, clientRandom, serverRandom []byte) []byte 
 }
 
 func prfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte) *encryptionKeys {
-	hmacSHA256 := func(key, data []byte) []byte {
-		mac := hmac.New(sha256.New, key)
-		mac.Write(data)
-		return mac.Sum(nil)
-	}
-
 	seed := append(append([]byte(prfKeyExpansionLabel), serverRandom...), clientRandom...)
 	a0 := seed
 	a1 := hmacSHA256(masterSecret, a0)
@@ -75,4 +71,19 @@ func prfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte) *encrypt
 		clientWriteIV:  p[72:88],
 		serverWriteIV:  p[88:104],
 	}
+}
+
+func prfVerifyData(masterSecret, handshakeBodies []byte, label string) []byte {
+	h := sha256.New()
+	h.Write(handshakeBodies)
+
+	seed := append([]byte(label), h.Sum(nil)...)
+	a0 := seed
+	a1 := hmacSHA256(masterSecret, a0)
+	p1 := hmacSHA256(masterSecret, append(a1, seed...))
+	return p1[:12]
+}
+
+func prfClientVerifyData(masterSecret, handshakeBodies []byte) []byte {
+	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataClient)
 }
