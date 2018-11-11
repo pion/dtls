@@ -1,7 +1,10 @@
 package dtls
 
 import (
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"sync"
@@ -15,19 +18,25 @@ const finalTickerInternal = 90 * time.Second
 
 // Conn represents a DTLS connection
 type Conn struct {
-	lock           sync.RWMutex // Internal lock (must not be public)
-	nextConn       net.Conn     // Embedded Conn, typically a udpconn we read/write from
-	fragmentBuffer *fragmentBuffer
-	decrypted      chan []byte // Decrypted Application Data, pull by calling `Read`
+	lock           sync.RWMutex    // Internal lock (must not be public)
+	nextConn       net.Conn        // Embedded Conn, typically a udpconn we read/write from
+	fragmentBuffer *fragmentBuffer // out-of-order and missing fragment handling
+	handshakeCache *handshakeCache // caching of handshake messages for verifyData generation
+	decrypted      chan []byte     // Decrypted Application Data, pull by calling `Read`
 	workerTicker   *time.Ticker
 
-	outboundSequenceNumber              uint64 // uint48
+	outboundEpoch          uint16
+	outboundSequenceNumber uint64 // uint48
+
 	currFlight                          *flight
 	cipherSuite                         *cipherSuite // nil if a cipherSuite hasn't been chosen
 	localRandom, remoteRandom           handshakeRandom
 	localCertificate, remoteCertificate *x509.Certificate
 	localKeypair, remoteKeypair         *namedCurveKeypair
 	cookie                              []byte
+
+	keys                *encryptionKeys
+	localGCM, remoteGCM cipher.AEAD
 }
 
 func createConn(isClient bool, nextConn net.Conn) *Conn {
@@ -35,6 +44,7 @@ func createConn(isClient bool, nextConn net.Conn) *Conn {
 		nextConn:       nextConn,
 		currFlight:     newFlight(isClient),
 		fragmentBuffer: newFragmentBuffer(),
+		handshakeCache: newHandshakeCache(),
 
 		decrypted:    make(chan []byte),
 		workerTicker: time.NewTicker(initialTickerInterval),
@@ -93,11 +103,43 @@ func (c *Conn) readThread() {
 	}
 }
 
-func (c *Conn) encryptAndSend(pkt *recordLayer) {
+func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	raw, err := pkt.marshal()
 	if err != nil {
 		panic(err)
 	}
+
+	if shouldEncrypt {
+		var additionalData [13]byte
+		payload := raw[recordLayerHeaderSize:]
+		raw = raw[:recordLayerHeaderSize]
+
+		nonce := append(append([]byte{}, c.keys.clientWriteIV[:4]...), make([]byte, 8)...)
+		if _, err := rand.Read(nonce[4:]); err != nil {
+			panic(err)
+		}
+
+		// SequenceNumber MUST be set first
+		// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
+		binary.BigEndian.PutUint64(additionalData[:], pkt.recordLayerHeader.sequenceNumber)
+		binary.BigEndian.PutUint16(additionalData[:], pkt.recordLayerHeader.epoch)
+
+		copy(additionalData[8:], raw[:3])
+		additionalData[11] = byte(len(payload) >> 8)
+		additionalData[12] = byte(len(payload))
+
+		encryptedPayload := c.localGCM.Seal(nil, nonce, payload, additionalData[:12])
+		raw = append(append(raw, nonce[4:]...), encryptedPayload...)
+
+		// Update recordLayer size to include explicit nonce
+		binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
+	} else {
+		if h, ok := pkt.content.(*handshake); ok {
+			c.handshakeCache.push(raw[recordLayerHeaderSize:], pkt.recordLayerHeader.epoch,
+				h.handshakeHeader.messageSequence /* isLocal */, true)
+		}
+	}
+
 	c.nextConn.Write(raw)
 }
 
@@ -109,7 +151,7 @@ func (c *Conn) timerThread() {
 			fallthrough
 		case flight3:
 			c.lock.RLock()
-			c.encryptAndSend(&recordLayer{
+			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					sequenceNumber:  c.outboundSequenceNumber,
 					protocolVersion: protocolVersion1_2,
@@ -131,10 +173,47 @@ func (c *Conn) timerThread() {
 							},
 						},
 					}},
-			})
+			}, false)
 			c.lock.RUnlock()
 		case flight5:
-			fmt.Println("flight5")
+			c.lock.RLock()
+			c.internalSend(&recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					sequenceNumber:  c.outboundSequenceNumber,
+					protocolVersion: protocolVersion1_2,
+				},
+				content: &handshake{
+					// sequenceNumber and messageSequence line up, may need to be re-evaluated
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(c.outboundSequenceNumber),
+					},
+					handshakeMessage: &handshakeMessageClientKeyExchange{
+						publicKey: c.localKeypair.publicKey,
+					}},
+			}, false)
+			c.internalSend(&recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					sequenceNumber:  c.outboundSequenceNumber + 1,
+					protocolVersion: protocolVersion1_2,
+				},
+				content: &changeCipherSpec{},
+			}, false)
+			c.internalSend(&recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					epoch:           1,
+					sequenceNumber:  0,
+					protocolVersion: protocolVersion1_2,
+				},
+				content: &handshake{
+					// sequenceNumber and messageSequence line up, may need to be re-evaluated
+					handshakeHeader: handshakeHeader{
+						messageSequence: 0,
+					},
+					handshakeMessage: &handshakeMessageFinished{
+						verifyData: prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake()),
+					}},
+			}, true)
+			c.lock.RUnlock()
 		default:
 			panic(fmt.Errorf("Unhandled flight %d", c.currFlight.get()))
 		}
@@ -145,11 +224,13 @@ func (c *Conn) handleHandshakeMessage() error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	for out := c.fragmentBuffer.pop(); out != nil; out = c.fragmentBuffer.pop() {
+	for out, fragEpoch := c.fragmentBuffer.pop(); out != nil; out, fragEpoch = c.fragmentBuffer.pop() {
 		rawHandshake := &handshake{}
 		if err := rawHandshake.unmarshal(out); err != nil {
 			return err
 		}
+		c.handshakeCache.push(out, fragEpoch,
+			rawHandshake.handshakeHeader.messageSequence /* isLocal */, false)
 
 		switch h := rawHandshake.handshakeMessage.(type) {
 		case *handshakeMessageHelloVerifyRequest:
@@ -165,6 +246,30 @@ func (c *Conn) handleHandshakeMessage() error {
 			c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
 		case *handshakeMessageServerHelloDone:
 			if c.remoteKeypair != nil && c.remoteCertificate != nil {
+				preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
+				if err != nil {
+					panic(err)
+				}
+				clientRandom, err := c.localRandom.marshal()
+				if err != nil {
+					panic(err)
+				}
+				serverRandom, err := c.remoteRandom.marshal()
+				if err != nil {
+					panic(err)
+				}
+
+				c.keys = prfEncryptionKeys(prfMasterSecret(preMasterSecret, clientRandom, serverRandom), clientRandom, serverRandom)
+				c.localGCM, err = newAESGCM(c.keys.clientWriteKey)
+				if err != nil {
+					panic(err)
+				}
+
+				c.remoteGCM, err = newAESGCM(c.keys.serverWriteKey)
+				if err != nil {
+					panic(err)
+				}
+
 				c.outboundSequenceNumber = 2
 				c.currFlight.set(flight5)
 			}

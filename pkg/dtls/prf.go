@@ -8,13 +8,18 @@ import (
 )
 
 const (
-	prfMasterSecretLabel = "master secret"
-	prfKeyExpansionLabel = "key expansion"
-	prfVerifyDataClient  = "client finished"
-	prfVerifyDataServer  = "server finished"
+	prfMasterSecretLabel     = "master secret"
+	prfKeyExpansionLabel     = "key expansion"
+	prfVerifyDataClientLabel = "client finished"
+	prfVerifyDataServerLabel = "server finished"
+
+	prfKeyLen = 16
+	prfMacLen = 0
+	prfIvLen  = 4
 )
 
 type encryptionKeys struct {
+	masterSecret   []byte
 	clientMACKey   []byte
 	serverMACKey   []byte
 	clientWriteKey []byte
@@ -29,13 +34,16 @@ func hmacSHA256(key, data []byte) []byte {
 	return mac.Sum(nil)
 }
 
-func prfPreMasterSecret(publicKey, privateKey [32]byte, curve namedCurve) ([]byte, error) {
+func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte, error) {
 	if curve != namedCurveX25519 {
 		return nil, errInvalidNamedCurve
 	}
 
-	var preMasterSecret [32]byte
-	curve25519.ScalarMult(&preMasterSecret, &privateKey, &publicKey)
+	var preMasterSecret, fixedWidthPrivateKey, fixedWidthPublicKey [32]byte
+	copy(fixedWidthPrivateKey[:], privateKey)
+	copy(fixedWidthPublicKey[:], publicKey)
+
+	curve25519.ScalarMult(&preMasterSecret, &fixedWidthPrivateKey, &fixedWidthPublicKey)
 	return preMasterSecret[:], nil
 }
 
@@ -62,14 +70,33 @@ func prfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte) *encrypt
 	p2 := hmacSHA256(masterSecret, append(a2, seed...))
 	p3 := hmacSHA256(masterSecret, append(a3, seed...))
 	p4 := hmacSHA256(masterSecret, append(a4, seed...))
-	p := append(append(append(p1, p2...), p3...), p4...)
+	keyMaterial := append(append(append(p1, p2...), p3...), p4...)
+
+	clientMACKey := keyMaterial[:prfMacLen]
+	keyMaterial = keyMaterial[prfMacLen:]
+
+	serverMACKey := keyMaterial[:prfMacLen]
+	keyMaterial = keyMaterial[prfMacLen:]
+
+	clientWriteKey := keyMaterial[:prfKeyLen]
+	keyMaterial = keyMaterial[prfKeyLen:]
+
+	serverWriteKey := keyMaterial[:prfKeyLen]
+	keyMaterial = keyMaterial[prfKeyLen:]
+
+	clientWriteIV := keyMaterial[:prfIvLen]
+	keyMaterial = keyMaterial[prfIvLen:]
+
+	serverWriteIV := keyMaterial[:prfIvLen]
+
 	return &encryptionKeys{
-		clientMACKey:   p[:20],
-		serverMACKey:   p[20:40],
-		clientWriteKey: p[40:56],
-		serverWriteKey: p[56:72],
-		clientWriteIV:  p[72:88],
-		serverWriteIV:  p[88:104],
+		masterSecret:   masterSecret,
+		clientMACKey:   clientMACKey,
+		serverMACKey:   serverMACKey,
+		clientWriteKey: clientWriteKey,
+		serverWriteKey: serverWriteKey,
+		clientWriteIV:  clientWriteIV,
+		serverWriteIV:  serverWriteIV,
 	}
 }
 
@@ -84,6 +111,10 @@ func prfVerifyData(masterSecret, handshakeBodies []byte, label string) []byte {
 	return p1[:12]
 }
 
-func prfClientVerifyData(masterSecret, handshakeBodies []byte) []byte {
-	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataClient)
+func prfVerifyDataClient(masterSecret, handshakeBodies []byte) []byte {
+	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataClientLabel)
+}
+
+func prfVerifyDataServer(masterSecret, handshakeBodies []byte) []byte {
+	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataServerLabel)
 }
