@@ -110,7 +110,6 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if shouldEncrypt {
-		var additionalData [13]byte
 		payload := raw[recordLayerHeaderSize:]
 		raw = raw[:recordLayerHeaderSize]
 
@@ -119,17 +118,17 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 			panic(err)
 		}
 
+		var additionalData [13]byte
 		// SequenceNumber MUST be set first
 		// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
 		binary.BigEndian.PutUint64(additionalData[:], pkt.recordLayerHeader.sequenceNumber)
 		binary.BigEndian.PutUint16(additionalData[:], pkt.recordLayerHeader.epoch)
-
 		copy(additionalData[8:], raw[:3])
-		additionalData[11] = byte(len(payload) >> 8)
-		additionalData[12] = byte(len(payload))
+		binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(len(payload)))
 
-		encryptedPayload := c.localGCM.Seal(nil, nonce, payload, additionalData[:12])
-		raw = append(append(raw, nonce[4:]...), encryptedPayload...)
+		encryptedPayload := c.localGCM.Seal(nil, nonce, payload, additionalData[:])
+		encryptedPayload = append(nonce[4:], encryptedPayload...)
+		raw = append(raw, encryptedPayload...)
 
 		// Update recordLayer size to include explicit nonce
 		binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
@@ -207,7 +206,7 @@ func (c *Conn) timerThread() {
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: 0,
+						messageSequence: 3,
 					},
 					handshakeMessage: &handshakeMessageFinished{
 						verifyData: prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake()),
