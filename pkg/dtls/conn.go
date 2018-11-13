@@ -16,6 +16,9 @@ import (
 const initialTickerInterval = time.Second
 const finalTickerInternal = 90 * time.Second
 
+type handshakeMessageHandler func(*Conn) error
+type timerThread func(*Conn)
+
 // Conn represents a DTLS connection
 type Conn struct {
 	lock           sync.RWMutex    // Internal lock (must not be public)
@@ -34,17 +37,23 @@ type Conn struct {
 	localCertificate, remoteCertificate *x509.Certificate
 	localKeypair, remoteKeypair         *namedCurveKeypair
 	cookie                              []byte
+	localVerifyData                     []byte // cached VerifyData
 
 	keys                *encryptionKeys
 	localGCM, remoteGCM cipher.AEAD
+
+	handshakeMessageHandler handshakeMessageHandler
+	timerThread             timerThread
 }
 
-func createConn(isClient bool, nextConn net.Conn) *Conn {
+func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, isClient bool) *Conn {
 	c := &Conn{
-		nextConn:       nextConn,
-		currFlight:     newFlight(isClient),
-		fragmentBuffer: newFragmentBuffer(),
-		handshakeCache: newHandshakeCache(),
+		nextConn:                nextConn,
+		currFlight:              newFlight(isClient),
+		fragmentBuffer:          newFragmentBuffer(),
+		handshakeCache:          newHandshakeCache(),
+		handshakeMessageHandler: handshakeMessageHandler,
+		timerThread:             timerThread,
 
 		decrypted:    make(chan []byte),
 		workerTicker: time.NewTicker(initialTickerInterval),
@@ -53,18 +62,18 @@ func createConn(isClient bool, nextConn net.Conn) *Conn {
 	c.localKeypair, _ = generateKeypair(namedCurveX25519)
 
 	go c.readThread()
-	go c.timerThread()
+	go c.timerThread(c)
 	return c
 }
 
 // Dial establishes a DTLS connection over an existing conn
 func Dial(conn net.Conn) (*Conn, error) {
-	return createConn( /*isClient*/ true, conn), nil
+	return createConn(conn, clientTimerThread, clientHandshakeHandler /*isClient*/, true), nil
 }
 
 // Server listens for incoming DTLS connections
 func Server(conn net.Conn) (*Conn, error) {
-	return createConn( /*isClient*/ false, conn), nil
+	return createConn(conn, serverTimerThread, serverHandshakeHandler /*isClient*/, false), nil
 }
 
 // Read reads data from the connection.
@@ -109,6 +118,11 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 		panic(err)
 	}
 
+	if h, ok := pkt.content.(*handshake); ok {
+		c.handshakeCache.push(raw[recordLayerHeaderSize:], pkt.recordLayerHeader.epoch,
+			h.handshakeHeader.messageSequence /* isLocal */, true)
+	}
+
 	if shouldEncrypt {
 		payload := raw[recordLayerHeaderSize:]
 		raw = raw[:recordLayerHeaderSize]
@@ -132,152 +146,9 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 
 		// Update recordLayer size to include explicit nonce
 		binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
-	} else {
-		if h, ok := pkt.content.(*handshake); ok {
-			c.handshakeCache.push(raw[recordLayerHeaderSize:], pkt.recordLayerHeader.epoch,
-				h.handshakeHeader.messageSequence /* isLocal */, true)
-		}
 	}
 
 	c.nextConn.Write(raw)
-}
-
-// Handles scheduled tasks like sending ClientHello
-func (c *Conn) timerThread() {
-	for range c.workerTicker.C {
-		switch c.currFlight.get() {
-		case flight1:
-			fallthrough
-		case flight3:
-			c.lock.RLock()
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.outboundSequenceNumber,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.outboundSequenceNumber),
-					},
-					handshakeMessage: &handshakeMessageClientHello{
-						version:            protocolVersion1_2,
-						cookie:             c.cookie,
-						random:             c.localRandom,
-						cipherSuites:       defaultCipherSuites,
-						compressionMethods: defaultCompressionMethods,
-						extensions: []extension{
-							&extensionSupportedGroups{
-								supportedGroups: []namedCurve{namedCurveX25519, namedCurveP256},
-							},
-						},
-					}},
-			}, false)
-			c.lock.RUnlock()
-		case flight5:
-			c.lock.RLock()
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.outboundSequenceNumber,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.outboundSequenceNumber),
-					},
-					handshakeMessage: &handshakeMessageClientKeyExchange{
-						publicKey: c.localKeypair.publicKey,
-					}},
-			}, false)
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.outboundSequenceNumber + 1,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &changeCipherSpec{},
-			}, false)
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					epoch:           1,
-					sequenceNumber:  0,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: 3,
-					},
-					handshakeMessage: &handshakeMessageFinished{
-						verifyData: prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake()),
-					}},
-			}, true)
-			c.lock.RUnlock()
-		default:
-			panic(fmt.Errorf("Unhandled flight %d", c.currFlight.get()))
-		}
-	}
-}
-
-func (c *Conn) handleHandshakeMessage() error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	for out, fragEpoch := c.fragmentBuffer.pop(); out != nil; out, fragEpoch = c.fragmentBuffer.pop() {
-		rawHandshake := &handshake{}
-		if err := rawHandshake.unmarshal(out); err != nil {
-			return err
-		}
-		c.handshakeCache.push(out, fragEpoch,
-			rawHandshake.handshakeHeader.messageSequence /* isLocal */, false)
-
-		switch h := rawHandshake.handshakeMessage.(type) {
-		case *handshakeMessageHelloVerifyRequest:
-			c.cookie = append([]byte{}, h.cookie...)
-			c.outboundSequenceNumber = 1
-			c.currFlight.set(flight3)
-		case *handshakeMessageServerHello:
-			c.cipherSuite = h.cipherSuite
-			c.remoteRandom = h.random
-		case *handshakeMessageCertificate:
-			c.remoteCertificate = h.certificate
-		case *handshakeMessageServerKeyExchange:
-			c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
-		case *handshakeMessageServerHelloDone:
-			if c.remoteKeypair != nil && c.remoteCertificate != nil {
-				preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
-				if err != nil {
-					panic(err)
-				}
-				clientRandom, err := c.localRandom.marshal()
-				if err != nil {
-					panic(err)
-				}
-				serverRandom, err := c.remoteRandom.marshal()
-				if err != nil {
-					panic(err)
-				}
-
-				c.keys = prfEncryptionKeys(prfMasterSecret(preMasterSecret, clientRandom, serverRandom), clientRandom, serverRandom)
-				c.localGCM, err = newAESGCM(c.keys.clientWriteKey)
-				if err != nil {
-					panic(err)
-				}
-
-				c.remoteGCM, err = newAESGCM(c.keys.serverWriteKey)
-				if err != nil {
-					panic(err)
-				}
-
-				c.outboundSequenceNumber = 2
-				c.currFlight.set(flight5)
-			}
-		default:
-			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
-		}
-	}
-
-	return nil
 }
 
 func (c *Conn) handleIncoming(buf []byte) error {
@@ -292,7 +163,7 @@ func (c *Conn) handleIncoming(buf []byte) error {
 			return err
 		} else if pushSuccess {
 			// This was a fragmented buffer, therefore a handshake
-			return c.handleHandshakeMessage()
+			return c.handshakeMessageHandler(c)
 		}
 
 		r := &recordLayer{}
