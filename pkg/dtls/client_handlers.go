@@ -11,8 +11,7 @@ func clientHandshakeHandler(c *Conn) error {
 		if err := rawHandshake.unmarshal(out); err != nil {
 			return err
 		}
-		c.handshakeCache.push(out, fragEpoch,
-			rawHandshake.handshakeHeader.messageSequence /* isLocal */, false)
+		c.handshakeCache.push(out, fragEpoch, rawHandshake.handshakeHeader.messageSequence /* isLocal */, false)
 
 		switch h := rawHandshake.handshakeMessage.(type) {
 		case *handshakeMessageHelloVerifyRequest:
@@ -139,7 +138,7 @@ func clientTimerThread(c *Conn) {
 			}, true)
 			c.lock.RUnlock()
 		default:
-			panic(fmt.Errorf("Unhandled flight %d", c.currFlight.get()))
+			panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))
 		}
 	}
 

@@ -2,6 +2,7 @@ package ice
 
 import (
 	"net"
+	"sync"
 	"time"
 )
 
@@ -10,11 +11,12 @@ type Agent struct {
 	udpConn net.PacketConn
 	cache   chan []byte
 
-	dst *net.UDPAddr
+	dstLock sync.RWMutex
+	dst     *net.UDPAddr
 }
 
 // Listen creates a new listening Agent
-func Listen(listenAddr string, dstAddr *net.UDPAddr) (*Agent, error) {
+func Listen(listenAddr string, initialDstAddr *net.UDPAddr) (*Agent, error) {
 	pc, err := net.ListenPacket("udp4", listenAddr)
 	if err != nil {
 		panic(err)
@@ -23,12 +25,15 @@ func Listen(listenAddr string, dstAddr *net.UDPAddr) (*Agent, error) {
 	a := &Agent{
 		udpConn: pc,
 		cache:   make(chan []byte, 100),
-		dst:     dstAddr,
+		dst:     initialDstAddr,
 	}
 	go func() {
 		b := make([]byte, 8192)
 		for {
-			i, _, err := a.udpConn.ReadFrom(b)
+			i, src, err := a.udpConn.ReadFrom(b)
+			a.dstLock.Lock()
+			a.dst = src.(*net.UDPAddr)
+			a.dstLock.Unlock()
 			if err != nil {
 				panic(err)
 			}
@@ -51,6 +56,9 @@ func (a *Agent) Read(p []byte) (int, error) {
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (a *Agent) Write(p []byte) (n int, err error) {
+	a.dstLock.RLock()
+	defer a.dstLock.RUnlock()
+
 	return a.udpConn.WriteTo(p, a.dst)
 }
 

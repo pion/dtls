@@ -10,6 +10,7 @@ import "sync"
   https://tools.ietf.org/html/rfc4347#section-4.2.4
   Client                                          Server
   ------                                          ------
+                                      Waiting                 Flight 0
 
   ClientHello             -------->                           Flight 1
 
@@ -37,7 +38,8 @@ import "sync"
 type flightVal uint8
 
 const (
-	flight1 flightVal = iota + 1
+	flight0 flightVal = iota + 1
+	flight1
 	flight2
 	flight3
 	flight4
@@ -45,13 +47,34 @@ const (
 	flight6
 )
 
+func (f flightVal) String() string {
+	switch f {
+	case flight0:
+		return "Flight 0"
+	case flight1:
+		return "Flight 1"
+	case flight2:
+		return "Flight 2"
+	case flight3:
+		return "Flight 3"
+	case flight4:
+		return "Flight 4"
+	case flight5:
+		return "Flight 5"
+	case flight6:
+		return "Flight 6"
+	default:
+		return "Invalid Flight"
+	}
+}
+
 type flight struct {
 	sync.RWMutex
 	val flightVal
 }
 
 func newFlight(isClient bool) *flight {
-	val := flight2
+	val := flight0
 	if isClient {
 		val = flight1
 	}

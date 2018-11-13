@@ -15,6 +15,7 @@ import (
 
 const initialTickerInterval = time.Second
 const finalTickerInternal = 90 * time.Second
+const cookieLength = 20
 
 type handshakeMessageHandler func(*Conn) error
 type timerThread func(*Conn)
@@ -46,7 +47,7 @@ type Conn struct {
 	timerThread             timerThread
 }
 
-func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, isClient bool) *Conn {
+func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, localCertificate *x509.Certificate, isClient bool) (*Conn, error) {
 	c := &Conn{
 		nextConn:                nextConn,
 		currFlight:              newFlight(isClient),
@@ -54,6 +55,7 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		handshakeCache:          newHandshakeCache(),
 		handshakeMessageHandler: handshakeMessageHandler,
 		timerThread:             timerThread,
+		localCertificate:        localCertificate,
 
 		decrypted:    make(chan []byte),
 		workerTicker: time.NewTicker(initialTickerInterval),
@@ -61,19 +63,29 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 	c.localRandom.populate()
 	c.localKeypair, _ = generateKeypair(namedCurveX25519)
 
+	if !isClient {
+		c.cookie = make([]byte, cookieLength)
+		if _, err := rand.Read(c.cookie); err != nil {
+			return nil, err
+		}
+	}
+
 	go c.readThread()
 	go c.timerThread(c)
-	return c
+	return c, nil
 }
 
 // Dial establishes a DTLS connection over an existing conn
-func Dial(conn net.Conn) (*Conn, error) {
-	return createConn(conn, clientTimerThread, clientHandshakeHandler /*isClient*/, true), nil
+func Dial(conn net.Conn, localCertificate *x509.Certificate) (*Conn, error) {
+	return createConn(conn, clientTimerThread, clientHandshakeHandler, localCertificate /*isClient*/, true)
 }
 
 // Server listens for incoming DTLS connections
-func Server(conn net.Conn) (*Conn, error) {
-	return createConn(conn, serverTimerThread, serverHandshakeHandler /*isClient*/, false), nil
+func Server(conn net.Conn, localCertificate *x509.Certificate) (*Conn, error) {
+	if localCertificate == nil {
+		return nil, errServerMustHaveCertificate
+	}
+	return createConn(conn, serverTimerThread, serverHandshakeHandler, localCertificate /*isClient*/, false)
 }
 
 // Read reads data from the connection.
