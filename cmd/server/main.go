@@ -12,8 +12,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/pions/dtls/internal/ice"
 	"github.com/pions/dtls/pkg/dtls"
-	"github.com/pions/dtls/pkg/ice"
 )
 
 const bufSize = 8192
