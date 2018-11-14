@@ -5,6 +5,8 @@ import (
 	"crypto/cipher"
 )
 
+const aesGCMTagLength = 16
+
 func newAESGCM(key []byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {

@@ -3,6 +3,7 @@ package dtls
 import "errors"
 
 var (
+	errNotEnoughRoomForNonce     = errors.New("dtls: Buffer not long enough to contain nonce")
 	errBufferTooSmall            = errors.New("dtls: buffer is too small")
 	errCertificateUnset          = errors.New("dtls: handshakeMessageCertificate can not be marshalled without a certificate")
 	errCipherSuiteNoIntersection = errors.New("dtls: Client+Server do not support any shared cipher suites")

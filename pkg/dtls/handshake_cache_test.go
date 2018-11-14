@@ -57,7 +57,7 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 	} {
 		h := newHandshakeCache()
 		for _, i := range test.Input {
-			h.push(i.data, i.epoch, i.messageSequence, i.isLocal)
+			h.push(i.data, i.epoch, i.messageSequence, i.isLocal, flight6)
 		}
 		verifyData := h.combinedHandshake()
 		if !bytes.Equal(verifyData, test.Expected) {

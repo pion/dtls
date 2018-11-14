@@ -14,7 +14,15 @@ func newHandshakeCache() *handshakeCache {
 	return &handshakeCache{}
 }
 
-func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, isLocal bool) {
+func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, isLocal bool, currentFlight flightVal) {
+	// Note that in cases where the cookie exchange is used, the initial
+	// ClientHello and HelloVerifyRequest MUST NOT be included in the
+	// CertificateVerify or Finished MAC computations.
+	// https://tools.ietf.org/html/rfc6347#section-4.2.6
+	if currentFlight == flight0 || currentFlight == flight1 || currentFlight == flight2 {
+		return
+	}
+
 	for _, i := range h.cache {
 		if i.isLocal == isLocal &&
 			i.epoch == epoch &&

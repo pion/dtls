@@ -14,7 +14,7 @@ func serverHandshakeHandler(c *Conn) error {
 		if err := rawHandshake.unmarshal(out); err != nil {
 			return err
 		}
-		c.handshakeCache.push(out, fragEpoch, rawHandshake.handshakeHeader.messageSequence /* isLocal */, false)
+		c.handshakeCache.push(out, fragEpoch, rawHandshake.handshakeHeader.messageSequence /* isLocal */, false, c.currFlight.get())
 
 		switch h := rawHandshake.handshakeMessage.(type) {
 		case *handshakeMessageClientHello:

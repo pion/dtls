@@ -124,6 +124,54 @@ func (c *Conn) readThread() {
 	}
 }
 
+func (c *Conn) encryptPacket(pkt *recordLayer, raw []byte) []byte {
+	payload := raw[recordLayerHeaderSize:]
+	raw = raw[:recordLayerHeaderSize]
+
+	nonce := append(append([]byte{}, c.keys.clientWriteIV[:4]...), make([]byte, 8)...)
+	if _, err := rand.Read(nonce[4:]); err != nil {
+		panic(err)
+	}
+
+	var additionalData [13]byte
+	// SequenceNumber MUST be set first
+	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
+	binary.BigEndian.PutUint64(additionalData[:], pkt.recordLayerHeader.sequenceNumber)
+	binary.BigEndian.PutUint16(additionalData[:], pkt.recordLayerHeader.epoch)
+	additionalData[8] = byte(pkt.content.contentType())
+	additionalData[9] = pkt.recordLayerHeader.protocolVersion.major
+	additionalData[10] = pkt.recordLayerHeader.protocolVersion.minor
+	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(len(payload)))
+	encryptedPayload := c.localGCM.Seal(nil, nonce, payload, additionalData[:])
+
+	encryptedPayload = append(nonce[4:], encryptedPayload...)
+	raw = append(raw, encryptedPayload...)
+
+	// Update recordLayer size to include explicit nonce
+	binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
+	return raw
+}
+
+func (c *Conn) decryptPacket(pkt *recordLayer, a *applicationData) ([]byte, error) {
+	if len(a.data) <= 8 {
+		return nil, errNotEnoughRoomForNonce
+	}
+
+	nonce := append(c.keys.serverWriteIV[:4], a.data[0:8]...)
+	out := a.data[8:]
+
+	var additionalData [13]byte
+	// SequenceNumber MUST be set first
+	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
+	binary.BigEndian.PutUint64(additionalData[:], pkt.recordLayerHeader.sequenceNumber)
+	binary.BigEndian.PutUint16(additionalData[:], pkt.recordLayerHeader.epoch)
+	additionalData[8] = byte(pkt.content.contentType())
+	additionalData[9] = pkt.recordLayerHeader.protocolVersion.major
+	additionalData[10] = pkt.recordLayerHeader.protocolVersion.minor
+	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(len(out)-aesGCMTagLength))
+	return c.remoteGCM.Open(out[:0], nonce, out, additionalData[:])
+}
+
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	raw, err := pkt.marshal()
 	if err != nil {
@@ -132,32 +180,11 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 
 	if h, ok := pkt.content.(*handshake); ok {
 		c.handshakeCache.push(raw[recordLayerHeaderSize:], pkt.recordLayerHeader.epoch,
-			h.handshakeHeader.messageSequence /* isLocal */, true)
+			h.handshakeHeader.messageSequence /* isLocal */, true, c.currFlight.get())
 	}
 
 	if shouldEncrypt {
-		payload := raw[recordLayerHeaderSize:]
-		raw = raw[:recordLayerHeaderSize]
-
-		nonce := append(append([]byte{}, c.keys.clientWriteIV[:4]...), make([]byte, 8)...)
-		if _, err := rand.Read(nonce[4:]); err != nil {
-			panic(err)
-		}
-
-		var additionalData [13]byte
-		// SequenceNumber MUST be set first
-		// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
-		binary.BigEndian.PutUint64(additionalData[:], pkt.recordLayerHeader.sequenceNumber)
-		binary.BigEndian.PutUint16(additionalData[:], pkt.recordLayerHeader.epoch)
-		copy(additionalData[8:], raw[:3])
-		binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(len(payload)))
-
-		encryptedPayload := c.localGCM.Seal(nil, nonce, payload, additionalData[:])
-		encryptedPayload = append(nonce[4:], encryptedPayload...)
-		raw = append(raw, encryptedPayload...)
-
-		// Update recordLayer size to include explicit nonce
-		binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
+		raw = c.encryptPacket(pkt, raw)
 	}
 
 	c.nextConn.Write(raw)
@@ -182,9 +209,20 @@ func (c *Conn) handleIncoming(buf []byte) error {
 		if err := r.unmarshal(p); err != nil {
 			return err
 		}
+
 		switch content := r.content.(type) {
 		case *alert:
 			return fmt.Errorf(spew.Sdump(content))
+		case *changeCipherSpec:
+		case *applicationData:
+			decrypted, err := c.decryptPacket(r, content)
+			if err != nil {
+				panic(err)
+			}
+			select {
+			case c.decrypted <- decrypted:
+			default:
+			}
 		default:
 			return fmt.Errorf("Unhandled contentType %d", content.contentType())
 		}

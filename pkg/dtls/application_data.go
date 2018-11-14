@@ -6,6 +6,7 @@ package dtls
 // layer.
 // https://tools.ietf.org/html/rfc5246#section-10
 type applicationData struct {
+	data []byte
 }
 
 func (a applicationData) contentType() contentType {
@@ -13,9 +14,10 @@ func (a applicationData) contentType() contentType {
 }
 
 func (a *applicationData) marshal() ([]byte, error) {
-	return nil, errNotImplemented
+	return append([]byte{}, a.data...), nil
 }
 
 func (a *applicationData) unmarshal(data []byte) error {
-	return errNotImplemented
+	a.data = append([]byte{}, data...)
+	return nil
 }
