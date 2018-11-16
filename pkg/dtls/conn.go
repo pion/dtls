@@ -29,8 +29,9 @@ type Conn struct {
 	decrypted      chan []byte     // Decrypted Application Data, pull by calling `Read`
 	workerTicker   *time.Ticker
 
-	outboundEpoch          uint16
-	outboundSequenceNumber uint64 // uint48
+	remoteHasVerified       bool // Have we seen a handshake finished with a valid hash
+	localEpoch, remoteEpoch uint16
+	localSequenceNumber     uint64 // uint48
 
 	currFlight                          *flight
 	cipherSuite                         *cipherSuite // nil if a cipherSuite hasn't been chosen
@@ -214,6 +215,7 @@ func (c *Conn) handleIncoming(buf []byte) error {
 		case *alert:
 			return fmt.Errorf(spew.Sdump(content))
 		case *changeCipherSpec:
+			c.remoteEpoch++
 		case *applicationData:
 			decrypted, err := c.decryptPacket(r, content)
 			if err != nil {

@@ -16,7 +16,7 @@ func clientHandshakeHandler(c *Conn) error {
 		switch h := rawHandshake.handshakeMessage.(type) {
 		case *handshakeMessageHelloVerifyRequest:
 			c.cookie = append([]byte{}, h.cookie...)
-			c.outboundSequenceNumber = 1
+			c.localSequenceNumber = 1
 			c.currFlight.set(flight3)
 		case *handshakeMessageServerHello:
 			c.cipherSuite = h.cipherSuite
@@ -51,7 +51,7 @@ func clientHandshakeHandler(c *Conn) error {
 					return err
 				}
 
-				c.outboundSequenceNumber = 2
+				c.localSequenceNumber = 2
 				c.currFlight.set(flight5)
 			}
 		default:
@@ -71,13 +71,13 @@ func clientTimerThread(c *Conn) {
 			c.lock.RLock()
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.outboundSequenceNumber,
+					sequenceNumber:  c.localSequenceNumber,
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.outboundSequenceNumber),
+						messageSequence: uint16(c.localSequenceNumber),
 					},
 					handshakeMessage: &handshakeMessageClientHello{
 						version:            protocolVersion1_2,
@@ -95,15 +95,21 @@ func clientTimerThread(c *Conn) {
 			c.lock.RUnlock()
 		case flight5:
 			c.lock.RLock()
+			if c.remoteEpoch != 0 {
+				// Handshake is done
+				c.lock.RUnlock()
+				return
+			}
+
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.outboundSequenceNumber,
+					sequenceNumber:  c.localSequenceNumber,
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.outboundSequenceNumber),
+						messageSequence: uint16(c.localSequenceNumber),
 					},
 					handshakeMessage: &handshakeMessageClientKeyExchange{
 						publicKey: c.localKeypair.publicKey,
@@ -111,7 +117,7 @@ func clientTimerThread(c *Conn) {
 			}, false)
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.outboundSequenceNumber + 1,
+					sequenceNumber:  c.localSequenceNumber + 1,
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &changeCipherSpec{},

@@ -22,7 +22,7 @@ func serverHandshakeHandler(c *Conn) error {
 				if !bytes.Equal(c.cookie, h.cookie) {
 					return errCookieMismatch
 				}
-				c.outboundSequenceNumber = 1
+				c.localSequenceNumber = 1
 				c.currFlight.set(flight4)
 				break
 			}
@@ -50,13 +50,13 @@ func serverTimerThread(c *Conn) {
 			c.lock.RLock()
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.outboundSequenceNumber,
+					sequenceNumber:  c.localSequenceNumber,
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.outboundSequenceNumber),
+						messageSequence: uint16(c.localSequenceNumber),
 					},
 					handshakeMessage: &handshakeMessageHelloVerifyRequest{
 						version: protocolVersion1_2,
