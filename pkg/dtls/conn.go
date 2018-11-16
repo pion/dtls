@@ -4,7 +4,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/x509"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"sync"
@@ -29,6 +28,7 @@ type Conn struct {
 	decrypted      chan []byte     // Decrypted Application Data, pull by calling `Read`
 	workerTicker   *time.Ticker
 
+	isClient                bool
 	remoteHasVerified       bool // Have we seen a handshake finished with a valid hash
 	localEpoch, remoteEpoch uint16
 	localSequenceNumber     uint64 // uint48
@@ -50,6 +50,7 @@ type Conn struct {
 
 func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, localCertificate *x509.Certificate, isClient bool) (*Conn, error) {
 	c := &Conn{
+		isClient:                isClient,
 		nextConn:                nextConn,
 		currFlight:              newFlight(isClient),
 		fragmentBuffer:          newFragmentBuffer(),
@@ -97,11 +98,17 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 	}
 
 	copy(p, out)
-	return len(p), nil
+	return len(out), nil
 }
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (c *Conn) Write(p []byte) (n int, err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.localEpoch == 0 {
+		return 0, errHandshakeInProgress
+	}
+
 	return // TODO encrypt + send ApplicationData
 }
 
@@ -125,54 +132,6 @@ func (c *Conn) readThread() {
 	}
 }
 
-func (c *Conn) encryptPacket(pkt *recordLayer, raw []byte) []byte {
-	payload := raw[recordLayerHeaderSize:]
-	raw = raw[:recordLayerHeaderSize]
-
-	nonce := append(append([]byte{}, c.keys.clientWriteIV[:4]...), make([]byte, 8)...)
-	if _, err := rand.Read(nonce[4:]); err != nil {
-		panic(err)
-	}
-
-	var additionalData [13]byte
-	// SequenceNumber MUST be set first
-	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
-	binary.BigEndian.PutUint64(additionalData[:], pkt.recordLayerHeader.sequenceNumber)
-	binary.BigEndian.PutUint16(additionalData[:], pkt.recordLayerHeader.epoch)
-	additionalData[8] = byte(pkt.content.contentType())
-	additionalData[9] = pkt.recordLayerHeader.protocolVersion.major
-	additionalData[10] = pkt.recordLayerHeader.protocolVersion.minor
-	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(len(payload)))
-	encryptedPayload := c.localGCM.Seal(nil, nonce, payload, additionalData[:])
-
-	encryptedPayload = append(nonce[4:], encryptedPayload...)
-	raw = append(raw, encryptedPayload...)
-
-	// Update recordLayer size to include explicit nonce
-	binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
-	return raw
-}
-
-func (c *Conn) decryptPacket(pkt *recordLayer, a *applicationData) ([]byte, error) {
-	if len(a.data) <= 8 {
-		return nil, errNotEnoughRoomForNonce
-	}
-
-	nonce := append(c.keys.serverWriteIV[:4], a.data[0:8]...)
-	out := a.data[8:]
-
-	var additionalData [13]byte
-	// SequenceNumber MUST be set first
-	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
-	binary.BigEndian.PutUint64(additionalData[:], pkt.recordLayerHeader.sequenceNumber)
-	binary.BigEndian.PutUint16(additionalData[:], pkt.recordLayerHeader.epoch)
-	additionalData[8] = byte(pkt.content.contentType())
-	additionalData[9] = pkt.recordLayerHeader.protocolVersion.major
-	additionalData[10] = pkt.recordLayerHeader.protocolVersion.minor
-	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(len(out)-aesGCMTagLength))
-	return c.remoteGCM.Open(out[:0], nonce, out, additionalData[:])
-}
-
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	raw, err := pkt.marshal()
 	if err != nil {
@@ -185,7 +144,8 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if shouldEncrypt {
-		raw = c.encryptPacket(pkt, raw)
+		// TODO use the proper WriteIV for client/server
+		raw = encryptPacket(pkt, raw, c.keys.clientWriteIV, c.localGCM)
 	}
 
 	c.nextConn.Write(raw)
@@ -198,6 +158,14 @@ func (c *Conn) handleIncoming(buf []byte) error {
 	}
 
 	for _, p := range pkts {
+		if c.remoteEpoch != 0 {
+			// TODO use the proper WriteIV for client/server
+			p, err = decryptPacket(p, c.keys.serverWriteIV, c.remoteGCM)
+			if err != nil {
+				return err
+			}
+		}
+
 		pushSuccess, err := c.fragmentBuffer.push(p)
 		if err != nil {
 			return err
@@ -217,12 +185,8 @@ func (c *Conn) handleIncoming(buf []byte) error {
 		case *changeCipherSpec:
 			c.remoteEpoch++
 		case *applicationData:
-			decrypted, err := c.decryptPacket(r, content)
-			if err != nil {
-				panic(err)
-			}
 			select {
-			case c.decrypted <- decrypted:
+			case c.decrypted <- content.data:
 			default:
 			}
 		default:

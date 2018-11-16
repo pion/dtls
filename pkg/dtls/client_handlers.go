@@ -14,6 +14,7 @@ func clientHandshakeHandler(c *Conn) error {
 		c.handshakeCache.push(out, fragEpoch, rawHandshake.handshakeHeader.messageSequence /* isLocal */, false, c.currFlight.get())
 
 		switch h := rawHandshake.handshakeMessage.(type) {
+		case *handshakeMessageFinished:
 		case *handshakeMessageHelloVerifyRequest:
 			c.cookie = append([]byte{}, h.cookie...)
 			c.localSequenceNumber = 1

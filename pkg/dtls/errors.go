@@ -3,6 +3,8 @@ package dtls
 import "errors"
 
 var (
+	errHandshakeInProgress       = errors.New("dtls: Handshake is in progress")
+	errUnableToDecrypt           = errors.New("dtls: Unable to decrypt")
 	errNotEnoughRoomForNonce     = errors.New("dtls: Buffer not long enough to contain nonce")
 	errBufferTooSmall            = errors.New("dtls: buffer is too small")
 	errCertificateUnset          = errors.New("dtls: handshakeMessageCertificate can not be marshalled without a certificate")

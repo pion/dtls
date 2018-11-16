@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/pions/dtls/internal/ice"
 	"github.com/pions/dtls/pkg/dtls"
@@ -17,11 +19,19 @@ func main() {
 	check(err)
 	defer dtlsConn.Close()
 
-	b := make([]byte, bufSize)
+	go func() {
+		b := make([]byte, bufSize)
+		for {
+			n, err := dtlsConn.Read(b)
+			check(err)
+			fmt.Printf("Got message: %s\n", string(b[:n]))
+		}
+	}()
+
+	reader := bufio.NewReader(os.Stdin)
 	for {
-		n, err := dtlsConn.Read(b)
-		check(err)
-		fmt.Printf("Got message: %s\n", string(b[:n]))
+		text, _ := reader.ReadString('\n')
+		fmt.Println(text)
 	}
 }
 
