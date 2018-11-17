@@ -50,6 +50,8 @@ func (h *handshake) marshal() ([]byte, error) {
 		return nil, errUnableToMarshalFragmented
 	}
 
+	// fmt.Printf("marshal %T\n", h.handshakeMessage)
+
 	msg, err := h.handshakeMessage.marshal()
 	if err != nil {
 		return nil, err
@@ -91,6 +93,8 @@ func (h *handshake) unmarshal(data []byte) error {
 		h.handshakeMessage = &handshakeMessageServerKeyExchange{}
 	case handshakeTypeServerHelloDone:
 		h.handshakeMessage = &handshakeMessageServerHelloDone{}
+	case handshakeTypeClientKeyExchange:
+		h.handshakeMessage = &handshakeMessageClientKeyExchange{}
 	case handshakeTypeFinished:
 		h.handshakeMessage = &handshakeMessageFinished{}
 	default:

@@ -4,9 +4,11 @@ package dtls
 type hashAlgorithm uint16
 
 const (
-	hashAlgorithmSHA1 hashAlgorithm = 2
+	hashAlgorithmSHA1   hashAlgorithm = 2
+	hashAlgorithmSHA256 hashAlgorithm = 4
 )
 
 var hashAlgorithms = map[hashAlgorithm]bool{
-	hashAlgorithmSHA1: true,
+	hashAlgorithmSHA1:   true,
+	hashAlgorithmSHA256: true,
 }
