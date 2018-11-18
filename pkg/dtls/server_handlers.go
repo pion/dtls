@@ -153,7 +153,7 @@ func serverTimerThread(c *Conn) {
 				panic(err)
 			}
 
-			signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveP256, c.localPrivateKey)
+			signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveX25519, c.localPrivateKey)
 			if err != nil {
 				panic(err)
 			}
@@ -170,7 +170,7 @@ func serverTimerThread(c *Conn) {
 					},
 					handshakeMessage: &handshakeMessageServerKeyExchange{
 						ellipticCurveType:  ellipticCurveTypeNamedCurve,
-						namedCurve:         namedCurveP256,
+						namedCurve:         namedCurveX25519,
 						publicKey:          c.localKeypair.publicKey,
 						hashAlgorithm:      hashAlgorithmSHA256,
 						signature:          signature,
