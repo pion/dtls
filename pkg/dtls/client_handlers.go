@@ -22,11 +22,14 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 
 		case *handshakeMessageServerHello:
-			if c.currFlight.get() == flight3 {
+			switch c.currFlight.get() {
+			case flight1:
+				// HelloVerifyRequest can be skipped by the server
+				fallthrough
+			case flight3:
 				c.cipherSuite = h.cipherSuite
 				c.remoteRandom = h.random
 			}
-
 		case *handshakeMessageCertificate:
 			if c.currFlight.get() == flight3 {
 				c.remoteCertificate = h.certificate
