@@ -62,7 +62,7 @@ func decryptPacket(in, remoteWriteIV []byte, remoteGCM cipher.AEAD) ([]byte, err
 		return nil, errNotEnoughRoomForNonce
 	}
 
-	nonce := append(remoteWriteIV[:4], in[recordLayerHeaderSize:recordLayerHeaderSize+8]...)
+	nonce := append(append([]byte{}, remoteWriteIV[:4]...), in[recordLayerHeaderSize:recordLayerHeaderSize+8]...)
 	out := in[recordLayerHeaderSize+8:]
 
 	var additionalData [13]byte
