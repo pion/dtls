@@ -144,7 +144,10 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if shouldEncrypt {
-		raw = encryptPacket(pkt, raw, c.getLocalWriteIV(), c.localGCM)
+		raw, err = encryptPacket(pkt, raw, c.getLocalWriteIV(), c.localGCM)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	c.nextConn.Write(raw)

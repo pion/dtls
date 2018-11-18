@@ -19,13 +19,13 @@ func newAESGCM(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-func encryptPacket(pkt *recordLayer, raw, localWriteIV []byte, localGCM cipher.AEAD) []byte {
+func encryptPacket(pkt *recordLayer, raw, localWriteIV []byte, localGCM cipher.AEAD) ([]byte, error) {
 	payload := raw[recordLayerHeaderSize:]
 	raw = raw[:recordLayerHeaderSize]
 
 	nonce := append(append([]byte{}, localWriteIV[:4]...), make([]byte, 8)...)
 	if _, err := rand.Read(nonce[4:]); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	var additionalData [13]byte
@@ -44,7 +44,7 @@ func encryptPacket(pkt *recordLayer, raw, localWriteIV []byte, localGCM cipher.A
 
 	// Update recordLayer size to include explicit nonce
 	binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
-	return raw
+	return raw, nil
 }
 
 func decryptPacket(in, remoteWriteIV []byte, remoteGCM cipher.AEAD) ([]byte, error) {
