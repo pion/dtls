@@ -149,6 +149,22 @@ func (c *Conn) Close() error {
 	return nil
 }
 
+// RemoteCertificate exposes the remote certificate
+func (c *Conn) RemoteCertificate() *x509.Certificate {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.remoteCertificate
+}
+
+// WritePair exposes the write key pair
+func (c *Conn) WritePair() (clientWriteKey, serverWriteKey []byte) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	clientWriteKey = c.keys.clientWriteKey
+	serverWriteKey = c.keys.serverWriteKey
+	return
+}
+
 // Pulls from nextConn
 func (c *Conn) readThread() {
 	b := make([]byte, 8192)
