@@ -14,29 +14,39 @@ func clientHandshakeHandler(c *Conn) error {
 		c.handshakeCache.push(out, fragEpoch, rawHandshake.handshakeHeader.messageSequence /* isLocal */, false, c.currFlight.get())
 
 		switch h := rawHandshake.handshakeMessage.(type) {
-		case *handshakeMessageFinished:
 		case *handshakeMessageHelloVerifyRequest:
-			c.cookie = append([]byte{}, h.cookie...)
-			c.localSequenceNumber = 1
-			c.currFlight.set(flight3)
+			if c.currFlight.get() == flight1 {
+				c.cookie = append([]byte{}, h.cookie...)
+				c.localSequenceNumber = 1
+				c.currFlight.set(flight3)
+			}
+
 		case *handshakeMessageServerHello:
-			c.cipherSuite = h.cipherSuite
-			c.remoteRandom = h.random
+			if c.currFlight.get() == flight3 {
+				c.cipherSuite = h.cipherSuite
+				c.remoteRandom = h.random
+			}
+
 		case *handshakeMessageCertificate:
-			c.remoteCertificate = h.certificate
+			if c.currFlight.get() == flight3 {
+				c.remoteCertificate = h.certificate
+			}
+
+		// TODO: CertificateRequest
+
 		case *handshakeMessageServerKeyExchange:
-			c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
-		case *handshakeMessageServerHelloDone:
-			if c.remoteKeypair != nil && c.remoteCertificate != nil {
-				preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
-				if err != nil {
-					return err
-				}
+			if c.currFlight.get() == flight3 {
+				c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
+
 				clientRandom, err := c.localRandom.marshal()
 				if err != nil {
 					return err
 				}
 				serverRandom, err := c.remoteRandom.marshal()
+				if err != nil {
+					return err
+				}
+				preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
 				if err != nil {
 					return err
 				}
@@ -51,10 +61,20 @@ func clientHandshakeHandler(c *Conn) error {
 				if err != nil {
 					return err
 				}
+			}
 
+		case *handshakeMessageServerHelloDone:
+			if c.currFlight.get() == flight3 {
 				c.localSequenceNumber = 2
 				c.currFlight.set(flight5)
 			}
+
+		case *handshakeMessageFinished:
+			c.localEpoch = 1
+			c.localSequenceNumber = 1
+			fmt.Println("Handshake finished")
+			// TODO: verify
+
 		default:
 			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
 		}
@@ -96,12 +116,12 @@ func clientTimerThread(c *Conn) {
 			c.lock.RUnlock()
 		case flight5:
 			c.lock.RLock()
+			// TODO: Better way to end handshake
 			if c.remoteEpoch != 0 {
 				// Handshake is done
 				c.lock.RUnlock()
 				return
 			}
-
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					sequenceNumber:  c.localSequenceNumber,
@@ -116,6 +136,7 @@ func clientTimerThread(c *Conn) {
 						publicKey: c.localKeypair.publicKey,
 					}},
 			}, false)
+
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					sequenceNumber:  c.localSequenceNumber + 1,
@@ -128,16 +149,17 @@ func clientTimerThread(c *Conn) {
 				c.localVerifyData = prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake())
 			}
 
+			// TODO: Fix hard-coded epoch & sequenceNumber, taking retransmitting into account.
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					epoch:           1,
-					sequenceNumber:  0,
+					sequenceNumber:  0, // sequenceNumber restarts per epoch
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: 3,
+						messageSequence: uint16(c.localSequenceNumber + 1), // KeyExchange + 1
 					},
 					handshakeMessage: &handshakeMessageFinished{
 						verifyData: c.localVerifyData,
