@@ -91,6 +91,8 @@ func (h *handshake) unmarshal(data []byte) error {
 		h.handshakeMessage = &handshakeMessageServerKeyExchange{}
 	case handshakeTypeServerHelloDone:
 		h.handshakeMessage = &handshakeMessageServerHelloDone{}
+	case handshakeTypeClientKeyExchange:
+		h.handshakeMessage = &handshakeMessageClientKeyExchange{}
 	case handshakeTypeFinished:
 		h.handshakeMessage = &handshakeMessageFinished{}
 	default:
