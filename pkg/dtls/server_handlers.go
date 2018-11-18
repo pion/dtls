@@ -144,6 +144,20 @@ func serverTimerThread(c *Conn) {
 					}},
 			}, false)
 
+			serverRandom, err := c.localRandom.marshal()
+			if err != nil {
+				panic(err)
+			}
+			clientRandom, err := c.remoteRandom.marshal()
+			if err != nil {
+				panic(err)
+			}
+
+			signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveP256, c.localPrivateKey)
+			if err != nil {
+				panic(err)
+			}
+
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					sequenceNumber:  c.localSequenceNumber + 2,
@@ -156,12 +170,11 @@ func serverTimerThread(c *Conn) {
 					},
 					handshakeMessage: &handshakeMessageServerKeyExchange{
 						ellipticCurveType:  ellipticCurveTypeNamedCurve,
-						namedCurve:         c.localKeypair.curve,
+						namedCurve:         namedCurveP256,
 						publicKey:          c.localKeypair.publicKey,
-						hashAlgorithm:      hashAlgorithmSHA1,
+						hashAlgorithm:      hashAlgorithmSHA256,
+						signature:          signature,
 						signatureAlgorithm: signatureAlgorithmECDSA,
-						clientRandom:       &c.remoteRandom,
-						serverRandom:       &c.localRandom,
 					}},
 			}, false)
 

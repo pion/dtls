@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"crypto/cipher"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
 	"fmt"
@@ -37,6 +38,7 @@ type Conn struct {
 	cipherSuite                         *cipherSuite // nil if a cipherSuite hasn't been chosen
 	localRandom, remoteRandom           handshakeRandom
 	localCertificate, remoteCertificate *x509.Certificate
+	localPrivateKey                     *ecdsa.PrivateKey
 	localKeypair, remoteKeypair         *namedCurveKeypair
 	cookie                              []byte
 	localVerifyData                     []byte // cached VerifyData
@@ -48,7 +50,7 @@ type Conn struct {
 	timerThread             timerThread
 }
 
-func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, localCertificate *x509.Certificate, isClient bool) (*Conn, error) {
+func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, localCertificate *x509.Certificate, localPrivateKey *ecdsa.PrivateKey, isClient bool) (*Conn, error) {
 	c := &Conn{
 		isClient:                isClient,
 		nextConn:                nextConn,
@@ -58,6 +60,7 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		handshakeMessageHandler: handshakeMessageHandler,
 		timerThread:             timerThread,
 		localCertificate:        localCertificate,
+		localPrivateKey:         localPrivateKey,
 
 		decrypted:    make(chan []byte),
 		workerTicker: time.NewTicker(initialTickerInterval),
@@ -78,16 +81,16 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 }
 
 // Dial establishes a DTLS connection over an existing conn
-func Dial(conn net.Conn, localCertificate *x509.Certificate) (*Conn, error) {
-	return createConn(conn, clientTimerThread, clientHandshakeHandler, localCertificate /*isClient*/, true)
+func Dial(conn net.Conn, localCertificate *x509.Certificate, localPrivateKey *ecdsa.PrivateKey) (*Conn, error) {
+	return createConn(conn, clientTimerThread, clientHandshakeHandler, localCertificate /*isClient*/, localPrivateKey, true)
 }
 
 // Server listens for incoming DTLS connections
-func Server(conn net.Conn, localCertificate *x509.Certificate) (*Conn, error) {
-	if localCertificate == nil {
+func Server(conn net.Conn, localCertificate *x509.Certificate, localPrivateKey *ecdsa.PrivateKey) (*Conn, error) {
+	if localCertificate == nil || localPrivateKey == nil {
 		return nil, errServerMustHaveCertificate
 	}
-	return createConn(conn, serverTimerThread, serverHandshakeHandler, localCertificate /*isClient*/, false)
+	return createConn(conn, serverTimerThread, serverHandshakeHandler, localCertificate /*isClient*/, localPrivateKey, false)
 }
 
 // Read reads data from the connection.

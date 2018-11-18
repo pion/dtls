@@ -15,7 +15,7 @@ const bufSize = 8192
 func main() {
 	a, _ := ice.Listen("127.0.0.1:5555", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4444})
 
-	dtlsConn, err := dtls.Dial(a /* localCertificate */, nil)
+	dtlsConn, err := dtls.Dial(a /* localCertificate */, nil /* localPrivateKey */, nil)
 	check(err)
 	defer dtlsConn.Close()
 

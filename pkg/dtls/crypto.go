@@ -1,9 +1,13 @@
 package dtls
 
 import (
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 )
@@ -75,4 +79,37 @@ func decryptPacket(in, remoteWriteIV []byte, remoteGCM cipher.AEAD) ([]byte, err
 		return nil, fmt.Errorf("decryptPacket: %v", err)
 	}
 	return append(in[:recordLayerHeaderSize], out...), nil
+}
+
+// If the client provided a "signature_algorithms" extension, then all
+// certificates provided by the server MUST be signed by a
+// hash/signature algorithm pair that appears in that extension
+//
+// https://tools.ietf.org/html/rfc5246#section-7.4.2
+func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, privateKey crypto.PrivateKey) ([]byte, error) {
+	// Sign
+	// - Client Random (32)
+	// - Server Random (32)
+	// - Curve info (3)
+	// - Public Key
+	in := make([]byte, 32+32+3+len(publicKey))
+
+	copy(in[0:], clientRandom)
+	copy(in[32:], serverRandom)
+	in[64] = byte(ellipticCurveTypeNamedCurve)
+	binary.BigEndian.PutUint16(in[65:], uint16(namedCurve))
+	copy(in[67:], publicKey)
+
+	h := sha256.New()
+	h.Write(in)
+	hashed := h.Sum(nil)
+
+	switch p := privateKey.(type) {
+	case *ecdsa.PrivateKey:
+		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
+	case *rsa.PrivateKey:
+		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
+	}
+
+	return nil, errInvalidSignatureAlgorithm
 }

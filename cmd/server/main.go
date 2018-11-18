@@ -21,7 +21,8 @@ const bufSize = 8192
 func main() {
 	a, _ := ice.Listen("127.0.0.1:4444", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5555})
 
-	dtlsConn, err := dtls.Server(a, generateCertificate())
+	certificate, privateKey := generateCertificate()
+	dtlsConn, err := dtls.Server(a, certificate, privateKey)
 	check(err)
 	defer dtlsConn.Close()
 
@@ -33,7 +34,7 @@ func main() {
 	}
 }
 
-func generateCertificate() *x509.Certificate {
+func generateCertificate() (*x509.Certificate, *ecdsa.PrivateKey) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	check(err)
 
@@ -67,7 +68,7 @@ func generateCertificate() *x509.Certificate {
 	cert, err := x509.ParseCertificate(raw)
 	check(err)
 
-	return cert
+	return cert, priv
 }
 
 func check(err error) {
