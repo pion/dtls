@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"crypto"
 	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -50,7 +51,18 @@ type Conn struct {
 	timerThread             timerThread
 }
 
-func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, localCertificate *x509.Certificate, localPrivateKey *ecdsa.PrivateKey, isClient bool) (*Conn, error) {
+func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, certificate *x509.Certificate, privateKey crypto.PrivateKey, isClient bool) (*Conn, error) {
+	var localPrivateKey *ecdsa.PrivateKey
+
+	if privateKey != nil {
+		switch k := privateKey.(type) {
+		case *ecdsa.PrivateKey:
+			localPrivateKey = k
+		default:
+			return nil, errInvalidPrivateKey
+		}
+	}
+
 	c := &Conn{
 		isClient:                isClient,
 		nextConn:                nextConn,
@@ -59,7 +71,7 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		handshakeCache:          newHandshakeCache(),
 		handshakeMessageHandler: handshakeMessageHandler,
 		timerThread:             timerThread,
-		localCertificate:        localCertificate,
+		localCertificate:        certificate,
 		localPrivateKey:         localPrivateKey,
 
 		decrypted:    make(chan []byte),
@@ -81,16 +93,16 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 }
 
 // Dial establishes a DTLS connection over an existing conn
-func Dial(conn net.Conn, localCertificate *x509.Certificate, localPrivateKey *ecdsa.PrivateKey) (*Conn, error) {
-	return createConn(conn, clientTimerThread, clientHandshakeHandler, localCertificate /*isClient*/, localPrivateKey, true)
+func Dial(conn net.Conn, certificate *x509.Certificate, privateKey crypto.PrivateKey) (*Conn, error) {
+	return createConn(conn, clientTimerThread, clientHandshakeHandler, certificate /*isClient*/, privateKey, true)
 }
 
 // Server listens for incoming DTLS connections
-func Server(conn net.Conn, localCertificate *x509.Certificate, localPrivateKey *ecdsa.PrivateKey) (*Conn, error) {
-	if localCertificate == nil || localPrivateKey == nil {
+func Server(conn net.Conn, certificate *x509.Certificate, privateKey crypto.PrivateKey) (*Conn, error) {
+	if certificate == nil || privateKey == nil {
 		return nil, errServerMustHaveCertificate
 	}
-	return createConn(conn, serverTimerThread, serverHandshakeHandler, localCertificate /*isClient*/, localPrivateKey, false)
+	return createConn(conn, serverTimerThread, serverHandshakeHandler, certificate /*isClient*/, privateKey, false)
 }
 
 // Read reads data from the connection.

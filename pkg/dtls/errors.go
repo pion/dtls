@@ -25,6 +25,7 @@ var (
 	errInvalidHashAlgorithm      = errors.New("dtls: invalid hash algorithm")
 	errInvalidNamedCurve         = errors.New("dtls: invalid named curve")
 	errInvalidSignatureAlgorithm = errors.New("dtls: invalid signature algorithm")
+	errInvalidPrivateKey         = errors.New("dtls: invalid private key type")
 	errLengthMismatch            = errors.New("dtls: data length and declared length do not match")
 	errNotImplemented            = errors.New("dtls: feature has not been implemented yet")
 	errSequenceNumberOverflow    = errors.New("dtls: sequence number overflow")
