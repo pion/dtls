@@ -37,8 +37,6 @@ func clientHandshakeHandler(c *Conn) error {
 				c.remoteCertificate = h.certificate
 			}
 
-		// TODO: CertificateRequest
-
 		case *handshakeMessageServerKeyExchange:
 			if c.currFlight.get() == flight3 {
 				c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
@@ -67,6 +65,9 @@ func clientHandshakeHandler(c *Conn) error {
 					return err
 				}
 			}
+
+		case *handshakeMessageCertificateRequest:
+			// TODO
 
 		case *handshakeMessageServerHelloDone:
 			if c.currFlight.get() == flight3 {
@@ -127,6 +128,7 @@ func clientTimerThread(c *Conn) {
 				c.lock.RUnlock()
 				return
 			}
+
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					sequenceNumber:  c.localSequenceNumber,
@@ -137,6 +139,21 @@ func clientTimerThread(c *Conn) {
 					handshakeHeader: handshakeHeader{
 						messageSequence: uint16(c.localSequenceNumber),
 					},
+					handshakeMessage: &handshakeMessageCertificate{
+						certificate: c.localCertificate,
+					}},
+			}, false)
+
+			c.internalSend(&recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					sequenceNumber:  c.localSequenceNumber + 1,
+					protocolVersion: protocolVersion1_2,
+				},
+				content: &handshake{
+					// sequenceNumber and messageSequence line up, may need to be re-evaluated
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(c.localSequenceNumber + 1),
+					},
 					handshakeMessage: &handshakeMessageClientKeyExchange{
 						publicKey: c.localKeypair.publicKey,
 					}},
@@ -144,7 +161,7 @@ func clientTimerThread(c *Conn) {
 
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber + 1,
+					sequenceNumber:  c.localSequenceNumber + 2,
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &changeCipherSpec{},
@@ -164,7 +181,7 @@ func clientTimerThread(c *Conn) {
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber + 1), // KeyExchange + 1
+						messageSequence: uint16(c.localSequenceNumber + 2), // KeyExchange + 1
 					},
 					handshakeMessage: &handshakeMessageFinished{
 						verifyData: c.localVerifyData,

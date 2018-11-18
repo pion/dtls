@@ -34,6 +34,11 @@ func serverHandshakeHandler(c *Conn) error {
 			c.cipherSuite = h.cipherSuites[0]
 			c.currFlight.set(flight2)
 
+		case *handshakeMessageCertificate:
+			if c.currFlight.get() == flight4 {
+				c.remoteCertificate = h.certificate
+			}
+
 		case *handshakeMessageClientKeyExchange:
 			if c.currFlight.get() == flight4 {
 				c.remoteKeypair = &namedCurveKeypair{namedCurveX25519, h.publicKey, nil}
