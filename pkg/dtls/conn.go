@@ -144,11 +144,24 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if shouldEncrypt {
-		// TODO use the proper WriteIV for client/server
-		raw = encryptPacket(pkt, raw, c.keys.clientWriteIV, c.localGCM)
+		raw = encryptPacket(pkt, raw, c.getLocalWriteIV(), c.localGCM)
 	}
 
 	c.nextConn.Write(raw)
+}
+
+func (c *Conn) getLocalWriteIV() []byte {
+	if c.isClient {
+		return c.keys.clientWriteIV
+	}
+	return c.keys.serverWriteIV
+}
+
+func (c *Conn) getRemoteWriteIV() []byte {
+	if c.isClient {
+		return c.keys.serverWriteIV
+	}
+	return c.keys.clientWriteIV
 }
 
 func (c *Conn) handleIncoming(buf []byte) error {
@@ -158,9 +171,24 @@ func (c *Conn) handleIncoming(buf []byte) error {
 	}
 
 	for _, p := range pkts {
+
+		// TODO: avoid separate unmarshal
+		h := &recordLayerHeader{}
+		if err := h.unmarshal(p); err != nil {
+			return err
+		}
+		if h.epoch < c.remoteEpoch {
+			fmt.Println("handleIncoming: old epoch, dropping packet")
+			return nil
+		}
+
 		if c.remoteEpoch != 0 {
-			// TODO use the proper WriteIV for client/server
-			p, err = decryptPacket(p, c.keys.serverWriteIV, c.remoteGCM)
+			if c.remoteGCM == nil {
+				fmt.Println("handleIncoming: Handshake not finished, dropping packet")
+				return nil
+			}
+			p, err = decryptPacket(p, c.getRemoteWriteIV(), c.remoteGCM)
+
 			if err != nil {
 				return err
 			}

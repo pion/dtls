@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 )
 
 const aesGCMTagLength = 16
@@ -71,7 +72,7 @@ func decryptPacket(in, remoteWriteIV []byte, remoteGCM cipher.AEAD) ([]byte, err
 	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(len(out)-aesGCMTagLength))
 	out, err := remoteGCM.Open(out[:0], nonce, out, additionalData[:])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decryptPacket: %v", err)
 	}
 	return append(in[:recordLayerHeaderSize], out...), nil
 }

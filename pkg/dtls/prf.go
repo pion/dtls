@@ -3,6 +3,7 @@ package dtls
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"fmt"
 
 	"golang.org/x/crypto/curve25519"
 )
@@ -26,6 +27,25 @@ type encryptionKeys struct {
 	serverWriteKey []byte
 	clientWriteIV  []byte
 	serverWriteIV  []byte
+}
+
+func (e *encryptionKeys) String() string {
+	return fmt.Sprintf(`encryptionKeys:
+- masterSecret: %#v
+- clientMACKey: %#v
+- serverMACKey: %#v
+- clientWriteKey: %#v
+- serverWriteKey: %#v
+- clientWriteIV: %#v
+- serverWriteIV: %#v
+`,
+		e.masterSecret,
+		e.clientMACKey,
+		e.serverMACKey,
+		e.clientWriteKey,
+		e.serverWriteKey,
+		e.clientWriteIV,
+		e.serverWriteIV)
 }
 
 func hmacSHA256(key, data []byte) []byte {
