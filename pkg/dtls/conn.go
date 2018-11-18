@@ -49,6 +49,7 @@ type Conn struct {
 
 	handshakeMessageHandler handshakeMessageHandler
 	timerThread             timerThread
+	handshakeCompleted      chan struct{}
 }
 
 func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, certificate *x509.Certificate, privateKey crypto.PrivateKey, isClient bool) (*Conn, error) {
@@ -74,8 +75,9 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		localCertificate:        certificate,
 		localPrivateKey:         localPrivateKey,
 
-		decrypted:    make(chan []byte),
-		workerTicker: time.NewTicker(initialTickerInterval),
+		decrypted:          make(chan []byte),
+		workerTicker:       time.NewTicker(initialTickerInterval),
+		handshakeCompleted: make(chan struct{}),
 	}
 	c.localRandom.populate()
 	c.localKeypair, _ = generateKeypair(namedCurveX25519)
@@ -89,6 +91,8 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 
 	go c.readThread()
 	go c.timerThread(c)
+
+	<-c.handshakeCompleted
 	return c, nil
 }
 
@@ -213,9 +217,9 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 			fmt.Println("handleIncoming: Handshake not finished, dropping packet")
 			return nil
 		}
+
 		var err error
 		buf, err = decryptPacket(buf, c.getRemoteWriteIV(), c.remoteGCM)
-
 		if err != nil {
 			return err
 		}

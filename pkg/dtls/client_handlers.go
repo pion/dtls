@@ -49,6 +49,7 @@ func clientHandshakeHandler(c *Conn) error {
 				if err != nil {
 					return err
 				}
+
 				preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
 				if err != nil {
 					return err
@@ -76,10 +77,19 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 
 		case *handshakeMessageFinished:
-			c.localEpoch = 1
-			c.localSequenceNumber = 1
-			fmt.Println("Handshake finished")
-			// TODO: verify
+			if c.currFlight.get() == flight5 {
+				c.localEpoch = 1
+				c.localEpoch = 1
+				c.localSequenceNumber = 1
+				// TODO: verify
+
+				// Signal handshake completed
+				select {
+				case <-c.handshakeCompleted:
+				default:
+					close(c.handshakeCompleted)
+				}
+			}
 
 		default:
 			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())

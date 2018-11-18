@@ -51,6 +51,7 @@ func serverHandshakeHandler(c *Conn) error {
 				if err != nil {
 					return err
 				}
+
 				preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
 				if err != nil {
 					return err
@@ -70,9 +71,8 @@ func serverHandshakeHandler(c *Conn) error {
 
 		case *handshakeMessageFinished:
 			if c.currFlight.get() == flight4 {
-				fmt.Println("Handshake finished")
 				// TODO: verify
-				c.localSequenceNumber = 6
+				c.localSequenceNumber = 5
 				c.currFlight.set(flight6)
 			}
 
@@ -198,6 +198,7 @@ func serverTimerThread(c *Conn) {
 					handshakeMessage: &handshakeMessageServerHelloDone{},
 				},
 			}, false)
+
 			c.lock.RUnlock()
 
 		case flight6:
@@ -231,6 +232,13 @@ func serverTimerThread(c *Conn) {
 					}},
 			}, true)
 			c.lock.RUnlock()
+
+			// Signal handshake completed
+			select {
+			case <-c.handshakeCompleted:
+			default:
+				close(c.handshakeCompleted)
+			}
 
 		default:
 			panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))

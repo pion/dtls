@@ -26,6 +26,16 @@ func main() {
 	check(err)
 	defer dtlsConn.Close()
 
+	fmt.Println("Connected")
+
+	go func() {
+		c := time.Tick(5 * time.Second)
+		for range c {
+			_, err := dtlsConn.Write([]byte("server_message"))
+			check(err)
+		}
+	}()
+
 	b := make([]byte, bufSize)
 	for {
 		n, err := dtlsConn.Read(b)
