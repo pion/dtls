@@ -177,55 +177,63 @@ func (c *Conn) handleIncoming(buf []byte) error {
 	}
 
 	for _, p := range pkts {
-
-		// TODO: avoid separate unmarshal
-		h := &recordLayerHeader{}
-		if err := h.unmarshal(p); err != nil {
-			return err
-		}
-		if h.epoch < c.remoteEpoch {
-			fmt.Println("handleIncoming: old epoch, dropping packet")
-			return nil
-		}
-
-		if c.remoteEpoch != 0 {
-			if c.remoteGCM == nil {
-				fmt.Println("handleIncoming: Handshake not finished, dropping packet")
-				return nil
-			}
-			p, err = decryptPacket(p, c.getRemoteWriteIV(), c.remoteGCM)
-
-			if err != nil {
-				return err
-			}
-		}
-
-		pushSuccess, err := c.fragmentBuffer.push(p)
+		err := c.handleIncomingPacket(p)
 		if err != nil {
 			return err
-		} else if pushSuccess {
-			// This was a fragmented buffer, therefore a handshake
-			return c.handshakeMessageHandler(c)
 		}
+	}
+	return nil
+}
 
-		r := &recordLayer{}
-		if err := r.unmarshal(p); err != nil {
+func (c *Conn) handleIncomingPacket(buf []byte) error {
+	// TODO: avoid separate unmarshal
+	h := &recordLayerHeader{}
+	if err := h.unmarshal(buf); err != nil {
+		return err
+	}
+	if h.epoch < c.remoteEpoch {
+		fmt.Println("handleIncoming: old epoch, dropping packet")
+		return nil
+	}
+
+	if c.remoteEpoch != 0 {
+		if c.remoteGCM == nil {
+			fmt.Println("handleIncoming: Handshake not finished, dropping packet")
+			return nil
+		}
+		var err error
+		buf, err = decryptPacket(buf, c.getRemoteWriteIV(), c.remoteGCM)
+
+		if err != nil {
 			return err
 		}
+	}
 
-		switch content := r.content.(type) {
-		case *alert:
-			return fmt.Errorf(spew.Sdump(content))
-		case *changeCipherSpec:
-			c.remoteEpoch++
-		case *applicationData:
-			select {
-			case c.decrypted <- content.data:
-			default:
-			}
+	pushSuccess, err := c.fragmentBuffer.push(buf)
+	if err != nil {
+		return err
+	} else if pushSuccess {
+		// This was a fragmented buffer, therefore a handshake
+		return c.handshakeMessageHandler(c)
+	}
+
+	r := &recordLayer{}
+	if err := r.unmarshal(buf); err != nil {
+		return err
+	}
+
+	switch content := r.content.(type) {
+	case *alert:
+		return fmt.Errorf(spew.Sdump(content))
+	case *changeCipherSpec:
+		c.remoteEpoch++
+	case *applicationData:
+		select {
+		case c.decrypted <- content.data:
 		default:
-			return fmt.Errorf("Unhandled contentType %d", content.contentType())
 		}
+	default:
+		return fmt.Errorf("Unhandled contentType %d", content.contentType())
 	}
 	return nil
 }
