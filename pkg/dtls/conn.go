@@ -128,6 +128,18 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 		return 0, errHandshakeInProgress
 	}
 
+	// TODO: Increment localSequenceNumber?
+	c.internalSend(&recordLayer{
+		recordLayerHeader: recordLayerHeader{
+			epoch:           c.localEpoch,
+			sequenceNumber:  c.localSequenceNumber,
+			protocolVersion: protocolVersion1_2,
+		},
+		content: &applicationData{
+			data: p,
+		},
+	}, true)
+
 	return // TODO encrypt + send ApplicationData
 }
 

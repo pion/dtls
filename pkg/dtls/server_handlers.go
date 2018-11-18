@@ -72,6 +72,7 @@ func serverHandshakeHandler(c *Conn) error {
 		case *handshakeMessageFinished:
 			if c.currFlight.get() == flight4 {
 				// TODO: verify
+				c.localEpoch = 1
 				c.localSequenceNumber = 5
 				c.currFlight.set(flight6)
 			}
@@ -232,6 +233,8 @@ func serverTimerThread(c *Conn) {
 					}},
 			}, true)
 			c.lock.RUnlock()
+
+			// TODO: Stop sending handshakeMessageFinished forever
 
 			// Signal handshake completed
 			select {
