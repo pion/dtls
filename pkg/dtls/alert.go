@@ -1,11 +1,24 @@
 package dtls
 
+import "fmt"
+
 type alertLevel byte
 
 const (
 	alertLevelWarning alertLevel = 1
 	alertLevelFatal              = 2
 )
+
+func (a alertLevel) String() string {
+	switch a {
+	case alertLevelWarning:
+		return "LevelWarning"
+	case alertLevelFatal:
+		return "LevelFatal"
+	default:
+		return "Invalid alert level"
+	}
+}
 
 type alertDescription byte
 
@@ -36,6 +49,63 @@ const (
 	alertNoRenegotiation                         = 100
 	alertUnsupportedExtension                    = 110
 )
+
+func (a alertDescription) String() string {
+	switch a {
+	case alertCloseNotify:
+		return "CloseNotify"
+	case alertUnexpectedMessage:
+		return "UnexpectedMessage"
+	case alertBadRecordMac:
+		return "BadRecordMac"
+	case alertDecryptionFailed:
+		return "DecryptionFailed"
+	case alertRecordOverflow:
+		return "RecordOverflow"
+	case alertDecompressionFailure:
+		return "DecompressionFailure"
+	case alertHandshakeFailure:
+		return "HandshakeFailure"
+	case alertNoCertificate:
+		return "NoCertificate"
+	case alertBadCertificate:
+		return "BadCertificate"
+	case alertUnsupportedCertificate:
+		return "UnsupportedCertificate"
+	case alertCertificateRevoked:
+		return "CertificateRevoked"
+	case alertCertificateExpired:
+		return "CertificateExpired"
+	case alertCertificateUnknown:
+		return "CertificateUnknown"
+	case alertIllegalParameter:
+		return "IllegalParameter"
+	case alertUnknownCA:
+		return "UnknownCA"
+	case alertAccessDenied:
+		return "AccessDenied"
+	case alertDecodeError:
+		return "DecodeError"
+	case alertDecryptError:
+		return "DecryptError"
+	case alertExportRestriction:
+		return "ExportRestriction"
+	case alertProtocolVersion:
+		return "ProtocolVersion"
+	case alertInsufficientSecurity:
+		return "InsufficientSecurity"
+	case alertInternalError:
+		return "InternalError"
+	case alertUserCanceled:
+		return "UserCanceled"
+	case alertNoRenegotiation:
+		return "NoRenegotiation"
+	case alertUnsupportedExtension:
+		return "UnsupportedExtension"
+	default:
+		return "Invalid alert description"
+	}
+}
 
 // One of the content types supported by the TLS record layer is the
 // alert type.  Alert messages convey the severity of the message
@@ -68,4 +138,8 @@ func (a *alert) unmarshal(data []byte) error {
 	a.alertLevel = alertLevel(data[0])
 	a.alertDescription = alertDescription(data[1])
 	return nil
+}
+
+func (a *alert) String() string {
+	return fmt.Sprintf("Alert %s: %s", a.alertLevel, a.alertDescription)
 }
