@@ -55,8 +55,8 @@ func decryptPacket(in, remoteWriteIV []byte, remoteGCM cipher.AEAD) ([]byte, err
 	var h recordLayerHeader
 	if err := h.unmarshal(in); err != nil {
 		return nil, err
-	} else if h.contentType != contentTypeHandshake && h.contentType != contentTypeApplicationData {
-		// Only ApplicationData + Handshake can be encrypted
+	} else if h.contentType == contentTypeChangeCipherSpec {
+		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
 	} else if len(in) <= (8 + recordLayerHeaderSize) {
 		return nil, errNotEnoughRoomForNonce
