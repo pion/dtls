@@ -179,8 +179,8 @@ func serverTimerThread(c *Conn) {
 						namedCurve:         namedCurveX25519,
 						publicKey:          c.localKeypair.publicKey,
 						hashAlgorithm:      hashAlgorithmSHA256,
-						signature:          signature,
 						signatureAlgorithm: signatureAlgorithmECDSA,
+						signature:          signature,
 					}},
 			}, false)
 

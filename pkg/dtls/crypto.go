@@ -87,21 +87,16 @@ func decryptPacket(in, remoteWriteIV []byte, remoteGCM cipher.AEAD) ([]byte, err
 //
 // https://tools.ietf.org/html/rfc5246#section-7.4.2
 func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, privateKey crypto.PrivateKey) ([]byte, error) {
-	// Sign
-	// - Client Random (32)
-	// - Server Random (32)
-	// - Curve info (3)
-	// - Public Key
-	in := make([]byte, 32+32+3+len(publicKey))
-
-	copy(in[0:], clientRandom)
-	copy(in[32:], serverRandom)
-	in[64] = byte(ellipticCurveTypeNamedCurve)
-	binary.BigEndian.PutUint16(in[65:], uint16(namedCurve))
-	copy(in[67:], publicKey)
+	serverECDHParams := make([]byte, 4)
+	serverECDHParams[0] = 3 // named curve
+	binary.BigEndian.PutUint16(serverECDHParams[1:], uint16(namedCurve))
+	serverECDHParams[3] = byte(len(publicKey))
 
 	h := sha256.New()
-	h.Write(in)
+	h.Write(clientRandom)
+	h.Write(serverRandom)
+	h.Write(serverECDHParams)
+	h.Write(publicKey)
 	hashed := h.Sum(nil)
 
 	switch p := privateKey.(type) {
