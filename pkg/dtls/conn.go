@@ -121,14 +121,13 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 }
 
 // Write writes len(p) bytes from p to the DTLS connection
-func (c *Conn) Write(p []byte) (n int, err error) {
+func (c *Conn) Write(p []byte) (int, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if c.localEpoch == 0 {
 		return 0, errHandshakeInProgress
 	}
 
-	// TODO: Increment localSequenceNumber?
 	c.internalSend(&recordLayer{
 		recordLayerHeader: recordLayerHeader{
 			epoch:           c.localEpoch,
@@ -139,8 +138,9 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 			data: p,
 		},
 	}, true)
+	c.localSequenceNumber++
 
-	return // TODO encrypt + send ApplicationData
+	return len(p), nil
 }
 
 // Close closes the connection.
