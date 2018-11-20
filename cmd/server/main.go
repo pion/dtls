@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"os"
 	"time"
 
 	"github.com/pions/dtls/internal/ice"
@@ -29,18 +31,20 @@ func main() {
 	fmt.Println("Connected")
 
 	go func() {
-		c := time.Tick(5 * time.Second)
-		for range c {
-			_, err := dtlsConn.Write([]byte("server_message"))
+		b := make([]byte, bufSize)
+		for {
+			n, err := dtlsConn.Read(b)
 			check(err)
+			fmt.Printf("Got message: %s\n", string(b[:n]))
 		}
 	}()
 
-	b := make([]byte, bufSize)
+	reader := bufio.NewReader(os.Stdin)
 	for {
-		n, err := dtlsConn.Read(b)
+		text, err := reader.ReadString('\n')
 		check(err)
-		fmt.Printf("Got message: %s\n", string(b[:n]))
+		_, err = dtlsConn.Write([]byte(text))
+		check(err)
 	}
 }
 
