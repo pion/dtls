@@ -11,11 +11,6 @@ I am happy to accept contributions for older implementations, but won't be imple
 * Forward secrecy using ECDHE; with curve25519 (non-PFS will not be supported)
 * AES_128_GCM (More ciphers welcome!)
 
-# Planned Features
-* Chacha20Poly1305
-* use_srtp
-* Mandatory Extended master secret
-
 # Testing it out
 ## OpenSSL
 ```
