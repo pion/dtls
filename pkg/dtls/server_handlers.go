@@ -213,7 +213,7 @@ func serverTimerThread(c *Conn) {
 			}, false)
 
 			if len(c.localVerifyData) == 0 {
-				c.localVerifyData = prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake())
+				c.localVerifyData = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake())
 			}
 
 			c.internalSend(&recordLayer{
@@ -234,8 +234,6 @@ func serverTimerThread(c *Conn) {
 			}, true)
 			c.lock.RUnlock()
 
-			// TODO: Stop sending handshakeMessageFinished forever
-
 			// Signal handshake completed
 			select {
 			case <-c.handshakeCompleted:
@@ -243,6 +241,8 @@ func serverTimerThread(c *Conn) {
 				close(c.handshakeCompleted)
 			}
 
+			// TODO: Better way to end handshake
+			return
 		default:
 			panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))
 		}

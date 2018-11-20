@@ -7,12 +7,11 @@ This will only be targeting DTLS 1.2, and the most modern/common cipher suites.
 I am happy to accept contributions for older implementations, but won't be implementing it myself
 
 # Current features
-* DTLS 1.2 Client (No DTLS 1.0)
+* DTLS 1.2 Client/Server (No DTLS 1.0)
 * Forward secrecy using ECDHE; with curve25519 (non-PFS will not be supported)
 * AES_128_GCM (More ciphers welcome!)
 
 # Planned Features
-* DTLS 1.2 Server
 * Chacha20Poly1305
 * use_srtp
 * Mandatory Extended master secret

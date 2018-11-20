@@ -55,7 +55,7 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 			Expected: []byte{0x00, 0x01, 0x02},
 		},
 	} {
-		h := newHandshakeCache()
+		h := newHandshakeCache(true)
 		for _, i := range test.Input {
 			h.push(i.data, i.epoch, i.messageSequence, i.isLocal, flight6)
 		}

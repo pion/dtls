@@ -7,11 +7,12 @@ type handshakeCacheItem struct {
 }
 
 type handshakeCache struct {
-	cache []handshakeCacheItem
+	isClient bool
+	cache    []handshakeCacheItem
 }
 
-func newHandshakeCache() *handshakeCache {
-	return &handshakeCache{}
+func newHandshakeCache(isClient bool) *handshakeCache {
+	return &handshakeCache{isClient: isClient}
 }
 
 func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, isLocal bool, currentFlight flightVal) {
@@ -19,7 +20,8 @@ func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, isLoca
 	// ClientHello and HelloVerifyRequest MUST NOT be included in the
 	// CertificateVerify or Finished MAC computations.
 	// https://tools.ietf.org/html/rfc6347#section-4.2.6
-	if currentFlight == flight0 || currentFlight == flight1 || currentFlight == flight2 {
+	if currentFlight == flight0 || currentFlight == flight1 ||
+		((currentFlight == flight2) && (h.isClient || (!h.isClient && isLocal))) {
 		return
 	}
 

@@ -69,7 +69,7 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		nextConn:                nextConn,
 		currFlight:              newFlight(isClient),
 		fragmentBuffer:          newFragmentBuffer(),
-		handshakeCache:          newHandshakeCache(),
+		handshakeCache:          newHandshakeCache(isClient),
 		handshakeMessageHandler: handshakeMessageHandler,
 		timerThread:             timerThread,
 		localCertificate:        certificate,
