@@ -108,3 +108,26 @@ func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 
 	return nil, errInvalidSignatureAlgorithm
 }
+
+// If the server has sent a CertificateRequest message, the client MUST send the Certificate
+// message.  The ClientKeyExchange message is now sent, and the content
+// of that message will depend on the public key algorithm selected
+// between the ClientHello and the ServerHello.  If the client has sent
+// a certificate with signing ability, a digitally-signed
+// CertificateVerify message is sent to explicitly verify possession of
+// the private key in the certificate.
+// https://tools.ietf.org/html/rfc5246#section-7.3
+func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.PrivateKey) ([]byte, error) {
+	h := sha256.New()
+	h.Write(handshakeBodies)
+	hashed := h.Sum(nil)
+
+	switch p := privateKey.(type) {
+	case *ecdsa.PrivateKey:
+		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
+	case *rsa.PrivateKey:
+		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
+	}
+
+	return nil, errInvalidSignatureAlgorithm
+}

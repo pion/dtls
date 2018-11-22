@@ -30,10 +30,11 @@ type Conn struct {
 	decrypted      chan []byte     // Decrypted Application Data, pull by calling `Read`
 	workerTicker   *time.Ticker
 
-	isClient                bool
-	remoteHasVerified       bool // Have we seen a handshake finished with a valid hash
-	localEpoch, remoteEpoch uint16
-	localSequenceNumber     uint64 // uint48
+	isClient                   bool
+	remoteRequestedCertificate bool // Did we get a CertificateRequest
+	remoteHasVerified          bool // Have we seen a handshake finished with a valid hash
+	localEpoch, remoteEpoch    uint16
+	localSequenceNumber        uint64 // uint48
 
 	currFlight                          *flight
 	cipherSuite                         *cipherSuite // nil if a cipherSuite hasn't been chosen
@@ -42,7 +43,9 @@ type Conn struct {
 	localPrivateKey                     *ecdsa.PrivateKey
 	localKeypair, remoteKeypair         *namedCurveKeypair
 	cookie                              []byte
-	localVerifyData                     []byte // cached VerifyData
+
+	localCertificateVerify []byte // cache CertificateVerify
+	localVerifyData        []byte // cached VerifyData
 
 	keys                *encryptionKeys
 	localGCM, remoteGCM cipher.AEAD

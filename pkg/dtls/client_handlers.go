@@ -17,7 +17,7 @@ func clientHandshakeHandler(c *Conn) error {
 		case *handshakeMessageHelloVerifyRequest:
 			if c.currFlight.get() == flight1 {
 				c.cookie = append([]byte{}, h.cookie...)
-				c.localSequenceNumber = 1
+				c.localSequenceNumber++
 				c.currFlight.set(flight3)
 			}
 
@@ -68,17 +68,16 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 
 		case *handshakeMessageCertificateRequest:
-			// TODO
+			c.remoteRequestedCertificate = true
 
 		case *handshakeMessageServerHelloDone:
 			if c.currFlight.get() == flight3 {
-				c.localSequenceNumber = 2
+				c.localSequenceNumber++
 				c.currFlight.set(flight5)
 			}
 
 		case *handshakeMessageFinished:
 			if c.currFlight.get() == flight5 {
-				c.localEpoch = 1
 				c.localEpoch = 1
 				c.localSequenceNumber = 1
 				// TODO: verify
@@ -139,39 +138,73 @@ func clientTimerThread(c *Conn) {
 				return
 			}
 
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber),
+			sequenceNumber := c.localSequenceNumber
+
+			if c.remoteRequestedCertificate {
+				c.internalSend(&recordLayer{
+					recordLayerHeader: recordLayerHeader{
+						sequenceNumber:  c.localSequenceNumber,
+						protocolVersion: protocolVersion1_2,
 					},
-					handshakeMessage: &handshakeMessageCertificate{
-						certificate: c.localCertificate,
-					}},
-			}, false)
+					content: &handshake{
+						// sequenceNumber and messageSequence line up, may need to be re-evaluated
+						handshakeHeader: handshakeHeader{
+							messageSequence: uint16(c.localSequenceNumber),
+						},
+						handshakeMessage: &handshakeMessageCertificate{
+							certificate: c.localCertificate,
+						}},
+				}, false)
+				sequenceNumber++
+			}
 
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber + 1,
+					sequenceNumber:  sequenceNumber,
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber + 1),
+						messageSequence: uint16(sequenceNumber),
 					},
 					handshakeMessage: &handshakeMessageClientKeyExchange{
 						publicKey: c.localKeypair.publicKey,
 					}},
 			}, false)
+			sequenceNumber++
+
+			if c.remoteRequestedCertificate {
+				if len(c.localCertificateVerify) == 0 {
+					certVerify, err := generateCertificateVerify(c.handshakeCache.combinedHandshake(), c.localPrivateKey)
+					if err != nil {
+						panic(err)
+					}
+					c.localCertificateVerify = certVerify
+				}
+
+				c.internalSend(&recordLayer{
+					recordLayerHeader: recordLayerHeader{
+						sequenceNumber:  sequenceNumber,
+						protocolVersion: protocolVersion1_2,
+					},
+					content: &handshake{
+						// sequenceNumber and messageSequence line up, may need to be re-evaluated
+						handshakeHeader: handshakeHeader{
+							messageSequence: uint16(sequenceNumber),
+						},
+						handshakeMessage: &handshakeMessageCertificateVerify{
+							hashAlgorithm:      hashAlgorithmSHA256,
+							signatureAlgorithm: signatureAlgorithmECDSA,
+							signature:          c.localCertificateVerify,
+						}},
+				}, false)
+				sequenceNumber++
+			}
 
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber + 2,
+					sequenceNumber:  sequenceNumber,
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &changeCipherSpec{},
@@ -191,7 +224,7 @@ func clientTimerThread(c *Conn) {
 				content: &handshake{
 					// sequenceNumber and messageSequence line up, may need to be re-evaluated
 					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber + 2), // KeyExchange + 1
+						messageSequence: uint16(sequenceNumber), // KeyExchange + 1
 					},
 					handshakeMessage: &handshakeMessageFinished{
 						verifyData: c.localVerifyData,
