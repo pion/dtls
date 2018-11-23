@@ -159,13 +159,39 @@ func (c *Conn) RemoteCertificate() *x509.Certificate {
 	return c.remoteCertificate
 }
 
-// WritePair exposes the write key pair
-func (c *Conn) WritePair() (clientWriteKey, serverWriteKey []byte) {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	clientWriteKey = c.keys.clientWriteKey
-	serverWriteKey = c.keys.serverWriteKey
-	return
+// ExportKeyingMaterial from https://tools.ietf.org/html/rfc5705
+// This allows protocols to use DTLS for key establishment, but
+// then use some of the keying material for their own purposes
+func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([]byte, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if c.localEpoch == 0 {
+		return nil, errHandshakeInProgress
+	} else if len(context) != 0 {
+		return nil, errContextUnsupported
+	}
+	switch string(label) {
+	case "client finished", "server finished", "master secret", "key expansion":
+		return nil, errReservedExportKeyingMaterial
+	}
+
+	localRandom, err := c.localRandom.marshal()
+	if err != nil {
+		return nil, err
+	}
+	remoteRandom, err := c.remoteRandom.marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	seed := append([]byte{}, label...)
+	if c.isClient {
+		seed = append(append(seed, localRandom...), remoteRandom...)
+	} else {
+		seed = append(append(seed, remoteRandom...), localRandom...)
+	}
+	return prfPHash(c.keys.masterSecret, seed, length), nil
 }
 
 // Pulls from nextConn

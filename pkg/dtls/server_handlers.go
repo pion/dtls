@@ -131,6 +131,9 @@ func serverTimerThread(c *Conn) {
 							&extensionSupportedGroups{
 								supportedGroups: []namedCurve{namedCurveX25519, namedCurveP256},
 							},
+							&extensionUseSRTP{
+								protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+							},
 						},
 					}},
 			}, false)
