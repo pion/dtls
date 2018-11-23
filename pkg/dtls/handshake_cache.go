@@ -1,30 +1,21 @@
 package dtls
 
 type handshakeCacheItem struct {
+	flight                 flightVal
 	isLocal                bool
 	epoch, messageSequence uint16
 	data                   []byte
 }
 
 type handshakeCache struct {
-	isClient bool
-	cache    []handshakeCacheItem
+	cache []handshakeCacheItem
 }
 
 func newHandshakeCache(isClient bool) *handshakeCache {
-	return &handshakeCache{isClient: isClient}
+	return &handshakeCache{}
 }
 
 func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, isLocal bool, currentFlight flightVal) {
-	// Note that in cases where the cookie exchange is used, the initial
-	// ClientHello and HelloVerifyRequest MUST NOT be included in the
-	// CertificateVerify or Finished MAC computations.
-	// https://tools.ietf.org/html/rfc6347#section-4.2.6
-	if currentFlight == flight0 || currentFlight == flight1 ||
-		((currentFlight == flight2) && (h.isClient || (!h.isClient && isLocal))) {
-		return
-	}
-
 	for _, i := range h.cache {
 		if i.isLocal == isLocal &&
 			i.epoch == epoch &&
@@ -33,6 +24,7 @@ func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, isLoca
 		}
 	}
 	h.cache = append(h.cache, handshakeCacheItem{
+		flight:          currentFlight,
 		data:            append([]byte{}, data...),
 		epoch:           epoch,
 		messageSequence: messageSequence,
@@ -40,9 +32,21 @@ func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, isLoca
 	})
 }
 
-func (h *handshakeCache) combinedHandshake() []byte {
+type handshakeCacheExcludeRule struct {
+	isLocal  bool // Exclude handshake if we sent
+	isRemote bool // Exclude handshake if remote sent
+}
+
+func (h *handshakeCache) combinedHandshake(excludeRules map[flightVal]handshakeCacheExcludeRule) []byte {
 	out := make([]byte, 0)
 	for _, v := range h.cache {
+		if e, ok := excludeRules[v.flight]; ok {
+			if e.isLocal && v.isLocal {
+				continue
+			} else if e.isRemote && !v.isLocal {
+				continue
+			}
+		}
 		out = append(out, v.data...)
 	}
 	return out

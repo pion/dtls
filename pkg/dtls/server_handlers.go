@@ -213,7 +213,13 @@ func serverTimerThread(c *Conn) {
 			}, false)
 
 			if len(c.localVerifyData) == 0 {
-				c.localVerifyData = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake())
+				// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
+				excludeRules := map[flightVal]handshakeCacheExcludeRule{
+					flight0: handshakeCacheExcludeRule{isLocal: true, isRemote: true},
+					flight1: handshakeCacheExcludeRule{isLocal: true, isRemote: true},
+					flight2: handshakeCacheExcludeRule{isLocal: true, isRemote: false},
+				}
+				c.localVerifyData = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(excludeRules))
 			}
 
 			c.internalSend(&recordLayer{

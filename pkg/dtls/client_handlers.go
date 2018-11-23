@@ -138,6 +138,14 @@ func clientTimerThread(c *Conn) {
 				return
 			}
 
+			// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
+			excludeRules := map[flightVal]handshakeCacheExcludeRule{}
+			if len(c.cookie) != 0 {
+				excludeRules[flight0] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
+				excludeRules[flight1] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
+				excludeRules[flight2] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
+			}
+
 			sequenceNumber := c.localSequenceNumber
 
 			if c.remoteRequestedCertificate {
@@ -176,7 +184,7 @@ func clientTimerThread(c *Conn) {
 
 			if c.remoteRequestedCertificate {
 				if len(c.localCertificateVerify) == 0 {
-					certVerify, err := generateCertificateVerify(c.handshakeCache.combinedHandshake(), c.localPrivateKey)
+					certVerify, err := generateCertificateVerify(c.handshakeCache.combinedHandshake(excludeRules), c.localPrivateKey)
 					if err != nil {
 						panic(err)
 					}
@@ -211,7 +219,7 @@ func clientTimerThread(c *Conn) {
 			}, false)
 
 			if len(c.localVerifyData) == 0 {
-				c.localVerifyData = prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake())
+				c.localVerifyData = prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(excludeRules))
 			}
 
 			// TODO: Fix hard-coded epoch & sequenceNumber, taking retransmitting into account.
