@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
+	"math"
 
 	"golang.org/x/crypto/curve25519"
 )
@@ -14,9 +15,10 @@ const (
 	prfVerifyDataClientLabel = "client finished"
 	prfVerifyDataServerLabel = "server finished"
 
-	prfKeyLen = 16
-	prfMacLen = 0
-	prfIvLen  = 4
+	prfKeyLen     = 16
+	prfMacLen     = 0
+	prfIvLen      = 4
+	hmacSHA256Len = 32
 )
 
 type encryptionKeys struct {
@@ -48,12 +50,6 @@ func (e *encryptionKeys) String() string {
 		e.serverWriteIV)
 }
 
-func hmacSHA256(key, data []byte) []byte {
-	mac := hmac.New(sha256.New, key)
-	mac.Write(data)
-	return mac.Sum(nil)
-}
-
 func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte, error) {
 	if curve != namedCurveX25519 {
 		return nil, errInvalidNamedCurve
@@ -67,30 +63,56 @@ func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte,
 	return preMasterSecret[:], nil
 }
 
+//  This PRF with the SHA-256 hash function is used for all cipher suites
+//  defined in this document and in TLS documents published prior to this
+//  document when TLS 1.2 is negotiated.  New cipher suites MUST explicitly
+//  specify a PRF and, in general, SHOULD use the TLS PRF with SHA-256 or a
+//  stronger standard hash function.
+//
+//     P_hash(secret, seed) = HMAC_hash(secret, A(1) + seed) +
+//                            HMAC_hash(secret, A(2) + seed) +
+//                            HMAC_hash(secret, A(3) + seed) + ...
+//
+//  A() is defined as:
+//
+//     A(0) = seed
+//     A(i) = HMAC_hash(secret, A(i-1))
+//
+//  P_hash can be iterated as many times as necessary to produce the
+//  required quantity of data.  For example, if P_SHA256 is being used to
+//  create 80 bytes of data, it will have to be iterated three times
+//  (through A(3)), creating 96 bytes of output data; the last 16 bytes
+//  of the final iteration will then be discarded, leaving 80 bytes of
+//  output data.
+//
+// https://tools.ietf.org/html/rfc4346w
+func prfPHash(secret, seed []byte, requestedLength int) []byte {
+	hmacSHA256 := func(key, data []byte) []byte {
+		mac := hmac.New(sha256.New, key)
+		mac.Write(data)
+		return mac.Sum(nil)
+	}
+
+	lastRound := seed
+	out := []byte{}
+
+	iterations := int(math.Ceil(float64(requestedLength) / hmacSHA256Len))
+	for i := 0; i < iterations; i++ {
+		lastRound = hmacSHA256(secret, lastRound)
+		out = append(out, hmacSHA256(secret, append(lastRound, seed...))...)
+	}
+
+	return out[:requestedLength]
+}
+
 func prfMasterSecret(preMasterSecret, clientRandom, serverRandom []byte) []byte {
 	seed := append(append([]byte(prfMasterSecretLabel), clientRandom...), serverRandom...)
-	a0 := seed
-	a1 := hmacSHA256(preMasterSecret, a0)
-	a2 := hmacSHA256(preMasterSecret, a1)
-	p1 := hmacSHA256(preMasterSecret, append(a1, seed...))
-	p2 := hmacSHA256(preMasterSecret, append(a2, seed...))
-
-	return append(p1, p2[:16]...)
+	return prfPHash(preMasterSecret, seed, 48)
 }
 
 func prfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte) *encryptionKeys {
 	seed := append(append([]byte(prfKeyExpansionLabel), serverRandom...), clientRandom...)
-	a0 := seed
-	a1 := hmacSHA256(masterSecret, a0)
-	a2 := hmacSHA256(masterSecret, a1)
-	a3 := hmacSHA256(masterSecret, a2)
-	a4 := hmacSHA256(masterSecret, a3)
-
-	p1 := hmacSHA256(masterSecret, append(a1, seed...))
-	p2 := hmacSHA256(masterSecret, append(a2, seed...))
-	p3 := hmacSHA256(masterSecret, append(a3, seed...))
-	p4 := hmacSHA256(masterSecret, append(a4, seed...))
-	keyMaterial := append(append(append(p1, p2...), p3...), p4...)
+	keyMaterial := prfPHash(masterSecret, seed, 128)
 
 	clientMACKey := keyMaterial[:prfMacLen]
 	keyMaterial = keyMaterial[prfMacLen:]
@@ -125,10 +147,7 @@ func prfVerifyData(masterSecret, handshakeBodies []byte, label string) []byte {
 	h.Write(handshakeBodies)
 
 	seed := append([]byte(label), h.Sum(nil)...)
-	a0 := seed
-	a1 := hmacSHA256(masterSecret, a0)
-	p1 := hmacSHA256(masterSecret, append(a1, seed...))
-	return p1[:12]
+	return prfPHash(masterSecret, seed, 12)
 }
 
 func prfVerifyDataClient(masterSecret, handshakeBodies []byte) []byte {
