@@ -205,7 +205,7 @@ func clientTimerThread(c *Conn) {
 							messageSequence: uint16(sequenceNumber),
 						},
 						handshakeMessage: &handshakeMessageCertificateVerify{
-							hashAlgorithm:      hashAlgorithmSHA256,
+							hashAlgorithm:      HashAlgorithmSHA256,
 							signatureAlgorithm: signatureAlgorithmECDSA,
 							signature:          c.localCertificateVerify,
 						}},

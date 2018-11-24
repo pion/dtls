@@ -9,7 +9,7 @@ type handshakeMessageServerKeyExchange struct {
 	ellipticCurveType  ellipticCurveType
 	namedCurve         namedCurve
 	publicKey          []byte
-	hashAlgorithm      hashAlgorithm
+	hashAlgorithm      HashAlgorithm
 	signatureAlgorithm signatureAlgorithm
 	signature          []byte
 }
@@ -52,7 +52,7 @@ func (h *handshakeMessageServerKeyExchange) unmarshal(data []byte) error {
 	}
 	h.publicKey = append([]byte{}, data[4:offset]...)
 
-	h.hashAlgorithm = hashAlgorithm(data[offset])
+	h.hashAlgorithm = HashAlgorithm(data[offset])
 	if _, ok := hashAlgorithms[h.hashAlgorithm]; !ok {
 		return errInvalidHashAlgorithm
 	}
