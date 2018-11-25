@@ -65,6 +65,8 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		default:
 			return nil, errInvalidPrivateKey
 		}
+	} else if nextConn == nil {
+		return nil, errNilNextConn
 	}
 
 	c := &Conn{

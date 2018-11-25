@@ -3,6 +3,7 @@ package dtls
 import "errors"
 
 var (
+	errNilNextConn                  = errors.New("dtls: Conn can not be created with a nil nextConn")
 	errReservedExportKeyingMaterial = errors.New("dtls: ExportKeyingMaterial can not be used with a reserved label")
 	errContextUnsupported           = errors.New("dtls: context is not supported for ExportKeyingMaterial")
 	errHandshakeInProgress          = errors.New("dtls: Handshake is in progress")
