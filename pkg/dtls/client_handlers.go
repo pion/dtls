@@ -122,8 +122,8 @@ func clientTimerThread(c *Conn) {
 						cipherSuites:       defaultCipherSuites,
 						compressionMethods: defaultCompressionMethods,
 						extensions: []extension{
-							&extensionSupportedGroups{
-								supportedGroups: []namedCurve{namedCurveX25519, namedCurveP256},
+							&extensionSupportedEllipticCurves{
+								ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
 							},
 							&extensionUseSRTP{
 								protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},

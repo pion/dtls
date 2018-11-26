@@ -9,6 +9,7 @@ type cipherSuiteID uint16
 // function.
 const (
 	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 cipherSuiteID = 0xc02b
+	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256                 = 0xc02f
 )
 
 type cipherSuite struct {
@@ -17,10 +18,12 @@ type cipherSuite struct {
 
 var cipherSuites = map[cipherSuiteID]*cipherSuite{
 	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: {id: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   {id: TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
 }
 
 var defaultCipherSuites = []*cipherSuite{
 	cipherSuites[TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256],
+	cipherSuites[TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256],
 }
 
 func decodeCipherSuites(buf []byte) ([]*cipherSuite, error) {

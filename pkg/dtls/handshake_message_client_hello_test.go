@@ -28,7 +28,7 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 			compressionMethods[compressionMethodNull],
 		},
 		extensions: []extension{
-			&extensionSupportedGroups{supportedGroups: []namedCurve{namedCurveX25519}},
+			&extensionSupportedEllipticCurves{ellipticCurves: []namedCurve{namedCurveX25519}},
 		},
 	}
 

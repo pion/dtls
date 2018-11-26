@@ -8,8 +8,8 @@ import (
 type extensionValue uint16
 
 const (
-	extensionSupportedGroupsValue extensionValue = 10
-	extensionUseSRTPValue                        = 14
+	extensionSupportedEllipticCurvesValue extensionValue = 10
+	extensionUseSRTPValue                                = 14
 )
 
 type extension interface {
@@ -38,8 +38,8 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 	for offset := 2; offset+2 < len(buf); {
 		var err error
 		switch extensionValue(binary.BigEndian.Uint16(buf[offset:])) {
-		case extensionSupportedGroupsValue:
-			err = unmarshalAndAppend(buf[offset:], &extensionSupportedGroups{})
+		case extensionSupportedEllipticCurvesValue:
+			err = unmarshalAndAppend(buf[offset:], &extensionSupportedEllipticCurves{})
 		default:
 		}
 		if err != nil {

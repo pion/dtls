@@ -128,8 +128,8 @@ func serverTimerThread(c *Conn) {
 						cipherSuite:       defaultCipherSuites[0],       // TODO: Pick correct cipher suite
 						compressionMethod: defaultCompressionMethods[0], // TODO: Pick correct cipher suite
 						extensions: []extension{
-							&extensionSupportedGroups{
-								supportedGroups: []namedCurve{namedCurveX25519, namedCurveP256},
+							&extensionSupportedEllipticCurves{
+								ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
 							},
 							&extensionUseSRTP{
 								protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
