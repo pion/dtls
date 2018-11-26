@@ -85,10 +85,10 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		handshakeCompleted: make(chan struct{}),
 	}
 	c.localRandom.populate()
-	c.localKeypair, _ = generateKeypair(namedCurveX25519)
-
 	if !isClient {
 		c.cookie = make([]byte, cookieLength)
+		c.localKeypair, _ = generateKeypair(namedCurveX25519)
+
 		if _, err := rand.Read(c.cookie); err != nil {
 			return nil, err
 		}

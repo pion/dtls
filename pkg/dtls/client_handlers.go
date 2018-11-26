@@ -50,6 +50,11 @@ func clientHandshakeHandler(c *Conn) error {
 					return err
 				}
 
+				c.localKeypair, err = generateKeypair(h.namedCurve)
+				if err != nil {
+					return err
+				}
+
 				preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
 				if err != nil {
 					return err

@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"crypto/elliptic"
 	"crypto/rand"
 
 	"golang.org/x/crypto/curve25519"
@@ -26,18 +27,25 @@ var namedCurves = map[namedCurve]bool{
 }
 
 func generateKeypair(c namedCurve) (*namedCurveKeypair, error) {
-	if c != namedCurveX25519 {
-		return nil, errInvalidNamedCurve
+	switch c {
+	case namedCurveX25519:
+		tmp := make([]byte, 32)
+		if _, err := rand.Read(tmp); err != nil {
+			return nil, err
+		}
+
+		var public, private [32]byte
+		copy(private[:], tmp)
+
+		curve25519.ScalarBaseMult(&public, &private)
+		return &namedCurveKeypair{namedCurveX25519, public[:], private[:]}, nil
+	case namedCurveP256:
+		privateKey, x, y, err := elliptic.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return nil, err
+		}
+
+		return &namedCurveKeypair{namedCurveP256, elliptic.Marshal(elliptic.P256(), x, y), privateKey}, nil
 	}
-
-	tmp := make([]byte, 32)
-	if _, err := rand.Read(tmp); err != nil {
-		return nil, err
-	}
-
-	var public, private [32]byte
-	copy(private[:], tmp)
-
-	curve25519.ScalarBaseMult(&public, &private)
-	return &namedCurveKeypair{namedCurveX25519, public[:], private[:]}, nil
+	return nil, errInvalidNamedCurve
 }

@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
@@ -51,16 +52,29 @@ func (e *encryptionKeys) String() string {
 }
 
 func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte, error) {
-	if curve != namedCurveX25519 {
-		return nil, errInvalidNamedCurve
+	switch curve {
+	case namedCurveX25519:
+		var preMasterSecret, fixedWidthPrivateKey, fixedWidthPublicKey [32]byte
+		copy(fixedWidthPrivateKey[:], privateKey)
+		copy(fixedWidthPublicKey[:], publicKey)
+
+		curve25519.ScalarMult(&preMasterSecret, &fixedWidthPrivateKey, &fixedWidthPublicKey)
+		return preMasterSecret[:], nil
+	case namedCurveP256:
+		x, y := elliptic.Unmarshal(elliptic.P256(), publicKey)
+		if x == nil || y == nil {
+			return nil, errInvalidNamedCurve
+		}
+
+		curve := elliptic.P256()
+		result, _ := curve.ScalarMult(x, y, privateKey)
+		preMasterSecret := make([]byte, (curve.Params().BitSize+7)>>3)
+		resultBytes := result.Bytes()
+		copy(preMasterSecret[len(preMasterSecret)-len(resultBytes):], resultBytes)
+		return preMasterSecret, nil
 	}
 
-	var preMasterSecret, fixedWidthPrivateKey, fixedWidthPublicKey [32]byte
-	copy(fixedWidthPrivateKey[:], privateKey)
-	copy(fixedWidthPublicKey[:], publicKey)
-
-	curve25519.ScalarMult(&preMasterSecret, &fixedWidthPrivateKey, &fixedWidthPublicKey)
-	return preMasterSecret[:], nil
+	return nil, errInvalidNamedCurve
 }
 
 //  This PRF with the SHA-256 hash function is used for all cipher suites
