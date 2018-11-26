@@ -303,10 +303,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 	case *changeCipherSpec:
 		c.remoteEpoch++
 	case *applicationData:
-		select {
-		case c.decrypted <- content.data:
-		default:
-		}
+		c.decrypted <- content.data
 	default:
 		return fmt.Errorf("Unhandled contentType %d", content.contentType())
 	}
