@@ -134,6 +134,9 @@ func serverTimerThread(c *Conn) {
 							&extensionUseSRTP{
 								protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 							},
+							&extensionSupportedPointFormats{
+								pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
+							},
 						},
 					}},
 			}, false)
