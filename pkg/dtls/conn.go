@@ -101,8 +101,8 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 	return c, nil
 }
 
-// Dial establishes a DTLS connection over an existing conn
-func Dial(conn net.Conn, certificate *x509.Certificate, privateKey crypto.PrivateKey) (*Conn, error) {
+// Client establishes a DTLS connection over an existing conn
+func Client(conn net.Conn, certificate *x509.Certificate, privateKey crypto.PrivateKey) (*Conn, error) {
 	return createConn(conn, clientTimerThread, clientHandshakeHandler, certificate /*isClient*/, privateKey, true)
 }
 

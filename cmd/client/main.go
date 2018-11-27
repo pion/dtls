@@ -24,7 +24,7 @@ func main() {
 	a, _ := ice.Listen("127.0.0.1:5555", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4444})
 
 	certificate, privateKey := generateCertificate()
-	dtlsConn, err := dtls.Dial(a, certificate, privateKey)
+	dtlsConn, err := dtls.Client(a, certificate, privateKey)
 	check(err)
 	defer dtlsConn.Close()
 
