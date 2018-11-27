@@ -1,11 +1,11 @@
 package dtls
 
 import (
-	"crypto"
 	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -55,11 +55,15 @@ type Conn struct {
 	handshakeCompleted      chan struct{}
 }
 
-func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, certificate *x509.Certificate, privateKey crypto.PrivateKey, isClient bool) (*Conn, error) {
+func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
+	if config == nil {
+		return nil, errors.New("No config provided")
+	}
+
 	var localPrivateKey *ecdsa.PrivateKey
 
-	if privateKey != nil {
-		switch k := privateKey.(type) {
+	if config.PrivateKey != nil {
+		switch k := config.PrivateKey.(type) {
 		case *ecdsa.PrivateKey:
 			localPrivateKey = k
 		default:
@@ -77,7 +81,7 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		handshakeCache:          newHandshakeCache(isClient),
 		handshakeMessageHandler: handshakeMessageHandler,
 		timerThread:             timerThread,
-		localCertificate:        certificate,
+		localCertificate:        config.Certificate,
 		localPrivateKey:         localPrivateKey,
 
 		decrypted:          make(chan []byte),
@@ -101,17 +105,26 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 	return c, nil
 }
 
+// Dial connects to the given network address and establishes a DTLS connection on top
+func Dial(network string, raddr *net.UDPAddr, config *Config) (*Conn, error) {
+	pConn, err := net.DialUDP(network, nil, raddr)
+	if err != nil {
+		return nil, err
+	}
+	return Client(pConn, config)
+}
+
 // Client establishes a DTLS connection over an existing conn
-func Client(conn net.Conn, certificate *x509.Certificate, privateKey crypto.PrivateKey) (*Conn, error) {
-	return createConn(conn, clientTimerThread, clientHandshakeHandler, certificate /*isClient*/, privateKey, true)
+func Client(conn net.Conn, config *Config) (*Conn, error) {
+	return createConn(conn, clientTimerThread, clientHandshakeHandler, config, true)
 }
 
 // Server listens for incoming DTLS connections
-func Server(conn net.Conn, certificate *x509.Certificate, privateKey crypto.PrivateKey) (*Conn, error) {
-	if certificate == nil || privateKey == nil {
+func Server(conn net.Conn, config *Config) (*Conn, error) {
+	if config == nil || config.Certificate == nil {
 		return nil, errServerMustHaveCertificate
 	}
-	return createConn(conn, serverTimerThread, serverHandshakeHandler, certificate /*isClient*/, privateKey, false)
+	return createConn(conn, serverTimerThread, serverHandshakeHandler, config, false)
 }
 
 // Read reads data from the connection.
@@ -308,4 +321,29 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 		return fmt.Errorf("Unhandled contentType %d", content.contentType())
 	}
 	return nil
+}
+
+// LocalAddr is a stub
+func (c *Conn) LocalAddr() net.Addr {
+	return c.nextConn.LocalAddr()
+}
+
+// RemoteAddr is a stub
+func (c *Conn) RemoteAddr() net.Addr {
+	return c.nextConn.RemoteAddr()
+}
+
+// SetDeadline is a stub
+func (c *Conn) SetDeadline(t time.Time) error {
+	return c.nextConn.SetDeadline(t)
+}
+
+// SetReadDeadline is a stub
+func (c *Conn) SetReadDeadline(t time.Time) error {
+	return c.nextConn.SetReadDeadline(t)
+}
+
+// SetWriteDeadline is a stub
+func (c *Conn) SetWriteDeadline(t time.Time) error {
+	return c.nextConn.SetWriteDeadline(t)
 }
