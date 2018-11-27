@@ -1,7 +1,7 @@
 package udp
 
 import (
-	"fmt"
+	"errors"
 	"net"
 	"sync"
 	"time"
@@ -9,27 +9,53 @@ import (
 
 const receiveMTU = 8192
 
+var ErrClosedListener = errors.New("udp: listener closed")
+
 // Listener augments a connection-oriented Listener over a UDP PacketConn
 type Listener struct {
 	pConn *net.UDPConn
 
-	lock     sync.RWMutex
-	acceptCh chan *Conn
-	conns    map[string]*Conn
+	lock      sync.RWMutex
+	accepting bool
+	acceptCh  chan *Conn
+	doneCh    chan struct{}
+	doneOnce  sync.Once
+
+	conns map[string]*Conn
 }
 
 // Accept waits for and returns the next connection to the listener.
 // You have to either close or read on all connection that are created.
 func (l *Listener) Accept() (*Conn, error) {
-	c := <-l.acceptCh
-	return c, nil
+	select {
+	case c := <-l.acceptCh:
+		return c, nil
+
+	case <-l.doneCh:
+		return nil, ErrClosedListener
+	}
 }
 
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
 func (l *Listener) Close() error {
+	l.lock.Lock()
+	defer l.lock.Unlock()
 
-	if len(l.conns) == 0 {
+	var err error
+	l.doneOnce.Do(func() {
+		l.accepting = false
+		close(l.doneCh)
+		err = l.cleanup()
+	})
+
+	return err
+}
+
+// cleanup closes the packet conn if it is no longer used
+// The caller should hold the read lock.
+func (l *Listener) cleanup() error {
+	if !l.accepting && len(l.conns) == 0 {
 		return l.pConn.Close()
 	}
 	return nil
@@ -48,9 +74,11 @@ func Listen(network string, laddr *net.UDPAddr) (*Listener, error) {
 	}
 
 	l := &Listener{
-		pConn:    conn,
-		acceptCh: make(chan *Conn),
-		conns:    make(map[string]*Conn),
+		pConn:     conn,
+		acceptCh:  make(chan *Conn),
+		conns:     make(map[string]*Conn),
+		accepting: true,
+		doneCh:    make(chan struct{}),
 	}
 
 	go l.readLoop()
@@ -60,63 +88,123 @@ func Listen(network string, laddr *net.UDPAddr) (*Listener, error) {
 
 func (l *Listener) readLoop() {
 	buf := make([]byte, receiveMTU)
+
+readLoop:
 	for {
 		n, raddr, err := l.pConn.ReadFrom(buf)
 		if err != nil {
-			fmt.Println("Reading err", err)
-			// TODO: close
+			return
 		}
-		conn, ok := l.conns[raddr.String()]
-		if !ok {
-			conn = newConn(l.pConn, raddr)
-			l.conns[raddr.String()] = conn
-			l.acceptCh <- conn
+		conn, err := l.getConn(raddr)
+		if err != nil {
+			continue
 		}
-		cBuf := <-conn.readCh
-		n = copy(cBuf, buf[:n])
-		conn.sizeCh <- n
+		select {
+		case cBuf := <-conn.readCh:
+			n = copy(cBuf, buf[:n])
+			conn.sizeCh <- n
+		case <-conn.doneCh:
+			continue readLoop
+		}
 	}
+}
+
+func (l *Listener) getConn(raddr net.Addr) (*Conn, error) {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	if !l.accepting {
+		return nil, ErrClosedListener
+	}
+
+	conn, ok := l.conns[raddr.String()]
+	if !ok {
+		conn = l.newConn(raddr)
+		l.conns[raddr.String()] = conn
+		l.acceptCh <- conn
+	}
+	return conn, nil
 }
 
 // Conn augments a connection-oriented connection over a UDP PacketConn
 type Conn struct {
-	pConn *net.UDPConn
+	listener *Listener
+
 	rAddr net.Addr
 
 	readCh chan []byte
 	sizeCh chan int
+
+	lock     sync.RWMutex
+	doneCh   chan struct{}
+	doneOnce sync.Once
+	doneErr  error
 }
 
-func newConn(pConn *net.UDPConn, rAddr net.Addr) *Conn {
+func (l *Listener) newConn(rAddr net.Addr) *Conn {
 	return &Conn{
-		pConn:  pConn,
-		rAddr:  rAddr,
-		readCh: make(chan []byte),
-		sizeCh: make(chan int),
+		listener: l,
+		rAddr:    rAddr,
+		readCh:   make(chan []byte),
+		sizeCh:   make(chan int),
+		doneCh:   make(chan struct{}),
 	}
+}
+
+// err returns the closed error
+func (c *Conn) err() error {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.doneErr
 }
 
 // Read
 func (c *Conn) Read(p []byte) (int, error) {
-	c.readCh <- p
-	n := <-c.sizeCh
-
-	return n, nil
+	select {
+	case c.readCh <- p:
+		n := <-c.sizeCh
+		return n, nil
+	case <-c.doneCh:
+		return 0, c.err()
+	}
 }
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (c *Conn) Write(p []byte) (n int, err error) {
-	return c.pConn.WriteTo(p, c.rAddr)
+	c.lock.Lock()
+	l := c.listener
+	c.lock.Unlock()
+
+	return l.pConn.WriteTo(p, c.rAddr)
 }
 
-// Close is a stub
+// Close closes the conn and releases any Read calls
 func (c *Conn) Close() error {
-	return c.pConn.Close()
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	var err error
+	c.doneOnce.Do(func() {
+		close(c.doneCh)
+		c.listener.lock.RLock()
+		err = c.listener.cleanup()
+		c.listener.lock.RUnlock()
+		c.listener = nil
+	})
+
+	return err
 }
 
 // LocalAddr is a stub
 func (c *Conn) LocalAddr() net.Addr {
-	return c.pConn.LocalAddr()
+	c.lock.Lock()
+	l := c.listener
+	c.lock.Unlock()
+
+	if l == nil {
+		return nil
+	}
+
+	return l.pConn.LocalAddr()
 }
 
 // RemoteAddr is a stub
@@ -126,15 +214,15 @@ func (c *Conn) RemoteAddr() net.Addr {
 
 // SetDeadline is a stub
 func (c *Conn) SetDeadline(t time.Time) error {
-	return c.pConn.SetDeadline(t)
+	return nil
 }
 
 // SetReadDeadline is a stub
 func (c *Conn) SetReadDeadline(t time.Time) error {
-	return c.pConn.SetReadDeadline(t)
+	return nil
 }
 
 // SetWriteDeadline is a stub
 func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return c.pConn.SetWriteDeadline(t)
+	return nil
 }
