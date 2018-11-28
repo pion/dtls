@@ -86,177 +86,186 @@ func serverHandshakeHandler(c *Conn) error {
 }
 
 func serverTimerThread(c *Conn) {
-	for range c.workerTicker.C {
-		switch c.currFlight.get() {
-		case flight0:
-			// Waiting for ClientHello
-		case flight2:
-			c.lock.RLock()
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber),
-					},
-					handshakeMessage: &handshakeMessageHelloVerifyRequest{
-						version: protocolVersion1_2,
-						cookie:  c.cookie,
-					},
-				},
-			}, false)
-			c.lock.RUnlock()
-
-		case flight4:
-			c.lock.RLock()
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber),
-					},
-					handshakeMessage: &handshakeMessageServerHello{
-						version:           protocolVersion1_2,
-						random:            c.localRandom,
-						cipherSuite:       defaultCipherSuites[0],       // TODO: Pick correct cipher suite
-						compressionMethod: defaultCompressionMethods[0], // TODO: Pick correct cipher suite
-						extensions: []extension{
-							&extensionSupportedEllipticCurves{
-								ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
-							},
-							&extensionUseSRTP{
-								protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
-							},
-							&extensionSupportedPointFormats{
-								pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
-							},
-						},
-					}},
-			}, false)
-
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber + 1,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber + 1),
-					},
-					handshakeMessage: &handshakeMessageCertificate{
-						certificate: c.localCertificate,
-					}},
-			}, false)
-
-			serverRandom, err := c.localRandom.marshal()
-			if err != nil {
-				panic(err)
-			}
-			clientRandom, err := c.remoteRandom.marshal()
-			if err != nil {
-				panic(err)
-			}
-
-			signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveX25519, c.localPrivateKey)
-			if err != nil {
-				panic(err)
-			}
-
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber + 2,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber + 2),
-					},
-					handshakeMessage: &handshakeMessageServerKeyExchange{
-						ellipticCurveType:  ellipticCurveTypeNamedCurve,
-						namedCurve:         namedCurveX25519,
-						publicKey:          c.localKeypair.publicKey,
-						hashAlgorithm:      HashAlgorithmSHA256,
-						signatureAlgorithm: signatureAlgorithmECDSA,
-						signature:          signature,
-					}},
-			}, false)
-
-			// TODO: CertificateRequest
-
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber + 3,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber + 3),
-					},
-					handshakeMessage: &handshakeMessageServerHelloDone{},
-				},
-			}, false)
-
-			c.lock.RUnlock()
-
-		case flight6:
-			c.lock.RLock()
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					sequenceNumber:  c.localSequenceNumber,
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &changeCipherSpec{},
-			}, false)
-
-			if len(c.localVerifyData) == 0 {
-				// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
-				excludeRules := map[flightVal]handshakeCacheExcludeRule{
-					flight0: handshakeCacheExcludeRule{isLocal: true, isRemote: true},
-					flight1: handshakeCacheExcludeRule{isLocal: true, isRemote: true},
-					flight2: handshakeCacheExcludeRule{isLocal: true, isRemote: false},
-				}
-				c.localVerifyData = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(excludeRules))
-			}
-
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					epoch:           1,
-					sequenceNumber:  0, // sequenceNumber restarts per epoch
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					// sequenceNumber and messageSequence line up, may need to be re-evaluated
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(c.localSequenceNumber), // KeyExchange + 1
-					},
-
-					handshakeMessage: &handshakeMessageFinished{
-						verifyData: c.localVerifyData,
-					}},
-			}, true)
-			c.lock.RUnlock()
-
-			// Signal handshake completed
-			select {
-			case <-c.handshakeCompleted:
-			default:
-				close(c.handshakeCompleted)
-			}
-
-			// TODO: Better way to end handshake
-			return
-		default:
-			panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))
+	for {
+		select {
+		case <-c.workerTicker.C:
+			serverFlightHandler(c)
+		case <-c.currFlight.workerTrigger:
+			serverFlightHandler(c)
 		}
+	}
+}
+
+func serverFlightHandler(c *Conn) {
+	switch c.currFlight.get() {
+	case flight0:
+		// Waiting for ClientHello
+	case flight2:
+		c.lock.RLock()
+		c.internalSend(&recordLayer{
+			recordLayerHeader: recordLayerHeader{
+				sequenceNumber:  c.localSequenceNumber,
+				protocolVersion: protocolVersion1_2,
+			},
+			content: &handshake{
+				// sequenceNumber and messageSequence line up, may need to be re-evaluated
+				handshakeHeader: handshakeHeader{
+					messageSequence: uint16(c.localSequenceNumber),
+				},
+				handshakeMessage: &handshakeMessageHelloVerifyRequest{
+					version: protocolVersion1_2,
+					cookie:  c.cookie,
+				},
+			},
+		}, false)
+		c.lock.RUnlock()
+
+	case flight4:
+		c.lock.RLock()
+		c.internalSend(&recordLayer{
+			recordLayerHeader: recordLayerHeader{
+				sequenceNumber:  c.localSequenceNumber,
+				protocolVersion: protocolVersion1_2,
+			},
+			content: &handshake{
+				// sequenceNumber and messageSequence line up, may need to be re-evaluated
+				handshakeHeader: handshakeHeader{
+					messageSequence: uint16(c.localSequenceNumber),
+				},
+				handshakeMessage: &handshakeMessageServerHello{
+					version:           protocolVersion1_2,
+					random:            c.localRandom,
+					cipherSuite:       defaultCipherSuites[0],       // TODO: Pick correct cipher suite
+					compressionMethod: defaultCompressionMethods[0], // TODO: Pick correct cipher suite
+					extensions: []extension{
+						&extensionSupportedEllipticCurves{
+							ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
+						},
+						&extensionUseSRTP{
+							protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+						},
+						&extensionSupportedPointFormats{
+							pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
+						},
+					},
+				}},
+		}, false)
+
+		c.internalSend(&recordLayer{
+			recordLayerHeader: recordLayerHeader{
+				sequenceNumber:  c.localSequenceNumber + 1,
+				protocolVersion: protocolVersion1_2,
+			},
+			content: &handshake{
+				// sequenceNumber and messageSequence line up, may need to be re-evaluated
+				handshakeHeader: handshakeHeader{
+					messageSequence: uint16(c.localSequenceNumber + 1),
+				},
+				handshakeMessage: &handshakeMessageCertificate{
+					certificate: c.localCertificate,
+				}},
+		}, false)
+
+		serverRandom, err := c.localRandom.marshal()
+		if err != nil {
+			panic(err)
+		}
+		clientRandom, err := c.remoteRandom.marshal()
+		if err != nil {
+			panic(err)
+		}
+
+		signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveX25519, c.localPrivateKey)
+		if err != nil {
+			panic(err)
+		}
+
+		c.internalSend(&recordLayer{
+			recordLayerHeader: recordLayerHeader{
+				sequenceNumber:  c.localSequenceNumber + 2,
+				protocolVersion: protocolVersion1_2,
+			},
+			content: &handshake{
+				// sequenceNumber and messageSequence line up, may need to be re-evaluated
+				handshakeHeader: handshakeHeader{
+					messageSequence: uint16(c.localSequenceNumber + 2),
+				},
+				handshakeMessage: &handshakeMessageServerKeyExchange{
+					ellipticCurveType:  ellipticCurveTypeNamedCurve,
+					namedCurve:         namedCurveX25519,
+					publicKey:          c.localKeypair.publicKey,
+					hashAlgorithm:      HashAlgorithmSHA256,
+					signatureAlgorithm: signatureAlgorithmECDSA,
+					signature:          signature,
+				}},
+		}, false)
+
+		// TODO: CertificateRequest
+
+		c.internalSend(&recordLayer{
+			recordLayerHeader: recordLayerHeader{
+				sequenceNumber:  c.localSequenceNumber + 3,
+				protocolVersion: protocolVersion1_2,
+			},
+			content: &handshake{
+				// sequenceNumber and messageSequence line up, may need to be re-evaluated
+				handshakeHeader: handshakeHeader{
+					messageSequence: uint16(c.localSequenceNumber + 3),
+				},
+				handshakeMessage: &handshakeMessageServerHelloDone{},
+			},
+		}, false)
+
+		c.lock.RUnlock()
+
+	case flight6:
+		c.lock.RLock()
+		c.internalSend(&recordLayer{
+			recordLayerHeader: recordLayerHeader{
+				sequenceNumber:  c.localSequenceNumber,
+				protocolVersion: protocolVersion1_2,
+			},
+			content: &changeCipherSpec{},
+		}, false)
+
+		if len(c.localVerifyData) == 0 {
+			// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
+			excludeRules := map[flightVal]handshakeCacheExcludeRule{
+				flight0: handshakeCacheExcludeRule{isLocal: true, isRemote: true},
+				flight1: handshakeCacheExcludeRule{isLocal: true, isRemote: true},
+				flight2: handshakeCacheExcludeRule{isLocal: true, isRemote: false},
+			}
+			c.localVerifyData = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(excludeRules))
+		}
+
+		c.internalSend(&recordLayer{
+			recordLayerHeader: recordLayerHeader{
+				epoch:           1,
+				sequenceNumber:  0, // sequenceNumber restarts per epoch
+				protocolVersion: protocolVersion1_2,
+			},
+			content: &handshake{
+				// sequenceNumber and messageSequence line up, may need to be re-evaluated
+				handshakeHeader: handshakeHeader{
+					messageSequence: uint16(c.localSequenceNumber), // KeyExchange + 1
+				},
+
+				handshakeMessage: &handshakeMessageFinished{
+					verifyData: c.localVerifyData,
+				}},
+		}, true)
+		c.lock.RUnlock()
+
+		// Signal handshake completed
+		select {
+		case <-c.handshakeCompleted:
+		default:
+			close(c.handshakeCompleted)
+		}
+
+		// TODO: Better way to end handshake
+		return
+	default:
+		panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))
 	}
 }

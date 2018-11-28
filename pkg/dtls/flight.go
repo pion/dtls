@@ -70,7 +70,8 @@ func (f flightVal) String() string {
 
 type flight struct {
 	sync.RWMutex
-	val flightVal
+	val           flightVal
+	workerTrigger chan struct{} // Temporary way to trigger next flight
 }
 
 func newFlight(isClient bool) *flight {
@@ -78,7 +79,7 @@ func newFlight(isClient bool) *flight {
 	if isClient {
 		val = flight1
 	}
-	return &flight{val: val}
+	return &flight{val: val, workerTrigger: make(chan struct{})}
 }
 
 func (f *flight) get() flightVal {
@@ -89,7 +90,8 @@ func (f *flight) get() flightVal {
 
 func (f *flight) set(val flightVal) error {
 	f.Lock()
-	defer f.Unlock()
 	f.val = val // TODO ensure no invalid transitions
+	f.Unlock()
+	f.workerTrigger <- struct{}{}
 	return nil
 }
