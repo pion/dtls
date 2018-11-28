@@ -53,6 +53,8 @@ type Conn struct {
 	handshakeMessageHandler handshakeMessageHandler
 	timerThread             timerThread
 	handshakeCompleted      chan struct{}
+
+	readErr error
 }
 
 func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
@@ -129,7 +131,10 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 
 // Read reads data from the connection.
 func (c *Conn) Read(p []byte) (n int, err error) {
-	out := <-c.decrypted
+	out, ok := <-c.decrypted
+	if !ok {
+		return 0, c.readErr
+	}
 	if len(p) < len(out) {
 		return 0, errBufferTooSmall
 	}
@@ -163,8 +168,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 
 // Close closes the connection.
 func (c *Conn) Close() error {
-	c.nextConn.Close() // TODO Is there a better way to stop read in readThread?
-	return nil
+	return c.nextConn.Close()
 }
 
 // RemoteCertificate exposes the remote certificate
@@ -215,7 +219,9 @@ func (c *Conn) readThread() {
 	for {
 		i, err := c.nextConn.Read(b)
 		if err != nil {
-			panic(err)
+			c.readErr = err
+			close(c.decrypted)
+			return
 		}
 		if err := c.handleIncoming(b[:i]); err != nil {
 			panic(err)

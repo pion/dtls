@@ -30,7 +30,7 @@ type Listener struct {
 
 // Accept waits for and returns the next connection to the listener.
 // You have to either close or read on all connection that are created.
-func (l *Listener) Accept() (*Conn, error) {
+func (l *Listener) Accept() (net.Conn, error) {
 	c, err := l.parent.Accept()
 	if err != nil {
 		return nil, err
