@@ -27,7 +27,7 @@ func main() {
 	cmd.Check(err)
 	defer dtlsConn.Close()
 
-	fmt.Println("Connected")
+	fmt.Println("Connected; type 'exit' to shutdown gracefully")
 
 	// Simulate a chat session
 	cmd.Chat(dtlsConn)

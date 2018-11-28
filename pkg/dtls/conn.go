@@ -168,6 +168,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 
 // Close closes the connection.
 func (c *Conn) Close() error {
+	c.notify(alertLevelFatal, alertCloseNotify)
 	return c.nextConn.Close()
 }
 
@@ -318,6 +319,9 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 
 	switch content := r.content.(type) {
 	case *alert:
+		if content.alertDescription == alertCloseNotify {
+			return c.Close()
+		}
 		return fmt.Errorf(spew.Sdump(content))
 	case *changeCipherSpec:
 		c.remoteEpoch++
@@ -327,6 +331,22 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 		return fmt.Errorf("Unhandled contentType %d", content.contentType())
 	}
 	return nil
+}
+
+func (c *Conn) notify(level alertLevel, desc alertDescription) {
+	c.internalSend(&recordLayer{
+		recordLayerHeader: recordLayerHeader{
+			epoch:           c.localEpoch,
+			sequenceNumber:  c.localSequenceNumber,
+			protocolVersion: protocolVersion1_2,
+		},
+		content: &alert{
+			alertLevel:       level,
+			alertDescription: desc,
+		},
+	}, true)
+
+	c.localSequenceNumber++
 }
 
 // LocalAddr is a stub

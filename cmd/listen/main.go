@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/pions/dtls/cmd"
@@ -30,18 +31,25 @@ func main() {
 	cmd.Check(err)
 	defer listener.Close()
 
+	fmt.Println("Listening")
+
 	// Simulate a chat session
 	hub := NewHub()
-	go hub.chat()
 
-	for {
-		// Wait for a connection.
-		conn, err := listener.Accept()
-		cmd.Check(err)
+	go func() {
+		for {
+			// Wait for a connection.
+			conn, err := listener.Accept()
+			cmd.Check(err)
+			// defer conn.Close() // TODO: graceful shutdown
 
-		// Register the connection with the chat hub
-		hub.register(conn)
-	}
+			// Register the connection with the chat hub
+			hub.register(conn)
+		}
+	}()
+
+	// Start chatting
+	hub.chat()
 }
 
 const bufSize = 8192
@@ -102,6 +110,10 @@ func (h *hub) chat() {
 	for {
 		msg, err := reader.ReadString('\n')
 		cmd.Check(err)
+		msg = strings.TrimSpace(msg)
+		if msg == "exit" {
+			return
+		}
 		h.broadcast([]byte(msg))
 	}
 }

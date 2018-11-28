@@ -12,6 +12,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -23,7 +24,9 @@ func Chat(conn io.ReadWriter) {
 		b := make([]byte, bufSize)
 		for {
 			n, err := conn.Read(b)
-			Check(err)
+			if err != nil {
+				return
+			}
 			fmt.Printf("Got message: %s\n", string(b[:n]))
 		}
 	}()
@@ -32,6 +35,10 @@ func Chat(conn io.ReadWriter) {
 	for {
 		text, err := reader.ReadString('\n')
 		Check(err)
+		text = strings.TrimSpace(text)
+		if text == "exit" {
+			return
+		}
 		_, err = conn.Write([]byte(text))
 		Check(err)
 	}
