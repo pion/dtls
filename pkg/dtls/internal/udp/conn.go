@@ -138,7 +138,6 @@ type Conn struct {
 	lock     sync.RWMutex
 	doneCh   chan struct{}
 	doneOnce sync.Once
-	doneErr  error
 }
 
 func (l *Listener) newConn(rAddr net.Addr) *Conn {
@@ -151,13 +150,6 @@ func (l *Listener) newConn(rAddr net.Addr) *Conn {
 	}
 }
 
-// err returns the closed error
-func (c *Conn) err() error {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	return c.doneErr
-}
-
 // Read
 func (c *Conn) Read(p []byte) (int, error) {
 	select {
@@ -165,7 +157,7 @@ func (c *Conn) Read(p []byte) (int, error) {
 		n := <-c.sizeCh
 		return n, nil
 	case <-c.doneCh:
-		return 0, c.err()
+		return 0, ErrClosedConn
 	}
 }
 
