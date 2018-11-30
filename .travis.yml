@@ -1,0 +1,13 @@
+language: go
+
+go:
+  - "1.x" # use the latest Go release
+
+before_script:
+  - curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s -- -b $GOPATH/bin v1.10.2
+  - go get github.com/mattn/goveralls
+
+script:
+  - golangci-lint run
+  - goveralls -v -race -covermode=atomic -service=travis-ci
+  - bash .github/lint-disallowed-functions-in-library.sh
