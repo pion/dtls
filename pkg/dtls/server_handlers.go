@@ -89,14 +89,18 @@ func serverTimerThread(c *Conn) {
 	for {
 		select {
 		case <-c.workerTicker.C:
-			serverFlightHandler(c)
+			if serverFlightHandler(c) {
+				return
+			}
 		case <-c.currFlight.workerTrigger:
-			serverFlightHandler(c)
+			if serverFlightHandler(c) {
+				return
+			}
 		}
 	}
 }
 
-func serverFlightHandler(c *Conn) {
+func serverFlightHandler(c *Conn) bool {
 	switch c.currFlight.get() {
 	case flight0:
 		// Waiting for ClientHello
@@ -264,8 +268,9 @@ func serverFlightHandler(c *Conn) {
 		}
 
 		// TODO: Better way to end handshake
-		return
+		return true
 	default:
 		panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))
 	}
+	return false
 }

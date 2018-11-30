@@ -35,8 +35,7 @@ func Chat(conn io.ReadWriter) {
 	for {
 		text, err := reader.ReadString('\n')
 		Check(err)
-		text = strings.TrimSpace(text)
-		if text == "exit" {
+		if strings.TrimSpace(text) == "exit" {
 			return
 		}
 		_, err = conn.Write([]byte(text))

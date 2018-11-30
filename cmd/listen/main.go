@@ -34,7 +34,7 @@ func main() {
 	fmt.Println("Listening")
 
 	// Simulate a chat session
-	hub := NewHub()
+	hub := newHub()
 
 	go func() {
 		for {
@@ -60,7 +60,7 @@ type hub struct {
 	lock  sync.RWMutex
 }
 
-func NewHub() *hub {
+func newHub() *hub {
 	return &hub{conns: make(map[string]net.Conn)}
 }
 
@@ -110,8 +110,7 @@ func (h *hub) chat() {
 	for {
 		msg, err := reader.ReadString('\n')
 		cmd.Check(err)
-		msg = strings.TrimSpace(msg)
-		if msg == "exit" {
+		if strings.TrimSpace(msg) == "exit" {
 			return
 		}
 		h.broadcast([]byte(msg))

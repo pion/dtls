@@ -107,14 +107,18 @@ func clientTimerThread(c *Conn) {
 	for {
 		select {
 		case <-c.workerTicker.C:
-			clientFlightHandler(c)
+			if clientFlightHandler(c) {
+				return
+			}
 		case <-c.currFlight.workerTrigger:
-			clientFlightHandler(c)
+			if clientFlightHandler(c) {
+				return
+			}
 		}
 	}
 }
 
-func clientFlightHandler(c *Conn) {
+func clientFlightHandler(c *Conn) bool {
 	switch c.currFlight.get() {
 	case flight1:
 		fallthrough
@@ -156,7 +160,7 @@ func clientFlightHandler(c *Conn) {
 		if c.remoteEpoch != 0 {
 			// Handshake is done
 			c.lock.RUnlock()
-			return
+			return true
 		}
 
 		// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
@@ -263,4 +267,5 @@ func clientFlightHandler(c *Conn) {
 	default:
 		panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))
 	}
+	return false
 }
