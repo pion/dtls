@@ -3,6 +3,7 @@ package dtls
 import "errors"
 
 var (
+	errVerifyDataMismatch           = errors.New("dtls: Expected and actual verify data does not match")
 	errNilNextConn                  = errors.New("dtls: Conn can not be created with a nil nextConn")
 	errReservedExportKeyingMaterial = errors.New("dtls: ExportKeyingMaterial can not be used with a reserved label")
 	errContextUnsupported           = errors.New("dtls: context is not supported for ExportKeyingMaterial")

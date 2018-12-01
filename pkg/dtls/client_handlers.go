@@ -1,6 +1,19 @@
 package dtls
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+)
+
+func clientExcludeRules(c *Conn) map[flightVal]handshakeCacheExcludeRule {
+	excludeRules := map[flightVal]handshakeCacheExcludeRule{}
+	if len(c.cookie) != 0 {
+		excludeRules[flight0] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
+		excludeRules[flight1] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
+		excludeRules[flight2] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
+	}
+	return excludeRules
+}
 
 func clientHandshakeHandler(c *Conn) error {
 	c.lock.Lock()
@@ -85,7 +98,11 @@ func clientHandshakeHandler(c *Conn) error {
 			if c.currFlight.get() == flight5 {
 				c.localEpoch = 1
 				c.localSequenceNumber = 1
-				// TODO: verify
+
+				expectedVerifyData := prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(clientExcludeRules(c), true))
+				if !bytes.Equal(expectedVerifyData, h.verifyData) {
+					return errVerifyDataMismatch
+				}
 
 				// Signal handshake completed
 				select {
@@ -164,12 +181,6 @@ func clientFlightHandler(c *Conn) bool {
 		}
 
 		// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
-		excludeRules := map[flightVal]handshakeCacheExcludeRule{}
-		if len(c.cookie) != 0 {
-			excludeRules[flight0] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
-			excludeRules[flight1] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
-			excludeRules[flight2] = handshakeCacheExcludeRule{isLocal: true, isRemote: true}
-		}
 
 		sequenceNumber := c.localSequenceNumber
 
@@ -209,7 +220,7 @@ func clientFlightHandler(c *Conn) bool {
 
 		if c.remoteRequestedCertificate {
 			if len(c.localCertificateVerify) == 0 {
-				certVerify, err := generateCertificateVerify(c.handshakeCache.combinedHandshake(excludeRules), c.localPrivateKey)
+				certVerify, err := generateCertificateVerify(c.handshakeCache.combinedHandshake(clientExcludeRules(c), false), c.localPrivateKey)
 				if err != nil {
 					panic(err)
 				}
@@ -244,7 +255,7 @@ func clientFlightHandler(c *Conn) bool {
 		}, false)
 
 		if len(c.localVerifyData) == 0 {
-			c.localVerifyData = prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(excludeRules))
+			c.localVerifyData = prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(clientExcludeRules(c), false))
 		}
 
 		// TODO: Fix hard-coded epoch & sequenceNumber, taking retransmitting into account.

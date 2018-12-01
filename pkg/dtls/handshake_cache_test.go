@@ -59,7 +59,7 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 		for _, i := range test.Input {
 			h.push(i.data, i.epoch, i.messageSequence, i.isLocal, flight6)
 		}
-		verifyData := h.combinedHandshake(map[flightVal]handshakeCacheExcludeRule{})
+		verifyData := h.combinedHandshake(map[flightVal]handshakeCacheExcludeRule{}, false)
 		if !bytes.Equal(verifyData, test.Expected) {
 			t.Errorf("handshakeCache '%s' exp: % 02x actual % 02x", test.Name, test.Expected, verifyData)
 		}

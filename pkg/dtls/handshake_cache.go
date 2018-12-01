@@ -37,15 +37,18 @@ type handshakeCacheExcludeRule struct {
 	isRemote bool // Exclude handshake if remote sent
 }
 
-func (h *handshakeCache) combinedHandshake(excludeRules map[flightVal]handshakeCacheExcludeRule) []byte {
+func (h *handshakeCache) combinedHandshake(excludeRules map[flightVal]handshakeCacheExcludeRule, excludeLast bool) []byte {
 	out := make([]byte, 0)
-	for _, v := range h.cache {
+	lastIndex := len(h.cache) - 1 // Safe if len(h.cache) == 0, no loop will occur
+	for i, v := range h.cache {
 		if e, ok := excludeRules[v.flight]; ok {
 			if e.isLocal && v.isLocal {
 				continue
 			} else if e.isRemote && !v.isLocal {
 				continue
 			}
+		} else if excludeLast && i == lastIndex {
+			break
 		}
 		out = append(out, v.data...)
 	}
