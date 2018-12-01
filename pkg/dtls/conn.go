@@ -10,8 +10,6 @@ import (
 	"net"
 	"sync"
 	"time"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
 const initialTickerInterval = time.Second
@@ -93,11 +91,12 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	c.localRandom.populate()
 	if !isClient {
 		c.cookie = make([]byte, cookieLength)
-		c.localKeypair, _ = generateKeypair(namedCurveX25519)
-
 		if _, err := rand.Read(c.cookie); err != nil {
 			return nil, err
 		}
+
+		// TODO keypair generation should account for supported remote curves
+		c.localKeypair, _ = generateKeypair(namedCurveX25519)
 	}
 
 	// Trigger outbound
@@ -336,7 +335,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 		if content.alertDescription == alertCloseNotify {
 			return c.Close()
 		}
-		return fmt.Errorf(spew.Sdump(content))
+		return fmt.Errorf("alert: %v", content)
 	case *changeCipherSpec:
 		c.remoteEpoch++
 	case *applicationData:
