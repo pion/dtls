@@ -19,7 +19,7 @@ const finalTickerInternal = 90 * time.Second
 const cookieLength = 20
 
 type handshakeMessageHandler func(*Conn) error
-type timerThread func(*Conn)
+type flightHandler func(*Conn) bool
 
 // Conn represents a DTLS connection
 type Conn struct {
@@ -51,13 +51,13 @@ type Conn struct {
 	localGCM, remoteGCM cipher.AEAD
 
 	handshakeMessageHandler handshakeMessageHandler
-	timerThread             timerThread
+	flightHandler           flightHandler
 	handshakeCompleted      chan struct{}
 
 	readErr error
 }
 
-func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
+func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
 	if config == nil {
 		return nil, errors.New("No config provided")
 	}
@@ -82,7 +82,7 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 		fragmentBuffer:          newFragmentBuffer(),
 		handshakeCache:          newHandshakeCache(isClient),
 		handshakeMessageHandler: handshakeMessageHandler,
-		timerThread:             timerThread,
+		flightHandler:           flightHandler,
 		localCertificate:        config.Certificate,
 		localPrivateKey:         localPrivateKey,
 
@@ -101,7 +101,21 @@ func createConn(nextConn net.Conn, timerThread timerThread, handshakeMessageHand
 	}
 
 	go c.readThread()
-	go c.timerThread(c)
+	go func() {
+		for {
+			select {
+			case <-c.workerTicker.C:
+				if c.flightHandler(c) {
+					return
+				}
+			case <-c.currFlight.workerTrigger:
+				if c.flightHandler(c) {
+					return
+				}
+			}
+		}
+
+	}()
 
 	<-c.handshakeCompleted
 	return c, nil
@@ -118,7 +132,7 @@ func Dial(network string, raddr *net.UDPAddr, config *Config) (*Conn, error) {
 
 // Client establishes a DTLS connection over an existing conn
 func Client(conn net.Conn, config *Config) (*Conn, error) {
-	return createConn(conn, clientTimerThread, clientHandshakeHandler, config, true)
+	return createConn(conn, clientFlightHandler, clientHandshakeHandler, config, true)
 }
 
 // Server listens for incoming DTLS connections
@@ -126,7 +140,7 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 	if config == nil || config.Certificate == nil {
 		return nil, errServerMustHaveCertificate
 	}
-	return createConn(conn, serverTimerThread, serverHandshakeHandler, config, false)
+	return createConn(conn, serverFlightHandler, serverHandshakeHandler, config, false)
 }
 
 // Read reads data from the connection.

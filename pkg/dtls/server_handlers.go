@@ -97,21 +97,6 @@ func serverHandshakeHandler(c *Conn) error {
 	return nil
 }
 
-func serverTimerThread(c *Conn) {
-	for {
-		select {
-		case <-c.workerTicker.C:
-			if serverFlightHandler(c) {
-				return
-			}
-		case <-c.currFlight.workerTrigger:
-			if serverFlightHandler(c) {
-				return
-			}
-		}
-	}
-}
-
 func serverFlightHandler(c *Conn) bool {
 	switch c.currFlight.get() {
 	case flight0:

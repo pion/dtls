@@ -120,21 +120,6 @@ func clientHandshakeHandler(c *Conn) error {
 	return nil
 }
 
-func clientTimerThread(c *Conn) {
-	for {
-		select {
-		case <-c.workerTicker.C:
-			if clientFlightHandler(c) {
-				return
-			}
-		case <-c.currFlight.workerTrigger:
-			if clientFlightHandler(c) {
-				return
-			}
-		}
-	}
-}
-
 func clientFlightHandler(c *Conn) bool {
 	switch c.currFlight.get() {
 	case flight1:
