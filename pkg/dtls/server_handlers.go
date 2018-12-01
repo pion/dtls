@@ -5,12 +5,12 @@ import (
 	"fmt"
 )
 
-func serverExcludeRules(c *Conn) map[flightVal]handshakeCacheExcludeRule {
+func serverExcludeRules() map[flightVal]handshakeCacheExcludeRule {
 	// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
 	return map[flightVal]handshakeCacheExcludeRule{
-		flight0: handshakeCacheExcludeRule{isLocal: true, isRemote: true},
-		flight1: handshakeCacheExcludeRule{isLocal: true, isRemote: true},
-		flight2: handshakeCacheExcludeRule{isLocal: true, isRemote: false},
+		flight0: {isLocal: true, isRemote: true},
+		flight1: {isLocal: true, isRemote: true},
+		flight2: {isLocal: true, isRemote: false},
 	}
 }
 
@@ -80,7 +80,7 @@ func serverHandshakeHandler(c *Conn) error {
 
 		case *handshakeMessageFinished:
 			if c.currFlight.get() == flight4 {
-				expectedVerifyData := prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(c), true))
+				expectedVerifyData := prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), true))
 				if !bytes.Equal(expectedVerifyData, h.verifyData) {
 					return errVerifyDataMismatch
 				}
@@ -230,7 +230,7 @@ func serverFlightHandler(c *Conn) bool {
 		}, false)
 
 		if len(c.localVerifyData) == 0 {
-			c.localVerifyData = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(c), false))
+			c.localVerifyData = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), false))
 		}
 
 		c.internalSend(&recordLayer{

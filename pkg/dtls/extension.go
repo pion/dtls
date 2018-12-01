@@ -9,8 +9,8 @@ type extensionValue uint16
 
 const (
 	extensionSupportedEllipticCurvesValue extensionValue = 10
-	extensionSupportedPointFormatsValue                  = 11
-	extensionUseSRTPValue                                = 14
+	extensionSupportedPointFormatsValue   extensionValue = 11
+	extensionUseSRTPValue                 extensionValue = 14
 )
 
 type extension interface {

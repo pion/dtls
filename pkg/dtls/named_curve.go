@@ -18,7 +18,7 @@ type namedCurveKeypair struct {
 
 const (
 	namedCurveP256   namedCurve = 0x0017
-	namedCurveX25519            = 0x001d
+	namedCurveX25519 namedCurve = 0x001d
 )
 
 var namedCurves = map[namedCurve]bool{

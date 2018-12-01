@@ -13,12 +13,13 @@ type HashAlgorithm uint16
 
 // Supported hash hash algorithms
 const (
-	HashAlgorithmMD5    HashAlgorithm = 1
-	HashAlgorithmSHA1                 = 2
-	HashAlgorithmSHA224               = 3
-	HashAlgorithmSHA256               = 4
-	HashAlgorithmSHA384               = 5
-	HashAlgorithmSHA512               = 6
+	// HashAlgorithmMD2    HashAlgorithm = 0 // Blacklisted
+	HashAlgorithmMD5    HashAlgorithm = 1 // Blacklisted
+	HashAlgorithmSHA1   HashAlgorithm = 2 // Blacklisted
+	HashAlgorithmSHA224 HashAlgorithm = 3
+	HashAlgorithmSHA256 HashAlgorithm = 4
+	HashAlgorithmSHA384 HashAlgorithm = 5
+	HashAlgorithmSHA512 HashAlgorithm = 6
 )
 
 // String makes HashAlgorithm printable
@@ -64,10 +65,10 @@ func HashAlgorithmString(s string) (HashAlgorithm, error) {
 func (h HashAlgorithm) digest(b []byte) []byte {
 	switch h {
 	case HashAlgorithmMD5:
-		hash := md5.Sum(b)
+		hash := md5.Sum(b) // #nosec
 		return hash[:]
 	case HashAlgorithmSHA1:
-		hash := sha1.Sum(b)
+		hash := sha1.Sum(b) // #nosec
 		return hash[:]
 	case HashAlgorithmSHA224:
 		hash := sha256.Sum224(b)
@@ -87,10 +88,10 @@ func (h HashAlgorithm) digest(b []byte) []byte {
 }
 
 var hashAlgorithms = map[HashAlgorithm]struct{}{
-	HashAlgorithmMD5:    struct{}{},
-	HashAlgorithmSHA1:   struct{}{},
-	HashAlgorithmSHA224: struct{}{},
-	HashAlgorithmSHA256: struct{}{},
-	HashAlgorithmSHA384: struct{}{},
-	HashAlgorithmSHA512: struct{}{},
+	HashAlgorithmMD5:    {},
+	HashAlgorithmSHA1:   {},
+	HashAlgorithmSHA224: {},
+	HashAlgorithmSHA256: {},
+	HashAlgorithmSHA384: {},
+	HashAlgorithmSHA512: {},
 }
