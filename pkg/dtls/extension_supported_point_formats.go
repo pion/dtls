@@ -19,7 +19,7 @@ func (e extensionSupportedPointFormats) extensionValue() extensionValue {
 	return extensionSupportedPointFormatsValue
 }
 
-func (e *extensionSupportedPointFormats) marshal() ([]byte, error) {
+func (e *extensionSupportedPointFormats) Marshal() ([]byte, error) {
 	out := make([]byte, extensionSupportedPointFormatsSize)
 
 	binary.BigEndian.PutUint16(out, uint16(e.extensionValue()))
@@ -32,7 +32,7 @@ func (e *extensionSupportedPointFormats) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (e *extensionSupportedPointFormats) unmarshal(data []byte) error {
+func (e *extensionSupportedPointFormats) Unmarshal(data []byte) error {
 	if len(data) <= extensionSupportedPointFormatsSize {
 		return errBufferTooSmall
 	} else if extensionValue(binary.BigEndian.Uint16(data)) != e.extensionValue() {

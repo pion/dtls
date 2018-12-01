@@ -1,6 +1,7 @@
 package udp
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"runtime/pprof"
@@ -53,11 +54,12 @@ func TestConnClose(t *testing.T) {
 		t.Fatalf("Failed to listen: %v\n", err)
 	}
 
-	done := make(chan struct{})
+	listenerCh := make(chan error)
 	go func() {
-		lConn, err := listener.Accept()
-		if err != nil {
-			t.Fatalf("Failed to accept: %v\n", err)
+		lConn, listenErr := listener.Accept()
+		if listenErr != nil {
+			listenerCh <- fmt.Errorf("Failed to accept: %v\n", listenErr)
+			return
 		}
 
 		// Make sure we're receiving
@@ -68,20 +70,23 @@ func TestConnClose(t *testing.T) {
 			}
 		}()
 
-		err = listener.Close()
-		if err != nil {
-			t.Fatalf("Failed to close listener: %v\n", err)
+		listenErr = listener.Close()
+		if listenErr != nil {
+			listenerCh <- fmt.Errorf("Failed to close listener: %v\n", listenErr)
+			return
 		}
 
-		err = lConn.Close()
-		if err != nil {
-			t.Fatalf("Failed to close lConn: %v\n", err)
+		listenErr = lConn.Close()
+		if listenErr != nil {
+			listenerCh <- fmt.Errorf("Failed to close lConn: %v\n", listenErr)
+			return
 		}
 
-		close(done)
+		close(listenerCh)
 	}()
 
-	pConn, err := net.DialUDP(network, nil, addr)
+	var pConn *net.UDPConn
+	pConn, err = net.DialUDP(network, nil, addr)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v\n", err)
 	}
@@ -91,5 +96,8 @@ func TestConnClose(t *testing.T) {
 		t.Fatalf("Failed to write to pConn: %v\n", err)
 	}
 
-	<-done
+	err = <-listenerCh
+	if err != nil {
+		t.Fatal(err)
+	}
 }

@@ -12,7 +12,7 @@ func TestExtensionSupportedPointFormats(t *testing.T) {
 		pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
 	}
 
-	raw, err := parsedExtensionSupportedPointFormats.marshal()
+	raw, err := parsedExtensionSupportedPointFormats.Marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawExtensionSupportedPointFormats) {

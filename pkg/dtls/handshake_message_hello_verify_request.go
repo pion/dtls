@@ -26,7 +26,7 @@ func (h handshakeMessageHelloVerifyRequest) handshakeType() handshakeType {
 	return handshakeTypeHelloVerifyRequest
 }
 
-func (h *handshakeMessageHelloVerifyRequest) marshal() ([]byte, error) {
+func (h *handshakeMessageHelloVerifyRequest) Marshal() ([]byte, error) {
 	if len(h.cookie) > 255 {
 		return nil, errCookieTooLong
 	}
@@ -40,7 +40,7 @@ func (h *handshakeMessageHelloVerifyRequest) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (h *handshakeMessageHelloVerifyRequest) unmarshal(data []byte) error {
+func (h *handshakeMessageHelloVerifyRequest) Unmarshal(data []byte) error {
 	h.version.major = data[0]
 	h.version.minor = data[1]
 	cookieLength := data[2]

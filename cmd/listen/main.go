@@ -87,11 +87,15 @@ func (h *hub) readLoop(conn net.Conn) {
 }
 
 func (h *hub) unregister(conn net.Conn) {
-	fmt.Println("Disconnecting ", conn.RemoteAddr())
 	h.lock.Lock()
 	defer h.lock.Unlock()
 	delete(h.conns, conn.RemoteAddr().String())
-	_ = conn.Close()
+	err := conn.Close()
+	if err != nil {
+		fmt.Println("Failed to disconnect", conn.RemoteAddr(), err)
+	} else {
+		fmt.Println("Disconnected ", conn.RemoteAddr())
+	}
 }
 
 func (h *hub) broadcast(msg []byte) {

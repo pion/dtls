@@ -16,7 +16,7 @@ type handshakeHeader struct {
 	fragmentLength  uint32 // uint24 in spec
 }
 
-func (h *handshakeHeader) marshal() ([]byte, error) {
+func (h *handshakeHeader) Marshal() ([]byte, error) {
 	out := make([]byte, handshakeMessageHeaderLength)
 
 	out[0] = byte(h.handshakeType)
@@ -27,7 +27,7 @@ func (h *handshakeHeader) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (h *handshakeHeader) unmarshal(data []byte) error {
+func (h *handshakeHeader) Unmarshal(data []byte) error {
 	if len(data) < handshakeHeaderLength {
 		return errBufferTooSmall
 	}

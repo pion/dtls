@@ -42,7 +42,7 @@ func TestFragmentBuffer(t *testing.T) {
 			status, err := fragmentBuffer.push(frag)
 			if err != nil {
 				t.Error(err)
-			} else if status != true {
+			} else if !status {
 				t.Errorf("fragmentBuffer didn't accept fragments for '%s'", test.Name)
 			}
 		}

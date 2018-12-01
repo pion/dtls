@@ -25,8 +25,8 @@ type recordLayer struct {
 	content           content
 }
 
-func (r *recordLayer) marshal() ([]byte, error) {
-	contentRaw, err := r.content.marshal()
+func (r *recordLayer) Marshal() ([]byte, error) {
+	contentRaw, err := r.content.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func (r *recordLayer) marshal() ([]byte, error) {
 	r.recordLayerHeader.contentLen = uint16(len(contentRaw))
 	r.recordLayerHeader.contentType = r.content.contentType()
 
-	headerRaw, err := r.recordLayerHeader.marshal()
+	headerRaw, err := r.recordLayerHeader.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -42,8 +42,8 @@ func (r *recordLayer) marshal() ([]byte, error) {
 	return append(headerRaw, contentRaw...), nil
 }
 
-func (r *recordLayer) unmarshal(data []byte) error {
-	if err := r.recordLayerHeader.unmarshal(data); err != nil {
+func (r *recordLayer) Unmarshal(data []byte) error {
+	if err := r.recordLayerHeader.Unmarshal(data); err != nil {
 		return err
 	}
 
@@ -60,7 +60,7 @@ func (r *recordLayer) unmarshal(data []byte) error {
 		return errInvalidContentType
 	}
 
-	return r.content.unmarshal(data[recordLayerHeaderSize:])
+	return r.content.Unmarshal(data[recordLayerHeaderSize:])
 }
 
 // Note that as with TLS, multiple handshake messages may be placed in

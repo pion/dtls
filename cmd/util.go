@@ -53,6 +53,7 @@ func GenerateCertificate() (*x509.Certificate, *ecdsa.PrivateKey) {
 
 	// Max random value, a 130-bits integer, i.e 2^130 - 1
 	maxBigInt := new(big.Int)
+	/* #nosec */
 	maxBigInt.Exp(big.NewInt(2), big.NewInt(130), nil).Sub(maxBigInt, big.NewInt(1))
 	serialNumber, err := rand.Int(rand.Reader, maxBigInt)
 	Check(err)

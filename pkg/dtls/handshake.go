@@ -22,8 +22,8 @@ const (
 )
 
 type handshakeMessage interface {
-	marshal() ([]byte, error)
-	unmarshal(data []byte) error
+	Marshal() ([]byte, error)
+	Unmarshal(data []byte) error
 
 	handshakeType() handshakeType
 }
@@ -43,14 +43,14 @@ func (h handshake) contentType() contentType {
 	return contentTypeHandshake
 }
 
-func (h *handshake) marshal() ([]byte, error) {
+func (h *handshake) Marshal() ([]byte, error) {
 	if h.handshakeMessage == nil {
 		return nil, errHandshakeMessageUnset
 	} else if h.handshakeHeader.fragmentOffset != 0 {
 		return nil, errUnableToMarshalFragmented
 	}
 
-	msg, err := h.handshakeMessage.marshal()
+	msg, err := h.handshakeMessage.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (h *handshake) marshal() ([]byte, error) {
 	h.handshakeHeader.length = uint32(len(msg))
 	h.handshakeHeader.fragmentLength = h.handshakeHeader.length
 	h.handshakeHeader.handshakeType = h.handshakeMessage.handshakeType()
-	header, err := h.handshakeHeader.marshal()
+	header, err := h.handshakeHeader.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -66,8 +66,8 @@ func (h *handshake) marshal() ([]byte, error) {
 	return append(header, msg...), nil
 }
 
-func (h *handshake) unmarshal(data []byte) error {
-	if err := h.handshakeHeader.unmarshal(data); err != nil {
+func (h *handshake) Unmarshal(data []byte) error {
+	if err := h.handshakeHeader.Unmarshal(data); err != nil {
 		return err
 	}
 
@@ -79,6 +79,8 @@ func (h *handshake) unmarshal(data []byte) error {
 	}
 
 	switch handshakeType(data[0]) {
+	case handshakeTypeHelloRequest:
+		return errNotImplemented
 	case handshakeTypeClientHello:
 		h.handshakeMessage = &handshakeMessageClientHello{}
 	case handshakeTypeHelloVerifyRequest:
@@ -100,5 +102,5 @@ func (h *handshake) unmarshal(data []byte) error {
 	default:
 		return errNotImplemented
 	}
-	return h.handshakeMessage.unmarshal(data[handshakeMessageHeaderLength:])
+	return h.handshakeMessage.Unmarshal(data[handshakeMessageHeaderLength:])
 }

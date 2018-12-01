@@ -25,13 +25,13 @@ func TestHandshakeMessageServerHello(t *testing.T) {
 	}
 
 	c := &handshakeMessageServerHello{}
-	if err := c.unmarshal(rawServerHello); err != nil {
+	if err := c.Unmarshal(rawServerHello); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(c, parsedServerHello) {
 		t.Errorf("handshakeMessageServerHello unmarshal: got %#v, want %#v", c, parsedServerHello)
 	}
 
-	raw, err := c.marshal()
+	raw, err := c.Marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawServerHello) {

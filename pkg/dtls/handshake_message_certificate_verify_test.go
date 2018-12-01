@@ -20,13 +20,13 @@ func TestHandshakeMessageCertificateVerify(t *testing.T) {
 	}
 
 	c := &handshakeMessageCertificateVerify{}
-	if err := c.unmarshal(rawCertificateVerify); err != nil {
+	if err := c.Unmarshal(rawCertificateVerify); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(c, parsedCertificateVerify) {
 		t.Errorf("handshakeMessageCertificate unmarshal: got %#v, want %#v", c, parsedCertificateVerify)
 	}
 
-	raw, err := c.marshal()
+	raw, err := c.Marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawCertificateVerify) {

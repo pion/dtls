@@ -19,6 +19,9 @@ var defaultCompressionMethods = []*compressionMethod{
 }
 
 func decodeCompressionMethods(buf []byte) ([]*compressionMethod, error) {
+	if len(buf) < 1 {
+		return nil, errDTLSPacketInvalidLength
+	}
 	compressionMethodsCount := int(buf[0])
 	c := []*compressionMethod{}
 	for i := 0; i < compressionMethodsCount; i++ {

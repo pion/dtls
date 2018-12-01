@@ -16,7 +16,7 @@ func (h handshakeMessageCertificateVerify) handshakeType() handshakeType {
 	return handshakeTypeCertificateVerify
 }
 
-func (h *handshakeMessageCertificateVerify) marshal() ([]byte, error) {
+func (h *handshakeMessageCertificateVerify) Marshal() ([]byte, error) {
 	out := make([]byte, 1+1+2+len(h.signature))
 
 	out[0] = byte(h.hashAlgorithm)
@@ -26,7 +26,7 @@ func (h *handshakeMessageCertificateVerify) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (h *handshakeMessageCertificateVerify) unmarshal(data []byte) error {
+func (h *handshakeMessageCertificateVerify) Unmarshal(data []byte) error {
 	if len(data) < handshakeMessageCertificateVerifyMinLength {
 		return errBufferTooSmall
 	}

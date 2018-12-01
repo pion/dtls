@@ -53,7 +53,7 @@ func encryptPacket(pkt *recordLayer, raw, localWriteIV []byte, localGCM cipher.A
 
 func decryptPacket(in, remoteWriteIV []byte, remoteGCM cipher.AEAD) ([]byte, error) {
 	var h recordLayerHeader
-	if err := h.unmarshal(in); err != nil {
+	if err := h.Unmarshal(in); err != nil {
 		return nil, err
 	} else if h.contentType == contentTypeChangeCipherSpec {
 		// Nothing to encrypt with ChangeCipherSpec

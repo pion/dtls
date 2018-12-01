@@ -9,8 +9,8 @@ import (
 
 const receiveMTU = 8192
 
-var ErrClosedListener = errors.New("udp: listener closed")
-var ErrClosedConn = errors.New("udp: conn closed")
+var errClosedListener = errors.New("udp: listener closed")
+var errClosedConn = errors.New("udp: conn closed")
 
 // Listener augments a connection-oriented Listener over a UDP PacketConn
 type Listener struct {
@@ -33,7 +33,7 @@ func (l *Listener) Accept() (*Conn, error) {
 		return c, nil
 
 	case <-l.doneCh:
-		return nil, ErrClosedListener
+		return nil, errClosedListener
 	}
 }
 
@@ -114,7 +114,7 @@ func (l *Listener) getConn(raddr net.Addr) (*Conn, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	if !l.accepting {
-		return nil, ErrClosedListener
+		return nil, errClosedListener
 	}
 
 	conn, ok := l.conns[raddr.String()]
@@ -157,7 +157,7 @@ func (c *Conn) Read(p []byte) (int, error) {
 		n := <-c.sizeCh
 		return n, nil
 	case <-c.doneCh:
-		return 0, ErrClosedConn
+		return 0, errClosedConn
 	}
 }
 
@@ -168,7 +168,7 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 	c.lock.Unlock()
 
 	if l == nil {
-		return 0, ErrClosedConn
+		return 0, errClosedConn
 	}
 
 	return l.pConn.WriteTo(p, c.rAddr)

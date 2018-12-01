@@ -1,8 +1,8 @@
 package dtls
 
 import (
-	"crypto/md5"
-	"crypto/sha1"
+	"crypto/md5"  // #nosec
+	"crypto/sha1" // #nosec
 	"crypto/sha256"
 	"crypto/sha512"
 )
@@ -11,6 +11,7 @@ import (
 // https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-18
 type HashAlgorithm uint16
 
+// Supported hash hash algorithms
 const (
 	HashAlgorithmMD5    HashAlgorithm = 1
 	HashAlgorithmSHA1                 = 2

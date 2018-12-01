@@ -78,7 +78,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		nextConn:                nextConn,
 		currFlight:              newFlight(isClient),
 		fragmentBuffer:          newFragmentBuffer(),
-		handshakeCache:          newHandshakeCache(isClient),
+		handshakeCache:          newHandshakeCache(),
 		handshakeMessageHandler: handshakeMessageHandler,
 		flightHandler:           flightHandler,
 		localCertificate:        config.Certificate,
@@ -225,11 +225,11 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 		return nil, errReservedExportKeyingMaterial
 	}
 
-	localRandom, err := c.localRandom.marshal()
+	localRandom, err := c.localRandom.Marshal()
 	if err != nil {
 		return nil, err
 	}
-	remoteRandom, err := c.remoteRandom.marshal()
+	remoteRandom, err := c.remoteRandom.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +244,7 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 }
 
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
-	raw, err := pkt.marshal()
+	raw, err := pkt.Marshal()
 	if err != nil {
 		panic(err)
 	}
@@ -296,7 +296,7 @@ func (c *Conn) handleIncoming(buf []byte) error {
 func (c *Conn) handleIncomingPacket(buf []byte) error {
 	// TODO: avoid separate unmarshal
 	h := &recordLayerHeader{}
-	if err := h.unmarshal(buf); err != nil {
+	if err := h.Unmarshal(buf); err != nil {
 		return err
 	}
 	if h.epoch < c.remoteEpoch {
@@ -326,7 +326,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 	}
 
 	r := &recordLayer{}
-	if err := r.unmarshal(buf); err != nil {
+	if err := r.Unmarshal(buf); err != nil {
 		return err
 	}
 

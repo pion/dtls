@@ -26,7 +26,7 @@ type protocolVersion struct {
 	major, minor uint8
 }
 
-func (r *recordLayerHeader) marshal() ([]byte, error) {
+func (r *recordLayerHeader) Marshal() ([]byte, error) {
 	if r.sequenceNumber > maxSequenceNumber {
 		return nil, errSequenceNumberOverflow
 	}
@@ -43,7 +43,7 @@ func (r *recordLayerHeader) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (r *recordLayerHeader) unmarshal(data []byte) error {
+func (r *recordLayerHeader) Unmarshal(data []byte) error {
 	r.contentType = contentType(data[0])
 	r.protocolVersion.major = data[1]
 	r.protocolVersion.minor = data[2]

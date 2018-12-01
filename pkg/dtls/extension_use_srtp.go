@@ -15,7 +15,7 @@ func (e extensionUseSRTP) extensionValue() extensionValue {
 	return extensionUseSRTPValue
 }
 
-func (e *extensionUseSRTP) marshal() ([]byte, error) {
+func (e *extensionUseSRTP) Marshal() ([]byte, error) {
 	out := make([]byte, extensionUseSRTPHeaderSize)
 
 	binary.BigEndian.PutUint16(out, uint16(e.extensionValue()))
@@ -31,7 +31,7 @@ func (e *extensionUseSRTP) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (e *extensionUseSRTP) unmarshal(data []byte) error {
+func (e *extensionUseSRTP) Unmarshal(data []byte) error {
 	if len(data) <= extensionUseSRTPHeaderSize {
 		return errBufferTooSmall
 	} else if extensionValue(binary.BigEndian.Uint16(data)) != e.extensionValue() {

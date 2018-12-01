@@ -6,7 +6,7 @@ type alertLevel byte
 
 const (
 	alertLevelWarning alertLevel = 1
-	alertLevelFatal              = 2
+	alertLevelFatal   alertLevel = 2
 )
 
 func (a alertLevel) String() string {
@@ -24,30 +24,30 @@ type alertDescription byte
 
 const (
 	alertCloseNotify            alertDescription = 0
-	alertUnexpectedMessage                       = 10
-	alertBadRecordMac                            = 20
-	alertDecryptionFailed                        = 21
-	alertRecordOverflow                          = 22
-	alertDecompressionFailure                    = 30
-	alertHandshakeFailure                        = 40
-	alertNoCertificate                           = 41
-	alertBadCertificate                          = 42
-	alertUnsupportedCertificate                  = 43
-	alertCertificateRevoked                      = 44
-	alertCertificateExpired                      = 45
-	alertCertificateUnknown                      = 46
-	alertIllegalParameter                        = 47
-	alertUnknownCA                               = 48
-	alertAccessDenied                            = 49
-	alertDecodeError                             = 50
-	alertDecryptError                            = 51
-	alertExportRestriction                       = 60
-	alertProtocolVersion                         = 70
-	alertInsufficientSecurity                    = 71
-	alertInternalError                           = 80
-	alertUserCanceled                            = 90
-	alertNoRenegotiation                         = 100
-	alertUnsupportedExtension                    = 110
+	alertUnexpectedMessage      alertDescription = 10
+	alertBadRecordMac           alertDescription = 20
+	alertDecryptionFailed       alertDescription = 21
+	alertRecordOverflow         alertDescription = 22
+	alertDecompressionFailure   alertDescription = 30
+	alertHandshakeFailure       alertDescription = 40
+	alertNoCertificate          alertDescription = 41
+	alertBadCertificate         alertDescription = 42
+	alertUnsupportedCertificate alertDescription = 43
+	alertCertificateRevoked     alertDescription = 44
+	alertCertificateExpired     alertDescription = 45
+	alertCertificateUnknown     alertDescription = 46
+	alertIllegalParameter       alertDescription = 47
+	alertUnknownCA              alertDescription = 48
+	alertAccessDenied           alertDescription = 49
+	alertDecodeError            alertDescription = 50
+	alertDecryptError           alertDescription = 51
+	alertExportRestriction      alertDescription = 60
+	alertProtocolVersion        alertDescription = 70
+	alertInsufficientSecurity   alertDescription = 71
+	alertInternalError          alertDescription = 80
+	alertUserCanceled           alertDescription = 90
+	alertNoRenegotiation        alertDescription = 100
+	alertUnsupportedExtension   alertDescription = 110
 )
 
 func (a alertDescription) String() string {
@@ -126,11 +126,11 @@ func (a alert) contentType() contentType {
 	return contentTypeAlert
 }
 
-func (a *alert) marshal() ([]byte, error) {
+func (a *alert) Marshal() ([]byte, error) {
 	return []byte{byte(a.alertLevel), byte(a.alertDescription)}, nil
 }
 
-func (a *alert) unmarshal(data []byte) error {
+func (a *alert) Unmarshal(data []byte) error {
 	if len(data) != 2 {
 		return errBufferTooSmall
 	}

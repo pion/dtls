@@ -11,7 +11,7 @@ func TestExtensionSupportedGroups(t *testing.T) {
 		ellipticCurves: []namedCurve{namedCurveX25519},
 	}
 
-	raw, err := parsedSupportedGroups.marshal()
+	raw, err := parsedSupportedGroups.Marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawSupportedGroups) {

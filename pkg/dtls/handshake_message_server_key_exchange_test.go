@@ -27,13 +27,13 @@ func TestHandshakeMessageServerKeyExchange(t *testing.T) {
 	}
 
 	c := &handshakeMessageServerKeyExchange{}
-	if err := c.unmarshal(rawServerKeyExchange); err != nil {
+	if err := c.Unmarshal(rawServerKeyExchange); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(c, parsedServerKeyExchange) {
 		t.Errorf("handshakeMessageServerKeyExchange unmarshal: got %#v, want %#v", c, parsedServerKeyExchange)
 	}
 
-	raw, err := c.marshal()
+	raw, err := c.Marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawServerKeyExchange) {

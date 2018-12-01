@@ -7,13 +7,13 @@ import (
 
 func TestChangeCipherSpecRoundTrip(t *testing.T) {
 	c := changeCipherSpec{}
-	raw, err := c.marshal()
+	raw, err := c.Marshal()
 	if err != nil {
 		t.Error(err)
 	}
 
 	var cNew changeCipherSpec
-	if err := cNew.unmarshal(raw); err != nil {
+	if err := cNew.Unmarshal(raw); err != nil {
 		t.Error(err)
 	}
 
@@ -24,7 +24,7 @@ func TestChangeCipherSpecRoundTrip(t *testing.T) {
 
 func TestChangeCipherSpecInvalid(t *testing.T) {
 	c := changeCipherSpec{}
-	if err := c.unmarshal([]byte{0x00}); err != errInvalidCipherSpec {
+	if err := c.Unmarshal([]byte{0x00}); err != errInvalidCipherSpec {
 		t.Errorf("ChangeCipherSpec invalid assert: got %#v, want %#v", err, errInvalidCipherSpec)
 	}
 

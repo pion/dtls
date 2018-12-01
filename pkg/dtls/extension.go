@@ -14,8 +14,8 @@ const (
 )
 
 type extension interface {
-	marshal() ([]byte, error)
-	unmarshal(data []byte) error
+	Marshal() ([]byte, error)
+	Unmarshal(data []byte) error
 
 	extensionValue() extensionValue
 }
@@ -28,7 +28,7 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 
 	extensions := []extension{}
 	unmarshalAndAppend := func(data []byte, e extension) error {
-		err := e.unmarshal(data)
+		err := e.Unmarshal(data)
 		if err != nil {
 			return err
 		}
@@ -57,7 +57,7 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 func encodeExtensions(e []extension) ([]byte, error) {
 	extensions := []byte{}
 	for _, e := range e {
-		raw, err := e.marshal()
+		raw, err := e.Marshal()
 		if err != nil {
 			return nil, err
 		}

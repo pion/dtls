@@ -14,13 +14,13 @@ func TestHandshakeMessageFinished(t *testing.T) {
 	}
 
 	c := &handshakeMessageFinished{}
-	if err := c.unmarshal(rawFinished); err != nil {
+	if err := c.Unmarshal(rawFinished); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(c, parsedFinished) {
 		t.Errorf("handshakeMessageFinished unmarshal: got %#v, want %#v", c, parsedFinished)
 	}
 
-	raw, err := c.marshal()
+	raw, err := c.Marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawFinished) {

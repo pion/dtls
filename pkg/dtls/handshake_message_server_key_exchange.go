@@ -18,7 +18,7 @@ func (h handshakeMessageServerKeyExchange) handshakeType() handshakeType {
 	return handshakeTypeServerKeyExchange
 }
 
-func (h *handshakeMessageServerKeyExchange) marshal() ([]byte, error) {
+func (h *handshakeMessageServerKeyExchange) Marshal() ([]byte, error) {
 	out := []byte{byte(h.ellipticCurveType), 0x00, 0x00}
 	binary.BigEndian.PutUint16(out[1:], uint16(h.namedCurve))
 
@@ -33,7 +33,7 @@ func (h *handshakeMessageServerKeyExchange) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (h *handshakeMessageServerKeyExchange) unmarshal(data []byte) error {
+func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 	if _, ok := ellipticCurveTypes[ellipticCurveType(data[0])]; ok {
 		h.ellipticCurveType = ellipticCurveType(data[0])
 	} else {

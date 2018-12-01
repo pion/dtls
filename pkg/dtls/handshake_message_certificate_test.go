@@ -58,7 +58,7 @@ func TestHandshakeMessageCertificate(t *testing.T) {
 	}
 
 	c := &handshakeMessageCertificate{}
-	if err := c.unmarshal(rawCertificate); err != nil {
+	if err := c.Unmarshal(rawCertificate); err != nil {
 		t.Error(err)
 	} else {
 		copyCertificatePrivateMembers(c.certificate, parsedCertificate.certificate)
@@ -67,7 +67,7 @@ func TestHandshakeMessageCertificate(t *testing.T) {
 		}
 	}
 
-	raw, err := c.marshal()
+	raw, err := c.Marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawCertificate) {

@@ -27,7 +27,7 @@ func (h handshakeMessageClientHello) handshakeType() handshakeType {
 	return handshakeTypeClientHello
 }
 
-func (h *handshakeMessageClientHello) marshal() ([]byte, error) {
+func (h *handshakeMessageClientHello) Marshal() ([]byte, error) {
 	if len(h.cookie) > 255 {
 		return nil, errCookieTooLong
 	}
@@ -36,7 +36,7 @@ func (h *handshakeMessageClientHello) marshal() ([]byte, error) {
 	out[0] = h.version.major
 	out[1] = h.version.minor
 
-	rand, err := h.random.marshal()
+	rand, err := h.random.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +57,11 @@ func (h *handshakeMessageClientHello) marshal() ([]byte, error) {
 	return append(out, extensions...), nil
 }
 
-func (h *handshakeMessageClientHello) unmarshal(data []byte) error {
+func (h *handshakeMessageClientHello) Unmarshal(data []byte) error {
 	h.version.major = data[0]
 	h.version.minor = data[1]
 
-	if err := h.random.unmarshal(data[2 : 2+handshakeRandomLength]); err != nil {
+	if err := h.random.Unmarshal(data[2 : 2+handshakeRandomLength]); err != nil {
 		return err
 	}
 

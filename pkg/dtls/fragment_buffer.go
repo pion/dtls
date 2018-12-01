@@ -23,7 +23,7 @@ func newFragmentBuffer() *fragmentBuffer {
 // when an error returns it is fatal, and the DTLS connection should be stopped
 func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 	frag := new(fragment)
-	if err := frag.recordLayerHeader.unmarshal(buf); err != nil {
+	if err := frag.recordLayerHeader.Unmarshal(buf); err != nil {
 		return false, err
 	}
 
@@ -32,7 +32,7 @@ func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 		return false, nil
 	}
 
-	if err := frag.handshakeHeader.unmarshal(buf[recordLayerHeaderSize:]); err != nil {
+	if err := frag.handshakeHeader.Unmarshal(buf[recordLayerHeaderSize:]); err != nil {
 		return false, err
 	}
 
@@ -95,7 +95,7 @@ func (f *fragmentBuffer) pop() ([]byte, uint16) {
 	firstHeader.fragmentOffset = 0
 	firstHeader.fragmentLength = firstHeader.length
 
-	rawHeader, err := firstHeader.marshal()
+	rawHeader, err := firstHeader.Marshal()
 	if err != nil {
 		return nil, 0
 	}

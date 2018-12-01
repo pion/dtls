@@ -11,7 +11,7 @@ func TestExtensionUseSRTP(t *testing.T) {
 		protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 	}
 
-	raw, err := parsedUseSRTP.marshal()
+	raw, err := parsedUseSRTP.Marshal()
 	if err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(raw, rawUseSRTP) {

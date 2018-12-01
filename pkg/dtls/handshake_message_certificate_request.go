@@ -15,12 +15,12 @@ func (h handshakeMessageCertificateRequest) handshakeType() handshakeType {
 	return handshakeTypeCertificateRequest
 }
 
-func (h *handshakeMessageCertificateRequest) marshal() ([]byte, error) {
+func (h *handshakeMessageCertificateRequest) Marshal() ([]byte, error) {
 	// TODO
 	return []byte{}, nil
 }
 
-func (h *handshakeMessageCertificateRequest) unmarshal(data []byte) error {
+func (h *handshakeMessageCertificateRequest) Unmarshal(data []byte) error {
 	// TODO
 	return nil
 }

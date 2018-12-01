@@ -8,8 +8,8 @@ type cipherSuiteID uint16
 // A cipherSuite is a specific combination of key agreement, cipher and MAC
 // function.
 const (
-	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 cipherSuiteID = 0xc02b
-	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256                 = 0xc02f
+	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 cipherSuiteID = 0xc02b // nolint
+	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   cipherSuiteID = 0xc02f // nolint
 )
 
 type cipherSuite struct {
@@ -27,6 +27,9 @@ var defaultCipherSuites = []*cipherSuite{
 }
 
 func decodeCipherSuites(buf []byte) ([]*cipherSuite, error) {
+	if len(buf) < 2 {
+		return nil, errDTLSPacketInvalidLength
+	}
 	cipherSuitesCount := int(binary.BigEndian.Uint16(buf[0:])) / 2
 	rtrn := []*cipherSuite{}
 	for i := 0; i < cipherSuitesCount; i++ {

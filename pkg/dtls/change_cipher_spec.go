@@ -12,11 +12,11 @@ func (c changeCipherSpec) contentType() contentType {
 	return contentTypeChangeCipherSpec
 }
 
-func (c *changeCipherSpec) marshal() ([]byte, error) {
+func (c *changeCipherSpec) Marshal() ([]byte, error) {
 	return []byte{0x01}, nil
 }
 
-func (c *changeCipherSpec) unmarshal(data []byte) error {
+func (c *changeCipherSpec) Unmarshal(data []byte) error {
 	if len(data) == 1 && data[0] == 0x01 {
 		return nil
 	}

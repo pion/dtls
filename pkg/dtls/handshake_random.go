@@ -15,7 +15,7 @@ type handshakeRandom struct {
 	randomBytes [randomBytesLength]byte
 }
 
-func (h *handshakeRandom) marshal() ([]byte, error) {
+func (h *handshakeRandom) Marshal() ([]byte, error) {
 	out := make([]byte, handshakeRandomLength)
 
 	binary.BigEndian.PutUint32(out[0:], uint32(h.gmtUnixTime.Unix()))
@@ -24,7 +24,7 @@ func (h *handshakeRandom) marshal() ([]byte, error) {
 	return out, nil
 }
 
-func (h *handshakeRandom) unmarshal(data []byte) error {
+func (h *handshakeRandom) Unmarshal(data []byte) error {
 	if len(data) != handshakeRandomLength {
 		return errBufferTooSmall
 	}

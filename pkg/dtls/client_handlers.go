@@ -21,7 +21,7 @@ func clientHandshakeHandler(c *Conn) error {
 
 	for out, fragEpoch := c.fragmentBuffer.pop(); out != nil; out, fragEpoch = c.fragmentBuffer.pop() {
 		rawHandshake := &handshake{}
-		if err := rawHandshake.unmarshal(out); err != nil {
+		if err := rawHandshake.Unmarshal(out); err != nil {
 			return err
 		}
 		c.handshakeCache.push(out, fragEpoch, rawHandshake.handshakeHeader.messageSequence /* isLocal */, false, c.currFlight.get())
@@ -54,11 +54,11 @@ func clientHandshakeHandler(c *Conn) error {
 			if c.currFlight.get() == flight3 {
 				c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
 
-				clientRandom, err := c.localRandom.marshal()
+				clientRandom, err := c.localRandom.Marshal()
 				if err != nil {
 					return err
 				}
-				serverRandom, err := c.remoteRandom.marshal()
+				serverRandom, err := c.remoteRandom.Marshal()
 				if err != nil {
 					return err
 				}

@@ -28,7 +28,7 @@ func TestAlert(t *testing.T) {
 		},
 	} {
 		a := &alert{}
-		if err := a.unmarshal(test.Data); err != test.WantUnmarshalError {
+		if err := a.Unmarshal(test.Data); err != test.WantUnmarshalError {
 			t.Errorf("Unexpected Error %v: exp: %v got: %v", test.Name, test.WantUnmarshalError, err)
 		} else if !reflect.DeepEqual(test.Want, a) {
 			t.Errorf("%q alert.unmarshal: got %v, want %v", test.Name, a, test.Want)
@@ -38,7 +38,7 @@ func TestAlert(t *testing.T) {
 			return
 		}
 
-		data, marshalErr := a.marshal()
+		data, marshalErr := a.Marshal()
 		if marshalErr != nil {
 			t.Errorf("Unexpected Error %v: got: %v", test.Name, marshalErr)
 		} else if !reflect.DeepEqual(test.Data, data) {

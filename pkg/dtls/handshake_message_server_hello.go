@@ -26,7 +26,7 @@ func (h handshakeMessageServerHello) handshakeType() handshakeType {
 	return handshakeTypeServerHello
 }
 
-func (h *handshakeMessageServerHello) marshal() ([]byte, error) {
+func (h *handshakeMessageServerHello) Marshal() ([]byte, error) {
 	if h.cipherSuite == nil {
 		return nil, errCipherSuiteUnset
 	} else if h.compressionMethod == nil {
@@ -37,7 +37,7 @@ func (h *handshakeMessageServerHello) marshal() ([]byte, error) {
 	out[0] = h.version.major
 	out[1] = h.version.minor
 
-	rand, err := h.random.marshal()
+	rand, err := h.random.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +58,11 @@ func (h *handshakeMessageServerHello) marshal() ([]byte, error) {
 	return append(out, extensions...), nil
 }
 
-func (h *handshakeMessageServerHello) unmarshal(data []byte) error {
+func (h *handshakeMessageServerHello) Unmarshal(data []byte) error {
 	h.version.major = data[0]
 	h.version.minor = data[1]
 
-	if err := h.random.unmarshal(data[2 : 2+handshakeRandomLength]); err != nil {
+	if err := h.random.Unmarshal(data[2 : 2+handshakeRandomLength]); err != nil {
 		return err
 	}
 

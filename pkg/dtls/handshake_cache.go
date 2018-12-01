@@ -11,7 +11,7 @@ type handshakeCache struct {
 	cache []handshakeCacheItem
 }
 
-func newHandshakeCache(isClient bool) *handshakeCache {
+func newHandshakeCache() *handshakeCache {
 	return &handshakeCache{}
 }
 

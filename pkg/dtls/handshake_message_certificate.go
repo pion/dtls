@@ -12,7 +12,7 @@ func (h handshakeMessageCertificate) handshakeType() handshakeType {
 	return handshakeTypeCertificate
 }
 
-func (h *handshakeMessageCertificate) marshal() ([]byte, error) {
+func (h *handshakeMessageCertificate) Marshal() ([]byte, error) {
 	if h.certificate == nil {
 		return nil, errCertificateUnset
 	}
@@ -24,7 +24,7 @@ func (h *handshakeMessageCertificate) marshal() ([]byte, error) {
 	return append(out, h.certificate.Raw...), nil
 }
 
-func (h *handshakeMessageCertificate) unmarshal(data []byte) error {
+func (h *handshakeMessageCertificate) Unmarshal(data []byte) error {
 	if len(data) < 6 {
 		return errBufferTooSmall
 	}
