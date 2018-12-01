@@ -100,7 +100,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		}
 	}
 
-	go c.readThread()
+	// Trigger outbound
 	go func() {
 		for {
 			select {
@@ -115,6 +115,22 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 			}
 		}
 
+	}()
+
+	// Handle inbound
+	go func() {
+		b := make([]byte, 8192)
+		for {
+			i, err := c.nextConn.Read(b)
+			if err != nil {
+				c.readErr = err
+				close(c.decrypted)
+				return
+			}
+			if err := c.handleIncoming(b[:i]); err != nil {
+				panic(err)
+			}
+		}
 	}()
 
 	<-c.handshakeCompleted
@@ -226,22 +242,6 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 		seed = append(append(seed, remoteRandom...), localRandom...)
 	}
 	return prfPHash(c.keys.masterSecret, seed, length), nil
-}
-
-// Pulls from nextConn
-func (c *Conn) readThread() {
-	b := make([]byte, 8192)
-	for {
-		i, err := c.nextConn.Read(b)
-		if err != nil {
-			c.readErr = err
-			close(c.decrypted)
-			return
-		}
-		if err := c.handleIncoming(b[:i]); err != nil {
-			panic(err)
-		}
-	}
 }
 
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
