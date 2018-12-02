@@ -32,7 +32,9 @@ func serverHandshakeHandler(c *Conn) error {
 					return errCookieMismatch
 				}
 				c.localSequenceNumber = 1
-				c.currFlight.set(flight4)
+				if err := c.currFlight.set(flight4); err != nil {
+					return err
+				}
 				break
 			}
 
@@ -41,7 +43,9 @@ func serverHandshakeHandler(c *Conn) error {
 				return errCipherSuiteNoIntersection
 			}
 			c.cipherSuite = h.cipherSuites[0]
-			c.currFlight.set(flight2)
+			if err := c.currFlight.set(flight2); err != nil {
+				return err
+			}
 
 		case *handshakeMessageCertificate:
 			if c.currFlight.get() == flight4 {
@@ -86,7 +90,9 @@ func serverHandshakeHandler(c *Conn) error {
 				}
 				c.localEpoch = 1
 				c.localSequenceNumber = 5
-				c.currFlight.set(flight6)
+				if err := c.currFlight.set(flight6); err != nil {
+					return err
+				}
 			}
 
 		default:

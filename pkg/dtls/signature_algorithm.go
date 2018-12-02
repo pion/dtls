@@ -5,7 +5,7 @@ type signatureAlgorithm uint16
 
 const (
 	signatureAlgorithmRSA   signatureAlgorithm = 1
-	signatureAlgorithmECDSA                    = 3
+	signatureAlgorithmECDSA signatureAlgorithm = 3
 )
 
 var signatureAlgorithms = map[signatureAlgorithm]bool{

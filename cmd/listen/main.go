@@ -29,7 +29,7 @@ func main() {
 	// Connect to a DTLS server
 	listener, err := dtls.Listen("udp", addr, config)
 	cmd.Check(err)
-	defer listener.Close()
+	defer cmd.Check(listener.Close())
 
 	fmt.Println("Listening")
 

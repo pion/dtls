@@ -25,7 +25,7 @@ func main() {
 	// Connect to a DTLS server
 	dtlsConn, err := dtls.Dial("udp", addr, config)
 	cmd.Check(err)
-	defer dtlsConn.Close()
+	defer cmd.Check(dtlsConn.Close())
 
 	fmt.Println("Connected; type 'exit' to shutdown gracefully")
 

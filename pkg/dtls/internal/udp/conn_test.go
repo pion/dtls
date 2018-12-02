@@ -58,7 +58,7 @@ func TestConnClose(t *testing.T) {
 	go func() {
 		lConn, listenErr := listener.Accept()
 		if listenErr != nil {
-			listenerCh <- fmt.Errorf("failed to accept: %v\n", listenErr)
+			listenerCh <- fmt.Errorf("failed to accept: %v", listenErr)
 			return
 		}
 
@@ -72,13 +72,13 @@ func TestConnClose(t *testing.T) {
 
 		listenErr = listener.Close()
 		if listenErr != nil {
-			listenerCh <- fmt.Errorf("failed to close listener: %v\n", listenErr)
+			listenerCh <- fmt.Errorf("failed to close listener: %v", listenErr)
 			return
 		}
 
 		listenErr = lConn.Close()
 		if listenErr != nil {
-			listenerCh <- fmt.Errorf("failed to close lConn: %v\n", listenErr)
+			listenerCh <- fmt.Errorf("failed to close lConn: %v", listenErr)
 			return
 		}
 

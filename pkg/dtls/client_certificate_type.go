@@ -5,7 +5,7 @@ type clientCertificateType byte
 
 const (
 	clientCertificateTypeRSASign   clientCertificateType = 1
-	clientCertificateTypeECDSASign                       = 64
+	clientCertificateTypeECDSASign clientCertificateType = 64
 )
 
 var clientCertificateTypes = map[clientCertificateType]bool{

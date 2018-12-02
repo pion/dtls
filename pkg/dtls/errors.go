@@ -3,13 +3,11 @@ package dtls
 import "errors"
 
 var (
-	errInvalidClientCertificateType = errors.New("dtls: invalid client certificate type")
 	errVerifyDataMismatch           = errors.New("dtls: Expected and actual verify data does not match")
 	errNilNextConn                  = errors.New("dtls: Conn can not be created with a nil nextConn")
 	errReservedExportKeyingMaterial = errors.New("dtls: ExportKeyingMaterial can not be used with a reserved label")
 	errContextUnsupported           = errors.New("dtls: context is not supported for ExportKeyingMaterial")
 	errHandshakeInProgress          = errors.New("dtls: Handshake is in progress")
-	errUnableToDecrypt              = errors.New("dtls: Unable to decrypt")
 	errNotEnoughRoomForNonce        = errors.New("dtls: Buffer not long enough to contain nonce")
 	errBufferTooSmall               = errors.New("dtls: buffer is too small")
 	errCertificateUnset             = errors.New("dtls: handshakeMessageCertificate can not be marshalled without a certificate")
@@ -26,7 +24,6 @@ var (
 	errInvalidContentType           = errors.New("dtls: invalid content type")
 	errInvalidEllipticCurveType     = errors.New("dtls: invalid or unknown elliptic curve type")
 	errInvalidExtensionType         = errors.New("dtls: invalid extension type")
-	errInvalidHandshakeType         = errors.New("dtls: invalid handshake type")
 	errInvalidHashAlgorithm         = errors.New("dtls: invalid hash algorithm")
 	errInvalidNamedCurve            = errors.New("dtls: invalid named curve")
 	errInvalidSignatureAlgorithm    = errors.New("dtls: invalid signature algorithm")

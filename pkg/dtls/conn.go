@@ -13,7 +13,6 @@ import (
 )
 
 const initialTickerInterval = time.Second
-const finalTickerInternal = 90 * time.Second
 const cookieLength = 20
 
 type handshakeMessageHandler func(*Conn) error
@@ -30,7 +29,6 @@ type Conn struct {
 
 	isClient                   bool
 	remoteRequestedCertificate bool // Did we get a CertificateRequest
-	remoteHasVerified          bool // Have we seen a handshake finished with a valid hash
 	localEpoch, remoteEpoch    uint16
 	localSequenceNumber        uint64 // uint48
 

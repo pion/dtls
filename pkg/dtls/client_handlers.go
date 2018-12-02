@@ -31,14 +31,18 @@ func clientHandshakeHandler(c *Conn) error {
 			if c.currFlight.get() == flight1 {
 				c.cookie = append([]byte{}, h.cookie...)
 				c.localSequenceNumber++
-				c.currFlight.set(flight3)
+				if err := c.currFlight.set(flight3); err != nil {
+					return err
+				}
 			}
 
 		case *handshakeMessageServerHello:
 			switch c.currFlight.get() {
 			case flight1:
 				// HelloVerifyRequest can be skipped by the server
-				c.currFlight.set(flight3)
+				if err := c.currFlight.set(flight3); err != nil {
+					return err
+				}
 				fallthrough
 			case flight3:
 				c.cipherSuite = h.cipherSuite
@@ -91,7 +95,9 @@ func clientHandshakeHandler(c *Conn) error {
 		case *handshakeMessageServerHelloDone:
 			if c.currFlight.get() == flight3 {
 				c.localSequenceNumber++
-				c.currFlight.set(flight5)
+				if err := c.currFlight.set(flight5); err != nil {
+					return err
+				}
 			}
 
 		case *handshakeMessageFinished:
