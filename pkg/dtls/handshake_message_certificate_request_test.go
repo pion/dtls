@@ -6,8 +6,24 @@ import (
 )
 
 func TestHandshakeMessageCertificateRequest(t *testing.T) {
-	rawCertificateRequest := []byte{}
-	parsedCertificateRequest := &handshakeMessageCertificateRequest{}
+	rawCertificateRequest := []byte{
+		0x02, 0x01, 0x40, 0x00, 0x0C, 0x04, 0x03, 0x04, 0x01, 0x05,
+		0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x00, 0x00,
+	}
+	parsedCertificateRequest := &handshakeMessageCertificateRequest{
+		certificateTypes: []clientCertificateType{
+			clientCertificateTypeRSASign,
+			clientCertificateTypeECDSASign,
+		},
+		signatureHashAlgorithms: []signatureHashAlgorithm{
+			signatureHashAlgorithm{hash: HashAlgorithmSHA256, signature: signatureAlgorithmECDSA},
+			signatureHashAlgorithm{hash: HashAlgorithmSHA256, signature: signatureAlgorithmRSA},
+			signatureHashAlgorithm{hash: HashAlgorithmSHA384, signature: signatureAlgorithmECDSA},
+			signatureHashAlgorithm{hash: HashAlgorithmSHA384, signature: signatureAlgorithmRSA},
+			signatureHashAlgorithm{hash: HashAlgorithmSHA512, signature: signatureAlgorithmRSA},
+			signatureHashAlgorithm{hash: HashAlgorithmSHA1, signature: signatureAlgorithmRSA},
+		},
+	}
 
 	c := &handshakeMessageCertificateRequest{}
 	if err := c.Unmarshal(rawCertificateRequest); err != nil {
