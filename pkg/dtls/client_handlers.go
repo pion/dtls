@@ -120,7 +120,7 @@ func clientHandshakeHandler(c *Conn) error {
 	return nil
 }
 
-func clientFlightHandler(c *Conn) bool {
+func clientFlightHandler(c *Conn) (bool, error) {
 	switch c.currFlight.get() {
 	case flight1:
 		fallthrough
@@ -162,7 +162,7 @@ func clientFlightHandler(c *Conn) bool {
 		if c.remoteEpoch != 0 {
 			// Handshake is done
 			c.lock.RUnlock()
-			return true
+			return true, nil
 		}
 
 		// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
@@ -207,7 +207,7 @@ func clientFlightHandler(c *Conn) bool {
 			if len(c.localCertificateVerify) == 0 {
 				certVerify, err := generateCertificateVerify(c.handshakeCache.combinedHandshake(clientExcludeRules(c), false), c.localPrivateKey)
 				if err != nil {
-					panic(err)
+					return false, err
 				}
 				c.localCertificateVerify = certVerify
 			}
@@ -261,7 +261,7 @@ func clientFlightHandler(c *Conn) bool {
 		}, true)
 		c.lock.RUnlock()
 	default:
-		panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))
+		return false, fmt.Errorf("Unhandled flight %s", c.currFlight.get())
 	}
-	return false
+	return false, nil
 }

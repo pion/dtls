@@ -50,7 +50,6 @@ func (e *extensionSupportedPointFormats) Unmarshal(data []byte) error {
 		case ellipticCurvePointFormatUncompressed:
 			e.pointFormats = append(e.pointFormats, p)
 		default:
-			// TODO: should we error on unknown points?
 		}
 	}
 	return nil

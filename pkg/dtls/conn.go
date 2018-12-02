@@ -17,7 +17,7 @@ const finalTickerInternal = 90 * time.Second
 const cookieLength = 20
 
 type handshakeMessageHandler func(*Conn) error
-type flightHandler func(*Conn) bool
+type flightHandler func(*Conn) (bool, error)
 
 // Conn represents a DTLS connection
 type Conn struct {
@@ -102,18 +102,23 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	// Trigger outbound
 	go func() {
 		for {
+			var (
+				isFinished bool
+				err        error
+			)
 			select {
 			case <-c.workerTicker.C:
-				if c.flightHandler(c) {
-					return
-				}
+				isFinished, err = c.flightHandler(c)
 			case <-c.currFlight.workerTrigger:
-				if c.flightHandler(c) {
-					return
-				}
+				isFinished, err = c.flightHandler(c)
+			}
+			// Handshake is complete
+			if err != nil {
+				panic(err)
+			} else if isFinished {
+				return
 			}
 		}
-
 	}()
 
 	// Handle inbound

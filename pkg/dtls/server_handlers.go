@@ -97,7 +97,7 @@ func serverHandshakeHandler(c *Conn) error {
 	return nil
 }
 
-func serverFlightHandler(c *Conn) bool {
+func serverFlightHandler(c *Conn) (bool, error) {
 	switch c.currFlight.get() {
 	case flight0:
 		// Waiting for ClientHello
@@ -169,16 +169,16 @@ func serverFlightHandler(c *Conn) bool {
 
 		serverRandom, err := c.localRandom.Marshal()
 		if err != nil {
-			panic(err)
+			return false, err
 		}
 		clientRandom, err := c.remoteRandom.Marshal()
 		if err != nil {
-			panic(err)
+			return false, err
 		}
 
 		signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveX25519, c.localPrivateKey)
 		if err != nil {
-			panic(err)
+			return false, err
 		}
 
 		c.internalSend(&recordLayer{
@@ -259,9 +259,9 @@ func serverFlightHandler(c *Conn) bool {
 		}
 
 		// TODO: Better way to end handshake
-		return true
+		return true, nil
 	default:
-		panic(fmt.Errorf("Unhandled flight %s", c.currFlight.get()))
+		return false, fmt.Errorf("Unhandled flight %s", c.currFlight.get())
 	}
-	return false
+	return false, nil
 }
