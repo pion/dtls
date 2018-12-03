@@ -50,7 +50,7 @@ type Conn struct {
 	flightHandler           flightHandler
 	handshakeCompleted      chan struct{}
 
-	readErr error
+	connErr error
 }
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
@@ -98,26 +98,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	}
 
 	// Trigger outbound
-	go func() {
-		for {
-			var (
-				isFinished bool
-				err        error
-			)
-			select {
-			case <-c.workerTicker.C:
-				isFinished, err = c.flightHandler(c)
-			case <-c.currFlight.workerTrigger:
-				isFinished, err = c.flightHandler(c)
-			}
-			// Handshake is complete
-			if err != nil {
-				panic(err)
-			} else if isFinished {
-				return
-			}
-		}
-	}()
+	c.startHandshakeOutbound()
 
 	// Handle inbound
 	go func() {
@@ -125,18 +106,21 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		for {
 			i, err := c.nextConn.Read(b)
 			if err != nil {
-				c.readErr = err
-				close(c.decrypted)
+				c.stopWithError(err)
+				return
+			} else if c.connErr != nil {
 				return
 			}
+
 			if err := c.handleIncoming(b[:i]); err != nil {
-				panic(err)
+				c.stopWithError(err)
+				return
 			}
 		}
 	}()
 
 	<-c.handshakeCompleted
-	return c, nil
+	return c, c.connErr
 }
 
 // Dial connects to the given network address and establishes a DTLS connection on top
@@ -165,7 +149,7 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 func (c *Conn) Read(p []byte) (n int, err error) {
 	out, ok := <-c.decrypted
 	if !ok {
-		return 0, c.readErr
+		return 0, c.connErr
 	}
 	if len(p) < len(out) {
 		return 0, errBufferTooSmall
@@ -181,6 +165,8 @@ func (c *Conn) Write(p []byte) (int, error) {
 	defer c.lock.Unlock()
 	if c.localEpoch == 0 {
 		return 0, errHandshakeInProgress
+	} else if c.connErr != nil {
+		return 0, c.connErr
 	}
 
 	c.internalSend(&recordLayer{
@@ -249,7 +235,8 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	raw, err := pkt.Marshal()
 	if err != nil {
-		panic(err)
+		c.stopWithError(err)
+		return
 	}
 
 	if h, ok := pkt.content.(*handshake); ok {
@@ -260,7 +247,8 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	if shouldEncrypt {
 		raw, err = encryptPacket(pkt, raw, c.getLocalWriteIV(), c.localGCM)
 		if err != nil {
-			panic(err)
+			c.stopWithError(err)
+			return
 		}
 	}
 
@@ -363,6 +351,49 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 	}, true)
 
 	c.localSequenceNumber++
+}
+
+func (c *Conn) signalHandshakeComplete() {
+	select {
+	case <-c.handshakeCompleted:
+	default:
+		close(c.handshakeCompleted)
+	}
+}
+
+func (c *Conn) startHandshakeOutbound() {
+	go func() {
+		for {
+			var (
+				isFinished bool
+				err        error
+			)
+			select {
+			case <-c.workerTicker.C:
+				isFinished, err = c.flightHandler(c)
+			case <-c.currFlight.workerTrigger:
+				isFinished, err = c.flightHandler(c)
+			}
+
+			if err != nil {
+				c.stopWithError(err)
+				return
+			} else if c.connErr != nil {
+				return
+			} else if isFinished {
+				return // Handshake is complete
+			}
+		}
+	}()
+}
+
+func (c *Conn) stopWithError(err error) {
+	c.connErr = err
+
+	close(c.decrypted)
+	c.workerTicker.Stop()
+
+	c.signalHandshakeComplete()
 }
 
 // LocalAddr is a stub

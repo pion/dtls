@@ -114,13 +114,7 @@ func clientHandshakeHandler(c *Conn) error {
 				if !bytes.Equal(expectedVerifyData, h.verifyData) {
 					return errVerifyDataMismatch
 				}
-
-				// Signal handshake completed
-				select {
-				case <-c.handshakeCompleted:
-				default:
-					close(c.handshakeCompleted)
-				}
+				c.signalHandshakeComplete()
 			}
 
 		default:
@@ -176,10 +170,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 			return true, nil
 		}
 
-		// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
-
 		sequenceNumber := c.localSequenceNumber
-
 		if c.remoteRequestedCertificate {
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{

@@ -257,14 +257,8 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		}, true)
 		c.lock.RUnlock()
 
-		// Signal handshake completed
-		select {
-		case <-c.handshakeCompleted:
-		default:
-			close(c.handshakeCompleted)
-		}
-
 		// TODO: Better way to end handshake
+		c.signalHandshakeComplete()
 		return true, nil
 	default:
 		return false, fmt.Errorf("Unhandled flight %s", c.currFlight.get())
