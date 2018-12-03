@@ -19,18 +19,20 @@ I am happy to accept contributions for older implementations, but won't be imple
   openssl req -new -sha256 -key key.pem -out server.csr
   openssl x509 -req -sha256 -days 365 -in server.csr -signkey key.pem -out cert.pem
 
-  // Use with pions/dtls client.go
+  // Use with cmd/dial/main.go
   openssl s_server -dtls1_2 -cert cert.pem -key key.pem -accept 4444
 
-  // Use with pions/dtls server.go
+  // Use with cmd/listen/main.go
   openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -debug -cert cert.pem -key key.pem
 ```
 
 ## Golang
+For a DTLS 1.2 Server that listens on 127.0.0.1:4444
 ```sh
-go run server.go
+go run cmd/listen/main.go
 ```
 
+For a DTLS 1.2 Client that connects to 127.0.0.1:4444
 ```sh
-go run client.go
+go run cmd/dial/main.go
 ```
