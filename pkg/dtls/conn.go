@@ -86,15 +86,21 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		workerTicker:       time.NewTicker(initialTickerInterval),
 		handshakeCompleted: make(chan struct{}),
 	}
-	c.localRandom.populate()
+	err := c.localRandom.populate()
+	if err != nil {
+		return nil, err
+	}
 	if !isClient {
 		c.cookie = make([]byte, cookieLength)
-		if _, err := rand.Read(c.cookie); err != nil {
+		if _, err = rand.Read(c.cookie); err != nil {
 			return nil, err
 		}
 
 		// TODO keypair generation should account for supported remote curves
-		c.localKeypair, _ = generateKeypair(namedCurveX25519)
+		c.localKeypair, err = generateKeypair(namedCurveX25519)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Trigger outbound
@@ -229,7 +235,7 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 	} else {
 		seed = append(append(seed, remoteRandom...), localRandom...)
 	}
-	return prfPHash(c.keys.masterSecret, seed, length), nil
+	return prfPHash(c.keys.masterSecret, seed, length)
 }
 
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
@@ -252,7 +258,9 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 		}
 	}
 
-	c.nextConn.Write(raw)
+	if _, err := c.nextConn.Write(raw); err != nil {
+		c.stopWithError(err)
+	}
 }
 
 func (c *Conn) getLocalWriteIV() []byte {

@@ -71,15 +71,15 @@ func (h *handshakeMessageCertificateRequest) Unmarshal(data []byte) error {
 	}
 
 	for i := 0; i < signatureHashAlgorithmsLength; i += 2 {
-		hashAlgorithm := HashAlgorithm(data[offset+i])
-		signatureAlgorithm := signatureAlgorithm(data[offset+i+1])
+		hash := HashAlgorithm(data[offset+i])
+		signature := signatureAlgorithm(data[offset+i+1])
 
-		if _, ok := hashAlgorithms[hashAlgorithm]; !ok {
+		if _, ok := hashAlgorithms[hash]; !ok {
 			continue
-		} else if _, ok := signatureAlgorithms[signatureAlgorithm]; !ok {
+		} else if _, ok := signatureAlgorithms[signature]; !ok {
 			continue
 		}
-		h.signatureHashAlgorithms = append(h.signatureHashAlgorithms, signatureHashAlgorithm{signature: signatureAlgorithm, hash: hashAlgorithm})
+		h.signatureHashAlgorithms = append(h.signatureHashAlgorithms, signatureHashAlgorithm{signature: signature, hash: hash})
 	}
 
 	return nil

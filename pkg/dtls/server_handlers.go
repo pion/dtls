@@ -70,7 +70,14 @@ func serverHandshakeHandler(c *Conn) error {
 					return err
 				}
 
-				c.keys = prfEncryptionKeys(prfMasterSecret(preMasterSecret, clientRandom, serverRandom), clientRandom, serverRandom)
+				masterSecret, err := prfMasterSecret(preMasterSecret, clientRandom, serverRandom)
+				if err != nil {
+					return err
+				}
+				c.keys, err = prfEncryptionKeys(masterSecret, clientRandom, serverRandom)
+				if err != nil {
+					return err
+				}
 				c.remoteGCM, err = newAESGCM(c.keys.clientWriteKey)
 				if err != nil {
 					return err
@@ -84,8 +91,10 @@ func serverHandshakeHandler(c *Conn) error {
 
 		case *handshakeMessageFinished:
 			if c.currFlight.get() == flight4 {
-				expectedVerifyData := prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), true))
-				if !bytes.Equal(expectedVerifyData, h.verifyData) {
+				expectedVerifyData, err := prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), true))
+				if err != nil {
+					return err
+				} else if !bytes.Equal(expectedVerifyData, h.verifyData) {
 					return errVerifyDataMismatch
 				}
 				c.localEpoch = 1
@@ -236,7 +245,11 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		}, false)
 
 		if len(c.localVerifyData) == 0 {
-			c.localVerifyData = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), false))
+			var err error
+			c.localVerifyData, err = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), false))
+			if err != nil {
+				return false, err
+			}
 		}
 
 		c.internalSend(&recordLayer{

@@ -12,7 +12,9 @@ import (
 func TestListenerClose(t *testing.T) {
 	// Avoid extreme waiting time on blocking bugs
 	lim := time.AfterFunc(time.Second*5, func() {
-		pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+		if err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1); err != nil {
+			fmt.Printf("err: %v \n", err)
+		}
 		panic("timeout")
 	})
 	defer lim.Stop()
@@ -26,7 +28,10 @@ func TestListenerClose(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		_, _ = listener.Accept()
+		_, listenErr := listener.Accept()
+		if listenErr != nil && listenErr == nil {
+			fmt.Println("") //noop
+		}
 
 		close(done)
 	}()
@@ -42,7 +47,9 @@ func TestListenerClose(t *testing.T) {
 func TestConnClose(t *testing.T) {
 	// Avoid extreme waiting time on blocking bugs
 	lim := time.AfterFunc(time.Second*5, func() {
-		pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+		if err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1); err != nil {
+			fmt.Printf("err: %v \n", err)
+		}
 		panic("timeout")
 	})
 	defer lim.Stop()
@@ -66,7 +73,10 @@ func TestConnClose(t *testing.T) {
 		go func() {
 			p := make([]byte, receiveMTU)
 			for {
-				_, _ = lConn.Read(p)
+				_, readErr := lConn.Read(p)
+				if readErr != nil && readErr == nil {
+					fmt.Println("") //noop
+				}
 			}
 		}()
 

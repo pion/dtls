@@ -148,7 +148,9 @@ func verifyKeySignature(hash, remoteKeySignature []byte, certificate *x509.Certi
 // https://tools.ietf.org/html/rfc5246#section-7.3
 func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.PrivateKey) ([]byte, error) {
 	h := sha256.New()
-	h.Write(handshakeBodies)
+	if _, err := h.Write(handshakeBodies); err != nil {
+		return nil, err
+	}
 	hashed := h.Sum(nil)
 
 	switch p := privateKey.(type) {

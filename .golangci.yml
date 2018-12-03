@@ -10,6 +10,7 @@ linters:
     - maligned
     - lll
     - dupl
+    - gocyclo
 
 issues:
   exclude-use-default: false
