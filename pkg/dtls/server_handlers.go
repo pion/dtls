@@ -182,7 +182,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 			return false, err
 		}
 
-		signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveX25519, c.localPrivateKey)
+		signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveX25519, c.localPrivateKey, HashAlgorithmSHA256)
 		if err != nil {
 			return false, err
 		}

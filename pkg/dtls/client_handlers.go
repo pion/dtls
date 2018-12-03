@@ -87,6 +87,11 @@ func clientHandshakeHandler(c *Conn) error {
 				if err != nil {
 					return err
 				}
+
+				expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, namedCurveX25519, h.hashAlgorithm)
+				if err := verifyKeySignature(expectedHash, h.signature, c.remoteCertificate); err != nil {
+					return err
+				}
 			}
 
 		case *handshakeMessageCertificateRequest:

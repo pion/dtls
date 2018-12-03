@@ -8,11 +8,18 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
+	"math/big"
 )
 
 const aesGCMTagLength = 16
+
+type ecdsaSignature struct {
+	R, S *big.Int
+}
 
 func newAESGCM(key []byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key)
@@ -81,24 +88,27 @@ func decryptPacket(in, remoteWriteIV []byte, remoteGCM cipher.AEAD) ([]byte, err
 	return append(in[:recordLayerHeaderSize], out...), nil
 }
 
-// If the client provided a "signature_algorithms" extension, then all
-// certificates provided by the server MUST be signed by a
-// hash/signature algorithm pair that appears in that extension
-//
-// https://tools.ietf.org/html/rfc5246#section-7.4.2
-func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, privateKey crypto.PrivateKey) ([]byte, error) {
+func valueKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, hashAlgorithm HashAlgorithm) []byte {
 	serverECDHParams := make([]byte, 4)
 	serverECDHParams[0] = 3 // named curve
 	binary.BigEndian.PutUint16(serverECDHParams[1:], uint16(namedCurve))
 	serverECDHParams[3] = byte(len(publicKey))
 
-	h := sha256.New()
-	h.Write(clientRandom)
-	h.Write(serverRandom)
-	h.Write(serverECDHParams)
-	h.Write(publicKey)
-	hashed := h.Sum(nil)
+	plaintext := []byte{}
+	plaintext = append(plaintext, clientRandom...)
+	plaintext = append(plaintext, serverRandom...)
+	plaintext = append(plaintext, serverECDHParams...)
+	plaintext = append(plaintext, publicKey...)
+	return hashAlgorithm.digest(plaintext)
+}
 
+// If the client provided a "signature_algorithms" extension, then all
+// certificates provided by the server MUST be signed by a
+// hash/signature algorithm pair that appears in that extension
+//
+// https://tools.ietf.org/html/rfc5246#section-7.4.2
+func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, privateKey crypto.PrivateKey, hashAlgorithm HashAlgorithm) ([]byte, error) {
+	hashed := valueKeySignature(clientRandom, serverRandom, publicKey, namedCurve, hashAlgorithm)
 	switch p := privateKey.(type) {
 	case *ecdsa.PrivateKey:
 		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
@@ -107,6 +117,25 @@ func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 	}
 
 	return nil, errInvalidSignatureAlgorithm
+}
+
+func verifyKeySignature(hash, remoteKeySignature []byte, certificate *x509.Certificate) error {
+	switch p := certificate.PublicKey.(type) {
+	case *ecdsa.PublicKey:
+		ecdsaSig := &ecdsaSignature{}
+		if _, err := asn1.Unmarshal(remoteKeySignature, ecdsaSig); err != nil {
+			return err
+		}
+		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
+			return errInvalidECDSASignature
+		}
+		if !ecdsa.Verify(p, hash, ecdsaSig.R, ecdsaSig.S) {
+			return errKeySignatureMismatch
+		}
+		return nil
+	}
+
+	return errInvalidSignatureAlgorithm
 }
 
 // If the server has sent a CertificateRequest message, the client MUST send the Certificate

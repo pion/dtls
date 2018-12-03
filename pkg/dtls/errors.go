@@ -3,6 +3,8 @@ package dtls
 import "errors"
 
 var (
+	errInvalidECDSASignature        = errors.New("tls: ECDSA signature contained zero or negative values")
+	errKeySignatureMismatch         = errors.New("dtls: Expected and actual key signature do not match")
 	errVerifyDataMismatch           = errors.New("dtls: Expected and actual verify data does not match")
 	errNilNextConn                  = errors.New("dtls: Conn can not be created with a nil nextConn")
 	errReservedExportKeyingMaterial = errors.New("dtls: ExportKeyingMaterial can not be used with a reserved label")
