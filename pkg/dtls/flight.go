@@ -92,6 +92,11 @@ func (f *flight) set(val flightVal) error {
 	f.Lock()
 	f.val = val // TODO ensure no invalid transitions
 	f.Unlock()
-	f.workerTrigger <- struct{}{}
+
+	select {
+	case f.workerTrigger <- struct{}{}:
+	default:
+	}
+
 	return nil
 }
