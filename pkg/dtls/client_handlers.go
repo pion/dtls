@@ -77,8 +77,12 @@ func clientHandshakeHandler(c *Conn) error {
 					return err
 				}
 
-				c.masterSecret, err = c.cipherSuite.init(preMasterSecret, clientRandom, serverRandom /* isClient */, true)
+				c.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.cipherSuite.hashFunc())
 				if err != nil {
+					return err
+				}
+
+				if err := c.cipherSuite.init(c.masterSecret, clientRandom, serverRandom /* isClient */, true); err != nil {
 					return err
 				}
 

@@ -3,6 +3,8 @@ package dtls
 import (
 	"crypto/elliptic"
 	"crypto/hmac"
+	"crypto/sha1" // #nosec
+	"encoding/binary"
 	"fmt"
 	"hash"
 	"math"
@@ -133,7 +135,7 @@ func prfMasterSecret(preMasterSecret, clientRandom, serverRandom []byte, h hashF
 
 func prfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte, prfMacLen, prfKeyLen, prfIvLen int, h hashFunc) (*encryptionKeys, error) {
 	seed := append(append([]byte(prfKeyExpansionLabel), serverRandom...), clientRandom...)
-	keyMaterial, err := prfPHash(masterSecret, seed, 128, h)
+	keyMaterial, err := prfPHash(masterSecret, seed, (2*prfMacLen)+(2*prfKeyLen)+(2*prfIvLen), h)
 	if err != nil {
 		return nil, err
 	}
@@ -182,4 +184,26 @@ func prfVerifyDataClient(masterSecret, handshakeBodies []byte, h hashFunc) ([]by
 
 func prfVerifyDataServer(masterSecret, handshakeBodies []byte, h hashFunc) ([]byte, error) {
 	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataServerLabel, h)
+}
+
+// compute the MAC using HMAC-SHA1
+func prfMac(epoch uint16, sequenceNumber uint64, contentType contentType, protocolVersion protocolVersion, payload []byte, key []byte) ([]byte, error) {
+	h := hmac.New(sha1.New, key)
+
+	msg := make([]byte, 13)
+
+	binary.BigEndian.PutUint16(msg, epoch)
+	putBigEndianUint48(msg[2:], sequenceNumber)
+	msg[8] = byte(contentType)
+	msg[9] = protocolVersion.major
+	msg[10] = protocolVersion.minor
+	binary.BigEndian.PutUint16(msg[11:], uint16(len(payload)))
+
+	if _, err := h.Write(msg); err != nil {
+		return nil, err
+	} else if _, err := h.Write(payload); err != nil {
+		return nil, err
+	}
+
+	return h.Sum(nil), nil
 }

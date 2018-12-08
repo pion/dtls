@@ -32,13 +32,11 @@ func (r *recordLayerHeader) Marshal() ([]byte, error) {
 	}
 
 	out := make([]byte, recordLayerHeaderSize)
-	// SequenceNumber MUST be set first
-	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
-	binary.BigEndian.PutUint64(out[3:], r.sequenceNumber)
 	out[0] = byte(r.contentType)
 	out[1] = r.protocolVersion.major
 	out[2] = r.protocolVersion.minor
 	binary.BigEndian.PutUint16(out[3:], r.epoch)
+	putBigEndianUint48(out[5:], r.sequenceNumber)
 	binary.BigEndian.PutUint16(out[recordLayerHeaderSize-2:], r.contentLen)
 	return out, nil
 }

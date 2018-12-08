@@ -13,7 +13,7 @@ type cipherSuite interface {
 	hashFunc() func() hash.Hash
 
 	// Generate the internal encryption state
-	init(preMasterSecret, clientRandom, serverRandom []byte, isClient bool) (masterSecret []byte, err error)
+	init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error
 
 	encrypt(pkt *recordLayer, raw []byte) ([]byte, error)
 	decrypt(in []byte) ([]byte, error)
@@ -28,16 +28,23 @@ func cipherSuiteForID(id cipherSuiteID) cipherSuite {
 		return &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}
 	case cipherSuiteTLSEcdheRsaWithAes128GcmSha256{}.ID():
 		return &cipherSuiteTLSEcdheRsaWithAes128GcmSha256{}
+	case cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{}.ID():
+		return &cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{}
+	case cipherSuiteTLSEcdheRsaWithAes256CbcSha{}.ID():
+		return &cipherSuiteTLSEcdheRsaWithAes256CbcSha{}
 	}
 
 	return nil
 }
 
 // CipherSuites we support as a client
+// Preferred at the bottom
 func clientCipherSuites() []cipherSuite {
 	return []cipherSuite{
-		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+		&cipherSuiteTLSEcdheRsaWithAes256CbcSha{},
+		&cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{},
 		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
+		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
 	}
 }
 

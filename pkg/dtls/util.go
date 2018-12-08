@@ -30,6 +30,12 @@ func putBigEndianUint24(out []byte, in uint32) {
 	copy(out, tmp[1:])
 }
 
+func putBigEndianUint48(out []byte, in uint64) {
+	tmp := make([]byte, 8)
+	binary.BigEndian.PutUint64(tmp, in)
+	copy(out, tmp[2:])
+}
+
 // GenerateSelfSigned creates a self-signed certificate
 func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -74,4 +80,53 @@ func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
 	}
 
 	return cert, priv, nil
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// examinePadding returns, in constant time, the length of the padding to remove
+// from the end of payload. It also returns a byte which is equal to 255 if the
+// padding was valid and 0 otherwise. See RFC 2246, Section 6.2.3.2.
+//
+// https://github.com/golang/go/blob/039c2081d1178f90a8fa2f4e6958693129f8de33/src/crypto/tls/conn.go#L245
+func examinePadding(payload []byte) (toRemove int, good byte) {
+	if len(payload) < 1 {
+		return 0, 0
+	}
+
+	paddingLen := payload[len(payload)-1]
+	t := uint(len(payload)-1) - uint(paddingLen)
+	// if len(payload) >= (paddingLen - 1) then the MSB of t is zero
+	good = byte(int32(^t) >> 31)
+
+	// The maximum possible padding length plus the actual length field
+	toCheck := 256
+	// The length of the padded data is public, so we can use an if here
+	if toCheck > len(payload) {
+		toCheck = len(payload)
+	}
+
+	for i := 0; i < toCheck; i++ {
+		t := uint(paddingLen) - uint(i)
+		// if i <= paddingLen then the MSB of t is zero
+		mask := byte(int32(^t) >> 31)
+		b := payload[len(payload)-1-i]
+		good &^= mask&paddingLen ^ mask&b
+	}
+
+	// We AND together the bits of good and replicate the result across
+	// all the bits.
+	good &= good << 4
+	good &= good << 2
+	good &= good << 1
+	good = uint8(int8(good) >> 7)
+
+	toRemove = int(paddingLen) + 1
+
+	return toRemove, good
 }
