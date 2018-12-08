@@ -42,7 +42,7 @@ func serverHandshakeHandler(c *Conn) error {
 			if len(h.cipherSuites) == 0 {
 				return errCipherSuiteNoIntersection
 			}
-			c.cipherSuite = h.cipherSuites[0]
+			c.cipherSuite = h.cipherSuites[0] // TODO assert we support (No RSA)
 			if err := c.currFlight.set(flight2); err != nil {
 				return err
 			}
@@ -70,20 +70,7 @@ func serverHandshakeHandler(c *Conn) error {
 					return err
 				}
 
-				masterSecret, err := prfMasterSecret(preMasterSecret, clientRandom, serverRandom)
-				if err != nil {
-					return err
-				}
-				c.keys, err = prfEncryptionKeys(masterSecret, clientRandom, serverRandom)
-				if err != nil {
-					return err
-				}
-				c.remoteGCM, err = newAESGCM(c.keys.clientWriteKey)
-				if err != nil {
-					return err
-				}
-
-				c.localGCM, err = newAESGCM(c.keys.serverWriteKey)
+				c.masterSecret, err = c.cipherSuite.init(preMasterSecret, clientRandom, serverRandom /* isClient */, false)
 				if err != nil {
 					return err
 				}
@@ -91,7 +78,7 @@ func serverHandshakeHandler(c *Conn) error {
 
 		case *handshakeMessageFinished:
 			if c.currFlight.get() == flight4 {
-				expectedVerifyData, err := prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), true))
+				expectedVerifyData, err := prfVerifyDataClient(c.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), true), c.cipherSuite.hashFunc())
 				if err != nil {
 					return err
 				} else if !bytes.Equal(expectedVerifyData, h.verifyData) {
@@ -151,8 +138,8 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				handshakeMessage: &handshakeMessageServerHello{
 					version:           protocolVersion1_2,
 					random:            c.localRandom,
-					cipherSuite:       defaultCipherSuites[0],       // TODO: Pick correct cipher suite
-					compressionMethod: defaultCompressionMethods[0], // TODO: Pick correct cipher suite
+					cipherSuite:       c.cipherSuite,
+					compressionMethod: defaultCompressionMethods[0],
 					extensions: []extension{
 						&extensionSupportedEllipticCurves{
 							ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
@@ -246,7 +233,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 
 		if len(c.localVerifyData) == 0 {
 			var err error
-			c.localVerifyData, err = prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), false))
+			c.localVerifyData, err = prfVerifyDataServer(c.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), false), c.cipherSuite.hashFunc())
 			if err != nil {
 				return false, err
 			}

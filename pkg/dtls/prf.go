@@ -3,8 +3,8 @@ package dtls
 import (
 	"crypto/elliptic"
 	"crypto/hmac"
-	"crypto/sha256"
 	"fmt"
+	"hash"
 	"math"
 
 	"golang.org/x/crypto/curve25519"
@@ -16,11 +16,10 @@ const (
 	prfVerifyDataClientLabel = "client finished"
 	prfVerifyDataServerLabel = "server finished"
 
-	prfKeyLen     = 16
-	prfMacLen     = 0
-	prfIvLen      = 4
 	hmacSHA256Len = 32
 )
+
+type hashFunc func() hash.Hash
 
 type encryptionKeys struct {
 	masterSecret   []byte
@@ -100,9 +99,9 @@ func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte,
 //  output data.
 //
 // https://tools.ietf.org/html/rfc4346w
-func prfPHash(secret, seed []byte, requestedLength int) ([]byte, error) {
+func prfPHash(secret, seed []byte, requestedLength int, h hashFunc) ([]byte, error) {
 	hmacSHA256 := func(key, data []byte) ([]byte, error) {
-		mac := hmac.New(sha256.New, key)
+		mac := hmac.New(h, key)
 		if _, err := mac.Write(data); err != nil {
 			return nil, err
 		}
@@ -113,7 +112,7 @@ func prfPHash(secret, seed []byte, requestedLength int) ([]byte, error) {
 	lastRound := seed
 	out := []byte{}
 
-	iterations := int(math.Ceil(float64(requestedLength) / hmacSHA256Len))
+	iterations := int(math.Ceil(float64(requestedLength) / float64(h().Size())))
 	for i := 0; i < iterations; i++ {
 		lastRound, err = hmacSHA256(secret, lastRound)
 		if err != nil {
@@ -129,14 +128,14 @@ func prfPHash(secret, seed []byte, requestedLength int) ([]byte, error) {
 	return out[:requestedLength], nil
 }
 
-func prfMasterSecret(preMasterSecret, clientRandom, serverRandom []byte) ([]byte, error) {
+func prfMasterSecret(preMasterSecret, clientRandom, serverRandom []byte, h hashFunc) ([]byte, error) {
 	seed := append(append([]byte(prfMasterSecretLabel), clientRandom...), serverRandom...)
-	return prfPHash(preMasterSecret, seed, 48)
+	return prfPHash(preMasterSecret, seed, 48, h)
 }
 
-func prfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte) (*encryptionKeys, error) {
+func prfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte, prfMacLen, prfKeyLen, prfIvLen int, h hashFunc) (*encryptionKeys, error) {
 	seed := append(append([]byte(prfKeyExpansionLabel), serverRandom...), clientRandom...)
-	keyMaterial, err := prfPHash(masterSecret, seed, 128)
+	keyMaterial, err := prfPHash(masterSecret, seed, 128, h)
 	if err != nil {
 		return nil, err
 	}
@@ -169,20 +168,20 @@ func prfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte) (*encryp
 	}, nil
 }
 
-func prfVerifyData(masterSecret, handshakeBodies []byte, label string) ([]byte, error) {
-	h := sha256.New()
+func prfVerifyData(masterSecret, handshakeBodies []byte, label string, hashFunc hashFunc) ([]byte, error) {
+	h := hashFunc()
 	if _, err := h.Write(handshakeBodies); err != nil {
 		return nil, err
 	}
 
 	seed := append([]byte(label), h.Sum(nil)...)
-	return prfPHash(masterSecret, seed, 12)
+	return prfPHash(masterSecret, seed, 12, hashFunc)
 }
 
-func prfVerifyDataClient(masterSecret, handshakeBodies []byte) ([]byte, error) {
-	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataClientLabel)
+func prfVerifyDataClient(masterSecret, handshakeBodies []byte, h hashFunc) ([]byte, error) {
+	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataClientLabel, h)
 }
 
-func prfVerifyDataServer(masterSecret, handshakeBodies []byte) ([]byte, error) {
-	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataServerLabel)
+func prfVerifyDataServer(masterSecret, handshakeBodies []byte, h hashFunc) ([]byte, error) {
+	return prfVerifyData(masterSecret, handshakeBodies, prfVerifyDataServerLabel, h)
 }

@@ -55,7 +55,7 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 
 		case *handshakeMessageServerKeyExchange:
-			if c.currFlight.get() == flight3 {
+			if c.currFlight.get() == flight3 && c.cipherSuite != nil {
 				c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
 
 				clientRandom, err := c.localRandom.Marshal()
@@ -77,20 +77,7 @@ func clientHandshakeHandler(c *Conn) error {
 					return err
 				}
 
-				masterSecret, err := prfMasterSecret(preMasterSecret, clientRandom, serverRandom)
-				if err != nil {
-					return err
-				}
-				c.keys, err = prfEncryptionKeys(masterSecret, clientRandom, serverRandom)
-				if err != nil {
-					return err
-				}
-				c.localGCM, err = newAESGCM(c.keys.clientWriteKey)
-				if err != nil {
-					return err
-				}
-
-				c.remoteGCM, err = newAESGCM(c.keys.serverWriteKey)
+				c.masterSecret, err = c.cipherSuite.init(preMasterSecret, clientRandom, serverRandom /* isClient */, true)
 				if err != nil {
 					return err
 				}
@@ -117,7 +104,7 @@ func clientHandshakeHandler(c *Conn) error {
 				c.localEpoch = 1
 				c.localSequenceNumber = 1
 
-				expectedVerifyData, err := prfVerifyDataServer(c.keys.masterSecret, c.handshakeCache.combinedHandshake(clientExcludeRules(c), true))
+				expectedVerifyData, err := prfVerifyDataServer(c.masterSecret, c.handshakeCache.combinedHandshake(clientExcludeRules(c), true), c.cipherSuite.hashFunc())
 				if err != nil {
 					return err
 				}
@@ -155,7 +142,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 					version:            protocolVersion1_2,
 					cookie:             c.cookie,
 					random:             c.localRandom,
-					cipherSuites:       defaultCipherSuites,
+					cipherSuites:       clientCipherSuites(),
 					compressionMethods: defaultCompressionMethods,
 					extensions: []extension{
 						&extensionSupportedEllipticCurves{
@@ -253,7 +240,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 
 		if len(c.localVerifyData) == 0 {
 			var err error
-			c.localVerifyData, err = prfVerifyDataClient(c.keys.masterSecret, c.handshakeCache.combinedHandshake(clientExcludeRules(c), false))
+			c.localVerifyData, err = prfVerifyDataClient(c.masterSecret, c.handshakeCache.combinedHandshake(clientExcludeRules(c), false), c.cipherSuite.hashFunc())
 			if err != nil {
 				return false, err
 			}

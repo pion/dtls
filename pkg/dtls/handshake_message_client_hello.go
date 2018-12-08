@@ -16,7 +16,7 @@ type handshakeMessageClientHello struct {
 	random  handshakeRandom
 	cookie  []byte
 
-	cipherSuites       []*cipherSuite
+	cipherSuites       []cipherSuite
 	compressionMethods []*compressionMethod
 	extensions         []extension
 }

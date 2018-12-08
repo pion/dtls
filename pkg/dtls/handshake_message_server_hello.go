@@ -15,7 +15,7 @@ type handshakeMessageServerHello struct {
 	version protocolVersion
 	random  handshakeRandom
 
-	cipherSuite       *cipherSuite
+	cipherSuite       cipherSuite
 	compressionMethod *compressionMethod
 	extensions        []extension
 }
@@ -46,7 +46,7 @@ func (h *handshakeMessageServerHello) Marshal() ([]byte, error) {
 	out = append(out, 0x00) // SessionID
 
 	out = append(out, []byte{0x00, 0x00}...)
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(h.cipherSuite.id))
+	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(h.cipherSuite.ID()))
 
 	out = append(out, byte(h.compressionMethod.id))
 
@@ -69,7 +69,7 @@ func (h *handshakeMessageServerHello) Unmarshal(data []byte) error {
 	currOffset := handshakeMessageServerHelloVariableWidthStart
 	currOffset += int(data[currOffset]) + 1 // SessionID
 
-	if cipherSuite, ok := cipherSuites[cipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))]; ok {
+	if cipherSuite := cipherSuiteForID(cipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))); cipherSuite != nil {
 		h.cipherSuite = cipherSuite
 		currOffset += 2
 	} else {

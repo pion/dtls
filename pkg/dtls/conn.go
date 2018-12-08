@@ -1,7 +1,6 @@
 package dtls
 
 import (
-	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
@@ -33,7 +32,7 @@ type Conn struct {
 	localSequenceNumber        uint64 // uint48
 
 	currFlight                          *flight
-	cipherSuite                         *cipherSuite // nil if a cipherSuite hasn't been chosen
+	cipherSuite                         cipherSuite // nil if a cipherSuite hasn't been chosen
 	localRandom, remoteRandom           handshakeRandom
 	localCertificate, remoteCertificate *x509.Certificate
 	localPrivateKey                     *ecdsa.PrivateKey
@@ -43,8 +42,7 @@ type Conn struct {
 	localCertificateVerify []byte // cache CertificateVerify
 	localVerifyData        []byte // cached VerifyData
 
-	keys                *encryptionKeys
-	localGCM, remoteGCM cipher.AEAD
+	masterSecret []byte
 
 	handshakeMessageHandler handshakeMessageHandler
 	flightHandler           flightHandler
@@ -235,7 +233,7 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 	} else {
 		seed = append(append(seed, remoteRandom...), localRandom...)
 	}
-	return prfPHash(c.keys.masterSecret, seed, length)
+	return prfPHash(c.masterSecret, seed, length, c.cipherSuite.hashFunc())
 }
 
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
@@ -251,7 +249,7 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if shouldEncrypt {
-		raw, err = encryptPacket(pkt, raw, c.getLocalWriteIV(), c.localGCM)
+		raw, err = c.cipherSuite.encrypt(pkt, raw)
 		if err != nil {
 			c.stopWithError(err)
 			return
@@ -261,20 +259,6 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	if _, err := c.nextConn.Write(raw); err != nil {
 		c.stopWithError(err)
 	}
-}
-
-func (c *Conn) getLocalWriteIV() []byte {
-	if c.isClient {
-		return c.keys.clientWriteIV
-	}
-	return c.keys.serverWriteIV
-}
-
-func (c *Conn) getRemoteWriteIV() []byte {
-	if c.isClient {
-		return c.keys.serverWriteIV
-	}
-	return c.keys.clientWriteIV
 }
 
 func (c *Conn) handleIncoming(buf []byte) error {
@@ -304,15 +288,16 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 	}
 
 	if c.remoteEpoch != 0 {
-		if c.remoteGCM == nil {
+		if c.cipherSuite == nil {
 			fmt.Println("handleIncoming: Handshake not finished, dropping packet")
 			return nil
 		}
 
 		var err error
-		buf, err = decryptPacket(buf, c.getRemoteWriteIV(), c.remoteGCM)
+		buf, err = c.cipherSuite.decrypt(buf)
 		if err != nil {
-			return err
+			fmt.Println(err)
+			return nil
 		}
 	}
 
