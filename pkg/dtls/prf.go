@@ -15,8 +15,6 @@ const (
 	prfKeyExpansionLabel     = "key expansion"
 	prfVerifyDataClientLabel = "client finished"
 	prfVerifyDataServerLabel = "server finished"
-
-	hmacSHA256Len = 32
 )
 
 type hashFunc func() hash.Hash

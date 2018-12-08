@@ -39,9 +39,9 @@ func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 	hashed := valueKeySignature(clientRandom, serverRandom, publicKey, namedCurve, hashAlgorithm)
 	switch p := privateKey.(type) {
 	case *ecdsa.PrivateKey:
-		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
+		return p.Sign(rand.Reader, hashed, crypto.SHA256)
 	case *rsa.PrivateKey:
-		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
+		return p.Sign(rand.Reader, hashed, crypto.SHA256)
 	}
 
 	return nil, errKeySignatureGenerateUnimplemented
@@ -61,6 +61,8 @@ func verifyKeySignature(hash, remoteKeySignature []byte, certificate *x509.Certi
 			return errKeySignatureMismatch
 		}
 		return nil
+	case *rsa.PublicKey:
+		return errKeySignatureVerifyUnimplemented
 	}
 
 	return errKeySignatureVerifyUnimplemented
@@ -83,9 +85,9 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 
 	switch p := privateKey.(type) {
 	case *ecdsa.PrivateKey:
-		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
+		return p.Sign(rand.Reader, hashed, crypto.SHA256)
 	case *rsa.PrivateKey:
-		return p.Sign(rand.Reader, hashed[:], crypto.SHA256)
+		return p.Sign(rand.Reader, hashed, crypto.SHA256)
 	}
 
 	return nil, errInvalidSignatureAlgorithm

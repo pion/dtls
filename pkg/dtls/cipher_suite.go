@@ -42,11 +42,11 @@ func clientCipherSuites() []cipherSuite {
 }
 
 // CipherSuites we support as a server
-func serverCipherSuites() []cipherSuite {
-	return []cipherSuite{
-		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
-	}
-}
+// func serverCipherSuites() []cipherSuite {
+// 	return []cipherSuite{
+// 		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+// 	}
+// }
 
 func decodeCipherSuites(buf []byte) ([]cipherSuite, error) {
 	if len(buf) < 2 {
@@ -56,8 +56,8 @@ func decodeCipherSuites(buf []byte) ([]cipherSuite, error) {
 	rtrn := []cipherSuite{}
 	for i := 0; i < cipherSuitesCount; i++ {
 		id := cipherSuiteID(binary.BigEndian.Uint16(buf[(i*2)+2:]))
-		if cipherSuite := cipherSuiteForID(id); cipherSuite != nil {
-			rtrn = append(rtrn, cipherSuite)
+		if c := cipherSuiteForID(id); c != nil {
+			rtrn = append(rtrn, c)
 		}
 	}
 	return rtrn, nil

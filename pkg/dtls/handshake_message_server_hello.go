@@ -69,8 +69,8 @@ func (h *handshakeMessageServerHello) Unmarshal(data []byte) error {
 	currOffset := handshakeMessageServerHelloVariableWidthStart
 	currOffset += int(data[currOffset]) + 1 // SessionID
 
-	if cipherSuite := cipherSuiteForID(cipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))); cipherSuite != nil {
-		h.cipherSuite = cipherSuite
+	if c := cipherSuiteForID(cipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))); c != nil {
+		h.cipherSuite = c
 		currOffset += 2
 	} else {
 		return errInvalidCipherSuite

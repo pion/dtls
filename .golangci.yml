@@ -11,6 +11,7 @@ linters:
     - lll
     - dupl
     - gocyclo
+    - gochecknoglobals
 
 issues:
   exclude-use-default: false

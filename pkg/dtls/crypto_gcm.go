@@ -74,12 +74,14 @@ func (c *cryptoGCM) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 
 func (c *cryptoGCM) decrypt(in []byte) ([]byte, error) {
 	var h recordLayerHeader
-	if err := h.Unmarshal(in); err != nil {
+	err := h.Unmarshal(in)
+	switch {
+	case err != nil:
 		return nil, err
-	} else if h.contentType == contentTypeChangeCipherSpec {
+	case h.contentType == contentTypeChangeCipherSpec:
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
-	} else if len(in) <= (8 + recordLayerHeaderSize) {
+	case len(in) <= (8 + recordLayerHeaderSize):
 		return nil, errNotEnoughRoomForNonce
 	}
 
@@ -95,7 +97,7 @@ func (c *cryptoGCM) decrypt(in []byte) ([]byte, error) {
 	additionalData[9] = h.protocolVersion.major
 	additionalData[10] = h.protocolVersion.minor
 	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(len(out)-cryptoGCMTagLength))
-	out, err := c.remoteGCM.Open(out[:0], nonce, out, additionalData[:])
+	out, err = c.remoteGCM.Open(out[:0], nonce, out, additionalData[:])
 	if err != nil {
 		return nil, fmt.Errorf("decryptPacket: %v", err)
 	}

@@ -368,12 +368,13 @@ func (c *Conn) startHandshakeOutbound() {
 				isFinished, err = c.flightHandler(c)
 			}
 
-			if err != nil {
+			switch {
+			case err != nil:
 				c.stopWithError(err)
 				return
-			} else if c.connErr != nil {
+			case c.connErr != nil:
 				return
-			} else if isFinished {
+			case isFinished:
 				return // Handshake is complete
 			}
 		}

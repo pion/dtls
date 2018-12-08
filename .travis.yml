@@ -4,7 +4,7 @@ go:
   - "1.x" # use the latest Go release
 
 before_script:
-  - curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s -- -b $GOPATH/bin v1.10.2
+  - curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s -- -b $GOPATH/bin v1.12.3
   - go get github.com/mattn/goveralls
 
 script:
