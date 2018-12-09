@@ -13,6 +13,7 @@ import (
 
 const initialTickerInterval = time.Second
 const cookieLength = 20
+const defaultNamedCurve = namedCurveX25519
 
 type handshakeMessageHandler func(*Conn) error
 type flightHandler func(*Conn) (bool, error)
@@ -33,6 +34,7 @@ type Conn struct {
 
 	currFlight                          *flight
 	cipherSuite                         cipherSuite // nil if a cipherSuite hasn't been chosen
+	namedCurve                          namedCurve
 	localRandom, remoteRandom           handshakeRandom
 	localCertificate, remoteCertificate *x509.Certificate
 	localPrivateKey                     *ecdsa.PrivateKey
@@ -79,6 +81,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		flightHandler:           flightHandler,
 		localCertificate:        config.Certificate,
 		localPrivateKey:         localPrivateKey,
+		namedCurve:              defaultNamedCurve,
 
 		decrypted:          make(chan []byte),
 		workerTicker:       time.NewTicker(initialTickerInterval),
@@ -91,12 +94,6 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	if !isClient {
 		c.cookie = make([]byte, cookieLength)
 		if _, err = rand.Read(c.cookie); err != nil {
-			return nil, err
-		}
-
-		// TODO keypair generation should account for supported remote curves
-		c.localKeypair, err = generateKeypair(namedCurveX25519)
-		if err != nil {
 			return nil, err
 		}
 	}

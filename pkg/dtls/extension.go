@@ -36,11 +36,13 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 		return nil
 	}
 
-	for offset := 2; offset+2 < len(buf); {
+	for offset := 2; offset < len(buf); {
 		var err error
 		switch extensionValue(binary.BigEndian.Uint16(buf[offset:])) {
 		case extensionSupportedEllipticCurvesValue:
 			err = unmarshalAndAppend(buf[offset:], &extensionSupportedEllipticCurves{})
+		case extensionUseSRTPValue:
+			err = unmarshalAndAppend(buf[offset:], &extensionUseSRTP{})
 		default:
 		}
 		if err != nil {
@@ -48,9 +50,8 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 		}
 
 		extensionLength := binary.BigEndian.Uint16(buf[offset+2:])
-		offset += (2 + int(extensionLength))
+		offset += (4 + int(extensionLength))
 	}
-
 	return extensions, nil
 }
 

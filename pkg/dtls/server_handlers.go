@@ -39,10 +39,29 @@ func serverHandshakeHandler(c *Conn) error {
 			}
 
 			c.remoteRandom = h.random
+
 			if len(h.cipherSuites) == 0 {
 				return errCipherSuiteNoIntersection
 			}
 			c.cipherSuite = h.cipherSuites[0] // TODO assert we support (No RSA)
+
+			for _, extension := range h.extensions {
+				switch e := extension.(type) {
+				case *extensionSupportedEllipticCurves:
+					c.namedCurve = e.ellipticCurves[0]
+				case *extensionUseSRTP:
+					// TODO expose to API
+				}
+			}
+
+			if c.localKeypair == nil {
+				var err error
+				c.localKeypair, err = generateKeypair(c.namedCurve)
+				if err != nil {
+					return err
+				}
+			}
+
 			if err := c.currFlight.set(flight2); err != nil {
 				return err
 			}
@@ -54,7 +73,7 @@ func serverHandshakeHandler(c *Conn) error {
 
 		case *handshakeMessageClientKeyExchange:
 			if c.currFlight.get() == flight4 {
-				c.remoteKeypair = &namedCurveKeypair{namedCurveX25519, h.publicKey, nil}
+				c.remoteKeypair = &namedCurveKeypair{c.namedCurve, h.publicKey, nil}
 
 				serverRandom, err := c.localRandom.Marshal()
 				if err != nil {
@@ -178,7 +197,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 			return false, err
 		}
 
-		signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, namedCurveX25519, c.localPrivateKey, HashAlgorithmSHA256)
+		signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localPrivateKey, HashAlgorithmSHA256)
 		if err != nil {
 			return false, err
 		}
@@ -195,7 +214,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				},
 				handshakeMessage: &handshakeMessageServerKeyExchange{
 					ellipticCurveType:  ellipticCurveTypeNamedCurve,
-					namedCurve:         namedCurveX25519,
+					namedCurve:         c.namedCurve,
 					publicKey:          c.localKeypair.publicKey,
 					hashAlgorithm:      HashAlgorithmSHA256,
 					signatureAlgorithm: signatureAlgorithmECDSA,
