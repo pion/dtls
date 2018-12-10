@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
@@ -37,7 +38,7 @@ type Conn struct {
 	namedCurve                          namedCurve
 	localRandom, remoteRandom           handshakeRandom
 	localCertificate, remoteCertificate *x509.Certificate
-	localPrivateKey                     *ecdsa.PrivateKey
+	localPrivateKey                     crypto.PrivateKey
 	localKeypair, remoteKeypair         *namedCurveKeypair
 	cookie                              []byte
 
@@ -58,13 +59,8 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		return nil, errors.New("No config provided")
 	}
 
-	var localPrivateKey *ecdsa.PrivateKey
-
 	if config.PrivateKey != nil {
-		switch k := config.PrivateKey.(type) {
-		case *ecdsa.PrivateKey:
-			localPrivateKey = k
-		default:
+		if _, ok := config.PrivateKey.(*ecdsa.PrivateKey); !ok {
 			return nil, errInvalidPrivateKey
 		}
 	} else if nextConn == nil {
@@ -80,7 +76,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		handshakeMessageHandler: handshakeMessageHandler,
 		flightHandler:           flightHandler,
 		localCertificate:        config.Certificate,
-		localPrivateKey:         localPrivateKey,
+		localPrivateKey:         config.PrivateKey,
 		namedCurve:              defaultNamedCurve,
 
 		decrypted:          make(chan []byte),
