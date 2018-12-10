@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -49,9 +50,9 @@ type Conn struct {
 
 	handshakeMessageHandler handshakeMessageHandler
 	flightHandler           flightHandler
-	handshakeCompleted      chan struct{}
+	handshakeCompleted      chan bool
 
-	connErr error
+	connErr atomic.Value
 }
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
@@ -81,7 +82,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 
 		decrypted:          make(chan []byte),
 		workerTicker:       time.NewTicker(initialTickerInterval),
-		handshakeCompleted: make(chan struct{}),
+		handshakeCompleted: make(chan bool),
 	}
 	err := c.localRandom.populate()
 	if err != nil {
@@ -105,7 +106,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 			if err != nil {
 				c.stopWithError(err)
 				return
-			} else if c.connErr != nil {
+			} else if c.getConnErr() != nil {
 				return
 			}
 
@@ -117,7 +118,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	}()
 
 	<-c.handshakeCompleted
-	return c, c.connErr
+	return c, c.getConnErr()
 }
 
 // Dial connects to the given network address and establishes a DTLS connection on top
@@ -146,7 +147,7 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 func (c *Conn) Read(p []byte) (n int, err error) {
 	out, ok := <-c.decrypted
 	if !ok {
-		return 0, c.connErr
+		return 0, c.getConnErr()
 	}
 	if len(p) < len(out) {
 		return 0, errBufferTooSmall
@@ -160,10 +161,11 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 func (c *Conn) Write(p []byte) (int, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
 	if c.localEpoch == 0 {
 		return 0, errHandshakeInProgress
-	} else if c.connErr != nil {
-		return 0, c.connErr
+	} else if c.getConnErr() != nil {
+		return 0, c.getConnErr()
 	}
 
 	c.internalSend(&recordLayer{
@@ -184,6 +186,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 // Close closes the connection.
 func (c *Conn) Close() error {
 	c.notify(alertLevelFatal, alertCloseNotify)
+	c.stopWithError(errConnClosed)
 	return c.nextConn.Close()
 }
 
@@ -324,6 +327,9 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 }
 
 func (c *Conn) notify(level alertLevel, desc alertDescription) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	c.internalSend(&recordLayer{
 		recordLayerHeader: recordLayerHeader{
 			epoch:           c.localEpoch,
@@ -341,9 +347,8 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 
 func (c *Conn) signalHandshakeComplete() {
 	select {
-	case <-c.handshakeCompleted:
+	case c.handshakeCompleted <- true:
 	default:
-		close(c.handshakeCompleted)
 	}
 }
 
@@ -365,7 +370,7 @@ func (c *Conn) startHandshakeOutbound() {
 			case err != nil:
 				c.stopWithError(err)
 				return
-			case c.connErr != nil:
+			case c.getConnErr() != nil:
 				return
 			case isFinished:
 				return // Handshake is complete
@@ -375,12 +380,18 @@ func (c *Conn) startHandshakeOutbound() {
 }
 
 func (c *Conn) stopWithError(err error) {
-	c.connErr = err
-
-	close(c.decrypted)
+	if c.getConnErr() == nil {
+		close(c.decrypted)
+	}
+	c.connErr.Store(struct{ error }{err})
 	c.workerTicker.Stop()
 
 	c.signalHandshakeComplete()
+}
+
+func (c *Conn) getConnErr() error {
+	err, _ := c.connErr.Load().(struct{ error })
+	return err.error
 }
 
 // LocalAddr is a stub
