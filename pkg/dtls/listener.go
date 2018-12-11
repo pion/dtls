@@ -40,6 +40,7 @@ func (l *Listener) Accept() (net.Conn, error) {
 
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
+// Already Accepted connections are not closed.
 func (l *Listener) Close() error {
 	return l.parent.Close()
 }

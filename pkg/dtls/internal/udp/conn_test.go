@@ -3,111 +3,129 @@ package udp
 import (
 	"fmt"
 	"net"
-	"os"
-	"runtime/pprof"
 	"testing"
 	"time"
+
+	"github.com/pions/transport/test"
 )
 
-func TestListenerClose(t *testing.T) {
-	// Avoid extreme waiting time on blocking bugs
-	lim := time.AfterFunc(time.Second*5, func() {
-		if err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1); err != nil {
-			fmt.Printf("err: %v \n", err)
-		}
-		panic("timeout")
-	})
+// Note: doesn't work since closing isn't propagated to the other side
+//func TestNetTest(t *testing.T) {
+//	lim := test.TimeOut(time.Minute*1 + time.Second*10)
+//	defer lim.Stop()
+//
+//	nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
+//		c1, c2, err = pipe()
+//		if err != nil {
+//			return nil, nil, nil, err
+//		}
+//		stop = func() {
+//			c1.Close()
+//			c2.Close()
+//		}
+//		return
+//	})
+//}
+
+func TestStressDuplex(t *testing.T) {
+	lim := test.TimeOut(time.Second * 5)
 	defer lim.Stop()
 
-	network := "udp"
-	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 6666}
-	listener, err := Listen(network, addr)
+	ca, cb, err := pipe()
 	if err != nil {
-		t.Fatalf("Failed to listen: %v\n", err)
+		t.Fatal(err)
 	}
 
-	done := make(chan struct{})
-	go func() {
-		_, listenErr := listener.Accept()
-		if listenErr != nil && listenErr == nil {
-			fmt.Println("") //noop
+	defer func() {
+		err = ca.Close()
+		if err != nil {
+			t.Fatal(err)
 		}
-
-		close(done)
+		err = cb.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}()
 
-	err = listener.Close()
-	if err != nil {
-		t.Fatalf("Failed to close listener: %v\n", err)
+	opt := test.Options{
+		MsgSize:  2048,
+		MsgCount: 1, // Can't rely on UDP message order in CI
 	}
 
-	<-done
-}
-
-func TestConnClose(t *testing.T) {
-	// Avoid extreme waiting time on blocking bugs
-	lim := time.AfterFunc(time.Second*5, func() {
-		if err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1); err != nil {
-			fmt.Printf("err: %v \n", err)
-		}
-		panic("timeout")
-	})
-	defer lim.Stop()
-
-	network := "udp"
-	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 6666}
-	listener, err := Listen(network, addr)
-	if err != nil {
-		t.Fatalf("Failed to listen: %v\n", err)
-	}
-
-	listenerCh := make(chan error)
-	go func() {
-		lConn, listenErr := listener.Accept()
-		if listenErr != nil {
-			listenerCh <- fmt.Errorf("failed to accept: %v", listenErr)
-			return
-		}
-
-		// Make sure we're receiving
-		go func() {
-			p := make([]byte, receiveMTU)
-			for {
-				_, readErr := lConn.Read(p)
-				if readErr != nil && readErr == nil {
-					fmt.Println("") //noop
-				}
-			}
-		}()
-
-		listenErr = listener.Close()
-		if listenErr != nil {
-			listenerCh <- fmt.Errorf("failed to close listener: %v", listenErr)
-			return
-		}
-
-		listenErr = lConn.Close()
-		if listenErr != nil {
-			listenerCh <- fmt.Errorf("failed to close lConn: %v", listenErr)
-			return
-		}
-
-		close(listenerCh)
-	}()
-
-	var pConn *net.UDPConn
-	pConn, err = net.DialUDP(network, nil, addr)
-	if err != nil {
-		t.Fatalf("Failed to dial: %v\n", err)
-	}
-
-	_, err = pConn.Write([]byte("test"))
-	if err != nil {
-		t.Fatalf("Failed to write to pConn: %v\n", err)
-	}
-
-	err = <-listenerCh
+	err = test.StressDuplex(ca, cb, opt)
 	if err != nil {
 		t.Fatal(err)
 	}
 }
+
+func pipe() (*Conn, *net.UDPConn, error) {
+	// Start listening
+	network, addr := getConfig()
+	listener, err := Listen(network, addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to listen: %v", err)
+	}
+
+	// Open a connection
+	var dConn *net.UDPConn
+	dConn, err = net.DialUDP(network, nil, listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to dial: %v", err)
+	}
+
+	// Write to the connection to initiate it
+	handshake := "hello"
+	_, err = dConn.Write([]byte(handshake))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to write to dialed Conn: %v", err)
+	}
+
+	// Accept the connection
+	var lConn *Conn
+	lConn, err = listener.Accept()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to accept Conn: %v", err)
+	}
+
+	buf := make([]byte, len(handshake))
+	n := 0
+	n, err = lConn.Read(buf)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read handshake: %v", err)
+	}
+
+	result := string(buf[:n])
+	if handshake != result {
+		return nil, nil, fmt.Errorf("handshake failed: %s != %s", handshake, result)
+	}
+
+	// Close the listener
+	err = listener.Close()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed close listener: %v", err)
+	}
+
+	return lConn, dConn, nil
+}
+
+func getConfig() (string, *net.UDPAddr) {
+	return "udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
+}
+
+// func TestConnClose(t *testing.T) {
+// 	lim := test.TimeOut(time.Second * 5)
+// 	defer lim.Stop()
+//
+// 	ca, cb, err := pipe()
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	err = ca.Close()
+// 	if err != nil {
+// 		t.Fatalf("Failed to close A side: %v\n", err)
+// 	}
+// 	err = cb.Close()
+// 	if err != nil {
+// 		t.Fatalf("Failed to close B side: %v\n", err)
+// 	}
+// }
