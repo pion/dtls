@@ -2,8 +2,10 @@ package dtls
 
 import "errors"
 
+// Typed errors
 var (
-	errConnClosed                        = errors.New("dtls: conn is closed")
+	ErrConnClosed = errors.New("dtls: conn is closed")
+
 	errBufferTooSmall                    = errors.New("dtls: buffer is too small")
 	errCertificateUnset                  = errors.New("dtls: handshakeMessageCertificate can not be marshalled without a certificate")
 	errCipherSuiteNoIntersection         = errors.New("dtls: Client+Server do not support any shared cipher suites")
