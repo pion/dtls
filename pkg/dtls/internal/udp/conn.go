@@ -186,9 +186,10 @@ func (c *Conn) Close() error {
 	var err error
 	c.doneOnce.Do(func() {
 		close(c.doneCh)
-		c.listener.lock.RLock()
+		c.listener.lock.Lock()
+		delete(c.listener.conns, c.rAddr.String())
 		err = c.listener.cleanup()
-		c.listener.lock.RUnlock()
+		c.listener.lock.Unlock()
 		c.listener = nil
 	})
 

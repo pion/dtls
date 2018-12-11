@@ -186,7 +186,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 // Close closes the connection.
 func (c *Conn) Close() error {
 	c.notify(alertLevelFatal, alertCloseNotify)
-	c.stopWithError(errConnClosed)
+	c.stopWithError(ErrConnClosed)
 	return c.nextConn.Close()
 }
 
@@ -347,8 +347,9 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 
 func (c *Conn) signalHandshakeComplete() {
 	select {
-	case c.handshakeCompleted <- true:
+	case <-c.handshakeCompleted:
 	default:
+		close(c.handshakeCompleted)
 	}
 }
 
@@ -360,6 +361,8 @@ func (c *Conn) startHandshakeOutbound() {
 				err        error
 			)
 			select {
+			case <-c.handshakeCompleted:
+				return
 			case <-c.workerTicker.C:
 				isFinished, err = c.flightHandler(c)
 			case <-c.currFlight.workerTrigger:
