@@ -2,6 +2,7 @@ package udp
 
 import (
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -10,7 +11,6 @@ import (
 const receiveMTU = 8192
 
 var errClosedListener = errors.New("udp: listener closed")
-var errClosedConn = errors.New("udp: conn closed")
 
 // Listener augments a connection-oriented Listener over a UDP PacketConn
 type Listener struct {
@@ -87,6 +87,10 @@ func Listen(network string, laddr *net.UDPAddr) (*Listener, error) {
 	return l, nil
 }
 
+// readLoop has to tasks:
+// 1. Dispatching incoming packets to the correct Conn.
+//    It can therefore not be ended until all Conns are closed.
+// 2. Creating a new Conn when receiving from a new remote.
 func (l *Listener) readLoop() {
 	buf := make([]byte, receiveMTU)
 
@@ -113,12 +117,12 @@ readLoop:
 func (l *Listener) getConn(raddr net.Addr) (*Conn, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	if !l.accepting {
-		return nil, errClosedListener
-	}
 
 	conn, ok := l.conns[raddr.String()]
 	if !ok {
+		if !l.accepting {
+			return nil, errClosedListener
+		}
 		conn = l.newConn(raddr)
 		l.conns[raddr.String()] = conn
 		l.acceptCh <- conn
@@ -157,7 +161,7 @@ func (c *Conn) Read(p []byte) (int, error) {
 		n := <-c.sizeCh
 		return n, nil
 	case <-c.doneCh:
-		return 0, errClosedConn
+		return 0, io.EOF
 	}
 }
 
@@ -168,7 +172,7 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 	c.lock.Unlock()
 
 	if l == nil {
-		return 0, errClosedConn
+		return 0, io.EOF
 	}
 
 	return l.pConn.WriteTo(p, c.rAddr)
