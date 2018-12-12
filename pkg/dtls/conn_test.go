@@ -27,9 +27,19 @@ import (
 // }
 
 func TestStressDuplex(t *testing.T) {
-	lim := test.TimeOut(time.Second * 5)
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
 
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	// Run the test
+	stressDuplex(t)
+}
+
+func stressDuplex(t *testing.T) {
 	ca, cb, err := pipeMemory()
 	if err != nil {
 		t.Fatal(err)
