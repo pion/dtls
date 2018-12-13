@@ -17,6 +17,13 @@ const initialTickerInterval = time.Second
 const cookieLength = 20
 const defaultNamedCurve = namedCurveX25519
 
+var invalidKeyingLabels = map[string]bool{
+	"client finished": true,
+	"server finished": true,
+	"master secret":   true,
+	"key expansion":   true,
+}
+
 type handshakeMessageHandler func(*Conn) error
 type flightHandler func(*Conn) (bool, error)
 
@@ -208,9 +215,7 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 		return nil, errHandshakeInProgress
 	} else if len(context) != 0 {
 		return nil, errContextUnsupported
-	}
-	switch string(label) {
-	case "client finished", "server finished", "master secret", "key expansion":
+	} else if _, ok := invalidKeyingLabels[string(label)]; ok {
 		return nil, errReservedExportKeyingMaterial
 	}
 
