@@ -50,7 +50,8 @@ type Conn struct {
 	flightHandler           flightHandler
 	handshakeCompleted      chan struct{}
 
-	connErr error
+	connErr    error
+	connDoneCh chan struct{}
 }
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
@@ -86,6 +87,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		decrypted:          make(chan []byte),
 		workerTicker:       time.NewTicker(initialTickerInterval),
 		handshakeCompleted: make(chan struct{}),
+		connDoneCh:         make(chan struct{}),
 	}
 	err := c.localRandom.populate()
 	if err != nil {
@@ -187,7 +189,17 @@ func (c *Conn) Write(p []byte) (int, error) {
 
 // Close closes the connection.
 func (c *Conn) Close() error {
+
 	c.notify(alertLevelFatal, alertCloseNotify)
+
+	// Make sure the outbound handshake goroutine is cleaned up
+	select {
+	case <-c.connDoneCh:
+		break
+	default:
+		close(c.connDoneCh)
+	}
+
 	return c.nextConn.Close()
 }
 
@@ -363,6 +375,8 @@ func (c *Conn) startHandshakeOutbound() {
 				isFinished, err = c.flightHandler(c)
 			case <-c.currFlight.workerTrigger:
 				isFinished, err = c.flightHandler(c)
+			case <-c.connDoneCh:
+				return
 			}
 
 			switch {
