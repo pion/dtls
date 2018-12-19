@@ -107,6 +107,10 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 
 	// Handle inbound
 	go func() {
+		defer func() {
+			close(c.decrypted)
+		}()
+
 		b := make([]byte, 8192)
 		for {
 			i, err := c.nextConn.Read(b)
@@ -194,7 +198,10 @@ func (c *Conn) Write(p []byte) (int, error) {
 func (c *Conn) Close() error {
 	c.notify(alertLevelFatal, alertCloseNotify)
 	c.stopWithError(ErrConnClosed)
-	return c.nextConn.Close()
+	if err := c.getConnErr(); err != ErrConnClosed {
+		return err
+	}
+	return nil
 }
 
 // RemoteCertificate exposes the remote certificate
@@ -388,10 +395,15 @@ func (c *Conn) startHandshakeOutbound() {
 }
 
 func (c *Conn) stopWithError(err error) {
-	if c.getConnErr() == nil {
-		close(c.decrypted)
+	if connErr := c.nextConn.Close(); connErr != nil {
+		if err != ErrConnClosed {
+			connErr = fmt.Errorf("%v\n%v", err, connErr)
+		}
+		err = connErr
 	}
+
 	c.connErr.Store(struct{ error }{err})
+
 	c.workerTicker.Stop()
 
 	c.signalHandshakeComplete()
