@@ -5,7 +5,7 @@
 </h1>
 <h4 align="center">A Go implementation of DTLS</h4>
 <p align="center">
-  <a href="https://sourcegraph.com/github.com/pions/dtls?badge"><img src="https://sourcegraph.com/github.com/pions/dtls/-/badge.svg" alt="Sourcegraph Widget"></a>
+  <a href="https://sourcegraph.com/github.com/pions/dtls/pkg/dtls?badge"><img src="https://sourcegraph.com/github.com/pions/dtls/pkg/dtls/-/badge.svg" alt="Sourcegraph Widget"></a>
   <a href="http://gophers.slack.com/messages/pion"><img src="https://img.shields.io/badge/join-us%20on%20slack-gray.svg?longCache=true&logo=slack&colorB=brightgreen" alt="Slack Widget"></a>
   <br>
   <a href="https://travis-ci.org/pions/dtls"><img src="https://travis-ci.org/pions/dtls.svg?branch=master" alt="Build Status"></a>
