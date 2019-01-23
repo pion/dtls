@@ -50,12 +50,12 @@ Pion DTLS can connect to itself and OpenSSL.
 ## Pion DTLS
 For a DTLS 1.2 Server that listens on 127.0.0.1:4444
 ```sh
-go run cmd/listen/main.go
+go run examples/listen/main.go
 ```
 
 For a DTLS 1.2 Client that connects to 127.0.0.1:4444
 ```sh
-go run cmd/dial/main.go
+go run examples/dial/main.go
 ```
 
 ## OpenSSL
@@ -65,10 +65,10 @@ go run cmd/dial/main.go
   openssl req -new -sha256 -key key.pem -out server.csr
   openssl x509 -req -sha256 -days 365 -in server.csr -signkey key.pem -out cert.pem
 
-  // Use with cmd/dial/main.go
+  // Use with examples/dial/main.go
   openssl s_server -dtls1_2 -cert cert.pem -key key.pem -accept 4444
 
-  // Use with cmd/listen/main.go
+  // Use with examples/listen/main.go
   openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -debug -cert cert.pem -key key.pem
 ```
 

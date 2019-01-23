@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/pions/dtls/cmd"
-	"github.com/pions/dtls/pkg/dtls"
+	"github.com/pions/dtls"
+	"github.com/pions/dtls/examples/util"
 )
 
 func main() {
@@ -14,7 +14,7 @@ func main() {
 
 	// Generate a certificate and private key to secure the connection
 	certificate, privateKey, genErr := dtls.GenerateSelfSigned()
-	cmd.Check(genErr)
+	util.Check(genErr)
 
 	//
 	// Everything below is the pion-DTLS API! Thanks for using it ❤️.
@@ -25,13 +25,13 @@ func main() {
 
 	// Connect to a DTLS server
 	dtlsConn, err := dtls.Dial("udp", addr, config)
-	cmd.Check(err)
+	util.Check(err)
 	defer func() {
-		cmd.Check(dtlsConn.Close())
+		util.Check(dtlsConn.Close())
 	}()
 
 	fmt.Println("Connected; type 'exit' to shutdown gracefully")
 
 	// Simulate a chat session
-	cmd.Chat(dtlsConn)
+	util.Chat(dtlsConn)
 }

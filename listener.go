@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net"
 
-	"github.com/pions/dtls/pkg/dtls/internal/udp"
+	"github.com/pions/dtls/internal/udp"
 )
 
 // Listen creates a DTLS listener

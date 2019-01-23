@@ -1,0 +1,4 @@
+github.com/pions/transport v0.1.0 h1:9IEn3i8pmK8rMyQIqhT2RozgXJNH4k+IuNDzV5y+ddw=
+github.com/pions/transport v0.1.0/go.mod h1:HLhzI7I0k8TyiQ99hfRZNRf84lG76eaFnZHnVy/wFnM=
+golang.org/x/crypto v0.0.0-20190123085648-057139ce5d2b h1:Elez2XeF2p9uyVj0yEUDqQ56NFcDtcBNkYP7yv8YbUE=
+golang.org/x/crypto v0.0.0-20190123085648-057139ce5d2b/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
