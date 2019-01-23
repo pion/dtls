@@ -119,7 +119,7 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 
 		default:
-			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
+			return fmt.Errorf("unhandled handshake %d", h.handshakeType())
 		}
 	}
 
@@ -268,7 +268,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 		}, true)
 		c.lock.RUnlock()
 	default:
-		return false, fmt.Errorf("Unhandled flight %s", c.currFlight.get())
+		return false, fmt.Errorf("unhandled flight %s", c.currFlight.get())
 	}
 	return false, nil
 }

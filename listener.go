@@ -10,7 +10,7 @@ import (
 // Listen creates a DTLS listener
 func Listen(network string, laddr *net.UDPAddr, config *Config) (*Listener, error) {
 	if config == nil {
-		return nil, errors.New("No config provided")
+		return nil, errors.New("no config provided")
 	}
 	parent, err := udp.Listen(network, laddr)
 	if err != nil {

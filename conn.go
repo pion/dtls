@@ -64,7 +64,7 @@ type Conn struct {
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
 	if config == nil {
-		return nil, errors.New("No config provided")
+		return nil, errors.New("no config provided")
 	}
 
 	if config.PrivateKey != nil {
@@ -333,7 +333,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 	case *applicationData:
 		c.decrypted <- content.data
 	default:
-		return fmt.Errorf("Unhandled contentType %d", content.contentType())
+		return fmt.Errorf("unhandled contentType %d", content.contentType())
 	}
 	return nil
 }
