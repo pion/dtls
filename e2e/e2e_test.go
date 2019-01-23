@@ -1,4 +1,4 @@
-package pion
+package e2e
 
 import (
 	"io"
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pions/dtls/pkg/dtls"
+	"github.com/pions/dtls"
 )
 
 const testMessage = "Hello World"

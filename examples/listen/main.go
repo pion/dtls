@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pions/dtls/cmd"
-	"github.com/pions/dtls/pkg/dtls"
+	"github.com/pions/dtls"
+	"github.com/pions/dtls/examples/util"
 )
 
 func main() {
@@ -18,7 +18,7 @@ func main() {
 
 	// Generate a certificate and private key to secure the connection
 	certificate, privateKey, genErr := dtls.GenerateSelfSigned()
-	cmd.Check(genErr)
+	util.Check(genErr)
 
 	//
 	// Everything below is the pion-DTLS API! Thanks for using it ❤️.
@@ -29,9 +29,9 @@ func main() {
 
 	// Connect to a DTLS server
 	listener, err := dtls.Listen("udp", addr, config)
-	cmd.Check(err)
+	util.Check(err)
 	defer func() {
-		cmd.Check(listener.Close())
+		util.Check(listener.Close())
 	}()
 
 	fmt.Println("Listening")
@@ -43,7 +43,7 @@ func main() {
 		for {
 			// Wait for a connection.
 			conn, err := listener.Accept()
-			cmd.Check(err)
+			util.Check(err)
 			// defer conn.Close() // TODO: graceful shutdown
 
 			// Register the connection with the chat hub
@@ -116,7 +116,7 @@ func (h *hub) chat() {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		msg, err := reader.ReadString('\n')
-		cmd.Check(err)
+		util.Check(err)
 		if strings.TrimSpace(msg) == "exit" {
 			return
 		}
