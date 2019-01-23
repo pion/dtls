@@ -115,7 +115,7 @@ func serverHandshakeHandler(c *Conn) error {
 			}
 
 		default:
-			return fmt.Errorf("Unhandled handshake %d", h.handshakeType())
+			return fmt.Errorf("unhandled handshake %d", h.handshakeType())
 		}
 	}
 
@@ -284,7 +284,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		c.signalHandshakeComplete()
 		return true, nil
 	default:
-		return false, fmt.Errorf("Unhandled flight %s", c.currFlight.get())
+		return false, fmt.Errorf("unhandled flight %s", c.currFlight.get())
 	}
 	return false, nil
 }

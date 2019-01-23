@@ -23,31 +23,28 @@ Go DTLS 1.2 implementation. The original user is pion-WebRTC, but we would love 
 
 A long term goal is a professional security review, and maye inclusion in stdlib.
 
-# Goals/Progress
+### Goals/Progress
 This will only be targeting DTLS 1.2, and the most modern/common cipher suites.
 We would love contributes that fall under the 'Planned Features' and fixing any bugs!
 
-# Current features
+#### Current features
 * DTLS 1.2 Client/Server
 * Forward secrecy using ECDHE; with curve25519 and nistp256 (non-PFS will not be supported)
 * AES_128_GCM
 * Packet loss and re-ordering is handled during handshaking
 * Key export (RFC5705)
 
-# Planned Features
+#### Planned Features
 * Extended master secret support (RFC7627)
 * Chacha20Poly1305
 * AES_256_CBC
 
-# Excluded Features
+#### Excluded Features
 * DTLS 1.0
 * Renegotiation
 * Compression
 
-# How to use
-Pion DTLS can connect to itself and OpenSSL.
-
-## Pion DTLS
+### Pion DTLS
 For a DTLS 1.2 Server that listens on 127.0.0.1:4444
 ```sh
 go run examples/listen/main.go
@@ -58,7 +55,8 @@ For a DTLS 1.2 Client that connects to 127.0.0.1:4444
 go run examples/dial/main.go
 ```
 
-## OpenSSL
+### OpenSSL
+Pion DTLS can connect to itself and OpenSSL.
 ```
   // Generate a certificate
   openssl ecparam -out key.pem -name prime256v1 -genkey
@@ -72,3 +70,11 @@ go run examples/dial/main.go
   openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -debug -cert cert.pem -key key.pem
 ```
 
+### Contributing
+Check out the **[contributing wiki](https://github.com/pions/webrtc/wiki/Contributing)** to join the group of amazing people making this project possible:
+
+* [Sean DuBois](https://github.com/Sean-Der) - *Original Author*
+* [Michiel De Backker](https://github.com/backkem) - *Public API*
+
+### License
+MIT License - see [LICENSE](LICENSE) for full text
