@@ -130,7 +130,7 @@ func testServer(c net.Conn) (*Conn, error) {
 
 func TestExportKeyingMaterial(t *testing.T) {
 	var rand [28]byte
-	exportLabel := []byte("EXTRACTOR-dtls_srtp")
+	exportLabel := "EXTRACTOR-dtls_srtp"
 
 	expectedServerKey := []byte{0x61, 0x09, 0x9d, 0x7d, 0xcb, 0x08, 0x52, 0x2c, 0xe7, 0x7b}
 	expectedClientKey := []byte{0x87, 0xf0, 0x40, 0x02, 0xf6, 0x1c, 0xf1, 0xfe, 0x8c, 0x77}
@@ -153,7 +153,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 	}
 
 	for k := range invalidKeyingLabels {
-		_, err = c.ExportKeyingMaterial([]byte(k), nil, 0)
+		_, err = c.ExportKeyingMaterial(k, nil, 0)
 		if err != errReservedExportKeyingMaterial {
 			t.Errorf("ExportKeyingMaterial reserved label: expected '%s' actual '%s'", errReservedExportKeyingMaterial, err)
 		}

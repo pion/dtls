@@ -214,7 +214,7 @@ func (c *Conn) RemoteCertificate() *x509.Certificate {
 // ExportKeyingMaterial from https://tools.ietf.org/html/rfc5705
 // This allows protocols to use DTLS for key establishment, but
 // then use some of the keying material for their own purposes
-func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([]byte, error) {
+func (c *Conn) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -222,7 +222,7 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 		return nil, errHandshakeInProgress
 	} else if len(context) != 0 {
 		return nil, errContextUnsupported
-	} else if _, ok := invalidKeyingLabels[string(label)]; ok {
+	} else if _, ok := invalidKeyingLabels[label]; ok {
 		return nil, errReservedExportKeyingMaterial
 	}
 
@@ -235,7 +235,7 @@ func (c *Conn) ExportKeyingMaterial(label []byte, context []byte, length int) ([
 		return nil, err
 	}
 
-	seed := append([]byte{}, label...)
+	seed := []byte(label)
 	if c.isClient {
 		seed = append(append(seed, localRandom...), remoteRandom...)
 	} else {
