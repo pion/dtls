@@ -38,7 +38,7 @@ type Conn struct {
 
 	isClient                   bool
 	remoteRequestedCertificate bool // Did we get a CertificateRequest
-	localEpoch, remoteEpoch    uint16
+	localEpoch, remoteEpoch    atomic.Value
 	localSequenceNumber        uint64 // uint48
 
 	currFlight                          *flight
@@ -91,6 +91,11 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		workerTicker:       time.NewTicker(initialTickerInterval),
 		handshakeCompleted: make(chan bool),
 	}
+
+	var zeroEpoch uint16
+	c.localEpoch.Store(zeroEpoch)
+	c.remoteEpoch.Store(zeroEpoch)
+
 	err := c.localRandom.populate()
 	if err != nil {
 		return nil, err
@@ -173,7 +178,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if c.localEpoch == 0 {
+	if c.getLocalEpoch() == 0 {
 		return 0, errHandshakeInProgress
 	} else if c.getConnErr() != nil {
 		return 0, c.getConnErr()
@@ -181,7 +186,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 
 	c.internalSend(&recordLayer{
 		recordLayerHeader: recordLayerHeader{
-			epoch:           c.localEpoch,
+			epoch:           c.getLocalEpoch(),
 			sequenceNumber:  c.localSequenceNumber,
 			protocolVersion: protocolVersion1_2,
 		},
@@ -218,7 +223,7 @@ func (c *Conn) ExportKeyingMaterial(label string, context []byte, length int) ([
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if c.localEpoch == 0 {
+	if c.getLocalEpoch() == 0 {
 		return nil, errHandshakeInProgress
 	} else if len(context) != 0 {
 		return nil, errContextUnsupported
@@ -290,12 +295,12 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 	if err := h.Unmarshal(buf); err != nil {
 		return err
 	}
-	if h.epoch < c.remoteEpoch {
+	if h.epoch < c.getRemoteEpoch() {
 		fmt.Println("handleIncoming: old epoch, dropping packet")
 		return nil
 	}
 
-	if c.remoteEpoch != 0 {
+	if c.getRemoteEpoch() != 0 {
 		if c.cipherSuite == nil {
 			fmt.Println("handleIncoming: Handshake not finished, dropping packet")
 			return nil
@@ -329,7 +334,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 		}
 		return fmt.Errorf("alert: %v", content)
 	case *changeCipherSpec:
-		c.remoteEpoch++
+		c.setRemoteEpoch(c.getRemoteEpoch() + 1)
 	case *applicationData:
 		c.decrypted <- content.data
 	default:
@@ -344,7 +349,7 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 
 	c.internalSend(&recordLayer{
 		recordLayerHeader: recordLayerHeader{
-			epoch:           c.localEpoch,
+			epoch:           c.getLocalEpoch(),
 			sequenceNumber:  c.localSequenceNumber,
 			protocolVersion: protocolVersion1_2,
 		},
@@ -412,6 +417,22 @@ func (c *Conn) stopWithError(err error) {
 func (c *Conn) getConnErr() error {
 	err, _ := c.connErr.Load().(struct{ error })
 	return err.error
+}
+
+func (c *Conn) setLocalEpoch(epoch uint16) {
+	c.localEpoch.Store(epoch)
+}
+
+func (c *Conn) getLocalEpoch() uint16 {
+	return c.localEpoch.Load().(uint16)
+}
+
+func (c *Conn) setRemoteEpoch(epoch uint16) {
+	c.remoteEpoch.Store(epoch)
+}
+
+func (c *Conn) getRemoteEpoch() uint16 {
+	return c.remoteEpoch.Load().(uint16)
 }
 
 // LocalAddr is a stub

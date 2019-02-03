@@ -140,13 +140,14 @@ func TestExportKeyingMaterial(t *testing.T) {
 		remoteRandom: handshakeRandom{time.Unix(1000, 0), rand},
 		cipherSuite:  &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
 	}
+	c.setLocalEpoch(0)
 
 	_, err := c.ExportKeyingMaterial(exportLabel, nil, 0)
 	if err != errHandshakeInProgress {
 		t.Errorf("ExportKeyingMaterial when epoch == 0: expected '%s' actual '%s'", errHandshakeInProgress, err)
 	}
 
-	c.localEpoch = 1
+	c.setLocalEpoch(1)
 	_, err = c.ExportKeyingMaterial(exportLabel, []byte{0x00}, 0)
 	if err != errContextUnsupported {
 		t.Errorf("ExportKeyingMaterial with context: expected '%s' actual '%s'", errContextUnsupported, err)

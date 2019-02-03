@@ -105,7 +105,7 @@ func clientHandshakeHandler(c *Conn) error {
 
 		case *handshakeMessageFinished:
 			if c.currFlight.get() == flight5 {
-				c.localEpoch = 1
+				c.setLocalEpoch(1)
 				c.localSequenceNumber = 1
 
 				expectedVerifyData, err := prfVerifyDataServer(c.masterSecret, c.handshakeCache.combinedHandshake(clientExcludeRules(c), true), c.cipherSuite.hashFunc())
@@ -163,14 +163,13 @@ func clientFlightHandler(c *Conn) (bool, error) {
 		}, false)
 		c.lock.RUnlock()
 	case flight5:
-		c.lock.RLock()
 		// TODO: Better way to end handshake
-		if c.remoteEpoch != 0 {
+		if c.getRemoteEpoch() != 0 {
 			// Handshake is done
-			c.lock.RUnlock()
 			return true, nil
 		}
 
+		c.lock.RLock()
 		sequenceNumber := c.localSequenceNumber
 		if c.remoteRequestedCertificate {
 			c.internalSend(&recordLayer{
