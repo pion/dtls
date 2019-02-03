@@ -107,7 +107,7 @@ func serverHandshakeHandler(c *Conn) error {
 				} else if !bytes.Equal(expectedVerifyData, h.verifyData) {
 					return errVerifyDataMismatch
 				}
-				c.localEpoch = 1
+				c.setLocalEpoch(1)
 				c.localSequenceNumber = 5
 				if err := c.currFlight.set(flight6); err != nil {
 					return err
