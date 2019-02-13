@@ -8,7 +8,7 @@ const (
 
 // https://tools.ietf.org/html/rfc8422
 type extensionUseSRTP struct {
-	protectionProfiles []srtpProtectionProfile
+	protectionProfiles []SRTPProtectionProfile
 }
 
 func (e extensionUseSRTP) extensionValue() extensionValue {
@@ -44,7 +44,7 @@ func (e *extensionUseSRTP) Unmarshal(data []byte) error {
 	}
 
 	for i := 0; i < profileCount; i++ {
-		supportedProfile := srtpProtectionProfile(binary.BigEndian.Uint16(data[(extensionUseSRTPHeaderSize + (i * 2)):]))
+		supportedProfile := SRTPProtectionProfile(binary.BigEndian.Uint16(data[(extensionUseSRTPHeaderSize + (i * 2)):]))
 		if _, ok := srtpProtectionProfiles[supportedProfile]; ok {
 			e.protectionProfiles = append(e.protectionProfiles, supportedProfile)
 		}

@@ -45,6 +45,19 @@ func clientHandshakeHandler(c *Conn) error {
 				}
 				fallthrough
 			case flight3:
+				for _, extension := range h.extensions {
+					if e, ok := extension.(*extensionUseSRTP); ok {
+						profile, ok := findMatchingSRTPProfile(e.protectionProfiles, c.localSRTPProtectionProfiles)
+						if !ok {
+							return fmt.Errorf("Server responded with SRTP Profile we do not support")
+						}
+						c.srtpProtectionProfile = profile
+					}
+				}
+				if len(c.localSRTPProtectionProfiles) > 0 && c.srtpProtectionProfile == 0 {
+					return fmt.Errorf("SRTP support was requested but server did not respond with use_srtp extension")
+				}
+
 				c.cipherSuite = h.cipherSuite
 				c.remoteRandom = h.random
 			}
@@ -132,6 +145,28 @@ func clientFlightHandler(c *Conn) (bool, error) {
 		fallthrough
 	case flight3:
 		c.lock.RLock()
+
+		extensions := []extension{
+			&extensionSupportedEllipticCurves{
+				ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
+			},
+			&extensionSupportedPointFormats{
+				pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
+			},
+			&extensionSupportedSignatureAlgorithms{
+				signatureHashAlgorithms: []signatureHashAlgorithm{
+					{HashAlgorithmSHA256, signatureAlgorithmECDSA},
+					{HashAlgorithmSHA384, signatureAlgorithmECDSA},
+					{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+				},
+			},
+		}
+		if len(c.localSRTPProtectionProfiles) > 0 {
+			extensions = append(extensions, &extensionUseSRTP{
+				protectionProfiles: c.localSRTPProtectionProfiles,
+			})
+		}
+
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				sequenceNumber:  c.localSequenceNumber,
@@ -148,24 +183,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 					random:             c.localRandom,
 					cipherSuites:       clientCipherSuites(),
 					compressionMethods: defaultCompressionMethods,
-					extensions: []extension{
-						&extensionSupportedEllipticCurves{
-							ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
-						},
-						&extensionUseSRTP{
-							protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
-						},
-						&extensionSupportedPointFormats{
-							pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
-						},
-						&extensionSupportedSignatureAlgorithms{
-							signatureHashAlgorithms: []signatureHashAlgorithm{
-								{HashAlgorithmSHA256, signatureAlgorithmECDSA},
-								{HashAlgorithmSHA384, signatureAlgorithmECDSA},
-								{HashAlgorithmSHA512, signatureAlgorithmECDSA},
-							},
-						},
-					},
+					extensions:         extensions,
 				}},
 		}, false)
 		c.lock.RUnlock()

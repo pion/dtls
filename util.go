@@ -130,3 +130,14 @@ func examinePadding(payload []byte) (toRemove int, good byte) {
 
 	return toRemove, good
 }
+
+func findMatchingSRTPProfile(a, b []SRTPProtectionProfile) (SRTPProtectionProfile, bool) {
+	for _, aProfile := range a {
+		for _, bProfile := range b {
+			if aProfile == bProfile {
+				return aProfile, true
+			}
+		}
+	}
+	return 0, false
+}
