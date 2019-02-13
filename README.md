@@ -75,6 +75,7 @@ Check out the **[contributing wiki](https://github.com/pions/webrtc/wiki/Contrib
 
 * [Sean DuBois](https://github.com/Sean-Der) - *Original Author*
 * [Michiel De Backker](https://github.com/backkem) - *Public API*
+* [Chris Hiszpanski](https://github.com/thinkski) - *Support Signature Algorithms Extension*
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
