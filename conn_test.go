@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -81,12 +82,12 @@ func pipeMemory() (*Conn, *Conn, error) {
 
 	// Setup client
 	go func() {
-		client, err := testClient(ca)
+		client, err := testClient(ca, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}})
 		c <- result{client, err}
 	}()
 
 	// Setup server
-	server, err := testServer(cb)
+	server, err := testServer(cb, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -100,32 +101,24 @@ func pipeMemory() (*Conn, *Conn, error) {
 	return res.c, server, nil
 }
 
-func testClient(c net.Conn) (*Conn, error) {
+func testClient(c net.Conn, cfg *Config) (*Conn, error) {
 	clientCert, clientKey, err := GenerateSelfSigned()
 	if err != nil {
 		return nil, err
 	}
-
-	client, err := Client(c, &Config{clientCert, clientKey})
-	if err != nil {
-		return nil, err
-	}
-
-	return client, nil
+	cfg.PrivateKey = clientKey
+	cfg.Certificate = clientCert
+	return Client(c, cfg)
 }
 
-func testServer(c net.Conn) (*Conn, error) {
+func testServer(c net.Conn, cfg *Config) (*Conn, error) {
 	serverCert, serverKey, err := GenerateSelfSigned()
 	if err != nil {
 		return nil, err
 	}
-
-	server, err := Server(c, &Config{serverCert, serverKey})
-	if err != nil {
-		return nil, err
-	}
-
-	return server, nil
+	cfg.PrivateKey = serverKey
+	cfg.Certificate = serverCert
+	return Server(c, cfg)
 }
 
 func TestExportKeyingMaterial(t *testing.T) {
@@ -173,5 +166,85 @@ func TestExportKeyingMaterial(t *testing.T) {
 		t.Errorf("ExportKeyingMaterial as server: unexpected error '%s'", err)
 	} else if !bytes.Equal(keyingMaterial, expectedClientKey) {
 		t.Errorf("ExportKeyingMaterial client export: expected (% 02x) actual (% 02x)", expectedClientKey, keyingMaterial)
+	}
+}
+
+func TestSRTPConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		Name            string
+		ClientSRTP      []SRTPProtectionProfile
+		ServerSRTP      []SRTPProtectionProfile
+		ExpectedProfile SRTPProtectionProfile
+		WantClientError error
+		WantServerError error
+	}{
+		{
+			Name:            "No SRTP in use",
+			ClientSRTP:      nil,
+			ServerSRTP:      nil,
+			ExpectedProfile: 0,
+			WantClientError: nil,
+			WantServerError: nil,
+		},
+		{
+			Name:            "SRTP both ends",
+			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ServerSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ExpectedProfile: SRTP_AES128_CM_HMAC_SHA1_80,
+			WantClientError: nil,
+			WantServerError: nil,
+		},
+		{
+			Name:            "SRTP client only",
+			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ServerSRTP:      nil,
+			ExpectedProfile: 0,
+			WantClientError: fmt.Errorf("Client requested SRTP but we have no matching profiles"),
+			WantServerError: fmt.Errorf("Client requested SRTP but we have no matching profiles"),
+		},
+		{
+			Name:            "SRTP server only",
+			ClientSRTP:      nil,
+			ServerSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ExpectedProfile: 0,
+			WantClientError: nil,
+			WantServerError: nil,
+		},
+	} {
+		ca, cb := net.Pipe()
+		type result struct {
+			c   *Conn
+			err error
+		}
+		c := make(chan result)
+
+		go func() {
+			client, err := testClient(ca, &Config{SRTPProtectionProfiles: test.ClientSRTP})
+			c <- result{client, err}
+		}()
+
+		server, err := testServer(cb, &Config{SRTPProtectionProfiles: test.ServerSRTP})
+		if err != nil || test.WantServerError != nil {
+			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
+				t.Errorf("TestSRTPConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
+			}
+		}
+
+		res := <-c
+		if res.err != nil || test.WantClientError != nil {
+			if !(res.err != nil && test.WantClientError != nil && err.Error() == test.WantClientError.Error()) {
+				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, err)
+			}
+		}
+
+		actualClientSRTP, _ := res.c.SelectedSRTPProtectionProfile()
+		if actualClientSRTP != test.ExpectedProfile {
+			t.Errorf("TestSRTPConfiguration: Client SRTPProtectionProfile Mismatch '%s': expected(%v) actual(%v)", test.Name, test.ExpectedProfile, actualClientSRTP)
+		}
+
+		actualServerSRTP, _ := server.SelectedSRTPProtectionProfile()
+		if actualServerSRTP != test.ExpectedProfile {
+			t.Errorf("TestSRTPConfiguration: Server SRTPProtectionProfile Mismatch '%s': expected(%v) actual(%v)", test.Name, test.ExpectedProfile, actualServerSRTP)
+		}
 	}
 }

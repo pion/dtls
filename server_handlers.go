@@ -50,7 +50,11 @@ func serverHandshakeHandler(c *Conn) error {
 				case *extensionSupportedEllipticCurves:
 					c.namedCurve = e.ellipticCurves[0]
 				case *extensionUseSRTP:
-					// TODO expose to API
+					profile, ok := findMatchingSRTPProfile(e.protectionProfiles, c.localSRTPProtectionProfiles)
+					if !ok {
+						return fmt.Errorf("Client requested SRTP but we have no matching profiles")
+					}
+					c.srtpProtectionProfile = profile
 				}
 			}
 
@@ -148,6 +152,21 @@ func serverFlightHandler(c *Conn) (bool, error) {
 
 	case flight4:
 		c.lock.RLock()
+
+		extensions := []extension{
+			&extensionSupportedEllipticCurves{
+				ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
+			},
+			&extensionSupportedPointFormats{
+				pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
+			},
+		}
+		if c.srtpProtectionProfile != 0 {
+			extensions = append(extensions, &extensionUseSRTP{
+				protectionProfiles: []SRTPProtectionProfile{c.srtpProtectionProfile},
+			})
+		}
+
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				sequenceNumber:  c.localSequenceNumber,
@@ -163,17 +182,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 					random:            c.localRandom,
 					cipherSuite:       c.cipherSuite,
 					compressionMethod: defaultCompressionMethods[0],
-					extensions: []extension{
-						&extensionSupportedEllipticCurves{
-							ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
-						},
-						&extensionUseSRTP{
-							protectionProfiles: []srtpProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
-						},
-						&extensionSupportedPointFormats{
-							pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
-						},
-					},
+					extensions:        extensions,
 				}},
 		}, false)
 

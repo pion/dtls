@@ -41,6 +41,9 @@ type Conn struct {
 	localEpoch, remoteEpoch    atomic.Value
 	localSequenceNumber        uint64 // uint48
 
+	localSRTPProtectionProfiles []SRTPProtectionProfile // Available SRTPProtectionProfiles, if empty no SRTP support
+	srtpProtectionProfile       SRTPProtectionProfile   // Negotiated SRTPProtectionProfile
+
 	currFlight                          *flight
 	cipherSuite                         cipherSuite // nil if a cipherSuite hasn't been chosen
 	namedCurve                          namedCurve
@@ -76,16 +79,17 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	}
 
 	c := &Conn{
-		isClient:                isClient,
-		nextConn:                nextConn,
-		currFlight:              newFlight(isClient),
-		fragmentBuffer:          newFragmentBuffer(),
-		handshakeCache:          newHandshakeCache(),
-		handshakeMessageHandler: handshakeMessageHandler,
-		flightHandler:           flightHandler,
-		localCertificate:        config.Certificate,
-		localPrivateKey:         config.PrivateKey,
-		namedCurve:              defaultNamedCurve,
+		isClient:                    isClient,
+		nextConn:                    nextConn,
+		currFlight:                  newFlight(isClient),
+		fragmentBuffer:              newFragmentBuffer(),
+		handshakeCache:              newHandshakeCache(),
+		handshakeMessageHandler:     handshakeMessageHandler,
+		flightHandler:               flightHandler,
+		localCertificate:            config.Certificate,
+		localPrivateKey:             config.PrivateKey,
+		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
+		namedCurve:                  defaultNamedCurve,
 
 		decrypted:          make(chan []byte),
 		workerTicker:       time.NewTicker(initialTickerInterval),
@@ -214,6 +218,18 @@ func (c *Conn) RemoteCertificate() *x509.Certificate {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.remoteCertificate
+}
+
+// SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile
+func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	if c.srtpProtectionProfile == 0 {
+		return 0, false
+	}
+
+	return c.srtpProtectionProfile, true
 }
 
 // ExportKeyingMaterial from https://tools.ietf.org/html/rfc5705
