@@ -99,7 +99,7 @@ func clientHandshakeHandler(c *Conn) error {
 					return err
 				}
 
-				expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, c.namedCurve, h.hashAlgorithm)
+				expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
 				if err := verifyKeySignature(expectedHash, h.signature, c.remoteCertificate); err != nil {
 					return err
 				}
