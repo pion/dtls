@@ -158,6 +158,13 @@ func clientFlightHandler(c *Conn) (bool, error) {
 						&extensionSupportedPointFormats{
 							pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
 						},
+						&extensionSupportedSignatureAlgorithms{
+							signatureHashAlgorithms: []signatureHashAlgorithm{
+								{HashAlgorithmSHA256, signatureAlgorithmECDSA},
+								{HashAlgorithmSHA384, signatureAlgorithmECDSA},
+								{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+							},
+						},
 					},
 				}},
 		}, false)

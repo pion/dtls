@@ -8,9 +8,10 @@ import (
 type extensionValue uint16
 
 const (
-	extensionSupportedEllipticCurvesValue extensionValue = 10
-	extensionSupportedPointFormatsValue   extensionValue = 11
-	extensionUseSRTPValue                 extensionValue = 14
+	extensionSupportedEllipticCurvesValue      extensionValue = 10
+	extensionSupportedPointFormatsValue        extensionValue = 11
+	extensionSupportedSignatureAlgorithmsValue extensionValue = 13
+	extensionUseSRTPValue                      extensionValue = 14
 )
 
 type extension interface {
