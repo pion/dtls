@@ -30,14 +30,13 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 #### Current features
 * DTLS 1.2 Client/Server
 * Forward secrecy using ECDHE; with curve25519 and nistp256 (non-PFS will not be supported)
-* AES_128_GCM
+* AES_128_GCM, AES_256_CBC
 * Packet loss and re-ordering is handled during handshaking
 * Key export (RFC5705)
 
 #### Planned Features
 * Extended master secret support (RFC7627)
 * Chacha20Poly1305
-* AES_256_CBC
 
 #### Excluded Features
 * DTLS 1.0
