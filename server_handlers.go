@@ -70,6 +70,15 @@ func serverHandshakeHandler(c *Conn) error {
 				return err
 			}
 
+		case *handshakeMessageCertificateVerify:
+			if c.remoteCertificate == nil {
+				return errCertificateVerifyNoCertificate
+			}
+			if err := verifyCertificateVerify(c.handshakeCache.combinedHandshake(serverExcludeRules(), true), h.hashAlgorithm, h.signature, c.remoteCertificate); err != nil {
+				return err
+			}
+			c.remoteCertificateVerified = true
+
 		case *handshakeMessageCertificate:
 			if c.currFlight.get() == flight4 {
 				c.remoteCertificate = h.certificate
@@ -111,8 +120,20 @@ func serverHandshakeHandler(c *Conn) error {
 				} else if !bytes.Equal(expectedVerifyData, h.verifyData) {
 					return errVerifyDataMismatch
 				}
+
+				if c.clientAuth == RequireAnyClientCert && c.remoteCertificate == nil {
+					return errClientCertificateRequired
+				} else if c.remoteCertificate != nil && !c.remoteCertificateVerified {
+					return errClientCertificateNotVerified
+				}
+
+				if c.clientAuth > NoClientCert {
+					c.localSequenceNumber = 6
+				} else {
+					c.localSequenceNumber = 5
+				}
 				c.setLocalEpoch(1)
-				c.localSequenceNumber = 5
+
 				if err := c.currFlight.set(flight6); err != nil {
 					return err
 				}
@@ -167,15 +188,16 @@ func serverFlightHandler(c *Conn) (bool, error) {
 			})
 		}
 
+		sequenceNumber := c.localSequenceNumber
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
-				sequenceNumber:  c.localSequenceNumber,
+				sequenceNumber:  sequenceNumber,
 				protocolVersion: protocolVersion1_2,
 			},
 			content: &handshake{
 				// sequenceNumber and messageSequence line up, may need to be re-evaluated
 				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.localSequenceNumber),
+					messageSequence: uint16(sequenceNumber),
 				},
 				handshakeMessage: &handshakeMessageServerHello{
 					version:           protocolVersion1_2,
@@ -185,21 +207,23 @@ func serverFlightHandler(c *Conn) (bool, error) {
 					extensions:        extensions,
 				}},
 		}, false)
+		sequenceNumber++
 
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
-				sequenceNumber:  c.localSequenceNumber + 1,
+				sequenceNumber:  sequenceNumber,
 				protocolVersion: protocolVersion1_2,
 			},
 			content: &handshake{
 				// sequenceNumber and messageSequence line up, may need to be re-evaluated
 				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.localSequenceNumber + 1),
+					messageSequence: uint16(sequenceNumber),
 				},
 				handshakeMessage: &handshakeMessageCertificate{
 					certificate: c.localCertificate,
 				}},
 		}, false)
+		sequenceNumber++
 
 		serverRandom, err := c.localRandom.Marshal()
 		if err != nil {
@@ -217,13 +241,13 @@ func serverFlightHandler(c *Conn) (bool, error) {
 
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
-				sequenceNumber:  c.localSequenceNumber + 2,
+				sequenceNumber:  sequenceNumber,
 				protocolVersion: protocolVersion1_2,
 			},
 			content: &handshake{
 				// sequenceNumber and messageSequence line up, may need to be re-evaluated
 				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.localSequenceNumber + 2),
+					messageSequence: uint16(sequenceNumber),
 				},
 				handshakeMessage: &handshakeMessageServerKeyExchange{
 					ellipticCurveType:  ellipticCurveTypeNamedCurve,
@@ -234,18 +258,44 @@ func serverFlightHandler(c *Conn) (bool, error) {
 					signature:          signature,
 				}},
 		}, false)
+		sequenceNumber++
 
-		// TODO: CertificateRequest
+		if c.clientAuth > NoClientCert {
+			c.internalSend(&recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					sequenceNumber:  sequenceNumber,
+					protocolVersion: protocolVersion1_2,
+				},
+				content: &handshake{
+					// sequenceNumber and messageSequence line up, may need to be re-evaluated
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(sequenceNumber),
+					},
+					handshakeMessage: &handshakeMessageCertificateRequest{
+						certificateTypes: []clientCertificateType{clientCertificateTypeRSASign, clientCertificateTypeECDSASign},
+						signatureHashAlgorithms: []signatureHashAlgorithm{
+							{HashAlgorithmSHA256, signatureAlgorithmRSA},
+							{HashAlgorithmSHA384, signatureAlgorithmRSA},
+							{HashAlgorithmSHA512, signatureAlgorithmRSA},
+							{HashAlgorithmSHA256, signatureAlgorithmECDSA},
+							{HashAlgorithmSHA384, signatureAlgorithmECDSA},
+							{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+						},
+					},
+				},
+			}, false)
+			sequenceNumber++
+		}
 
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
-				sequenceNumber:  c.localSequenceNumber + 3,
+				sequenceNumber:  sequenceNumber,
 				protocolVersion: protocolVersion1_2,
 			},
 			content: &handshake{
 				// sequenceNumber and messageSequence line up, may need to be re-evaluated
 				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.localSequenceNumber + 3),
+					messageSequence: uint16(sequenceNumber),
 				},
 				handshakeMessage: &handshakeMessageServerHelloDone{},
 			},

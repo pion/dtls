@@ -44,6 +44,8 @@ type Conn struct {
 	localSRTPProtectionProfiles []SRTPProtectionProfile // Available SRTPProtectionProfiles, if empty no SRTP support
 	srtpProtectionProfile       SRTPProtectionProfile   // Negotiated SRTPProtectionProfile
 
+	clientAuth ClientAuthType // If we are a client should we request a client certificate
+
 	currFlight                          *flight
 	cipherSuite                         cipherSuite // nil if a cipherSuite hasn't been chosen
 	namedCurve                          namedCurve
@@ -53,8 +55,9 @@ type Conn struct {
 	localKeypair, remoteKeypair         *namedCurveKeypair
 	cookie                              []byte
 
-	localCertificateVerify []byte // cache CertificateVerify
-	localVerifyData        []byte // cached VerifyData
+	localCertificateVerify    []byte // cache CertificateVerify
+	localVerifyData           []byte // cached VerifyData
+	remoteCertificateVerified bool
 
 	masterSecret []byte
 
@@ -88,6 +91,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		flightHandler:               flightHandler,
 		localCertificate:            config.Certificate,
 		localPrivateKey:             config.PrivateKey,
+		clientAuth:                  config.ClientAuth,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		namedCurve:                  defaultNamedCurve,
 

@@ -92,3 +92,24 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 
 	return nil, errInvalidSignatureAlgorithm
 }
+
+func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm, remoteKeySignature []byte, certificate *x509.Certificate) error {
+	switch p := certificate.PublicKey.(type) {
+	case *ecdsa.PublicKey:
+		ecdsaSig := &ecdsaSignature{}
+		if _, err := asn1.Unmarshal(remoteKeySignature, ecdsaSig); err != nil {
+			return err
+		}
+		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
+			return errInvalidECDSASignature
+		}
+		if !ecdsa.Verify(p, hashAlgorithm.digest(handshakeBodies), ecdsaSig.R, ecdsaSig.S) {
+			return errKeySignatureMismatch
+		}
+		return nil
+	case *rsa.PublicKey:
+		return rsa.VerifyPKCS1v15(p, hashAlgorithm.cryptoHash(), handshakeBodies, certificate.Signature)
+	}
+
+	return errKeySignatureVerifyUnimplemented
+}
