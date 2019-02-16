@@ -248,3 +248,48 @@ func TestSRTPConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestClientCertificate(t *testing.T) {
+	ca, cb := net.Pipe()
+	type result struct {
+		c    *Conn
+		conf *Config
+		err  error
+	}
+	c := make(chan result)
+
+	go func() {
+		conf := &Config{ClientAuth: RequireAnyClientCert}
+		client, err := testClient(ca, conf)
+		c <- result{client, conf, err}
+	}()
+
+	serverCfg := &Config{ClientAuth: RequireAnyClientCert}
+	server, err := testServer(cb, serverCfg)
+	if err != nil {
+		t.Errorf("TestClientCertificate: Server failed(%v)", err)
+	}
+
+	res := <-c
+	if res.err != nil {
+		t.Errorf("TestClientCertificate: Client failed(%v)", res.err)
+	}
+
+	actualClientCert := server.RemoteCertificate()
+	if actualClientCert == nil {
+		t.Errorf("TestClientCertificate: Client did not provide a certificate")
+	}
+
+	actualServerCert := res.c.RemoteCertificate()
+	if actualServerCert == nil {
+		t.Errorf("TestClientCertificate: Server did not provide a certificate")
+	}
+
+	if !actualServerCert.Equal(serverCfg.Certificate) {
+		t.Errorf("TestClientCertificate: Server certificate was not communicated correctly")
+	}
+
+	if !actualClientCert.Equal(res.conf.Certificate) {
+		t.Errorf("TestClientCertificate: Server certificate was not communicated correctly")
+	}
+}

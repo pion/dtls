@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"crypto"
 	"crypto/md5"  // #nosec
 	"crypto/sha1" // #nosec
 	"crypto/sha256"
@@ -84,6 +85,25 @@ func (h HashAlgorithm) digest(b []byte) []byte {
 		return hash[:]
 	default:
 		return nil
+	}
+}
+
+func (h HashAlgorithm) cryptoHash() crypto.Hash {
+	switch h {
+	case HashAlgorithmMD5:
+		return crypto.MD5
+	case HashAlgorithmSHA1:
+		return crypto.SHA1
+	case HashAlgorithmSHA224:
+		return crypto.SHA224
+	case HashAlgorithmSHA256:
+		return crypto.SHA256
+	case HashAlgorithmSHA384:
+		return crypto.SHA384
+	case HashAlgorithmSHA512:
+		return crypto.SHA512
+	default:
+		return 0
 	}
 }
 

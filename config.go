@@ -22,4 +22,19 @@ type Config struct {
 	// Clients will send this via use_srtp and assert that the server properly responds
 	// Servers will assert that clients send one of these profiles and will respond as needed
 	SRTPProtectionProfiles []SRTPProtectionProfile
+
+	// ClientAuth determines the server's policy for
+	// TLS Client Authentication. The default is NoClientCert.
+	ClientAuth ClientAuthType
 }
+
+// ClientAuthType declares the policy the server will follow for
+// TLS Client Authentication.
+type ClientAuthType int
+
+// ClientAuthType enums
+const (
+	NoClientCert ClientAuthType = iota
+	RequestClientCert
+	RequireAnyClientCert
+)
