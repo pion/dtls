@@ -47,7 +47,7 @@ func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 	return nil, errKeySignatureGenerateUnimplemented
 }
 
-func verifyKeySignature(hash, remoteKeySignature []byte, certificate *x509.Certificate) error {
+func verifyKeySignature(hash, remoteKeySignature []byte, hashAlgorithm HashAlgorithm, certificate *x509.Certificate) error {
 	switch p := certificate.PublicKey.(type) {
 	case *ecdsa.PublicKey:
 		ecdsaSig := &ecdsaSignature{}
@@ -62,7 +62,10 @@ func verifyKeySignature(hash, remoteKeySignature []byte, certificate *x509.Certi
 		}
 		return nil
 	case *rsa.PublicKey:
-		return errKeySignatureVerifyUnimplemented
+		switch certificate.SignatureAlgorithm {
+		case x509.SHA1WithRSA, x509.SHA256WithRSA, x509.SHA384WithRSA, x509.SHA512WithRSA:
+			return rsa.VerifyPKCS1v15(p, hashAlgorithm.cryptoHash(), hash, remoteKeySignature)
+		}
 	}
 
 	return errKeySignatureVerifyUnimplemented
@@ -94,6 +97,7 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 }
 
 func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm, remoteKeySignature []byte, certificate *x509.Certificate) error {
+	hash := hashAlgorithm.digest(handshakeBodies)
 	switch p := certificate.PublicKey.(type) {
 	case *ecdsa.PublicKey:
 		ecdsaSig := &ecdsaSignature{}
@@ -103,12 +107,15 @@ func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm
 		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
 			return errInvalidECDSASignature
 		}
-		if !ecdsa.Verify(p, hashAlgorithm.digest(handshakeBodies), ecdsaSig.R, ecdsaSig.S) {
+		if !ecdsa.Verify(p, hash, ecdsaSig.R, ecdsaSig.S) {
 			return errKeySignatureMismatch
 		}
 		return nil
 	case *rsa.PublicKey:
-		return rsa.VerifyPKCS1v15(p, hashAlgorithm.cryptoHash(), handshakeBodies, certificate.Signature)
+		switch certificate.SignatureAlgorithm {
+		case x509.SHA1WithRSA, x509.SHA256WithRSA, x509.SHA384WithRSA, x509.SHA512WithRSA:
+			return rsa.VerifyPKCS1v15(p, hashAlgorithm.cryptoHash(), hash, remoteKeySignature)
+		}
 	}
 
 	return errKeySignatureVerifyUnimplemented
