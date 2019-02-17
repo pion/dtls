@@ -100,7 +100,7 @@ func clientHandshakeHandler(c *Conn) error {
 				}
 
 				expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
-				if err := verifyKeySignature(expectedHash, h.signature, c.remoteCertificate); err != nil {
+				if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.remoteCertificate); err != nil {
 					return err
 				}
 			}
@@ -158,6 +158,9 @@ func clientFlightHandler(c *Conn) (bool, error) {
 					{HashAlgorithmSHA256, signatureAlgorithmECDSA},
 					{HashAlgorithmSHA384, signatureAlgorithmECDSA},
 					{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+					{HashAlgorithmSHA256, signatureAlgorithmRSA},
+					{HashAlgorithmSHA384, signatureAlgorithmRSA},
+					{HashAlgorithmSHA512, signatureAlgorithmRSA},
 				},
 			},
 		}
