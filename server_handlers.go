@@ -19,19 +19,19 @@ func serverHandshakeHandler(c *Conn) error {
 				if !bytes.Equal(c.cookie, h.cookie) {
 					return errCookieMismatch
 				}
-				c.localSequenceNumber = 1
+				c.state.localSequenceNumber = 1
 				if err := c.currFlight.set(flight4); err != nil {
 					return err
 				}
 				break
 			}
 
-			c.remoteRandom = h.random
+			c.state.remoteRandom = h.random
 
 			if len(h.cipherSuites) == 0 {
 				return errCipherSuiteNoIntersection
 			}
-			c.cipherSuite = h.cipherSuites[0] // TODO assert we support (No RSA)
+			c.state.cipherSuite = h.cipherSuites[0] // TODO assert we support (No RSA)
 
 			for _, extension := range h.extensions {
 				switch e := extension.(type) {
@@ -42,7 +42,7 @@ func serverHandshakeHandler(c *Conn) error {
 					if !ok {
 						return fmt.Errorf("Client requested SRTP but we have no matching profiles")
 					}
-					c.srtpProtectionProfile = profile
+					c.state.srtpProtectionProfile = profile
 				}
 			}
 
@@ -59,7 +59,7 @@ func serverHandshakeHandler(c *Conn) error {
 			}
 
 		case *handshakeMessageCertificateVerify:
-			if c.remoteCertificate == nil {
+			if c.state.remoteCertificate == nil {
 				return errCertificateVerifyNoCertificate
 			}
 
@@ -74,22 +74,22 @@ func serverHandshakeHandler(c *Conn) error {
 				handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
 			)
 
-			if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.remoteCertificate); err != nil {
+			if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.state.remoteCertificate); err != nil {
 				return err
 			}
 			c.remoteCertificateVerified = true
 
 		case *handshakeMessageCertificate:
-			c.remoteCertificate = h.certificate
+			c.state.remoteCertificate = h.certificate
 
 		case *handshakeMessageClientKeyExchange:
 			c.remoteKeypair = &namedCurveKeypair{c.namedCurve, h.publicKey, nil}
 
-			serverRandom, err := c.localRandom.Marshal()
+			serverRandom, err := c.state.localRandom.Marshal()
 			if err != nil {
 				return err
 			}
-			clientRandom, err := c.remoteRandom.Marshal()
+			clientRandom, err := c.state.remoteRandom.Marshal()
 			if err != nil {
 				return err
 			}
@@ -99,12 +99,12 @@ func serverHandshakeHandler(c *Conn) error {
 				return err
 			}
 
-			c.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.cipherSuite.hashFunc())
+			c.state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.state.cipherSuite.hashFunc())
 			if err != nil {
 				return err
 			}
 
-			if err := c.cipherSuite.init(c.masterSecret, clientRandom, serverRandom /* isClient */, false); err != nil {
+			if err := c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, false); err != nil {
 				return err
 			}
 
@@ -120,7 +120,7 @@ func serverHandshakeHandler(c *Conn) error {
 				handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
 				handshakeCachePullRule{handshakeTypeCertificateVerify, true},
 			)
-			expectedVerifyData, err := prfVerifyDataClient(c.masterSecret, plainText, c.cipherSuite.hashFunc())
+			expectedVerifyData, err := prfVerifyDataClient(c.state.masterSecret, plainText, c.state.cipherSuite.hashFunc())
 			if err != nil {
 				return err
 			} else if !bytes.Equal(expectedVerifyData, h.verifyData) {
@@ -194,16 +194,16 @@ func serverHandshakeHandler(c *Conn) error {
 			return err
 		}
 
-		if c.clientAuth == RequireAnyClientCert && c.remoteCertificate == nil {
+		if c.clientAuth == RequireAnyClientCert && c.state.remoteCertificate == nil {
 			return errClientCertificateRequired
-		} else if c.remoteCertificate != nil && !c.remoteCertificateVerified {
+		} else if c.state.remoteCertificate != nil && !c.remoteCertificateVerified {
 			return errClientCertificateNotVerified
 		}
 
 		if c.clientAuth > NoClientCert {
-			c.localSequenceNumber = 6
+			c.state.localSequenceNumber = 6
 		} else {
-			c.localSequenceNumber = 5
+			c.state.localSequenceNumber = 5
 		}
 		c.setLocalEpoch(1)
 
@@ -222,13 +222,13 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		c.lock.RLock()
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
-				sequenceNumber:  c.localSequenceNumber,
+				sequenceNumber:  c.state.localSequenceNumber,
 				protocolVersion: protocolVersion1_2,
 			},
 			content: &handshake{
 				// sequenceNumber and messageSequence line up, may need to be re-evaluated
 				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.localSequenceNumber),
+					messageSequence: uint16(c.state.localSequenceNumber),
 				},
 				handshakeMessage: &handshakeMessageHelloVerifyRequest{
 					version: protocolVersion1_2,
@@ -249,13 +249,13 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
 			},
 		}
-		if c.srtpProtectionProfile != 0 {
+		if c.state.srtpProtectionProfile != 0 {
 			extensions = append(extensions, &extensionUseSRTP{
-				protectionProfiles: []SRTPProtectionProfile{c.srtpProtectionProfile},
+				protectionProfiles: []SRTPProtectionProfile{c.state.srtpProtectionProfile},
 			})
 		}
 
-		sequenceNumber := c.localSequenceNumber
+		sequenceNumber := c.state.localSequenceNumber
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				sequenceNumber:  sequenceNumber,
@@ -268,8 +268,8 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				},
 				handshakeMessage: &handshakeMessageServerHello{
 					version:           protocolVersion1_2,
-					random:            c.localRandom,
-					cipherSuite:       c.cipherSuite,
+					random:            c.state.localRandom,
+					cipherSuite:       c.state.cipherSuite,
 					compressionMethod: defaultCompressionMethods[0],
 					extensions:        extensions,
 				}},
@@ -293,11 +293,11 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		sequenceNumber++
 
 		if len(c.localKeySignature) == 0 {
-			serverRandom, err := c.localRandom.Marshal()
+			serverRandom, err := c.state.localRandom.Marshal()
 			if err != nil {
 				return false, err
 			}
-			clientRandom, err := c.remoteRandom.Marshal()
+			clientRandom, err := c.state.remoteRandom.Marshal()
 			if err != nil {
 				return false, err
 			}
@@ -377,7 +377,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		c.lock.RLock()
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
-				sequenceNumber:  c.localSequenceNumber,
+				sequenceNumber:  c.state.localSequenceNumber,
 				protocolVersion: protocolVersion1_2,
 			},
 			content: &changeCipherSpec{},
@@ -398,7 +398,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 			)
 
 			var err error
-			c.localVerifyData, err = prfVerifyDataServer(c.masterSecret, plainText, c.cipherSuite.hashFunc())
+			c.localVerifyData, err = prfVerifyDataServer(c.state.masterSecret, plainText, c.state.cipherSuite.hashFunc())
 			if err != nil {
 				return false, err
 			}
@@ -413,7 +413,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 			content: &handshake{
 				// sequenceNumber and messageSequence line up, may need to be re-evaluated
 				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.localSequenceNumber), // KeyExchange + 1
+					messageSequence: uint16(c.state.localSequenceNumber), // KeyExchange + 1
 				},
 
 				handshakeMessage: &handshakeMessageFinished{
