@@ -225,18 +225,21 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		}, false)
 		sequenceNumber++
 
-		serverRandom, err := c.localRandom.Marshal()
-		if err != nil {
-			return false, err
-		}
-		clientRandom, err := c.remoteRandom.Marshal()
-		if err != nil {
-			return false, err
-		}
+		if len(c.localKeySignature) == 0 {
+			serverRandom, err := c.localRandom.Marshal()
+			if err != nil {
+				return false, err
+			}
+			clientRandom, err := c.remoteRandom.Marshal()
+			if err != nil {
+				return false, err
+			}
 
-		signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localPrivateKey, HashAlgorithmSHA256)
-		if err != nil {
-			return false, err
+			signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localPrivateKey, HashAlgorithmSHA256)
+			if err != nil {
+				return false, err
+			}
+			c.localKeySignature = signature
 		}
 
 		c.internalSend(&recordLayer{
@@ -255,7 +258,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 					publicKey:          c.localKeypair.publicKey,
 					hashAlgorithm:      HashAlgorithmSHA256,
 					signatureAlgorithm: signatureAlgorithmECDSA,
-					signature:          signature,
+					signature:          c.localKeySignature,
 				}},
 		}, false)
 		sequenceNumber++

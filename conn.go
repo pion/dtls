@@ -57,6 +57,7 @@ type Conn struct {
 
 	localCertificateVerify    []byte // cache CertificateVerify
 	localVerifyData           []byte // cached VerifyData
+	localKeySignature         []byte // cached keySignature
 	remoteCertificateVerified bool
 
 	masterSecret []byte
