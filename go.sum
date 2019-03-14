@@ -1,4 +1,8 @@
-github.com/pions/transport v0.1.0 h1:9IEn3i8pmK8rMyQIqhT2RozgXJNH4k+IuNDzV5y+ddw=
-github.com/pions/transport v0.1.0/go.mod h1:HLhzI7I0k8TyiQ99hfRZNRf84lG76eaFnZHnVy/wFnM=
+github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/pions/transport v0.4.1-0.20190314095440-402f7ac2c0d7 h1:kcyumgncSdyYDo+Je5amehBV57kgDn8d7K2BxVoMvIk=
+github.com/pions/transport v0.4.1-0.20190314095440-402f7ac2c0d7/go.mod h1:9gvUd8ZeyU4ZX7dhNuUq97mPoekopkd7eCJEyhKwVO0=
+github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
+github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 golang.org/x/crypto v0.0.0-20190123085648-057139ce5d2b h1:Elez2XeF2p9uyVj0yEUDqQ56NFcDtcBNkYP7yv8YbUE=
 golang.org/x/crypto v0.0.0-20190123085648-057139ce5d2b/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
