@@ -192,13 +192,14 @@ func clientFlightHandler(c *Conn) (bool, error) {
 		c.lock.RUnlock()
 	case flight5:
 		// TODO: Better way to end handshake
-		if c.getRemoteEpoch() != 0 {
+		if c.getRemoteEpoch() != 0 && c.getLocalEpoch() == 1 {
 			// Handshake is done
 			return true, nil
 		}
 
-		c.lock.RLock()
 		sequenceNumber := c.localSequenceNumber
+
+		c.lock.RLock()
 		if c.remoteRequestedCertificate {
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
