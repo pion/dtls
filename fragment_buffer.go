@@ -45,7 +45,7 @@ func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 		f.cache = map[uint16][]*fragment{}
 		f.currentEpoch = frag.recordLayerHeader.epoch
 	} else if f.currentEpoch > frag.recordLayerHeader.epoch {
-		return false, nil
+		return true, nil
 	}
 
 	if _, ok := f.cache[frag.handshakeHeader.messageSequence]; !ok {

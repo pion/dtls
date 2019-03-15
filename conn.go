@@ -317,8 +317,8 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 		return err
 	}
 	if h.epoch < c.getRemoteEpoch() {
-		fmt.Println("handleIncoming: old epoch, dropping packet")
-		return nil
+		_, err := c.flightHandler(c)
+		return err
 	}
 
 	if c.getRemoteEpoch() != 0 {
@@ -335,10 +335,10 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 		}
 	}
 
-	pushSuccess, err := c.fragmentBuffer.push(buf)
+	isHandshake, err := c.fragmentBuffer.push(buf)
 	if err != nil {
 		return err
-	} else if pushSuccess {
+	} else if isHandshake {
 		// This was a fragmented buffer, therefore a handshake
 		return c.handshakeMessageHandler(c)
 	}
