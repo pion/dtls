@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 
@@ -8,7 +9,10 @@ import (
 	transportTest "github.com/pions/transport/test"
 )
 
-const lossyTestTimeout = 30 * time.Second
+const (
+	flightInterval   = time.Millisecond * 100
+	lossyTestTimeout = 30 * time.Second
+)
 
 /*
   DTLS Client/Server over a lossy transport, just asserts it can handle at increasing increments
@@ -19,41 +23,85 @@ func TestPionE2ELossy(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	clientCert, clientKey, err := dtls.GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	for _, test := range []struct {
-		LossChance int
+		LossChanceRange int
+		DoClientAuth    bool
 	}{
 		{
-			LossChance: 0,
+			LossChanceRange: 0,
 		},
 		{
-			LossChance: 10,
+			LossChanceRange: 10,
 		},
 		{
-			LossChance: 25,
+			LossChanceRange: 20,
 		},
 		{
-			LossChance: 50,
+			LossChanceRange: 50,
 		},
 		{
-			LossChance: 75,
+			LossChanceRange: 0,
+			DoClientAuth:    true,
+		},
+		{
+			LossChanceRange: 10,
+			DoClientAuth:    true,
+		},
+		{
+			LossChanceRange: 20,
+			DoClientAuth:    true,
+		},
+		{
+			LossChanceRange: 50,
+			DoClientAuth:    true,
 		},
 	} {
-		serverDone := make(chan interface{})
-		clientDone := make(chan interface{})
+		rand.Seed(time.Now().UTC().UnixNano())
+		chosenLoss := rand.Intn(9) + test.LossChanceRange
+		serverDone := make(chan error)
+		clientDone := make(chan error)
 		br := transportTest.NewBridge()
-		br.SetLossChance(test.LossChance)
+		if err := br.SetLossChance(chosenLoss); err != nil {
+			t.Fatal(err)
+		}
 
 		go func() {
-			dtls.Client(br.GetConn0(), &dtls.Config{})
-			close(clientDone)
+			cfg := &dtls.Config{
+				FlightInterval: flightInterval,
+			}
+			if test.DoClientAuth {
+				cfg.Certificate = clientCert
+				cfg.PrivateKey = clientKey
+			}
+
+			if _, err := dtls.Client(br.GetConn0(), cfg); err != nil {
+				clientDone <- err
+			} else {
+				close(clientDone)
+			}
 		}()
 
 		go func() {
-			dtls.Server(br.GetConn1(), &dtls.Config{
-				Certificate: serverCert,
-				PrivateKey:  serverKey,
-			})
-			close(serverDone)
+			cfg := &dtls.Config{
+				Certificate:    serverCert,
+				PrivateKey:     serverKey,
+				FlightInterval: flightInterval,
+			}
+			if test.DoClientAuth {
+				cfg.ClientAuth = dtls.RequireAnyClientCert
+
+			}
+
+			if _, err := dtls.Server(br.GetConn1(), cfg); err != nil {
+				serverDone <- err
+			} else {
+				close(serverDone)
+			}
 		}()
 
 		testTimer := time.NewTimer(lossyTestTimeout)
@@ -63,14 +111,22 @@ func TestPionE2ELossy(t *testing.T) {
 				break
 			}
 
-			br.Process()
+			br.Tick()
 			select {
-			case <-serverDone:
+			case err, ok := <-serverDone:
+				if ok {
+					t.Fatalf("Fail, serverError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientComplete, serverComplete, chosenLoss, err)
+				}
+
 				serverComplete = true
-			case <-clientDone:
+			case err, ok := <-clientDone:
+				if ok {
+					t.Fatalf("Fail, clientError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientComplete, serverComplete, chosenLoss, err)
+				}
+
 				clientComplete = true
 			case <-testTimer.C:
-				t.Fatalf("Test expired: clientComplete(%t) serverComplete(%t) LossChance(%d)", clientComplete, serverComplete, test.LossChance)
+				t.Fatalf("Test expired: clientComplete(%t) serverComplete(%t) LossChance(%d)", clientComplete, serverComplete, chosenLoss)
 			default:
 			}
 		}

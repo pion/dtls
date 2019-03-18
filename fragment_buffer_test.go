@@ -47,12 +47,12 @@ func TestFragmentBuffer(t *testing.T) {
 			}
 		}
 
-		out, _ := fragmentBuffer.pop()
+		out := fragmentBuffer.pop()
 		if !reflect.DeepEqual(out, test.Expected) {
 			t.Errorf("fragmentBuffer '%s' push/pop: got % 02x, want % 02x", test.Name, out, test.Expected)
 		}
 
-		if frag, _ := fragmentBuffer.pop(); frag != nil {
+		if frag := fragmentBuffer.pop(); frag != nil {
 			t.Errorf("fragmentBuffer popped single buffer multiple times for '%s'", test.Name)
 		}
 	}

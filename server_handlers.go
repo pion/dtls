@@ -5,25 +5,13 @@ import (
 	"fmt"
 )
 
-func serverExcludeRules() map[flightVal]handshakeCacheExcludeRule {
-	// ClientHello and HelloVerifyRequest MUST NOT be included in the CertificateVerify
-	return map[flightVal]handshakeCacheExcludeRule{
-		flight0: {isLocal: true, isRemote: true},
-		flight1: {isLocal: true, isRemote: true},
-		flight2: {isLocal: true, isRemote: false},
-	}
-}
-
 func serverHandshakeHandler(c *Conn) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
 
-	for out, fragEpoch := c.fragmentBuffer.pop(); out != nil; out, fragEpoch = c.fragmentBuffer.pop() {
+	handleSingleHandshake := func(buf []byte) error {
 		rawHandshake := &handshake{}
-		if err := rawHandshake.Unmarshal(out); err != nil {
+		if err := rawHandshake.Unmarshal(buf); err != nil {
 			return err
 		}
-		c.handshakeCache.push(out, fragEpoch, rawHandshake.handshakeHeader.messageSequence /* isLocal */, false, c.currFlight.get())
 
 		switch h := rawHandshake.handshakeMessage.(type) {
 		case *handshakeMessageClientHello:
@@ -74,76 +62,155 @@ func serverHandshakeHandler(c *Conn) error {
 			if c.remoteCertificate == nil {
 				return errCertificateVerifyNoCertificate
 			}
-			if err := verifyCertificateVerify(c.handshakeCache.combinedHandshake(serverExcludeRules(), true), h.hashAlgorithm, h.signature, c.remoteCertificate); err != nil {
+
+			plainText := c.handshakeCache.pullAndMerge(
+				handshakeCachePullRule{handshakeTypeClientHello, true},
+				handshakeCachePullRule{handshakeTypeServerHello, false},
+				handshakeCachePullRule{handshakeTypeCertificate, false},
+				handshakeCachePullRule{handshakeTypeServerKeyExchange, false},
+				handshakeCachePullRule{handshakeTypeCertificateRequest, false},
+				handshakeCachePullRule{handshakeTypeServerHelloDone, false},
+				handshakeCachePullRule{handshakeTypeCertificate, true},
+				handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
+			)
+
+			if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.remoteCertificate); err != nil {
 				return err
 			}
 			c.remoteCertificateVerified = true
 
 		case *handshakeMessageCertificate:
-			if c.currFlight.get() == flight4 {
-				c.remoteCertificate = h.certificate
-			}
+			c.remoteCertificate = h.certificate
 
 		case *handshakeMessageClientKeyExchange:
-			if c.currFlight.get() == flight4 {
-				c.remoteKeypair = &namedCurveKeypair{c.namedCurve, h.publicKey, nil}
+			c.remoteKeypair = &namedCurveKeypair{c.namedCurve, h.publicKey, nil}
 
-				serverRandom, err := c.localRandom.Marshal()
-				if err != nil {
-					return err
-				}
-				clientRandom, err := c.remoteRandom.Marshal()
-				if err != nil {
-					return err
-				}
+			serverRandom, err := c.localRandom.Marshal()
+			if err != nil {
+				return err
+			}
+			clientRandom, err := c.remoteRandom.Marshal()
+			if err != nil {
+				return err
+			}
 
-				preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
-				if err != nil {
-					return err
-				}
+			preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
+			if err != nil {
+				return err
+			}
 
-				c.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.cipherSuite.hashFunc())
-				if err != nil {
-					return err
-				}
+			c.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.cipherSuite.hashFunc())
+			if err != nil {
+				return err
+			}
 
-				if err := c.cipherSuite.init(c.masterSecret, clientRandom, serverRandom /* isClient */, false); err != nil {
-					return err
-				}
+			if err := c.cipherSuite.init(c.masterSecret, clientRandom, serverRandom /* isClient */, false); err != nil {
+				return err
 			}
 
 		case *handshakeMessageFinished:
-			if c.currFlight.get() == flight4 {
-				expectedVerifyData, err := prfVerifyDataClient(c.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), true), c.cipherSuite.hashFunc())
-				if err != nil {
-					return err
-				} else if !bytes.Equal(expectedVerifyData, h.verifyData) {
-					return errVerifyDataMismatch
-				}
-
-				if c.clientAuth == RequireAnyClientCert && c.remoteCertificate == nil {
-					return errClientCertificateRequired
-				} else if c.remoteCertificate != nil && !c.remoteCertificateVerified {
-					return errClientCertificateNotVerified
-				}
-
-				if c.clientAuth > NoClientCert {
-					c.localSequenceNumber = 6
-				} else {
-					c.localSequenceNumber = 5
-				}
-				c.setLocalEpoch(1)
-
-				if err := c.currFlight.set(flight6); err != nil {
-					return err
-				}
+			plainText := c.handshakeCache.pullAndMerge(
+				handshakeCachePullRule{handshakeTypeClientHello, true},
+				handshakeCachePullRule{handshakeTypeServerHello, false},
+				handshakeCachePullRule{handshakeTypeCertificate, false},
+				handshakeCachePullRule{handshakeTypeServerKeyExchange, false},
+				handshakeCachePullRule{handshakeTypeCertificateRequest, false},
+				handshakeCachePullRule{handshakeTypeServerHelloDone, false},
+				handshakeCachePullRule{handshakeTypeCertificate, true},
+				handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
+				handshakeCachePullRule{handshakeTypeCertificateVerify, true},
+			)
+			expectedVerifyData, err := prfVerifyDataClient(c.masterSecret, plainText, c.cipherSuite.hashFunc())
+			if err != nil {
+				return err
+			} else if !bytes.Equal(expectedVerifyData, h.verifyData) {
+				return errVerifyDataMismatch
 			}
 
 		default:
 			return fmt.Errorf("unhandled handshake %d", h.handshakeType())
 		}
+
+		return nil
 	}
 
+	switch c.currFlight.get() {
+	case flight0:
+		expectedMessages := c.handshakeCache.pull(
+			handshakeCachePullRule{handshakeTypeClientHello, true},
+		)
+		if expectedMessages[0] != nil && expectedMessages[0].messageSequence == 0 {
+			return handleSingleHandshake(expectedMessages[0].data)
+		}
+	case flight2:
+		expectedMessages := c.handshakeCache.pull(
+			handshakeCachePullRule{handshakeTypeClientHello, true},
+		)
+		if expectedMessages[0] != nil && expectedMessages[0].messageSequence == 1 {
+			return handleSingleHandshake(expectedMessages[0].data)
+		}
+	case flight4:
+		expectedMessages := c.handshakeCache.pull(
+			handshakeCachePullRule{handshakeTypeCertificate, true},
+			handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
+			handshakeCachePullRule{handshakeTypeCertificateVerify, true},
+		)
+
+		var expectedSeqnum uint16
+		switch {
+		case expectedMessages[0] != nil:
+			expectedSeqnum = expectedMessages[0].messageSequence
+		case expectedMessages[1] != nil:
+			expectedSeqnum = expectedMessages[1].messageSequence
+		default:
+			return nil
+		}
+
+		for i, msg := range expectedMessages {
+			// handshakeTypeCertificate and handshakeTypeCertificateVerify can be nil, just make sure we have no gaps
+			switch {
+			case (i == 0 || i == 2) && msg == nil:
+				continue
+			case msg == nil:
+				return nil // We don't have all messages yet, try again later
+			case msg.messageSequence != expectedSeqnum:
+				return nil // We have a gap, still waiting on messages
+			}
+			expectedSeqnum++
+		}
+
+		for _, msg := range expectedMessages {
+			if msg != nil {
+				if err := handleSingleHandshake(msg.data); err != nil {
+					return err
+				}
+			}
+		}
+
+		finishedMsg := c.handshakeCache.pull(handshakeCachePullRule{handshakeTypeFinished, true})
+		if finishedMsg[0] == nil {
+			return nil
+		} else if err := handleSingleHandshake(finishedMsg[0].data); err != nil {
+			return err
+		}
+
+		if c.clientAuth == RequireAnyClientCert && c.remoteCertificate == nil {
+			return errClientCertificateRequired
+		} else if c.remoteCertificate != nil && !c.remoteCertificateVerified {
+			return errClientCertificateNotVerified
+		}
+
+		if c.clientAuth > NoClientCert {
+			c.localSequenceNumber = 6
+		} else {
+			c.localSequenceNumber = 5
+		}
+		c.setLocalEpoch(1)
+
+		if err := c.currFlight.set(flight6); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -317,8 +384,21 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		}, false)
 
 		if len(c.localVerifyData) == 0 {
+			plainText := c.handshakeCache.pullAndMerge(
+				handshakeCachePullRule{handshakeTypeClientHello, true},
+				handshakeCachePullRule{handshakeTypeServerHello, false},
+				handshakeCachePullRule{handshakeTypeCertificate, false},
+				handshakeCachePullRule{handshakeTypeServerKeyExchange, false},
+				handshakeCachePullRule{handshakeTypeCertificateRequest, false},
+				handshakeCachePullRule{handshakeTypeServerHelloDone, false},
+				handshakeCachePullRule{handshakeTypeCertificate, true},
+				handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
+				handshakeCachePullRule{handshakeTypeCertificateVerify, true},
+				handshakeCachePullRule{handshakeTypeFinished, true},
+			)
+
 			var err error
-			c.localVerifyData, err = prfVerifyDataServer(c.masterSecret, c.handshakeCache.combinedHandshake(serverExcludeRules(), false), c.cipherSuite.hashFunc())
+			c.localVerifyData, err = prfVerifyDataServer(c.masterSecret, plainText, c.cipherSuite.hashFunc())
 			if err != nil {
 				return false, err
 			}
