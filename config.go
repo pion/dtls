@@ -3,6 +3,7 @@ package dtls
 import (
 	"crypto"
 	"crypto/x509"
+	"time"
 )
 
 // Config is used to configure a DTLS client or server.
@@ -26,6 +27,10 @@ type Config struct {
 	// ClientAuth determines the server's policy for
 	// TLS Client Authentication. The default is NoClientCert.
 	ClientAuth ClientAuthType
+
+	// FlightInterval controls how often we send outbound handshake messages
+	// defaults to time.Second
+	FlightInterval time.Duration
 }
 
 // ClientAuthType declares the policy the server will follow for

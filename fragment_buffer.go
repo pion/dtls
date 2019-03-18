@@ -10,7 +10,6 @@ type fragmentBuffer struct {
 	// map of MessageSequenceNumbers that hold slices of fragments
 	cache map[uint16][]*fragment
 
-	currentEpoch                 uint16
 	currentMessageSequenceNumber uint16
 }
 
@@ -36,18 +35,6 @@ func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 		return false, err
 	}
 
-	// If the pushed epoch is greater then the current discard everything
-	// if the pushed epoch is less then discard the packet
-	//
-	// implementations SHOULD discard packets from earlier epochs
-	// https://tools.ietf.org/html/rfc6347#section-4.1
-	if f.currentEpoch < frag.recordLayerHeader.epoch {
-		f.cache = map[uint16][]*fragment{}
-		f.currentEpoch = frag.recordLayerHeader.epoch
-	} else if f.currentEpoch > frag.recordLayerHeader.epoch {
-		return true, nil
-	}
-
 	if _, ok := f.cache[frag.handshakeHeader.messageSequence]; !ok {
 		f.cache[frag.handshakeHeader.messageSequence] = []*fragment{}
 	}
@@ -59,10 +46,10 @@ func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 	return true, nil
 }
 
-func (f *fragmentBuffer) pop() ([]byte, uint16) {
+func (f *fragmentBuffer) pop() []byte {
 	frags, ok := f.cache[f.currentMessageSequenceNumber]
 	if !ok {
-		return nil, 0
+		return nil
 	}
 
 	// Go doesn't support recursive lambdas
@@ -88,7 +75,7 @@ func (f *fragmentBuffer) pop() ([]byte, uint16) {
 
 	// Recursively collect up
 	if !appendMessage(0) {
-		return nil, 0
+		return nil
 	}
 
 	firstHeader := frags[0].handshakeHeader
@@ -97,10 +84,10 @@ func (f *fragmentBuffer) pop() ([]byte, uint16) {
 
 	rawHeader, err := firstHeader.Marshal()
 	if err != nil {
-		return nil, 0
+		return nil
 	}
 
 	delete(f.cache, f.currentMessageSequenceNumber)
 	f.currentMessageSequenceNumber++
-	return append(rawHeader, rawMessage...), f.currentEpoch
+	return append(rawHeader, rawMessage...)
 }

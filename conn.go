@@ -82,6 +82,11 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		return nil, errNilNextConn
 	}
 
+	workerInterval := initialTickerInterval
+	if config.FlightInterval != 0 {
+		workerInterval = config.FlightInterval
+	}
+
 	c := &Conn{
 		isClient:                    isClient,
 		nextConn:                    nextConn,
@@ -97,7 +102,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		namedCurve:                  defaultNamedCurve,
 
 		decrypted:          make(chan []byte),
-		workerTicker:       time.NewTicker(initialTickerInterval),
+		workerTicker:       time.NewTicker(workerInterval),
 		handshakeCompleted: make(chan bool),
 	}
 
@@ -278,8 +283,7 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if h, ok := pkt.content.(*handshake); ok {
-		c.handshakeCache.push(raw[recordLayerHeaderSize:], pkt.recordLayerHeader.epoch,
-			h.handshakeHeader.messageSequence /* isLocal */, true, c.currFlight.get())
+		c.handshakeCache.push(raw[recordLayerHeaderSize:], h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.isClient)
 	}
 
 	if shouldEncrypt {
@@ -316,12 +320,14 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 	if err := h.Unmarshal(buf); err != nil {
 		return err
 	}
+
 	if h.epoch < c.getRemoteEpoch() {
-		_, err := c.flightHandler(c)
-		return err
+		if _, err := c.flightHandler(c); err != nil {
+			return err
+		}
 	}
 
-	if c.getRemoteEpoch() != 0 {
+	if h.epoch != 0 {
 		if c.cipherSuite == nil {
 			fmt.Println("handleIncoming: Handshake not finished, dropping packet")
 			return nil
@@ -335,11 +341,27 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 		}
 	}
 
-	isHandshake, err := c.fragmentBuffer.push(buf)
+	isHandshake, err := c.fragmentBuffer.push(append([]byte{}, buf...))
 	if err != nil {
 		return err
 	} else if isHandshake {
-		// This was a fragmented buffer, therefore a handshake
+		newHandshakeMessage := false
+		for out := c.fragmentBuffer.pop(); out != nil; out = c.fragmentBuffer.pop() {
+			rawHandshake := &handshake{}
+			if err := rawHandshake.Unmarshal(out); err != nil {
+				return err
+			}
+
+			if c.handshakeCache.push(out, rawHandshake.handshakeHeader.messageSequence, rawHandshake.handshakeHeader.handshakeType, !c.isClient) {
+				newHandshakeMessage = true
+			}
+		}
+		if !newHandshakeMessage {
+			return nil
+		}
+
+		c.lock.Lock()
+		defer c.lock.Unlock()
 		return c.handshakeMessageHandler(c)
 	}
 
