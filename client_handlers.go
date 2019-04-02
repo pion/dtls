@@ -14,9 +14,11 @@ func clientHandshakeHandler(c *Conn) error {
 
 		switch h := rawHandshake.handshakeMessage.(type) {
 		case *handshakeMessageHelloVerifyRequest:
+			c.log.Trace("<- HelloVerifyRequest")
 			c.cookie = append([]byte{}, h.cookie...)
 
 		case *handshakeMessageServerHello:
+			c.log.Trace("<- ServerHello")
 			for _, extension := range h.extensions {
 				if e, ok := extension.(*extensionUseSRTP); ok {
 					profile, ok := findMatchingSRTPProfile(e.protectionProfiles, c.localSRTPProtectionProfiles)
@@ -34,9 +36,11 @@ func clientHandshakeHandler(c *Conn) error {
 			c.remoteRandom = h.random
 
 		case *handshakeMessageCertificate:
+			c.log.Trace("<- Certificate")
 			c.remoteCertificate = h.certificate
 
 		case *handshakeMessageServerKeyExchange:
+			c.log.Trace("<- ServerKeyExchange")
 			c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
 
 			clientRandom, err := c.localRandom.Marshal()
@@ -73,9 +77,12 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 
 		case *handshakeMessageCertificateRequest:
+			c.log.Trace("<- CertificateRequest")
 			c.remoteRequestedCertificate = true
 		case *handshakeMessageServerHelloDone:
+			c.log.Trace("<- ServerHelloDone")
 		case *handshakeMessageFinished:
+			c.log.Trace("<- Finished")
 			plainText := c.handshakeCache.pullAndMerge(
 				handshakeCachePullRule{handshakeTypeClientHello, true},
 				handshakeCachePullRule{handshakeTypeServerHello, false},
@@ -190,8 +197,10 @@ func clientHandshakeHandler(c *Conn) error {
 func clientFlightHandler(c *Conn) (bool, error) {
 	switch c.currFlight.get() {
 	case flight1:
+		c.log.Trace("flight1")
 		fallthrough
 	case flight3:
+		c.log.Trace("flight3")
 		c.lock.RLock()
 
 		extensions := []extension{
@@ -218,6 +227,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 			})
 		}
 
+		c.log.Trace("-> ClientHello")
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				sequenceNumber:  c.localSequenceNumber,
@@ -239,6 +249,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 		}, false)
 		c.lock.RUnlock()
 	case flight5:
+		c.log.Trace("flight5")
 		// TODO: Better way to end handshake
 		if c.getRemoteEpoch() != 0 && c.getLocalEpoch() == 1 {
 			// Handshake is done

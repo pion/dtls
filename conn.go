@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/pions/logging"
 )
 
 const initialTickerInterval = time.Second
@@ -67,6 +69,7 @@ type Conn struct {
 	handshakeCompleted      chan bool
 
 	connErr atomic.Value
+	log     *logging.LeveledLogger
 }
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
@@ -104,6 +107,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		decrypted:          make(chan []byte),
 		workerTicker:       time.NewTicker(workerInterval),
 		handshakeCompleted: make(chan bool),
+		log:                logging.NewScopedLogger("dtls"),
 	}
 
 	var zeroEpoch uint16
