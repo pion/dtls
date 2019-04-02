@@ -38,31 +38,25 @@ type Conn struct {
 	decrypted      chan []byte     // Decrypted Application Data, pull by calling `Read`
 	workerTicker   *time.Ticker
 
-	isClient                   bool
+	state State // Internal state
+
 	remoteRequestedCertificate bool // Did we get a CertificateRequest
-	localEpoch, remoteEpoch    atomic.Value
-	localSequenceNumber        uint64 // uint48
 
 	localSRTPProtectionProfiles []SRTPProtectionProfile // Available SRTPProtectionProfiles, if empty no SRTP support
-	srtpProtectionProfile       SRTPProtectionProfile   // Negotiated SRTPProtectionProfile
 
 	clientAuth ClientAuthType // If we are a client should we request a client certificate
 
-	currFlight                          *flight
-	cipherSuite                         cipherSuite // nil if a cipherSuite hasn't been chosen
-	namedCurve                          namedCurve
-	localRandom, remoteRandom           handshakeRandom
-	localCertificate, remoteCertificate *x509.Certificate
-	localPrivateKey                     crypto.PrivateKey
-	localKeypair, remoteKeypair         *namedCurveKeypair
-	cookie                              []byte
+	currFlight                  *flight
+	namedCurve                  namedCurve
+	localCertificate            *x509.Certificate
+	localPrivateKey             crypto.PrivateKey
+	localKeypair, remoteKeypair *namedCurveKeypair
+	cookie                      []byte
 
 	localCertificateVerify    []byte // cache CertificateVerify
 	localVerifyData           []byte // cached VerifyData
 	localKeySignature         []byte // cached keySignature
 	remoteCertificateVerified bool
-
-	masterSecret []byte
 
 	handshakeMessageHandler handshakeMessageHandler
 	flightHandler           flightHandler
@@ -91,7 +85,6 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	}
 
 	c := &Conn{
-		isClient:                    isClient,
 		nextConn:                    nextConn,
 		currFlight:                  newFlight(isClient),
 		fragmentBuffer:              newFragmentBuffer(),
@@ -109,12 +102,13 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		handshakeCompleted: make(chan bool),
 		log:                logging.NewScopedLogger("dtls"),
 	}
+	c.state.isClient = isClient
 
 	var zeroEpoch uint16
-	c.localEpoch.Store(zeroEpoch)
-	c.remoteEpoch.Store(zeroEpoch)
+	c.state.localEpoch.Store(zeroEpoch)
+	c.state.remoteEpoch.Store(zeroEpoch)
 
-	err := c.localRandom.populate()
+	err := c.state.localRandom.populate()
 	if err != nil {
 		return nil, err
 	}
@@ -205,14 +199,14 @@ func (c *Conn) Write(p []byte) (int, error) {
 	c.internalSend(&recordLayer{
 		recordLayerHeader: recordLayerHeader{
 			epoch:           c.getLocalEpoch(),
-			sequenceNumber:  c.localSequenceNumber,
+			sequenceNumber:  c.state.localSequenceNumber,
 			protocolVersion: protocolVersion1_2,
 		},
 		content: &applicationData{
 			data: p,
 		},
 	}, true)
-	c.localSequenceNumber++
+	c.state.localSequenceNumber++
 
 	return len(p), nil
 }
@@ -231,7 +225,7 @@ func (c *Conn) Close() error {
 func (c *Conn) RemoteCertificate() *x509.Certificate {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return c.remoteCertificate
+	return c.state.remoteCertificate
 }
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile
@@ -239,11 +233,11 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	if c.srtpProtectionProfile == 0 {
+	if c.state.srtpProtectionProfile == 0 {
 		return 0, false
 	}
 
-	return c.srtpProtectionProfile, true
+	return c.state.srtpProtectionProfile, true
 }
 
 // ExportKeyingMaterial from https://tools.ietf.org/html/rfc5705
@@ -261,22 +255,22 @@ func (c *Conn) ExportKeyingMaterial(label string, context []byte, length int) ([
 		return nil, errReservedExportKeyingMaterial
 	}
 
-	localRandom, err := c.localRandom.Marshal()
+	localRandom, err := c.state.localRandom.Marshal()
 	if err != nil {
 		return nil, err
 	}
-	remoteRandom, err := c.remoteRandom.Marshal()
+	remoteRandom, err := c.state.remoteRandom.Marshal()
 	if err != nil {
 		return nil, err
 	}
 
 	seed := []byte(label)
-	if c.isClient {
+	if c.state.isClient {
 		seed = append(append(seed, localRandom...), remoteRandom...)
 	} else {
 		seed = append(append(seed, remoteRandom...), localRandom...)
 	}
-	return prfPHash(c.masterSecret, seed, length, c.cipherSuite.hashFunc())
+	return prfPHash(c.state.masterSecret, seed, length, c.state.cipherSuite.hashFunc())
 }
 
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
@@ -287,11 +281,11 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if h, ok := pkt.content.(*handshake); ok {
-		c.handshakeCache.push(raw[recordLayerHeaderSize:], h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.isClient)
+		c.handshakeCache.push(raw[recordLayerHeaderSize:], h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
 	}
 
 	if shouldEncrypt {
-		raw, err = c.cipherSuite.encrypt(pkt, raw)
+		raw, err = c.state.cipherSuite.encrypt(pkt, raw)
 		if err != nil {
 			c.stopWithError(err)
 			return
@@ -332,13 +326,13 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 	}
 
 	if h.epoch != 0 {
-		if c.cipherSuite == nil {
+		if c.state.cipherSuite == nil {
 			fmt.Println("handleIncoming: Handshake not finished, dropping packet")
 			return nil
 		}
 
 		var err error
-		buf, err = c.cipherSuite.decrypt(buf)
+		buf, err = c.state.cipherSuite.decrypt(buf)
 		if err != nil {
 			fmt.Println(err)
 			return nil
@@ -356,7 +350,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 				return err
 			}
 
-			if c.handshakeCache.push(out, rawHandshake.handshakeHeader.messageSequence, rawHandshake.handshakeHeader.handshakeType, !c.isClient) {
+			if c.handshakeCache.push(out, rawHandshake.handshakeHeader.messageSequence, rawHandshake.handshakeHeader.handshakeType, !c.state.isClient) {
 				newHandshakeMessage = true
 			}
 		}
@@ -397,7 +391,7 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 	c.internalSend(&recordLayer{
 		recordLayerHeader: recordLayerHeader{
 			epoch:           c.getLocalEpoch(),
-			sequenceNumber:  c.localSequenceNumber,
+			sequenceNumber:  c.state.localSequenceNumber,
 			protocolVersion: protocolVersion1_2,
 		},
 		content: &alert{
@@ -406,7 +400,7 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 		},
 	}, true)
 
-	c.localSequenceNumber++
+	c.state.localSequenceNumber++
 }
 
 func (c *Conn) signalHandshakeComplete() {
@@ -467,19 +461,19 @@ func (c *Conn) getConnErr() error {
 }
 
 func (c *Conn) setLocalEpoch(epoch uint16) {
-	c.localEpoch.Store(epoch)
+	c.state.localEpoch.Store(epoch)
 }
 
 func (c *Conn) getLocalEpoch() uint16 {
-	return c.localEpoch.Load().(uint16)
+	return c.state.localEpoch.Load().(uint16)
 }
 
 func (c *Conn) setRemoteEpoch(epoch uint16) {
-	c.remoteEpoch.Store(epoch)
+	c.state.remoteEpoch.Store(epoch)
 }
 
 func (c *Conn) getRemoteEpoch() uint16 {
-	return c.remoteEpoch.Load().(uint16)
+	return c.state.remoteEpoch.Load().(uint16)
 }
 
 // LocalAddr is a stub

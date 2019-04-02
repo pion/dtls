@@ -129,9 +129,11 @@ func TestExportKeyingMaterial(t *testing.T) {
 	expectedClientKey := []byte{0x87, 0xf0, 0x40, 0x02, 0xf6, 0x1c, 0xf1, 0xfe, 0x8c, 0x77}
 
 	c := &Conn{
-		localRandom:  handshakeRandom{time.Unix(500, 0), rand},
-		remoteRandom: handshakeRandom{time.Unix(1000, 0), rand},
-		cipherSuite:  &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+		state: State{
+			localRandom:  handshakeRandom{time.Unix(500, 0), rand},
+			remoteRandom: handshakeRandom{time.Unix(1000, 0), rand},
+			cipherSuite:  &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+		},
 	}
 	c.setLocalEpoch(0)
 
@@ -160,7 +162,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 		t.Errorf("ExportKeyingMaterial client export: expected (% 02x) actual (% 02x)", expectedServerKey, keyingMaterial)
 	}
 
-	c.isClient = true
+	c.state.isClient = true
 	keyingMaterial, err = c.ExportKeyingMaterial(exportLabel, nil, 10)
 	if err != nil {
 		t.Errorf("ExportKeyingMaterial as server: unexpected error '%s'", err)
