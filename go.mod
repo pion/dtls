@@ -1,6 +1,6 @@
-module github.com/pions/dtls
+module github.com/pion/dtls
 
 require (
-	github.com/pions/transport v0.5.0
+	github.com/pion/transport v0.6.0
 	golang.org/x/crypto v0.0.0-20190123085648-057139ce5d2b
 )

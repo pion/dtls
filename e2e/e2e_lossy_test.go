@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pions/dtls"
-	transportTest "github.com/pions/transport/test"
+	"github.com/pion/dtls"
+	transportTest "github.com/pion/transport/test"
 )
 
 const (
