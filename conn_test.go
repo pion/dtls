@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pions/transport/test"
+	"github.com/pion/transport/test"
 )
 
 // Seems to strict for out implementation at this point

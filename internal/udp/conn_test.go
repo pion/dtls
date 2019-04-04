@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pions/transport/test"
+	"github.com/pion/transport/test"
 )
 
 // Note: doesn't work since closing isn't propagated to the other side

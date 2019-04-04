@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/pions/dtls"
-	"github.com/pions/dtls/examples/util"
+	"github.com/pion/dtls"
+	"github.com/pion/dtls/examples/util"
 )
 
 func main() {
