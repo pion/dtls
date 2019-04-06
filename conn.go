@@ -71,8 +71,9 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		return nil, errors.New("no config provided")
 	}
 
-	if config.LoggerFactory == nil {
-		config.LoggerFactory = logging.NewDefaultLoggerFactory()
+	loggerFactory := config.LoggerFactory
+	if loggerFactory == nil {
+		loggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
 	if config.PrivateKey != nil {
@@ -104,7 +105,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		decrypted:          make(chan []byte),
 		workerTicker:       time.NewTicker(workerInterval),
 		handshakeCompleted: make(chan bool),
-		log:                config.LoggerFactory.NewLogger("dtls"),
+		log:                loggerFactory.NewLogger("dtls"),
 	}
 	c.state.isClient = isClient
 
