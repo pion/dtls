@@ -28,6 +28,34 @@ type handshakeMessage interface {
 	handshakeType() handshakeType
 }
 
+func (h handshakeType) String() string {
+	switch h {
+	case handshakeTypeHelloRequest:
+		return "HelloRequest"
+	case handshakeTypeClientHello:
+		return "ClientHello"
+	case handshakeTypeServerHello:
+		return "ServerHello"
+	case handshakeTypeHelloVerifyRequest:
+		return "HelloVerifyRequest"
+	case handshakeTypeCertificate:
+		return "TypeCertificate"
+	case handshakeTypeServerKeyExchange:
+		return "ServerKeyExchange"
+	case handshakeTypeCertificateRequest:
+		return "CertificateRequest"
+	case handshakeTypeServerHelloDone:
+		return "ServerHelloDone"
+	case handshakeTypeCertificateVerify:
+		return "CertificateVerify"
+	case handshakeTypeClientKeyExchange:
+		return "ClientKeyExchange"
+	case handshakeTypeFinished:
+		return "Finished"
+	}
+	return ""
+}
+
 // The handshake protocol is responsible for selecting a cipher spec and
 // generating a master secret, which together comprise the primary
 // cryptographic parameters associated with a secure session.  The
