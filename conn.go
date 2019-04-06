@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/pions/logging"
 )
 
 const initialTickerInterval = time.Second
@@ -61,11 +63,16 @@ type Conn struct {
 	handshakeCompleted      chan bool
 
 	connErr atomic.Value
+	log     logging.LeveledLogger
 }
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
 	if config == nil {
 		return nil, errors.New("no config provided")
+	}
+
+	if config.LoggerFactory == nil {
+		config.LoggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
 	if config.PrivateKey != nil {
@@ -97,6 +104,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		decrypted:          make(chan []byte),
 		workerTicker:       time.NewTicker(workerInterval),
 		handshakeCompleted: make(chan bool),
+		log:                config.LoggerFactory.NewLogger("dtls"),
 	}
 	c.state.isClient = isClient
 
@@ -270,6 +278,7 @@ func (c *Conn) ExportKeyingMaterial(label string, context []byte, length int) ([
 }
 
 func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
+
 	raw, err := pkt.Marshal()
 	if err != nil {
 		c.stopWithError(err)
@@ -277,6 +286,7 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if h, ok := pkt.content.(*handshake); ok {
+		c.log.Tracef("incoming handshake: %s", h.handshakeHeader.handshakeType.String())
 		c.handshakeCache.push(raw[recordLayerHeaderSize:], h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
 	}
 
@@ -323,14 +333,14 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 
 	if h.epoch != 0 {
 		if c.state.cipherSuite == nil {
-			fmt.Println("handleIncoming: Handshake not finished, dropping packet")
+			c.log.Debug("handleIncoming: Handshake not finished, dropping packet")
 			return nil
 		}
 
 		var err error
 		buf, err = c.state.cipherSuite.decrypt(buf)
 		if err != nil {
-			fmt.Println(err)
+			c.log.Debugf("decrypt failed: %s", err)
 			return nil
 		}
 	}

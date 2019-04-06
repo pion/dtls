@@ -27,7 +27,6 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := &Config{Certificate: certificate, PrivateKey: privateKey}
 
 	// Generate connections
 	localConn1, rc1 := net.Pipe()
@@ -45,7 +44,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	go func() {
 		var remote *Conn
 		var errR error
-		remote, errR = newRemote(remoteConn, config)
+		remote, errR = newRemote(remoteConn, &Config{Certificate: certificate, PrivateKey: privateKey})
 		if errR != nil {
 			errChan <- errR
 		}
@@ -67,7 +66,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	}()
 
 	var local *Conn
-	local, err = newLocal(localConn1, config)
+	local, err = newLocal(localConn1, &Config{Certificate: certificate, PrivateKey: privateKey})
 	if err != nil {
 		fatal(t, errChan, err)
 	}
@@ -113,7 +112,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 
 	// Resume dtls connection
 	var resumed net.Conn
-	resumed, err = Resume(state, localConn2, config)
+	resumed, err = Resume(state, localConn2, &Config{Certificate: certificate, PrivateKey: privateKey})
 	if err != nil {
 		fatal(t, errChan, err)
 	}

@@ -4,6 +4,8 @@ import (
 	"crypto"
 	"crypto/x509"
 	"time"
+
+	"github.com/pions/logging"
 )
 
 // Config is used to configure a DTLS client or server.
@@ -31,6 +33,8 @@ type Config struct {
 	// FlightInterval controls how often we send outbound handshake messages
 	// defaults to time.Second
 	FlightInterval time.Duration
+
+	LoggerFactory logging.LoggerFactory
 }
 
 // ClientAuthType declares the policy the server will follow for
