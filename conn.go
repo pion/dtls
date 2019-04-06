@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pions/logging"
+	"github.com/pion/logging"
 )
 
 const initialTickerInterval = time.Second

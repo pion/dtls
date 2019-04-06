@@ -5,7 +5,7 @@ import (
 	"crypto/x509"
 	"time"
 
-	"github.com/pions/logging"
+	"github.com/pion/logging"
 )
 
 // Config is used to configure a DTLS client or server.
