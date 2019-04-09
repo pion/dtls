@@ -239,7 +239,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		c.lock.RUnlock()
 
 	case flight4:
-		c.lock.RLock()
+		c.lock.Lock()
 
 		extensions := []extension{
 			&extensionSupportedEllipticCurves{
@@ -370,8 +370,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				handshakeMessage: &handshakeMessageServerHelloDone{},
 			},
 		}, false)
-
-		c.lock.RUnlock()
+		c.lock.Unlock()
 
 	case flight6:
 		// Hold write lock since we're setting localVerifyData

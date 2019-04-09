@@ -245,7 +245,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 			return true, nil
 		}
 
-		c.lock.RLock()
+		c.lock.Lock()
 		sequenceNumber := c.state.localSequenceNumber
 		if c.remoteRequestedCertificate {
 			c.internalSend(&recordLayer{
@@ -364,7 +364,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 					verifyData: c.localVerifyData,
 				}},
 		}, true)
-		c.lock.RUnlock()
+		c.lock.Unlock()
 	default:
 		return false, fmt.Errorf("unhandled flight %s", c.currFlight.get())
 	}
