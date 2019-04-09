@@ -374,7 +374,8 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		c.lock.RUnlock()
 
 	case flight6:
-		c.lock.RLock()
+		// Hold write lock since we're setting localVerifyData
+		c.lock.Lock()
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				sequenceNumber:  c.state.localSequenceNumber,
@@ -420,7 +421,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 					verifyData: c.localVerifyData,
 				}},
 		}, true)
-		c.lock.RUnlock()
+		c.lock.Unlock()
 
 		// TODO: Better way to end handshake
 		c.signalHandshakeComplete()
