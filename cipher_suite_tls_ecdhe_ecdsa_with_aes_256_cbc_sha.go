@@ -18,6 +18,10 @@ func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) ID() cipherSuiteID {
 	return 0xc00a
 }
 
+func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) String() string {
+	return "TLSEcdheEcdsaWithAes256CbcSha"
+}
+
 func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) hashFunc() func() hash.Hash {
 	return sha256.New
 }

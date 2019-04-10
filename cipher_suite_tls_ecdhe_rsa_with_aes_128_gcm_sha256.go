@@ -11,3 +11,7 @@ func (c cipherSuiteTLSEcdheRsaWithAes128GcmSha256) certificateType() clientCerti
 func (c cipherSuiteTLSEcdheRsaWithAes128GcmSha256) ID() cipherSuiteID {
 	return 0xc02f
 }
+
+func (c cipherSuiteTLSEcdheRsaWithAes128GcmSha256) String() string {
+	return "TLSEcdheRsaWithAes128GcmSha256"
+}

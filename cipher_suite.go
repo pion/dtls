@@ -8,6 +8,7 @@ import (
 type cipherSuiteID uint16
 
 type cipherSuite interface {
+	String() string
 	ID() cipherSuiteID
 	certificateType() clientCertificateType
 	hashFunc() func() hash.Hash

@@ -151,6 +151,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	}()
 
 	<-c.handshakeCompleted
+	c.log.Trace("Handshake Completed")
 	return c, c.getConnErr()
 }
 
@@ -287,7 +288,7 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 
 	if h, ok := pkt.content.(*handshake); ok {
-		c.log.Tracef("incoming handshake: %s", h.handshakeHeader.handshakeType.String())
+		c.log.Tracef("[handshake] -> %s", h.handshakeHeader.handshakeType.String())
 		c.handshakeCache.push(raw[recordLayerHeaderSize:], h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
 	}
 
@@ -377,11 +378,13 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 
 	switch content := r.content.(type) {
 	case *alert:
+		c.log.Tracef("<- Alert, Description: %s", content.alertDescription.String())
 		if content.alertDescription == alertCloseNotify {
 			return c.Close()
 		}
 		return fmt.Errorf("alert: %v", content)
 	case *changeCipherSpec:
+		c.log.Trace("<- ChangeCipherSpec")
 		c.setRemoteEpoch(c.getRemoteEpoch() + 1)
 	case *applicationData:
 		c.decrypted <- content.data
