@@ -12,6 +12,7 @@ func clientHandshakeHandler(c *Conn) error {
 			return err
 		}
 
+		c.log.Tracef("[handshake] <- %s", rawHandshake.handshakeMessage.handshakeType().String())
 		switch h := rawHandshake.handshakeMessage.(type) {
 		case *handshakeMessageHelloVerifyRequest:
 			c.cookie = append([]byte{}, h.cookie...)
@@ -32,6 +33,7 @@ func clientHandshakeHandler(c *Conn) error {
 
 			c.state.cipherSuite = h.cipherSuite
 			c.state.remoteRandom = h.random
+			c.log.Tracef("[handshake] use cipher suite: %s", h.cipherSuite.String())
 
 		case *handshakeMessageCertificate:
 			c.state.remoteCertificate = h.certificate
@@ -125,6 +127,7 @@ func clientHandshakeHandler(c *Conn) error {
 			return nil // We have no messages we can handle yet
 		}
 
+		c.log.Tracef("[handshake] Flight 1 changed to %s", flight3.String())
 		if err := c.currFlight.set(flight3); err != nil {
 			return err
 		}
@@ -163,6 +166,7 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 		}
 		c.state.localSequenceNumber++
+		c.log.Tracef("[handshake] Flight 3 changed to %s", flight5.String())
 		if err := c.currFlight.set(flight5); err != nil {
 			return err
 		}
