@@ -188,12 +188,13 @@ func clientHandshakeHandler(c *Conn) error {
 }
 
 func clientFlightHandler(c *Conn) (bool, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	switch c.currFlight.get() {
 	case flight1:
 		fallthrough
 	case flight3:
-		c.lock.RLock()
-
 		extensions := []extension{
 			&extensionSupportedEllipticCurves{
 				ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
@@ -237,7 +238,6 @@ func clientFlightHandler(c *Conn) (bool, error) {
 					extensions:         extensions,
 				}},
 		}, false)
-		c.lock.RUnlock()
 	case flight5:
 		// TODO: Better way to end handshake
 		if c.getRemoteEpoch() != 0 && c.getLocalEpoch() == 1 {
@@ -245,7 +245,6 @@ func clientFlightHandler(c *Conn) (bool, error) {
 			return true, nil
 		}
 
-		c.lock.Lock()
 		sequenceNumber := c.state.localSequenceNumber
 		if c.remoteRequestedCertificate {
 			c.internalSend(&recordLayer{
@@ -364,7 +363,6 @@ func clientFlightHandler(c *Conn) (bool, error) {
 					verifyData: c.localVerifyData,
 				}},
 		}, true)
-		c.lock.Unlock()
 	default:
 		return false, fmt.Errorf("unhandled flight %s", c.currFlight.get())
 	}
