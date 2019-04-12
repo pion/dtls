@@ -6,7 +6,6 @@ import (
 )
 
 func serverHandshakeHandler(c *Conn) error {
-
 	handleSingleHandshake := func(buf []byte) error {
 		rawHandshake := &handshake{}
 		if err := rawHandshake.Unmarshal(buf); err != nil {
@@ -215,11 +214,13 @@ func serverHandshakeHandler(c *Conn) error {
 }
 
 func serverFlightHandler(c *Conn) (bool, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	switch c.currFlight.get() {
 	case flight0:
 		// Waiting for ClientHello
 	case flight2:
-		c.lock.RLock()
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				sequenceNumber:  c.state.localSequenceNumber,
@@ -236,11 +237,8 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				},
 			},
 		}, false)
-		c.lock.RUnlock()
 
 	case flight4:
-		c.lock.Lock()
-
 		extensions := []extension{
 			&extensionSupportedEllipticCurves{
 				ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
@@ -370,11 +368,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				handshakeMessage: &handshakeMessageServerHelloDone{},
 			},
 		}, false)
-		c.lock.Unlock()
-
 	case flight6:
-		// Hold write lock since we're setting localVerifyData
-		c.lock.Lock()
 		c.internalSend(&recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				sequenceNumber:  c.state.localSequenceNumber,
@@ -420,7 +414,6 @@ func serverFlightHandler(c *Conn) (bool, error) {
 					verifyData: c.localVerifyData,
 				}},
 		}, true)
-		c.lock.Unlock()
 
 		// TODO: Better way to end handshake
 		c.signalHandshakeComplete()
