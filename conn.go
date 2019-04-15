@@ -378,7 +378,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 
 	switch content := r.content.(type) {
 	case *alert:
-		c.log.Tracef("<- Alert, Description: %s", content.alertDescription.String())
+		c.log.Tracef("<- %s", content.String())
 		if content.alertDescription == alertCloseNotify {
 			return c.Close()
 		}
