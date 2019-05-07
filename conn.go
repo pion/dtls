@@ -448,6 +448,7 @@ func (c *Conn) startHandshakeOutbound() {
 			}
 		}
 	}()
+	c.currFlight.workerTrigger <- struct{}{}
 }
 
 func (c *Conn) stopWithError(err error) {
