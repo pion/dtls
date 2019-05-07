@@ -78,6 +78,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Daniele Sluijters](https://github.com/daenney) - *AES-CCM support*
 * [Jin Lei](https://github.com/jinleileiking) - *Logging*
 * [Hugo Arregui](https://github.com/hugoArregui)
+* [Lander Noterman](https://github.com/LanderN)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

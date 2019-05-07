@@ -79,7 +79,7 @@ func newFlight(isClient bool) *flight {
 	if isClient {
 		val = flight1
 	}
-	return &flight{val: val, workerTrigger: make(chan struct{})}
+	return &flight{val: val, workerTrigger: make(chan struct{}, 1)}
 }
 
 func (f *flight) get() flightVal {
