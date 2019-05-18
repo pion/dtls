@@ -30,6 +30,9 @@ func clientHandshakeHandler(c *Conn) error {
 			if len(c.localSRTPProtectionProfiles) > 0 && c.state.srtpProtectionProfile == 0 {
 				return fmt.Errorf("SRTP support was requested but server did not respond with use_srtp extension")
 			}
+			if _, ok := findMatchingCipherSuite([]cipherSuite{h.cipherSuite}, c.localCipherSuites); !ok {
+				return errCipherSuiteNoIntersection
+			}
 
 			c.state.cipherSuite = h.cipherSuite
 			c.state.remoteRandom = h.random
@@ -237,7 +240,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 					version:            protocolVersion1_2,
 					cookie:             c.cookie,
 					random:             c.state.localRandom,
-					cipherSuites:       clientCipherSuites(),
+					cipherSuites:       c.localCipherSuites,
 					compressionMethods: defaultCompressionMethods,
 					extensions:         extensions,
 				}},

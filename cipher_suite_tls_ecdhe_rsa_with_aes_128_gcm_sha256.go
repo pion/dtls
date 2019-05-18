@@ -8,10 +8,10 @@ func (c cipherSuiteTLSEcdheRsaWithAes128GcmSha256) certificateType() clientCerti
 	return clientCertificateTypeRSASign
 }
 
-func (c cipherSuiteTLSEcdheRsaWithAes128GcmSha256) ID() cipherSuiteID {
-	return 0xc02f
+func (c cipherSuiteTLSEcdheRsaWithAes128GcmSha256) ID() CipherSuiteID {
+	return TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 }
 
 func (c cipherSuiteTLSEcdheRsaWithAes128GcmSha256) String() string {
-	return "TLSEcdheRsaWithAes128GcmSha256"
+	return "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
 }

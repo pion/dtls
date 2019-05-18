@@ -103,7 +103,7 @@ func (s *State) deserialize(serialized serializedState) error {
 	s.isClient = serialized.IsClient
 
 	// Set cipher suite
-	s.cipherSuite = cipherSuiteForID(cipherSuiteID(serialized.CipherSuiteID))
+	s.cipherSuite = cipherSuiteForID(CipherSuiteID(serialized.CipherSuiteID))
 	var err error
 	if serialized.IsClient {
 		err = s.cipherSuite.init(serialized.MasterSecret, serialized.LocalRandom, serialized.RemoteRandom, true)

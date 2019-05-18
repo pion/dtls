@@ -14,12 +14,12 @@ func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) certificateType() clientCertif
 	return clientCertificateTypeECDSASign
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) ID() cipherSuiteID {
-	return 0xc00a
+func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) ID() CipherSuiteID {
+	return TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
 }
 
 func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) String() string {
-	return "TLSEcdheEcdsaWithAes256CbcSha"
+	return "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
 }
 
 func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) hashFunc() func() hash.Hash {

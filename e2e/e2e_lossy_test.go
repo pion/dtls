@@ -31,6 +31,7 @@ func TestPionE2ELossy(t *testing.T) {
 	for _, test := range []struct {
 		LossChanceRange int
 		DoClientAuth    bool
+		CipherSuites    []dtls.CipherSuiteID
 	}{
 		{
 			LossChanceRange: 0,
@@ -60,6 +61,22 @@ func TestPionE2ELossy(t *testing.T) {
 			LossChanceRange: 50,
 			DoClientAuth:    true,
 		},
+		{
+			LossChanceRange: 0,
+			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+		},
+		{
+			LossChanceRange: 10,
+			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+		},
+		{
+			LossChanceRange: 20,
+			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+		},
+		{
+			LossChanceRange: 50,
+			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+		},
 	} {
 		rand.Seed(time.Now().UTC().UnixNano())
 		chosenLoss := rand.Intn(9) + test.LossChanceRange
@@ -73,6 +90,7 @@ func TestPionE2ELossy(t *testing.T) {
 		go func() {
 			cfg := &dtls.Config{
 				FlightInterval: flightInterval,
+				CipherSuites:   test.CipherSuites,
 			}
 			if test.DoClientAuth {
 				cfg.Certificate = clientCert

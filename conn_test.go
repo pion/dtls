@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -293,5 +294,70 @@ func TestClientCertificate(t *testing.T) {
 
 	if !actualClientCert.Equal(res.conf.Certificate) {
 		t.Errorf("TestClientCertificate: Server certificate was not communicated correctly")
+	}
+}
+
+func TestCipherSuiteConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		Name               string
+		ClientCipherSuites []CipherSuiteID
+		ServerCipherSuites []CipherSuiteID
+		WantClientError    error
+		WantServerError    error
+	}{
+		{
+			Name:               "No CipherSuites specified",
+			ClientCipherSuites: nil,
+			ServerCipherSuites: nil,
+			WantClientError:    nil,
+			WantServerError:    nil,
+		},
+		{
+			Name:               "Invalid CipherSuite",
+			ClientCipherSuites: []CipherSuiteID{0x00},
+			ServerCipherSuites: []CipherSuiteID{0x00},
+			WantClientError:    errors.New("CipherSuite with id(0) is not valid"),
+			WantServerError:    errors.New("CipherSuite with id(0) is not valid"),
+		},
+		{
+			Name:               "Valid CipherSuites specified",
+			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			WantClientError:    nil,
+			WantServerError:    nil,
+		},
+		{
+			Name:               "CipherSuites mismatch",
+			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			WantClientError:    errCipherSuiteNoIntersection,
+			WantServerError:    errCipherSuiteNoIntersection,
+		},
+	} {
+		ca, cb := net.Pipe()
+		type result struct {
+			c   *Conn
+			err error
+		}
+		c := make(chan result)
+
+		go func() {
+			client, err := testClient(ca, &Config{CipherSuites: test.ClientCipherSuites})
+			c <- result{client, err}
+		}()
+
+		_, err := testServer(cb, &Config{CipherSuites: test.ServerCipherSuites})
+		if err != nil || test.WantServerError != nil {
+			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
+				t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
+			}
+		}
+
+		res := <-c
+		if res.err != nil || test.WantClientError != nil {
+			if !(res.err != nil && test.WantClientError != nil && err.Error() == test.WantClientError.Error()) {
+				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, err)
+			}
+		}
 	}
 }
