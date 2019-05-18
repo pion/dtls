@@ -21,6 +21,10 @@ type Config struct {
 	// only ECDSA is supported
 	PrivateKey crypto.PrivateKey
 
+	// CipherSuites is a list of supported cipher suites.
+	// If CipherSuites is nil, a default list is used
+	CipherSuites []CipherSuiteID
+
 	// SRTPProtectionProfiles are the supported protection profiles
 	// Clients will send this via use_srtp and assert that the server properly responds
 	// Servers will assert that clients send one of these profiles and will respond as needed

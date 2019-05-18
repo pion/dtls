@@ -23,3 +23,7 @@ issues:
       text: "L' should not be capitalized"
       linters:
         - gocritic
+    - path: cipher_suite
+      text: "don't use ALL_CAPS in Go names; use CamelCase"
+      linters:
+        - golint

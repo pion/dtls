@@ -27,10 +27,10 @@ func serverHandshakeHandler(c *Conn) error {
 
 			c.state.remoteRandom = h.random
 
-			if len(h.cipherSuites) == 0 {
+			if _, ok := findMatchingCipherSuite(h.cipherSuites, c.localCipherSuites); !ok {
 				return errCipherSuiteNoIntersection
 			}
-			c.state.cipherSuite = h.cipherSuites[0] // TODO assert we support (No RSA)
+			c.state.cipherSuite = h.cipherSuites[0]
 
 			for _, extension := range h.extensions {
 				switch e := extension.(type) {

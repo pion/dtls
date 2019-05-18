@@ -43,6 +43,7 @@ type Conn struct {
 	remoteRequestedCertificate bool // Did we get a CertificateRequest
 
 	localSRTPProtectionProfiles []SRTPProtectionProfile // Available SRTPProtectionProfiles, if empty no SRTP support
+	localCipherSuites           []cipherSuite           // Available CipherSuites, if empty use default list
 
 	clientAuth ClientAuthType // If we are a client should we request a client certificate
 
@@ -84,6 +85,19 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		return nil, errNilNextConn
 	}
 
+	cipherSuites := []cipherSuite{}
+	if len(config.CipherSuites) != 0 {
+		for _, id := range config.CipherSuites {
+			c := cipherSuiteForID(id)
+			if c == nil {
+				return nil, fmt.Errorf("CipherSuite with id(%d) is not valid", id)
+			}
+			cipherSuites = append(cipherSuites, c)
+		}
+	} else {
+		cipherSuites = defaultCipherSuites()
+	}
+
 	workerInterval := initialTickerInterval
 	if config.FlightInterval != 0 {
 		workerInterval = config.FlightInterval
@@ -100,6 +114,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		localPrivateKey:             config.PrivateKey,
 		clientAuth:                  config.ClientAuth,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
+		localCipherSuites:           cipherSuites,
 		namedCurve:                  defaultNamedCurve,
 
 		decrypted:          make(chan []byte),
