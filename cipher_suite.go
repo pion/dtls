@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"encoding/binary"
+	"fmt"
 	"hash"
 )
 
@@ -24,6 +25,7 @@ type cipherSuite interface {
 	ID() CipherSuiteID
 	certificateType() clientCertificateType
 	hashFunc() func() hash.Hash
+	isPSK() bool
 
 	// Generate the internal encryption state
 	init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error
@@ -84,4 +86,46 @@ func encodeCipherSuites(c []cipherSuite) []byte {
 	}
 
 	return out
+}
+
+func parseCipherSuites(userSelectedSuites []CipherSuiteID, psk []byte) ([]cipherSuite, error) {
+	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]cipherSuite, error) {
+		cipherSuites := []cipherSuite{}
+		for _, id := range ids {
+			c := cipherSuiteForID(id)
+			if c == nil {
+				return nil, fmt.Errorf("CipherSuite with id(%d) is not valid", id)
+			}
+			cipherSuites = append(cipherSuites, c)
+		}
+		return cipherSuites, nil
+	}
+
+	var (
+		cipherSuites []cipherSuite
+		err          error
+		i            int
+	)
+	if len(userSelectedSuites) != 0 {
+		cipherSuites, err = cipherSuitesForIDs(userSelectedSuites)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		cipherSuites = defaultCipherSuites()
+	}
+
+	for _, c := range cipherSuites {
+		if (psk != nil && c.isPSK()) || (psk == nil && !c.isPSK()) {
+			cipherSuites[i] = c
+			i++
+		}
+	}
+
+	cipherSuites = cipherSuites[:i]
+	if len(cipherSuites) == 0 {
+		return nil, errNoAvailableCipherSuites
+	}
+
+	return cipherSuites, nil
 }
