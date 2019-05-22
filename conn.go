@@ -54,8 +54,10 @@ type Conn struct {
 	localCertificate            *x509.Certificate
 	localPrivateKey             crypto.PrivateKey
 	localKeypair, remoteKeypair *namedCurveKeypair
-	localPSK                    []byte
 	cookie                      []byte
+
+	localPSKCallback     PSKCallback
+	localPSKIdentityHint []byte
 
 	localCertificateVerify    []byte // cache CertificateVerify
 	localVerifyData           []byte // cached VerifyData
@@ -76,7 +78,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		return nil, errNoConfigProvided
 	case nextConn == nil:
 		return nil, errNilNextConn
-	case config.Certificate != nil && config.PSK != nil:
+	case config.Certificate != nil && (config.PSK != nil || config.PSKIdentityHint != nil):
 		return nil, errPSKAndCertificate
 	}
 
@@ -86,7 +88,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		}
 	}
 
-	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.PSK)
+	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.PSK == nil, config.PSK != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +115,10 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		clientAuth:                  config.ClientAuth,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		localCipherSuites:           cipherSuites,
-		localPSK:                    config.PSK,
 		namedCurve:                  defaultNamedCurve,
+
+		localPSKCallback:     config.PSK,
+		localPSKIdentityHint: config.PSKIdentityHint,
 
 		decrypted:          make(chan []byte),
 		workerTicker:       time.NewTicker(workerInterval),

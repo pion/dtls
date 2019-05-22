@@ -371,8 +371,8 @@ func TestPSKConfiguration(t *testing.T) {
 		Name                 string
 		ClientHasCertificate bool
 		ServerHasCertificate bool
-		ClientPSK            []byte
-		ServerPSK            []byte
+		ClientPSK            PSKCallback
+		ServerPSK            PSKCallback
 		WantClientError      error
 		WantServerError      error
 	}{
@@ -380,8 +380,8 @@ func TestPSKConfiguration(t *testing.T) {
 			Name:                 "PSK specified",
 			ClientHasCertificate: false,
 			ServerHasCertificate: false,
-			ClientPSK:            []byte{0x00, 0x01, 0x02},
-			ServerPSK:            []byte{0x00, 0x01, 0x02},
+			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
+			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			WantClientError:      errNoAvailableCipherSuites, // TODO (should be nil when PSK CipherSuite is added)
 			WantServerError:      errNoAvailableCipherSuites, // TODO (should be nil when PSK CipherSuite is added)
 		},
@@ -389,8 +389,8 @@ func TestPSKConfiguration(t *testing.T) {
 			Name:                 "PSK and certificate specified",
 			ClientHasCertificate: true,
 			ServerHasCertificate: true,
-			ClientPSK:            []byte{0x00, 0x01, 0x02},
-			ServerPSK:            []byte{0x00, 0x01, 0x02},
+			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
+			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			WantClientError:      errPSKAndCertificate,
 			WantServerError:      errPSKAndCertificate,
 		},

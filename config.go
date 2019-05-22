@@ -39,10 +39,15 @@ type Config struct {
 
 	// PSK sets the pre-shared key used by this DTLS connection
 	// If PSK is non-nil only PSK CipherSuites will be used
-	PSK []byte
+	PSK             PSKCallback
+	PSKIdentityHint []byte
 
 	LoggerFactory logging.LoggerFactory
 }
+
+// PSKCallback is called once we have the remote's PSKIdentityHint.
+// If the remote provided none it will be nil
+type PSKCallback func([]byte) ([]byte, error)
 
 // ClientAuthType declares the policy the server will follow for
 // TLS Client Authentication.
