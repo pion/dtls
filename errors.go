@@ -45,6 +45,6 @@ var (
 	errUnableToMarshalFragmented         = errors.New("dtls: unable to marshal fragmented handshakes")
 	errVerifyDataMismatch                = errors.New("dtls: Expected and actual verify data does not match")
 	errNoConfigProvided                  = errors.New("dtls: No config provided")
-	errPSKAndCertificate                 = errors.New("dtls: Certificate and PSK provided")
+	errPSKAndCertificate                 = errors.New("dtls: Certificate and PSK or PSK Identity Hint provided")
 	errNoAvailableCipherSuites           = errors.New("dtls: Connection can not be created, no CipherSuites satisfy this Config")
 )
