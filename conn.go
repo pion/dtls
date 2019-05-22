@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -15,9 +14,12 @@ import (
 	"github.com/pion/logging"
 )
 
-const initialTickerInterval = time.Second
-const cookieLength = 20
-const defaultNamedCurve = namedCurveX25519
+const (
+	initialTickerInterval = time.Second
+	cookieLength          = 20
+	defaultNamedCurve     = namedCurveX25519
+	inboundBufferSize     = 8192
+)
 
 var invalidKeyingLabels = map[string]bool{
 	"client finished": true,
@@ -52,6 +54,7 @@ type Conn struct {
 	localCertificate            *x509.Certificate
 	localPrivateKey             crypto.PrivateKey
 	localKeypair, remoteKeypair *namedCurveKeypair
+	localPSK                    []byte
 	cookie                      []byte
 
 	localCertificateVerify    []byte // cache CertificateVerify
@@ -68,39 +71,34 @@ type Conn struct {
 }
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
-	if config == nil {
-		return nil, errors.New("no config provided")
-	}
-
-	loggerFactory := config.LoggerFactory
-	if loggerFactory == nil {
-		loggerFactory = logging.NewDefaultLoggerFactory()
+	switch {
+	case config == nil:
+		return nil, errNoConfigProvided
+	case nextConn == nil:
+		return nil, errNilNextConn
+	case config.Certificate != nil && config.PSK != nil:
+		return nil, errPSKAndCertificate
 	}
 
 	if config.PrivateKey != nil {
 		if _, ok := config.PrivateKey.(*ecdsa.PrivateKey); !ok {
 			return nil, errInvalidPrivateKey
 		}
-	} else if nextConn == nil {
-		return nil, errNilNextConn
 	}
 
-	cipherSuites := []cipherSuite{}
-	if len(config.CipherSuites) != 0 {
-		for _, id := range config.CipherSuites {
-			c := cipherSuiteForID(id)
-			if c == nil {
-				return nil, fmt.Errorf("CipherSuite with id(%d) is not valid", id)
-			}
-			cipherSuites = append(cipherSuites, c)
-		}
-	} else {
-		cipherSuites = defaultCipherSuites()
+	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.PSK)
+	if err != nil {
+		return nil, err
 	}
 
 	workerInterval := initialTickerInterval
 	if config.FlightInterval != 0 {
 		workerInterval = config.FlightInterval
+	}
+
+	loggerFactory := config.LoggerFactory
+	if loggerFactory == nil {
+		loggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
 	c := &Conn{
@@ -115,6 +113,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		clientAuth:                  config.ClientAuth,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		localCipherSuites:           cipherSuites,
+		localPSK:                    config.PSK,
 		namedCurve:                  defaultNamedCurve,
 
 		decrypted:          make(chan []byte),
@@ -122,14 +121,13 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		handshakeCompleted: make(chan bool),
 		log:                loggerFactory.NewLogger("dtls"),
 	}
-	c.state.isClient = isClient
 
 	var zeroEpoch uint16
 	c.state.localEpoch.Store(zeroEpoch)
 	c.state.remoteEpoch.Store(zeroEpoch)
+	c.state.isClient = isClient
 
-	err := c.state.localRandom.populate()
-	if err != nil {
+	if err = c.state.localRandom.populate(); err != nil {
 		return nil, err
 	}
 	if !isClient {
@@ -143,27 +141,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	c.startHandshakeOutbound()
 
 	// Handle inbound
-	go func() {
-		defer func() {
-			close(c.decrypted)
-		}()
-
-		b := make([]byte, 8192)
-		for {
-			i, err := c.nextConn.Read(b)
-			if err != nil {
-				c.stopWithError(err)
-				return
-			} else if c.getConnErr() != nil {
-				return
-			}
-
-			if err := c.handleIncoming(b[:i]); err != nil {
-				c.stopWithError(err)
-				return
-			}
-		}
-	}()
+	go c.inboundLoop()
 
 	<-c.handshakeCompleted
 	c.log.Trace("Handshake Completed")
@@ -186,9 +164,12 @@ func Client(conn net.Conn, config *Config) (*Conn, error) {
 
 // Server listens for incoming DTLS connections
 func Server(conn net.Conn, config *Config) (*Conn, error) {
-	if config == nil || config.Certificate == nil {
+	if config == nil {
+		return nil, errNoConfigProvided
+	} else if config.PSK == nil && config.Certificate == nil {
 		return nil, errServerMustHaveCertificate
 	}
+
 	return createConn(conn, serverFlightHandler, serverHandshakeHandler, config, false)
 }
 
@@ -320,19 +301,35 @@ func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
 	}
 }
 
-func (c *Conn) handleIncoming(buf []byte) error {
-	pkts, err := unpackDatagram(buf)
-	if err != nil {
-		return err
-	}
+func (c *Conn) inboundLoop() {
+	defer func() {
+		close(c.decrypted)
+	}()
 
-	for _, p := range pkts {
-		err := c.handleIncomingPacket(p)
+	b := make([]byte, inboundBufferSize)
+	for {
+		i, err := c.nextConn.Read(b)
 		if err != nil {
-			return err
+			c.stopWithError(err)
+			return
+		} else if c.getConnErr() != nil {
+			return
+		}
+
+		pkts, err := unpackDatagram(b[:i])
+		if err != nil {
+			c.stopWithError(err)
+			return
+		}
+
+		for _, p := range pkts {
+			err := c.handleIncomingPacket(p)
+			if err != nil {
+				c.stopWithError(err)
+				return
+			}
 		}
 	}
-	return nil
 }
 
 func (c *Conn) handleIncomingPacket(buf []byte) error {

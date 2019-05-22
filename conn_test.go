@@ -83,12 +83,12 @@ func pipeMemory() (*Conn, *Conn, error) {
 
 	// Setup client
 	go func() {
-		client, err := testClient(ca, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}})
+		client, err := testClient(ca, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
 		c <- result{client, err}
 	}()
 
 	// Setup server
-	server, err := testServer(cb, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}})
+	server, err := testServer(cb, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -102,23 +102,27 @@ func pipeMemory() (*Conn, *Conn, error) {
 	return res.c, server, nil
 }
 
-func testClient(c net.Conn, cfg *Config) (*Conn, error) {
-	clientCert, clientKey, err := GenerateSelfSigned()
-	if err != nil {
-		return nil, err
+func testClient(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
+	if generateCertificate {
+		clientCert, clientKey, err := GenerateSelfSigned()
+		if err != nil {
+			return nil, err
+		}
+		cfg.PrivateKey = clientKey
+		cfg.Certificate = clientCert
 	}
-	cfg.PrivateKey = clientKey
-	cfg.Certificate = clientCert
 	return Client(c, cfg)
 }
 
-func testServer(c net.Conn, cfg *Config) (*Conn, error) {
-	serverCert, serverKey, err := GenerateSelfSigned()
-	if err != nil {
-		return nil, err
+func testServer(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
+	if generateCertificate {
+		serverCert, serverKey, err := GenerateSelfSigned()
+		if err != nil {
+			return nil, err
+		}
+		cfg.PrivateKey = serverKey
+		cfg.Certificate = serverCert
 	}
-	cfg.PrivateKey = serverKey
-	cfg.Certificate = serverCert
 	return Server(c, cfg)
 }
 
@@ -222,11 +226,11 @@ func TestSRTPConfiguration(t *testing.T) {
 		c := make(chan result)
 
 		go func() {
-			client, err := testClient(ca, &Config{SRTPProtectionProfiles: test.ClientSRTP})
+			client, err := testClient(ca, &Config{SRTPProtectionProfiles: test.ClientSRTP}, true)
 			c <- result{client, err}
 		}()
 
-		server, err := testServer(cb, &Config{SRTPProtectionProfiles: test.ServerSRTP})
+		server, err := testServer(cb, &Config{SRTPProtectionProfiles: test.ServerSRTP}, true)
 		if err != nil || test.WantServerError != nil {
 			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
 				t.Errorf("TestSRTPConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
@@ -263,12 +267,12 @@ func TestClientCertificate(t *testing.T) {
 
 	go func() {
 		conf := &Config{ClientAuth: RequireAnyClientCert}
-		client, err := testClient(ca, conf)
+		client, err := testClient(ca, conf, true)
 		c <- result{client, conf, err}
 	}()
 
 	serverCfg := &Config{ClientAuth: RequireAnyClientCert}
-	server, err := testServer(cb, serverCfg)
+	server, err := testServer(cb, serverCfg, true)
 	if err != nil {
 		t.Errorf("TestClientCertificate: Server failed(%v)", err)
 	}
@@ -342,11 +346,68 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 		c := make(chan result)
 
 		go func() {
-			client, err := testClient(ca, &Config{CipherSuites: test.ClientCipherSuites})
+			client, err := testClient(ca, &Config{CipherSuites: test.ClientCipherSuites}, true)
 			c <- result{client, err}
 		}()
 
-		_, err := testServer(cb, &Config{CipherSuites: test.ServerCipherSuites})
+		_, err := testServer(cb, &Config{CipherSuites: test.ServerCipherSuites}, true)
+		if err != nil || test.WantServerError != nil {
+			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
+				t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
+			}
+		}
+
+		res := <-c
+		if res.err != nil || test.WantClientError != nil {
+			if !(res.err != nil && test.WantClientError != nil && err.Error() == test.WantClientError.Error()) {
+				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, err)
+			}
+		}
+	}
+}
+
+func TestPSKConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		Name                 string
+		ClientHasCertificate bool
+		ServerHasCertificate bool
+		ClientPSK            []byte
+		ServerPSK            []byte
+		WantClientError      error
+		WantServerError      error
+	}{
+		{
+			Name:                 "PSK specified",
+			ClientHasCertificate: false,
+			ServerHasCertificate: false,
+			ClientPSK:            []byte{0x00, 0x01, 0x02},
+			ServerPSK:            []byte{0x00, 0x01, 0x02},
+			WantClientError:      errNoAvailableCipherSuites, // TODO (should be nil when PSK CipherSuite is added)
+			WantServerError:      errNoAvailableCipherSuites, // TODO (should be nil when PSK CipherSuite is added)
+		},
+		{
+			Name:                 "PSK and certificate specified",
+			ClientHasCertificate: true,
+			ServerHasCertificate: true,
+			ClientPSK:            []byte{0x00, 0x01, 0x02},
+			ServerPSK:            []byte{0x00, 0x01, 0x02},
+			WantClientError:      errPSKAndCertificate,
+			WantServerError:      errPSKAndCertificate,
+		},
+	} {
+		ca, cb := net.Pipe()
+		type result struct {
+			c   *Conn
+			err error
+		}
+		c := make(chan result)
+
+		go func() {
+			client, err := testClient(ca, &Config{PSK: test.ClientPSK}, test.ClientHasCertificate)
+			c <- result{client, err}
+		}()
+
+		_, err := testServer(cb, &Config{PSK: test.ServerPSK}, test.ServerHasCertificate)
 		if err != nil || test.WantServerError != nil {
 			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
 				t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)

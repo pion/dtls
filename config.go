@@ -11,10 +11,9 @@ import (
 // Config is used to configure a DTLS client or server.
 // After a Config is passed to a DTLS function it must not be modified.
 type Config struct {
-	// Certificates contains certificate chain to present to
-	// the other side of the connection. Server MUST set this,
-	// client SHOULD sets this so CertificateRequests
-	// can be handled
+	// Certificates contains certificate chain to present to the other side of the connection.
+	// Server MUST set this if PSK is non-nil
+	// client SHOULD sets this so CertificateRequests can be handled if PSK is non-nil
 	Certificate *x509.Certificate
 
 	// PrivateKey contains matching private key for the certificate
@@ -37,6 +36,10 @@ type Config struct {
 	// FlightInterval controls how often we send outbound handshake messages
 	// defaults to time.Second
 	FlightInterval time.Duration
+
+	// PSK sets the pre-shared key used by this DTLS connection
+	// If PSK is non-nil only PSK CipherSuites will be used
+	PSK []byte
 
 	LoggerFactory logging.LoggerFactory
 }
