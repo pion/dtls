@@ -57,7 +57,7 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 	h.publicKey = append([]byte{}, data[4:offset]...)
-	if len(data) < offset {
+	if len(data) <= offset {
 		return errBufferTooSmall
 	}
 	h.hashAlgorithm = HashAlgorithm(data[offset])
@@ -65,7 +65,7 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 		return errInvalidHashAlgorithm
 	}
 	offset++
-	if len(data) < offset {
+	if len(data) <= offset {
 		return errBufferTooSmall
 	}
 	h.signatureAlgorithm = signatureAlgorithm(data[offset])
@@ -78,6 +78,9 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 	}
 	signatureLength := int(binary.BigEndian.Uint16(data[offset:]))
 	offset += 2
+	if len(data) < offset+signatureLength {
+		return errBufferTooSmall
+	}
 	h.signature = append([]byte{}, data[offset:offset+signatureLength]...)
 	return nil
 }
