@@ -79,6 +79,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Jin Lei](https://github.com/jinleileiking) - *Logging*
 * [Hugo Arregui](https://github.com/hugoArregui)
 * [Lander Noterman](https://github.com/LanderN)
+* [Aleksandr Razumov](https://github.com/ernado) - *Fuzzing*
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

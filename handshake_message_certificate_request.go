@@ -62,7 +62,9 @@ func (h *handshakeMessageCertificateRequest) Unmarshal(data []byte) error {
 		}
 	}
 	offset += certificateTypesLength
-
+	if len(data) < offset+2 {
+		return errBufferTooSmall
+	}
 	signatureHashAlgorithmsLength := int(binary.BigEndian.Uint16(data[offset:]))
 	offset += 2
 
@@ -71,6 +73,9 @@ func (h *handshakeMessageCertificateRequest) Unmarshal(data []byte) error {
 	}
 
 	for i := 0; i < signatureHashAlgorithmsLength; i += 2 {
+		if len(data) < (offset + i + 2) {
+			return errBufferTooSmall
+		}
 		hash := HashAlgorithm(data[offset+i])
 		signature := signatureAlgorithm(data[offset+i+1])
 

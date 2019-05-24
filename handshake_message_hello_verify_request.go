@@ -41,9 +41,15 @@ func (h *handshakeMessageHelloVerifyRequest) Marshal() ([]byte, error) {
 }
 
 func (h *handshakeMessageHelloVerifyRequest) Unmarshal(data []byte) error {
+	if len(data) < 3 {
+		return errBufferTooSmall
+	}
 	h.version.major = data[0]
 	h.version.minor = data[1]
 	cookieLength := data[2]
+	if len(data) < (int(cookieLength) + 3) {
+		return errBufferTooSmall
+	}
 	h.cookie = make([]byte, cookieLength)
 
 	copy(h.cookie, data[3:3+cookieLength])

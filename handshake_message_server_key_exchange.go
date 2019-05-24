@@ -34,6 +34,9 @@ func (h *handshakeMessageServerKeyExchange) Marshal() ([]byte, error) {
 }
 
 func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
+	if len(data) < 1 {
+		return errBufferTooSmall
+	}
 	if _, ok := ellipticCurveTypes[ellipticCurveType(data[0])]; ok {
 		h.ellipticCurveType = ellipticCurveType(data[0])
 	} else {
@@ -43,6 +46,9 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 	h.namedCurve = namedCurve(binary.BigEndian.Uint16(data[1:]))
 	if _, ok := namedCurves[h.namedCurve]; !ok {
 		return errInvalidNamedCurve
+	}
+	if len(data) < 4 {
+		return errBufferTooSmall
 	}
 
 	publicKeyLength := int(data[3])
