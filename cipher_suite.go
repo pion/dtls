@@ -69,6 +69,9 @@ func decodeCipherSuites(buf []byte) ([]cipherSuite, error) {
 	cipherSuitesCount := int(binary.BigEndian.Uint16(buf[0:])) / 2
 	rtrn := []cipherSuite{}
 	for i := 0; i < cipherSuitesCount; i++ {
+		if len(buf) < (i*2 + 4) {
+			return nil, errBufferTooSmall
+		}
 		id := CipherSuiteID(binary.BigEndian.Uint16(buf[(i*2)+2:]))
 		if c := cipherSuiteForID(id); c != nil {
 			rtrn = append(rtrn, c)

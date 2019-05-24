@@ -13,6 +13,9 @@ func (h *handshakeMessageClientKeyExchange) Marshal() ([]byte, error) {
 }
 
 func (h *handshakeMessageClientKeyExchange) Unmarshal(data []byte) error {
+	if len(data) < 1 {
+		return errBufferTooSmall
+	}
 	publicKeyLength := int(data[0])
 	if len(data) <= publicKeyLength {
 		return errBufferTooSmall

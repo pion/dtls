@@ -59,6 +59,10 @@ func (h *handshakeMessageServerHello) Marshal() ([]byte, error) {
 }
 
 func (h *handshakeMessageServerHello) Unmarshal(data []byte) error {
+	if len(data) < 2+handshakeRandomLength {
+		return errBufferTooSmall
+	}
+
 	h.version.major = data[0]
 	h.version.minor = data[1]
 
@@ -68,14 +72,18 @@ func (h *handshakeMessageServerHello) Unmarshal(data []byte) error {
 
 	currOffset := handshakeMessageServerHelloVariableWidthStart
 	currOffset += int(data[currOffset]) + 1 // SessionID
-
+	if len(data) < (currOffset + 2) {
+		return errBufferTooSmall
+	}
 	if c := cipherSuiteForID(CipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))); c != nil {
 		h.cipherSuite = c
 		currOffset += 2
 	} else {
 		return errInvalidCipherSuite
 	}
-
+	if len(data) < currOffset {
+		return errBufferTooSmall
+	}
 	if compressionMethod, ok := compressionMethods[compressionMethodID(data[currOffset])]; ok {
 		h.compressionMethod = compressionMethod
 		currOffset++

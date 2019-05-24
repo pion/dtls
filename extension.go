@@ -22,6 +22,9 @@ type extension interface {
 }
 
 func decodeExtensions(buf []byte) ([]extension, error) {
+	if len(buf) < 2 {
+		return nil, errBufferTooSmall
+	}
 	declaredLen := binary.BigEndian.Uint16(buf)
 	if len(buf)-2 != int(declaredLen) {
 		return nil, errLengthMismatch
@@ -38,6 +41,9 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 	}
 
 	for offset := 2; offset < len(buf); {
+		if len(buf) < (offset + 2) {
+			return nil, errBufferTooSmall
+		}
 		var err error
 		switch extensionValue(binary.BigEndian.Uint16(buf[offset:])) {
 		case extensionSupportedEllipticCurvesValue:
@@ -49,7 +55,9 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 		if err != nil {
 			return nil, err
 		}
-
+		if len(buf) < (offset + 4) {
+			return nil, errBufferTooSmall
+		}
 		extensionLength := binary.BigEndian.Uint16(buf[offset+2:])
 		offset += (4 + int(extensionLength))
 	}

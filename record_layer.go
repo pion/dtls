@@ -43,6 +43,9 @@ func (r *recordLayer) Marshal() ([]byte, error) {
 }
 
 func (r *recordLayer) Unmarshal(data []byte) error {
+	if len(data) < recordLayerHeaderSize {
+		return errBufferTooSmall
+	}
 	if err := r.recordLayerHeader.Unmarshal(data); err != nil {
 		return err
 	}

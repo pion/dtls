@@ -25,6 +25,9 @@ func decodeCompressionMethods(buf []byte) ([]*compressionMethod, error) {
 	compressionMethodsCount := int(buf[0])
 	c := []*compressionMethod{}
 	for i := 0; i < compressionMethodsCount; i++ {
+		if len(buf) <= i+1 {
+			return nil, errBufferTooSmall
+		}
 		id := compressionMethodID(buf[i+1])
 		if compressionMethod, ok := compressionMethods[id]; ok {
 			c = append(c, compressionMethod)
