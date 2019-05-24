@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -90,6 +91,7 @@ func TestPionE2ESimple(t *testing.T) {
 		var messageRecvCount uint64 // Counter to make sure both sides got a message
 
 		serverPort := pickPort(t)
+		serverReady := make(chan struct{})
 
 		cert, key, err := dtls.GenerateSelfSigned()
 		if err != nil {
@@ -98,6 +100,12 @@ func TestPionE2ESimple(t *testing.T) {
 
 		// DTLS Client
 		go func() {
+			select {
+			case <-serverReady:
+				// OK
+			case <-time.After(time.Second):
+				errChan <- errors.New("waiting on serverReady err: timeout")
+			}
 			conn, err := dtls.Dial("udp",
 				&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
 				&dtls.Config{Certificate: cert, PrivateKey: key, CipherSuites: []dtls.CipherSuiteID{cipherSuite}},
@@ -119,6 +127,7 @@ func TestPionE2ESimple(t *testing.T) {
 				errChan <- err
 				return
 			}
+			serverReady <- struct{}{}
 			conn, err := listener.Accept()
 			if err != nil {
 				errChan <- err
