@@ -42,7 +42,7 @@ func (r *recordLayerHeader) Marshal() ([]byte, error) {
 }
 
 func (r *recordLayerHeader) Unmarshal(data []byte) error {
-	if len(data) < 12 {
+	if len(data) < recordLayerHeaderSize {
 		return errBufferTooSmall
 	}
 	r.contentType = contentType(data[0])
