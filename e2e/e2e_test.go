@@ -14,6 +14,7 @@ import (
 )
 
 const testMessage = "Hello World"
+const baseServerPort = 5555
 const testTimeLimit = 5 * time.Second
 const messageRetry = 200 * time.Millisecond
 
@@ -54,24 +55,6 @@ func simpleReadWrite(errChan chan error, outChan chan string, conn io.ReadWriteC
 	maybePushError(conn.Close())
 }
 
-func pickPort(t testing.TB) int {
-	t.Helper()
-	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to pickPort: %v", err)
-	}
-	defer func() {
-		_ = conn.Close()
-	}()
-	switch addr := conn.LocalAddr().(type) {
-	case *net.UDPAddr:
-		return addr.Port
-	default:
-		t.Fatalf("unknown addr type %T", addr)
-		return 0
-	}
-}
-
 /*
   Simple DTLS Client/Server can communicate
     - Assert that you can send messages both ways
@@ -80,8 +63,7 @@ func pickPort(t testing.TB) int {
 */
 func TestPionE2ESimple(t *testing.T) {
 	expectedGoRoutineCount := runtime.NumGoroutine()
-
-	serverPort := pickPort(t)
+	serverPort := baseServerPort
 
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
