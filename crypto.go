@@ -120,3 +120,17 @@ func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm
 
 	return errKeySignatureVerifyUnimplemented
 }
+
+func generateAEADAdditionalData(h *recordLayerHeader, payloadLen int) []byte {
+	var additionalData [13]byte
+	// SequenceNumber MUST be set first
+	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
+	binary.BigEndian.PutUint64(additionalData[:], h.sequenceNumber)
+	binary.BigEndian.PutUint16(additionalData[:], h.epoch)
+	additionalData[8] = byte(h.contentType)
+	additionalData[9] = h.protocolVersion.major
+	additionalData[10] = h.protocolVersion.minor
+	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(payloadLen))
+
+	return additionalData[:]
+}
