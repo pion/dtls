@@ -18,6 +18,8 @@ const (
 	// AES-256-CBC-SHA
 	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA CipherSuiteID = 0xc00a
 	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   CipherSuiteID = 0x0035
+
+	TLS_PSK_WITH_AES_128_CCM8 CipherSuiteID = 0xc0a8
 )
 
 type cipherSuite interface {
@@ -47,8 +49,9 @@ func cipherSuiteForID(id CipherSuiteID) cipherSuite {
 		return &cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{}
 	case cipherSuiteTLSEcdheRsaWithAes256CbcSha{}.ID():
 		return &cipherSuiteTLSEcdheRsaWithAes256CbcSha{}
+	case cipherSuiteTLSPskWithAes128Ccm8{}.ID():
+		return &cipherSuiteTLSPskWithAes128Ccm8{}
 	}
-
 	return nil
 }
 

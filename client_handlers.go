@@ -42,8 +42,6 @@ func clientHandshakeHandler(c *Conn) error {
 			c.state.remoteCertificate = h.certificate
 
 		case *handshakeMessageServerKeyExchange:
-			c.remoteKeypair = &namedCurveKeypair{h.namedCurve, h.publicKey, nil}
-
 			clientRandom, err := c.state.localRandom.Marshal()
 			if err != nil {
 				return err
@@ -58,7 +56,7 @@ func clientHandshakeHandler(c *Conn) error {
 				return err
 			}
 
-			preMasterSecret, err := prfPreMasterSecret(c.remoteKeypair.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
+			preMasterSecret, err := prfPreMasterSecret(h.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
 			if err != nil {
 				return err
 			}

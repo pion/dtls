@@ -49,12 +49,12 @@ type Conn struct {
 
 	clientAuth ClientAuthType // If we are a client should we request a client certificate
 
-	currFlight                  *flight
-	namedCurve                  namedCurve
-	localCertificate            *x509.Certificate
-	localPrivateKey             crypto.PrivateKey
-	localKeypair, remoteKeypair *namedCurveKeypair
-	cookie                      []byte
+	currFlight       *flight
+	namedCurve       namedCurve
+	localCertificate *x509.Certificate
+	localPrivateKey  crypto.PrivateKey
+	localKeypair     *namedCurveKeypair
+	cookie           []byte
 
 	localPSKCallback     PSKCallback
 	localPSKIdentityHint []byte
