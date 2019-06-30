@@ -92,7 +92,7 @@ func serverHandshakeHandler(c *Conn) error {
 			}
 
 			var preMasterSecret []byte
-			if c.state.cipherSuite.isPSK() {
+			if c.localPSKCallback != nil {
 				var psk []byte
 				if psk, err = c.localPSKCallback(h.publicKey); err != nil {
 					return err
@@ -206,9 +206,12 @@ func serverHandshakeHandler(c *Conn) error {
 			return errClientCertificateNotVerified
 		}
 
-		if c.clientAuth > NoClientCert {
+		switch {
+		case c.localPSKCallback != nil:
+			c.state.localSequenceNumber = 3
+		case c.clientAuth > NoClientCert:
 			c.state.localSequenceNumber = 6
-		} else {
+		default:
 			c.state.localSequenceNumber = 5
 		}
 		c.setLocalEpoch(1)
@@ -252,7 +255,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				protectionProfiles: []SRTPProtectionProfile{c.state.srtpProtectionProfile},
 			})
 		}
-		if !c.state.cipherSuite.isPSK() {
+		if c.localPSKCallback == nil {
 			extensions = append(extensions, []extension{
 				&extensionSupportedEllipticCurves{
 					ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
@@ -284,7 +287,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		}, false)
 		sequenceNumber++
 
-		if !c.state.cipherSuite.isPSK() {
+		if c.localPSKCallback == nil {
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					sequenceNumber:  sequenceNumber,
