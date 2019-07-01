@@ -19,7 +19,7 @@ func clientHandshakeHandler(c *Conn) error {
 		var preMasterSecret []byte
 		if c.localPSKCallback != nil {
 			var psk []byte
-			if psk, err = c.localPSKCallback(nil); err != nil {
+			if psk, err = c.localPSKCallback(h.identityHint); err != nil {
 				return err
 			}
 
@@ -44,7 +44,7 @@ func clientHandshakeHandler(c *Conn) error {
 			return err
 		}
 
-		if h != nil {
+		if c.localPSKCallback == nil {
 			expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
 			if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
 				return err
@@ -188,10 +188,9 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 		}
 
-		// If we are in PSK we need to explicitly init the CipherSuite
-		// usually handshakeMessageServerKeyExchange does it for us
-		if c.localPSKCallback != nil {
-			if err := initalizeCipherSuite(nil); err != nil {
+		// handshakeMessageServerKeyExchange is optional for PSK
+		if c.state.masterSecret == nil {
+			if err := initalizeCipherSuite(&handshakeMessageServerKeyExchange{}); err != nil {
 				return err
 			}
 		}
@@ -308,7 +307,7 @@ func clientFlightHandler(c *Conn) (bool, error) {
 		if c.localPSKCallback == nil {
 			clientKeyExchange.publicKey = c.localKeypair.publicKey
 		} else {
-			clientKeyExchange.pskIdentity = c.localPSKIdentityHint
+			clientKeyExchange.identityHint = c.localPSKIdentityHint
 		}
 
 		c.internalSend(&recordLayer{
