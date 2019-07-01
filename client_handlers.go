@@ -304,9 +304,11 @@ func clientFlightHandler(c *Conn) (bool, error) {
 			sequenceNumber++
 		}
 
-		keyExchangeBody := c.localPSKIdentityHint
+		clientKeyExchange := &handshakeMessageClientKeyExchange{}
 		if c.localPSKCallback == nil {
-			keyExchangeBody = c.localKeypair.publicKey
+			clientKeyExchange.publicKey = c.localKeypair.publicKey
+		} else {
+			clientKeyExchange.pskIdentity = c.localPSKIdentityHint
 		}
 
 		c.internalSend(&recordLayer{
@@ -319,10 +321,10 @@ func clientFlightHandler(c *Conn) (bool, error) {
 				handshakeHeader: handshakeHeader{
 					messageSequence: uint16(sequenceNumber),
 				},
-				handshakeMessage: &handshakeMessageClientKeyExchange{
-					publicKey: keyExchangeBody,
-				}},
+				handshakeMessage: clientKeyExchange,
+			},
 		}, false)
+
 		sequenceNumber++
 
 		if c.remoteRequestedCertificate {
