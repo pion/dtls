@@ -4,8 +4,10 @@ import (
 	"encoding/binary"
 )
 
-// Structure only supports ECDH
+// Structure supports ECDH and PSK
 type handshakeMessageServerKeyExchange struct {
+	identityHint []byte
+
 	ellipticCurveType  ellipticCurveType
 	namedCurve         namedCurve
 	publicKey          []byte
@@ -19,6 +21,12 @@ func (h handshakeMessageServerKeyExchange) handshakeType() handshakeType {
 }
 
 func (h *handshakeMessageServerKeyExchange) Marshal() ([]byte, error) {
+	if h.identityHint != nil {
+		out := append([]byte{0x00, 0x00}, h.identityHint...)
+		binary.BigEndian.PutUint16(out, uint16(len(out)-2))
+		return out, nil
+	}
+
 	out := []byte{byte(h.ellipticCurveType), 0x00, 0x00}
 	binary.BigEndian.PutUint16(out[1:], uint16(h.namedCurve))
 
@@ -34,9 +42,16 @@ func (h *handshakeMessageServerKeyExchange) Marshal() ([]byte, error) {
 }
 
 func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
-	if len(data) < 1 {
+	if len(data) < 2 {
 		return errBufferTooSmall
 	}
+
+	// If parsed as PSK return early and only populate PSK Identity Hint
+	if pskLength := binary.BigEndian.Uint16(data); len(data) == int(pskLength+2) {
+		h.identityHint = append([]byte{}, data[2:]...)
+		return nil
+	}
+
 	if _, ok := ellipticCurveTypes[ellipticCurveType(data[0])]; ok {
 		h.ellipticCurveType = ellipticCurveType(data[0])
 	} else {
