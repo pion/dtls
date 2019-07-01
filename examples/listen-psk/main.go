@@ -19,9 +19,10 @@ func main() {
 	// Prepare the configuration of the DTLS connection
 	config := &dtls.Config{
 		PSK: func(hint []byte) ([]byte, error) {
+			fmt.Printf("Client's hint: %s \n", hint)
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},
-		PSKIdentityHint: []byte("Pion DTLS"),
+		PSKIdentityHint: []byte("Pion DTLS Client"),
 		CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM8},
 	}
 
