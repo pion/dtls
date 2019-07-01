@@ -21,7 +21,7 @@ func main() {
 		PSK: func(hint []byte) ([]byte, error) {
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},
-		PSKIdentityHint: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
+		PSKIdentityHint: []byte("Pion DTLS"),
 		CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM8},
 	}
 

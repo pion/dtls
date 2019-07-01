@@ -1,10 +1,12 @@
 package dtls
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 type handshakeMessageClientKeyExchange struct {
-	pskIdentity []byte
-	publicKey   []byte
+	identityHint []byte
+	publicKey    []byte
 }
 
 func (h handshakeMessageClientKeyExchange) handshakeType() handshakeType {
@@ -13,40 +15,30 @@ func (h handshakeMessageClientKeyExchange) handshakeType() handshakeType {
 
 func (h *handshakeMessageClientKeyExchange) Marshal() ([]byte, error) {
 	switch {
-	case (len(h.pskIdentity) != 0 && len(h.publicKey) != 0) || (len(h.pskIdentity) == 0 && len(h.publicKey) == 0):
+	case (h.identityHint != nil && h.publicKey != nil) || (h.identityHint == nil && h.publicKey == nil):
 		return nil, errInvalidClientKeyExchange
-	case len(h.publicKey) != 0:
+	case h.publicKey != nil:
 		return append([]byte{byte(len(h.publicKey))}, h.publicKey...), nil
 	default:
-		out := append([]byte{0x00, 0x00}, h.pskIdentity...)
+		out := append([]byte{0x00, 0x00}, h.identityHint...)
 		binary.BigEndian.PutUint16(out, uint16(len(out)-2))
 		return out, nil
 	}
 }
 
 func (h *handshakeMessageClientKeyExchange) Unmarshal(data []byte) error {
-	pskIdentityUnmarshal := func() error {
-		if len(data) < 2 {
-			return errBufferTooSmall
-		}
-
-		pskLength := binary.BigEndian.Uint16(data)
-		if len(data) <= int(pskLength) {
-			return errBufferTooSmall
-		}
-
-		h.pskIdentity = append([]byte{}, data[2:]...)
-		return nil
-	}
-
-	if len(data) < 1 {
+	if len(data) < 2 {
 		return errBufferTooSmall
 	}
 
-	publicKeyLength := int(data[0])
-	if len(data) <= publicKeyLength {
-		// ClientKeyExchange may be PSK Identity, uint16 instead of byte is used for length
-		return pskIdentityUnmarshal()
+	// If parsed as PSK return early and only populate PSK Identity Hint
+	if pskLength := binary.BigEndian.Uint16(data); len(data) == int(pskLength+2) {
+		h.identityHint = append([]byte{}, data[2:]...)
+		return nil
+	}
+
+	if publicKeyLength := int(data[0]); len(data) != publicKeyLength+1 {
+		return errBufferTooSmall
 	}
 
 	h.publicKey = append([]byte{}, data[1:]...)

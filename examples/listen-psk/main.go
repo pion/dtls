@@ -21,7 +21,8 @@ func main() {
 		PSK: func(hint []byte) ([]byte, error) {
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},
-		CipherSuites: []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM8},
+		PSKIdentityHint: []byte("Pion DTLS"),
+		CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM8},
 	}
 
 	// Connect to a DTLS server

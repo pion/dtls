@@ -94,7 +94,7 @@ func serverHandshakeHandler(c *Conn) error {
 			var preMasterSecret []byte
 			if c.localPSKCallback != nil {
 				var psk []byte
-				if psk, err = c.localPSKCallback(h.pskIdentity); err != nil {
+				if psk, err = c.localPSKCallback(h.identityHint); err != nil {
 					return err
 				}
 
@@ -208,7 +208,7 @@ func serverHandshakeHandler(c *Conn) error {
 
 		switch {
 		case c.localPSKCallback != nil:
-			c.state.localSequenceNumber = 3
+			c.state.localSequenceNumber = 4
 		case c.clientAuth > NoClientCert:
 			c.state.localSequenceNumber = 6
 		default:
@@ -368,6 +368,22 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				}, false)
 				sequenceNumber++
 			}
+		} else {
+			c.internalSend(&recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					sequenceNumber:  sequenceNumber,
+					protocolVersion: protocolVersion1_2,
+				},
+				content: &handshake{
+					// sequenceNumber and messageSequence line up, may need to be re-evaluated
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(sequenceNumber),
+					},
+					handshakeMessage: &handshakeMessageServerKeyExchange{
+						identityHint: c.localPSKIdentityHint,
+					}},
+			}, false)
+			sequenceNumber++
 		}
 
 		c.internalSend(&recordLayer{

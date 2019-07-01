@@ -78,7 +78,9 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		return nil, errNoConfigProvided
 	case nextConn == nil:
 		return nil, errNilNextConn
-	case config.Certificate != nil && (config.PSK != nil || config.PSKIdentityHint != nil):
+	case (config.PSK == nil) != (config.PSKIdentityHint == nil):
+		return nil, errPSKAndIdentityMustBeSet
+	case config.Certificate != nil && config.PSK != nil:
 		return nil, errPSKAndCertificate
 	}
 
