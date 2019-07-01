@@ -94,7 +94,7 @@ func serverHandshakeHandler(c *Conn) error {
 			var preMasterSecret []byte
 			if c.localPSKCallback != nil {
 				var psk []byte
-				if psk, err = c.localPSKCallback(h.publicKey); err != nil {
+				if psk, err = c.localPSKCallback(h.pskIdentity); err != nil {
 					return err
 				}
 
