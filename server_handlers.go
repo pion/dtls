@@ -207,8 +207,10 @@ func serverHandshakeHandler(c *Conn) error {
 		}
 
 		switch {
-		case c.localPSKCallback != nil:
+		case c.localPSKIdentityHint != nil:
 			c.state.localSequenceNumber = 4
+		case c.localPSKCallback != nil:
+			c.state.localSequenceNumber = 3
 		case c.clientAuth > NoClientCert:
 			c.state.localSequenceNumber = 6
 		default:
@@ -368,7 +370,13 @@ func serverFlightHandler(c *Conn) (bool, error) {
 				}, false)
 				sequenceNumber++
 			}
-		} else {
+		} else if c.localPSKIdentityHint != nil {
+			/* To help the client in selecting which identity to use, the server
+			*  can provide a "PSK identity hint" in the ServerKeyExchange message.
+			*  If no hint is provided, the ServerKeyExchange message is omitted.
+			*
+			*  https://tools.ietf.org/html/rfc4279#section-2
+			 */
 			c.internalSend(&recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					sequenceNumber:  sequenceNumber,

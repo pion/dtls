@@ -182,46 +182,59 @@ func TestPSK(t *testing.T) {
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
 
-	clientIdentity := []byte("Client Identity")
-	serverIdentity := []byte("Server Identity")
+	for _, test := range []struct {
+		Name           string
+		ServerIdentity []byte
+	}{
+		{
+			Name:           "Server identity specified",
+			ServerIdentity: []byte("Test Identity"),
+		},
+		{
+			Name:           "Server identity nil",
+			ServerIdentity: nil,
+		},
+	} {
 
-	clientErr := make(chan error, 1)
+		clientIdentity := []byte("Client Identity")
+		clientErr := make(chan error, 1)
 
-	ca, cb := net.Pipe()
-	go func() {
-		conf := &Config{
+		ca, cb := net.Pipe()
+		go func() {
+			conf := &Config{
+				PSK: func(hint []byte) ([]byte, error) {
+					if !bytes.Equal(test.ServerIdentity, hint) { // nolint
+						return nil, fmt.Errorf("TestPSK: Client got invalid identity expected(% 02x) actual(% 02x)", test.ServerIdentity, hint) // nolint
+					}
+
+					return []byte{0xAB, 0xC1, 0x23}, nil
+				},
+				PSKIdentityHint: clientIdentity,
+				CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM8},
+			}
+
+			_, err := testClient(ca, conf, false)
+			clientErr <- err
+		}()
+
+		config := &Config{
 			PSK: func(hint []byte) ([]byte, error) {
-				if !bytes.Equal(serverIdentity, hint) {
-					return nil, fmt.Errorf("TestPSK: Client got invalid identity expected(% 02x) actual(% 02x)", serverIdentity, hint)
+				if !bytes.Equal(clientIdentity, hint) {
+					return nil, fmt.Errorf("TestPSK: Server got invalid identity expected(% 02x) actual(% 02x)", clientIdentity, hint)
 				}
-
 				return []byte{0xAB, 0xC1, 0x23}, nil
 			},
-			PSKIdentityHint: clientIdentity,
+			PSKIdentityHint: test.ServerIdentity,
 			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM8},
 		}
 
-		_, err := testClient(ca, conf, false)
-		clientErr <- err
-	}()
+		if _, err := testServer(cb, config, false); err != nil {
+			t.Fatalf("TestPSK: Server failed(%v)", err)
+		}
 
-	config := &Config{
-		PSK: func(hint []byte) ([]byte, error) {
-			if !bytes.Equal(clientIdentity, hint) {
-				return nil, fmt.Errorf("TestPSK: Server got invalid identity expected(% 02x) actual(% 02x)", clientIdentity, hint)
-			}
-			return []byte{0xAB, 0xC1, 0x23}, nil
-		},
-		PSKIdentityHint: serverIdentity,
-		CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM8},
-	}
-
-	if _, err := testServer(cb, config, false); err != nil {
-		t.Fatalf("TestPSK: Server failed(%v)", err)
-	}
-
-	if err := <-clientErr; err != nil {
-		t.Fatal(err)
+		if err := <-clientErr; err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -296,7 +309,7 @@ func TestSRTPConfiguration(t *testing.T) {
 			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			ServerSRTP:      nil,
 			ExpectedProfile: 0,
-			WantClientError: fmt.Errorf("Client requested SRTP but we have no matching profiles"),
+			WantClientError: io.EOF,
 			WantServerError: fmt.Errorf("Client requested SRTP but we have no matching profiles"),
 		},
 		{
@@ -329,8 +342,8 @@ func TestSRTPConfiguration(t *testing.T) {
 
 		res := <-c
 		if res.err != nil || test.WantClientError != nil {
-			if !(res.err != nil && test.WantClientError != nil && err.Error() == test.WantClientError.Error()) {
-				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, err)
+			if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
+				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 			}
 		}
 
@@ -424,7 +437,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			Name:               "CipherSuites mismatch",
 			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
-			WantClientError:    errCipherSuiteNoIntersection,
+			WantClientError:    io.EOF,
 			WantServerError:    errCipherSuiteNoIntersection,
 		},
 	} {
@@ -449,8 +462,8 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 
 		res := <-c
 		if res.err != nil || test.WantClientError != nil {
-			if !(res.err != nil && test.WantClientError != nil && err.Error() == test.WantClientError.Error()) {
-				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, err)
+			if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
+				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 			}
 		}
 	}
@@ -492,25 +505,25 @@ func TestPSKConfiguration(t *testing.T) {
 		},
 		{
 			Name:                 "PSK and no identity specified",
-			ClientHasCertificate: true,
-			ServerHasCertificate: true,
+			ClientHasCertificate: false,
+			ServerHasCertificate: false,
 			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			ClientPSKIdentity:    nil,
 			ServerPSKIdentity:    nil,
-			WantClientError:      errPSKAndIdentityMustBeSet,
-			WantServerError:      errPSKAndIdentityMustBeSet,
+			WantClientError:      errPSKAndIdentityMustBeSetForClient,
+			WantServerError:      errNoAvailableCipherSuites,
 		},
 		{
 			Name:                 "No PSK and identity specified",
-			ClientHasCertificate: true,
-			ServerHasCertificate: true,
+			ClientHasCertificate: false,
+			ServerHasCertificate: false,
 			ClientPSK:            nil,
 			ServerPSK:            nil,
 			ClientPSKIdentity:    []byte{0x00},
 			ServerPSKIdentity:    []byte{0x00},
-			WantClientError:      errPSKAndIdentityMustBeSet,
-			WantServerError:      errPSKAndIdentityMustBeSet,
+			WantClientError:      errIdentityNoPSK,
+			WantServerError:      errServerMustHaveCertificate,
 		},
 	} {
 		ca, cb := net.Pipe()
@@ -528,14 +541,14 @@ func TestPSKConfiguration(t *testing.T) {
 		_, err := testServer(cb, &Config{PSK: test.ServerPSK, PSKIdentityHint: test.ServerPSKIdentity}, test.ServerHasCertificate)
 		if err != nil || test.WantServerError != nil {
 			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
-				t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
+				t.Fatalf("TestPSKConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
 			}
 		}
 
 		res := <-c
 		if res.err != nil || test.WantClientError != nil {
-			if !(res.err != nil && test.WantClientError != nil && err.Error() == test.WantClientError.Error()) {
-				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, err)
+			if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
+				t.Fatalf("TestPSKConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 			}
 		}
 	}

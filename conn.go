@@ -78,10 +78,10 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		return nil, errNoConfigProvided
 	case nextConn == nil:
 		return nil, errNilNextConn
-	case (config.PSK == nil) != (config.PSKIdentityHint == nil):
-		return nil, errPSKAndIdentityMustBeSet
 	case config.Certificate != nil && config.PSK != nil:
 		return nil, errPSKAndCertificate
+	case config.PSKIdentityHint != nil && config.PSK == nil:
+		return nil, errIdentityNoPSK
 	}
 
 	if config.PrivateKey != nil {
@@ -165,14 +165,22 @@ func Dial(network string, raddr *net.UDPAddr, config *Config) (*Conn, error) {
 
 // Client establishes a DTLS connection over an existing conn
 func Client(conn net.Conn, config *Config) (*Conn, error) {
+	switch {
+	case config == nil:
+		return nil, errNoConfigProvided
+	case config.PSK != nil && config.PSKIdentityHint == nil:
+		return nil, errPSKAndIdentityMustBeSetForClient
+	}
+
 	return createConn(conn, clientFlightHandler, clientHandshakeHandler, config, true)
 }
 
 // Server listens for incoming DTLS connections
 func Server(conn net.Conn, config *Config) (*Conn, error) {
-	if config == nil {
+	switch {
+	case config == nil:
 		return nil, errNoConfigProvided
-	} else if config.PSK == nil && config.Certificate == nil {
+	case config.PSK == nil && config.Certificate == nil:
 		return nil, errServerMustHaveCertificate
 	}
 
