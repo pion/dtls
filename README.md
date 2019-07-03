@@ -31,8 +31,10 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 * Key Exchange via ECDHE(curve25519 and nistp256) and PSK
 * AES_128_GCM, AES_256_CBC, AES_128_CCM8
 * Packet loss and re-ordering is handled during handshaking
-* Key export (RFC5705)
+* Key export ([RFC 5705][rfc5705])
 * Serialization and Resumption of sessions
+
+[rfc5705]: https://tools.ietf.org/html/rfc5705
 
 #### Planned Features
 * Extended master secret support (RFC7627)
