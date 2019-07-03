@@ -29,12 +29,28 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 #### Current features
 * DTLS 1.2 Client/Server
 * Key Exchange via ECDHE(curve25519 and nistp256) and PSK
-* AES_128_GCM, AES_256_CBC, AES_128_CCM8
 * Packet loss and re-ordering is handled during handshaking
 * Key export ([RFC 5705][rfc5705])
 * Serialization and Resumption of sessions
 
 [rfc5705]: https://tools.ietf.org/html/rfc5705
+
+#### Supported ciphers
+
+##### ECDHE
+* TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ([RFC 5289][rfc5289])
+* TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 ([RFC 5289][rfc5289])
+* TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA ([RFC 8422][rfc8422])
+* TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA ([RFC 8422][rfc8422])
+
+##### PSK
+* TLS_PSK_WITH_AES_128_CCM8 ([RFC 6655][rfc6655])
+* TLS_PSK_WITH_AES_128_GCM_SHA256 ([RFC 5487][rfc5487])
+
+[rfc5289]: https://tools.ietf.org/html/rfc5289
+[rfc8422]: https://tools.ietf.org/html/rfc8422
+[rfc6655]: https://tools.ietf.org/html/rfc6655
+[rfc5487]: https://tools.ietf.org/html/rfc5487
 
 #### Planned Features
 * Extended master secret support (RFC7627)
