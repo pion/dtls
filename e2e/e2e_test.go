@@ -186,12 +186,17 @@ func TestPionE2ESimplePSK(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	cfg := &dtls.Config{
-		PSK: func(hint []byte) ([]byte, error) {
-			return []byte{0xAB, 0xC1, 0x23}, nil
-		},
-		PSKIdentityHint: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
-		CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM8},
+	for _, cipherSuite := range []dtls.CipherSuiteID{
+		dtls.TLS_PSK_WITH_AES_128_CCM8,
+		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
+	} {
+		cfg := &dtls.Config{
+			PSK: func(hint []byte) ([]byte, error) {
+				return []byte{0xAB, 0xC1, 0x23}, nil
+			},
+			PSKIdentityHint: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
+			CipherSuites:    []dtls.CipherSuiteID{cipherSuite},
+		}
+		assertE2ECommunication(cfg, cfg, t)
 	}
-	assertE2ECommunication(cfg, cfg, t)
 }
