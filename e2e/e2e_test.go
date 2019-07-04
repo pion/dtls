@@ -187,7 +187,7 @@ func TestPionE2ESimplePSK(t *testing.T) {
 	defer report()
 
 	for _, cipherSuite := range []dtls.CipherSuiteID{
-		dtls.TLS_PSK_WITH_AES_128_CCM8,
+		dtls.TLS_PSK_WITH_AES_128_CCM_8,
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
 	} {
 		cfg := &dtls.Config{

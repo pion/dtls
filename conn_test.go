@@ -210,7 +210,7 @@ func TestPSK(t *testing.T) {
 					return []byte{0xAB, 0xC1, 0x23}, nil
 				},
 				PSKIdentityHint: clientIdentity,
-				CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM8},
+				CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 			}
 
 			_, err := testClient(ca, conf, false)
@@ -225,7 +225,7 @@ func TestPSK(t *testing.T) {
 				return []byte{0xAB, 0xC1, 0x23}, nil
 			},
 			PSKIdentityHint: test.ServerIdentity,
-			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM8},
+			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		}
 
 		if _, err := testServer(cb, config, false); err != nil {
@@ -254,7 +254,7 @@ func TestPSKHintFail(t *testing.T) {
 				return nil, pskRejected
 			},
 			PSKIdentityHint: []byte{},
-			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM8},
+			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		}
 
 		_, err := testClient(ca, conf, false)
@@ -266,7 +266,7 @@ func TestPSKHintFail(t *testing.T) {
 			return nil, pskRejected
 		},
 		PSKIdentityHint: []byte{},
-		CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM8},
+		CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 	}
 
 	if _, err := testServer(cb, config, false); err != io.EOF && err != io.ErrClosedPipe {
