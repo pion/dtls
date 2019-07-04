@@ -15,11 +15,11 @@ func (c cipherSuiteTLSPskWithAes128Ccm8) certificateType() clientCertificateType
 }
 
 func (c cipherSuiteTLSPskWithAes128Ccm8) ID() CipherSuiteID {
-	return TLS_PSK_WITH_AES_128_CCM8
+	return TLS_PSK_WITH_AES_128_CCM_8
 }
 
 func (c cipherSuiteTLSPskWithAes128Ccm8) String() string {
-	return "TLS_PSK_WITH_AES_128_CCM8"
+	return "TLS_PSK_WITH_AES_128_CCM_8"
 }
 
 func (c cipherSuiteTLSPskWithAes128Ccm8) hashFunc() func() hash.Hash {
