@@ -117,7 +117,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Sean DuBois](https://github.com/Sean-Der) - *Original Author*
 * [Michiel De Backker](https://github.com/backkem) - *Public API*
 * [Chris Hiszpanski](https://github.com/thinkski) - *Support Signature Algorithms Extension*
-* [Iñigo Garcia Olaizola](https://github.com/igolaizola) - *Support serialization and resumption"*
+* [Iñigo Garcia Olaizola](https://github.com/igolaizola) - *Serialization & resumption, cert verification*
 * [Daniele Sluijters](https://github.com/daenney) - *AES-CCM support*
 * [Jin Lei](https://github.com/jinleileiking) - *Logging*
 * [Hugo Arregui](https://github.com/hugoArregui)

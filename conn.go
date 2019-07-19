@@ -64,6 +64,10 @@ type Conn struct {
 	localKeySignature         []byte // cached keySignature
 	remoteCertificateVerified bool
 
+	insecureSkipVerify    bool
+	verifyPeerCertificate func(cer *x509.Certificate, verified bool) error
+	rootCAs               *x509.CertPool
+
 	handshakeMessageHandler handshakeMessageHandler
 	flightHandler           flightHandler
 	handshakeCompleted      chan bool
@@ -115,6 +119,9 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		localCertificate:            config.Certificate,
 		localPrivateKey:             config.PrivateKey,
 		clientAuth:                  config.ClientAuth,
+		insecureSkipVerify:          config.InsecureSkipVerify,
+		verifyPeerCertificate:       config.VerifyPeerCertificate,
+		rootCAs:                     config.RootCAs,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		localCipherSuites:           cipherSuites,
 		namedCurve:                  defaultNamedCurve,

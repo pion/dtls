@@ -2,7 +2,9 @@ package dtls
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
+	"time"
 )
 
 func clientHandshakeHandler(c *Conn) error {
@@ -45,9 +47,26 @@ func clientHandshakeHandler(c *Conn) error {
 		}
 
 		if c.localPSKCallback == nil {
-			expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
-			if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
-				return err
+			if !c.insecureSkipVerify {
+				expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
+				if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
+					return err
+				}
+				opts := x509.VerifyOptions{
+					Roots:       c.rootCAs,
+					CurrentTime: time.Now(),
+					// TODO: Add server name validation
+					// DNSName:       c.serverName,
+					Intermediates: x509.NewCertPool(),
+				}
+				if _, err := c.state.remoteCertificate.Verify(opts); err != nil {
+					return err
+				}
+			}
+			if c.verifyPeerCertificate != nil {
+				if err := c.verifyPeerCertificate(c.state.remoteCertificate, !c.insecureSkipVerify); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -326,7 +345,10 @@ func clientFlightHandler(c *Conn) (bool, error) {
 
 		sequenceNumber++
 
-		if c.remoteRequestedCertificate {
+		// If the client has sent a certificate with signing ability, a digitally-signed
+		// CertificateVerify message is sent to explicitly verify possession of the
+		// private key in the certificate.
+		if c.remoteRequestedCertificate && c.localCertificate != nil {
 			if len(c.localCertificateVerify) == 0 {
 				plainText := c.handshakeCache.pullAndMerge(
 					handshakeCachePullRule{handshakeTypeClientHello, true},
