@@ -2,7 +2,9 @@ package dtls
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
+	"time"
 )
 
 func serverHandshakeHandler(c *Conn) error {
@@ -73,10 +75,30 @@ func serverHandshakeHandler(c *Conn) error {
 				handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
 			)
 
-			if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.state.remoteCertificate); err != nil {
-				return err
+			verified := false
+			if !c.insecureSkipVerify && c.clientAuth >= RequireAnyClientCert {
+				if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.state.remoteCertificate); err != nil {
+					return err
+				}
+				if c.clientAuth >= VerifyClientCertIfGiven {
+					opts := x509.VerifyOptions{
+						Roots:         c.rootCAs,
+						CurrentTime:   time.Now(),
+						Intermediates: x509.NewCertPool(),
+						KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+					}
+					if _, err := c.state.remoteCertificate.Verify(opts); err != nil {
+						return err
+					}
+					verified = true
+				}
 			}
-			c.remoteCertificateVerified = true
+			if c.verifyPeerCertificate != nil {
+				if err := c.verifyPeerCertificate(c.state.remoteCertificate, verified); err != nil {
+					return err
+				}
+			}
+			c.remoteCertificateVerified = verified
 
 		case *handshakeMessageCertificate:
 			c.state.remoteCertificate = h.certificate
@@ -200,10 +222,22 @@ func serverHandshakeHandler(c *Conn) error {
 			return err
 		}
 
-		if c.clientAuth == RequireAnyClientCert && c.state.remoteCertificate == nil {
-			return errClientCertificateRequired
-		} else if c.state.remoteCertificate != nil && !c.remoteCertificateVerified {
-			return errClientCertificateNotVerified
+		switch c.clientAuth {
+		case RequireAnyClientCert:
+			if c.state.remoteCertificate == nil {
+				return errClientCertificateRequired
+			}
+		case VerifyClientCertIfGiven:
+			if c.state.remoteCertificate != nil && !c.remoteCertificateVerified {
+				return errClientCertificateNotVerified
+			}
+		case RequireAndVerifyClientCert:
+			if c.state.remoteCertificate == nil {
+				return errClientCertificateRequired
+			}
+			if !c.remoteCertificateVerified {
+				return errClientCertificateNotVerified
+			}
 		}
 
 		switch {

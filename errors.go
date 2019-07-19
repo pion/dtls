@@ -7,7 +7,6 @@ var (
 	ErrConnClosed = errors.New("dtls: conn is closed")
 
 	errBufferTooSmall                    = errors.New("dtls: buffer is too small")
-	errCertificateUnset                  = errors.New("dtls: handshakeMessageCertificate can not be marshalled without a certificate")
 	errClientCertificateRequired         = errors.New("dtls: server required client verification, but got none")
 	errClientCertificateNotVerified      = errors.New("dtls: client sent certificate but did not verify it")
 	errCertificateVerifyNoCertificate    = errors.New("dtls: client sent certificate verify but we have no certificate to verify")

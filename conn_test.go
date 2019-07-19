@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -360,48 +361,230 @@ func TestSRTPConfiguration(t *testing.T) {
 }
 
 func TestClientCertificate(t *testing.T) {
-	ca, cb := net.Pipe()
-	type result struct {
-		c    *Conn
-		conf *Config
-		err  error
-	}
-	c := make(chan result)
-
-	go func() {
-		conf := &Config{ClientAuth: RequireAnyClientCert}
-		client, err := testClient(ca, conf, true)
-		c <- result{client, conf, err}
-	}()
-
-	serverCfg := &Config{ClientAuth: RequireAnyClientCert}
-	server, err := testServer(cb, serverCfg, true)
+	srvCert, srvKey, err := GenerateSelfSigned()
 	if err != nil {
-		t.Errorf("TestClientCertificate: Server failed(%v)", err)
+		t.Fatal(err)
+	}
+	srvCAPool := x509.NewCertPool()
+	srvCAPool.AddCert(srvCert)
+
+	cert, key, err := GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caPool := x509.NewCertPool()
+	caPool.AddCert(cert)
+
+	t.Parallel()
+	tests := map[string]struct {
+		clientCfg *Config
+		serverCfg *Config
+		wantErr   bool
+	}{
+		"NoClientCert": {
+			clientCfg: &Config{RootCAs: srvCAPool},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  NoClientCert,
+				RootCAs:     caPool,
+			},
+		},
+		"NoClientCert_cert": {
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  RequireAnyClientCert,
+			},
+		},
+		"RequestClientCert_cert": {
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  RequestClientCert,
+			},
+		},
+		"RequestClientCert_no_cert": {
+			clientCfg: &Config{RootCAs: srvCAPool},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  RequestClientCert,
+				RootCAs:     caPool,
+			},
+		},
+		"RequireAnyClientCert": {
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  RequireAnyClientCert,
+			},
+		},
+		"RequireAnyClientCert_error": {
+			clientCfg: &Config{RootCAs: srvCAPool},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  RequireAnyClientCert,
+			},
+			wantErr: true,
+		},
+		"VerifyClientCertIfGiven_no_cert": {
+			clientCfg: &Config{RootCAs: srvCAPool},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  VerifyClientCertIfGiven,
+				RootCAs:     caPool,
+			},
+		},
+		"VerifyClientCertIfGiven_cert": {
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  VerifyClientCertIfGiven,
+				RootCAs:     caPool,
+			},
+		},
+		"VerifyClientCertIfGiven_error": {
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  VerifyClientCertIfGiven,
+			},
+			wantErr: true,
+		},
+		"RequireAndVerifyClientCert": {
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			serverCfg: &Config{
+				Certificate: srvCert,
+				PrivateKey:  srvKey,
+				ClientAuth:  RequireAndVerifyClientCert,
+				RootCAs:     caPool,
+			},
+		},
+	}
+	for name, tt := range tests {
+		tt := tt
+		t.Run(name, func(t *testing.T) {
+			ca, cb := net.Pipe()
+			type result struct {
+				c   *Conn
+				err error
+			}
+			c := make(chan result)
+
+			go func() {
+				client, err := Client(ca, tt.clientCfg)
+				c <- result{client, err}
+			}()
+
+			server, err := Server(cb, tt.serverCfg)
+			res := <-c
+
+			if tt.wantErr {
+				if err != nil {
+					// Error expected, test succeeded
+					return
+				}
+				t.Error("Error expected")
+			}
+			if err != nil {
+				t.Errorf("TestClientCertificate: Server failed(%v)", err)
+			}
+
+			if res.err != nil {
+				t.Errorf("TestClientCertificate: Client failed(%v)", res.err)
+			}
+			actualClientCert := server.RemoteCertificate()
+			if tt.serverCfg.ClientAuth == RequireAnyClientCert || tt.serverCfg.ClientAuth == RequireAndVerifyClientCert {
+				if actualClientCert == nil {
+					t.Errorf("TestClientCertificate: Client did not provide a certificate")
+				}
+
+				if !actualClientCert.Equal(tt.clientCfg.Certificate) {
+					t.Errorf("TestClientCertificate: Client certificate was not communicated correctly")
+				}
+			}
+			if tt.serverCfg.ClientAuth == NoClientCert {
+				if actualClientCert != nil {
+					t.Errorf("TestClientCertificate: Client certificate wasn't expected")
+				}
+			}
+
+			actualServerCert := res.c.RemoteCertificate()
+			if actualServerCert == nil {
+				t.Errorf("TestClientCertificate: Server did not provide a certificate")
+			}
+
+			if !actualServerCert.Equal(tt.serverCfg.Certificate) {
+				t.Errorf("TestClientCertificate: Server certificate was not communicated correctly")
+			}
+		})
+	}
+}
+
+func TestServerCertificate(t *testing.T) {
+	t.Parallel()
+
+	cert, key, err := GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caPool := x509.NewCertPool()
+	caPool.AddCert(cert)
+
+	tests := map[string]struct {
+		clientCfg *Config
+		serverCfg *Config
+		wantErr   bool
+	}{
+		"no_ca": {
+			clientCfg: &Config{},
+			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			wantErr:   true,
+		},
+		"good_ca": {
+			clientCfg: &Config{RootCAs: caPool},
+			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+		},
+		"no_ca_skip_verify": {
+			clientCfg: &Config{InsecureSkipVerify: true},
+			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+		},
+		"good_ca_custom_verify_peer": {
+			clientCfg: &Config{
+				RootCAs: caPool,
+				VerifyPeerCertificate: func(*x509.Certificate, bool) error {
+					return errors.New("wrong cert")
+				},
+			},
+			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			wantErr:   true,
+		},
+	}
+	for name, tt := range tests {
+		tt := tt
+		t.Run(name, func(t *testing.T) {
+			ca, cb := net.Pipe()
+			go func() {
+				_, _ = Server(cb, tt.serverCfg)
+			}()
+			_, err := Client(ca, tt.clientCfg)
+			if !tt.wantErr && err != nil {
+				t.Errorf("TestClientCertificate: Client failed(%v)", err)
+			}
+			if tt.wantErr && err == nil {
+				t.Fatal("Error expected")
+			}
+		})
 	}
 
-	res := <-c
-	if res.err != nil {
-		t.Errorf("TestClientCertificate: Client failed(%v)", res.err)
-	}
-
-	actualClientCert := server.RemoteCertificate()
-	if actualClientCert == nil {
-		t.Errorf("TestClientCertificate: Client did not provide a certificate")
-	}
-
-	actualServerCert := res.c.RemoteCertificate()
-	if actualServerCert == nil {
-		t.Errorf("TestClientCertificate: Server did not provide a certificate")
-	}
-
-	if !actualServerCert.Equal(serverCfg.Certificate) {
-		t.Errorf("TestClientCertificate: Server certificate was not communicated correctly")
-	}
-
-	if !actualClientCert.Equal(res.conf.Certificate) {
-		t.Errorf("TestClientCertificate: Server certificate was not communicated correctly")
-	}
 }
 
 func TestCipherSuiteConfiguration(t *testing.T) {
