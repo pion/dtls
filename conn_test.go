@@ -113,6 +113,7 @@ func testClient(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error
 		cfg.PrivateKey = clientKey
 		cfg.Certificate = clientCert
 	}
+	cfg.InsecureSkipVerify = true
 	return Client(c, cfg)
 }
 

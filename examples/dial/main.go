@@ -21,7 +21,7 @@ func main() {
 	//
 
 	// Prepare the configuration of the DTLS connection
-	config := &dtls.Config{Certificate: certificate, PrivateKey: privateKey}
+	config := &dtls.Config{Certificate: certificate, PrivateKey: privateKey, InsecureSkipVerify: true}
 
 	// Connect to a DTLS server
 	dtlsConn, err := dtls.Dial("udp", addr, config)
