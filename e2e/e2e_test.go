@@ -172,7 +172,12 @@ func TestPionE2ESimple(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		cfg := &dtls.Config{Certificate: cert, PrivateKey: key, CipherSuites: []dtls.CipherSuiteID{cipherSuite}}
+		cfg := &dtls.Config{
+			Certificate:        cert,
+			PrivateKey:         key,
+			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
+			InsecureSkipVerify: true,
+		}
 		assertE2ECommunication(cfg, cfg, t)
 
 	}

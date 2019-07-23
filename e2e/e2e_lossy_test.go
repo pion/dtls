@@ -89,8 +89,9 @@ func TestPionE2ELossy(t *testing.T) {
 
 		go func() {
 			cfg := &dtls.Config{
-				FlightInterval: flightInterval,
-				CipherSuites:   test.CipherSuites,
+				FlightInterval:     flightInterval,
+				CipherSuites:       test.CipherSuites,
+				InsecureSkipVerify: true,
 			}
 			if test.DoClientAuth {
 				cfg.Certificate = clientCert
