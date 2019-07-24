@@ -2,9 +2,7 @@ package dtls
 
 import (
 	"bytes"
-	"crypto/x509"
 	"fmt"
-	"time"
 )
 
 func serverHandshakeHandler(c *Conn) error {
@@ -81,13 +79,7 @@ func serverHandshakeHandler(c *Conn) error {
 					return err
 				}
 				if c.clientAuth >= VerifyClientCertIfGiven {
-					opts := x509.VerifyOptions{
-						Roots:         c.rootCAs,
-						CurrentTime:   time.Now(),
-						Intermediates: x509.NewCertPool(),
-						KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-					}
-					if _, err := c.state.remoteCertificate.Verify(opts); err != nil {
+					if err := verifyClientCert(c.state.remoteCertificate, c.rootCAs); err != nil {
 						return err
 					}
 					verified = true

@@ -568,6 +568,15 @@ func TestServerCertificate(t *testing.T) {
 			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
 			wantErr:   true,
 		},
+		"server_name": {
+			clientCfg: &Config{RootCAs: caPool, ServerName: cert.Subject.CommonName},
+			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+		},
+		"server_name_error": {
+			clientCfg: &Config{RootCAs: caPool, ServerName: "barfoo"},
+			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			wantErr:   true,
+		},
 	}
 	for name, tt := range tests {
 		tt := tt
