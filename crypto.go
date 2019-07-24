@@ -10,6 +10,7 @@ import (
 	"encoding/asn1"
 	"encoding/binary"
 	"math/big"
+	"time"
 )
 
 type ecdsaSignature struct {
@@ -119,6 +120,32 @@ func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm
 	}
 
 	return errKeySignatureVerifyUnimplemented
+}
+
+func verifyClientCert(cert *x509.Certificate, roots *x509.CertPool) error {
+	opts := x509.VerifyOptions{
+		Roots:         roots,
+		CurrentTime:   time.Now(),
+		Intermediates: x509.NewCertPool(),
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	if _, err := cert.Verify(opts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func verifyServerCert(cert *x509.Certificate, roots *x509.CertPool, serverName string) error {
+	opts := x509.VerifyOptions{
+		Roots:         roots,
+		CurrentTime:   time.Now(),
+		DNSName:       serverName,
+		Intermediates: x509.NewCertPool(),
+	}
+	if _, err := cert.Verify(opts); err != nil {
+		return err
+	}
+	return nil
 }
 
 func generateAEADAdditionalData(h *recordLayerHeader, payloadLen int) []byte {
