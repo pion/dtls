@@ -67,6 +67,7 @@ type Conn struct {
 	insecureSkipVerify    bool
 	verifyPeerCertificate func(cer *x509.Certificate, verified bool) error
 	rootCAs               *x509.CertPool
+	serverName            string
 
 	handshakeMessageHandler handshakeMessageHandler
 	flightHandler           flightHandler
@@ -122,6 +123,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		insecureSkipVerify:          config.InsecureSkipVerify,
 		verifyPeerCertificate:       config.VerifyPeerCertificate,
 		rootCAs:                     config.RootCAs,
+		serverName:                  config.ServerName,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		localCipherSuites:           cipherSuites,
 		namedCurve:                  defaultNamedCurve,
@@ -133,6 +135,17 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		workerTicker:       time.NewTicker(workerInterval),
 		handshakeCompleted: make(chan bool),
 		log:                loggerFactory.NewLogger("dtls"),
+	}
+
+	// Use host from conn address when serverName is not provided
+	if isClient && c.serverName == "" && nextConn.RemoteAddr() != nil {
+		remoteAddr := nextConn.RemoteAddr().String()
+		var host string
+		host, _, err = net.SplitHostPort(remoteAddr)
+		if err != nil {
+			c.serverName = remoteAddr
+		}
+		c.serverName = host
 	}
 
 	var zeroEpoch uint16

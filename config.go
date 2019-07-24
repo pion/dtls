@@ -68,6 +68,10 @@ type Config struct {
 	// If RootCAs is nil, TLS uses the host's root CA set.
 	RootCAs *x509.CertPool
 
+	// ServerName is used to verify the hostname on the returned
+	// certificates unless InsecureSkipVerify is given.
+	ServerName string
+
 	LoggerFactory logging.LoggerFactory
 }
 
