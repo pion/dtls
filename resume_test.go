@@ -17,11 +17,6 @@ func TestResumeServer(t *testing.T) {
 	DoTestResume(t, Server, Client)
 }
 
-func fatal(t *testing.T, errChan chan error, err error) {
-	close(errChan)
-	t.Fatal(err)
-}
-
 func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Conn, error)) {
 	certificate, privateKey, err := GenerateSelfSigned()
 	if err != nil {
@@ -41,13 +36,20 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 			t.Fatal(err)
 		}
 	}()
-	config := &Config{Certificate: certificate, PrivateKey: privateKey, InsecureSkipVerify: true}
+	config := &Config{
+		Certificate:                 certificate,
+		PrivateKey:                  privateKey,
+		InsecureSkipVerify:          true,
+		RequireExtendedMasterSecret: true,
+		ConnectTimeout:              1 * time.Second,
+	}
 	go func() {
 		var remote *Conn
 		var errR error
 		remote, errR = newRemote(remoteConn, config)
 		if errR != nil {
 			errChan <- errR
+			return
 		}
 
 		// Loop of read write
@@ -57,36 +59,39 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 			n, errR = remote.Read(recv)
 			if errR != nil {
 				errChan <- errR
+				return
 			}
 
 			if _, errR = remote.Write(recv[:n]); errR != nil {
 				errChan <- errR
+				return
 			}
 		}
+
 		errChan <- nil
 	}()
 
 	var local *Conn
 	local, err = newLocal(localConn1, config)
 	if err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 
 	// Test write and read
 	message := []byte("Hello")
 	if _, err = local.Write(message); err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 
 	recv := make([]byte, 1024)
 	var n int
 	n, err = local.Read(recv)
 	if err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 
 	if !bytes.Equal(message, recv[:n]) {
-		fatal(t, errChan, fmt.Errorf("messages missmatch: %s != %s", message, recv[:n]))
+		t.Fatal(fmt.Errorf("messages missmatch: %s != %s", message, recv[:n]))
 	}
 
 	// Export dtls connection
@@ -94,43 +99,43 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	var innerConn net.Conn
 	state, innerConn, err = local.Export()
 	if err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 	if err = innerConn.Close(); err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 
 	// Serialize and deserialize state
 	var b []byte
 	b, err = state.MarshalBinary()
 	if err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 	deserialized := &State{}
 	if err = deserialized.UnmarshalBinary(b); err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 
 	// Resume dtls connection
 	var resumed net.Conn
 	resumed, err = Resume(state, localConn2, config)
 	if err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 
 	// Test write and read on resumed connection
 	if _, err = resumed.Write(message); err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 
 	recv = make([]byte, 1024)
 	n, err = resumed.Read(recv)
 	if err != nil {
-		fatal(t, errChan, err)
+		t.Fatal(err)
 	}
 
 	if !bytes.Equal(message, recv[:n]) {
-		fatal(t, errChan, fmt.Errorf("messages missmatch: %s != %s", message, recv[:n]))
+		t.Fatal(fmt.Errorf("messages missmatch: %s != %s", message, recv[:n]))
 	}
 }
 

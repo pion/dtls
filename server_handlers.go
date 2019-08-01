@@ -19,6 +19,7 @@ func serverHandshakeHandler(c *Conn) error {
 					return errCookieMismatch
 				}
 				c.state.localSequenceNumber = 1
+				c.log.Trace("Moving from flight2 to flight4")
 				if err := c.currFlight.set(flight4); err != nil {
 					return err
 				}
@@ -45,7 +46,13 @@ func serverHandshakeHandler(c *Conn) error {
 						return fmt.Errorf("Client requested SRTP but we have no matching profiles")
 					}
 					c.state.srtpProtectionProfile = profile
+				case *extensionUseExtendedMasterSecret:
+					c.state.extendedMasterSecret = true
 				}
+			}
+
+			if c.requireExtendedMasterSecret && !c.state.extendedMasterSecret {
+				return fmt.Errorf("Server requires the Extended Master Secret extension, but the client does not support it")
 			}
 
 			if c.localKeypair == nil {
@@ -56,6 +63,7 @@ func serverHandshakeHandler(c *Conn) error {
 				}
 			}
 
+			c.log.Trace("Moving to flight2")
 			if err := c.currFlight.set(flight2); err != nil {
 				return err
 			}
@@ -123,9 +131,22 @@ func serverHandshakeHandler(c *Conn) error {
 				}
 			}
 
-			c.state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.state.cipherSuite.hashFunc())
-			if err != nil {
-				return err
+			if c.state.extendedMasterSecret {
+				var sessionHash []byte
+				sessionHash, err = c.handshakeCache.sessionHash(c.state.cipherSuite.hashFunc())
+				if err != nil {
+					return err
+				}
+
+				c.state.masterSecret, err = prfExtendedMasterSecret(preMasterSecret, sessionHash, c.state.cipherSuite.hashFunc())
+				if err != nil {
+					return err
+				}
+			} else {
+				c.state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.state.cipherSuite.hashFunc())
+				if err != nil {
+					return err
+				}
 			}
 
 			if err := c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, false); err != nil {
@@ -247,6 +268,7 @@ func serverHandshakeHandler(c *Conn) error {
 		}
 		c.setLocalEpoch(1)
 
+		c.log.Trace("Moving from flight4 to flight6")
 		if err := c.currFlight.set(flight6); err != nil {
 			return err
 		}
@@ -281,6 +303,11 @@ func serverFlightHandler(c *Conn) (bool, error) {
 
 	case flight4:
 		extensions := []extension{}
+		if c.state.extendedMasterSecret {
+			extensions = append(extensions, &extensionUseExtendedMasterSecret{
+				supported: true,
+			})
+		}
 		if c.state.srtpProtectionProfile != 0 {
 			extensions = append(extensions, &extensionUseSRTP{
 				protectionProfiles: []SRTPProtectionProfile{c.state.srtpProtectionProfile},

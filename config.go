@@ -33,6 +33,10 @@ type Config struct {
 	// TLS Client Authentication. The default is NoClientCert.
 	ClientAuth ClientAuthType
 
+	// RequireExtendedMasterSecret determines if the "Extended Master Secret" extension
+	// should be required to be used or not (default is false).
+	RequireExtendedMasterSecret bool
+
 	// FlightInterval controls how often we send outbound handshake messages
 	// defaults to time.Second
 	FlightInterval time.Duration
@@ -73,6 +77,10 @@ type Config struct {
 	ServerName string
 
 	LoggerFactory logging.LoggerFactory
+
+	// ConnectTimeoutMs is the timeout threshold for new connection handshakes
+	// to complete (default is no timeout)
+	ConnectTimeout time.Duration
 }
 
 // PSKCallback is called once we have the remote's PSKIdentityHint.

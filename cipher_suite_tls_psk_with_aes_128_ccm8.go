@@ -7,7 +7,8 @@ import (
 )
 
 type cipherSuiteTLSPskWithAes128Ccm8 struct {
-	ccm *cryptoCCM
+	ccm         *cryptoCCM
+	initialized bool
 }
 
 func (c cipherSuiteTLSPskWithAes128Ccm8) certificateType() clientCertificateType {
@@ -30,6 +31,10 @@ func (c cipherSuiteTLSPskWithAes128Ccm8) isPSK() bool {
 	return true
 }
 
+func (c cipherSuiteTLSPskWithAes128Ccm8) isInitialized() bool {
+	return c.initialized
+}
+
 func (c *cipherSuiteTLSPskWithAes128Ccm8) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
 		prfMacLen = 0
@@ -47,6 +52,11 @@ func (c *cipherSuiteTLSPskWithAes128Ccm8) init(masterSecret, clientRandom, serve
 	} else {
 		c.ccm, err = newCryptoCCM(keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
 	}
+
+	if err == nil {
+		c.initialized = true
+	}
+
 	return err
 }
 
@@ -60,7 +70,7 @@ func (c *cipherSuiteTLSPskWithAes128Ccm8) encrypt(pkt *recordLayer, raw []byte) 
 
 func (c *cipherSuiteTLSPskWithAes128Ccm8) decrypt(raw []byte) ([]byte, error) {
 	if c.ccm == nil {
-		return nil, errors.New("CipherSuite has not been initalized, unable to decrypt ")
+		return nil, errors.New("ccm CipherSuite has not been initalized, unable to decrypt ")
 	}
 
 	return c.ccm.decrypt(raw)

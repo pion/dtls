@@ -1,6 +1,8 @@
 package dtls
 
-import "sync"
+import (
+	"sync"
+)
 
 type handshakeCacheItem struct {
 	typ             handshakeType
@@ -77,4 +79,39 @@ func (h *handshakeCache) pullAndMerge(rules ...handshakeCachePullRule) []byte {
 		}
 	}
 	return merged
+}
+
+// sessionHash returns the session hash for Extended Master Secret support
+// https://tools.ietf.org/html/draft-ietf-tls-session-hash-06#section-4
+func (h *handshakeCache) sessionHash(hf hashFunc) ([]byte, error) {
+	merged := []byte{}
+
+	// Order defined by https://tools.ietf.org/html/rfc5246#section-7.3
+	handshakeBuffer := h.pull(
+		handshakeCachePullRule{handshakeTypeClientHello, true},
+		handshakeCachePullRule{handshakeTypeServerHello, false},
+		handshakeCachePullRule{handshakeTypeCertificate, false},
+		handshakeCachePullRule{handshakeTypeServerKeyExchange, false},
+		handshakeCachePullRule{handshakeTypeCertificateRequest, false},
+		handshakeCachePullRule{handshakeTypeServerHelloDone, false},
+		handshakeCachePullRule{handshakeTypeCertificate, true},
+		handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
+	)
+
+	for _, p := range handshakeBuffer {
+		if p == nil {
+			continue
+		}
+
+		merged = append(merged, p.data...)
+	}
+
+	hash := hf()
+	_, err := hash.Write(merged)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	sum := hash.Sum(nil)
+	return sum, nil
 }

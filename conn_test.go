@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"testing"
 	"time"
@@ -271,8 +270,8 @@ func TestPSKHintFail(t *testing.T) {
 		CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 	}
 
-	if _, err := testServer(cb, config, false); err != io.EOF && err != io.ErrClosedPipe {
-		t.Fatalf("TestPSK: Server error exp(%v) failed(%v)", io.ErrClosedPipe, err)
+	if _, err := testServer(cb, config, false); err != ErrConnClosed {
+		t.Fatalf("TestPSK: Server error exp(%v) failed(%v)", ErrConnClosed, err)
 	}
 
 	if err := <-clientErr; err != pskRejected {
@@ -311,7 +310,7 @@ func TestSRTPConfiguration(t *testing.T) {
 			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			ServerSRTP:      nil,
 			ExpectedProfile: 0,
-			WantClientError: io.EOF,
+			WantClientError: ErrConnClosed,
 			WantServerError: fmt.Errorf("Client requested SRTP but we have no matching profiles"),
 		},
 		{
@@ -630,7 +629,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			Name:               "CipherSuites mismatch",
 			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
-			WantClientError:    io.EOF,
+			WantClientError:    ErrConnClosed,
 			WantServerError:    errCipherSuiteNoIntersection,
 		},
 	} {

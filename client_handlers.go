@@ -5,64 +5,82 @@ import (
 	"fmt"
 )
 
-func clientHandshakeHandler(c *Conn) error {
-	initalizeCipherSuite := func(h *handshakeMessageServerKeyExchange) error {
-		clientRandom, err := c.state.localRandom.Marshal()
-		if err != nil {
-			return err
-		}
-		serverRandom, err := c.state.remoteRandom.Marshal()
-		if err != nil {
-			return err
-		}
-
-		var preMasterSecret []byte
-		if c.localPSKCallback != nil {
-			var psk []byte
-			if psk, err = c.localPSKCallback(h.identityHint); err != nil {
-				return err
-			}
-
-			preMasterSecret = prfPSKPreMasterSecret(psk)
-
-		} else {
-			if c.localKeypair, err = generateKeypair(h.namedCurve); err != nil {
-				return err
-			}
-
-			if preMasterSecret, err = prfPreMasterSecret(h.publicKey, c.localKeypair.privateKey, c.localKeypair.curve); err != nil {
-				return err
-			}
-		}
-
-		c.state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.state.cipherSuite.hashFunc())
-		if err != nil {
-			return err
-		}
-
-		if err := c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, true); err != nil {
-			return err
-		}
-
-		if c.localPSKCallback == nil {
-			if !c.insecureSkipVerify {
-				expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
-				if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
-					return err
-				}
-				if err := verifyServerCert(c.state.remoteCertificate, c.rootCAs, c.serverName); err != nil {
-					return err
-				}
-			}
-			if c.verifyPeerCertificate != nil {
-				if err := c.verifyPeerCertificate(c.state.remoteCertificate, !c.insecureSkipVerify); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+func initalizeCipherSuite(c *Conn, h *handshakeMessageServerKeyExchange) error {
+	clientRandom, err := c.state.localRandom.Marshal()
+	if err != nil {
+		return err
+	}
+	serverRandom, err := c.state.remoteRandom.Marshal()
+	if err != nil {
+		return err
 	}
 
+	if c.state.extendedMasterSecret {
+		var sessionHash []byte
+		sessionHash, err = c.handshakeCache.sessionHash(c.state.cipherSuite.hashFunc())
+		if err != nil {
+			return err
+		}
+
+		c.state.masterSecret, err = prfExtendedMasterSecret(c.state.preMasterSecret, sessionHash, c.state.cipherSuite.hashFunc())
+		if err != nil {
+			return err
+		}
+	} else {
+		c.state.masterSecret, err = prfMasterSecret(c.state.preMasterSecret, clientRandom, serverRandom, c.state.cipherSuite.hashFunc())
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, true); err != nil {
+		return err
+	}
+
+	if c.localPSKCallback == nil {
+		if !c.insecureSkipVerify {
+			expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
+			if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
+				return err
+			}
+			if err := verifyServerCert(c.state.remoteCertificate, c.rootCAs, c.serverName); err != nil {
+				return err
+			}
+		}
+		if c.verifyPeerCertificate != nil {
+			if err := c.verifyPeerCertificate(c.state.remoteCertificate, !c.insecureSkipVerify); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func handleServerKeyExchange(c *Conn, h *handshakeMessageServerKeyExchange) error {
+	var err error
+	if c.localPSKCallback != nil {
+		var psk []byte
+		if psk, err = c.localPSKCallback(h.identityHint); err != nil {
+			return err
+		}
+
+		c.state.preMasterSecret = prfPSKPreMasterSecret(psk)
+	} else {
+		if c.localKeypair, err = generateKeypair(h.namedCurve); err != nil {
+			return err
+		}
+
+		if c.state.preMasterSecret, err = prfPreMasterSecret(h.publicKey, c.localKeypair.privateKey, c.localKeypair.curve); err != nil {
+			return err
+		}
+	}
+
+	c.state.serverKeyExchange = h
+
+	return nil
+}
+
+func clientHandshakeHandler(c *Conn) error {
 	handleSingleHandshake := func(buf []byte) error {
 		rawHandshake := &handshake{}
 		if err := rawHandshake.Unmarshal(buf); err != nil {
@@ -76,13 +94,19 @@ func clientHandshakeHandler(c *Conn) error {
 
 		case *handshakeMessageServerHello:
 			for _, extension := range h.extensions {
-				if e, ok := extension.(*extensionUseSRTP); ok {
+				switch e := extension.(type) {
+				case *extensionUseSRTP:
 					profile, ok := findMatchingSRTPProfile(e.protectionProfiles, c.localSRTPProtectionProfiles)
 					if !ok {
 						return fmt.Errorf("Server responded with SRTP Profile we do not support")
 					}
 					c.state.srtpProtectionProfile = profile
+				case *extensionUseExtendedMasterSecret:
+					c.state.extendedMasterSecret = true
 				}
+			}
+			if c.requireExtendedMasterSecret && !c.state.extendedMasterSecret {
+				return fmt.Errorf("Client required Extended Master Secret extension, but server does not support it")
 			}
 			if len(c.localSRTPProtectionProfiles) > 0 && c.state.srtpProtectionProfile == 0 {
 				return fmt.Errorf("SRTP support was requested but server did not respond with use_srtp extension")
@@ -99,7 +123,8 @@ func clientHandshakeHandler(c *Conn) error {
 			c.state.remoteCertificate = h.certificate
 
 		case *handshakeMessageServerKeyExchange:
-			if err := initalizeCipherSuite(h); err != nil {
+			err := handleServerKeyExchange(c, h)
+			if err != nil {
 				return err
 			}
 		case *handshakeMessageCertificateRequest:
@@ -198,13 +223,6 @@ func clientHandshakeHandler(c *Conn) error {
 			}
 		}
 
-		// handshakeMessageServerKeyExchange is optional for PSK
-		if c.state.masterSecret == nil {
-			if err := initalizeCipherSuite(&handshakeMessageServerKeyExchange{}); err != nil {
-				return err
-			}
-		}
-
 		c.state.localSequenceNumber++
 		c.log.Tracef("[handshake] Flight 3 changed to %s", flight5.String())
 		if err := c.currFlight.set(flight5); err != nil {
@@ -249,6 +267,9 @@ func clientFlightHandler(c *Conn) (bool, error) {
 					{HashAlgorithmSHA384, signatureAlgorithmRSA},
 					{HashAlgorithmSHA512, signatureAlgorithmRSA},
 				},
+			},
+			&extensionUseExtendedMasterSecret{
+				supported: true,
 			},
 		}
 		if c.localPSKCallback == nil {
@@ -335,6 +356,18 @@ func clientFlightHandler(c *Conn) (bool, error) {
 		}, false)
 
 		sequenceNumber++
+
+		// handshakeMessageServerKeyExchange is optional for PSK
+		if c.state.serverKeyExchange == nil {
+			err := handleServerKeyExchange(c, &handshakeMessageServerKeyExchange{})
+			if err != nil {
+				return false, err
+			}
+		}
+
+		if err := initalizeCipherSuite(c, c.state.serverKeyExchange); err != nil {
+			return false, err
+		}
 
 		// If the client has sent a certificate with signing ability, a digitally-signed
 		// CertificateVerify message is sent to explicitly verify possession of the

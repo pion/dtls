@@ -7,7 +7,8 @@ import (
 )
 
 type cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256 struct {
-	gcm *cryptoGCM
+	gcm         *cryptoGCM
+	initialized bool
 }
 
 func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) certificateType() clientCertificateType {
@@ -30,6 +31,10 @@ func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isPSK() bool {
 	return false
 }
 
+func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isInitialized() bool {
+	return c.initialized
+}
+
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
 		prfMacLen = 0
@@ -48,6 +53,10 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientR
 		c.gcm, err = newCryptoGCM(keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
 	}
 
+	if err == nil {
+		c.initialized = true
+	}
+
 	return err
 }
 
@@ -61,7 +70,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, 
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) decrypt(raw []byte) ([]byte, error) {
 	if c.gcm == nil {
-		return nil, errors.New("CipherSuite has not been initalized, unable to decrypt ")
+		return nil, errors.New("gcm CipherSuite has not been initalized, unable to decrypt ")
 	}
 
 	return c.gcm.decrypt(raw)
