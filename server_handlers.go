@@ -289,7 +289,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 		if c.localPSKCallback == nil {
 			extensions = append(extensions, []extension{
 				&extensionSupportedEllipticCurves{
-					ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256},
+					ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256, namedCurveP384},
 				},
 				&extensionSupportedPointFormats{
 					pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
