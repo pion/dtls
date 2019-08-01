@@ -75,20 +75,25 @@ func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte,
 		curve25519.ScalarMult(&preMasterSecret, &fixedWidthPrivateKey, &fixedWidthPublicKey)
 		return preMasterSecret[:], nil
 	case namedCurveP256:
-		x, y := elliptic.Unmarshal(elliptic.P256(), publicKey)
-		if x == nil || y == nil {
-			return nil, errInvalidNamedCurve
-		}
-
-		curve := elliptic.P256()
-		result, _ := curve.ScalarMult(x, y, privateKey)
-		preMasterSecret := make([]byte, (curve.Params().BitSize+7)>>3)
-		resultBytes := result.Bytes()
-		copy(preMasterSecret[len(preMasterSecret)-len(resultBytes):], resultBytes)
-		return preMasterSecret, nil
+		return ellipticCurvePreMasterSecret(publicKey, privateKey, elliptic.P256(), elliptic.P256())
+	case namedCurveP384:
+		return ellipticCurvePreMasterSecret(publicKey, privateKey, elliptic.P384(), elliptic.P384())
 	}
 
 	return nil, errInvalidNamedCurve
+}
+
+func ellipticCurvePreMasterSecret(publicKey, privateKey []byte, c1, c2 elliptic.Curve) ([]byte, error) {
+	x, y := elliptic.Unmarshal(c1, publicKey)
+	if x == nil || y == nil {
+		return nil, errInvalidNamedCurve
+	}
+
+	result, _ := c2.ScalarMult(x, y, privateKey)
+	preMasterSecret := make([]byte, (c2.Params().BitSize+7)>>3)
+	resultBytes := result.Bytes()
+	copy(preMasterSecret[len(preMasterSecret)-len(resultBytes):], resultBytes)
+	return preMasterSecret, nil
 }
 
 //  This PRF with the SHA-256 hash function is used for all cipher suites

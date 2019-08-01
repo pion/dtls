@@ -18,12 +18,14 @@ type namedCurveKeypair struct {
 
 const (
 	namedCurveP256   namedCurve = 0x0017
+	namedCurveP384   namedCurve = 0x0018
 	namedCurveX25519 namedCurve = 0x001d
 )
 
 var namedCurves = map[namedCurve]bool{
 	namedCurveX25519: true,
 	namedCurveP256:   true,
+	namedCurveP384:   true,
 }
 
 func generateKeypair(c namedCurve) (*namedCurveKeypair, error) {
@@ -40,12 +42,18 @@ func generateKeypair(c namedCurve) (*namedCurveKeypair, error) {
 		curve25519.ScalarBaseMult(&public, &private)
 		return &namedCurveKeypair{namedCurveX25519, public[:], private[:]}, nil
 	case namedCurveP256:
-		privateKey, x, y, err := elliptic.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			return nil, err
-		}
-
-		return &namedCurveKeypair{namedCurveP256, elliptic.Marshal(elliptic.P256(), x, y), privateKey}, nil
+		return ellipticCurveKeypair(namedCurveP256, elliptic.P256(), elliptic.P256())
+	case namedCurveP384:
+		return ellipticCurveKeypair(namedCurveP384, elliptic.P384(), elliptic.P384())
 	}
 	return nil, errInvalidNamedCurve
+}
+
+func ellipticCurveKeypair(nc namedCurve, c1, c2 elliptic.Curve) (*namedCurveKeypair, error) {
+	privateKey, x, y, err := elliptic.GenerateKey(c1, rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	return &namedCurveKeypair{nc, elliptic.Marshal(c2, x, y), privateKey}, nil
 }
