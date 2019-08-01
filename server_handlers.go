@@ -35,6 +35,9 @@ func serverHandshakeHandler(c *Conn) error {
 			for _, extension := range h.extensions {
 				switch e := extension.(type) {
 				case *extensionSupportedEllipticCurves:
+					if len(e.ellipticCurves) == 0 {
+						return errNoSupportedEllipticCurves
+					}
 					c.namedCurve = e.ellipticCurves[0]
 				case *extensionUseSRTP:
 					profile, ok := findMatchingSRTPProfile(e.protectionProfiles, c.localSRTPProtectionProfiles)

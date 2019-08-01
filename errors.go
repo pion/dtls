@@ -49,4 +49,5 @@ var (
 	errIdentityNoPSK                     = errors.New("dtls: Identity Hint provided but PSK is nil")
 	errNoAvailableCipherSuites           = errors.New("dtls: Connection can not be created, no CipherSuites satisfy this Config")
 	errInvalidClientKeyExchange          = errors.New("dtls: Unable to determine if ClientKeyExchange is a public key or PSK Identity")
+	errNoSupportedEllipticCurves         = errors.New("dtls: Client requested zero or more elliptic curves that are not supported by the server")
 )
