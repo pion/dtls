@@ -28,7 +28,7 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 
 #### Current features
 * DTLS 1.2 Client/Server
-* Key Exchange via ECDHE(curve25519 and nistp256) and PSK
+* Key Exchange via ECDHE(curve25519, nistp256, nistp384) and PSK
 * Packet loss and re-ordering is handled during handshaking
 * Key export ([RFC 5705][rfc5705])
 * Serialization and Resumption of sessions
