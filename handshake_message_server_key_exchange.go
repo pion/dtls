@@ -58,7 +58,10 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 		return errInvalidEllipticCurveType
 	}
 
-	h.namedCurve = namedCurve(binary.BigEndian.Uint16(data[1:]))
+	if len(data[1:]) < 2 {
+		return errBufferTooSmall
+	}
+	h.namedCurve = namedCurve(binary.BigEndian.Uint16(data[1:3]))
 	if _, ok := namedCurves[h.namedCurve]; !ok {
 		return errInvalidNamedCurve
 	}
