@@ -81,6 +81,10 @@ func unpackDatagram(buf []byte) ([][]byte, error) {
 		}
 
 		pktLen := (recordLayerHeaderSize + int(binary.BigEndian.Uint16(buf[offset+11:])))
+		if offset+pktLen > len(buf) {
+			return nil, errLengthMismatch
+		}
+
 		out = append(out, buf[offset:offset+pktLen])
 		offset += pktLen
 	}
