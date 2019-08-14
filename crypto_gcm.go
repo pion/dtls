@@ -9,6 +9,7 @@ import (
 )
 
 const cryptoGCMTagLength = 16
+const cryptoGCMNonceLength = 12
 
 // State needed to handle encrypted input/output
 type cryptoGCM struct {
@@ -47,20 +48,22 @@ func (c *cryptoGCM) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 	payload := raw[recordLayerHeaderSize:]
 	raw = raw[:recordLayerHeaderSize]
 
-	nonce := append(append([]byte{}, c.localWriteIV[:4]...), make([]byte, 8)...)
+	nonce := make([]byte, cryptoGCMNonceLength)
+	copy(nonce, c.localWriteIV[:4])
 	if _, err := rand.Read(nonce[4:]); err != nil {
 		return nil, err
 	}
 
 	additionalData := generateAEADAdditionalData(&pkt.recordLayerHeader, len(payload))
 	encryptedPayload := c.localGCM.Seal(nil, nonce, payload, additionalData)
-	encryptedPayload = append(nonce[4:], encryptedPayload...)
-	raw = append(raw, encryptedPayload...)
+	r := make([]byte, len(raw)+len(nonce[4:])+len(encryptedPayload))
+	copy(r, raw)
+	copy(r[len(raw):], nonce[4:])
+	copy(r[len(raw)+len(nonce[4:]):], encryptedPayload)
 
 	// Update recordLayer size to include explicit nonce
-	binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
-	return raw, nil
-
+	binary.BigEndian.PutUint16(r[recordLayerHeaderSize-2:], uint16(len(r)-recordLayerHeaderSize))
+	return r, nil
 }
 
 func (c *cryptoGCM) decrypt(in []byte) ([]byte, error) {
@@ -76,7 +79,8 @@ func (c *cryptoGCM) decrypt(in []byte) ([]byte, error) {
 		return nil, errNotEnoughRoomForNonce
 	}
 
-	nonce := append(append([]byte{}, c.remoteWriteIV[:4]...), in[recordLayerHeaderSize:recordLayerHeaderSize+8]...)
+	nonce := make([]byte, 0, cryptoGCMNonceLength)
+	nonce = append(append(nonce, c.remoteWriteIV[:4]...), in[recordLayerHeaderSize:recordLayerHeaderSize+8]...)
 	out := in[recordLayerHeaderSize+8:]
 
 	additionalData := generateAEADAdditionalData(&h, len(out)-cryptoGCMTagLength)
