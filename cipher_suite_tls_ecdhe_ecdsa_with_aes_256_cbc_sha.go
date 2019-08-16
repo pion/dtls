@@ -30,6 +30,10 @@ func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isPSK() bool {
 	return false
 }
 
+func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isInitialized() bool {
+	return c.cbc != nil
+}
+
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
 		prfMacLen = 20
