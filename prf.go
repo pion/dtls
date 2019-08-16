@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	prfMasterSecretLabel     = "master secret"
-	prfKeyExpansionLabel     = "key expansion"
-	prfVerifyDataClientLabel = "client finished"
-	prfVerifyDataServerLabel = "server finished"
+	prfMasterSecretLabel         = "master secret"
+	prfExtendedMasterSecretLabel = "extended master secret"
+	prfKeyExpansionLabel         = "key expansion"
+	prfVerifyDataClientLabel     = "client finished"
+	prfVerifyDataServerLabel     = "server finished"
 )
 
 type hashFunc func() hash.Hash
@@ -146,6 +147,11 @@ func prfPHash(secret, seed []byte, requestedLength int, h hashFunc) ([]byte, err
 	}
 
 	return out[:requestedLength], nil
+}
+
+func prfExtendedMasterSecret(preMasterSecret, sessionHash []byte, h hashFunc) ([]byte, error) {
+	seed := append([]byte(prfExtendedMasterSecretLabel), sessionHash...)
+	return prfPHash(preMasterSecret, seed, 48, h)
 }
 
 func prfMasterSecret(preMasterSecret, clientRandom, serverRandom []byte, h hashFunc) ([]byte, error) {

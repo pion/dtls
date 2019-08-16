@@ -23,9 +23,10 @@ func main() {
 			fmt.Printf("Client's hint: %s \n", hint)
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},
-		PSKIdentityHint: []byte("Pion DTLS Client"),
-		CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM_8},
-		ConnectTimeout:  dtls.ConnectTimeoutOption(30 * time.Second),
+		PSKIdentityHint:      []byte("Pion DTLS Client"),
+		CipherSuites:         []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM_8},
+		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
+		ConnectTimeout:       dtls.ConnectTimeoutOption(30 * time.Second),
 	}
 
 	// Connect to a DTLS server

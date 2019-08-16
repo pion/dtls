@@ -51,6 +51,7 @@ func (c *cipherSuiteTLSPskWithAes128Ccm8) init(masterSecret, clientRandom, serve
 	} else {
 		c.ccm, err = newCryptoCCM(keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
 	}
+
 	return err
 }
 
