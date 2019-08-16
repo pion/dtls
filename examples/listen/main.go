@@ -23,9 +23,10 @@ func main() {
 
 	// Prepare the configuration of the DTLS connection
 	config := &dtls.Config{
-		Certificate:    certificate,
-		PrivateKey:     privateKey,
-		ConnectTimeout: dtls.ConnectTimeoutOption(30 * time.Second),
+		Certificate:          certificate,
+		PrivateKey:           privateKey,
+		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
+		ConnectTimeout:       dtls.ConnectTimeoutOption(30 * time.Second),
 	}
 
 	// Connect to a DTLS server

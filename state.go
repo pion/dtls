@@ -19,6 +19,9 @@ type State struct {
 	remoteCertificate     *x509.Certificate
 
 	isClient bool
+
+	preMasterSecret      []byte
+	extendedMasterSecret bool
 }
 
 type serializedState struct {

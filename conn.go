@@ -50,7 +50,8 @@ type Conn struct {
 	localSRTPProtectionProfiles []SRTPProtectionProfile // Available SRTPProtectionProfiles, if empty no SRTP support
 	localCipherSuites           []cipherSuite           // Available CipherSuites, if empty use default list
 
-	clientAuth ClientAuthType // If we are a client should we request a client certificate
+	clientAuth           ClientAuthType           // If we are a client should we request a client certificate
+	extendedMasterSecret ExtendedMasterSecretType // Policy for the Extended Master Support extension
 
 	currFlight       *flight
 	namedCurve       namedCurve
@@ -114,6 +115,8 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		loggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
+	logger := loggerFactory.NewLogger("dtls")
+
 	connectTimeout := defaultConnectTimeout
 	if config.ConnectTimeout != nil {
 		connectTimeout = *config.ConnectTimeout
@@ -125,7 +128,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 
 	c := &Conn{
 		nextConn:                    nextConn,
-		currFlight:                  newFlight(isClient),
+		currFlight:                  newFlight(isClient, logger),
 		fragmentBuffer:              newFragmentBuffer(),
 		handshakeCache:              newHandshakeCache(),
 		handshakeMessageHandler:     handshakeMessageHandler,
@@ -134,6 +137,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		localCertificate:            config.Certificate,
 		localPrivateKey:             config.PrivateKey,
 		clientAuth:                  config.ClientAuth,
+		extendedMasterSecret:        config.ExtendedMasterSecret,
 		insecureSkipVerify:          config.InsecureSkipVerify,
 		verifyPeerCertificate:       config.VerifyPeerCertificate,
 		rootCAs:                     config.RootCAs,
@@ -148,7 +152,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		decrypted:                make(chan []byte),
 		workerTicker:             time.NewTicker(workerInterval),
 		handshakeCompletedSignal: make(chan bool),
-		log:                      loggerFactory.NewLogger("dtls"),
+		log:                      logger,
 	}
 
 	// Use host from conn address when serverName is not provided

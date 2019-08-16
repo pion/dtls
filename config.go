@@ -33,6 +33,10 @@ type Config struct {
 	// TLS Client Authentication. The default is NoClientCert.
 	ClientAuth ClientAuthType
 
+	// RequireExtendedMasterSecret determines if the "Extended Master Secret" extension
+	// should be disabled, requested, or required (default requested).
+	ExtendedMasterSecret ExtendedMasterSecretType
+
 	// FlightInterval controls how often we send outbound handshake messages
 	// defaults to time.Second
 	FlightInterval time.Duration
@@ -101,4 +105,15 @@ const (
 	RequireAnyClientCert
 	VerifyClientCertIfGiven
 	RequireAndVerifyClientCert
+)
+
+// ExtendedMasterSecretType declares the policy the client and server
+// will follow for the Extended Master Secret extension
+type ExtendedMasterSecretType int
+
+// ExtendedMasterSecretType enums
+const (
+	RequestExtendedMasterSecret ExtendedMasterSecretType = iota
+	RequireExtendedMasterSecret
+	DisableExtendedMasterSecret
 )

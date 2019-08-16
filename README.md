@@ -32,8 +32,10 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 * Packet loss and re-ordering is handled during handshaking
 * Key export ([RFC 5705][rfc5705])
 * Serialization and Resumption of sessions
+* Extended Master Secret extension ([RFC 7627][rfc7627])
 
 [rfc5705]: https://tools.ietf.org/html/rfc5705
+[rfc7627]: https://tools.ietf.org/html/rfc7627
 
 #### Supported ciphers
 
@@ -53,7 +55,6 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 [rfc5487]: https://tools.ietf.org/html/rfc5487
 
 #### Planned Features
-* Extended master secret support (RFC7627)
 * Chacha20Poly1305
 
 #### Excluded Features
