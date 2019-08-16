@@ -12,6 +12,7 @@ const (
 	extensionSupportedPointFormatsValue        extensionValue = 11
 	extensionSupportedSignatureAlgorithmsValue extensionValue = 13
 	extensionUseSRTPValue                      extensionValue = 14
+	extensionUseExtendedMasterSecretValue      extensionValue = 23
 )
 
 type extension interface {
@@ -50,6 +51,8 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 			err = unmarshalAndAppend(buf[offset:], &extensionSupportedEllipticCurves{})
 		case extensionUseSRTPValue:
 			err = unmarshalAndAppend(buf[offset:], &extensionUseSRTP{})
+		case extensionUseExtendedMasterSecretValue:
+			err = unmarshalAndAppend(buf[offset:], &extensionUseExtendedMasterSecret{})
 		default:
 		}
 		if err != nil {

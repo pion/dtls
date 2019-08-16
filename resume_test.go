@@ -41,7 +41,12 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 			t.Fatal(err)
 		}
 	}()
-	config := &Config{Certificate: certificate, PrivateKey: privateKey, InsecureSkipVerify: true}
+	config := &Config{
+		Certificate:          certificate,
+		PrivateKey:           privateKey,
+		InsecureSkipVerify:   true,
+		ExtendedMasterSecret: RequireExtendedMasterSecret,
+	}
 	go func() {
 		var remote *Conn
 		var errR error
