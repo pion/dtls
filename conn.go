@@ -408,7 +408,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) (*alert, error) {
 	}
 
 	if h.epoch != 0 {
-		if c.state.cipherSuite == nil {
+		if c.state.cipherSuite == nil || !c.state.cipherSuite.isInitialized() {
 			c.log.Debug("handleIncoming: Handshake not finished, dropping packet")
 			return nil, nil
 		}

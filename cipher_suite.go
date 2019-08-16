@@ -29,6 +29,7 @@ type cipherSuite interface {
 	certificateType() clientCertificateType
 	hashFunc() func() hash.Hash
 	isPSK() bool
+	isInitialized() bool
 
 	// Generate the internal encryption state
 	init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error

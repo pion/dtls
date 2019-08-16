@@ -30,6 +30,10 @@ func (c cipherSuiteTLSPskWithAes128Ccm8) isPSK() bool {
 	return true
 }
 
+func (c cipherSuiteTLSPskWithAes128Ccm8) isInitialized() bool {
+	return c.ccm != nil
+}
+
 func (c *cipherSuiteTLSPskWithAes128Ccm8) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
 		prfMacLen = 0
