@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -41,6 +42,8 @@ type Conn struct {
 	workerTicker   *time.Ticker
 
 	state State // Internal state
+
+	connectTimeout time.Duration
 
 	remoteRequestedCertificate bool // Did we get a CertificateRequest
 
@@ -111,6 +114,15 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		loggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
+	connectTimeout := defaultConnectTimeout
+	if config.ConnectTimeout != nil {
+		connectTimeout = *config.ConnectTimeout
+	}
+
+	if connectTimeout <= 0 {
+		connectTimeout = math.MaxInt64 * time.Nanosecond
+	}
+
 	c := &Conn{
 		nextConn:                    nextConn,
 		currFlight:                  newFlight(isClient),
@@ -118,6 +130,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		handshakeCache:              newHandshakeCache(),
 		handshakeMessageHandler:     handshakeMessageHandler,
 		flightHandler:               flightHandler,
+		connectTimeout:              connectTimeout,
 		localCertificate:            config.Certificate,
 		localPrivateKey:             config.PrivateKey,
 		clientAuth:                  config.ClientAuth,
@@ -170,8 +183,13 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	// Handle inbound
 	go c.inboundLoop()
 
-	<-c.handshakeCompletedSignal
-	err = c.getConnErr()
+	select {
+	case <-c.handshakeCompletedSignal:
+		err = c.getConnErr()
+	case <-time.After(c.connectTimeout):
+		err = errConnectTimeout
+	}
+
 	if err == nil {
 		c.setHandshakeCompletedSuccessfully()
 	}
