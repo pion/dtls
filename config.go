@@ -73,6 +73,17 @@ type Config struct {
 	ServerName string
 
 	LoggerFactory logging.LoggerFactory
+
+	// ConnectTimeout is the timeout threshold for new connection handshakes
+	// to complete (default is 30 seconds)
+	ConnectTimeout *time.Duration
+}
+
+const defaultConnectTimeout = 30 * time.Second
+
+// ConnectTimeoutOption simply provides a wrapper for creating a *time.Duration
+func ConnectTimeoutOption(timeout time.Duration) *time.Duration {
+	return &timeout
 }
 
 // PSKCallback is called once we have the remote's PSKIdentityHint.

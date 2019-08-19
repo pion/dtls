@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/pion/dtls"
 	"github.com/pion/dtls/examples/util"
@@ -21,7 +22,11 @@ func main() {
 	//
 
 	// Prepare the configuration of the DTLS connection
-	config := &dtls.Config{Certificate: certificate, PrivateKey: privateKey}
+	config := &dtls.Config{
+		Certificate:    certificate,
+		PrivateKey:     privateKey,
+		ConnectTimeout: dtls.ConnectTimeoutOption(30 * time.Second),
+	}
 
 	// Connect to a DTLS server
 	listener, err := dtls.Listen("udp", addr, config)

@@ -311,6 +311,30 @@ func TestPSKHintFail(t *testing.T) {
 	}
 }
 
+func TestClientTimeout(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	clientErr := make(chan error, 1)
+
+	ca, _ := net.Pipe()
+	go func() {
+		conf := &Config{
+			ConnectTimeout: ConnectTimeoutOption(1 * time.Second),
+		}
+
+		_, err := testClient(ca, conf, true)
+		clientErr <- err
+	}()
+
+	// no server!
+
+	if err := <-clientErr; err != errConnectTimeout {
+		t.Fatalf("TestClientTimeout: Client error exp(%v) failed(%v)", errConnectTimeout, err)
+	}
+}
+
 func TestSRTPConfiguration(t *testing.T) {
 	for _, test := range []struct {
 		Name            string
