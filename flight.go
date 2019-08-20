@@ -88,7 +88,7 @@ func (f *flight) get() flightVal {
 	return f.val
 }
 
-func (f *flight) set(val flightVal) error {
+func (f *flight) set(val flightVal) {
 	f.Lock()
 	f.val = val // TODO ensure no invalid transitions
 	f.Unlock()
@@ -97,6 +97,4 @@ func (f *flight) set(val flightVal) error {
 	case f.workerTrigger <- struct{}{}:
 	default:
 	}
-
-	return nil
 }
