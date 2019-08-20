@@ -16,15 +16,15 @@ func (c *Conn) Export() (*State, net.Conn, error) {
 // Resume imports an already stablished dtls connection using a specific dtls state
 func Resume(state *State, conn net.Conn, config *Config) (*Conn, error) {
 	// Custom flight handler that sets imported data and signals as handshaked
-	flightHandler := func(c *Conn) (bool, error) {
+	flightHandler := func(c *Conn) (bool, *alert, error) {
 		c.state = *state
 		c.signalHandshakeComplete()
-		return true, nil
+		return true, nil, nil
 	}
 
 	// Empty handshake handler, since handshake was already done
-	handshakeHandler := func(c *Conn) error {
-		return nil
+	handshakeHandler := func(c *Conn) (*alert, error) {
+		return nil, nil
 	}
 
 	c, err := createConn(conn, flightHandler, handshakeHandler, config, state.isClient)
