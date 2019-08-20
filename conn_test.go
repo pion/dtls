@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"testing"
 	"time"
@@ -129,6 +128,37 @@ func testServer(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error
 	return Server(c, cfg)
 }
 
+func TestHandshakeWithAlert(t *testing.T) {
+	alertErr := errors.New("alert: Alert LevelFatal: InsufficientSecurity")
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	clientErr := make(chan error, 1)
+
+	ca, cb := net.Pipe()
+	go func() {
+		conf := &Config{
+			CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+		}
+
+		_, err := testClient(ca, conf, true)
+		clientErr <- err
+	}()
+
+	config := &Config{
+		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+	}
+
+	if _, err := testServer(cb, config, true); err != errCipherSuiteNoIntersection {
+		t.Fatalf("TestPSK: Client error exp(%v) failed(%v)", errCipherSuiteNoIntersection, err)
+	}
+
+	if err := <-clientErr; err.Error() != alertErr.Error() {
+		t.Fatalf("TestPSK: Client error exp(%v) failed(%v)", alertErr, err)
+	}
+}
+
 func TestExportKeyingMaterial(t *testing.T) {
 	var rand [28]byte
 	exportLabel := "EXTRACTOR-dtls_srtp"
@@ -241,6 +271,7 @@ func TestPSK(t *testing.T) {
 }
 
 func TestPSKHintFail(t *testing.T) {
+	serverAlertError := errors.New("alert: Alert LevelFatal: InternalError")
 	pskRejected := errors.New("PSK Rejected")
 
 	// Limit runtime in case of deadlocks
@@ -271,14 +302,13 @@ func TestPSKHintFail(t *testing.T) {
 		CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 	}
 
-	if _, err := testServer(cb, config, false); err != io.EOF && err != io.ErrClosedPipe {
-		t.Fatalf("TestPSK: Server error exp(%v) failed(%v)", io.ErrClosedPipe, err)
+	if _, err := testServer(cb, config, false); err.Error() != serverAlertError.Error() {
+		t.Fatalf("TestPSK: Server error exp(%v) failed(%v)", serverAlertError, err)
 	}
 
 	if err := <-clientErr; err != pskRejected {
 		t.Fatalf("TestPSK: Client error exp(%v) failed(%v)", pskRejected, err)
 	}
-
 }
 
 func TestSRTPConfiguration(t *testing.T) {
@@ -311,7 +341,7 @@ func TestSRTPConfiguration(t *testing.T) {
 			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			ServerSRTP:      nil,
 			ExpectedProfile: 0,
-			WantClientError: io.EOF,
+			WantClientError: fmt.Errorf("alert: Alert LevelFatal: InsufficientSecurity"),
 			WantServerError: fmt.Errorf("Client requested SRTP but we have no matching profiles"),
 		},
 		{
@@ -630,7 +660,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			Name:               "CipherSuites mismatch",
 			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
-			WantClientError:    io.EOF,
+			WantClientError:    errors.New("alert: Alert LevelFatal: InsufficientSecurity"),
 			WantServerError:    errCipherSuiteNoIntersection,
 		},
 	} {

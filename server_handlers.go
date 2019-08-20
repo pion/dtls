@@ -5,30 +5,28 @@ import (
 	"fmt"
 )
 
-func serverHandshakeHandler(c *Conn) error {
-	handleSingleHandshake := func(buf []byte) error {
+func serverHandshakeHandler(c *Conn) (*alert, error) {
+	handleSingleHandshake := func(buf []byte) (*alert, error) {
 		rawHandshake := &handshake{}
 		if err := rawHandshake.Unmarshal(buf); err != nil {
-			return err
+			return &alert{alertLevelFatal, alertDecodeError}, err
 		}
 
 		switch h := rawHandshake.handshakeMessage.(type) {
 		case *handshakeMessageClientHello:
 			if c.currFlight.get() == flight2 {
 				if !bytes.Equal(c.cookie, h.cookie) {
-					return errCookieMismatch
+					return &alert{alertLevelFatal, alertAccessDenied}, errCookieMismatch
 				}
 				c.state.localSequenceNumber = 1
-				if err := c.currFlight.set(flight4); err != nil {
-					return err
-				}
+				c.currFlight.set(flight4)
 				break
 			}
 
 			c.state.remoteRandom = h.random
 
 			if _, ok := findMatchingCipherSuite(h.cipherSuites, c.localCipherSuites); !ok {
-				return errCipherSuiteNoIntersection
+				return &alert{alertLevelFatal, alertInsufficientSecurity}, errCipherSuiteNoIntersection
 			}
 			c.state.cipherSuite = h.cipherSuites[0]
 
@@ -36,13 +34,13 @@ func serverHandshakeHandler(c *Conn) error {
 				switch e := extension.(type) {
 				case *extensionSupportedEllipticCurves:
 					if len(e.ellipticCurves) == 0 {
-						return errNoSupportedEllipticCurves
+						return &alert{alertLevelFatal, alertInsufficientSecurity}, errNoSupportedEllipticCurves
 					}
 					c.namedCurve = e.ellipticCurves[0]
 				case *extensionUseSRTP:
 					profile, ok := findMatchingSRTPProfile(e.protectionProfiles, c.localSRTPProtectionProfiles)
 					if !ok {
-						return fmt.Errorf("Client requested SRTP but we have no matching profiles")
+						return &alert{alertLevelFatal, alertInsufficientSecurity}, fmt.Errorf("Client requested SRTP but we have no matching profiles")
 					}
 					c.state.srtpProtectionProfile = profile
 				}
@@ -52,17 +50,15 @@ func serverHandshakeHandler(c *Conn) error {
 				var err error
 				c.localKeypair, err = generateKeypair(c.namedCurve)
 				if err != nil {
-					return err
+					return &alert{alertLevelFatal, alertIllegalParameter}, err
 				}
 			}
 
-			if err := c.currFlight.set(flight2); err != nil {
-				return err
-			}
+			c.currFlight.set(flight2)
 
 		case *handshakeMessageCertificateVerify:
 			if c.state.remoteCertificate == nil {
-				return errCertificateVerifyNoCertificate
+				return &alert{alertLevelFatal, alertNoCertificate}, errCertificateVerifyNoCertificate
 			}
 
 			plainText := c.handshakeCache.pullAndMerge(
@@ -79,18 +75,18 @@ func serverHandshakeHandler(c *Conn) error {
 			verified := false
 			if !c.insecureSkipVerify && c.clientAuth >= RequireAnyClientCert {
 				if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.state.remoteCertificate); err != nil {
-					return err
+					return &alert{alertLevelFatal, alertBadCertificate}, err
 				}
 				if c.clientAuth >= VerifyClientCertIfGiven {
 					if err := verifyClientCert(c.state.remoteCertificate, c.rootCAs); err != nil {
-						return err
+						return &alert{alertLevelFatal, alertBadCertificate}, err
 					}
 					verified = true
 				}
 			}
 			if c.verifyPeerCertificate != nil {
 				if err := c.verifyPeerCertificate(c.state.remoteCertificate, verified); err != nil {
-					return err
+					return &alert{alertLevelFatal, alertBadCertificate}, err
 				}
 			}
 			c.remoteCertificateVerified = verified
@@ -101,35 +97,35 @@ func serverHandshakeHandler(c *Conn) error {
 		case *handshakeMessageClientKeyExchange:
 			serverRandom, err := c.state.localRandom.Marshal()
 			if err != nil {
-				return err
+				return &alert{alertLevelFatal, alertInternalError}, err
 			}
 			clientRandom, err := c.state.remoteRandom.Marshal()
 			if err != nil {
-				return err
+				return &alert{alertLevelFatal, alertInternalError}, err
 			}
 
 			var preMasterSecret []byte
 			if c.localPSKCallback != nil {
 				var psk []byte
 				if psk, err = c.localPSKCallback(h.identityHint); err != nil {
-					return err
+					return &alert{alertLevelFatal, alertInternalError}, err
 				}
 
 				preMasterSecret = prfPSKPreMasterSecret(psk)
 			} else {
 				preMasterSecret, err = prfPreMasterSecret(h.publicKey, c.localKeypair.privateKey, c.localKeypair.curve)
 				if err != nil {
-					return err
+					return &alert{alertLevelFatal, alertIllegalParameter}, err
 				}
 			}
 
 			c.state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, c.state.cipherSuite.hashFunc())
 			if err != nil {
-				return err
+				return &alert{alertLevelFatal, alertInternalError}, err
 			}
 
 			if err := c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, false); err != nil {
-				return err
+				return &alert{alertLevelFatal, alertInternalError}, err
 			}
 		case *handshakeMessageFinished:
 			plainText := c.handshakeCache.pullAndMerge(
@@ -145,16 +141,16 @@ func serverHandshakeHandler(c *Conn) error {
 			)
 			expectedVerifyData, err := prfVerifyDataClient(c.state.masterSecret, plainText, c.state.cipherSuite.hashFunc())
 			if err != nil {
-				return err
+				return &alert{alertLevelFatal, alertInternalError}, err
 			} else if !bytes.Equal(expectedVerifyData, h.verifyData) {
-				return errVerifyDataMismatch
+				return &alert{alertLevelFatal, alertHandshakeFailure}, errVerifyDataMismatch
 			}
 
 		default:
-			return fmt.Errorf("unhandled handshake %d", h.handshakeType())
+			return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled handshake %d", h.handshakeType())
 		}
 
-		return nil
+		return nil, nil
 	}
 
 	switch c.currFlight.get() {
@@ -186,7 +182,7 @@ func serverHandshakeHandler(c *Conn) error {
 		case expectedMessages[1] != nil:
 			expectedSeqnum = expectedMessages[1].messageSequence
 		default:
-			return nil
+			return nil, nil
 		}
 
 		for i, msg := range expectedMessages {
@@ -195,43 +191,43 @@ func serverHandshakeHandler(c *Conn) error {
 			case (i == 0 || i == 2) && msg == nil:
 				continue
 			case msg == nil:
-				return nil // We don't have all messages yet, try again later
+				return nil, nil // We don't have all messages yet, try again later
 			case msg.messageSequence != expectedSeqnum:
-				return nil // We have a gap, still waiting on messages
+				return nil, nil // We have a gap, still waiting on messages
 			}
 			expectedSeqnum++
 		}
 
 		for _, msg := range expectedMessages {
 			if msg != nil {
-				if err := handleSingleHandshake(msg.data); err != nil {
-					return err
+				if alertPtr, err := handleSingleHandshake(msg.data); err != nil {
+					return alertPtr, err
 				}
 			}
 		}
 
 		finishedMsg := c.handshakeCache.pull(handshakeCachePullRule{handshakeTypeFinished, true})
 		if finishedMsg[0] == nil {
-			return nil
-		} else if err := handleSingleHandshake(finishedMsg[0].data); err != nil {
-			return err
+			return nil, nil
+		} else if alertPtr, err := handleSingleHandshake(finishedMsg[0].data); err != nil {
+			return alertPtr, err
 		}
 
 		switch c.clientAuth {
 		case RequireAnyClientCert:
 			if c.state.remoteCertificate == nil {
-				return errClientCertificateRequired
+				return &alert{alertLevelFatal, alertNoCertificate}, errClientCertificateRequired
 			}
 		case VerifyClientCertIfGiven:
 			if c.state.remoteCertificate != nil && !c.remoteCertificateVerified {
-				return errClientCertificateNotVerified
+				return &alert{alertLevelFatal, alertBadCertificate}, errClientCertificateNotVerified
 			}
 		case RequireAndVerifyClientCert:
 			if c.state.remoteCertificate == nil {
-				return errClientCertificateRequired
+				return &alert{alertLevelFatal, alertNoCertificate}, errClientCertificateRequired
 			}
 			if !c.remoteCertificateVerified {
-				return errClientCertificateNotVerified
+				return &alert{alertLevelFatal, alertBadCertificate}, errClientCertificateNotVerified
 			}
 		}
 
@@ -247,14 +243,12 @@ func serverHandshakeHandler(c *Conn) error {
 		}
 		c.setLocalEpoch(1)
 
-		if err := c.currFlight.set(flight6); err != nil {
-			return err
-		}
+		c.currFlight.set(flight6)
 	}
-	return nil
+	return nil, nil
 }
 
-func serverFlightHandler(c *Conn) (bool, error) {
+func serverFlightHandler(c *Conn) (bool, *alert, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -338,16 +332,16 @@ func serverFlightHandler(c *Conn) (bool, error) {
 			if len(c.localKeySignature) == 0 {
 				serverRandom, err := c.state.localRandom.Marshal()
 				if err != nil {
-					return false, err
+					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
 				clientRandom, err := c.state.remoteRandom.Marshal()
 				if err != nil {
-					return false, err
+					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
 
 				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localPrivateKey, HashAlgorithmSHA256)
 				if err != nil {
-					return false, err
+					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
 				c.localKeySignature = signature
 			}
@@ -462,7 +456,7 @@ func serverFlightHandler(c *Conn) (bool, error) {
 			var err error
 			c.localVerifyData, err = prfVerifyDataServer(c.state.masterSecret, plainText, c.state.cipherSuite.hashFunc())
 			if err != nil {
-				return false, err
+				return false, &alert{alertLevelFatal, alertInternalError}, err
 			}
 		}
 
@@ -485,9 +479,9 @@ func serverFlightHandler(c *Conn) (bool, error) {
 
 		// TODO: Better way to end handshake
 		c.signalHandshakeComplete()
-		return true, nil
+		return true, nil, nil
 	default:
-		return false, fmt.Errorf("unhandled flight %s", c.currFlight.get())
+		return false, &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled flight %s", c.currFlight.get())
 	}
-	return false, nil
+	return false, nil, nil
 }

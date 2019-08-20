@@ -28,8 +28,8 @@ var invalidKeyingLabels = map[string]bool{
 	"key expansion":   true,
 }
 
-type handshakeMessageHandler func(*Conn) error
-type flightHandler func(*Conn) (bool, error)
+type handshakeMessageHandler func(*Conn) (*alert, error)
+type flightHandler func(*Conn) (bool, *alert, error)
 
 // Conn represents a DTLS connection
 type Conn struct {
@@ -69,9 +69,10 @@ type Conn struct {
 	rootCAs               *x509.CertPool
 	serverName            string
 
-	handshakeMessageHandler handshakeMessageHandler
-	flightHandler           flightHandler
-	handshakeCompleted      chan bool
+	handshakeMessageHandler        handshakeMessageHandler
+	flightHandler                  flightHandler
+	handshakeCompletedSignal       chan bool
+	handshakeCompletedSuccessfully atomic.Value
 
 	connErr atomic.Value
 	log     logging.LeveledLogger
@@ -131,10 +132,10 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		localPSKCallback:     config.PSK,
 		localPSKIdentityHint: config.PSKIdentityHint,
 
-		decrypted:          make(chan []byte),
-		workerTicker:       time.NewTicker(workerInterval),
-		handshakeCompleted: make(chan bool),
-		log:                loggerFactory.NewLogger("dtls"),
+		decrypted:                make(chan []byte),
+		workerTicker:             time.NewTicker(workerInterval),
+		handshakeCompletedSignal: make(chan bool),
+		log:                      loggerFactory.NewLogger("dtls"),
 	}
 
 	// Use host from conn address when serverName is not provided
@@ -169,9 +170,15 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	// Handle inbound
 	go c.inboundLoop()
 
-	<-c.handshakeCompleted
-	c.log.Trace("Handshake Completed")
-	return c, c.getConnErr()
+	<-c.handshakeCompletedSignal
+	err = c.getConnErr()
+	if err == nil {
+		c.setHandshakeCompletedSuccessfully()
+	}
+
+	c.log.Trace(fmt.Sprintf("Handshake Completed (Error: %v)", err))
+
+	return c, err
 }
 
 // Dial connects to the given network address and establishes a DTLS connection on top
@@ -357,7 +364,10 @@ func (c *Conn) inboundLoop() {
 		}
 
 		for _, p := range pkts {
-			err := c.handleIncomingPacket(p)
+			alert, err := c.handleIncomingPacket(p)
+			if alert != nil {
+				c.notify(alert.alertLevel, alert.alertDescription)
+			}
 			if err != nil {
 				c.stopWithError(err)
 				return
@@ -366,42 +376,42 @@ func (c *Conn) inboundLoop() {
 	}
 }
 
-func (c *Conn) handleIncomingPacket(buf []byte) error {
+func (c *Conn) handleIncomingPacket(buf []byte) (*alert, error) {
 	// TODO: avoid separate unmarshal
 	h := &recordLayerHeader{}
 	if err := h.Unmarshal(buf); err != nil {
-		return err
+		return &alert{alertLevelFatal, alertDecodeError}, err
 	}
 
 	if h.epoch < c.getRemoteEpoch() {
-		if _, err := c.flightHandler(c); err != nil {
-			return err
+		if _, alertPtr, err := c.flightHandler(c); err != nil {
+			return alertPtr, err
 		}
 	}
 
 	if h.epoch != 0 {
 		if c.state.cipherSuite == nil {
 			c.log.Debug("handleIncoming: Handshake not finished, dropping packet")
-			return nil
+			return nil, nil
 		}
 
 		var err error
 		buf, err = c.state.cipherSuite.decrypt(buf)
 		if err != nil {
 			c.log.Debugf("decrypt failed: %s", err)
-			return nil
+			return nil, nil
 		}
 	}
 
 	isHandshake, err := c.fragmentBuffer.push(append([]byte{}, buf...))
 	if err != nil {
-		return err
+		return &alert{alertLevelFatal, alertDecodeError}, err
 	} else if isHandshake {
 		newHandshakeMessage := false
 		for out := c.fragmentBuffer.pop(); out != nil; out = c.fragmentBuffer.pop() {
 			rawHandshake := &handshake{}
 			if err := rawHandshake.Unmarshal(out); err != nil {
-				return err
+				return &alert{alertLevelFatal, alertDecodeError}, err
 			}
 
 			if c.handshakeCache.push(out, rawHandshake.handshakeHeader.messageSequence, rawHandshake.handshakeHeader.handshakeType, !c.state.isClient) {
@@ -409,7 +419,7 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 			}
 		}
 		if !newHandshakeMessage {
-			return nil
+			return nil, nil
 		}
 
 		c.lock.Lock()
@@ -419,25 +429,25 @@ func (c *Conn) handleIncomingPacket(buf []byte) error {
 
 	r := &recordLayer{}
 	if err := r.Unmarshal(buf); err != nil {
-		return err
+		return &alert{alertLevelFatal, alertDecodeError}, err
 	}
 
 	switch content := r.content.(type) {
 	case *alert:
 		c.log.Tracef("<- %s", content.String())
 		if content.alertDescription == alertCloseNotify {
-			return c.Close()
+			return nil, c.Close()
 		}
-		return fmt.Errorf("alert: %v", content)
+		return nil, fmt.Errorf("alert: %v", content)
 	case *changeCipherSpec:
 		c.log.Trace("<- ChangeCipherSpec")
 		c.setRemoteEpoch(c.getRemoteEpoch() + 1)
 	case *applicationData:
 		c.decrypted <- content.data
 	default:
-		return fmt.Errorf("unhandled contentType %d", content.contentType())
+		return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled contentType %d", content.contentType())
 	}
-	return nil
+	return nil, nil
 }
 
 func (c *Conn) notify(level alertLevel, desc alertDescription) {
@@ -454,17 +464,26 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 			alertLevel:       level,
 			alertDescription: desc,
 		},
-	}, true)
+	}, c.isHandshakeCompletedSuccessfully())
 
 	c.state.localSequenceNumber++
 }
 
 func (c *Conn) signalHandshakeComplete() {
 	select {
-	case <-c.handshakeCompleted:
+	case <-c.handshakeCompletedSignal:
 	default:
-		close(c.handshakeCompleted)
+		close(c.handshakeCompletedSignal)
 	}
+}
+
+func (c *Conn) setHandshakeCompletedSuccessfully() {
+	c.handshakeCompletedSuccessfully.Store(struct{ bool }{true})
+}
+
+func (c *Conn) isHandshakeCompletedSuccessfully() bool {
+	boolean, _ := c.connErr.Load().(struct{ bool })
+	return boolean.bool
 }
 
 func (c *Conn) startHandshakeOutbound() {
@@ -472,15 +491,20 @@ func (c *Conn) startHandshakeOutbound() {
 		for {
 			var (
 				isFinished bool
+				alertPtr   *alert
 				err        error
 			)
 			select {
-			case <-c.handshakeCompleted:
+			case <-c.handshakeCompletedSignal:
 				return
 			case <-c.workerTicker.C:
-				isFinished, err = c.flightHandler(c)
+				isFinished, alertPtr, err = c.flightHandler(c)
 			case <-c.currFlight.workerTrigger:
-				isFinished, err = c.flightHandler(c)
+				isFinished, alertPtr, err = c.flightHandler(c)
+			}
+
+			if alertPtr != nil {
+				c.notify(alertPtr.alertLevel, alertPtr.alertDescription)
 			}
 
 			switch {
