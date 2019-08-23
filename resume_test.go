@@ -23,7 +23,7 @@ func fatal(t *testing.T, errChan chan error, err error) {
 }
 
 func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Conn, error)) {
-	certificate, privateKey, err := GenerateSelfSigned()
+	certificate, err := GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 			t.Fatal(err)
 		}
 	}()
-	config := &Config{Certificate: certificate, PrivateKey: privateKey, InsecureSkipVerify: true}
+	config := &Config{Certificate: certificate, InsecureSkipVerify: true}
 	go func() {
 		var remote *Conn
 		var errR error

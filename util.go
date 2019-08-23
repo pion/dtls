@@ -1,10 +1,10 @@
 package dtls
 
 import (
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/binary"
@@ -37,10 +37,10 @@ func putBigEndianUint48(out []byte, in uint64) {
 }
 
 // GenerateSelfSigned creates a self-signed certificate
-func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
+func GenerateSelfSigned() (tls.Certificate, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, nil, err
+		return tls.Certificate{}, err
 	}
 
 	origin := make([]byte, 16)
@@ -51,7 +51,7 @@ func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
 	maxBigInt.Exp(big.NewInt(2), big.NewInt(130), nil).Sub(maxBigInt, big.NewInt(1))
 	serialNumber, err := rand.Int(rand.Reader, maxBigInt)
 	if err != nil {
-		return nil, nil, err
+		return tls.Certificate{}, err
 	}
 
 	template := x509.Certificate{
@@ -71,15 +71,12 @@ func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
 
 	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
-		return nil, nil, err
+		return tls.Certificate{}, err
 	}
-
-	cert, err := x509.ParseCertificate(raw)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return cert, priv, nil
+	return tls.Certificate{
+		Certificate: [][]byte{raw},
+		PrivateKey:  priv,
+	}, nil
 }
 
 func max(a, b int) int {

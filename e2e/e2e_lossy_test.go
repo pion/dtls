@@ -18,12 +18,12 @@ const (
   DTLS Client/Server over a lossy transport, just asserts it can handle at increasing increments
 */
 func TestPionE2ELossy(t *testing.T) {
-	serverCert, serverKey, err := dtls.GenerateSelfSigned()
+	serverCert, err := dtls.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	clientCert, clientKey, err := dtls.GenerateSelfSigned()
+	clientCert, err := dtls.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,6 @@ func TestPionE2ELossy(t *testing.T) {
 			}
 			if test.DoClientAuth {
 				cfg.Certificate = clientCert
-				cfg.PrivateKey = clientKey
 			}
 
 			if _, err := dtls.Client(br.GetConn0(), cfg); err != nil {
@@ -108,7 +107,6 @@ func TestPionE2ELossy(t *testing.T) {
 		go func() {
 			cfg := &dtls.Config{
 				Certificate:    serverCert,
-				PrivateKey:     serverKey,
 				FlightInterval: flightInterval,
 			}
 			if test.DoClientAuth {

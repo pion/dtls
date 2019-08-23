@@ -11,13 +11,12 @@ import (
 
 func TestSimpleReadWrite(t *testing.T) {
 	ca, cb := net.Pipe()
-	certificate, privateKey, err := GenerateSelfSigned()
+	certificate, err := GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
 	config := &Config{
 		Certificate:        certificate,
-		PrivateKey:         privateKey,
 		LoggerFactory:      logging.NewDefaultLoggerFactory(),
 		InsecureSkipVerify: true,
 	}
@@ -54,8 +53,8 @@ func TestSimpleReadWrite(t *testing.T) {
 func benchmarkConn(b *testing.B, n int64) {
 	b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
 		ca, cb := net.Pipe()
-		certificate, privateKey, err := GenerateSelfSigned()
-		config := &Config{Certificate: certificate, PrivateKey: privateKey, InsecureSkipVerify: true}
+		certificate, err := GenerateSelfSigned()
+		config := &Config{Certificate: certificate, InsecureSkipVerify: true}
 		server := make(chan *Conn)
 		go func() {
 			s, sErr := testServer(cb, config, false)

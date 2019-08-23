@@ -105,11 +105,10 @@ func pipeMemory() (*Conn, *Conn, error) {
 
 func testClient(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
 	if generateCertificate {
-		clientCert, clientKey, err := GenerateSelfSigned()
+		clientCert, err := GenerateSelfSigned()
 		if err != nil {
 			return nil, err
 		}
-		cfg.PrivateKey = clientKey
 		cfg.Certificate = clientCert
 	}
 	cfg.InsecureSkipVerify = true
@@ -118,11 +117,10 @@ func testClient(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error
 
 func testServer(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
 	if generateCertificate {
-		serverCert, serverKey, err := GenerateSelfSigned()
+		serverCert, err := GenerateSelfSigned()
 		if err != nil {
 			return nil, err
 		}
-		cfg.PrivateKey = serverKey
 		cfg.Certificate = serverCert
 	}
 	return Server(c, cfg)
@@ -416,19 +414,27 @@ func TestSRTPConfiguration(t *testing.T) {
 }
 
 func TestClientCertificate(t *testing.T) {
-	srvCert, srvKey, err := GenerateSelfSigned()
+	srvCert, err := GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
 	srvCAPool := x509.NewCertPool()
-	srvCAPool.AddCert(srvCert)
+	srvCertificate, err := x509.ParseCertificate(srvCert.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	srvCAPool.AddCert(srvCertificate)
 
-	cert, key, err := GenerateSelfSigned()
+	cert, err := GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, err := x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {
 		t.Fatal(err)
 	}
 	caPool := x509.NewCertPool()
-	caPool.AddCert(cert)
+	caPool.AddCert(certificate)
 
 	t.Parallel()
 	tests := map[string]struct {
@@ -440,24 +446,21 @@ func TestClientCertificate(t *testing.T) {
 			clientCfg: &Config{RootCAs: srvCAPool},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  NoClientCert,
 				RootCAs:     caPool,
 			},
 		},
 		"NoClientCert_cert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  RequireAnyClientCert,
 			},
 		},
 		"RequestClientCert_cert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  RequestClientCert,
 			},
 		},
@@ -465,16 +468,14 @@ func TestClientCertificate(t *testing.T) {
 			clientCfg: &Config{RootCAs: srvCAPool},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  RequestClientCert,
 				RootCAs:     caPool,
 			},
 		},
 		"RequireAnyClientCert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  RequireAnyClientCert,
 			},
 		},
@@ -482,7 +483,6 @@ func TestClientCertificate(t *testing.T) {
 			clientCfg: &Config{RootCAs: srvCAPool},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  RequireAnyClientCert,
 			},
 			wantErr: true,
@@ -491,34 +491,30 @@ func TestClientCertificate(t *testing.T) {
 			clientCfg: &Config{RootCAs: srvCAPool},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  VerifyClientCertIfGiven,
 				RootCAs:     caPool,
 			},
 		},
 		"VerifyClientCertIfGiven_cert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  VerifyClientCertIfGiven,
 				RootCAs:     caPool,
 			},
 		},
 		"VerifyClientCertIfGiven_error": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  VerifyClientCertIfGiven,
 			},
 			wantErr: true,
 		},
 		"RequireAndVerifyClientCert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert, PrivateKey: key},
+			clientCfg: &Config{RootCAs: srvCAPool, Certificate: cert},
 			serverCfg: &Config{
 				Certificate: srvCert,
-				PrivateKey:  srvKey,
 				ClientAuth:  RequireAndVerifyClientCert,
 				RootCAs:     caPool,
 			},
@@ -562,7 +558,7 @@ func TestClientCertificate(t *testing.T) {
 					t.Errorf("TestClientCertificate: Client did not provide a certificate")
 				}
 
-				if !actualClientCert.Equal(tt.clientCfg.Certificate) {
+				if len(actualClientCert) != len(tt.clientCfg.Certificate.Certificate) || !bytes.Equal(tt.clientCfg.Certificate.Certificate[0], actualClientCert[0]) {
 					t.Errorf("TestClientCertificate: Client certificate was not communicated correctly")
 				}
 			}
@@ -577,7 +573,7 @@ func TestClientCertificate(t *testing.T) {
 				t.Errorf("TestClientCertificate: Server did not provide a certificate")
 			}
 
-			if !actualServerCert.Equal(tt.serverCfg.Certificate) {
+			if len(actualServerCert) != len(tt.serverCfg.Certificate.Certificate) || !bytes.Equal(tt.serverCfg.Certificate.Certificate[0], actualServerCert[0]) {
 				t.Errorf("TestClientCertificate: Server certificate was not communicated correctly")
 			}
 		})
@@ -587,12 +583,16 @@ func TestClientCertificate(t *testing.T) {
 func TestServerCertificate(t *testing.T) {
 	t.Parallel()
 
-	cert, key, err := GenerateSelfSigned()
+	cert, err := GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, err := x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {
 		t.Fatal(err)
 	}
 	caPool := x509.NewCertPool()
-	caPool.AddCert(cert)
+	caPool.AddCert(certificate)
 
 	tests := map[string]struct {
 		clientCfg *Config
@@ -601,34 +601,34 @@ func TestServerCertificate(t *testing.T) {
 	}{
 		"no_ca": {
 			clientCfg: &Config{},
-			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			serverCfg: &Config{Certificate: cert, ClientAuth: NoClientCert},
 			wantErr:   true,
 		},
 		"good_ca": {
 			clientCfg: &Config{RootCAs: caPool},
-			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			serverCfg: &Config{Certificate: cert, ClientAuth: NoClientCert},
 		},
 		"no_ca_skip_verify": {
 			clientCfg: &Config{InsecureSkipVerify: true},
-			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			serverCfg: &Config{Certificate: cert, ClientAuth: NoClientCert},
 		},
 		"good_ca_custom_verify_peer": {
 			clientCfg: &Config{
 				RootCAs: caPool,
-				VerifyPeerCertificate: func(*x509.Certificate, bool) error {
+				VerifyPeerCertificate: func([][]byte, bool) error {
 					return errors.New("wrong cert")
 				},
 			},
-			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			serverCfg: &Config{Certificate: cert, ClientAuth: NoClientCert},
 			wantErr:   true,
 		},
 		"server_name": {
-			clientCfg: &Config{RootCAs: caPool, ServerName: cert.Subject.CommonName},
-			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			clientCfg: &Config{RootCAs: caPool, ServerName: certificate.Subject.CommonName},
+			serverCfg: &Config{Certificate: cert, ClientAuth: NoClientCert},
 		},
 		"server_name_error": {
 			clientCfg: &Config{RootCAs: caPool, ServerName: "barfoo"},
-			serverCfg: &Config{Certificate: cert, PrivateKey: key, ClientAuth: NoClientCert},
+			serverCfg: &Config{Certificate: cert, ClientAuth: NoClientCert},
 			wantErr:   true,
 		},
 	}

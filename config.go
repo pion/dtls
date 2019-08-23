@@ -1,7 +1,7 @@
 package dtls
 
 import (
-	"crypto"
+	"crypto/tls"
 	"crypto/x509"
 	"time"
 
@@ -14,11 +14,7 @@ type Config struct {
 	// Certificates contains certificate chain to present to the other side of the connection.
 	// Server MUST set this if PSK is non-nil
 	// client SHOULD sets this so CertificateRequests can be handled if PSK is non-nil
-	Certificate *x509.Certificate
-
-	// PrivateKey contains matching private key for the certificate
-	// only ECDSA is supported
-	PrivateKey crypto.PrivateKey
+	Certificate tls.Certificate
 
 	// CipherSuites is a list of supported cipher suites.
 	// If CipherSuites is nil, a default list is used
@@ -61,7 +57,7 @@ type Config struct {
 	// setting InsecureSkipVerify, or (for a server) when ClientAuth is
 	// RequestClientCert or RequireAnyClientCert, then this callback will
 	// be considered but the verified flag will always be false.
-	VerifyPeerCertificate func(cer *x509.Certificate, verified bool) error
+	VerifyPeerCertificate func(rawCert [][]byte, verified bool) error
 
 	// RootCAs defines the set of root certificate authorities
 	// that one peer uses when verifying the other peer's certificates.
