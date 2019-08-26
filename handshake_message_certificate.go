@@ -26,12 +26,15 @@ func (h *handshakeMessageCertificate) Marshal() ([]byte, error) {
 }
 
 func (h *handshakeMessageCertificate) Unmarshal(data []byte) error {
-	if len(data) < 6 {
+	if len(data) < 3 {
 		return errBufferTooSmall
 	}
 
 	certificateBodyLen := int(bigEndianUint24(data))
 	certificateLen := int(bigEndianUint24(data[3:]))
+	if certificateLen == 0 {
+		return nil
+	}
 	if certificateBodyLen+3 != len(data) {
 		return errLengthMismatch
 	} else if certificateLen+6 != len(data) {
