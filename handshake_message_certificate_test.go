@@ -74,3 +74,22 @@ func TestHandshakeMessageCertificate(t *testing.T) {
 		t.Errorf("handshakeMessageCertificate marshal: got %#v, want %#v", raw, rawCertificate)
 	}
 }
+
+func TestEmptyHandshakeMessageCertificate(t *testing.T) {
+	rawCertificate := []byte{
+		0x00, 0x00, 0x00,
+	}
+
+	expectedCertificate := &handshakeMessageCertificate{
+		certificate: nil,
+	}
+
+	c := &handshakeMessageCertificate{}
+	if err := c.Unmarshal(rawCertificate); err != nil {
+		t.Error(err)
+	}
+
+	if !reflect.DeepEqual(c, expectedCertificate) {
+		t.Errorf("handshakeMessageCertificate unmarshal: got %#v, want %#v", c, expectedCertificate)
+	}
+}
