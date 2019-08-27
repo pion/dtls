@@ -151,11 +151,11 @@ func TestHandshakeWithAlert(t *testing.T) {
 	}
 
 	if _, err := testServer(cb, config, true); err != errCipherSuiteNoIntersection {
-		t.Fatalf("TestPSK: Client error exp(%v) failed(%v)", errCipherSuiteNoIntersection, err)
+		t.Fatalf("TestHandshakeWithAlert: Client error exp(%v) failed(%v)", errCipherSuiteNoIntersection, err)
 	}
 
 	if err := <-clientErr; err.Error() != alertErr.Error() {
-		t.Fatalf("TestPSK: Client error exp(%v) failed(%v)", alertErr, err)
+		t.Fatalf("TestHandshakeWithAlert: Client error exp(%v) failed(%v)", alertErr, err)
 	}
 }
 
