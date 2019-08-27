@@ -4,33 +4,37 @@ import (
 	"crypto/sha256"
 	"errors"
 	"hash"
+	"sync"
 )
 
 type cipherSuiteTLSPskWithAes128Ccm8 struct {
 	ccm *cryptoCCM
+	sync.RWMutex
 }
 
-func (c cipherSuiteTLSPskWithAes128Ccm8) certificateType() clientCertificateType {
+func (c *cipherSuiteTLSPskWithAes128Ccm8) certificateType() clientCertificateType {
 	return clientCertificateType(0)
 }
 
-func (c cipherSuiteTLSPskWithAes128Ccm8) ID() CipherSuiteID {
+func (c *cipherSuiteTLSPskWithAes128Ccm8) ID() CipherSuiteID {
 	return TLS_PSK_WITH_AES_128_CCM_8
 }
 
-func (c cipherSuiteTLSPskWithAes128Ccm8) String() string {
+func (c *cipherSuiteTLSPskWithAes128Ccm8) String() string {
 	return "TLS_PSK_WITH_AES_128_CCM_8"
 }
 
-func (c cipherSuiteTLSPskWithAes128Ccm8) hashFunc() func() hash.Hash {
+func (c *cipherSuiteTLSPskWithAes128Ccm8) hashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-func (c cipherSuiteTLSPskWithAes128Ccm8) isPSK() bool {
+func (c *cipherSuiteTLSPskWithAes128Ccm8) isPSK() bool {
 	return true
 }
 
-func (c cipherSuiteTLSPskWithAes128Ccm8) isInitialized() bool {
+func (c *cipherSuiteTLSPskWithAes128Ccm8) isInitialized() bool {
+	c.RLock()
+	defer c.RUnlock()
 	return c.ccm != nil
 }
 
@@ -46,6 +50,8 @@ func (c *cipherSuiteTLSPskWithAes128Ccm8) init(masterSecret, clientRandom, serve
 		return err
 	}
 
+	c.Lock()
+	defer c.Unlock()
 	if isClient {
 		c.ccm, err = newCryptoCCM(keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
 	} else {
@@ -56,7 +62,7 @@ func (c *cipherSuiteTLSPskWithAes128Ccm8) init(masterSecret, clientRandom, serve
 }
 
 func (c *cipherSuiteTLSPskWithAes128Ccm8) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
-	if c.ccm == nil {
+	if !c.isInitialized() {
 		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
@@ -64,7 +70,7 @@ func (c *cipherSuiteTLSPskWithAes128Ccm8) encrypt(pkt *recordLayer, raw []byte) 
 }
 
 func (c *cipherSuiteTLSPskWithAes128Ccm8) decrypt(raw []byte) ([]byte, error) {
-	if c.ccm == nil {
+	if !c.isInitialized() {
 		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
