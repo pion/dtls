@@ -57,7 +57,7 @@ func (c *cipherSuiteTLSPskWithAes128Ccm8) init(masterSecret, clientRandom, serve
 
 func (c *cipherSuiteTLSPskWithAes128Ccm8) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 	if c.ccm == nil {
-		return nil, errors.New("CipherSuite has not been initalized, unable to encrypt")
+		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
 	return c.ccm.encrypt(pkt, raw)
@@ -65,7 +65,7 @@ func (c *cipherSuiteTLSPskWithAes128Ccm8) encrypt(pkt *recordLayer, raw []byte) 
 
 func (c *cipherSuiteTLSPskWithAes128Ccm8) decrypt(raw []byte) ([]byte, error) {
 	if c.ccm == nil {
-		return nil, errors.New("CipherSuite has not been initalized, unable to decrypt ")
+		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
 	return c.ccm.decrypt(raw)

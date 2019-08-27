@@ -63,7 +63,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRand
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 	if c.cbc == nil {
-		return nil, errors.New("CipherSuite has not been initalized, unable to encrypt")
+		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
 	return c.cbc.encrypt(pkt, raw)
@@ -71,7 +71,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) encrypt(pkt *recordLayer, raw
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) decrypt(raw []byte) ([]byte, error) {
 	if c.cbc == nil {
-		return nil, errors.New("CipherSuite has not been initalized, unable to decrypt ")
+		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
 	return c.cbc.decrypt(raw)

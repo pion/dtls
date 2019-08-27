@@ -57,7 +57,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientR
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 	if c.gcm == nil {
-		return nil, errors.New("CipherSuite has not been initalized, unable to encrypt")
+		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
 	return c.gcm.encrypt(pkt, raw)
@@ -65,7 +65,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, 
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) decrypt(raw []byte) ([]byte, error) {
 	if c.gcm == nil {
-		return nil, errors.New("CipherSuite has not been initalized, unable to decrypt ")
+		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
 	return c.gcm.decrypt(raw)
