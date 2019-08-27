@@ -43,17 +43,17 @@ type cipherSuite interface {
 // function.
 func cipherSuiteForID(id CipherSuiteID) cipherSuite {
 	switch id {
-	case cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}.ID():
+	case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
 		return &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}
-	case cipherSuiteTLSEcdheRsaWithAes128GcmSha256{}.ID():
+	case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
 		return &cipherSuiteTLSEcdheRsaWithAes128GcmSha256{}
-	case cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{}.ID():
+	case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
 		return &cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{}
-	case cipherSuiteTLSEcdheRsaWithAes256CbcSha{}.ID():
+	case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
 		return &cipherSuiteTLSEcdheRsaWithAes256CbcSha{}
-	case cipherSuiteTLSPskWithAes128Ccm8{}.ID():
+	case TLS_PSK_WITH_AES_128_CCM_8:
 		return &cipherSuiteTLSPskWithAes128Ccm8{}
-	case cipherSuiteTLSPskWithAes128GcmSha256{}.ID():
+	case TLS_PSK_WITH_AES_128_GCM_SHA256:
 		return &cipherSuiteTLSPskWithAes128GcmSha256{}
 	}
 	return nil
