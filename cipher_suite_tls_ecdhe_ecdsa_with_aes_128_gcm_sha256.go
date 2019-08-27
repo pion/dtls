@@ -4,33 +4,37 @@ import (
 	"crypto/sha256"
 	"errors"
 	"hash"
+	"sync"
 )
 
 type cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256 struct {
 	gcm *cryptoGCM
+	sync.RWMutex
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) certificateType() clientCertificateType {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) certificateType() clientCertificateType {
 	return clientCertificateTypeECDSASign
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) ID() CipherSuiteID {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) ID() CipherSuiteID {
 	return TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) String() string {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) String() string {
 	return "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) hashFunc() func() hash.Hash {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) hashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isPSK() bool {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isPSK() bool {
 	return false
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isInitialized() bool {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isInitialized() bool {
+	c.RLock()
+	defer c.RUnlock()
 	return c.gcm != nil
 }
 
@@ -46,6 +50,8 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientR
 		return err
 	}
 
+	c.Lock()
+	defer c.Unlock()
 	if isClient {
 		c.gcm, err = newCryptoGCM(keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
 	} else {
@@ -56,7 +62,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientR
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
-	if c.gcm == nil {
+	if !c.isInitialized() {
 		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
@@ -64,7 +70,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, 
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) decrypt(raw []byte) ([]byte, error) {
-	if c.gcm == nil {
+	if !c.isInitialized() {
 		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
