@@ -9,6 +9,7 @@ import (
 )
 
 const receiveMTU = 8192
+const closeRetryInterval = 100 * time.Millisecond
 
 var errClosedListener = errors.New("udp: listener closed")
 
@@ -39,7 +40,7 @@ func (l *Listener) Accept() (*Conn, error) {
 
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
-func (l *Listener) Close() error {
+func (l *Listener) Close(shutdownTimeout time.Duration) error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
@@ -47,10 +48,24 @@ func (l *Listener) Close() error {
 	l.doneOnce.Do(func() {
 		l.accepting = false
 		close(l.doneCh)
-		err = l.cleanup()
+		err = l.cleanupWithTimeout(shutdownTimeout)
 	})
 
 	return err
+}
+
+func (l *Listener) cleanupWithTimeout(shutdownTimeout time.Duration) error {
+	timeoutTimer := time.NewTimer(shutdownTimeout)
+	for {
+		select {
+		case <-time.After(closeRetryInterval):
+			if len(l.conns) == 0 {
+				return l.cleanup()
+			}
+		case <-timeoutTimer.C:
+			return l.cleanup()
+		}
+	}
 }
 
 // cleanup closes the packet conn if it is no longer used

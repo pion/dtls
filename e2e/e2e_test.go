@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func randomPort(t testing.TB) int {
 	}
 }
 
-func simpleReadWrite(errChan chan error, outChan chan string, conn io.ReadWriteCloser, listener io.Closer, messageRecvCount *uint64) {
+func simpleReadWrite(errChan chan error, outChan chan string, conn io.ReadWriter, messageRecvCount *uint64) {
 	go func() {
 		buffer := make([]byte, 8192)
 		n, err := conn.Read(buffer)
@@ -57,27 +58,19 @@ func simpleReadWrite(errChan chan error, outChan chan string, conn io.ReadWriteC
 
 		time.Sleep(messageRetry)
 	}
-
-	maybePushError := func(err error) {
-		select {
-		case errChan <- err: // Do we care about these errors?
-		default:
-		}
-	}
-
-	if listener != nil {
-		maybePushError(listener.Close())
-	}
-	maybePushError(conn.Close())
 }
 
-func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, t *testing.T) {
+func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, serverPort int, t *testing.T) {
 	errChan := make(chan error)
 	clientChan := make(chan string)
 	serverChan := make(chan string)
 	var messageRecvCount uint64 // Counter to make sure both sides got a message
+	var clientMutex sync.Mutex
+	var clientConn net.Conn
+	var serverMutex sync.Mutex
+	var serverConn net.Conn
+	var serverListener *dtls.Listener
 
-	serverPort := randomPort(t)
 	serverReady := make(chan struct{})
 
 	// DTLS Client
@@ -88,7 +81,12 @@ func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, t *testing.
 		case <-time.After(time.Second):
 			errChan <- errors.New("waiting on serverReady err: timeout")
 		}
-		conn, err := dtls.Dial("udp",
+
+		clientMutex.Lock()
+		defer clientMutex.Unlock()
+
+		var err error
+		clientConn, err = dtls.Dial("udp",
 			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
 			clientConfig,
 		)
@@ -96,12 +94,17 @@ func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, t *testing.
 			errChan <- err
 			return
 		}
-		simpleReadWrite(errChan, clientChan, conn, nil, &messageRecvCount)
+
+		simpleReadWrite(errChan, clientChan, clientConn, &messageRecvCount)
 	}()
 
 	// DTLS Server
 	go func() {
-		listener, err := dtls.Listen("udp",
+		serverMutex.Lock()
+		defer serverMutex.Unlock()
+
+		var err error
+		serverListener, err = dtls.Listen("udp",
 			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
 			serverConfig,
 		)
@@ -110,13 +113,32 @@ func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, t *testing.
 			return
 		}
 		serverReady <- struct{}{}
-		conn, err := listener.Accept()
+		serverConn, err = serverListener.Accept()
 		if err != nil {
 			errChan <- err
 			return
 		}
 
-		simpleReadWrite(errChan, serverChan, conn, listener, &messageRecvCount)
+		simpleReadWrite(errChan, serverChan, serverConn, &messageRecvCount)
+	}()
+
+	defer func() {
+		clientMutex.Lock()
+		serverMutex.Lock()
+		defer clientMutex.Unlock()
+		defer serverMutex.Unlock()
+
+		if err := clientConn.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := serverConn.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := serverListener.Close(2 * time.Second); err != nil {
+			t.Fatal(err)
+		}
 	}()
 
 	func() {
@@ -163,6 +185,8 @@ func TestPionE2ESimple(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
+	serverPort := randomPort(t)
+
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
@@ -177,11 +201,11 @@ func TestPionE2ESimple(t *testing.T) {
 			PrivateKey:         key,
 			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 			InsecureSkipVerify: true,
+			ConnectTimeout:     dtls.ConnectTimeoutOption(2 * time.Second),
 		}
-		assertE2ECommunication(cfg, cfg, t)
+		assertE2ECommunication(cfg, cfg, serverPort, t)
 
 	}
-
 }
 
 func TestPionE2ESimplePSK(t *testing.T) {
@@ -190,6 +214,8 @@ func TestPionE2ESimplePSK(t *testing.T) {
 
 	report := test.CheckRoutines(t)
 	defer report()
+
+	serverPort := randomPort(t)
 
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_PSK_WITH_AES_128_CCM_8,
@@ -201,7 +227,8 @@ func TestPionE2ESimplePSK(t *testing.T) {
 			},
 			PSKIdentityHint: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
 			CipherSuites:    []dtls.CipherSuiteID{cipherSuite},
+			ConnectTimeout:  dtls.ConnectTimeoutOption(2 * time.Second),
 		}
-		assertE2ECommunication(cfg, cfg, t)
+		assertE2ECommunication(cfg, cfg, serverPort, t)
 	}
 }
