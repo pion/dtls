@@ -1,5 +1,9 @@
 language: go
 
+branches:
+  only:
+  - master
+
 go:
   - "1.x" # use the latest Go release
 
