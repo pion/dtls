@@ -504,7 +504,7 @@ func (c *Conn) setHandshakeCompletedSuccessfully() {
 }
 
 func (c *Conn) isHandshakeCompletedSuccessfully() bool {
-	boolean, _ := c.connErr.Load().(struct{ bool })
+	boolean, _ := c.handshakeCompletedSuccessfully.Load().(struct{ bool })
 	return boolean.bool
 }
 
