@@ -4,33 +4,37 @@ import (
 	"crypto/sha256"
 	"errors"
 	"hash"
+	"sync"
 )
 
 type cipherSuiteTLSEcdheEcdsaWithAes256CbcSha struct {
 	cbc *cryptoCBC
+	sync.RWMutex
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) certificateType() clientCertificateType {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) certificateType() clientCertificateType {
 	return clientCertificateTypeECDSASign
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) ID() CipherSuiteID {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) ID() CipherSuiteID {
 	return TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) String() string {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) String() string {
 	return "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) hashFunc() func() hash.Hash {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) hashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isPSK() bool {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isPSK() bool {
 	return false
 }
 
-func (c cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isInitialized() bool {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isInitialized() bool {
+	c.RLock()
+	defer c.RUnlock()
 	return c.cbc != nil
 }
 
@@ -46,6 +50,8 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRand
 		return err
 	}
 
+	c.Lock()
+	defer c.Unlock()
 	if isClient {
 		c.cbc, err = newCryptoCBC(
 			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
@@ -62,7 +68,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRand
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
-	if c.cbc == nil {
+	if !c.isInitialized() {
 		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
@@ -70,7 +76,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) encrypt(pkt *recordLayer, raw
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) decrypt(raw []byte) ([]byte, error) {
-	if c.cbc == nil {
+	if !c.isInitialized() {
 		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
