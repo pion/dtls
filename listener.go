@@ -3,6 +3,7 @@ package dtls
 import (
 	"errors"
 	"net"
+	"time"
 
 	"github.com/pion/dtls/internal/udp"
 )
@@ -41,8 +42,8 @@ func (l *Listener) Accept() (net.Conn, error) {
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
 // Already Accepted connections are not closed.
-func (l *Listener) Close() error {
-	return l.parent.Close()
+func (l *Listener) Close(shutdownTimeout time.Duration) error {
+	return l.parent.Close(shutdownTimeout)
 }
 
 // Addr returns the listener's network address.

@@ -15,13 +15,14 @@ import (
 //	defer lim.Stop()
 //
 //	nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
-//		c1, c2, err = pipe()
+//		listener, c1, c2, err = pipe()
 //		if err != nil {
 //			return nil, nil, nil, err
 //		}
 //		stop = func() {
 //			c1.Close()
 //			c2.Close()
+//			listener.Close(1 * time.Second)
 //		}
 //		return
 //	})
@@ -41,7 +42,7 @@ func TestStressDuplex(t *testing.T) {
 }
 
 func stressDuplex(t *testing.T) {
-	ca, cb, err := pipe()
+	listener, ca, cb, err := pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +53,10 @@ func stressDuplex(t *testing.T) {
 			t.Fatal(err)
 		}
 		err = cb.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = listener.Close(5 * time.Second)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -68,54 +73,74 @@ func stressDuplex(t *testing.T) {
 	}
 }
 
-func pipe() (*Conn, *net.UDPConn, error) {
+func TestListenerCloseTimeout(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	listener, ca, _, err := pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = listener.Close(500 * time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Close client after server closes to cleanup
+	err = ca.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func pipe() (*Listener, *Conn, *net.UDPConn, error) {
 	// Start listening
 	network, addr := getConfig()
 	listener, err := Listen(network, addr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to listen: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to listen: %v", err)
 	}
 
 	// Open a connection
 	var dConn *net.UDPConn
 	dConn, err = net.DialUDP(network, nil, listener.Addr().(*net.UDPAddr))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to dial: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to dial: %v", err)
 	}
 
 	// Write to the connection to initiate it
 	handshake := "hello"
 	_, err = dConn.Write([]byte(handshake))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to write to dialed Conn: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to write to dialed Conn: %v", err)
 	}
 
 	// Accept the connection
 	var lConn *Conn
 	lConn, err = listener.Accept()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to accept Conn: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to accept Conn: %v", err)
 	}
 
 	buf := make([]byte, len(handshake))
 	n := 0
 	n, err = lConn.Read(buf)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read handshake: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to read handshake: %v", err)
 	}
 
 	result := string(buf[:n])
 	if handshake != result {
-		return nil, nil, fmt.Errorf("handshake failed: %s != %s", handshake, result)
+		return nil, nil, nil, fmt.Errorf("handshake failed: %s != %s", handshake, result)
 	}
 
-	// Close the listener
-	err = listener.Close()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed close listener: %v", err)
-	}
-
-	return lConn, dConn, nil
+	return listener, lConn, dConn, nil
 }
 
 func getConfig() (string, *net.UDPAddr) {
@@ -126,7 +151,7 @@ func getConfig() (string, *net.UDPAddr) {
 // 	lim := test.TimeOut(time.Second * 5)
 // 	defer lim.Stop()
 //
-// 	ca, cb, err := pipe()
+// 	listener, ca, cb, err := pipe()
 // 	if err != nil {
 // 		t.Fatal(err)
 // 	}
@@ -138,4 +163,8 @@ func getConfig() (string, *net.UDPAddr) {
 // 	if err != nil {
 // 		t.Fatalf("Failed to close B side: %v\n", err)
 // 	}
+//  err = listener.Close(1 * time.Second)
+//  if err != nil {
+//  	t.Fatalf("Failed to close listener: %v\n", err)
+//  }
 // }
