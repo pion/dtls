@@ -502,8 +502,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 				}},
 		}, true)
 
-		// TODO: Better way to end handshake
-		c.signalHandshakeComplete()
+		c.handshakeDoneSignal.Close()
 		return true, nil, nil
 	default:
 		return false, &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled flight %s", c.currFlight.get())
