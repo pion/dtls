@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -931,5 +932,125 @@ func TestPSKConfiguration(t *testing.T) {
 				t.Fatalf("TestPSKConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 			}
 		}
+	}
+}
+
+func TestServerTimeout(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	cookie := make([]byte, 20)
+	_, err := rand.Read(cookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var rand [28]byte
+	random := handshakeRandom{time.Unix(500, 0), rand}
+
+	cipherSuites := []cipherSuite{
+		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
+	}
+
+	extensions := []extension{
+		&extensionSupportedSignatureAlgorithms{
+			signatureHashAlgorithms: []signatureHashAlgorithm{
+				{HashAlgorithmSHA256, signatureAlgorithmECDSA},
+				{HashAlgorithmSHA384, signatureAlgorithmECDSA},
+				{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+				{HashAlgorithmSHA256, signatureAlgorithmRSA},
+				{HashAlgorithmSHA384, signatureAlgorithmRSA},
+				{HashAlgorithmSHA512, signatureAlgorithmRSA},
+			},
+		},
+		&extensionSupportedEllipticCurves{
+			ellipticCurves: []namedCurve{namedCurveX25519, namedCurveP256, namedCurveP384},
+		},
+		&extensionSupportedPointFormats{
+			pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
+		},
+	}
+
+	record := &recordLayer{
+		recordLayerHeader: recordLayerHeader{
+			sequenceNumber:  0,
+			protocolVersion: protocolVersion1_2,
+		},
+		content: &handshake{
+			// sequenceNumber and messageSequence line up, may need to be re-evaluated
+			handshakeHeader: handshakeHeader{
+				messageSequence: 0,
+			},
+			handshakeMessage: &handshakeMessageClientHello{
+				version:            protocolVersion1_2,
+				cookie:             cookie,
+				random:             random,
+				cipherSuites:       cipherSuites,
+				compressionMethods: defaultCompressionMethods,
+				extensions:         extensions,
+			}},
+	}
+
+	packet, err := record.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ca, cb := net.Pipe()
+	defer func() {
+		err := ca.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// Client reader
+	caReadChan := make(chan []byte, 1000)
+	go func() {
+		for {
+			data := make([]byte, 8192)
+			n, err := ca.Read(data)
+			if err != nil {
+				return
+			}
+
+			caReadChan <- data[:n]
+		}
+	}()
+
+	// Start sending ClientHello packets until server responds with first packet
+	go func() {
+		for {
+			select {
+			case <-time.After(10 * time.Millisecond):
+				_, err := ca.Write(packet)
+				if err != nil {
+					return
+				}
+			case <-caReadChan:
+				// Once we receive the first reply from the server, stop
+				return
+			}
+		}
+	}()
+
+	config := &Config{
+		CipherSuites:   []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		ConnectTimeout: ConnectTimeoutOption(50 * time.Millisecond),
+		FlightInterval: 100 * time.Millisecond,
+	}
+
+	if _, err := testServer(cb, config, true); err != errConnectTimeout {
+		t.Fatalf("TestServerTimeout: Client error exp(%v) failed(%v)", errConnectTimeout, err)
+	}
+
+	// Wait a little longer to ensure no additional messages have been sent by the server
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case msg := <-caReadChan:
+		t.Fatalf("TestServerTimeout: Expected no additional messages from server, got: %+v", msg)
+	default:
 	}
 }

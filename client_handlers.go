@@ -235,7 +235,7 @@ func clientHandshakeHandler(c *Conn) (*alert, error) {
 
 		c.setLocalEpoch(1)
 		c.state.localSequenceNumber = 1
-		c.signalHandshakeComplete()
+		c.handshakeDoneSignal.Close()
 	default:
 		return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("client asked to handle unknown flight (%d)", c.currFlight.get())
 	}
