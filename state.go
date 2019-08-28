@@ -75,7 +75,7 @@ func (s *State) serialize() (*serializedState, error) {
 		RemoteEpoch:           s.remoteEpoch.Load().(uint16),
 		CipherSuiteID:         uint16(s.cipherSuite.ID()),
 		MasterSecret:          s.masterSecret,
-		SequenceNumber:        s.localSequenceNumber,
+		SequenceNumber:        atomic.LoadUint64(&s.localSequenceNumber),
 		LocalRandom:           localRnd,
 		RemoteRandom:          remoteRnd,
 		SRTPProtectionProfile: uint16(s.srtpProtectionProfile),
@@ -117,7 +117,7 @@ func (s *State) deserialize(serialized serializedState) error {
 		return err
 	}
 
-	s.localSequenceNumber = serialized.SequenceNumber
+	atomic.StoreUint64(&s.localSequenceNumber, serialized.SequenceNumber)
 	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
 
 	// Set remote certificate

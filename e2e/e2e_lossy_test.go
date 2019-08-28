@@ -32,6 +32,7 @@ func TestPionE2ELossy(t *testing.T) {
 		LossChanceRange int
 		DoClientAuth    bool
 		CipherSuites    []dtls.CipherSuiteID
+		MTU             int
 	}{
 		{
 			LossChanceRange: 0,
@@ -77,7 +78,23 @@ func TestPionE2ELossy(t *testing.T) {
 			LossChanceRange: 50,
 			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
 		},
+		{
+			LossChanceRange: 10,
+			MTU:             100,
+			DoClientAuth:    true,
+		},
+		{
+			LossChanceRange: 20,
+			MTU:             100,
+			DoClientAuth:    true,
+		},
+		{
+			LossChanceRange: 50,
+			MTU:             100,
+			DoClientAuth:    true,
+		},
 	} {
+
 		rand.Seed(time.Now().UTC().UnixNano())
 		chosenLoss := rand.Intn(9) + test.LossChanceRange
 		serverDone := make(chan error)
@@ -92,7 +109,9 @@ func TestPionE2ELossy(t *testing.T) {
 				FlightInterval:     flightInterval,
 				CipherSuites:       test.CipherSuites,
 				InsecureSkipVerify: true,
+				MTU:                test.MTU,
 			}
+
 			if test.DoClientAuth {
 				cfg.Certificate = clientCert
 				cfg.PrivateKey = clientKey
@@ -110,10 +129,11 @@ func TestPionE2ELossy(t *testing.T) {
 				Certificate:    serverCert,
 				PrivateKey:     serverKey,
 				FlightInterval: flightInterval,
+				MTU:            test.MTU,
 			}
+
 			if test.DoClientAuth {
 				cfg.ClientAuth = dtls.RequireAnyClientCert
-
 			}
 
 			if _, err := dtls.Server(br.GetConn1(), cfg); err != nil {

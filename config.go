@@ -81,6 +81,10 @@ type Config struct {
 	// ConnectTimeout is the timeout threshold for new connection handshakes
 	// to complete (default is 30 seconds)
 	ConnectTimeout *time.Duration
+
+	// MTU is the length at which handshake messages will be fragmented to
+	// fit within the maximum transmission unit (default is 1200 bytes)
+	MTU int
 }
 
 const defaultConnectTimeout = 30 * time.Second
@@ -89,6 +93,8 @@ const defaultConnectTimeout = 30 * time.Second
 func ConnectTimeoutOption(timeout time.Duration) *time.Duration {
 	return &timeout
 }
+
+const defaultMTU = 1200 // bytes
 
 // PSKCallback is called once we have the remote's PSKIdentityHint.
 // If the remote provided none it will be nil

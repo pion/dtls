@@ -232,3 +232,33 @@ func TestPionE2ESimplePSK(t *testing.T) {
 		assertE2ECommunication(cfg, cfg, serverPort, t)
 	}
 }
+
+func TestPionE2EMTUs(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	serverPort := randomPort(t)
+
+	for _, mtu := range []int{
+		10000,
+		1000,
+		100,
+	} {
+		cert, key, err := dtls.GenerateSelfSigned()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &dtls.Config{
+			Certificate:        cert,
+			PrivateKey:         key,
+			CipherSuites:       []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			InsecureSkipVerify: true,
+			MTU:                mtu,
+		}
+		assertE2ECommunication(cfg, cfg, serverPort, t)
+	}
+}
