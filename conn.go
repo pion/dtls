@@ -75,7 +75,7 @@ type Conn struct {
 
 	handshakeMessageHandler        handshakeMessageHandler
 	flightHandler                  flightHandler
-	handshakeCompletedSignal       chan bool
+	handshakeDoneSignal            *Closer
 	handshakeCompletedSuccessfully atomic.Value
 
 	connErr atomic.Value
@@ -126,6 +126,8 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		connectTimeout = math.MaxInt64 * time.Nanosecond
 	}
 
+	handshakeDoneSignal := NewCloser()
+
 	c := &Conn{
 		nextConn:                    nextConn,
 		currFlight:                  newFlight(isClient, logger),
@@ -149,10 +151,10 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		localPSKCallback:     config.PSK,
 		localPSKIdentityHint: config.PSKIdentityHint,
 
-		decrypted:                make(chan []byte),
-		workerTicker:             time.NewTicker(workerInterval),
-		handshakeCompletedSignal: make(chan bool),
-		log:                      logger,
+		decrypted:           make(chan []byte),
+		workerTicker:        time.NewTicker(workerInterval),
+		handshakeDoneSignal: handshakeDoneSignal,
+		log:                 logger,
 	}
 
 	// Use host from conn address when serverName is not provided
@@ -188,10 +190,11 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	go c.inboundLoop()
 
 	select {
-	case <-c.handshakeCompletedSignal:
+	case <-c.handshakeDoneSignal.Done():
 		err = c.getConnErr()
 	case <-time.After(c.connectTimeout):
 		err = errConnectTimeout
+		c.handshakeDoneSignal.Close()
 	}
 
 	if err == nil {
@@ -491,14 +494,6 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 	c.state.localSequenceNumber++
 }
 
-func (c *Conn) signalHandshakeComplete() {
-	select {
-	case <-c.handshakeCompletedSignal:
-	default:
-		close(c.handshakeCompletedSignal)
-	}
-}
-
 func (c *Conn) setHandshakeCompletedSuccessfully() {
 	c.handshakeCompletedSuccessfully.Store(struct{ bool }{true})
 }
@@ -517,7 +512,7 @@ func (c *Conn) startHandshakeOutbound() {
 				err        error
 			)
 			select {
-			case <-c.handshakeCompletedSignal:
+			case <-c.handshakeDoneSignal.Done():
 				return
 			case <-c.workerTicker.C:
 				isFinished, alertPtr, err = c.flightHandler(c)
@@ -555,7 +550,7 @@ func (c *Conn) stopWithError(err error) {
 
 	c.workerTicker.Stop()
 
-	c.signalHandshakeComplete()
+	c.handshakeDoneSignal.Close()
 }
 
 func (c *Conn) getConnErr() error {

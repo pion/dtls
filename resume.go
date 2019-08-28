@@ -18,7 +18,7 @@ func Resume(state *State, conn net.Conn, config *Config) (*Conn, error) {
 	// Custom flight handler that sets imported data and signals as handshaked
 	flightHandler := func(c *Conn) (bool, *alert, error) {
 		c.state = *state
-		c.signalHandshakeComplete()
+		c.handshakeDoneSignal.Close()
 		return true, nil, nil
 	}
 
