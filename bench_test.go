@@ -15,16 +15,14 @@ func TestSimpleReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := &Config{
-		Certificate:        certificate,
-		PrivateKey:         privateKey,
-		LoggerFactory:      logging.NewDefaultLoggerFactory(),
-		InsecureSkipVerify: true,
-	}
 	gotHello := make(chan struct{})
 
 	go func() {
-		server, sErr := testServer(cb, config, false)
+		server, sErr := testServer(cb, &Config{
+			Certificate:   certificate,
+			PrivateKey:    privateKey,
+			LoggerFactory: logging.NewDefaultLoggerFactory(),
+		}, false)
 		if sErr != nil {
 			t.Error(err)
 			return
@@ -36,7 +34,10 @@ func TestSimpleReadWrite(t *testing.T) {
 		gotHello <- struct{}{}
 	}()
 
-	client, err := testClient(ca, config, false)
+	client, err := testClient(ca, &Config{
+		LoggerFactory:      logging.NewDefaultLoggerFactory(),
+		InsecureSkipVerify: true,
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,10 +56,12 @@ func benchmarkConn(b *testing.B, n int64) {
 	b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
 		ca, cb := net.Pipe()
 		certificate, privateKey, err := GenerateSelfSigned()
-		config := &Config{Certificate: certificate, PrivateKey: privateKey, InsecureSkipVerify: true}
 		server := make(chan *Conn)
 		go func() {
-			s, sErr := testServer(cb, config, false)
+			s, sErr := testServer(cb, &Config{
+				Certificate: certificate,
+				PrivateKey:  privateKey,
+			}, false)
 			if err != nil {
 				b.Error(sErr)
 				return
@@ -72,7 +75,7 @@ func benchmarkConn(b *testing.B, n int64) {
 		b.ReportAllocs()
 		b.SetBytes(int64(len(hw)))
 		go func() {
-			client, cErr := testClient(ca, config, false)
+			client, cErr := testClient(ca, &Config{InsecureSkipVerify: true}, false)
 			if cErr != nil {
 				b.Error(err)
 			}
