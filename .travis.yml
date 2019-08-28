@@ -10,6 +10,11 @@ go:
 env:
   - GO111MODULE=on
 
+cache:
+  directories:
+    - $HOME/.cache/go-build
+    - $GOPATH/pkg/mod
+
 jobs:
   include:
     - stage: lint
@@ -24,6 +29,10 @@ jobs:
     - stage: test
       before_script:
         - rm -rf examples # Remove examples, no test coverage for them
+      before_install:
+        - go mod download
+      install:
+        - go build ./...
       script:
         - go test -coverpkg=$(go list ./... | tr '\n' ',') -coverprofile=cover.out -v -race -covermode=atomic ./...
       after_success:
