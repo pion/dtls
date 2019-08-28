@@ -152,3 +152,18 @@ func findMatchingCipherSuite(a, b []cipherSuite) (cipherSuite, bool) {
 	}
 	return nil, false
 }
+
+func splitBytes(bytes []byte, splitLen int) [][]byte {
+	splitBytes := make([][]byte, 0)
+	numBytes := len(bytes)
+	for i := 0; i < numBytes; i += splitLen {
+		j := i + splitLen
+		if j > numBytes {
+			j = numBytes
+		}
+
+		splitBytes = append(splitBytes, bytes[i:j])
+	}
+
+	return splitBytes
+}

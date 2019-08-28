@@ -45,6 +45,8 @@ type Conn struct {
 
 	connectTimeout time.Duration
 
+	maximumTransmissionUnit int
+
 	remoteRequestedCertificate bool // Did we get a CertificateRequest
 
 	localSRTPProtectionProfiles []SRTPProtectionProfile // Available SRTPProtectionProfiles, if empty no SRTP support
@@ -73,6 +75,7 @@ type Conn struct {
 	rootCAs               *x509.CertPool
 	serverName            string
 
+	handshakeMessageSequence       int
 	handshakeMessageHandler        handshakeMessageHandler
 	flightHandler                  flightHandler
 	handshakeDoneSignal            *Closer
@@ -126,6 +129,11 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		connectTimeout = math.MaxInt64 * time.Nanosecond
 	}
 
+	mtu := config.MTU
+	if mtu <= 0 {
+		mtu = defaultMTU
+	}
+
 	handshakeDoneSignal := NewCloser()
 
 	c := &Conn{
@@ -136,6 +144,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		handshakeMessageHandler:     handshakeMessageHandler,
 		flightHandler:               flightHandler,
 		connectTimeout:              connectTimeout,
+		maximumTransmissionUnit:     mtu,
 		localCertificate:            config.Certificate,
 		localPrivateKey:             config.PrivateKey,
 		clientAuth:                  config.ClientAuth,
@@ -267,14 +276,12 @@ func (c *Conn) Write(p []byte) (int, error) {
 	c.internalSend(&recordLayer{
 		recordLayerHeader: recordLayerHeader{
 			epoch:           c.getLocalEpoch(),
-			sequenceNumber:  c.state.localSequenceNumber,
 			protocolVersion: protocolVersion1_2,
 		},
 		content: &applicationData{
 			data: p,
 		},
 	}, true)
-	c.state.localSequenceNumber++
 
 	return len(p), nil
 }
@@ -341,30 +348,114 @@ func (c *Conn) ExportKeyingMaterial(label string, context []byte, length int) ([
 	return prfPHash(c.state.masterSecret, seed, length, c.state.cipherSuite.hashFunc())
 }
 
-func (c *Conn) internalSend(pkt *recordLayer, shouldEncrypt bool) {
+func (c *Conn) internalSend(record *recordLayer, shouldEncrypt bool) {
+	var packets [][]byte
 
-	raw, err := pkt.Marshal()
-	if err != nil {
-		c.stopWithError(err)
-		return
-	}
-
-	if h, ok := pkt.content.(*handshake); ok {
-		c.log.Tracef("[handshake] -> %s", h.handshakeHeader.handshakeType.String())
-		c.handshakeCache.push(raw[recordLayerHeaderSize:], h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
-	}
-
-	if shouldEncrypt {
-		raw, err = c.state.cipherSuite.encrypt(pkt, raw)
+	if h, ok := record.content.(*handshake); ok {
+		handshakeRaw, err := record.Marshal()
 		if err != nil {
 			c.stopWithError(err)
 			return
 		}
+
+		c.log.Tracef("[handshake] -> %s", h.handshakeHeader.handshakeType.String())
+		c.handshakeCache.push(handshakeRaw[recordLayerHeaderSize:], h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
+
+		handshakeFragments, err := c.fragmentHandshake(h)
+		if err != nil {
+			c.stopWithError(err)
+			return
+		}
+
+		for _, handshakeFragment := range handshakeFragments {
+			recordLayerHeader := &recordLayerHeader{
+				contentType:     record.recordLayerHeader.contentType,
+				contentLen:      uint16(len(handshakeFragment)),
+				protocolVersion: record.recordLayerHeader.protocolVersion,
+				epoch:           record.recordLayerHeader.epoch,
+				sequenceNumber:  atomic.LoadUint64(&c.state.localSequenceNumber),
+			}
+
+			atomic.AddUint64(&c.state.localSequenceNumber, 1)
+
+			recordLayerHeaderBytes, err := recordLayerHeader.Marshal()
+			if err != nil {
+				c.stopWithError(err)
+				return
+			}
+
+			packet := append(recordLayerHeaderBytes, handshakeFragment...)
+			packets = append(packets, packet)
+		}
+	} else {
+		record.recordLayerHeader.sequenceNumber = atomic.LoadUint64(&c.state.localSequenceNumber)
+		atomic.AddUint64(&c.state.localSequenceNumber, 1)
+
+		packet, err := record.Marshal()
+		if err != nil {
+			c.stopWithError(err)
+			return
+		}
+
+		packets = [][]byte{packet}
 	}
 
-	if _, err := c.nextConn.Write(raw); err != nil {
-		c.stopWithError(err)
+	for _, packet := range packets {
+		if shouldEncrypt {
+			var err error
+			packet, err = c.state.cipherSuite.encrypt(record, packet)
+			if err != nil {
+				c.stopWithError(err)
+				return
+			}
+		}
+
+		if _, err := c.nextConn.Write(packet); err != nil {
+			c.stopWithError(err)
+			return
+		}
 	}
+}
+
+func (c *Conn) fragmentHandshake(h *handshake) ([][]byte, error) {
+	content, err := h.handshakeMessage.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	fragmentedHandshakes := make([][]byte, 0)
+
+	contentFragments := splitBytes(content, c.maximumTransmissionUnit)
+	if len(contentFragments) == 0 {
+		contentFragments = [][]byte{
+			{},
+		}
+	}
+
+	offset := 0
+	for _, contentFragment := range contentFragments {
+		contentFragmentLen := len(contentFragment)
+
+		handshakeHeaderFragment := &handshakeHeader{
+			handshakeType:   h.handshakeHeader.handshakeType,
+			length:          h.handshakeHeader.length,
+			messageSequence: h.handshakeHeader.messageSequence,
+			fragmentOffset:  uint32(offset),
+			fragmentLength:  uint32(contentFragmentLen),
+		}
+
+		offset += contentFragmentLen
+
+		handshakeHeaderFragmentRaw, err := handshakeHeaderFragment.Marshal()
+		if err != nil {
+			return nil, err
+		}
+
+		fragmentedHandshake := append(handshakeHeaderFragmentRaw, contentFragment...)
+		fragmentedHandshakes = append(fragmentedHandshakes, fragmentedHandshake)
+	}
+
+	return fragmentedHandshakes, nil
 }
 
 func (c *Conn) inboundLoop() {
@@ -482,7 +573,6 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 	c.internalSend(&recordLayer{
 		recordLayerHeader: recordLayerHeader{
 			epoch:           c.getLocalEpoch(),
-			sequenceNumber:  c.state.localSequenceNumber,
 			protocolVersion: protocolVersion1_2,
 		},
 		content: &alert{
@@ -490,8 +580,6 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 			alertDescription: desc,
 		},
 	}, c.isHandshakeCompletedSuccessfully())
-
-	c.state.localSequenceNumber++
 }
 
 func (c *Conn) setHandshakeCompletedSuccessfully() {
