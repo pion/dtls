@@ -38,11 +38,11 @@ func initalizeCipherSuite(c *Conn, h *handshakeMessageServerKeyExchange) (*alert
 	}
 
 	if c.localPSKCallback == nil {
+		expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
+		if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
+			return &alert{alertLevelFatal, alertBadCertificate}, err
+		}
 		if !c.insecureSkipVerify {
-			expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
-			if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
-				return &alert{alertLevelFatal, alertBadCertificate}, err
-			}
 			if err := verifyServerCert(c.state.remoteCertificate, c.rootCAs, c.serverName); err != nil {
 				return &alert{alertLevelFatal, alertBadCertificate}, err
 			}
