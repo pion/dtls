@@ -80,17 +80,15 @@ func serverHandshakeHandler(c *Conn) (*alert, error) {
 				handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
 			)
 
+			if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.state.remoteCertificate); err != nil {
+				return &alert{alertLevelFatal, alertBadCertificate}, err
+			}
 			verified := false
-			if !c.insecureSkipVerify && c.clientAuth >= RequireAnyClientCert {
-				if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.state.remoteCertificate); err != nil {
+			if !c.insecureSkipVerify && c.clientAuth >= VerifyClientCertIfGiven {
+				if err := verifyClientCert(c.state.remoteCertificate, c.rootCAs); err != nil {
 					return &alert{alertLevelFatal, alertBadCertificate}, err
 				}
-				if c.clientAuth >= VerifyClientCertIfGiven {
-					if err := verifyClientCert(c.state.remoteCertificate, c.rootCAs); err != nil {
-						return &alert{alertLevelFatal, alertBadCertificate}, err
-					}
-					verified = true
-				}
+				verified = true
 			}
 			if c.verifyPeerCertificate != nil {
 				if err := c.verifyPeerCertificate(c.state.remoteCertificate, verified); err != nil {
