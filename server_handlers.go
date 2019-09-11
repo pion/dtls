@@ -3,7 +3,6 @@ package dtls
 import (
 	"bytes"
 	"fmt"
-	"sync/atomic"
 )
 
 func serverHandshakeHandler(c *Conn) (*alert, error) {
@@ -276,20 +275,23 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 	case flight0:
 		// Waiting for ClientHello
 	case flight2:
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
-			},
-			content: &handshake{
-				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.handshakeMessageSequence),
+		c.internalSend(&packet{
+			record: &recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					protocolVersion: protocolVersion1_2,
 				},
-				handshakeMessage: &handshakeMessageHelloVerifyRequest{
-					version: protocolVersion1_2,
-					cookie:  c.cookie,
+				content: &handshake{
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(c.handshakeMessageSequence),
+					},
+					handshakeMessage: &handshakeMessageHelloVerifyRequest{
+						version: protocolVersion1_2,
+						cookie:  c.cookie,
+					},
 				},
 			},
-		}, false)
+			shouldEncrypt: false,
+		})
 
 	case flight4:
 		extensions := []extension{}
@@ -316,26 +318,8 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 		}
 
 		messageSequence := c.handshakeMessageSequence
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
-			},
-			content: &handshake{
-				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(messageSequence),
-				},
-				handshakeMessage: &handshakeMessageServerHello{
-					version:           protocolVersion1_2,
-					random:            c.state.localRandom,
-					cipherSuite:       c.state.cipherSuite,
-					compressionMethod: defaultCompressionMethods[0],
-					extensions:        extensions,
-				}},
-		}, false)
-		messageSequence++
-
-		if c.localPSKCallback == nil {
-			c.internalSend(&recordLayer{
+		c.bufferPacket(&packet{
+			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
 				},
@@ -343,10 +327,34 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 					handshakeHeader: handshakeHeader{
 						messageSequence: uint16(messageSequence),
 					},
-					handshakeMessage: &handshakeMessageCertificate{
-						certificate: c.localCertificate,
+					handshakeMessage: &handshakeMessageServerHello{
+						version:           protocolVersion1_2,
+						random:            c.state.localRandom,
+						cipherSuite:       c.state.cipherSuite,
+						compressionMethod: defaultCompressionMethods[0],
+						extensions:        extensions,
 					}},
-			}, false)
+			},
+			shouldEncrypt: false,
+		})
+		messageSequence++
+
+		if c.localPSKCallback == nil {
+			c.bufferPacket(&packet{
+				record: &recordLayer{
+					recordLayerHeader: recordLayerHeader{
+						protocolVersion: protocolVersion1_2,
+					},
+					content: &handshake{
+						handshakeHeader: handshakeHeader{
+							messageSequence: uint16(messageSequence),
+						},
+						handshakeMessage: &handshakeMessageCertificate{
+							certificate: c.localCertificate,
+						}},
+				},
+				shouldEncrypt: false,
+			})
 			messageSequence++
 
 			if len(c.localKeySignature) == 0 {
@@ -366,27 +374,8 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 				c.localKeySignature = signature
 			}
 
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(messageSequence),
-					},
-					handshakeMessage: &handshakeMessageServerKeyExchange{
-						ellipticCurveType:  ellipticCurveTypeNamedCurve,
-						namedCurve:         c.namedCurve,
-						publicKey:          c.localKeypair.publicKey,
-						hashAlgorithm:      HashAlgorithmSHA256,
-						signatureAlgorithm: signatureAlgorithmECDSA,
-						signature:          c.localKeySignature,
-					}},
-			}, false)
-			messageSequence++
-
-			if c.clientAuth > NoClientCert {
-				c.internalSend(&recordLayer{
+			c.bufferPacket(&packet{
+				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
 						protocolVersion: protocolVersion1_2,
 					},
@@ -394,19 +383,44 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 						handshakeHeader: handshakeHeader{
 							messageSequence: uint16(messageSequence),
 						},
-						handshakeMessage: &handshakeMessageCertificateRequest{
-							certificateTypes: []clientCertificateType{clientCertificateTypeRSASign, clientCertificateTypeECDSASign},
-							signatureHashAlgorithms: []signatureHashAlgorithm{
-								{HashAlgorithmSHA256, signatureAlgorithmRSA},
-								{HashAlgorithmSHA384, signatureAlgorithmRSA},
-								{HashAlgorithmSHA512, signatureAlgorithmRSA},
-								{HashAlgorithmSHA256, signatureAlgorithmECDSA},
-								{HashAlgorithmSHA384, signatureAlgorithmECDSA},
-								{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+						handshakeMessage: &handshakeMessageServerKeyExchange{
+							ellipticCurveType:  ellipticCurveTypeNamedCurve,
+							namedCurve:         c.namedCurve,
+							publicKey:          c.localKeypair.publicKey,
+							hashAlgorithm:      HashAlgorithmSHA256,
+							signatureAlgorithm: signatureAlgorithmECDSA,
+							signature:          c.localKeySignature,
+						}},
+				},
+				shouldEncrypt: false,
+			})
+			messageSequence++
+
+			if c.clientAuth > NoClientCert {
+				c.bufferPacket(&packet{
+					record: &recordLayer{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+						},
+						content: &handshake{
+							handshakeHeader: handshakeHeader{
+								messageSequence: uint16(messageSequence),
+							},
+							handshakeMessage: &handshakeMessageCertificateRequest{
+								certificateTypes: []clientCertificateType{clientCertificateTypeRSASign, clientCertificateTypeECDSASign},
+								signatureHashAlgorithms: []signatureHashAlgorithm{
+									{HashAlgorithmSHA256, signatureAlgorithmRSA},
+									{HashAlgorithmSHA384, signatureAlgorithmRSA},
+									{HashAlgorithmSHA512, signatureAlgorithmRSA},
+									{HashAlgorithmSHA256, signatureAlgorithmECDSA},
+									{HashAlgorithmSHA384, signatureAlgorithmECDSA},
+									{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+								},
 							},
 						},
 					},
-				}, false)
+					shouldEncrypt: false,
+				})
 				messageSequence++
 			}
 		} else if c.localPSKIdentityHint != nil {
@@ -416,7 +430,26 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 			*
 			*  https://tools.ietf.org/html/rfc4279#section-2
 			 */
-			c.internalSend(&recordLayer{
+			c.bufferPacket(&packet{
+				record: &recordLayer{
+					recordLayerHeader: recordLayerHeader{
+						protocolVersion: protocolVersion1_2,
+					},
+					content: &handshake{
+						handshakeHeader: handshakeHeader{
+							messageSequence: uint16(messageSequence),
+						},
+						handshakeMessage: &handshakeMessageServerKeyExchange{
+							identityHint: c.localPSKIdentityHint,
+						}},
+				},
+				shouldEncrypt: false,
+			})
+			messageSequence++
+		}
+
+		c.bufferPacket(&packet{
+			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
 				},
@@ -424,31 +457,23 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 					handshakeHeader: handshakeHeader{
 						messageSequence: uint16(messageSequence),
 					},
-					handshakeMessage: &handshakeMessageServerKeyExchange{
-						identityHint: c.localPSKIdentityHint,
-					}},
-			}, false)
-			messageSequence++
-		}
-
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
-			},
-			content: &handshake{
-				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(messageSequence),
+					handshakeMessage: &handshakeMessageServerHelloDone{},
 				},
-				handshakeMessage: &handshakeMessageServerHelloDone{},
 			},
-		}, false)
+			shouldEncrypt: false,
+		})
+
+		c.flushPacketBuffer()
 	case flight6:
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
+		c.bufferPacket(&packet{
+			record: &recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					protocolVersion: protocolVersion1_2,
+				},
+				content: &changeCipherSpec{},
 			},
-			content: &changeCipherSpec{},
-		}, false)
+			shouldEncrypt: false,
+		})
 
 		if len(c.localVerifyData) == 0 {
 			plainText := c.handshakeCache.pullAndMerge(
@@ -471,21 +496,26 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 			}
 		}
 
-		atomic.StoreUint64(&c.state.localSequenceNumber, 0)
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				epoch:           1,
-				protocolVersion: protocolVersion1_2,
-			},
-			content: &handshake{
-				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.handshakeMessageSequence),
+		c.bufferPacket(&packet{
+			record: &recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					epoch:           1,
+					protocolVersion: protocolVersion1_2,
 				},
+				content: &handshake{
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(c.handshakeMessageSequence),
+					},
 
-				handshakeMessage: &handshakeMessageFinished{
-					verifyData: c.localVerifyData,
-				}},
-		}, true)
+					handshakeMessage: &handshakeMessageFinished{
+						verifyData: c.localVerifyData,
+					}},
+			},
+			shouldEncrypt:            true,
+			resetLocalSequenceNumber: true,
+		})
+
+		c.flushPacketBuffer()
 
 		c.handshakeDoneSignal.Close()
 		return true, nil, nil

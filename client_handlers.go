@@ -289,23 +289,26 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 			})
 		}
 
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
-			},
-			content: &handshake{
-				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(c.handshakeMessageSequence),
+		c.internalSend(&packet{
+			record: &recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					protocolVersion: protocolVersion1_2,
 				},
-				handshakeMessage: &handshakeMessageClientHello{
-					version:            protocolVersion1_2,
-					cookie:             c.cookie,
-					random:             c.state.localRandom,
-					cipherSuites:       c.localCipherSuites,
-					compressionMethods: defaultCompressionMethods,
-					extensions:         extensions,
-				}},
-		}, false)
+				content: &handshake{
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(c.handshakeMessageSequence),
+					},
+					handshakeMessage: &handshakeMessageClientHello{
+						version:            protocolVersion1_2,
+						cookie:             c.cookie,
+						random:             c.state.localRandom,
+						cipherSuites:       c.localCipherSuites,
+						compressionMethods: defaultCompressionMethods,
+						extensions:         extensions,
+					}},
+			},
+			shouldEncrypt: false,
+		})
 	case flight5:
 		// TODO: Better way to end handshake
 		if c.getRemoteEpoch() != 0 && c.getLocalEpoch() == 1 {
@@ -315,18 +318,21 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 
 		messageSequence := c.handshakeMessageSequence
 		if c.remoteRequestedCertificate {
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(messageSequence),
+			c.bufferPacket(&packet{
+				record: &recordLayer{
+					recordLayerHeader: recordLayerHeader{
+						protocolVersion: protocolVersion1_2,
 					},
-					handshakeMessage: &handshakeMessageCertificate{
-						certificate: c.localCertificate,
-					}},
-			}, false)
+					content: &handshake{
+						handshakeHeader: handshakeHeader{
+							messageSequence: uint16(messageSequence),
+						},
+						handshakeMessage: &handshakeMessageCertificate{
+							certificate: c.localCertificate,
+						}},
+				},
+				shouldEncrypt: false,
+			})
 			messageSequence++
 		}
 
@@ -337,17 +343,20 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 			clientKeyExchange.identityHint = c.localPSKIdentityHint
 		}
 
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
-			},
-			content: &handshake{
-				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(messageSequence),
+		c.bufferPacket(&packet{
+			record: &recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					protocolVersion: protocolVersion1_2,
 				},
-				handshakeMessage: clientKeyExchange,
+				content: &handshake{
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(messageSequence),
+					},
+					handshakeMessage: clientKeyExchange,
+				},
 			},
-		}, false)
+			shouldEncrypt: false,
+		})
 
 		messageSequence++
 
@@ -405,29 +414,38 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 				c.localCertificateVerify = certVerify
 			}
 
-			c.internalSend(&recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
-				},
-				content: &handshake{
-					handshakeHeader: handshakeHeader{
-						messageSequence: uint16(messageSequence),
+			c.bufferPacket(&packet{
+				record: &recordLayer{
+					recordLayerHeader: recordLayerHeader{
+						protocolVersion: protocolVersion1_2,
 					},
-					handshakeMessage: &handshakeMessageCertificateVerify{
-						hashAlgorithm:      HashAlgorithmSHA256,
-						signatureAlgorithm: signatureAlgorithmECDSA,
-						signature:          c.localCertificateVerify,
-					}},
-			}, false)
+					content: &handshake{
+						handshakeHeader: handshakeHeader{
+							messageSequence: uint16(messageSequence),
+						},
+						handshakeMessage: &handshakeMessageCertificateVerify{
+							hashAlgorithm:      HashAlgorithmSHA256,
+							signatureAlgorithm: signatureAlgorithmECDSA,
+							signature:          c.localCertificateVerify,
+						}},
+				},
+				shouldEncrypt: false,
+			})
+
 			messageSequence++
 		}
 
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
+		c.flushPacketBuffer()
+
+		c.bufferPacket(&packet{
+			record: &recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					protocolVersion: protocolVersion1_2,
+				},
+				content: &changeCipherSpec{},
 			},
-			content: &changeCipherSpec{},
-		}, false)
+			shouldEncrypt: false,
+		})
 
 		if len(c.localVerifyData) == 0 {
 			plainText := c.handshakeCache.pullAndMerge(
@@ -450,20 +468,25 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 		}
 
 		// TODO: Fix hard-coded epoch, taking retransmitting into account.
-		atomic.StoreUint64(&c.state.localSequenceNumber, 0)
-		c.internalSend(&recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				epoch:           1,
-				protocolVersion: protocolVersion1_2,
-			},
-			content: &handshake{
-				handshakeHeader: handshakeHeader{
-					messageSequence: uint16(messageSequence),
+		c.bufferPacket(&packet{
+			record: &recordLayer{
+				recordLayerHeader: recordLayerHeader{
+					epoch:           1,
+					protocolVersion: protocolVersion1_2,
 				},
-				handshakeMessage: &handshakeMessageFinished{
-					verifyData: c.localVerifyData,
-				}},
-		}, true)
+				content: &handshake{
+					handshakeHeader: handshakeHeader{
+						messageSequence: uint16(messageSequence),
+					},
+					handshakeMessage: &handshakeMessageFinished{
+						verifyData: c.localVerifyData,
+					}},
+			},
+			shouldEncrypt:            true,
+			resetLocalSequenceNumber: true,
+		})
+
+		c.flushPacketBuffer()
 	default:
 		return false, &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled flight %s", c.currFlight.get())
 	}
