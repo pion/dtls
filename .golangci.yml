@@ -12,6 +12,7 @@ linters:
     - dupl
     - gocyclo
     - gochecknoglobals
+    - funlen
 
 issues:
   exclude-use-default: false
