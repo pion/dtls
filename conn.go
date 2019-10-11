@@ -559,6 +559,10 @@ func (c *Conn) handleIncomingPacket(buf []byte) (*alert, error) {
 		c.log.Trace("<- ChangeCipherSpec")
 		c.setRemoteEpoch(c.getRemoteEpoch() + 1)
 	case *applicationData:
+		if h.epoch == 0 {
+			return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("ApplicationData with epoch of 0")
+		}
+
 		c.decrypted <- content.data
 	default:
 		return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled contentType %d", content.contentType())
