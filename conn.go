@@ -557,7 +557,11 @@ func (c *Conn) handleIncomingPacket(buf []byte) (*alert, error) {
 		return nil, fmt.Errorf("alert: %v", content)
 	case *changeCipherSpec:
 		c.log.Trace("<- ChangeCipherSpec")
-		c.setRemoteEpoch(c.getRemoteEpoch() + 1)
+
+		newRemoteEpoch := h.epoch + 1
+		if c.getRemoteEpoch() < newRemoteEpoch {
+			c.setRemoteEpoch(newRemoteEpoch)
+		}
 	case *applicationData:
 		if h.epoch == 0 {
 			return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("ApplicationData with epoch of 0")
