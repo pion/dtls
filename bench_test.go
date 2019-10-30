@@ -7,9 +7,13 @@ import (
 	"time"
 
 	"github.com/pion/logging"
+	"github.com/pion/transport/test"
 )
 
 func TestSimpleReadWrite(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
 	ca, cb := net.Pipe()
 	certificate, privateKey, err := GenerateSelfSigned()
 	if err != nil {
@@ -49,6 +53,12 @@ func TestSimpleReadWrite(t *testing.T) {
 		// OK
 	case <-time.After(time.Second * 5):
 		t.Error("timeout")
+	}
+
+	if err = ca.Close(); err != nil {
+		t.Error(err)
+	} else if err = cb.Close(); err != nil {
+		t.Error(err)
 	}
 }
 
