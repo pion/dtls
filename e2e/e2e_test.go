@@ -61,17 +61,18 @@ func simpleReadWrite(errChan chan error, outChan chan string, conn io.ReadWriter
 }
 
 func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, serverPort int, t *testing.T) {
-	errChan := make(chan error)
-	clientChan := make(chan string)
-	serverChan := make(chan string)
-	var messageRecvCount uint64 // Counter to make sure both sides got a message
-	var clientMutex sync.Mutex
-	var clientConn net.Conn
-	var serverMutex sync.Mutex
-	var serverConn net.Conn
-	var serverListener *dtls.Listener
-
-	serverReady := make(chan struct{})
+	var (
+		messageRecvCount uint64 // Counter to make sure both sides got a message
+		clientMutex      sync.Mutex
+		clientConn       net.Conn
+		serverMutex      sync.Mutex
+		serverConn       net.Conn
+		serverListener   *dtls.Listener
+		serverReady      = make(chan struct{})
+		errChan          = make(chan error)
+		clientChan       = make(chan string)
+		serverChan       = make(chan string)
+	)
 
 	// DTLS Client
 	go func() {
