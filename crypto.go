@@ -3,6 +3,7 @@ package dtls
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -39,6 +40,9 @@ func valueKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve 
 func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, privateKey crypto.PrivateKey, hashAlgorithm HashAlgorithm) ([]byte, error) {
 	hashed := valueKeySignature(clientRandom, serverRandom, publicKey, namedCurve, hashAlgorithm)
 	switch p := privateKey.(type) {
+	case ed25519.PrivateKey:
+		// https://crypto.stackexchange.com/a/55483
+		return p.Sign(rand.Reader, hashed, crypto.Hash(0))
 	case *ecdsa.PrivateKey:
 		return p.Sign(rand.Reader, hashed, crypto.SHA256)
 	case *rsa.PrivateKey:
@@ -50,6 +54,11 @@ func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 
 func verifyKeySignature(hash, remoteKeySignature []byte, hashAlgorithm HashAlgorithm, certificate *x509.Certificate) error {
 	switch p := certificate.PublicKey.(type) {
+	case ed25519.PublicKey:
+		if ok := ed25519.Verify(p, hash, remoteKeySignature); !ok {
+			return errKeySignatureMismatch
+		}
+		return nil
 	case *ecdsa.PublicKey:
 		ecdsaSig := &ecdsaSignature{}
 		if _, err := asn1.Unmarshal(remoteKeySignature, ecdsaSig); err != nil {
@@ -88,6 +97,9 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 	hashed := h.Sum(nil)
 
 	switch p := privateKey.(type) {
+	case ed25519.PrivateKey:
+		// https://crypto.stackexchange.com/a/55483
+		return p.Sign(rand.Reader, hashed, crypto.Hash(0))
 	case *ecdsa.PrivateKey:
 		return p.Sign(rand.Reader, hashed, crypto.SHA256)
 	case *rsa.PrivateKey:
@@ -100,6 +112,11 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm, remoteKeySignature []byte, certificate *x509.Certificate) error {
 	hash := hashAlgorithm.digest(handshakeBodies)
 	switch p := certificate.PublicKey.(type) {
+	case ed25519.PublicKey:
+		if ok := ed25519.Verify(p, hash, remoteKeySignature); !ok {
+			return errKeySignatureMismatch
+		}
+		return nil
 	case *ecdsa.PublicKey:
 		ecdsaSig := &ecdsaSignature{}
 		if _, err := asn1.Unmarshal(remoteKeySignature, ecdsaSig); err != nil {
