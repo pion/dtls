@@ -3,6 +3,7 @@ package dtls
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"fmt"
@@ -98,7 +99,10 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	}
 
 	if config.PrivateKey != nil {
-		if _, ok := config.PrivateKey.(*ecdsa.PrivateKey); !ok {
+		switch config.PrivateKey.(type) {
+		case ed25519.PrivateKey:
+		case *ecdsa.PrivateKey:
+		default:
 			return nil, errInvalidPrivateKey
 		}
 	}
