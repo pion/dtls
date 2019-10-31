@@ -3,6 +3,7 @@ package dtls
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
@@ -38,20 +39,41 @@ func putBigEndianUint48(out []byte, in uint64) {
 
 // GenerateSelfSigned creates a self-signed certificate
 func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	origin := make([]byte, 16)
-
-	// Max random value, a 130-bits integer, i.e 2^130 - 1
-	maxBigInt := new(big.Int)
-	/* #nosec */
-	maxBigInt.Exp(big.NewInt(2), big.NewInt(130), nil).Sub(maxBigInt, big.NewInt(1))
-	serialNumber, err := rand.Int(rand.Reader, maxBigInt)
+	cert, err := SelfSign(key)
 	if err != nil {
 		return nil, nil, err
+	}
+	return cert, key, nil
+}
+
+// SelfSign creates a self-signed certificate from a elliptic curve key
+func SelfSign(key crypto.PrivateKey) (*x509.Certificate, error) {
+	var (
+		pubKey    crypto.PublicKey
+		origin    = make([]byte, 16)
+		maxBigInt = new(big.Int) // Max random value, a 130-bits integer, i.e 2^130 - 1
+	)
+
+	switch k := key.(type) {
+	case ed25519.PrivateKey:
+		pubKey = k.Public()
+	case *ecdsa.PrivateKey:
+		pubKey = k.Public()
+	default:
+		return nil, errInvalidPrivateKey
+	}
+
+	/* #nosec */
+	maxBigInt.Exp(big.NewInt(2), big.NewInt(130), nil).Sub(maxBigInt, big.NewInt(1))
+	/* #nosec */
+	serialNumber, err := rand.Int(rand.Reader, maxBigInt)
+	if err != nil {
+		return nil, err
 	}
 
 	template := x509.Certificate{
@@ -69,17 +91,17 @@ func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
 		IsCA:                  true,
 	}
 
-	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, pubKey, key)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	cert, err := x509.ParseCertificate(raw)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return cert, priv, nil
+	return cert, nil
 }
 
 func max(a, b int) int {
