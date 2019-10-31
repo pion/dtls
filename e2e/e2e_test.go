@@ -1,8 +1,15 @@
 package e2e
 
 import (
+	"crypto"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
 	"errors"
 	"io"
+	"math/big"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -206,6 +213,80 @@ func TestPionE2ESimple(t *testing.T) {
 		}
 		assertE2ECommunication(cfg, cfg, serverPort, t)
 
+	}
+}
+
+func generateSelfSignedED25519() (*x509.Certificate, crypto.PrivateKey, error) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	origin := make([]byte, 16)
+
+	// Max random value, a 130-bits integer, i.e 2^130 - 1
+	maxBigInt := new(big.Int)
+	/* #nosec */
+	maxBigInt.Exp(big.NewInt(2), big.NewInt(130), nil).Sub(maxBigInt, big.NewInt(1))
+	serialNumber, err := rand.Int(rand.Reader, maxBigInt)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	template := x509.Certificate{
+		ExtKeyUsage: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageClientAuth,
+			x509.ExtKeyUsageServerAuth,
+		},
+		BasicConstraintsValid: true,
+		NotBefore:             time.Now(),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		NotAfter:              time.Now().AddDate(0, 1, 0),
+		SerialNumber:          serialNumber,
+		Version:               2,
+		Subject:               pkix.Name{CommonName: hex.EncodeToString(origin)},
+		IsCA:                  true,
+	}
+
+	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, priv.Public(), priv)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cert, err := x509.ParseCertificate(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return cert, priv, nil
+}
+
+func TestPionE2ESimpleED25519(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	serverPort := randomPort(t)
+
+	for _, cipherSuite := range []dtls.CipherSuiteID{
+		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+	} {
+		cert, key, err := generateSelfSignedED25519()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &dtls.Config{
+			Certificate:        cert,
+			PrivateKey:         key,
+			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
+			InsecureSkipVerify: true,
+			ConnectTimeout:     dtls.ConnectTimeoutOption(5 * time.Second),
+		}
+		assertE2ECommunication(cfg, cfg, serverPort, t)
 	}
 }
 
