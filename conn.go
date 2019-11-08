@@ -2,8 +2,6 @@ package dtls
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"fmt"
@@ -89,24 +87,13 @@ type Conn struct {
 }
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
-	switch {
-	case config == nil:
-		return nil, errNoConfigProvided
-	case nextConn == nil:
-		return nil, errNilNextConn
-	case config.Certificate != nil && config.PSK != nil:
-		return nil, errPSKAndCertificate
-	case config.PSKIdentityHint != nil && config.PSK == nil:
-		return nil, errIdentityNoPSK
+	err := validateConfig(config)
+	if err != nil {
+		return nil, err
 	}
 
-	if config.PrivateKey != nil {
-		switch config.PrivateKey.(type) {
-		case ed25519.PrivateKey:
-		case *ecdsa.PrivateKey:
-		default:
-			return nil, errInvalidPrivateKey
-		}
+	if nextConn == nil {
+		return nil, errNilNextConn
 	}
 
 	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.PSK == nil, config.PSK != nil)
