@@ -2,6 +2,8 @@ package dtls
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/x509"
 	"time"
 
@@ -123,3 +125,26 @@ const (
 	RequireExtendedMasterSecret
 	DisableExtendedMasterSecret
 )
+
+func validateConfig(config *Config) error {
+	switch {
+	case config == nil:
+		return errNoConfigProvided
+	case config.Certificate != nil && config.PSK != nil:
+		return errPSKAndCertificate
+	case config.PSKIdentityHint != nil && config.PSK == nil:
+		return errIdentityNoPSK
+	}
+
+	if config.PrivateKey != nil {
+		switch config.PrivateKey.(type) {
+		case ed25519.PrivateKey:
+		case *ecdsa.PrivateKey:
+		default:
+			return errInvalidPrivateKey
+		}
+	}
+
+	_, err := parseCipherSuites(config.CipherSuites, config.PSK == nil, config.PSK != nil)
+	return err
+}
