@@ -1,7 +1,6 @@
 package dtls
 
 import (
-	"errors"
 	"net"
 	"time"
 
@@ -10,9 +9,10 @@ import (
 
 // Listen creates a DTLS listener
 func Listen(network string, laddr *net.UDPAddr, config *Config) (*Listener, error) {
-	if config == nil {
-		return nil, errors.New("no config provided")
+	if err := validateConfig(config); err != nil {
+		return nil, err
 	}
+
 	parent, err := udp.Listen(network, laddr)
 	if err != nil {
 		return nil, err
