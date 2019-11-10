@@ -2,7 +2,6 @@ package dtls
 
 import (
 	"crypto/x509"
-	"errors"
 	"fmt"
 )
 
@@ -15,7 +14,7 @@ func Fingerprint(cert *x509.Certificate, algo HashAlgorithm) (string, error) {
 		return "", nil
 	}
 	if digestlen%2 != 0 {
-		return "", errors.New("invalid fingerprint length")
+		return "", errInvalidFingerprintLength
 	}
 	res := make([]byte, digestlen>>1+digestlen-1)
 
