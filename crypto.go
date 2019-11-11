@@ -52,7 +52,15 @@ func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 	return nil, errKeySignatureGenerateUnimplemented
 }
 
-func verifyKeySignature(hash, remoteKeySignature []byte, hashAlgorithm HashAlgorithm, certificate *x509.Certificate) error {
+func verifyKeySignature(hash, remoteKeySignature []byte, hashAlgorithm HashAlgorithm, rawCertificates [][]byte) error {
+	if len(rawCertificates) == 0 {
+		return errLengthMismatch
+	}
+	certificate, err := x509.ParseCertificate(rawCertificates[0])
+	if err != nil {
+		return err
+	}
+
 	switch p := certificate.PublicKey.(type) {
 	case ed25519.PublicKey:
 		if ok := ed25519.Verify(p, hash, remoteKeySignature); !ok {
@@ -109,7 +117,15 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 	return nil, errInvalidSignatureAlgorithm
 }
 
-func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm, remoteKeySignature []byte, certificate *x509.Certificate) error {
+func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm, remoteKeySignature []byte, rawCertificates [][]byte) error {
+	if len(rawCertificates) == 0 {
+		return errLengthMismatch
+	}
+	certificate, err := x509.ParseCertificate(rawCertificates[0])
+	if err != nil {
+		return err
+	}
+
 	hash := hashAlgorithm.digest(handshakeBodies)
 	switch p := certificate.PublicKey.(type) {
 	case ed25519.PublicKey:
@@ -139,27 +155,59 @@ func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm
 	return errKeySignatureVerifyUnimplemented
 }
 
-func verifyClientCert(cert *x509.Certificate, roots *x509.CertPool) error {
+func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
+	if len(rawCertificates) == 0 {
+		return nil, errLengthMismatch
+	}
+
+	certs := make([]*x509.Certificate, 0, len(rawCertificates))
+	for _, rawCert := range rawCertificates {
+		cert, err := x509.ParseCertificate(rawCert)
+		if err != nil {
+			return nil, err
+		}
+		certs = append(certs, cert)
+	}
+	return certs, nil
+}
+
+func verifyClientCert(rawCertificates [][]byte, roots *x509.CertPool) error {
+	certificate, err := loadCerts(rawCertificates)
+	if err != nil {
+		return err
+	}
+	intermediateCAPool := x509.NewCertPool()
+	for _, cert := range certificate[1:] {
+		intermediateCAPool.AddCert(cert)
+	}
 	opts := x509.VerifyOptions{
 		Roots:         roots,
 		CurrentTime:   time.Now(),
-		Intermediates: x509.NewCertPool(),
+		Intermediates: intermediateCAPool,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	if _, err := cert.Verify(opts); err != nil {
+	if _, err := certificate[0].Verify(opts); err != nil {
 		return err
 	}
 	return nil
 }
 
-func verifyServerCert(cert *x509.Certificate, roots *x509.CertPool, serverName string) error {
+func verifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName string) error {
+	certificate, err := loadCerts(rawCertificates)
+	if err != nil {
+		return err
+	}
+	intermediateCAPool := x509.NewCertPool()
+	for _, cert := range certificate[1:] {
+		intermediateCAPool.AddCert(cert)
+	}
 	opts := x509.VerifyOptions{
 		Roots:         roots,
 		CurrentTime:   time.Now(),
 		DNSName:       serverName,
-		Intermediates: x509.NewCertPool(),
+		Intermediates: intermediateCAPool,
 	}
-	if _, err := cert.Verify(opts); err != nil {
+	if _, err := certificate[0].Verify(opts); err != nil {
 		return err
 	}
 	return nil

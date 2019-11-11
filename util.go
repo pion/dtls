@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/binary"
@@ -38,21 +39,17 @@ func putBigEndianUint48(out []byte, in uint64) {
 }
 
 // GenerateSelfSigned creates a self-signed certificate
-func GenerateSelfSigned() (*x509.Certificate, crypto.PrivateKey, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+func GenerateSelfSigned() (tls.Certificate, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, nil, err
+		return tls.Certificate{}, err
 	}
 
-	cert, err := SelfSign(key)
-	if err != nil {
-		return nil, nil, err
-	}
-	return cert, key, nil
+	return SelfSign(priv)
 }
 
 // SelfSign creates a self-signed certificate from a elliptic curve key
-func SelfSign(key crypto.PrivateKey) (*x509.Certificate, error) {
+func SelfSign(key crypto.PrivateKey) (tls.Certificate, error) {
 	var (
 		pubKey    crypto.PublicKey
 		origin    = make([]byte, 16)
@@ -65,7 +62,7 @@ func SelfSign(key crypto.PrivateKey) (*x509.Certificate, error) {
 	case *ecdsa.PrivateKey:
 		pubKey = k.Public()
 	default:
-		return nil, errInvalidPrivateKey
+		return tls.Certificate{}, errInvalidPrivateKey
 	}
 
 	/* #nosec */
@@ -73,7 +70,7 @@ func SelfSign(key crypto.PrivateKey) (*x509.Certificate, error) {
 	/* #nosec */
 	serialNumber, err := rand.Int(rand.Reader, maxBigInt)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 
 	template := x509.Certificate{
@@ -93,15 +90,13 @@ func SelfSign(key crypto.PrivateKey) (*x509.Certificate, error) {
 
 	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, pubKey, key)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 
-	cert, err := x509.ParseCertificate(raw)
-	if err != nil {
-		return nil, err
-	}
-
-	return cert, nil
+	return tls.Certificate{
+		Certificate: [][]byte{raw},
+		PrivateKey:  key,
+	}, nil
 }
 
 func max(a, b int) int {

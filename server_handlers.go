@@ -349,7 +349,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							messageSequence: uint16(messageSequence),
 						},
 						handshakeMessage: &handshakeMessageCertificate{
-							certificate: c.localCertificate,
+							certificate: c.localCertificate.Certificate,
 						}},
 				},
 			})
@@ -365,7 +365,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
 
-				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localPrivateKey, HashAlgorithmSHA256)
+				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localCertificate.PrivateKey, HashAlgorithmSHA256)
 				if err != nil {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}

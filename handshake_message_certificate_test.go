@@ -43,26 +43,29 @@ func TestHandshakeMessageCertificate(t *testing.T) {
 		0x80, 0xa4, 0xd4, 0xb7, 0x7f, 0x7d, 0x78, 0xb3, 0xfb, 0xf3, 0x95, 0xfb, 0x02, 0x21, 0x00, 0xc0,
 		0x73, 0x30, 0xda, 0x2b, 0xc0, 0x0c, 0x9e, 0xb2, 0x25, 0x0d, 0x46, 0xb0, 0xbc, 0x66, 0x7f, 0x71,
 		0x66, 0xbf, 0x16, 0xb3, 0x80, 0x78, 0xd0, 0x0c, 0xef, 0xcc, 0xf5, 0xc1, 0x15, 0x0f, 0x58}
-	parsedCertificate := &handshakeMessageCertificate{
-		certificate: &x509.Certificate{
-			Raw:                     rawCertificate[6:],
-			RawTBSCertificate:       rawCertificate[10:313],
-			RawSubjectPublicKeyInfo: rawCertificate[222:313],
-			RawSubject:              rawCertificate[48:119],
-			RawIssuer:               rawCertificate[48:119],
-			Signature:               rawCertificate[328:],
-			SignatureAlgorithm:      x509.ECDSAWithSHA256,
-			PublicKeyAlgorithm:      x509.ECDSA,
-			Version:                 1,
-		},
+
+	parsedCertificate := &x509.Certificate{
+		Raw:                     rawCertificate[6:],
+		RawTBSCertificate:       rawCertificate[10:313],
+		RawSubjectPublicKeyInfo: rawCertificate[222:313],
+		RawSubject:              rawCertificate[48:119],
+		RawIssuer:               rawCertificate[48:119],
+		Signature:               rawCertificate[328:],
+		SignatureAlgorithm:      x509.ECDSAWithSHA256,
+		PublicKeyAlgorithm:      x509.ECDSA,
+		Version:                 1,
 	}
 
 	c := &handshakeMessageCertificate{}
 	if err := c.Unmarshal(rawCertificate); err != nil {
 		t.Error(err)
 	} else {
-		copyCertificatePrivateMembers(c.certificate, parsedCertificate.certificate)
-		if !reflect.DeepEqual(c, parsedCertificate) {
+		certificate, err := x509.ParseCertificate(c.certificate[0])
+		if err != nil {
+			t.Error(err)
+		}
+		copyCertificatePrivateMembers(certificate, parsedCertificate)
+		if !reflect.DeepEqual(certificate, parsedCertificate) {
 			t.Errorf("handshakeMessageCertificate unmarshal: got %#v, want %#v", c, parsedCertificate)
 		}
 	}

@@ -23,12 +23,12 @@ func TestPionE2ELossy(t *testing.T) {
 		err      error
 	}
 
-	serverCert, serverKey, err := dtls.GenerateSelfSigned()
+	serverCert, err := dtls.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	clientCert, clientKey, err := dtls.GenerateSelfSigned()
+	clientCert, err := dtls.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,6 @@ func TestPionE2ELossy(t *testing.T) {
 
 			if test.DoClientAuth {
 				cfg.Certificate = clientCert
-				cfg.PrivateKey = clientKey
 			}
 
 			client, startupErr := dtls.Client(br.GetConn0(), cfg)
@@ -129,7 +128,6 @@ func TestPionE2ELossy(t *testing.T) {
 		go func() {
 			cfg := &dtls.Config{
 				Certificate:    serverCert,
-				PrivateKey:     serverKey,
 				FlightInterval: flightInterval,
 				MTU:            test.MTU,
 			}

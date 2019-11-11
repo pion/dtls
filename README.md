@@ -127,6 +127,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Ryan Gordon](https://github.com/ryangordon)
 * [Stefan Tatschner](https://rumpelsepp.org/contact.html)
 * [Hayden James](https://github.com/hjames9)
+* [Jozef Kralik](https://github.com/jkralik)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

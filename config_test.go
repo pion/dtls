@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"testing"
@@ -13,7 +14,7 @@ func TestValidateConfig(t *testing.T) {
 	}
 
 	//PSK and Certificate
-	cert, key, err := GenerateSelfSigned()
+	cert, err := GenerateSelfSigned()
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), self signed certificate not generated", err)
 		return
@@ -47,7 +48,7 @@ func TestValidateConfig(t *testing.T) {
 	}
 	config = &Config{
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		PrivateKey:   rsaKey,
+		Certificate:  tls.Certificate{PrivateKey: rsaKey},
 	}
 	if err = validateConfig(config); err != errInvalidPrivateKey {
 		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errInvalidPrivateKey, err)
@@ -63,7 +64,6 @@ func TestValidateConfig(t *testing.T) {
 	config = &Config{
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		Certificate:  cert,
-		PrivateKey:   key,
 	}
 	if err = validateConfig(config); err != nil {
 		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", nil, err)

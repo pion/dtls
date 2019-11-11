@@ -14,7 +14,7 @@ func main() {
 	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4444}
 
 	// Generate a certificate and private key to secure the connection
-	certificate, privateKey, genErr := dtls.GenerateSelfSigned()
+	certificate, genErr := dtls.GenerateSelfSigned()
 	util.Check(genErr)
 
 	//
@@ -24,7 +24,6 @@ func main() {
 	// Prepare the configuration of the DTLS connection
 	config := &dtls.Config{
 		Certificate:          certificate,
-		PrivateKey:           privateKey,
 		InsecureSkipVerify:   true,
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
 		ConnectTimeout:       dtls.ConnectTimeoutOption(30 * time.Second),
