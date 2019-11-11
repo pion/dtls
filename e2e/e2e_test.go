@@ -194,14 +194,13 @@ func TestPionE2ESimple(t *testing.T) {
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
-		cert, key, err := dtls.GenerateSelfSigned()
+		cert, err := dtls.GenerateSelfSigned()
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		cfg := &dtls.Config{
 			Certificate:        cert,
-			PrivateKey:         key,
 			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 			InsecureSkipVerify: true,
 			ConnectTimeout:     dtls.ConnectTimeoutOption(2 * time.Second),
@@ -235,7 +234,6 @@ func TestPionE2ESimpleED25519(t *testing.T) {
 
 		cfg := &dtls.Config{
 			Certificate:        cert,
-			PrivateKey:         key,
 			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 			InsecureSkipVerify: true,
 			ConnectTimeout:     dtls.ConnectTimeoutOption(5 * time.Second),
@@ -283,14 +281,13 @@ func TestPionE2EMTUs(t *testing.T) {
 		1000,
 		100,
 	} {
-		cert, key, err := dtls.GenerateSelfSigned()
+		cert, err := dtls.GenerateSelfSigned()
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		cfg := &dtls.Config{
 			Certificate:        cert,
-			PrivateKey:         key,
 			CipherSuites:       []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			InsecureSkipVerify: true,
 			MTU:                mtu,

@@ -1,52 +1,55 @@
 package dtls
 
-import (
-	"crypto/x509"
-)
-
 type handshakeMessageCertificate struct {
-	certificate *x509.Certificate
+	certificate [][]byte
 }
 
 func (h handshakeMessageCertificate) handshakeType() handshakeType {
 	return handshakeTypeCertificate
 }
 
+const (
+	handshakeMessageCertificateLengthFieldSize = 3
+)
+
 func (h *handshakeMessageCertificate) Marshal() ([]byte, error) {
-	var raw []byte
-	if h.certificate != nil {
-		raw = h.certificate.Raw
+	out := make([]byte, handshakeMessageCertificateLengthFieldSize)
+
+	for _, r := range h.certificate {
+		// Certificate Length
+		out = append(out, make([]byte, handshakeMessageCertificateLengthFieldSize)...)
+		putBigEndianUint24(out[len(out)-handshakeMessageCertificateLengthFieldSize:], uint32(len(r)))
+
+		// Certificate body
+		out = append(out, append([]byte{}, r...)...)
 	}
 
-	out := make([]byte, 6)
-	putBigEndianUint24(out, uint32(len(raw))+3)
-	putBigEndianUint24(out[3:], uint32(len(raw)))
-
-	return append(out, raw...), nil
+	// Total Payload Size
+	putBigEndianUint24(out[0:], uint32(len(out[handshakeMessageCertificateLengthFieldSize:])))
+	return out, nil
 }
 
 func (h *handshakeMessageCertificate) Unmarshal(data []byte) error {
-	if len(data) < 3 {
+	if len(data) < handshakeMessageCertificateLengthFieldSize {
 		return errBufferTooSmall
 	}
 
-	certificateBodyLen := int(bigEndianUint24(data))
-	certificateLen := int(bigEndianUint24(data[3:]))
-	if certificateLen == 0 {
-		return nil
-	}
-	if certificateBodyLen+3 != len(data) {
-		return errLengthMismatch
-	} else if certificateLen+6 != len(data) {
+	if certificateBodyLen := int(bigEndianUint24(data)); certificateBodyLen+handshakeMessageCertificateLengthFieldSize != len(data) {
 		return errLengthMismatch
 	}
 
-	if len(data) > 6 {
-		cert, err := x509.ParseCertificate(data[6:])
-		if err != nil {
-			return err
+	offset := handshakeMessageCertificateLengthFieldSize
+	for offset < len(data) {
+		certificateLen := int(bigEndianUint24(data[offset:]))
+		offset += handshakeMessageCertificateLengthFieldSize
+
+		if offset+certificateLen > len(data) {
+			return errLengthMismatch
 		}
-		h.certificate = cert
+
+		h.certificate = append(h.certificate, append([]byte{}, data[offset:offset+certificateLen]...))
+		offset += certificateLen
 	}
+
 	return nil
 }

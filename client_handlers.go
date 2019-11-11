@@ -328,7 +328,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 							messageSequence: uint16(messageSequence),
 						},
 						handshakeMessage: &handshakeMessageCertificate{
-							certificate: c.localCertificate,
+							certificate: c.localCertificate.Certificate,
 						}},
 				},
 			})
@@ -392,7 +392,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 		// If the client has sent a certificate with signing ability, a digitally-signed
 		// CertificateVerify message is sent to explicitly verify possession of the
 		// private key in the certificate.
-		if c.remoteRequestedCertificate && c.localCertificate != nil {
+		if c.remoteRequestedCertificate && c.localCertificate.PrivateKey != nil {
 			if len(c.localCertificateVerify) == 0 {
 				plainText := c.handshakeCache.pullAndMerge(
 					handshakeCachePullRule{handshakeTypeClientHello, true},
@@ -405,7 +405,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 					handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
 				)
 
-				certVerify, err := generateCertificateVerify(plainText, c.localPrivateKey)
+				certVerify, err := generateCertificateVerify(plainText, c.localCertificate.PrivateKey)
 				if err != nil {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
