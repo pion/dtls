@@ -1,8 +1,8 @@
 package dtls
 
 import (
-	"crypto"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"math"
@@ -56,8 +56,7 @@ type Conn struct {
 
 	currFlight       *flight
 	namedCurve       namedCurve
-	localCertificate *x509.Certificate
-	localPrivateKey  crypto.PrivateKey
+	localCertificate tls.Certificate
 	localKeypair     *namedCurveKeypair
 	cookie           []byte
 
@@ -70,7 +69,7 @@ type Conn struct {
 	remoteCertificateVerified bool
 
 	insecureSkipVerify    bool
-	verifyPeerCertificate func(cer *x509.Certificate, verified bool) error
+	verifyPeerCertificate func(rawCert [][]byte, verified bool) error
 	rootCAs               *x509.CertPool
 	serverName            string
 
@@ -139,7 +138,6 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		connectTimeout:              connectTimeout,
 		maximumTransmissionUnit:     mtu,
 		localCertificate:            config.Certificate,
-		localPrivateKey:             config.PrivateKey,
 		clientAuth:                  config.ClientAuth,
 		extendedMasterSecret:        config.ExtendedMasterSecret,
 		insecureSkipVerify:          config.InsecureSkipVerify,
@@ -234,7 +232,7 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 	switch {
 	case config == nil:
 		return nil, errNoConfigProvided
-	case config.PSK == nil && config.Certificate == nil:
+	case config.PSK == nil && (config.Certificate.PrivateKey == nil || config.Certificate.Certificate == nil):
 		return nil, errServerMustHaveCertificate
 	}
 
@@ -294,7 +292,7 @@ func (c *Conn) Close() error {
 }
 
 // RemoteCertificate exposes the remote certificate
-func (c *Conn) RemoteCertificate() *x509.Certificate {
+func (c *Conn) RemoteCertificate() [][]byte {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.state.remoteCertificate
