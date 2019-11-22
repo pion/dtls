@@ -171,10 +171,10 @@ func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-func verifyClientCert(rawCertificates [][]byte, roots *x509.CertPool) error {
+func verifyClientCert(rawCertificates [][]byte, roots *x509.CertPool) (chains [][]*x509.Certificate, err error) {
 	certificate, err := loadCerts(rawCertificates)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	intermediateCAPool := x509.NewCertPool()
 	for _, cert := range certificate[1:] {
@@ -186,16 +186,13 @@ func verifyClientCert(rawCertificates [][]byte, roots *x509.CertPool) error {
 		Intermediates: intermediateCAPool,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	if _, err := certificate[0].Verify(opts); err != nil {
-		return err
-	}
-	return nil
+	return certificate[0].Verify(opts)
 }
 
-func verifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName string) error {
+func verifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName string) (chains [][]*x509.Certificate, err error) {
 	certificate, err := loadCerts(rawCertificates)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	intermediateCAPool := x509.NewCertPool()
 	for _, cert := range certificate[1:] {
@@ -207,10 +204,7 @@ func verifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName
 		DNSName:       serverName,
 		Intermediates: intermediateCAPool,
 	}
-	if _, err := certificate[0].Verify(opts); err != nil {
-		return err
-	}
-	return nil
+	return certificate[0].Verify(opts)
 }
 
 func generateAEADAdditionalData(h *recordLayerHeader, payloadLen int) []byte {

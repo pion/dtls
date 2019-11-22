@@ -16,7 +16,8 @@ type Config struct {
 	// Certificates contains certificate chain to present to the other side of the connection.
 	// Server MUST set this if PSK is non-nil
 	// client SHOULD sets this so CertificateRequests can be handled if PSK is non-nil
-	Certificate tls.Certificate
+	// TODO: add support to use more certificates then one.
+	Certificates []tls.Certificate
 
 	// CipherSuites is a list of supported cipher suites.
 	// If CipherSuites is nil, a default list is used
@@ -62,13 +63,18 @@ type Config struct {
 	// considering this callback. If normal verification is disabled by
 	// setting InsecureSkipVerify, or (for a server) when ClientAuth is
 	// RequestClientCert or RequireAnyClientCert, then this callback will
-	// be considered but the verified flag will always be false.
-	VerifyPeerCertificate func(rawCert [][]byte, verified bool) error
+	// be considered but the verifiedChains will always be nil.
+	VerifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 
 	// RootCAs defines the set of root certificate authorities
 	// that one peer uses when verifying the other peer's certificates.
 	// If RootCAs is nil, TLS uses the host's root CA set.
 	RootCAs *x509.CertPool
+
+	// ClientCAs defines the set of root certificate authorities
+	// that servers use if required to verify a client certificate
+	// by the policy in ClientAuth.
+	ClientCAs *x509.CertPool
 
 	// ServerName is used to verify the hostname on the returned
 	// certificates unless InsecureSkipVerify is given.
@@ -126,18 +132,23 @@ func validateConfig(config *Config) error {
 	switch {
 	case config == nil:
 		return errNoConfigProvided
-	case config.Certificate.PrivateKey != nil && config.PSK != nil:
+	case len(config.Certificates) > 0 && config.PSK != nil:
 		return errPSKAndCertificate
 	case config.PSKIdentityHint != nil && config.PSK == nil:
 		return errIdentityNoPSK
 	}
 
-	if config.Certificate.PrivateKey != nil {
-		switch config.Certificate.PrivateKey.(type) {
-		case ed25519.PrivateKey:
-		case *ecdsa.PrivateKey:
-		default:
-			return errInvalidPrivateKey
+	for _, cert := range config.Certificates {
+		if cert.Certificate == nil {
+			return errInvalidCertificate
+		}
+		if cert.PrivateKey != nil {
+			switch cert.PrivateKey.(type) {
+			case ed25519.PrivateKey:
+			case *ecdsa.PrivateKey:
+			default:
+				return errInvalidPrivateKey
+			}
 		}
 	}
 

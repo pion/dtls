@@ -3,6 +3,7 @@ package e2e
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net"
@@ -200,7 +201,7 @@ func TestPionE2ESimple(t *testing.T) {
 		}
 
 		cfg := &dtls.Config{
-			Certificate:        cert,
+			Certificates:       []tls.Certificate{cert},
 			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 			InsecureSkipVerify: true,
 			ConnectTimeout:     dtls.ConnectTimeoutOption(2 * time.Second),
@@ -233,7 +234,7 @@ func TestPionE2ESimpleED25519(t *testing.T) {
 		}
 
 		cfg := &dtls.Config{
-			Certificate:        cert,
+			Certificates:       []tls.Certificate{cert},
 			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 			InsecureSkipVerify: true,
 			ConnectTimeout:     dtls.ConnectTimeoutOption(5 * time.Second),
@@ -287,7 +288,7 @@ func TestPionE2EMTUs(t *testing.T) {
 		}
 
 		cfg := &dtls.Config{
-			Certificate:        cert,
+			Certificates:       []tls.Certificate{cert},
 			CipherSuites:       []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			InsecureSkipVerify: true,
 			MTU:                mtu,
