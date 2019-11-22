@@ -54,23 +54,24 @@ type Conn struct {
 	clientAuth           ClientAuthType           // If we are a client should we request a client certificate
 	extendedMasterSecret ExtendedMasterSecretType // Policy for the Extended Master Support extension
 
-	currFlight       *flight
-	namedCurve       namedCurve
-	localCertificate tls.Certificate
-	localKeypair     *namedCurveKeypair
-	cookie           []byte
+	currFlight        *flight
+	namedCurve        namedCurve
+	localCertificates []tls.Certificate
+	localKeypair      *namedCurveKeypair
+	cookie            []byte
 
 	localPSKCallback     PSKCallback
 	localPSKIdentityHint []byte
 
-	localCertificateVerify    []byte // cache CertificateVerify
+	localCertificatesVerify   []byte // cache CertificateVerify
 	localVerifyData           []byte // cached VerifyData
 	localKeySignature         []byte // cached keySignature
 	remoteCertificateVerified bool
 
 	insecureSkipVerify    bool
-	verifyPeerCertificate func(rawCert [][]byte, verified bool) error
+	verifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 	rootCAs               *x509.CertPool
+	clientCAs             *x509.CertPool
 	serverName            string
 
 	handshakeMessageSequence       int
@@ -137,12 +138,13 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		flightHandler:               flightHandler,
 		connectTimeout:              connectTimeout,
 		maximumTransmissionUnit:     mtu,
-		localCertificate:            config.Certificate,
+		localCertificates:           config.Certificates,
 		clientAuth:                  config.ClientAuth,
 		extendedMasterSecret:        config.ExtendedMasterSecret,
 		insecureSkipVerify:          config.InsecureSkipVerify,
 		verifyPeerCertificate:       config.VerifyPeerCertificate,
 		rootCAs:                     config.RootCAs,
+		clientCAs:                   config.ClientCAs,
 		serverName:                  config.ServerName,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		localCipherSuites:           cipherSuites,
@@ -232,7 +234,7 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 	switch {
 	case config == nil:
 		return nil, errNoConfigProvided
-	case config.PSK == nil && (config.Certificate.PrivateKey == nil || config.Certificate.Certificate == nil):
+	case config.PSK == nil && len(config.Certificates) == 0:
 		return nil, errServerMustHaveCertificate
 	}
 

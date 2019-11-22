@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"testing"
@@ -23,7 +24,7 @@ func TestSimpleReadWrite(t *testing.T) {
 
 	go func() {
 		server, sErr := testServer(cb, &Config{
-			Certificate:   certificate,
+			Certificates:  []tls.Certificate{certificate},
 			LoggerFactory: logging.NewDefaultLoggerFactory(),
 		}, false)
 		if sErr != nil {
@@ -68,7 +69,7 @@ func benchmarkConn(b *testing.B, n int64) {
 		server := make(chan *Conn)
 		go func() {
 			s, sErr := testServer(cb, &Config{
-				Certificate: certificate,
+				Certificates: []tls.Certificate{certificate},
 			}, false)
 			if err != nil {
 				b.Error(sErr)

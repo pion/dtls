@@ -24,7 +24,7 @@ func TestValidateConfig(t *testing.T) {
 		PSK: func(hint []byte) ([]byte, error) {
 			return nil, nil
 		},
-		Certificate: cert,
+		Certificates: []tls.Certificate{cert},
 	}
 	if err = validateConfig(config); err != errPSKAndCertificate {
 		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errPSKAndCertificate, err)
@@ -48,10 +48,19 @@ func TestValidateConfig(t *testing.T) {
 	}
 	config = &Config{
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		Certificate:  tls.Certificate{PrivateKey: rsaKey},
+		Certificates: []tls.Certificate{{Certificate: cert.Certificate, PrivateKey: rsaKey}},
 	}
 	if err = validateConfig(config); err != errInvalidPrivateKey {
 		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errInvalidPrivateKey, err)
+	}
+
+	// PrivateKey wihtout Certificate
+	config = &Config{
+		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		Certificates: []tls.Certificate{{PrivateKey: cert.PrivateKey}},
+	}
+	if err = validateConfig(config); err != errInvalidCertificate {
+		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errInvalidCertificate, err)
 	}
 
 	//Invalid cipher suites
@@ -63,7 +72,7 @@ func TestValidateConfig(t *testing.T) {
 	//Valid config
 	config = &Config{
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		Certificate:  cert,
+		Certificates: []tls.Certificate{cert},
 	}
 	if err = validateConfig(config); err != nil {
 		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", nil, err)
