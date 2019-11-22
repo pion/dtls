@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 	"sync/atomic"
 )
@@ -34,22 +35,23 @@ func initalizeCipherSuite(c *Conn, h *handshakeMessageServerKeyExchange) (*alert
 		}
 	}
 
-	if err := c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, true); err != nil {
+	if err = c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, true); err != nil {
 		return &alert{alertLevelFatal, alertInternalError}, err
 	}
 
 	if c.localPSKCallback == nil {
 		expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
-		if err := verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
+		if err = verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
 			return &alert{alertLevelFatal, alertBadCertificate}, err
 		}
+		var chains [][]*x509.Certificate
 		if !c.insecureSkipVerify {
-			if err := verifyServerCert(c.state.remoteCertificate, c.rootCAs, c.serverName); err != nil {
+			if chains, err = verifyServerCert(c.state.remoteCertificate, c.rootCAs, c.serverName); err != nil {
 				return &alert{alertLevelFatal, alertBadCertificate}, err
 			}
 		}
 		if c.verifyPeerCertificate != nil {
-			if err := c.verifyPeerCertificate(c.state.remoteCertificate, !c.insecureSkipVerify); err != nil {
+			if err = c.verifyPeerCertificate(c.state.remoteCertificate, chains); err != nil {
 				return &alert{alertLevelFatal, alertBadCertificate}, err
 			}
 		}
@@ -318,6 +320,10 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 
 		messageSequence := c.handshakeMessageSequence
 		if c.remoteRequestedCertificate {
+			var certificate [][]byte
+			if len(c.localCertificates) > 0 {
+				certificate = c.localCertificates[0].Certificate
+			}
 			c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
@@ -328,7 +334,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 							messageSequence: uint16(messageSequence),
 						},
 						handshakeMessage: &handshakeMessageCertificate{
-							certificate: c.localCertificate.Certificate,
+							certificate: certificate,
 						}},
 				},
 			})
@@ -392,8 +398,8 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 		// If the client has sent a certificate with signing ability, a digitally-signed
 		// CertificateVerify message is sent to explicitly verify possession of the
 		// private key in the certificate.
-		if c.remoteRequestedCertificate && c.localCertificate.PrivateKey != nil {
-			if len(c.localCertificateVerify) == 0 {
+		if c.remoteRequestedCertificate && len(c.localCertificates) > 0 {
+			if len(c.localCertificatesVerify) == 0 {
 				plainText := c.handshakeCache.pullAndMerge(
 					handshakeCachePullRule{handshakeTypeClientHello, true},
 					handshakeCachePullRule{handshakeTypeServerHello, false},
@@ -404,12 +410,12 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 					handshakeCachePullRule{handshakeTypeCertificate, true},
 					handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
 				)
-
-				certVerify, err := generateCertificateVerify(plainText, c.localCertificate.PrivateKey)
+				//TODO: choose right certficate by CAs provided in Certificate Request.
+				certVerify, err := generateCertificateVerify(plainText, c.localCertificates[0].PrivateKey)
 				if err != nil {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
-				c.localCertificateVerify = certVerify
+				c.localCertificatesVerify = certVerify
 			}
 
 			c.bufferPacket(&packet{
@@ -424,7 +430,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 						handshakeMessage: &handshakeMessageCertificateVerify{
 							hashAlgorithm:      HashAlgorithmSHA256,
 							signatureAlgorithm: signatureAlgorithmECDSA,
-							signature:          c.localCertificateVerify,
+							signature:          c.localCertificatesVerify,
 						}},
 				},
 			})

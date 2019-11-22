@@ -57,4 +57,5 @@ var (
 	errServerRequiredButNoClientEMS      = errors.New("dtls: Server requires the Extended Master Secret extension, but the client does not support it")
 	errClientRequiredButNoServerEMS      = errors.New("dtls: Client required Extended Master Secret extension, but server does not support it")
 	errInvalidFingerprintLength          = errors.New("dtls: Invalid fingerprint length")
+	errInvalidCertificate                = errors.New("dtls: No certificate provided")
 )

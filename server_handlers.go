@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 )
 
@@ -83,15 +84,17 @@ func serverHandshakeHandler(c *Conn) (*alert, error) {
 			if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, c.state.remoteCertificate); err != nil {
 				return &alert{alertLevelFatal, alertBadCertificate}, err
 			}
-			verified := false
-			if !c.insecureSkipVerify && c.clientAuth >= VerifyClientCertIfGiven {
-				if err := verifyClientCert(c.state.remoteCertificate, c.rootCAs); err != nil {
+			var chains [][]*x509.Certificate
+			var err error
+			var verified bool
+			if c.clientAuth >= VerifyClientCertIfGiven {
+				if chains, err = verifyClientCert(c.state.remoteCertificate, c.clientCAs); err != nil {
 					return &alert{alertLevelFatal, alertBadCertificate}, err
 				}
 				verified = true
 			}
 			if c.verifyPeerCertificate != nil {
-				if err := c.verifyPeerCertificate(c.state.remoteCertificate, verified); err != nil {
+				if err := c.verifyPeerCertificate(c.state.remoteCertificate, chains); err != nil {
 					return &alert{alertLevelFatal, alertBadCertificate}, err
 				}
 			}
@@ -339,6 +342,10 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 		messageSequence++
 
 		if c.localPSKCallback == nil {
+			var certificate [][]byte
+			if len(c.localCertificates) > 0 {
+				certificate = c.localCertificates[0].Certificate
+			}
 			c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
@@ -349,7 +356,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							messageSequence: uint16(messageSequence),
 						},
 						handshakeMessage: &handshakeMessageCertificate{
-							certificate: c.localCertificate.Certificate,
+							certificate: certificate,
 						}},
 				},
 			})
@@ -365,7 +372,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
 
-				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localCertificate.PrivateKey, HashAlgorithmSHA256)
+				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localCertificates[0].PrivateKey, HashAlgorithmSHA256)
 				if err != nil {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}

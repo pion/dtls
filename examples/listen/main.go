@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"time"
@@ -23,7 +24,7 @@ func main() {
 
 	// Prepare the configuration of the DTLS connection
 	config := &dtls.Config{
-		Certificate:          certificate,
+		Certificates:         []tls.Certificate{certificate},
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
 		ConnectTimeout:       dtls.ConnectTimeoutOption(30 * time.Second),
 	}

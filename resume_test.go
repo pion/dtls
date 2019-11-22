@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"sync"
@@ -42,7 +43,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 		}
 	}()
 	config := &Config{
-		Certificate:          certificate,
+		Certificates:         []tls.Certificate{certificate},
 		InsecureSkipVerify:   true,
 		ExtendedMasterSecret: RequireExtendedMasterSecret,
 	}

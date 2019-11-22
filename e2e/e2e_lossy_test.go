@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"crypto/tls"
 	"math/rand"
 	"testing"
 	"time"
@@ -118,7 +119,7 @@ func TestPionE2ELossy(t *testing.T) {
 			}
 
 			if test.DoClientAuth {
-				cfg.Certificate = clientCert
+				cfg.Certificates = []tls.Certificate{clientCert}
 			}
 
 			client, startupErr := dtls.Client(br.GetConn0(), cfg)
@@ -127,7 +128,7 @@ func TestPionE2ELossy(t *testing.T) {
 
 		go func() {
 			cfg := &dtls.Config{
-				Certificate:    serverCert,
+				Certificates:   []tls.Certificate{serverCert},
 				FlightInterval: flightInterval,
 				MTU:            test.MTU,
 			}
