@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls"
+	"github.com/pion/dtls/v2"
 	"github.com/pion/transport/test"
 )
 
