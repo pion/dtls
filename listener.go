@@ -4,7 +4,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/pion/dtls/internal/udp"
+	"github.com/pion/dtls/v2/internal/udp"
 )
 
 // Listen creates a DTLS listener

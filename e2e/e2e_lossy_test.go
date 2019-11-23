@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls"
+	"github.com/pion/dtls/v2"
 	transportTest "github.com/pion/transport/test"
 )
 
