@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
 	"io"
@@ -10,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ed25519"
 
 	"github.com/pion/dtls/v2"
 	"github.com/pion/transport/test"
