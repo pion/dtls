@@ -3,7 +3,6 @@ package dtls
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -12,6 +11,8 @@ import (
 	"encoding/binary"
 	"math/big"
 	"time"
+
+	"golang.org/x/crypto/ed25519"
 )
 
 type ecdsaSignature struct {

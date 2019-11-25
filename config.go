@@ -2,10 +2,11 @@ package dtls
 
 import (
 	"crypto/ecdsa"
-	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"time"
+
+	"golang.org/x/crypto/ed25519"
 
 	"github.com/pion/logging"
 )
