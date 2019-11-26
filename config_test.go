@@ -54,7 +54,7 @@ func TestValidateConfig(t *testing.T) {
 		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errInvalidPrivateKey, err)
 	}
 
-	// PrivateKey wihtout Certificate
+	// PrivateKey without Certificate
 	config = &Config{
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		Certificates: []tls.Certificate{{PrivateKey: cert.PrivateKey}},
