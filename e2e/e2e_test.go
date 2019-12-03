@@ -222,6 +222,8 @@ func TestPionE2ESimpleED25519(t *testing.T) {
 	serverPort := randomPort(t)
 
 	for _, cipherSuite := range []dtls.CipherSuiteID{
+		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
+		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
@@ -254,6 +256,7 @@ func TestPionE2ESimplePSK(t *testing.T) {
 	serverPort := randomPort(t)
 
 	for _, cipherSuite := range []dtls.CipherSuiteID{
+		dtls.TLS_PSK_WITH_AES_128_CCM,
 		dtls.TLS_PSK_WITH_AES_128_CCM_8,
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
 	} {

@@ -11,6 +11,10 @@ type CipherSuiteID uint16
 
 // Supported Cipher Suites
 const (
+	// AES-128-CCM
+	TLS_ECDHE_ECDSA_WITH_AES_128_CCM   CipherSuiteID = 0xc09c
+	TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 CipherSuiteID = 0xc0ae
+
 	// AES-128-GCM-SHA256
 	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0xc02b
 	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   CipherSuiteID = 0xc02f
@@ -19,6 +23,7 @@ const (
 	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA CipherSuiteID = 0xc00a
 	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   CipherSuiteID = 0xc014
 
+	TLS_PSK_WITH_AES_128_CCM        CipherSuiteID = 0xc0a4
 	TLS_PSK_WITH_AES_128_CCM_8      CipherSuiteID = 0xc0a8
 	TLS_PSK_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0x00a8
 )
@@ -43,6 +48,10 @@ type cipherSuite interface {
 // function.
 func cipherSuiteForID(id CipherSuiteID) cipherSuite {
 	switch id {
+	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM:
+		return &cipherSuiteTLSEcdheEcdsaWithAes128Ccm{}
+	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8:
+		return &cipherSuiteTLSEcdheEcdsaWithAes128Ccm8{}
 	case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
 		return &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}
 	case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
@@ -51,6 +60,8 @@ func cipherSuiteForID(id CipherSuiteID) cipherSuite {
 		return &cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{}
 	case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
 		return &cipherSuiteTLSEcdheRsaWithAes256CbcSha{}
+	case TLS_PSK_WITH_AES_128_CCM:
+		return &cipherSuiteTLSPskWithAes128Ccm{}
 	case TLS_PSK_WITH_AES_128_CCM_8:
 		return &cipherSuiteTLSPskWithAes128Ccm8{}
 	case TLS_PSK_WITH_AES_128_GCM_SHA256:
@@ -66,6 +77,8 @@ func defaultCipherSuites() []cipherSuite {
 		&cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{},
 		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
 		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+		&cipherSuiteTLSEcdheEcdsaWithAes128Ccm{},
+		&cipherSuiteTLSEcdheEcdsaWithAes128Ccm8{},
 	}
 }
 
