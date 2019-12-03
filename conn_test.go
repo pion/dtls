@@ -840,6 +840,20 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			WantClientError:    errors.New("alert: Alert LevelFatal: InsufficientSecurity"),
 			WantServerError:    errCipherSuiteNoIntersection,
 		},
+		{
+			Name:               "Valid CipherSuites CCM specified",
+			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
+			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
+			WantClientError:    nil,
+			WantServerError:    nil,
+		},
+		{
+			Name:               "Valid CipherSuites CCM-8 specified",
+			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
+			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
+			WantClientError:    nil,
+			WantServerError:    nil,
+		},
 	} {
 		ca, cb := net.Pipe()
 		type result struct {

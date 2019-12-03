@@ -9,23 +9,27 @@ import (
 	"github.com/pion/dtls/v2/internal/crypto/ccm"
 )
 
+type cryptoCCMTagLen int
+
 const (
-	cryptoCCMTagLength   = 8
-	cryptoCCMNonceLength = 12
+	cryptoCCM8TagLength  cryptoCCMTagLen = 8
+	cryptoCCMTagLength   cryptoCCMTagLen = 16
+	cryptoCCMNonceLength                 = 12
 )
 
 // State needed to handle encrypted input/output
 type cryptoCCM struct {
 	localCCM, remoteCCM         ccm.CCM
 	localWriteIV, remoteWriteIV []byte
+	tagLen                      cryptoCCMTagLen
 }
 
-func newCryptoCCM(localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cryptoCCM, error) {
+func newCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cryptoCCM, error) {
 	localBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err
 	}
-	localCCM, err := ccm.NewCCM(localBlock, cryptoCCMTagLength, cryptoCCMNonceLength)
+	localCCM, err := ccm.NewCCM(localBlock, int(tagLen), cryptoCCMNonceLength)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +38,7 @@ func newCryptoCCM(localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cry
 	if err != nil {
 		return nil, err
 	}
-	remoteCCM, err := ccm.NewCCM(remoteBlock, cryptoCCMTagLength, cryptoCCMNonceLength)
+	remoteCCM, err := ccm.NewCCM(remoteBlock, int(tagLen), cryptoCCMNonceLength)
 	if err != nil {
 		return nil, err
 	}
@@ -44,6 +48,7 @@ func newCryptoCCM(localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cry
 		localWriteIV:  localWriteIV,
 		remoteCCM:     remoteCCM,
 		remoteWriteIV: remoteWriteIV,
+		tagLen:        tagLen,
 	}, nil
 }
 
@@ -83,7 +88,7 @@ func (c *cryptoCCM) decrypt(in []byte) ([]byte, error) {
 	nonce := append(append([]byte{}, c.remoteWriteIV[:4]...), in[recordLayerHeaderSize:recordLayerHeaderSize+8]...)
 	out := in[recordLayerHeaderSize+8:]
 
-	additionalData := generateAEADAdditionalData(&h, len(out)-cryptoCCMTagLength)
+	additionalData := generateAEADAdditionalData(&h, len(out)-int(c.tagLen))
 	out, err = c.remoteCCM.Open(out[:0], nonce, out, additionalData)
 	if err != nil {
 		return nil, fmt.Errorf("decryptPacket: %v", err)
