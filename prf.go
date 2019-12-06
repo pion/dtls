@@ -69,12 +69,7 @@ func prfPSKPreMasterSecret(psk []byte) []byte {
 func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte, error) {
 	switch curve {
 	case namedCurveX25519:
-		var preMasterSecret, fixedWidthPrivateKey, fixedWidthPublicKey [32]byte
-		copy(fixedWidthPrivateKey[:], privateKey)
-		copy(fixedWidthPublicKey[:], publicKey)
-
-		curve25519.ScalarMult(&preMasterSecret, &fixedWidthPrivateKey, &fixedWidthPublicKey)
-		return preMasterSecret[:], nil
+		return curve25519.X25519(privateKey, publicKey)
 	case namedCurveP256:
 		return ellipticCurvePreMasterSecret(publicKey, privateKey, elliptic.P256(), elliptic.P256())
 	case namedCurveP384:
