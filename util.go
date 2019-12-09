@@ -3,6 +3,7 @@ package dtls
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
@@ -12,8 +13,6 @@ import (
 	"encoding/hex"
 	"math/big"
 	"time"
-
-	"golang.org/x/crypto/ed25519"
 )
 
 // Parse a big endian uint24
