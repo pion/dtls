@@ -67,6 +67,8 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 
 ### Using
 
+Go 1.13 is required as the minimum Go version.
+
 #### Pion DTLS
 For a DTLS 1.2 Server that listens on 127.0.0.1:4444
 ```sh
