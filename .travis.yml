@@ -16,6 +16,10 @@ cache:
     - $HOME/.cache/go-build
     - $GOPATH/pkg/mod
 
+stages:
+  - lint
+  - test
+
 jobs:
   include:
     - stage: lint
