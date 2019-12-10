@@ -29,9 +29,7 @@ jobs:
         - bash .github/lint-commit-message.sh
         - golangci-lint run ./...
     - stage: test
-      go:
-        - "1.12.x"
-        - "1.13.x"
+      go: "1.12.x"
       before_install:
         - go mod download
       install: go build ./...
@@ -41,4 +39,13 @@ jobs:
         - go test -coverpkg=$(go list ./... | tr '\n' ',') -coverprofile=cover.out -v -race -covermode=atomic ./...
       after_success:
         - travis_retry bash <(curl -s https://codecov.io/bash)
-
+    - go: "1.13.x"
+      before_install:
+        - go mod download
+      install: go build ./...
+      before_script:
+        - rm -rf examples # Remove examples, no test coverage for them
+      script:
+        - go test -coverpkg=$(go list ./... | tr '\n' ',') -coverprofile=cover.out -v -race -covermode=atomic ./...
+      after_success:
+        - travis_retry bash <(curl -s https://codecov.io/bash)
