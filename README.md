@@ -132,6 +132,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Hayden James](https://github.com/hjames9)
 * [Jozef Kralik](https://github.com/jkralik)
 * [Robert Eperjesi](https://github.com/epes)
+* [Atsushi Watanabe](https://github.com/at-wat)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

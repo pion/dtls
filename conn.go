@@ -82,6 +82,8 @@ type Conn struct {
 
 	bufferedPackets []*packet
 
+	connectionClosed *Closer // Closed on connection close and unblock read
+
 	connErr atomic.Value
 	log     logging.LeveledLogger
 }
@@ -128,6 +130,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	}
 
 	handshakeDoneSignal := NewCloser()
+	connectionClosed := NewCloser()
 
 	c := &Conn{
 		nextConn:                    nextConn,
@@ -156,6 +159,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		decrypted:           make(chan []byte),
 		workerTicker:        time.NewTicker(workerInterval),
 		handshakeDoneSignal: handshakeDoneSignal,
+		connectionClosed:    connectionClosed,
 		log:                 logger,
 	}
 
@@ -624,7 +628,10 @@ func (c *Conn) handleIncomingPacket(buf []byte) (*alert, error) {
 			return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("ApplicationData with epoch of 0")
 		}
 
-		c.decrypted <- content.data
+		select {
+		case c.decrypted <- content.data:
+		case <-c.connectionClosed.Done():
+		}
 	default:
 		return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled contentType %d", content.contentType())
 	}
@@ -709,6 +716,7 @@ func (c *Conn) stopWithError(err error) {
 	c.workerTicker.Stop()
 
 	c.handshakeDoneSignal.Close()
+	c.connectionClosed.Close()
 }
 
 func (c *Conn) getConnErr() error {
