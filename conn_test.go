@@ -73,6 +73,33 @@ func stressDuplex(t *testing.T) {
 	}
 }
 
+func TestRoutineLeakOnClose(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(5 * time.Second)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ca, cb, err := pipeMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ca.Write(make([]byte, 100)); err != nil {
+		t.Fatal(err)
+	}
+	if err := cb.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ca.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Packet is sent, but not read.
+	// inboundLoop routine should not be leaked.
+}
+
 func pipeMemory() (*Conn, *Conn, error) {
 	// In memory pipe
 	ca, cb := net.Pipe()
