@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,6 +72,46 @@ func stressDuplex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestStressClose(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	const (
+		iter       = 500
+		concurrent = 4
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(concurrent)
+	for c := 0; c < concurrent; c++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iter; i++ {
+				ca, cb, err := pipeMemory()
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+					break
+				}
+				if err := cb.Close(); err != nil {
+					t.Errorf("Unexpected error: %v", err)
+					i = iter
+				}
+				time.Sleep(time.Millisecond)
+				if err := ca.Close(); err != nil {
+					t.Errorf("Unexpected error: %v", err)
+					i = iter
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestRoutineLeakOnClose(t *testing.T) {

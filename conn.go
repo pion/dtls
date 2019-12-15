@@ -290,8 +290,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 // Close closes the connection.
 func (c *Conn) Close() error {
 	c.notify(alertLevelFatal, alertCloseNotify)
-	c.stopWithError(ErrConnClosed)
-	if err := c.getConnErr(); err != ErrConnClosed {
+	if err := c.stopWithError(ErrConnClosed); err != ErrConnClosed {
 		return err
 	}
 	return nil
@@ -353,7 +352,7 @@ func (c *Conn) bufferPacket(p *packet) {
 	if h, ok := p.record.content.(*handshake); ok {
 		handshakeRaw, err := p.record.Marshal()
 		if err != nil {
-			c.stopWithError(err)
+			_ = c.stopWithError(err)
 			return
 		}
 
@@ -375,7 +374,7 @@ func (c *Conn) flushPacketBuffer() {
 		if h, ok := p.record.content.(*handshake); ok {
 			rawHandshakePackets, err := c.processHandshakePacket(p, h)
 			if err != nil {
-				c.stopWithError(err)
+				_ = c.stopWithError(err)
 				return
 			}
 
@@ -383,7 +382,7 @@ func (c *Conn) flushPacketBuffer() {
 		} else {
 			rawPacket, err := c.processPacket(p)
 			if err != nil {
-				c.stopWithError(err)
+				_ = c.stopWithError(err)
 				return
 			}
 
@@ -396,7 +395,7 @@ func (c *Conn) flushPacketBuffer() {
 
 	for _, compactedRawPackets := range compactedRawPackets {
 		if _, err := c.nextConn.Write(compactedRawPackets); err != nil {
-			c.stopWithError(err)
+			_ = c.stopWithError(err)
 			return
 		}
 	}
@@ -528,7 +527,7 @@ func (c *Conn) inboundLoop() {
 	for {
 		i, err := c.nextConn.Read(b)
 		if err != nil {
-			c.stopWithError(err)
+			_ = c.stopWithError(err)
 			return
 		} else if c.getConnErr() != nil {
 			return
@@ -536,7 +535,7 @@ func (c *Conn) inboundLoop() {
 
 		pkts, err := unpackDatagram(b[:i])
 		if err != nil {
-			c.stopWithError(err)
+			_ = c.stopWithError(err)
 			return
 		}
 
@@ -546,7 +545,7 @@ func (c *Conn) inboundLoop() {
 				c.notify(alert.alertLevel, alert.alertDescription)
 			}
 			if err != nil {
-				c.stopWithError(err)
+				_ = c.stopWithError(err)
 				return
 			}
 		}
@@ -691,7 +690,7 @@ func (c *Conn) startHandshakeOutbound() {
 
 			switch {
 			case err != nil:
-				c.stopWithError(err)
+				_ = c.stopWithError(err)
 				return
 			case c.getConnErr() != nil:
 				return
@@ -703,7 +702,7 @@ func (c *Conn) startHandshakeOutbound() {
 	c.currFlight.workerTrigger <- struct{}{}
 }
 
-func (c *Conn) stopWithError(err error) {
+func (c *Conn) stopWithError(err error) error {
 	if connErr := c.nextConn.Close(); connErr != nil {
 		if err != ErrConnClosed {
 			connErr = fmt.Errorf("%v\n%v", err, connErr)
@@ -717,6 +716,8 @@ func (c *Conn) stopWithError(err error) {
 
 	c.handshakeDoneSignal.Close()
 	c.connectionClosed.Close()
+
+	return err
 }
 
 func (c *Conn) getConnErr() error {
