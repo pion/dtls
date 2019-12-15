@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"sync"
@@ -82,10 +83,11 @@ type Conn struct {
 
 	bufferedPackets []*packet
 
-	connectionClosed *Closer // Closed on connection close and unblock read
+	connectionClosed *Closer      // Closed on connection close and unblock read
+	handshakeErr     *atomicError // Error if one occurred during handshake
+	readErr          *atomicError // Error if one occurred in inboundLoop
 
-	connErr atomic.Value
-	log     logging.LeveledLogger
+	log logging.LeveledLogger
 }
 
 func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
@@ -161,6 +163,8 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		handshakeDoneSignal: handshakeDoneSignal,
 		connectionClosed:    connectionClosed,
 		log:                 logger,
+		handshakeErr:        &atomicError{},
+		readErr:             &atomicError{},
 	}
 
 	// Use host from conn address when serverName is not provided
@@ -197,13 +201,15 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 
 	select {
 	case <-c.handshakeDoneSignal.Done():
-		err = c.getConnErr()
+		err = c.handshakeErr.load()
 	case <-time.After(c.connectTimeout):
 		err = errConnectTimeout
 		c.handshakeDoneSignal.Close()
 	}
 
-	if err == nil {
+	if err != nil {
+		c.close() //nolint
+	} else {
 		c.setHandshakeCompletedSuccessfully()
 	}
 
@@ -248,13 +254,25 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 // Read reads data from the connection.
 func (c *Conn) Read(p []byte) (n int, err error) {
 	out, ok := <-c.decrypted
-	if !ok {
-		return 0, c.getConnErr()
+
+	if err := c.handshakeErr.load(); err != nil {
+		return 0, err
 	}
+	if c.connectionClosed.ctx.Err() != nil {
+		return 0, io.EOF
+	}
+	if err := c.readErr.load(); err != nil {
+		return 0, err
+	}
+
+	// inboundLoop has closed but error has not been set yet
+	if !ok {
+		return 0, io.EOF
+	}
+
 	if len(p) < len(out) {
 		return 0, errBufferTooSmall
 	}
-
 	copy(p, out)
 	return len(out), nil
 }
@@ -264,13 +282,17 @@ func (c *Conn) Write(p []byte) (int, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if c.getLocalEpoch() == 0 {
+	if err := c.handshakeErr.load(); err != nil {
+		return 0, err
+	}
+	if c.connectionClosed.ctx.Err() != nil {
+		return 0, ErrConnClosed
+	}
+	if !c.isHandshakeCompletedSuccessfully() {
 		return 0, errHandshakeInProgress
-	} else if c.getConnErr() != nil {
-		return 0, c.getConnErr()
 	}
 
-	c.bufferPacket(&packet{
+	if err := c.bufferPacket(&packet{
 		record: &recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				epoch:           c.getLocalEpoch(),
@@ -281,20 +303,16 @@ func (c *Conn) Write(p []byte) (int, error) {
 			},
 		},
 		shouldEncrypt: true,
-	})
-	c.flushPacketBuffer()
+	}); err != nil {
+		return 0, err
+	}
 
-	return len(p), nil
+	return len(p), c.flushPacketBuffer()
 }
 
 // Close closes the connection.
 func (c *Conn) Close() error {
-	c.notify(alertLevelFatal, alertCloseNotify)
-	c.stopWithError(ErrConnClosed)
-	if err := c.getConnErr(); err != ErrConnClosed {
-		return err
-	}
-	return nil
+	return c.close()
 }
 
 // RemoteCertificate exposes the remote certificate
@@ -349,12 +367,11 @@ func (c *Conn) ExportKeyingMaterial(label string, context []byte, length int) ([
 	return prfPHash(c.state.masterSecret, seed, length, c.state.cipherSuite.hashFunc())
 }
 
-func (c *Conn) bufferPacket(p *packet) {
+func (c *Conn) bufferPacket(p *packet) error {
 	if h, ok := p.record.content.(*handshake); ok {
 		handshakeRaw, err := p.record.Marshal()
 		if err != nil {
-			c.stopWithError(err)
-			return
+			return err
 		}
 
 		c.log.Tracef("[handshake] -> %s", h.handshakeHeader.handshakeType.String())
@@ -362,9 +379,11 @@ func (c *Conn) bufferPacket(p *packet) {
 	}
 
 	c.bufferedPackets = append(c.bufferedPackets, p)
+
+	return nil
 }
 
-func (c *Conn) flushPacketBuffer() {
+func (c *Conn) flushPacketBuffer() error {
 	var rawPackets [][]byte
 
 	for _, p := range c.bufferedPackets {
@@ -375,16 +394,14 @@ func (c *Conn) flushPacketBuffer() {
 		if h, ok := p.record.content.(*handshake); ok {
 			rawHandshakePackets, err := c.processHandshakePacket(p, h)
 			if err != nil {
-				c.stopWithError(err)
-				return
+				return err
 			}
 
 			rawPackets = append(rawPackets, rawHandshakePackets...)
 		} else {
 			rawPacket, err := c.processPacket(p)
 			if err != nil {
-				c.stopWithError(err)
-				return
+				return err
 			}
 
 			rawPackets = [][]byte{rawPacket}
@@ -396,10 +413,11 @@ func (c *Conn) flushPacketBuffer() {
 
 	for _, compactedRawPackets := range compactedRawPackets {
 		if _, err := c.nextConn.Write(compactedRawPackets); err != nil {
-			c.stopWithError(err)
-			return
+			return err
 		}
 	}
+
+	return nil
 }
 
 func (c *Conn) compactRawPackets(rawPackets [][]byte) [][]byte {
@@ -528,25 +546,25 @@ func (c *Conn) inboundLoop() {
 	for {
 		i, err := c.nextConn.Read(b)
 		if err != nil {
-			c.stopWithError(err)
-			return
-		} else if c.getConnErr() != nil {
+			// c.readErr.store(err)
 			return
 		}
 
 		pkts, err := unpackDatagram(b[:i])
 		if err != nil {
-			c.stopWithError(err)
+			c.readErr.store(err)
 			return
 		}
 
 		for _, p := range pkts {
 			alert, err := c.handleIncomingPacket(p)
 			if alert != nil {
-				c.notify(alert.alertLevel, alert.alertDescription)
+				if alertErr := c.notify(alert.alertLevel, alert.alertDescription); alertErr != nil {
+					err = fmt.Errorf("%v %v", err, alertErr)
+				}
 			}
 			if err != nil {
-				c.stopWithError(err)
+				c.readErr.store(err)
 				return
 			}
 		}
@@ -638,11 +656,11 @@ func (c *Conn) handleIncomingPacket(buf []byte) (*alert, error) {
 	return nil, nil
 }
 
-func (c *Conn) notify(level alertLevel, desc alertDescription) {
+func (c *Conn) notify(level alertLevel, desc alertDescription) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.bufferPacket(&packet{
+	if err := c.bufferPacket(&packet{
 		record: &recordLayer{
 			recordLayerHeader: recordLayerHeader{
 				epoch:           c.getLocalEpoch(),
@@ -654,8 +672,11 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) {
 			},
 		},
 		shouldEncrypt: c.isHandshakeCompletedSuccessfully(),
-	})
-	c.flushPacketBuffer()
+	}); err != nil {
+		return err
+	}
+
+	return c.flushPacketBuffer()
 
 }
 
@@ -670,6 +691,13 @@ func (c *Conn) isHandshakeCompletedSuccessfully() bool {
 
 func (c *Conn) startHandshakeOutbound() {
 	go func() {
+		defer func() {
+			if c.handshakeErr.load() != nil {
+				if err := c.close(); err != nil {
+					c.log.Errorf(fmt.Sprintf("Failed to close (%v)", err))
+				}
+			}
+		}()
 		for {
 			var (
 				isFinished bool
@@ -686,14 +714,17 @@ func (c *Conn) startHandshakeOutbound() {
 			}
 
 			if alertPtr != nil {
-				c.notify(alertPtr.alertLevel, alertPtr.alertDescription)
+				if alertErr := c.notify(alertPtr.alertLevel, alertPtr.alertDescription); alertErr != nil {
+					err = fmt.Errorf("%v %v", err, alertErr)
+				}
 			}
 
 			switch {
 			case err != nil:
-				c.stopWithError(err)
+				c.handshakeErr.store(err)
 				return
-			case c.getConnErr() != nil:
+			case c.readErr.load() != nil:
+				c.handshakeErr.store(c.readErr.load()) // Promote readErr to handshakeErr during handshake
 				return
 			case isFinished:
 				return // Handshake is complete
@@ -703,25 +734,15 @@ func (c *Conn) startHandshakeOutbound() {
 	c.currFlight.workerTrigger <- struct{}{}
 }
 
-func (c *Conn) stopWithError(err error) {
-	if connErr := c.nextConn.Close(); connErr != nil {
-		if err != ErrConnClosed {
-			connErr = fmt.Errorf("%v\n%v", err, connErr)
-		}
-		err = connErr
+func (c *Conn) close() error {
+	if c.connectionClosed.ctx.Err() == nil && c.handshakeErr.load() == nil {
+		c.notify(alertLevelFatal, alertCloseNotify) //nolint
 	}
 
-	c.connErr.Store(struct{ error }{err})
-
 	c.workerTicker.Stop()
-
 	c.handshakeDoneSignal.Close()
 	c.connectionClosed.Close()
-}
-
-func (c *Conn) getConnErr() error {
-	err, _ := c.connErr.Load().(struct{ error })
-	return err.error
+	return c.nextConn.Close()
 }
 
 func (c *Conn) setLocalEpoch(epoch uint16) {

@@ -291,7 +291,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 			})
 		}
 
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
@@ -309,8 +309,13 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 						extensions:         extensions,
 					}},
 			},
-		})
-		c.flushPacketBuffer()
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
+
+		if err := c.flushPacketBuffer(); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 	case flight5:
 		// TODO: Better way to end handshake
 		if c.getRemoteEpoch() != 0 && c.getLocalEpoch() == 1 {
@@ -324,7 +329,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 			if len(c.localCertificates) > 0 {
 				certificate = c.localCertificates[0].Certificate
 			}
-			c.bufferPacket(&packet{
+			if err := c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
 						protocolVersion: protocolVersion1_2,
@@ -337,7 +342,10 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 							certificate: certificate,
 						}},
 				},
-			})
+			}); err != nil {
+				return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+			}
+
 			messageSequence++
 		}
 
@@ -348,7 +356,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 			clientKeyExchange.identityHint = c.localPSKIdentityHint
 		}
 
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
@@ -360,7 +368,9 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 					handshakeMessage: clientKeyExchange,
 				},
 			},
-		})
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
 		messageSequence++
 
@@ -418,7 +428,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 				c.localCertificatesVerify = certVerify
 			}
 
-			c.bufferPacket(&packet{
+			if err := c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
 						protocolVersion: protocolVersion1_2,
@@ -433,21 +443,27 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 							signature:          c.localCertificatesVerify,
 						}},
 				},
-			})
+			}); err != nil {
+				return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+			}
 
 			messageSequence++
 		}
 
-		c.flushPacketBuffer()
+		if err := c.flushPacketBuffer(); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &changeCipherSpec{},
 			},
-		})
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
 		if len(c.localVerifyData) == 0 {
 			plainText := c.handshakeCache.pullAndMerge(
@@ -470,7 +486,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 		}
 
 		// TODO: Fix hard-coded epoch, taking retransmitting into account.
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					epoch:           1,
@@ -486,9 +502,13 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 			},
 			shouldEncrypt:            true,
 			resetLocalSequenceNumber: true,
-		})
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
-		c.flushPacketBuffer()
+		if err := c.flushPacketBuffer(); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 	default:
 		return false, &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled flight %s", c.currFlight.get())
 	}

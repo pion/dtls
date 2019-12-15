@@ -32,5 +32,5 @@ func Resume(state *State, conn net.Conn, config *Config) (*Conn, error) {
 		return nil, err
 	}
 
-	return c, c.getConnErr()
+	return c, c.handshakeErr.load()
 }
