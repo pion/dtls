@@ -278,7 +278,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 	case flight0:
 		// Waiting for ClientHello
 	case flight2:
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
@@ -293,8 +293,12 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 					},
 				},
 			},
-		})
-		c.flushPacketBuffer()
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
+		if err := c.flushPacketBuffer(); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
 	case flight4:
 		extensions := []extension{}
@@ -321,7 +325,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 		}
 
 		messageSequence := c.handshakeMessageSequence
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
@@ -338,7 +342,9 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 						extensions:        extensions,
 					}},
 			},
-		})
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 		messageSequence++
 
 		if c.localPSKCallback == nil {
@@ -346,7 +352,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 			if len(c.localCertificates) > 0 {
 				certificate = c.localCertificates[0].Certificate
 			}
-			c.bufferPacket(&packet{
+			if err := c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
 						protocolVersion: protocolVersion1_2,
@@ -359,7 +365,9 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							certificate: certificate,
 						}},
 				},
-			})
+			}); err != nil {
+				return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+			}
 			messageSequence++
 
 			if len(c.localKeySignature) == 0 {
@@ -379,7 +387,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 				c.localKeySignature = signature
 			}
 
-			c.bufferPacket(&packet{
+			if err := c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
 						protocolVersion: protocolVersion1_2,
@@ -397,11 +405,13 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							signature:          c.localKeySignature,
 						}},
 				},
-			})
+			}); err != nil {
+				return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+			}
 			messageSequence++
 
 			if c.clientAuth > NoClientCert {
-				c.bufferPacket(&packet{
+				if err := c.bufferPacket(&packet{
 					record: &recordLayer{
 						recordLayerHeader: recordLayerHeader{
 							protocolVersion: protocolVersion1_2,
@@ -423,7 +433,9 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							},
 						},
 					},
-				})
+				}); err != nil {
+					return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+				}
 				messageSequence++
 			}
 		} else if c.localPSKIdentityHint != nil {
@@ -433,7 +445,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 			*
 			*  https://tools.ietf.org/html/rfc4279#section-2
 			 */
-			c.bufferPacket(&packet{
+			if err := c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
 						protocolVersion: protocolVersion1_2,
@@ -446,11 +458,13 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							identityHint: c.localPSKIdentityHint,
 						}},
 				},
-			})
+			}); err != nil {
+				return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+			}
 			messageSequence++
 		}
 
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
@@ -462,18 +476,24 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 					handshakeMessage: &handshakeMessageServerHelloDone{},
 				},
 			},
-		})
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
-		c.flushPacketBuffer()
+		if err := c.flushPacketBuffer(); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 	case flight6:
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					protocolVersion: protocolVersion1_2,
 				},
 				content: &changeCipherSpec{},
 			},
-		})
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
 		if len(c.localVerifyData) == 0 {
 			plainText := c.handshakeCache.pullAndMerge(
@@ -496,7 +516,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 			}
 		}
 
-		c.bufferPacket(&packet{
+		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
 					epoch:           1,
@@ -513,9 +533,13 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 			},
 			shouldEncrypt:            true,
 			resetLocalSequenceNumber: true,
-		})
+		}); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
-		c.flushPacketBuffer()
+		if err := c.flushPacketBuffer(); err != nil {
+			return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+		}
 
 		c.handshakeDoneSignal.Close()
 		return true, nil, nil
