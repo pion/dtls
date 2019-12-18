@@ -204,6 +204,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		err = c.handshakeErr.load()
 	case <-time.After(c.connectTimeout):
 		err = errConnectTimeout
+		c.handshakeErr.store(err)
 		c.handshakeDoneSignal.Close()
 	}
 
@@ -253,18 +254,18 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 
 // Read reads data from the connection.
 func (c *Conn) Read(p []byte) (n int, err error) {
-	out, ok := <-c.decrypted
-
 	if err := c.handshakeErr.load(); err != nil {
 		return 0, err
 	}
 	if c.connectionClosed.ctx.Err() != nil {
 		return 0, io.EOF
 	}
+
+	out, ok := <-c.decrypted
+
 	if err := c.readErr.load(); err != nil {
 		return 0, err
 	}
-
 	// inboundLoop has closed but error has not been set yet
 	if !ok {
 		return 0, io.EOF
@@ -546,7 +547,7 @@ func (c *Conn) inboundLoop() {
 	for {
 		i, err := c.nextConn.Read(b)
 		if err != nil {
-			// c.readErr.store(err)
+			c.readErr.store(err)
 			return
 		}
 
