@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/dtls/v2/internal/dpipe"
 	"github.com/pion/transport/test"
 )
 
@@ -102,7 +103,7 @@ func TestRoutineLeakOnClose(t *testing.T) {
 
 func pipeMemory() (*Conn, *Conn, error) {
 	// In memory pipe
-	ca, cb := net.Pipe()
+	ca, cb := dpipe.Pipe()
 
 	type result struct {
 		c   *Conn
@@ -163,7 +164,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 
 	clientErr := make(chan error, 1)
 
-	ca, cb := net.Pipe()
+	ca, cb := dpipe.Pipe()
 	go func() {
 		conf := &Config{
 			CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
@@ -258,7 +259,7 @@ func TestPSK(t *testing.T) {
 		clientIdentity := []byte("Client Identity")
 		clientErr := make(chan error, 1)
 
-		ca, cb := net.Pipe()
+		ca, cb := dpipe.Pipe()
 		go func() {
 			conf := &Config{
 				PSK: func(hint []byte) ([]byte, error) {
@@ -307,7 +308,7 @@ func TestPSKHintFail(t *testing.T) {
 
 	clientErr := make(chan error, 1)
 
-	ca, cb := net.Pipe()
+	ca, cb := dpipe.Pipe()
 	go func() {
 		conf := &Config{
 			PSK: func(hint []byte) ([]byte, error) {
@@ -345,7 +346,7 @@ func TestClientTimeout(t *testing.T) {
 
 	clientErr := make(chan error, 1)
 
-	ca, _ := net.Pipe()
+	ca, _ := dpipe.Pipe()
 	go func() {
 		conf := &Config{
 			ConnectTimeout: ConnectTimeoutOption(1 * time.Second),
@@ -404,7 +405,7 @@ func TestSRTPConfiguration(t *testing.T) {
 			WantServerError: nil,
 		},
 	} {
-		ca, cb := net.Pipe()
+		ca, cb := dpipe.Pipe()
 		type result struct {
 			c   *Conn
 			err error
@@ -552,7 +553,7 @@ func TestClientCertificate(t *testing.T) {
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
-			ca, cb := net.Pipe()
+			ca, cb := dpipe.Pipe()
 			type result struct {
 				c   *Conn
 				err error
@@ -711,7 +712,7 @@ func TestExtendedMasterSecret(t *testing.T) {
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
-			ca, cb := net.Pipe()
+			ca, cb := dpipe.Pipe()
 			type result struct {
 				c   *Conn
 				err error
@@ -815,7 +816,7 @@ func TestServerCertificate(t *testing.T) {
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
-			ca, cb := net.Pipe()
+			ca, cb := dpipe.Pipe()
 			go func() {
 				_, _ = Server(cb, tt.serverCfg)
 			}()
@@ -882,7 +883,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			WantServerError:    nil,
 		},
 	} {
-		ca, cb := net.Pipe()
+		ca, cb := dpipe.Pipe()
 		type result struct {
 			c   *Conn
 			err error
@@ -967,7 +968,7 @@ func TestPSKConfiguration(t *testing.T) {
 			WantServerError:      errServerMustHaveCertificate,
 		},
 	} {
-		ca, cb := net.Pipe()
+		ca, cb := dpipe.Pipe()
 		type result struct {
 			c   *Conn
 			err error
@@ -1058,7 +1059,7 @@ func TestServerTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ca, cb := net.Pipe()
+	ca, cb := dpipe.Pipe()
 	defer func() {
 		err := ca.Close()
 		if err != nil {
