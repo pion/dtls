@@ -254,18 +254,28 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 
 // Read reads data from the connection.
 func (c *Conn) Read(p []byte) (n int, err error) {
-	if err := c.handshakeErr.load(); err != nil {
-		return 0, err
-	}
-	if c.connectionClosed.ctx.Err() != nil {
-		return 0, io.EOF
+	checkConnStatus := func() error {
+		if err := c.handshakeErr.load(); err != nil {
+			return err
+		}
+		if c.connectionClosed.ctx.Err() != nil {
+			return io.EOF
+		}
+		if err := c.readErr.load(); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
+	if err := checkConnStatus(); err != nil {
+		return 0, err
+	}
 	out, ok := <-c.decrypted
-
-	if err := c.readErr.load(); err != nil {
+	if err := checkConnStatus(); err != nil {
 		return 0, err
 	}
+
 	// inboundLoop has closed but error has not been set yet
 	if !ok {
 		return 0, io.EOF
