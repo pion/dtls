@@ -191,7 +191,7 @@ func (c *ccm) Seal(dst, nonce, plaintext, adata []byte) []byte {
 	tag, err := c.tag(nonce, plaintext, adata)
 	if err != nil {
 		// The cipher.AEAD interface doesn't allow for an error return.
-		panic(err)
+		panic(err) // nolint
 	}
 
 	var iv, s0 [ccmBlockSize]byte
