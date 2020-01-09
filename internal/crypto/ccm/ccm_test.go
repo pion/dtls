@@ -276,3 +276,141 @@ func TestRFC3610Vectors(t *testing.T) {
 		})
 	}
 }
+
+func TestNewCCMError(t *testing.T) {
+	cases := map[string]struct {
+		vector
+		err error
+	}{
+		"ShortNonceLength": {
+			vector{
+				AESKey: aesKey1to12,
+				M:      8,
+				Nonce:  mustHexDecode("a0a1a2a3a4a5"),
+			}, errInvalidNonceSize,
+		},
+		"LongNonceLength": {
+			vector{
+				AESKey: aesKey1to12,
+				M:      8,
+				Nonce:  mustHexDecode("0001020304050607080910111213"),
+			}, errInvalidNonceSize,
+		},
+		"ShortTag": {
+			vector{
+				AESKey: aesKey1to12,
+				M:      3,
+				Nonce:  mustHexDecode("00010203040506070809101112"),
+			}, errInvalidTagSize,
+		},
+		"LongTag": {
+			vector{
+				AESKey: aesKey1to12,
+				M:      17,
+				Nonce:  mustHexDecode("00010203040506070809101112"),
+			}, errInvalidTagSize,
+		},
+	}
+
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			blk, err := aes.NewCipher(c.AESKey)
+			if err != nil {
+				t.Fatalf("could not initialize AES block cipher from key: %v", err)
+			}
+
+			if _, err := NewCCM(blk, c.M, len(c.Nonce)); err != c.err {
+				t.Fatalf("expected error '%v', got '%v'", c.err, err)
+			}
+		})
+	}
+}
+
+func TestSealError(t *testing.T) {
+	cases := map[string]struct {
+		vector
+		err error
+	}{
+		"InvalidNonceLength": {
+			vector{
+				Data:  mustHexDecode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e"),
+				M:     8,
+				Nonce: mustHexDecode("00000003020100a0a1a2a3a4"), // short
+			}, errInvalidNonceSize,
+		},
+		"PlaintextTooLong": {
+			vector{
+				Data:  make([]byte, 100000),
+				M:     8,
+				Nonce: mustHexDecode("00000003020100a0a1a2a3a4a5"),
+			}, errPlaintextTooLong,
+		},
+	}
+
+	blk, err := aes.NewCipher(aesKey1to12)
+	if err != nil {
+		t.Fatalf("could not initialize AES block cipher from key: %v", err)
+	}
+
+	lccm, err := NewCCM(blk, 8, 13)
+	if err != nil {
+		t.Fatalf("could not create CCM: %v", err)
+	}
+
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if err := recover(); err != c.err {
+					t.Errorf("expected panic '%v', got '%v'", c.err, err)
+				}
+			}()
+			var dst []byte
+			_ = lccm.Seal(dst, c.Nonce, c.Data[c.ClearHeaderOctets:], c.Data[:c.ClearHeaderOctets])
+		})
+	}
+}
+
+func TestOpenError(t *testing.T) {
+	cases := map[string]struct {
+		vector
+		err error
+	}{
+		"CiphertextTooShort": {
+			vector{
+				CipherText:        make([]byte, 10),
+				ClearHeaderOctets: 8,
+				Nonce:             mustHexDecode("00000003020100a0a1a2a3a4a5"),
+			}, errCiphertextTooShort,
+		},
+		"CiphertextTooLong": {
+			vector{
+				CipherText:        make([]byte, 100000),
+				ClearHeaderOctets: 8,
+				Nonce:             mustHexDecode("00000003020100a0a1a2a3a4a5"),
+			}, errCiphertextTooLong,
+		},
+	}
+
+	blk, err := aes.NewCipher(aesKey1to12)
+	if err != nil {
+		t.Fatalf("could not initialize AES block cipher from key: %v", err)
+	}
+
+	lccm, err := NewCCM(blk, 8, 13)
+	if err != nil {
+		t.Fatalf("could not create CCM: %v", err)
+	}
+
+	for name, c := range cases {
+		c := c
+		t.Run(name, func(t *testing.T) {
+			var dst []byte
+			_, err = lccm.Open(dst, c.Nonce, c.CipherText[c.ClearHeaderOctets:], c.CipherText[:c.ClearHeaderOctets])
+			if err != c.err {
+				t.Errorf("expected error '%v', got '%v'", c.err, err)
+			}
+		})
+	}
+}
