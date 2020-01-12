@@ -205,7 +205,6 @@ func TestPionE2ESimple(t *testing.T) {
 			ConnectTimeout:     dtls.ConnectTimeoutOption(2 * time.Second),
 		}
 		assertE2ECommunication(cfg, cfg, serverPort, t)
-
 	}
 }
 

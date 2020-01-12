@@ -20,5 +20,4 @@ func TestDecodeCipherSuites(t *testing.T) {
 		}
 		// todo: compare result
 	}
-
 }

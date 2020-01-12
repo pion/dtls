@@ -5,7 +5,6 @@ import (
 )
 
 func TestDecodeCompressionMethods(t *testing.T) {
-
 	testCases := []struct {
 		buf    []byte
 		result []*compressionMethod
@@ -21,5 +20,4 @@ func TestDecodeCompressionMethods(t *testing.T) {
 		}
 		// todo: compare result
 	}
-
 }

@@ -1,3 +1,4 @@
+// Package util provides auxiliary utilities used in examples
 package util
 
 import (

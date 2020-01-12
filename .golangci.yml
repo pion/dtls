@@ -7,12 +7,13 @@ linters-settings:
 linters:
   enable-all: true
   disable:
-    - maligned
-    - lll
     - dupl
-    - gocyclo
-    - gochecknoglobals
     - funlen
+    - gochecknoglobals
+    - gocyclo
+    - godox
+    - lll
+    - maligned
 
 issues:
   exclude-use-default: false
@@ -22,6 +23,10 @@ issues:
       text: "L' should not be capitalized"
       linters:
         - gocritic
+    - path: cipher_suite
+      text: "should not use ALL_CAPS in Go names; use CamelCase instead"
+      linters:
+        - stylecheck
     - path: cipher_suite
       text: "don't use ALL_CAPS in Go names; use CamelCase"
       linters:
