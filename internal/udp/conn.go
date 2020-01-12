@@ -1,3 +1,4 @@
+// Package udp provides a connection-oriented listener over a UDP PacketConn
 package udp
 
 import (
