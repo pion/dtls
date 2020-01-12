@@ -688,7 +688,6 @@ func (c *Conn) notify(level alertLevel, desc alertDescription) error {
 	}
 
 	return c.flushPacketBuffer()
-
 }
 
 func (c *Conn) setHandshakeCompletedSuccessfully() {

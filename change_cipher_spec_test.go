@@ -27,5 +27,4 @@ func TestChangeCipherSpecInvalid(t *testing.T) {
 	if err := c.Unmarshal([]byte{0x00}); err != errInvalidCipherSpec {
 		t.Errorf("ChangeCipherSpec invalid assert: got %#v, want %#v", err, errInvalidCipherSpec)
 	}
-
 }

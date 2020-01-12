@@ -6,7 +6,6 @@ import (
 )
 
 func TestExtensionSupportedSignatureAlgorithms(t *testing.T) {
-
 	rawExtensionSupportedSignatureAlgorithms := []byte{
 		0x00, 0x0d,
 		0x00, 0x08,

@@ -255,7 +255,6 @@ func TestPSK(t *testing.T) {
 			ServerIdentity: nil,
 		},
 	} {
-
 		clientIdentity := []byte("Client Identity")
 		clientErr := make(chan error, 1)
 
@@ -738,7 +737,6 @@ func TestExtendedMasterSecret(t *testing.T) {
 					t.Errorf("Server error expected: \"%v\" but got \"%v\"", tt.expectedServerErr, err)
 				}
 			}
-
 		})
 	}
 }
@@ -829,7 +827,6 @@ func TestServerCertificate(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestCipherSuiteConfiguration(t *testing.T) {

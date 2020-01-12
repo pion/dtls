@@ -6,7 +6,6 @@ import (
 )
 
 func TestExtensionSupportedPointFormats(t *testing.T) {
-
 	rawExtensionSupportedPointFormats := []byte{0x00, 0x0b, 0x00, 0x02, 0x01, 0x00}
 	parsedExtensionSupportedPointFormats := &extensionSupportedPointFormats{
 		pointFormats: []ellipticCurvePointFormat{ellipticCurvePointFormatUncompressed},
