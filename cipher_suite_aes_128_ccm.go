@@ -4,16 +4,15 @@ import (
 	"crypto/sha256"
 	"errors"
 	"hash"
-	"sync"
+	"sync/atomic"
 )
 
 type cipherSuiteAes128Ccm struct {
-	ccm                   *cryptoCCM
+	ccm                   atomic.Value // *cryptoCCM
 	clientCertificateType clientCertificateType
 	id                    CipherSuiteID
 	psk                   bool
 	cryptoCCMTagLen       cryptoCCMTagLen
-	sync.RWMutex
 }
 
 func newCipherSuiteAes128Ccm(clientCertificateType clientCertificateType, id CipherSuiteID, psk bool, cryptoCCMTagLen cryptoCCMTagLen) *cipherSuiteAes128Ccm {
@@ -46,9 +45,7 @@ func (c *cipherSuiteAes128Ccm) isPSK() bool {
 }
 
 func (c *cipherSuiteAes128Ccm) isInitialized() bool {
-	c.RLock()
-	defer c.RUnlock()
-	return c.ccm != nil
+	return c.ccm.Load() != nil
 }
 
 func (c *cipherSuiteAes128Ccm) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
@@ -63,29 +60,31 @@ func (c *cipherSuiteAes128Ccm) init(masterSecret, clientRandom, serverRandom []b
 		return err
 	}
 
-	c.Lock()
-	defer c.Unlock()
+	var ccm *cryptoCCM
 	if isClient {
-		c.ccm, err = newCryptoCCM(c.cryptoCCMTagLen, keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
+		ccm, err = newCryptoCCM(c.cryptoCCMTagLen, keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
 	} else {
-		c.ccm, err = newCryptoCCM(c.cryptoCCMTagLen, keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
+		ccm, err = newCryptoCCM(c.cryptoCCMTagLen, keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
 	}
+	c.ccm.Store(ccm)
 
 	return err
 }
 
 func (c *cipherSuiteAes128Ccm) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
-	if !c.isInitialized() {
+	ccm := c.ccm.Load()
+	if ccm == nil { // !c.isInitialized()
 		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
-	return c.ccm.encrypt(pkt, raw)
+	return ccm.(*cryptoCCM).encrypt(pkt, raw)
 }
 
 func (c *cipherSuiteAes128Ccm) decrypt(raw []byte) ([]byte, error) {
-	if !c.isInitialized() {
+	ccm := c.ccm.Load()
+	if ccm == nil { // !c.isInitialized()
 		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
-	return c.ccm.decrypt(raw)
+	return ccm.(*cryptoCCM).decrypt(raw)
 }
