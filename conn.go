@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/dtls/v2/internal/closer"
 	"github.com/pion/logging"
 )
 
@@ -78,14 +79,14 @@ type Conn struct {
 	handshakeMessageSequence       int
 	handshakeMessageHandler        handshakeMessageHandler
 	flightHandler                  flightHandler
-	handshakeDoneSignal            *Closer
+	handshakeDoneSignal            *closer.Closer
 	handshakeCompletedSuccessfully atomic.Value
 
 	bufferedPackets []*packet
 
-	connectionClosed *Closer      // Closed on connection close and unblock read
-	handshakeErr     *atomicError // Error if one occurred during handshake
-	readErr          *atomicError // Error if one occurred in inboundLoop
+	connectionClosed *closer.Closer // Closed on connection close and unblock read
+	handshakeErr     *atomicError   // Error if one occurred during handshake
+	readErr          *atomicError   // Error if one occurred in inboundLoop
 
 	log logging.LeveledLogger
 }
@@ -131,8 +132,8 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		mtu = defaultMTU
 	}
 
-	handshakeDoneSignal := NewCloser()
-	connectionClosed := NewCloser()
+	handshakeDoneSignal := closer.NewCloser()
+	connectionClosed := closer.NewCloser()
 
 	c := &Conn{
 		nextConn:                    nextConn,
@@ -258,7 +259,7 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 		if err := c.handshakeErr.load(); err != nil {
 			return err
 		}
-		if c.connectionClosed.ctx.Err() != nil {
+		if c.connectionClosed.Err() != nil {
 			return io.EOF
 		}
 		if err := c.readErr.load(); err != nil {
@@ -296,7 +297,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 	if err := c.handshakeErr.load(); err != nil {
 		return 0, err
 	}
-	if c.connectionClosed.ctx.Err() != nil {
+	if c.connectionClosed.Err() != nil {
 		return 0, ErrConnClosed
 	}
 	if !c.isHandshakeCompletedSuccessfully() {
@@ -745,7 +746,7 @@ func (c *Conn) startHandshakeOutbound() {
 }
 
 func (c *Conn) close() error {
-	if c.connectionClosed.ctx.Err() == nil && c.handshakeErr.load() == nil {
+	if c.connectionClosed.Err() == nil && c.handshakeErr.load() == nil {
 		c.notify(alertLevelFatal, alertCloseNotify) //nolint
 	}
 
