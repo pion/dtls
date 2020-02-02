@@ -4,12 +4,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"hash"
-	"sync"
+	"sync/atomic"
 )
 
 type cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256 struct {
-	gcm *cryptoGCM
-	sync.RWMutex
+	gcm atomic.Value // *cryptoGCM
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) certificateType() clientCertificateType {
@@ -33,9 +32,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isPSK() bool {
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isInitialized() bool {
-	c.RLock()
-	defer c.RUnlock()
-	return c.gcm != nil
+	return c.gcm.Load() != nil
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
@@ -50,29 +47,31 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientR
 		return err
 	}
 
-	c.Lock()
-	defer c.Unlock()
+	var gcm *cryptoGCM
 	if isClient {
-		c.gcm, err = newCryptoGCM(keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
+		gcm, err = newCryptoGCM(keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
 	} else {
-		c.gcm, err = newCryptoGCM(keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
+		gcm, err = newCryptoGCM(keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
 	}
+	c.gcm.Store(gcm)
 
 	return err
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
-	if !c.isInitialized() {
+	gcm := c.gcm.Load()
+	if gcm == nil { // !c.isInitialized()
 		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
-	return c.gcm.encrypt(pkt, raw)
+	return gcm.(*cryptoGCM).encrypt(pkt, raw)
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) decrypt(raw []byte) ([]byte, error) {
-	if !c.isInitialized() {
+	gcm := c.gcm.Load()
+	if gcm == nil { // !c.isInitialized()
 		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
-	return c.gcm.decrypt(raw)
+	return gcm.(*cryptoGCM).decrypt(raw)
 }
