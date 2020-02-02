@@ -2,13 +2,12 @@ package dtls
 
 import (
 	"net"
-	"time"
 
 	"github.com/pion/dtls/v2/internal/udp"
 )
 
 // Listen creates a DTLS listener
-func Listen(network string, laddr *net.UDPAddr, config *Config) (*Listener, error) {
+func Listen(network string, laddr *net.UDPAddr, config *Config) (net.Listener, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
@@ -17,21 +16,21 @@ func Listen(network string, laddr *net.UDPAddr, config *Config) (*Listener, erro
 	if err != nil {
 		return nil, err
 	}
-	return &Listener{
+	return &listener{
 		config: config,
 		parent: parent,
 	}, nil
 }
 
 // Listener represents a DTLS listener
-type Listener struct {
+type listener struct {
 	config *Config
 	parent *udp.Listener
 }
 
 // Accept waits for and returns the next connection to the listener.
 // You have to either close or read on all connection that are created.
-func (l *Listener) Accept() (net.Conn, error) {
+func (l *listener) Accept() (net.Conn, error) {
 	c, err := l.parent.Accept()
 	if err != nil {
 		return nil, err
@@ -42,11 +41,11 @@ func (l *Listener) Accept() (net.Conn, error) {
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
 // Already Accepted connections are not closed.
-func (l *Listener) Close(shutdownTimeout time.Duration) error {
-	return l.parent.Close(shutdownTimeout)
+func (l *listener) Close() error {
+	return l.parent.Close()
 }
 
 // Addr returns the listener's network address.
-func (l *Listener) Addr() net.Addr {
+func (l *listener) Addr() net.Addr {
 	return l.parent.Addr()
 }

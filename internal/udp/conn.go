@@ -6,11 +6,11 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const receiveMTU = 8192
-const closeRetryInterval = 100 * time.Millisecond
 
 var errClosedListener = errors.New("udp: listener closed")
 
@@ -18,20 +18,24 @@ var errClosedListener = errors.New("udp: listener closed")
 type Listener struct {
 	pConn *net.UDPConn
 
-	lock      sync.RWMutex
-	accepting bool
+	accepting atomic.Value // bool
 	acceptCh  chan *Conn
 	doneCh    chan struct{}
 	doneOnce  sync.Once
 
-	conns map[string]*Conn
+	connLock sync.Mutex
+	conns    map[string]*Conn
+	connWG   sync.WaitGroup
+
+	readWG   sync.WaitGroup
+	errClose atomic.Value // error
 }
 
 // Accept waits for and returns the next connection to the listener.
-// You have to either close or read on all connection that are created.
 func (l *Listener) Accept() (*Conn, error) {
 	select {
 	case c := <-l.acceptCh:
+		l.connWG.Add(1)
 		return c, nil
 
 	case <-l.doneCh:
@@ -41,41 +45,29 @@ func (l *Listener) Accept() (*Conn, error) {
 
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
-func (l *Listener) Close(shutdownTimeout time.Duration) error {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-
+func (l *Listener) Close() error {
 	var err error
 	l.doneOnce.Do(func() {
-		l.accepting = false
+		l.connWG.Done()
+		l.accepting.Store(false)
 		close(l.doneCh)
-		err = l.cleanupWithTimeout(shutdownTimeout)
+
+		l.connLock.Lock()
+		nConns := len(l.conns)
+		l.connLock.Unlock()
+
+		if nConns == 0 {
+			// Wait if this is the final connection
+			l.readWG.Wait()
+			if errClose, ok := l.errClose.Load().(error); ok {
+				err = errClose
+			}
+		} else {
+			err = nil
+		}
 	})
 
 	return err
-}
-
-func (l *Listener) cleanupWithTimeout(shutdownTimeout time.Duration) error {
-	timeoutTimer := time.NewTimer(shutdownTimeout)
-	for {
-		select {
-		case <-time.After(closeRetryInterval):
-			if len(l.conns) == 0 {
-				return l.cleanup()
-			}
-		case <-timeoutTimer.C:
-			return l.cleanup()
-		}
-	}
-}
-
-// cleanup closes the packet conn if it is no longer used
-// The caller should hold the read lock.
-func (l *Listener) cleanup() error {
-	if !l.accepting && len(l.conns) == 0 {
-		return l.pConn.Close()
-	}
-	return nil
 }
 
 // Addr returns the listener's network address.
@@ -91,14 +83,23 @@ func Listen(network string, laddr *net.UDPAddr) (*Listener, error) {
 	}
 
 	l := &Listener{
-		pConn:     conn,
-		acceptCh:  make(chan *Conn),
-		conns:     make(map[string]*Conn),
-		accepting: true,
-		doneCh:    make(chan struct{}),
+		pConn:    conn,
+		acceptCh: make(chan *Conn),
+		conns:    make(map[string]*Conn),
+		doneCh:   make(chan struct{}),
 	}
+	l.accepting.Store(true)
+	l.connWG.Add(1)
+	l.readWG.Add(2) // wait readLoop and Close execution routine
 
 	go l.readLoop()
+	go func() {
+		l.connWG.Wait()
+		if err := l.pConn.Close(); err != nil {
+			l.errClose.Store(err)
+		}
+		l.readWG.Done()
+	}()
 
 	return l, nil
 }
@@ -108,9 +109,9 @@ func Listen(network string, laddr *net.UDPAddr) (*Listener, error) {
 //    It can therefore not be ended until all Conns are closed.
 // 2. Creating a new Conn when receiving from a new remote.
 func (l *Listener) readLoop() {
+	defer l.readWG.Done()
 	buf := make([]byte, receiveMTU)
 
-readLoop:
 	for {
 		n, raddr, err := l.pConn.ReadFrom(buf)
 		if err != nil {
@@ -120,23 +121,18 @@ readLoop:
 		if err != nil {
 			continue
 		}
-		select {
-		case cBuf := <-conn.readCh:
-			n = copy(cBuf, buf[:n])
-			conn.sizeCh <- n
-		case <-conn.doneCh:
-			continue readLoop
-		}
+		cBuf := <-conn.readCh
+		n = copy(cBuf, buf[:n])
+		conn.sizeCh <- n
 	}
 }
 
 func (l *Listener) getConn(raddr net.Addr) (*Conn, error) {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-
+	l.connLock.Lock()
+	defer l.connLock.Unlock()
 	conn, ok := l.conns[raddr.String()]
 	if !ok {
-		if !l.accepting {
+		if !l.accepting.Load().(bool) {
 			return nil, errClosedListener
 		}
 		conn = l.newConn(raddr)
@@ -155,7 +151,6 @@ type Conn struct {
 	readCh chan []byte
 	sizeCh chan int
 
-	lock     sync.RWMutex
 	doneCh   chan struct{}
 	doneOnce sync.Once
 }
@@ -183,30 +178,29 @@ func (c *Conn) Read(p []byte) (int, error) {
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (c *Conn) Write(p []byte) (n int, err error) {
-	c.lock.Lock()
-	l := c.listener
-	c.lock.Unlock()
-
-	if l == nil {
-		return 0, io.EOF
-	}
-
-	return l.pConn.WriteTo(p, c.rAddr)
+	return c.listener.pConn.WriteTo(p, c.rAddr)
 }
 
 // Close closes the conn and releases any Read calls
 func (c *Conn) Close() error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
 	var err error
 	c.doneOnce.Do(func() {
+		c.listener.connWG.Done()
 		close(c.doneCh)
-		c.listener.lock.Lock()
+		c.listener.connLock.Lock()
 		delete(c.listener.conns, c.rAddr.String())
-		err = c.listener.cleanup()
-		c.listener.lock.Unlock()
-		c.listener = nil
+		nConns := len(c.listener.conns)
+		c.listener.connLock.Unlock()
+
+		if nConns == 0 && !c.listener.accepting.Load().(bool) {
+			// Wait if this is the final connection
+			c.listener.readWG.Wait()
+			if errClose, ok := c.listener.errClose.Load().(error); ok {
+				err = errClose
+			}
+		} else {
+			err = nil
+		}
 	})
 
 	return err
@@ -214,15 +208,7 @@ func (c *Conn) Close() error {
 
 // LocalAddr is a stub
 func (c *Conn) LocalAddr() net.Addr {
-	c.lock.Lock()
-	l := c.listener
-	c.lock.Unlock()
-
-	if l == nil {
-		return nil
-	}
-
-	return l.pConn.LocalAddr()
+	return c.listener.pConn.LocalAddr()
 }
 
 // RemoteAddr is a stub

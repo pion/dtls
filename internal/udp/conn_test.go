@@ -58,7 +58,7 @@ func stressDuplex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = listener.Close(5 * time.Second)
+		err = listener.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +89,7 @@ func TestListenerCloseTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = listener.Close(500 * time.Millisecond)
+	err = listener.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,24 +149,75 @@ func getConfig() (string, *net.UDPAddr) {
 	return "udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
 }
 
-// func TestConnClose(t *testing.T) {
-// 	lim := test.TimeOut(time.Second * 5)
-// 	defer lim.Stop()
-//
-// 	listener, ca, cb, err := pipe()
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	err = ca.Close()
-// 	if err != nil {
-// 		t.Fatalf("Failed to close A side: %v\n", err)
-// 	}
-// 	err = cb.Close()
-// 	if err != nil {
-// 		t.Fatalf("Failed to close B side: %v\n", err)
-// 	}
-//  err = listener.Close(1 * time.Second)
-//  if err != nil {
-//  	t.Fatalf("Failed to close listener: %v\n", err)
-//  }
-// }
+func TestConnClose(t *testing.T) {
+	lim := test.TimeOut(time.Second * 5)
+	defer lim.Stop()
+
+	t.Run("Close", func(t *testing.T) {
+		// Check for leaking routines
+		report := test.CheckRoutines(t)
+		defer report()
+
+		listener, ca, cb, errPipe := pipe()
+		if errPipe != nil {
+			t.Fatal(errPipe)
+		}
+		if err := ca.Close(); err != nil {
+			t.Errorf("Failed to close A side: %v", err)
+		}
+		if err := cb.Close(); err != nil {
+			t.Errorf("Failed to close B side: %v", err)
+		}
+		if err := listener.Close(); err != nil {
+			t.Errorf("Failed to close listener: %v", err)
+		}
+	})
+	t.Run("CloseError1", func(t *testing.T) {
+		// Check for leaking routines
+		report := test.CheckRoutines(t)
+		defer report()
+
+		listener, ca, cb, errPipe := pipe()
+		if errPipe != nil {
+			t.Fatal(errPipe)
+		}
+		// Close listener.pConn to inject error.
+		if err := listener.pConn.Close(); err != nil {
+			t.Error(err)
+		}
+
+		if err := cb.Close(); err != nil {
+			t.Errorf("Failed to close A side: %v", err)
+		}
+		if err := ca.Close(); err != nil {
+			t.Errorf("Failed to close B side: %v", err)
+		}
+		if err := listener.Close(); err == nil {
+			t.Errorf("Error is not propagated to Listener.Close")
+		}
+	})
+	t.Run("CloseError2", func(t *testing.T) {
+		// Check for leaking routines
+		report := test.CheckRoutines(t)
+		defer report()
+
+		listener, ca, cb, errPipe := pipe()
+		if errPipe != nil {
+			t.Fatal(errPipe)
+		}
+		// Close listener.pConn to inject error.
+		if err := listener.pConn.Close(); err != nil {
+			t.Error(err)
+		}
+
+		if err := cb.Close(); err != nil {
+			t.Errorf("Failed to close A side: %v", err)
+		}
+		if err := listener.Close(); err != nil {
+			t.Errorf("Failed to close listener: %v", err)
+		}
+		if err := ca.Close(); err == nil {
+			t.Errorf("Error is not propagated to Conn.Close")
+		}
+	})
+}
