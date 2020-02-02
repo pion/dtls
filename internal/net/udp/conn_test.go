@@ -101,7 +101,7 @@ func TestListenerCloseTimeout(t *testing.T) {
 	}
 }
 
-func pipe() (*Listener, *Conn, *net.UDPConn, error) {
+func pipe() (*Listener, net.Conn, *net.UDPConn, error) {
 	// Start listening
 	network, addr := getConfig()
 	listener, err := Listen(network, addr)
@@ -124,7 +124,7 @@ func pipe() (*Listener, *Conn, *net.UDPConn, error) {
 	}
 
 	// Accept the connection
-	var lConn *Conn
+	var lConn net.Conn
 	lConn, err = listener.Accept()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to accept Conn: %v", err)
