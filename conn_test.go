@@ -16,24 +16,6 @@ import (
 	"github.com/pion/transport/test"
 )
 
-// Seems to strict for out implementation at this point
-// func TestNetTest(t *testing.T) {
-// 	lim := test.TimeOut(time.Minute*1 + time.Second*10)
-// 	defer lim.Stop()
-//
-// 	nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
-// 		c1, c2, err = pipeMemory()
-// 		if err != nil {
-// 			return nil, nil, nil, err
-// 		}
-// 		stop = func() {
-// 			c1.Close()
-// 			c2.Close()
-// 		}
-// 		return
-// 	})
-// }
-
 func TestStressDuplex(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)

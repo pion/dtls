@@ -2,12 +2,15 @@
 package udp
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/pion/dtls/v2/internal/net/deadline"
 )
 
 const receiveMTU = 8192
@@ -153,15 +156,20 @@ type Conn struct {
 
 	doneCh   chan struct{}
 	doneOnce sync.Once
+
+	readDeadline  *deadline.Deadline
+	writeDeadline *deadline.Deadline
 }
 
 func (l *Listener) newConn(rAddr net.Addr) *Conn {
 	return &Conn{
-		listener: l,
-		rAddr:    rAddr,
-		readCh:   make(chan []byte),
-		sizeCh:   make(chan int),
-		doneCh:   make(chan struct{}),
+		listener:      l,
+		rAddr:         rAddr,
+		readCh:        make(chan []byte),
+		sizeCh:        make(chan int),
+		doneCh:        make(chan struct{}),
+		readDeadline:  deadline.New(),
+		writeDeadline: deadline.New(),
 	}
 }
 
@@ -173,11 +181,18 @@ func (c *Conn) Read(p []byte) (int, error) {
 		return n, nil
 	case <-c.doneCh:
 		return 0, io.EOF
+	case <-c.readDeadline.Done():
+		return 0, context.DeadlineExceeded
 	}
 }
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (c *Conn) Write(p []byte) (n int, err error) {
+	select {
+	case <-c.writeDeadline.Done():
+		return 0, context.DeadlineExceeded
+	default:
+	}
 	return c.listener.pConn.WriteTo(p, c.rAddr)
 }
 
@@ -206,27 +221,33 @@ func (c *Conn) Close() error {
 	return err
 }
 
-// LocalAddr is a stub
+// LocalAddr implements net.Conn.LocalAddr
 func (c *Conn) LocalAddr() net.Addr {
 	return c.listener.pConn.LocalAddr()
 }
 
-// RemoteAddr is a stub
+// RemoteAddr implements net.Conn.RemoteAddr
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.rAddr
 }
 
-// SetDeadline is a stub
+// SetDeadline implements net.Conn.SetDeadline
 func (c *Conn) SetDeadline(t time.Time) error {
+	c.readDeadline.Set(t)
+	c.writeDeadline.Set(t)
+	// Deadline of underlying connection should not be changed
+	// since the connection can be shared.
 	return nil
 }
 
-// SetReadDeadline is a stub
+// SetReadDeadline implements net.Conn.SetDeadline
 func (c *Conn) SetReadDeadline(t time.Time) error {
+	c.readDeadline.Set(t)
 	return nil
 }
 
-// SetWriteDeadline is a stub
+// SetWriteDeadline implements net.Conn.SetDeadline
 func (c *Conn) SetWriteDeadline(t time.Time) error {
+	c.writeDeadline.Set(t)
 	return nil
 }

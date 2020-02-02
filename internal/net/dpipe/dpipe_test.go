@@ -8,7 +8,31 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"golang.org/x/net/nettest"
 )
+
+func TestNetTest(t *testing.T) {
+	nettest.TestConn(t, func() (net.Conn, net.Conn, func(), error) {
+		ca, cb := Pipe()
+		return &closePropagator{ca.(*conn), cb.(*conn)},
+			&closePropagator{cb.(*conn), ca.(*conn)},
+			func() {
+				_ = ca.Close()
+				_ = cb.Close()
+			}, nil
+	})
+}
+
+type closePropagator struct {
+	*conn
+	otherEnd *conn
+}
+
+func (c *closePropagator) Close() error {
+	close(c.otherEnd.closing)
+	return c.conn.Close()
+}
 
 func TestPipe(t *testing.T) {
 	ca, cb := Pipe()
