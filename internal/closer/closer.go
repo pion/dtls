@@ -1,4 +1,5 @@
-package dtls
+// Package closer provides signaling channel for shutdown
+package closer
 
 import (
 	"context"
@@ -31,6 +32,11 @@ func NewCloserWithParent(ctx context.Context) *Closer {
 // Done returns a channel signaling when it is done
 func (c *Closer) Done() <-chan struct{} {
 	return c.ctx.Done()
+}
+
+// Err returns an error of the context
+func (c *Closer) Err() error {
+	return c.ctx.Err()
 }
 
 // Close sends a signal to trigger the ctx done channel
