@@ -35,10 +35,6 @@ func initalizeCipherSuite(c *Conn, h *handshakeMessageServerKeyExchange) (*alert
 		}
 	}
 
-	if err = c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, true); err != nil {
-		return &alert{alertLevelFatal, alertInternalError}, err
-	}
-
 	if c.localPSKCallback == nil {
 		expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
 		if err = verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, c.state.remoteCertificate); err != nil {
@@ -55,6 +51,10 @@ func initalizeCipherSuite(c *Conn, h *handshakeMessageServerKeyExchange) (*alert
 				return &alert{alertLevelFatal, alertBadCertificate}, err
 			}
 		}
+	}
+
+	if err = c.state.cipherSuite.init(c.state.masterSecret, clientRandom, serverRandom /* isClient */, true); err != nil {
+		return &alert{alertLevelFatal, alertInternalError}, err
 	}
 	return nil, nil
 }
