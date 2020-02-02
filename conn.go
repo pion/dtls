@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/internal/closer"
+	"github.com/pion/dtls/v2/internal/net/deadline"
 	"github.com/pion/logging"
 )
 
@@ -87,6 +89,9 @@ type Conn struct {
 	connectionClosed *closer.Closer // Closed on connection close and unblock read
 	handshakeErr     *atomicError   // Error if one occurred during handshake
 	readErr          *atomicError   // Error if one occurred in inboundLoop
+
+	readDeadline  *deadline.Deadline
+	writeDeadline *deadline.Deadline
 
 	log logging.LeveledLogger
 }
@@ -166,6 +171,9 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		log:                 logger,
 		handshakeErr:        &atomicError{},
 		readErr:             &atomicError{},
+
+		readDeadline:  deadline.New(),
+		writeDeadline: deadline.New(),
 	}
 
 	// Use host from conn address when serverName is not provided
@@ -255,33 +263,26 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 
 // Read reads data from the connection.
 func (c *Conn) Read(p []byte) (n int, err error) {
-	checkConnStatus := func() error {
-		if err := c.handshakeErr.load(); err != nil {
-			return err
+	var out []byte
+	var ok bool
+	select {
+	case out, ok = <-c.decrypted:
+		// inboundLoop has closed but error has not been set yet
+		if !ok {
+			if err := c.handshakeErr.load(); err != nil {
+				return 0, err
+			}
+			if c.connectionClosed.Err() != nil {
+				return 0, io.EOF
+			}
+			if err := c.readErr.load(); err != nil {
+				return 0, err
+			}
+			return 0, io.EOF
 		}
-		if c.connectionClosed.Err() != nil {
-			return io.EOF
-		}
-		if err := c.readErr.load(); err != nil {
-			return err
-		}
-
-		return nil
+	case <-c.readDeadline.Done():
+		return 0, context.DeadlineExceeded
 	}
-
-	if err := checkConnStatus(); err != nil {
-		return 0, err
-	}
-	out, ok := <-c.decrypted
-	if err := checkConnStatus(); err != nil {
-		return 0, err
-	}
-
-	// inboundLoop has closed but error has not been set yet
-	if !ok {
-		return 0, io.EOF
-	}
-
 	if len(p) < len(out) {
 		return 0, errBufferTooSmall
 	}
@@ -291,8 +292,11 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (c *Conn) Write(p []byte) (int, error) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	select {
+	case <-c.writeDeadline.Done():
+		return 0, context.DeadlineExceeded
+	default:
+	}
 
 	if err := c.handshakeErr.load(); err != nil {
 		return 0, err
@@ -303,6 +307,9 @@ func (c *Conn) Write(p []byte) (int, error) {
 	if !c.isHandshakeCompletedSuccessfully() {
 		return 0, errHandshakeInProgress
 	}
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
 
 	if err := c.bufferPacket(&packet{
 		record: &recordLayer{
@@ -658,6 +665,13 @@ func (c *Conn) handleIncomingPacket(buf []byte) (*alert, error) {
 			return &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("ApplicationData with epoch of 0")
 		}
 
+		if err := c.handshakeErr.load(); err != nil {
+			return nil, err
+		}
+		if c.connectionClosed.Err() != nil {
+			return nil, io.EOF
+		}
+
 		select {
 		case c.decrypted <- content.data:
 		case <-c.connectionClosed.Done():
@@ -772,27 +786,32 @@ func (c *Conn) getRemoteEpoch() uint16 {
 	return c.state.remoteEpoch.Load().(uint16)
 }
 
-// LocalAddr is a stub
+// LocalAddr implements net.Conn.LocalAddr
 func (c *Conn) LocalAddr() net.Addr {
 	return c.nextConn.LocalAddr()
 }
 
-// RemoteAddr is a stub
+// RemoteAddr implements net.Conn.RemoteAddr
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.nextConn.RemoteAddr()
 }
 
-// SetDeadline is a stub
+// SetDeadline implements net.Conn.SetDeadline
 func (c *Conn) SetDeadline(t time.Time) error {
-	return c.nextConn.SetDeadline(t)
+	c.readDeadline.Set(t)
+	return c.SetWriteDeadline(t)
 }
 
-// SetReadDeadline is a stub
+// SetReadDeadline implements net.Conn.SetReadDeadline
 func (c *Conn) SetReadDeadline(t time.Time) error {
-	return c.nextConn.SetReadDeadline(t)
+	c.readDeadline.Set(t)
+	// Read deadline is fully managed by this layer.
+	// Don't set read deadline to underlying connection.
+	return nil
 }
 
-// SetWriteDeadline is a stub
+// SetWriteDeadline implements net.Conn.SetWriteDeadline
 func (c *Conn) SetWriteDeadline(t time.Time) error {
+	c.writeDeadline.Set(t)
 	return c.nextConn.SetWriteDeadline(t)
 }
