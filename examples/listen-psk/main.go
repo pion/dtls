@@ -33,7 +33,7 @@ func main() {
 	listener, err := dtls.Listen("udp", addr, config)
 	util.Check(err)
 	defer func() {
-		util.Check(listener.Close(5 * time.Second))
+		util.Check(listener.Close())
 	}()
 
 	fmt.Println("Listening")
