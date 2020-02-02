@@ -71,7 +71,7 @@ func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, serverPort 
 		clientConn       net.Conn
 		serverMutex      sync.Mutex
 		serverConn       net.Conn
-		serverListener   *dtls.Listener
+		serverListener   net.Listener
 		serverReady      = make(chan struct{})
 		errChan          = make(chan error)
 		clientChan       = make(chan string)
@@ -141,7 +141,7 @@ func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, serverPort 
 			t.Fatal(err)
 		}
 
-		if err := serverListener.Close(2 * time.Second); err != nil {
+		if err := serverListener.Close(); err != nil {
 			t.Fatal(err)
 		}
 	}()
