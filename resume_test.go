@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 )
 
 func TestResumeClient(t *testing.T) {
@@ -24,7 +26,7 @@ func fatal(t *testing.T, errChan chan error, err error) {
 }
 
 func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Conn, error)) {
-	certificate, err := GenerateSelfSigned()
+	certificate, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}

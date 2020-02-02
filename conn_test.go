@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/internal/dpipe"
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	"github.com/pion/transport/test"
 )
 
@@ -135,7 +136,7 @@ func pipeMemory() (*Conn, *Conn, error) {
 
 func testClient(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
 	if generateCertificate {
-		clientCert, err := GenerateSelfSigned()
+		clientCert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +148,7 @@ func testClient(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error
 
 func testServer(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
 	if generateCertificate {
-		serverCert, err := GenerateSelfSigned()
+		serverCert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
 			return nil, err
 		}
@@ -443,7 +444,7 @@ func TestSRTPConfiguration(t *testing.T) {
 }
 
 func TestClientCertificate(t *testing.T) {
-	srvCert, err := GenerateSelfSigned()
+	srvCert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +455,7 @@ func TestClientCertificate(t *testing.T) {
 	}
 	srvCAPool.AddCert(srvCertificate)
 
-	cert, err := GenerateSelfSigned()
+	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +745,7 @@ func TestExtendedMasterSecret(t *testing.T) {
 func TestServerCertificate(t *testing.T) {
 	t.Parallel()
 
-	cert, err := GenerateSelfSigned()
+	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}

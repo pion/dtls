@@ -19,7 +19,7 @@ issues:
   exclude-use-default: false
 
   exclude-rules:
-    - path: internal/crypto/ccm
+    - path: pkg/crypto/ccm
       text: "L' should not be capitalized"
       linters:
         - gocritic

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2"
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	transportTest "github.com/pion/transport/test"
 )
 
@@ -25,12 +26,12 @@ func TestPionE2ELossy(t *testing.T) {
 		err      error
 	}
 
-	serverCert, err := dtls.GenerateSelfSigned()
+	serverCert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	clientCert, err := dtls.GenerateSelfSigned()
+	clientCert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
