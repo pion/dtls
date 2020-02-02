@@ -4,12 +4,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"hash"
-	"sync"
+	"sync/atomic"
 )
 
 type cipherSuiteTLSEcdheEcdsaWithAes256CbcSha struct {
-	cbc *cryptoCBC
-	sync.RWMutex
+	cbc atomic.Value // *cryptoCBC
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) certificateType() clientCertificateType {
@@ -33,9 +32,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isPSK() bool {
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isInitialized() bool {
-	c.RLock()
-	defer c.RUnlock()
-	return c.cbc != nil
+	return c.cbc.Load() != nil
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
@@ -50,35 +47,37 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRand
 		return err
 	}
 
-	c.Lock()
-	defer c.Unlock()
+	var cbc *cryptoCBC
 	if isClient {
-		c.cbc, err = newCryptoCBC(
+		cbc, err = newCryptoCBC(
 			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
 			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
 		)
 	} else {
-		c.cbc, err = newCryptoCBC(
+		cbc, err = newCryptoCBC(
 			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
 			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
 		)
 	}
+	c.cbc.Store(cbc)
 
 	return err
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
-	if !c.isInitialized() {
+	cbc := c.cbc.Load()
+	if cbc == nil { // !c.isInitialized()
 		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
 	}
 
-	return c.cbc.encrypt(pkt, raw)
+	return cbc.(*cryptoCBC).encrypt(pkt, raw)
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) decrypt(raw []byte) ([]byte, error) {
-	if !c.isInitialized() {
+	cbc := c.cbc.Load()
+	if cbc == nil { // !c.isInitialized()
 		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
 	}
 
-	return c.cbc.decrypt(raw)
+	return cbc.(*cryptoCBC).decrypt(raw)
 }
