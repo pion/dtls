@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2"
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	"github.com/pion/transport/test"
 )
 
@@ -195,7 +196,7 @@ func TestPionE2ESimple(t *testing.T) {
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
-		cert, err := dtls.GenerateSelfSigned()
+		cert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +251,7 @@ func TestPionE2EMTUs(t *testing.T) {
 		1000,
 		100,
 	} {
-		cert, err := dtls.GenerateSelfSigned()
+		cert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
 			t.Fatal(err)
 		}

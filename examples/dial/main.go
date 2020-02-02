@@ -8,6 +8,7 @@ import (
 
 	"github.com/pion/dtls/v2"
 	"github.com/pion/dtls/v2/examples/util"
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 )
 
 func main() {
@@ -15,7 +16,7 @@ func main() {
 	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4444}
 
 	// Generate a certificate and private key to secure the connection
-	certificate, genErr := dtls.GenerateSelfSigned()
+	certificate, genErr := selfsign.GenerateSelfSigned()
 	util.Check(genErr)
 
 	//

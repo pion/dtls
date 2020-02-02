@@ -5,6 +5,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"testing"
+
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 )
 
 func TestValidateConfig(t *testing.T) {
@@ -14,7 +16,7 @@ func TestValidateConfig(t *testing.T) {
 	}
 
 	//PSK and Certificate
-	cert, err := GenerateSelfSigned()
+	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), self signed certificate not generated", err)
 		return

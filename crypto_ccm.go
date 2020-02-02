@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/pion/dtls/v2/internal/crypto/ccm"
+	"github.com/pion/dtls/v2/pkg/crypto/ccm"
 )
 
 type cryptoCCMTagLen int

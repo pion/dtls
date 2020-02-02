@@ -11,6 +11,7 @@ import (
 	"golang.org/x/crypto/ed25519"
 
 	"github.com/pion/dtls/v2"
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	"github.com/pion/transport/test"
 )
 
@@ -36,7 +37,7 @@ func TestPionE2ESimpleED25519(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cert, err := dtls.SelfSign(key)
+		cert, err := selfsign.SelfSign(key)
 		if err != nil {
 			t.Fatal(err)
 		}
