@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	"github.com/pion/logging"
 	"github.com/pion/transport/test"
 )
@@ -16,7 +17,7 @@ func TestSimpleReadWrite(t *testing.T) {
 	defer report()
 
 	ca, cb := net.Pipe()
-	certificate, err := GenerateSelfSigned()
+	certificate, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func TestSimpleReadWrite(t *testing.T) {
 func benchmarkConn(b *testing.B, n int64) {
 	b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
 		ca, cb := net.Pipe()
-		certificate, err := GenerateSelfSigned()
+		certificate, err := selfsign.GenerateSelfSigned()
 		server := make(chan *Conn)
 		go func() {
 			s, sErr := testServer(cb, &Config{
