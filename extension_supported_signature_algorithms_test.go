@@ -16,9 +16,9 @@ func TestExtensionSupportedSignatureAlgorithms(t *testing.T) {
 	}
 	parsedExtensionSupportedSignatureAlgorithms := &extensionSupportedSignatureAlgorithms{
 		signatureHashAlgorithms: []signatureHashAlgorithm{
-			{HashAlgorithmSHA256, signatureAlgorithmECDSA},
-			{HashAlgorithmSHA384, signatureAlgorithmECDSA},
-			{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+			{hashAlgorithmSHA256, signatureAlgorithmECDSA},
+			{hashAlgorithmSHA384, signatureAlgorithmECDSA},
+			{hashAlgorithmSHA512, signatureAlgorithmECDSA},
 		},
 	}
 

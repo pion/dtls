@@ -11,7 +11,7 @@ type handshakeMessageServerKeyExchange struct {
 	ellipticCurveType  ellipticCurveType
 	namedCurve         namedCurve
 	publicKey          []byte
-	hashAlgorithm      HashAlgorithm
+	hashAlgorithm      hashAlgorithm
 	signatureAlgorithm signatureAlgorithm
 	signature          []byte
 }
@@ -78,7 +78,7 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 	if len(data) <= offset {
 		return errBufferTooSmall
 	}
-	h.hashAlgorithm = HashAlgorithm(data[offset])
+	h.hashAlgorithm = hashAlgorithm(data[offset])
 	if _, ok := hashAlgorithms[h.hashAlgorithm]; !ok {
 		return errInvalidHashAlgorithm
 	}

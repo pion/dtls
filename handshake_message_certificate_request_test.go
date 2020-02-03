@@ -16,12 +16,12 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 			clientCertificateTypeECDSASign,
 		},
 		signatureHashAlgorithms: []signatureHashAlgorithm{
-			{hash: HashAlgorithmSHA256, signature: signatureAlgorithmECDSA},
-			{hash: HashAlgorithmSHA256, signature: signatureAlgorithmRSA},
-			{hash: HashAlgorithmSHA384, signature: signatureAlgorithmECDSA},
-			{hash: HashAlgorithmSHA384, signature: signatureAlgorithmRSA},
-			{hash: HashAlgorithmSHA512, signature: signatureAlgorithmRSA},
-			{hash: HashAlgorithmSHA1, signature: signatureAlgorithmRSA},
+			{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA},
+			{hash: hashAlgorithmSHA256, signature: signatureAlgorithmRSA},
+			{hash: hashAlgorithmSHA384, signature: signatureAlgorithmECDSA},
+			{hash: hashAlgorithmSHA384, signature: signatureAlgorithmRSA},
+			{hash: hashAlgorithmSHA512, signature: signatureAlgorithmRSA},
+			{hash: hashAlgorithmSHA1, signature: signatureAlgorithmRSA},
 		},
 	}
 

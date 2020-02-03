@@ -1,6 +1,6 @@
 package dtls
 
 type signatureHashAlgorithm struct {
-	hash      HashAlgorithm
+	hash      hashAlgorithm
 	signature signatureAlgorithm
 }
