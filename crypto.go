@@ -19,7 +19,7 @@ type ecdsaSignature struct {
 	R, S *big.Int
 }
 
-func valueKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, hashAlgorithm HashAlgorithm) []byte {
+func valueKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, hashAlgorithm hashAlgorithm) []byte {
 	serverECDHParams := make([]byte, 4)
 	serverECDHParams[0] = 3 // named curve
 	binary.BigEndian.PutUint16(serverECDHParams[1:], uint16(namedCurve))
@@ -38,7 +38,7 @@ func valueKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve 
 // hash/signature algorithm pair that appears in that extension
 //
 // https://tools.ietf.org/html/rfc5246#section-7.4.2
-func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, privateKey crypto.PrivateKey, hashAlgorithm HashAlgorithm) ([]byte, error) {
+func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve namedCurve, privateKey crypto.PrivateKey, hashAlgorithm hashAlgorithm) ([]byte, error) {
 	hashed := valueKeySignature(clientRandom, serverRandom, publicKey, namedCurve, hashAlgorithm)
 	switch p := privateKey.(type) {
 	case ed25519.PrivateKey:
@@ -53,7 +53,7 @@ func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 	return nil, errKeySignatureGenerateUnimplemented
 }
 
-func verifyKeySignature(hash, remoteKeySignature []byte, hashAlgorithm HashAlgorithm, rawCertificates [][]byte) error {
+func verifyKeySignature(hash, remoteKeySignature []byte, hashAlgorithm hashAlgorithm, rawCertificates [][]byte) error {
 	if len(rawCertificates) == 0 {
 		return errLengthMismatch
 	}
@@ -118,7 +118,7 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 	return nil, errInvalidSignatureAlgorithm
 }
 
-func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm HashAlgorithm, remoteKeySignature []byte, rawCertificates [][]byte) error {
+func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hashAlgorithm, remoteKeySignature []byte, rawCertificates [][]byte) error {
 	if len(rawCertificates) == 0 {
 		return errLengthMismatch
 	}

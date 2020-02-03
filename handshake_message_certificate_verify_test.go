@@ -14,7 +14,7 @@ func TestHandshakeMessageCertificateVerify(t *testing.T) {
 		0xbb, 0x03, 0x0e, 0xf1, 0xcb, 0x28, 0x22, 0x33, 0x23, 0x88, 0xad,
 	}
 	parsedCertificateVerify := &handshakeMessageCertificateVerify{
-		hashAlgorithm:      HashAlgorithm(rawCertificateVerify[0]),
+		hashAlgorithm:      hashAlgorithm(rawCertificateVerify[0]),
 		signatureAlgorithm: signatureAlgorithm(rawCertificateVerify[1]),
 		signature:          rawCertificateVerify[4:],
 	}

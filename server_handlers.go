@@ -380,7 +380,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
 
-				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localCertificates[0].PrivateKey, HashAlgorithmSHA256)
+				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localCertificates[0].PrivateKey, hashAlgorithmSHA256)
 				if err != nil {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
@@ -400,7 +400,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							ellipticCurveType:  ellipticCurveTypeNamedCurve,
 							namedCurve:         c.namedCurve,
 							publicKey:          c.localKeypair.publicKey,
-							hashAlgorithm:      HashAlgorithmSHA256,
+							hashAlgorithm:      hashAlgorithmSHA256,
 							signatureAlgorithm: signatureAlgorithmECDSA,
 							signature:          c.localKeySignature,
 						}},
@@ -423,12 +423,12 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							handshakeMessage: &handshakeMessageCertificateRequest{
 								certificateTypes: []clientCertificateType{clientCertificateTypeRSASign, clientCertificateTypeECDSASign},
 								signatureHashAlgorithms: []signatureHashAlgorithm{
-									{HashAlgorithmSHA256, signatureAlgorithmRSA},
-									{HashAlgorithmSHA384, signatureAlgorithmRSA},
-									{HashAlgorithmSHA512, signatureAlgorithmRSA},
-									{HashAlgorithmSHA256, signatureAlgorithmECDSA},
-									{HashAlgorithmSHA384, signatureAlgorithmECDSA},
-									{HashAlgorithmSHA512, signatureAlgorithmECDSA},
+									{hashAlgorithmSHA256, signatureAlgorithmRSA},
+									{hashAlgorithmSHA384, signatureAlgorithmRSA},
+									{hashAlgorithmSHA512, signatureAlgorithmRSA},
+									{hashAlgorithmSHA256, signatureAlgorithmECDSA},
+									{hashAlgorithmSHA384, signatureAlgorithmECDSA},
+									{hashAlgorithmSHA512, signatureAlgorithmECDSA},
 								},
 							},
 						},

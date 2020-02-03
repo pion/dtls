@@ -76,7 +76,7 @@ func (h *handshakeMessageCertificateRequest) Unmarshal(data []byte) error {
 		if len(data) < (offset + i + 2) {
 			return errBufferTooSmall
 		}
-		hash := HashAlgorithm(data[offset+i])
+		hash := hashAlgorithm(data[offset+i])
 		signature := signatureAlgorithm(data[offset+i+1])
 
 		if _, ok := hashAlgorithms[hash]; !ok {

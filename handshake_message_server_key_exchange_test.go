@@ -21,7 +21,7 @@ func TestHandshakeMessageServerKeyExchange(t *testing.T) {
 		ellipticCurveType:  ellipticCurveTypeNamedCurve,
 		namedCurve:         namedCurveX25519,
 		publicKey:          rawServerKeyExchange[4:69],
-		hashAlgorithm:      HashAlgorithmSHA1,
+		hashAlgorithm:      hashAlgorithmSHA1,
 		signatureAlgorithm: signatureAlgorithmECDSA,
 		signature:          rawServerKeyExchange[73:144],
 	}

@@ -5,7 +5,7 @@ import (
 )
 
 type handshakeMessageCertificateVerify struct {
-	hashAlgorithm      HashAlgorithm
+	hashAlgorithm      hashAlgorithm
 	signatureAlgorithm signatureAlgorithm
 	signature          []byte
 }
@@ -31,7 +31,7 @@ func (h *handshakeMessageCertificateVerify) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 
-	h.hashAlgorithm = HashAlgorithm(data[0])
+	h.hashAlgorithm = hashAlgorithm(data[0])
 	if _, ok := hashAlgorithms[h.hashAlgorithm]; !ok {
 		return errInvalidHashAlgorithm
 	}

@@ -1,6 +1,7 @@
-package dtls
+package fingerprint
 
 import (
+	"crypto"
 	"crypto/x509"
 	"testing"
 )
@@ -32,10 +33,17 @@ func TestFingerprint(t *testing.T) {
 	}
 
 	const expectedSHA256 = "60:ef:f5:79:ad:8d:3e:d7:e8:4d:5a:5a:d6:1e:71:2d:47:52:a5:cb:df:34:37:87:10:a5:4e:d7:2a:2c:37:34"
-	actualSHA256, err := Fingerprint(cert, HashAlgorithmSHA256)
+	actualSHA256, err := Fingerprint(cert, crypto.SHA256)
 	if err != nil {
 		t.Fatal(err)
 	} else if actualSHA256 != expectedSHA256 {
 		t.Fatalf("Fingerprint SHA256 mismatch expected(%s) actual(%s)", expectedSHA256, actualSHA256)
+	}
+}
+
+func TestFingerprint_UnavailableHash(t *testing.T) {
+	_, err := Fingerprint(&x509.Certificate{}, crypto.Hash(0xFFFFFFFF))
+	if err != errHashUnavailable {
+		t.Errorf("Expected error '%v' for invalid hash ID, got '%v'", errHashUnavailable, err)
 	}
 }

@@ -258,12 +258,12 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 		extensions := []extension{
 			&extensionSupportedSignatureAlgorithms{
 				signatureHashAlgorithms: []signatureHashAlgorithm{
-					{HashAlgorithmSHA256, signatureAlgorithmECDSA},
-					{HashAlgorithmSHA384, signatureAlgorithmECDSA},
-					{HashAlgorithmSHA512, signatureAlgorithmECDSA},
-					{HashAlgorithmSHA256, signatureAlgorithmRSA},
-					{HashAlgorithmSHA384, signatureAlgorithmRSA},
-					{HashAlgorithmSHA512, signatureAlgorithmRSA},
+					{hashAlgorithmSHA256, signatureAlgorithmECDSA},
+					{hashAlgorithmSHA384, signatureAlgorithmECDSA},
+					{hashAlgorithmSHA512, signatureAlgorithmECDSA},
+					{hashAlgorithmSHA256, signatureAlgorithmRSA},
+					{hashAlgorithmSHA384, signatureAlgorithmRSA},
+					{hashAlgorithmSHA512, signatureAlgorithmRSA},
 				},
 			},
 		}
@@ -438,7 +438,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 							messageSequence: uint16(messageSequence),
 						},
 						handshakeMessage: &handshakeMessageCertificateVerify{
-							hashAlgorithm:      HashAlgorithmSHA256,
+							hashAlgorithm:      hashAlgorithmSHA256,
 							signatureAlgorithm: signatureAlgorithmECDSA,
 							signature:          c.localCertificatesVerify,
 						}},

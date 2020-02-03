@@ -44,7 +44,7 @@ func (e *extensionSupportedSignatureAlgorithms) Unmarshal(data []byte) error {
 		return errLengthMismatch
 	}
 	for i := 0; i < algorithmCount; i++ {
-		supportedHashAlgorithm := HashAlgorithm(data[extensionSupportedSignatureAlgorithmsHeaderSize+(i*2)])
+		supportedHashAlgorithm := hashAlgorithm(data[extensionSupportedSignatureAlgorithmsHeaderSize+(i*2)])
 		supportedSignatureAlgorithm := signatureAlgorithm(data[extensionSupportedSignatureAlgorithmsHeaderSize+(i*2)+1])
 		if _, ok := hashAlgorithms[supportedHashAlgorithm]; ok {
 			if _, ok := signatureAlgorithms[supportedSignatureAlgorithm]; ok {

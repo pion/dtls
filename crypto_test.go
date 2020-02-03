@@ -61,7 +61,7 @@ func TestGenerateKeySignature(t *testing.T) {
 		0x87, 0x5e, 0x5c, 0x36, 0x75, 0x86,
 	}
 
-	signature, err := generateKeySignature(clientRandom, serverRandom, publicKey, namedCurveX25519, key, HashAlgorithmSHA256)
+	signature, err := generateKeySignature(clientRandom, serverRandom, publicKey, namedCurveX25519, key, hashAlgorithmSHA256)
 	if err != nil {
 		t.Error(err)
 	} else if !bytes.Equal(expectedSignature, signature) {
