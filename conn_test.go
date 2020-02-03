@@ -1016,12 +1016,12 @@ func TestServerTimeout(t *testing.T) {
 	extensions := []extension{
 		&extensionSupportedSignatureAlgorithms{
 			signatureHashAlgorithms: []signatureHashAlgorithm{
-				{HashAlgorithmSHA256, signatureAlgorithmECDSA},
-				{HashAlgorithmSHA384, signatureAlgorithmECDSA},
-				{HashAlgorithmSHA512, signatureAlgorithmECDSA},
-				{HashAlgorithmSHA256, signatureAlgorithmRSA},
-				{HashAlgorithmSHA384, signatureAlgorithmRSA},
-				{HashAlgorithmSHA512, signatureAlgorithmRSA},
+				{hashAlgorithmSHA256, signatureAlgorithmECDSA},
+				{hashAlgorithmSHA384, signatureAlgorithmECDSA},
+				{hashAlgorithmSHA512, signatureAlgorithmECDSA},
+				{hashAlgorithmSHA256, signatureAlgorithmRSA},
+				{hashAlgorithmSHA384, signatureAlgorithmRSA},
+				{hashAlgorithmSHA512, signatureAlgorithmRSA},
 			},
 		},
 		&extensionSupportedEllipticCurves{
