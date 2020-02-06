@@ -23,3 +23,13 @@ func HashFromString(s string) (crypto.Hash, error) {
 	}
 	return 0, errInvalidHashAlgorithm
 }
+
+// StringFromHash allows looking up a string representation of the crypto.Hash.
+func StringFromHash(hash crypto.Hash) (string, error) {
+	for s, h := range nameToHash {
+		if h == hash {
+			return s, nil
+		}
+	}
+	return "", errInvalidHashAlgorithm
+}

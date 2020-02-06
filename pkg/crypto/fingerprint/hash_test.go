@@ -22,3 +22,19 @@ func TestHashFromString(t *testing.T) {
 		}
 	})
 }
+
+func TestStringFromHash_Roundtrip(t *testing.T) {
+	for _, h := range nameToHash {
+		s, err := StringFromHash(h)
+		if err != nil {
+			t.Fatalf("Unexpected error for valid hash algorithm, got '%v'", err)
+		}
+		h2, err := HashFromString(s)
+		if err != nil {
+			t.Fatalf("Unexpected error for valid hash name, got '%v'", err)
+		}
+		if h != h2 {
+			t.Errorf("Hash value doesn't match, expected: 0x%x, got 0x%x", h, h2)
+		}
+	}
+}
