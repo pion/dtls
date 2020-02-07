@@ -3,7 +3,7 @@ package dtls
 import (
 	"net"
 
-	"github.com/pion/dtls/v2/internal/udp"
+	"github.com/pion/dtls/v2/internal/net/udp"
 )
 
 // Listen creates a DTLS listener
