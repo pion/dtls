@@ -28,6 +28,10 @@ const (
 	TLS_PSK_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0x00a8
 )
 
+var (
+	_ = allCipherSuites() // Necessary until this function isn't only used by Go 1.14
+)
+
 func (c CipherSuiteID) String() string {
 	switch c {
 	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM:
@@ -117,6 +121,20 @@ func defaultCipherSuites() []cipherSuite {
 		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
 		newCipherSuiteTLSEcdheEcdsaWithAes128Ccm(),
 		newCipherSuiteTLSEcdheEcdsaWithAes128Ccm8(),
+	}
+}
+
+func allCipherSuites() []cipherSuite {
+	return []cipherSuite{
+		newCipherSuiteTLSEcdheEcdsaWithAes128Ccm(),
+		newCipherSuiteTLSEcdheEcdsaWithAes128Ccm8(),
+		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
+		&cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{},
+		&cipherSuiteTLSEcdheRsaWithAes256CbcSha{},
+		newCipherSuiteTLSPskWithAes128Ccm(),
+		newCipherSuiteTLSPskWithAes128Ccm8(),
+		&cipherSuiteTLSPskWithAes128GcmSha256{},
 	}
 }
 
