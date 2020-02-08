@@ -68,6 +68,19 @@ type cipherSuite interface {
 	decrypt(in []byte) ([]byte, error)
 }
 
+// CipherSuiteName provides the same functionality as tls.CipherSuiteName
+// that appeared first in Go 1.14.
+//
+// Our implementation differs slightly in that it takes in a CiperSuiteID,
+// like the rest of our library, instead of a uint16 like crypto/tls.
+func CipherSuiteName(id CipherSuiteID) string {
+	suite := cipherSuiteForID(id)
+	if suite != nil {
+		return suite.String()
+	}
+	return fmt.Sprintf("0x%04X", uint16(id))
+}
+
 // Taken from https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
 // A cipherSuite is a specific combination of key agreement, cipher and MAC
 // function.
