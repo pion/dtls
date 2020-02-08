@@ -17,6 +17,10 @@ const (
 
 	dtls1_2Major = 0xfe
 	dtls1_2Minor = 0xfd
+
+	// VersionDTLS12 is the DTLS version in the same style as
+	// VersionTLSXX from crypto/tls
+	VersionDTLS12 = 0xfefd
 )
 
 var protocolVersion1_2 = protocolVersion{dtls1_2Major, dtls1_2Minor}
