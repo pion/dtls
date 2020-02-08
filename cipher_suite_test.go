@@ -38,3 +38,10 @@ func TestCipherSuiteName(t *testing.T) {
 		}
 	}
 }
+
+func TestAllCipherSuites(t *testing.T) {
+	actual := len(allCipherSuites())
+	if actual == 0 {
+		t.Fatal()
+	}
+}
