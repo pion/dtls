@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -28,11 +29,12 @@ func main() {
 		Certificates:         []tls.Certificate{certificate},
 		InsecureSkipVerify:   true,
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
-		ConnectTimeout:       dtls.ConnectTimeoutOption(30 * time.Second),
 	}
 
 	// Connect to a DTLS server
-	dtlsConn, err := dtls.Dial("udp", addr, config)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	dtlsConn, err := dtls.DialWithContext(ctx, "udp", addr, config)
 	util.Check(err)
 	defer func() {
 		util.Check(dtlsConn.Close())

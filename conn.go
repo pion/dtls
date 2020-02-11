@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -45,8 +44,6 @@ type Conn struct {
 	workerTicker   *time.Ticker
 
 	state State // Internal state
-
-	connectTimeout time.Duration
 
 	maximumTransmissionUnit int
 
@@ -96,7 +93,7 @@ type Conn struct {
 	log logging.LeveledLogger
 }
 
-func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
+func createConn(ctx context.Context, nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
 	err := validateConfig(config)
 	if err != nil {
 		return nil, err
@@ -123,15 +120,6 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 
 	logger := loggerFactory.NewLogger("dtls")
 
-	connectTimeout := defaultConnectTimeout
-	if config.ConnectTimeout != nil {
-		connectTimeout = *config.ConnectTimeout
-	}
-
-	if connectTimeout <= 0 {
-		connectTimeout = math.MaxInt64 * time.Nanosecond
-	}
-
 	mtu := config.MTU
 	if mtu <= 0 {
 		mtu = defaultMTU
@@ -147,7 +135,6 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 		handshakeCache:              newHandshakeCache(),
 		handshakeMessageHandler:     handshakeMessageHandler,
 		flightHandler:               flightHandler,
-		connectTimeout:              connectTimeout,
 		maximumTransmissionUnit:     mtu,
 		localCertificates:           config.Certificates,
 		clientAuth:                  config.ClientAuth,
@@ -211,7 +198,7 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	select {
 	case <-c.handshakeDoneSignal.Done():
 		err = c.handshakeErr.load()
-	case <-time.After(c.connectTimeout):
+	case <-ctx.Done():
 		err = errConnectTimeout
 		c.handshakeErr.store(err)
 		c.handshakeDoneSignal.Close()
@@ -228,17 +215,47 @@ func createConn(nextConn net.Conn, flightHandler flightHandler, handshakeMessage
 	return c, err
 }
 
-// Dial connects to the given network address and establishes a DTLS connection on top
+// Dial connects to the given network address and establishes a DTLS connection on top.
+// Connection handshake will timeout in DefaultConnectTimeout.
+// If you want to specify the timeout duration, use DialWithContext() instead.
 func Dial(network string, raddr *net.UDPAddr, config *Config) (*Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectTimeout)
+	defer cancel()
+
+	return DialWithContext(ctx, network, raddr, config)
+}
+
+// Client establishes a DTLS connection over an existing connection.
+// Connection handshake will timeout in DefaultConnectTimeout.
+// If you want to specify the timeout duration, use ClientWithContext() instead.
+func Client(conn net.Conn, config *Config) (*Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectTimeout)
+	defer cancel()
+
+	return ClientWithContext(ctx, conn, config)
+}
+
+// Server listens for incoming DTLS connections.
+// Connection handshake will timeout in DefaultConnectTimeout.
+// If you want to specify the timeout duration, use ServerWithContext() instead.
+func Server(conn net.Conn, config *Config) (*Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectTimeout)
+	defer cancel()
+
+	return ServerWithContext(ctx, conn, config)
+}
+
+// DialWithContext connects to the given network address and establishes a DTLS connection on top.
+func DialWithContext(ctx context.Context, network string, raddr *net.UDPAddr, config *Config) (*Conn, error) {
 	pConn, err := net.DialUDP(network, nil, raddr)
 	if err != nil {
 		return nil, err
 	}
-	return Client(pConn, config)
+	return ClientWithContext(ctx, pConn, config)
 }
 
-// Client establishes a DTLS connection over an existing conn
-func Client(conn net.Conn, config *Config) (*Conn, error) {
+// ClientWithContext establishes a DTLS connection over an existing connection.
+func ClientWithContext(ctx context.Context, conn net.Conn, config *Config) (*Conn, error) {
 	switch {
 	case config == nil:
 		return nil, errNoConfigProvided
@@ -246,11 +263,11 @@ func Client(conn net.Conn, config *Config) (*Conn, error) {
 		return nil, errPSKAndIdentityMustBeSetForClient
 	}
 
-	return createConn(conn, clientFlightHandler, clientHandshakeHandler, config, true)
+	return createConn(ctx, conn, clientFlightHandler, clientHandshakeHandler, config, true)
 }
 
-// Server listens for incoming DTLS connections
-func Server(conn net.Conn, config *Config) (*Conn, error) {
+// ServerWithContext listens for incoming DTLS connections.
+func ServerWithContext(ctx context.Context, conn net.Conn, config *Config) (*Conn, error) {
 	switch {
 	case config == nil:
 		return nil, errNoConfigProvided
@@ -258,7 +275,7 @@ func Server(conn net.Conn, config *Config) (*Conn, error) {
 		return nil, errServerMustHaveCertificate
 	}
 
-	return createConn(conn, serverFlightHandler, serverHandshakeHandler, config, false)
+	return createConn(ctx, conn, serverFlightHandler, serverHandshakeHandler, config, false)
 }
 
 // Read reads data from the connection.

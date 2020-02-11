@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/pion/dtls/v2"
 	"github.com/pion/dtls/v2/examples/util"
@@ -27,7 +26,6 @@ func main() {
 	config := &dtls.Config{
 		Certificates:         []tls.Certificate{certificate},
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
-		ConnectTimeout:       dtls.ConnectTimeoutOption(30 * time.Second),
 	}
 
 	// Connect to a DTLS server
