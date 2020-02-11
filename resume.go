@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"context"
 	"net"
 )
 
@@ -27,7 +28,7 @@ func Resume(state *State, conn net.Conn, config *Config) (*Conn, error) {
 		return nil, nil
 	}
 
-	c, err := createConn(conn, flightHandler, handshakeHandler, config, state.isClient)
+	c, err := createConn(context.Background(), conn, flightHandler, handshakeHandler, config, state.isClient)
 	if err != nil {
 		return nil, err
 	}

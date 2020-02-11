@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
@@ -26,11 +27,12 @@ func main() {
 		PSKIdentityHint:      []byte("Pion DTLS Server"),
 		CipherSuites:         []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM_8},
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
-		ConnectTimeout:       dtls.ConnectTimeoutOption(30 * time.Second),
 	}
 
 	// Connect to a DTLS server
-	dtlsConn, err := dtls.Dial("udp", addr, config)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	dtlsConn, err := dtls.DialWithContext(ctx, "udp", addr, config)
 	util.Check(err)
 	defer func() {
 		util.Check(dtlsConn.Close())

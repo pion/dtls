@@ -102,7 +102,7 @@ func TestPionE2ELossy(t *testing.T) {
 			DoClientAuth:    true,
 		},
 	} {
-		name := fmt.Sprintf("Loss%dMTU%d", test.LossChanceRange, test.MTU)
+		name := fmt.Sprintf("Loss%d_MTU%d", test.LossChanceRange, test.MTU)
 		if test.DoClientAuth {
 			name += "_WithCliAuth"
 		}
