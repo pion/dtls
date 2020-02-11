@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -83,13 +84,30 @@ type Config struct {
 
 	LoggerFactory logging.LoggerFactory
 
+	// ConnectContextMaker is a function to make a context used in Dial(),
+	// Client(), Server(), and Accept(). If nil, the default ConnectContextMaker
+	// is used. It can be implemented as following.
+	//
+	// 	func ConnectContextMaker() (context.Context, func()) {
+	// 		return context.WithTimeout(context.Background(), 30*time.Second)
+	// 	}
+	ConnectContextMaker func() (context.Context, func())
+
 	// MTU is the length at which handshake messages will be fragmented to
 	// fit within the maximum transmission unit (default is 1200 bytes)
 	MTU int
 }
 
-// DefaultConnectTimeout is a timeout duration used in Dial(), Client() and Server().
-const DefaultConnectTimeout = 30 * time.Second
+func defaultConnectContextMaker() (context.Context, func()) {
+	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
+func (c *Config) connectContextMaker() (context.Context, func()) {
+	if c.ConnectContextMaker == nil {
+		return defaultConnectContextMaker()
+	}
+	return c.ConnectContextMaker()
+}
 
 const defaultMTU = 1200 // bytes
 
