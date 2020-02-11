@@ -1,6 +1,11 @@
 package dtls
 
-import "errors"
+import (
+	"context"
+	"errors"
+
+	"golang.org/x/xerrors"
+)
 
 // Typed errors
 var (
@@ -50,11 +55,13 @@ var (
 	errNoAvailableCipherSuites           = errors.New("dtls: Connection can not be created, no CipherSuites satisfy this Config")
 	errInvalidClientKeyExchange          = errors.New("dtls: Unable to determine if ClientKeyExchange is a public key or PSK Identity")
 	errNoSupportedEllipticCurves         = errors.New("dtls: Client requested zero or more elliptic curves that are not supported by the server")
-	errConnectTimeout                    = errors.New("dtls: The connection timed out during the handshake")
 	errRequestedButNoSRTPExtension       = errors.New("dtls: SRTP support was requested but server did not respond with use_srtp extension")
 	errClientNoMatchingSRTPProfile       = errors.New("dtls: Server responded with SRTP Profile we do not support")
 	errServerNoMatchingSRTPProfile       = errors.New("dtls: Client requested SRTP but we have no matching profiles")
 	errServerRequiredButNoClientEMS      = errors.New("dtls: Server requires the Extended Master Secret extension, but the client does not support it")
 	errClientRequiredButNoServerEMS      = errors.New("dtls: Client required Extended Master Secret extension, but server does not support it")
 	errInvalidCertificate                = errors.New("dtls: No certificate provided")
+
+	// Wrapped errors
+	errConnectTimeout = xerrors.Errorf("dtls: The connection timed out during the handshake: %w", context.DeadlineExceeded)
 )
