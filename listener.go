@@ -22,7 +22,7 @@ func Listen(network string, laddr *net.UDPAddr, config *Config) (net.Listener, e
 	}, nil
 }
 
-// Listener represents a DTLS listener
+// listener represents a DTLS listener
 type listener struct {
 	config *Config
 	parent *udp.Listener
@@ -30,6 +30,8 @@ type listener struct {
 
 // Accept waits for and returns the next connection to the listener.
 // You have to either close or read on all connection that are created.
+// Connection handshake will timeout using ConnectContextMaker in the Config.
+// If you want to specify the timeout duration, set ConnectContextMaker.
 func (l *listener) Accept() (net.Conn, error) {
 	c, err := l.parent.Accept()
 	if err != nil {
