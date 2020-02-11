@@ -216,30 +216,30 @@ func createConn(ctx context.Context, nextConn net.Conn, flightHandler flightHand
 }
 
 // Dial connects to the given network address and establishes a DTLS connection on top.
-// Connection handshake will timeout in DefaultConnectTimeout.
+// Connection handshake will timeout using ConnectContextMaker in the Config.
 // If you want to specify the timeout duration, use DialWithContext() instead.
 func Dial(network string, raddr *net.UDPAddr, config *Config) (*Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectTimeout)
+	ctx, cancel := config.connectContextMaker()
 	defer cancel()
 
 	return DialWithContext(ctx, network, raddr, config)
 }
 
 // Client establishes a DTLS connection over an existing connection.
-// Connection handshake will timeout in DefaultConnectTimeout.
+// Connection handshake will timeout using ConnectContextMaker in the Config.
 // If you want to specify the timeout duration, use ClientWithContext() instead.
 func Client(conn net.Conn, config *Config) (*Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectTimeout)
+	ctx, cancel := config.connectContextMaker()
 	defer cancel()
 
 	return ClientWithContext(ctx, conn, config)
 }
 
 // Server listens for incoming DTLS connections.
-// Connection handshake will timeout in DefaultConnectTimeout.
+// Connection handshake will timeout using ConnectContextMaker in the Config.
 // If you want to specify the timeout duration, use ServerWithContext() instead.
 func Server(conn net.Conn, config *Config) (*Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectTimeout)
+	ctx, cancel := config.connectContextMaker()
 	defer cancel()
 
 	return ServerWithContext(ctx, conn, config)
