@@ -83,21 +83,13 @@ type Config struct {
 
 	LoggerFactory logging.LoggerFactory
 
-	// ConnectTimeout is the timeout threshold for new connection handshakes
-	// to complete (default is 30 seconds)
-	ConnectTimeout *time.Duration
-
 	// MTU is the length at which handshake messages will be fragmented to
 	// fit within the maximum transmission unit (default is 1200 bytes)
 	MTU int
 }
 
-const defaultConnectTimeout = 30 * time.Second
-
-// ConnectTimeoutOption simply provides a wrapper for creating a *time.Duration
-func ConnectTimeoutOption(timeout time.Duration) *time.Duration {
-	return &timeout
-}
+// DefaultConnectTimeout is a timeout duration used in Dial(), Client() and Server().
+const DefaultConnectTimeout = 30 * time.Second
 
 const defaultMTU = 1200 // bytes
 

@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -94,15 +95,17 @@ func pipeMemory() (*Conn, *Conn, error) {
 	}
 
 	c := make(chan result)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	// Setup client
 	go func() {
-		client, err := testClient(ca, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
+		client, err := testClient(ctx, ca, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
 		c <- result{client, err}
 	}()
 
 	// Setup server
-	server, err := testServer(cb, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
+	server, err := testServer(ctx, cb, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -116,7 +119,7 @@ func pipeMemory() (*Conn, *Conn, error) {
 	return res.c, server, nil
 }
 
-func testClient(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
+func testClient(ctx context.Context, c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
 	if generateCertificate {
 		clientCert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
@@ -125,10 +128,10 @@ func testClient(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error
 		cfg.Certificates = []tls.Certificate{clientCert}
 	}
 	cfg.InsecureSkipVerify = true
-	return Client(c, cfg)
+	return ClientWithContext(ctx, c, cfg)
 }
 
-func testServer(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
+func testServer(ctx context.Context, c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
 	if generateCertificate {
 		serverCert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
@@ -136,7 +139,7 @@ func testServer(c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error
 		}
 		cfg.Certificates = []tls.Certificate{serverCert}
 	}
-	return Server(c, cfg)
+	return ServerWithContext(ctx, c, cfg)
 }
 
 func TestHandshakeWithAlert(t *testing.T) {
@@ -144,6 +147,8 @@ func TestHandshakeWithAlert(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	clientErr := make(chan error, 1)
 
@@ -153,7 +158,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 			CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
 		}
 
-		_, err := testClient(ca, conf, true)
+		_, err := testClient(ctx, ca, conf, true)
 		clientErr <- err
 	}()
 
@@ -161,7 +166,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 	}
 
-	if _, err := testServer(cb, config, true); err != errCipherSuiteNoIntersection {
+	if _, err := testServer(ctx, cb, config, true); err != errCipherSuiteNoIntersection {
 		t.Fatalf("TestHandshakeWithAlert: Client error exp(%v) failed(%v)", errCipherSuiteNoIntersection, err)
 	}
 
@@ -238,45 +243,51 @@ func TestPSK(t *testing.T) {
 			ServerIdentity: nil,
 		},
 	} {
-		clientIdentity := []byte("Client Identity")
-		clientErr := make(chan error, 1)
+		test := test
+		t.Run(test.Name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		ca, cb := dpipe.Pipe()
-		go func() {
-			conf := &Config{
+			clientIdentity := []byte("Client Identity")
+			clientErr := make(chan error, 1)
+
+			ca, cb := dpipe.Pipe()
+			go func() {
+				conf := &Config{
+					PSK: func(hint []byte) ([]byte, error) {
+						if !bytes.Equal(test.ServerIdentity, hint) { // nolint
+							return nil, fmt.Errorf("TestPSK: Client got invalid identity expected(% 02x) actual(% 02x)", test.ServerIdentity, hint) // nolint
+						}
+
+						return []byte{0xAB, 0xC1, 0x23}, nil
+					},
+					PSKIdentityHint: clientIdentity,
+					CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+				}
+
+				_, err := testClient(ctx, ca, conf, false)
+				clientErr <- err
+			}()
+
+			config := &Config{
 				PSK: func(hint []byte) ([]byte, error) {
-					if !bytes.Equal(test.ServerIdentity, hint) { // nolint
-						return nil, fmt.Errorf("TestPSK: Client got invalid identity expected(% 02x) actual(% 02x)", test.ServerIdentity, hint) // nolint
+					if !bytes.Equal(clientIdentity, hint) {
+						return nil, fmt.Errorf("TestPSK: Server got invalid identity expected(% 02x) actual(% 02x)", clientIdentity, hint)
 					}
-
 					return []byte{0xAB, 0xC1, 0x23}, nil
 				},
-				PSKIdentityHint: clientIdentity,
+				PSKIdentityHint: test.ServerIdentity,
 				CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 			}
 
-			_, err := testClient(ca, conf, false)
-			clientErr <- err
-		}()
+			if _, err := testServer(ctx, cb, config, false); err != nil {
+				t.Fatalf("TestPSK: Server failed(%v)", err)
+			}
 
-		config := &Config{
-			PSK: func(hint []byte) ([]byte, error) {
-				if !bytes.Equal(clientIdentity, hint) {
-					return nil, fmt.Errorf("TestPSK: Server got invalid identity expected(% 02x) actual(% 02x)", clientIdentity, hint)
-				}
-				return []byte{0xAB, 0xC1, 0x23}, nil
-			},
-			PSKIdentityHint: test.ServerIdentity,
-			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
-		}
-
-		if _, err := testServer(cb, config, false); err != nil {
-			t.Fatalf("TestPSK: Server failed(%v)", err)
-		}
-
-		if err := <-clientErr; err != nil {
-			t.Fatal(err)
-		}
+			if err := <-clientErr; err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -287,6 +298,8 @@ func TestPSKHintFail(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	clientErr := make(chan error, 1)
 
@@ -300,7 +313,7 @@ func TestPSKHintFail(t *testing.T) {
 			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		}
 
-		_, err := testClient(ca, conf, false)
+		_, err := testClient(ctx, ca, conf, false)
 		clientErr <- err
 	}()
 
@@ -312,7 +325,7 @@ func TestPSKHintFail(t *testing.T) {
 		CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 	}
 
-	if _, err := testServer(cb, config, false); err.Error() != serverAlertError.Error() {
+	if _, err := testServer(ctx, cb, config, false); err.Error() != serverAlertError.Error() {
 		t.Fatalf("TestPSK: Server error exp(%v) failed(%v)", serverAlertError, err)
 	}
 
@@ -325,16 +338,16 @@ func TestClientTimeout(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 
 	clientErr := make(chan error, 1)
 
 	ca, _ := dpipe.Pipe()
 	go func() {
-		conf := &Config{
-			ConnectTimeout: ConnectTimeoutOption(1 * time.Second),
-		}
+		conf := &Config{}
 
-		_, err := testClient(ca, conf, true)
+		_, err := testClient(ctx, ca, conf, true)
 		clientErr <- err
 	}()
 
@@ -387,6 +400,9 @@ func TestSRTPConfiguration(t *testing.T) {
 			WantServerError: nil,
 		},
 	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		ca, cb := dpipe.Pipe()
 		type result struct {
 			c   *Conn
@@ -395,11 +411,11 @@ func TestSRTPConfiguration(t *testing.T) {
 		c := make(chan result)
 
 		go func() {
-			client, err := testClient(ca, &Config{SRTPProtectionProfiles: test.ClientSRTP}, true)
+			client, err := testClient(ctx, ca, &Config{SRTPProtectionProfiles: test.ClientSRTP}, true)
 			c <- result{client, err}
 		}()
 
-		server, err := testServer(cb, &Config{SRTPProtectionProfiles: test.ServerSRTP}, true)
+		server, err := testServer(ctx, cb, &Config{SRTPProtectionProfiles: test.ServerSRTP}, true)
 		if err != nil || test.WantServerError != nil {
 			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
 				t.Errorf("TestSRTPConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
@@ -694,6 +710,9 @@ func TestExtendedMasterSecret(t *testing.T) {
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
 			ca, cb := dpipe.Pipe()
 			type result struct {
 				c   *Conn
@@ -702,11 +721,11 @@ func TestExtendedMasterSecret(t *testing.T) {
 			c := make(chan result)
 
 			go func() {
-				client, err := testClient(ca, tt.clientCfg, true)
+				client, err := testClient(ctx, ca, tt.clientCfg, true)
 				c <- result{client, err}
 			}()
 
-			_, err := testServer(cb, tt.serverCfg, true)
+			_, err := testServer(ctx, cb, tt.serverCfg, true)
 			res := <-c
 
 			if tt.expectedClientErr != nil {
@@ -863,31 +882,37 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			WantServerError:    nil,
 		},
 	} {
-		ca, cb := dpipe.Pipe()
-		type result struct {
-			c   *Conn
-			err error
-		}
-		c := make(chan result)
+		test := test
+		t.Run(test.Name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		go func() {
-			client, err := testClient(ca, &Config{CipherSuites: test.ClientCipherSuites}, true)
-			c <- result{client, err}
-		}()
-
-		_, err := testServer(cb, &Config{CipherSuites: test.ServerCipherSuites}, true)
-		if err != nil || test.WantServerError != nil {
-			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
-				t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
+			ca, cb := dpipe.Pipe()
+			type result struct {
+				c   *Conn
+				err error
 			}
-		}
+			c := make(chan result)
 
-		res := <-c
-		if res.err != nil || test.WantClientError != nil {
-			if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
-				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
+			go func() {
+				client, err := testClient(ctx, ca, &Config{CipherSuites: test.ClientCipherSuites}, true)
+				c <- result{client, err}
+			}()
+
+			_, err := testServer(ctx, cb, &Config{CipherSuites: test.ServerCipherSuites}, true)
+			if err != nil || test.WantServerError != nil {
+				if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
+					t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
+				}
 			}
-		}
+
+			res := <-c
+			if res.err != nil || test.WantClientError != nil {
+				if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
+					t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
+				}
+			}
+		})
 	}
 }
 
@@ -948,6 +973,9 @@ func TestPSKConfiguration(t *testing.T) {
 			WantServerError:      errServerMustHaveCertificate,
 		},
 	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		ca, cb := dpipe.Pipe()
 		type result struct {
 			c   *Conn
@@ -956,11 +984,11 @@ func TestPSKConfiguration(t *testing.T) {
 		c := make(chan result)
 
 		go func() {
-			client, err := testClient(ca, &Config{PSK: test.ClientPSK, PSKIdentityHint: test.ClientPSKIdentity}, test.ClientHasCertificate)
+			client, err := testClient(ctx, ca, &Config{PSK: test.ClientPSK, PSKIdentityHint: test.ClientPSKIdentity}, test.ClientHasCertificate)
 			c <- result{client, err}
 		}()
 
-		_, err := testServer(cb, &Config{PSK: test.ServerPSK, PSKIdentityHint: test.ServerPSKIdentity}, test.ServerHasCertificate)
+		_, err := testServer(ctx, cb, &Config{PSK: test.ServerPSK, PSKIdentityHint: test.ServerPSKIdentity}, test.ServerHasCertificate)
 		if err != nil || test.WantServerError != nil {
 			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
 				t.Fatalf("TestPSKConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
@@ -1077,13 +1105,15 @@ func TestServerTimeout(t *testing.T) {
 		}
 	}()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
 	config := &Config{
 		CipherSuites:   []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		ConnectTimeout: ConnectTimeoutOption(50 * time.Millisecond),
 		FlightInterval: 100 * time.Millisecond,
 	}
 
-	if _, err := testServer(cb, config, true); err != errConnectTimeout {
+	if _, err := testServer(ctx, cb, config, true); err != errConnectTimeout {
 		t.Fatalf("TestServerTimeout: Client error exp(%v) failed(%v)", errConnectTimeout, err)
 	}
 

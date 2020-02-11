@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -15,6 +16,8 @@ import (
 func TestSimpleReadWrite(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	ca, cb := net.Pipe()
 	certificate, err := selfsign.GenerateSelfSigned()
@@ -24,7 +27,7 @@ func TestSimpleReadWrite(t *testing.T) {
 	gotHello := make(chan struct{})
 
 	go func() {
-		server, sErr := testServer(cb, &Config{
+		server, sErr := testServer(ctx, cb, &Config{
 			Certificates:  []tls.Certificate{certificate},
 			LoggerFactory: logging.NewDefaultLoggerFactory(),
 		}, false)
@@ -39,7 +42,7 @@ func TestSimpleReadWrite(t *testing.T) {
 		gotHello <- struct{}{}
 	}()
 
-	client, err := testClient(ca, &Config{
+	client, err := testClient(ctx, ca, &Config{
 		LoggerFactory:      logging.NewDefaultLoggerFactory(),
 		InsecureSkipVerify: true,
 	}, false)
@@ -65,11 +68,13 @@ func TestSimpleReadWrite(t *testing.T) {
 
 func benchmarkConn(b *testing.B, n int64) {
 	b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+		ctx := context.Background()
+
 		ca, cb := net.Pipe()
 		certificate, err := selfsign.GenerateSelfSigned()
 		server := make(chan *Conn)
 		go func() {
-			s, sErr := testServer(cb, &Config{
+			s, sErr := testServer(ctx, cb, &Config{
 				Certificates: []tls.Certificate{certificate},
 			}, false)
 			if err != nil {
@@ -85,7 +90,7 @@ func benchmarkConn(b *testing.B, n int64) {
 		b.ReportAllocs()
 		b.SetBytes(int64(len(hw)))
 		go func() {
-			client, cErr := testClient(ca, &Config{InsecureSkipVerify: true}, false)
+			client, cErr := testClient(ctx, ca, &Config{InsecureSkipVerify: true}, false)
 			if cErr != nil {
 				b.Error(err)
 			}

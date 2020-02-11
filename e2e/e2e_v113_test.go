@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"testing"
@@ -33,21 +34,26 @@ func TestPionE2ESimpleED25519(t *testing.T) {
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
-		_, key, err := ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cert, err := selfsign.SelfSign(key)
-		if err != nil {
-			t.Fatal(err)
-		}
+		cipherSuite := cipherSuite
+		t.Run(cipherSuite.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-		cfg := &dtls.Config{
-			Certificates:       []tls.Certificate{cert},
-			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
-			InsecureSkipVerify: true,
-			ConnectTimeout:     dtls.ConnectTimeoutOption(5 * time.Second),
-		}
-		assertE2ECommunication(cfg, cfg, serverPort, t)
+			_, key, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cert, err := selfsign.SelfSign(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &dtls.Config{
+				Certificates:       []tls.Certificate{cert},
+				CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
+				InsecureSkipVerify: true,
+			}
+			assertE2ECommunication(ctx, cfg, cfg, serverPort, t)
+		})
 	}
 }

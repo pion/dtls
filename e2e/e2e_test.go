@@ -3,8 +3,10 @@
 package e2e
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -64,7 +66,7 @@ func simpleReadWrite(errChan chan error, outChan chan string, conn io.ReadWriter
 	}
 }
 
-func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, serverPort int, t *testing.T) {
+func assertE2ECommunication(ctx context.Context, clientConfig, serverConfig *dtls.Config, serverPort int, t *testing.T) {
 	var (
 		messageRecvCount uint64 // Counter to make sure both sides got a message
 		clientMutex      sync.Mutex
@@ -91,7 +93,7 @@ func assertE2ECommunication(clientConfig, serverConfig *dtls.Config, serverPort 
 		defer clientMutex.Unlock()
 
 		var err error
-		clientConn, err = dtls.Dial("udp",
+		clientConn, err = dtls.DialWithContext(ctx, "udp",
 			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
 			clientConfig,
 		)
@@ -196,18 +198,23 @@ func TestPionE2ESimple(t *testing.T) {
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
-		cert, err := selfsign.GenerateSelfSigned()
-		if err != nil {
-			t.Fatal(err)
-		}
+		cipherSuite := cipherSuite
+		t.Run(cipherSuite.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
 
-		cfg := &dtls.Config{
-			Certificates:       []tls.Certificate{cert},
-			CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
-			InsecureSkipVerify: true,
-			ConnectTimeout:     dtls.ConnectTimeoutOption(2 * time.Second),
-		}
-		assertE2ECommunication(cfg, cfg, serverPort, t)
+			cert, err := selfsign.GenerateSelfSigned()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &dtls.Config{
+				Certificates:       []tls.Certificate{cert},
+				CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
+				InsecureSkipVerify: true,
+			}
+			assertE2ECommunication(ctx, cfg, cfg, serverPort, t)
+		})
 	}
 }
 
@@ -225,15 +232,20 @@ func TestPionE2ESimplePSK(t *testing.T) {
 		dtls.TLS_PSK_WITH_AES_128_CCM_8,
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
 	} {
-		cfg := &dtls.Config{
-			PSK: func(hint []byte) ([]byte, error) {
-				return []byte{0xAB, 0xC1, 0x23}, nil
-			},
-			PSKIdentityHint: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
-			CipherSuites:    []dtls.CipherSuiteID{cipherSuite},
-			ConnectTimeout:  dtls.ConnectTimeoutOption(2 * time.Second),
-		}
-		assertE2ECommunication(cfg, cfg, serverPort, t)
+		cipherSuite := cipherSuite
+		t.Run(cipherSuite.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			cfg := &dtls.Config{
+				PSK: func(hint []byte) ([]byte, error) {
+					return []byte{0xAB, 0xC1, 0x23}, nil
+				},
+				PSKIdentityHint: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
+				CipherSuites:    []dtls.CipherSuiteID{cipherSuite},
+			}
+			assertE2ECommunication(ctx, cfg, cfg, serverPort, t)
+		})
 	}
 }
 
@@ -251,17 +263,23 @@ func TestPionE2EMTUs(t *testing.T) {
 		1000,
 		100,
 	} {
-		cert, err := selfsign.GenerateSelfSigned()
-		if err != nil {
-			t.Fatal(err)
-		}
+		mtu := mtu
+		t.Run(fmt.Sprintf("MTU%d", mtu), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		cfg := &dtls.Config{
-			Certificates:       []tls.Certificate{cert},
-			CipherSuites:       []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			InsecureSkipVerify: true,
-			MTU:                mtu,
-		}
-		assertE2ECommunication(cfg, cfg, serverPort, t)
+			cert, err := selfsign.GenerateSelfSigned()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &dtls.Config{
+				Certificates:       []tls.Certificate{cert},
+				CipherSuites:       []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				InsecureSkipVerify: true,
+				MTU:                mtu,
+			}
+			assertE2ECommunication(ctx, cfg, cfg, serverPort, t)
+		})
 	}
 }
