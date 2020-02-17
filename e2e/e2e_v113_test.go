@@ -19,7 +19,7 @@ import (
 // ED25519 is not supported in Go 1.12 crypto/x509.
 // Once Go 1.12 is deprecated, move this test to e2e_test.go.
 
-func TestPionE2ESimpleED25519(t *testing.T) {
+func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -53,7 +53,12 @@ func TestPionE2ESimpleED25519(t *testing.T) {
 				CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 				InsecureSkipVerify: true,
 			}
-			assertE2ECommunication(ctx, cfg, cfg, serverPort, t)
+			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
+			comm.assert(t)
 		})
 	}
+}
+
+func TestPionE2ESimpleED25519(t *testing.T) {
+	testPionE2ESimpleED25519(t, serverPion, clientPion)
 }
