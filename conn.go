@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +92,8 @@ type Conn struct {
 	writeDeadline *deadline.Deadline
 
 	log logging.LeveledLogger
+
+	nameToCertificate map[string]*tls.Certificate
 }
 
 func createConn(ctx context.Context, nextConn net.Conn, flightHandler flightHandler, handshakeMessageHandler handshakeMessageHandler, config *Config, isClient bool) (*Conn, error) {
@@ -128,6 +131,25 @@ func createConn(ctx context.Context, nextConn net.Conn, flightHandler flightHand
 	handshakeDoneSignal := closer.NewCloser()
 	connectionClosed := closer.NewCloser()
 
+	nameToCertificate := make(map[string]*tls.Certificate)
+	for i := range config.Certificates {
+		cert := &config.Certificates[i]
+		x509Cert := cert.Leaf
+		if x509Cert == nil {
+			var parseErr error
+			x509Cert, parseErr = x509.ParseCertificate(cert.Certificate[0])
+			if parseErr != nil {
+				continue
+			}
+		}
+		if len(x509Cert.Subject.CommonName) > 0 {
+			nameToCertificate[strings.ToLower(x509Cert.Subject.CommonName)] = cert
+		}
+		for _, san := range x509Cert.DNSNames {
+			nameToCertificate[strings.ToLower(san)] = cert
+		}
+	}
+
 	c := &Conn{
 		nextConn:                    nextConn,
 		currFlight:                  newFlight(isClient, logger),
@@ -137,6 +159,7 @@ func createConn(ctx context.Context, nextConn net.Conn, flightHandler flightHand
 		flightHandler:               flightHandler,
 		maximumTransmissionUnit:     mtu,
 		localCertificates:           config.Certificates,
+		nameToCertificate:           nameToCertificate,
 		clientAuth:                  config.ClientAuth,
 		extendedMasterSecret:        config.ExtendedMasterSecret,
 		insecureSkipVerify:          config.InsecureSkipVerify,
@@ -205,7 +228,7 @@ func createConn(ctx context.Context, nextConn net.Conn, flightHandler flightHand
 	}
 
 	if err != nil {
-		c.close() //nolint
+		c.close() // nolint
 	} else {
 		c.setHandshakeCompletedSuccessfully()
 	}
@@ -276,6 +299,41 @@ func ServerWithContext(ctx context.Context, conn net.Conn, config *Config) (*Con
 	}
 
 	return createConn(ctx, conn, serverFlightHandler, serverHandshakeHandler, config, false)
+}
+
+func (c *Conn) getCertificate(serverName string) (*tls.Certificate, error) {
+	if len(c.localCertificates) == 0 {
+		return nil, errNoCertificates
+	}
+
+	if len(c.localCertificates) == 1 {
+		// There's only one choice, so no point doing any work.
+		return &c.localCertificates[0], nil
+	}
+
+	if len(serverName) == 0 {
+		return &c.localCertificates[0], nil
+	}
+
+	name := strings.TrimRight(strings.ToLower(serverName), ".")
+
+	if cert, ok := c.nameToCertificate[name]; ok {
+		return cert, nil
+	}
+
+	// try replacing labels in the name with wildcards until we get a
+	// match.
+	labels := strings.Split(name, ".")
+	for i := range labels {
+		labels[i] = "*"
+		candidate := strings.Join(labels, ".")
+		if cert, ok := c.nameToCertificate[candidate]; ok {
+			return cert, nil
+		}
+	}
+
+	// If nothing matches, return the first certificate.
+	return &c.localCertificates[0], nil
 }
 
 // Read reads data from the connection.

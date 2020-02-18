@@ -29,11 +29,25 @@ func GenerateSelfSigned() (tls.Certificate, error) {
 	return SelfSign(priv)
 }
 
+// GenerateSelfSignedWithDNS creates a self-signed certificate
+func GenerateSelfSignedWithDNS(cn string, sans ...string) (tls.Certificate, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	return WithDNS(priv, cn, sans...)
+}
+
 // SelfSign creates a self-signed certificate from a elliptic curve key
 func SelfSign(key crypto.PrivateKey) (tls.Certificate, error) {
+	return WithDNS(key, hex.EncodeToString(make([]byte, 16)))
+}
+
+// WithDNS creates a self-signed certificate from a elliptic curve key
+func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate, error) {
 	var (
 		pubKey    crypto.PublicKey
-		origin    = make([]byte, 16)
 		maxBigInt = new(big.Int) // Max random value, a 130-bits integer, i.e 2^130 - 1
 	)
 
@@ -65,8 +79,9 @@ func SelfSign(key crypto.PrivateKey) (tls.Certificate, error) {
 		NotAfter:              time.Now().AddDate(0, 1, 0),
 		SerialNumber:          serialNumber,
 		Version:               2,
-		Subject:               pkix.Name{CommonName: hex.EncodeToString(origin)},
+		Subject:               pkix.Name{CommonName: cn},
 		IsCA:                  true,
+		DNSNames:              sans,
 	}
 
 	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, pubKey, key)
@@ -77,5 +92,6 @@ func SelfSign(key crypto.PrivateKey) (tls.Certificate, error) {
 	return tls.Certificate{
 		Certificate: [][]byte{raw},
 		PrivateKey:  key,
+		Leaf:        &template,
 	}, nil
 }

@@ -8,6 +8,7 @@ import (
 type extensionValue uint16
 
 const (
+	extensionServerNameValue                   extensionValue = 0
 	extensionSupportedEllipticCurvesValue      extensionValue = 10
 	extensionSupportedPointFormatsValue        extensionValue = 11
 	extensionSupportedSignatureAlgorithmsValue extensionValue = 13
@@ -47,6 +48,8 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 		}
 		var err error
 		switch extensionValue(binary.BigEndian.Uint16(buf[offset:])) {
+		case extensionServerNameValue:
+			err = unmarshalAndAppend(buf[offset:], &extensionServerName{})
 		case extensionSupportedEllipticCurvesValue:
 			err = unmarshalAndAppend(buf[offset:], &extensionSupportedEllipticCurves{})
 		case extensionUseSRTPValue:
