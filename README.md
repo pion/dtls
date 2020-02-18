@@ -133,6 +133,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Jozef Kralik](https://github.com/jkralik)
 * [Robert Eperjesi](https://github.com/epes)
 * [Atsushi Watanabe](https://github.com/at-wat)
+* [Julien Salleyron](https://github.com/juliens) - *Server Name Indication*
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

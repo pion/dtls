@@ -114,6 +114,5 @@ func (h *handshakeMessageClientHello) Unmarshal(data []byte) error {
 		return err
 	}
 	h.extensions = extensions
-
 	return nil
 }
