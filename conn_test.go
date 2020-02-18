@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"testing"
 	"time"
 
@@ -1123,5 +1124,91 @@ func TestServerTimeout(t *testing.T) {
 	case msg := <-caReadChan:
 		t.Fatalf("TestServerTimeout: Expected no additional messages from server, got: %+v", msg)
 	default:
+	}
+}
+
+func TestGetCertificate(t *testing.T) {
+	ca, cb := dpipe.Pipe()
+	defer func() {
+		err := ca.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	certificateWildcard, err := selfsign.GenerateSelfSignedWithDNS("*.test.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certificateTest, err := selfsign.GenerateSelfSignedWithDNS("test.test", "www.test.test", "pop.test.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certificateRandom, err := selfsign.GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	configServer := &Config{
+		Certificates: []tls.Certificate{
+			certificateRandom,
+			certificateTest,
+			certificateWildcard,
+		},
+	}
+
+	conn, err := createConn(ctx, cb, serverFlightHandler, serverHandshakeHandler, configServer, false)
+	if err != errConnectTimeout {
+		t.Fatal(err)
+	}
+
+	testCases := []struct {
+		desc                string
+		serverName          string
+		expectedCertificate tls.Certificate
+	}{
+		{
+			desc:                "Simple match in CN",
+			serverName:          "test.test",
+			expectedCertificate: certificateTest,
+		},
+		{
+			desc:                "Simple match in SANs",
+			serverName:          "www.test.test",
+			expectedCertificate: certificateTest,
+		},
+
+		{
+			desc:                "Wildcard match",
+			serverName:          "foo.test.test",
+			expectedCertificate: certificateWildcard,
+		},
+		{
+			desc:                "No match return first",
+			serverName:          "foo.bar",
+			expectedCertificate: certificateRandom,
+		},
+	}
+
+	for _, test := range testCases {
+		test := test
+
+		t.Run(test.desc, func(t *testing.T) {
+			t.Parallel()
+
+			cert, err := conn.getCertificate(test.serverName)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(cert.Leaf, test.expectedCertificate.Leaf) {
+				t.Fatalf("Certificate does not match: expected(%v) actual(%v)", test.expectedCertificate.Leaf, cert.Leaf)
+			}
+		})
 	}
 }

@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/x509"
 	"fmt"
 	"sync/atomic"
@@ -291,6 +292,10 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 			})
 		}
 
+		if len(c.serverName) > 0 {
+			extensions = append(extensions, &extensionServerName{serverName: c.serverName})
+		}
+
 		if err := c.bufferPacket(&packet{
 			record: &recordLayer{
 				recordLayerHeader: recordLayerHeader{
@@ -323,12 +328,19 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 			return true, nil, nil
 		}
 
+		var certBytes [][]byte
+		var privateKey crypto.PrivateKey
+		if len(c.localCertificates) > 0 {
+			certificate, err := c.getCertificate(c.serverName)
+			if err != nil {
+				return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
+			}
+			certBytes = certificate.Certificate
+			privateKey = certificate.PrivateKey
+		}
+
 		messageSequence := c.handshakeMessageSequence
 		if c.remoteRequestedCertificate {
-			var certificate [][]byte
-			if len(c.localCertificates) > 0 {
-				certificate = c.localCertificates[0].Certificate
-			}
 			if err := c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
@@ -339,7 +351,7 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 							messageSequence: uint16(messageSequence),
 						},
 						handshakeMessage: &handshakeMessageCertificate{
-							certificate: certificate,
+							certificate: certBytes,
 						}},
 				},
 			}); err != nil {
@@ -420,8 +432,8 @@ func clientFlightHandler(c *Conn) (bool, *alert, error) {
 					handshakeCachePullRule{handshakeTypeCertificate, true},
 					handshakeCachePullRule{handshakeTypeClientKeyExchange, true},
 				)
-				//TODO: choose right certficate by CAs provided in Certificate Request.
-				certVerify, err := generateCertificateVerify(plainText, c.localCertificates[0].PrivateKey)
+
+				certVerify, err := generateCertificateVerify(plainText, privateKey)
 				if err != nil {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}

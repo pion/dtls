@@ -48,6 +48,8 @@ func serverHandshakeHandler(c *Conn) (*alert, error) {
 					if c.extendedMasterSecret != DisableExtendedMasterSecret {
 						c.state.extendedMasterSecret = true
 					}
+				case *extensionServerName:
+					c.serverName = e.serverName
 				}
 			}
 
@@ -348,10 +350,11 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 		messageSequence++
 
 		if c.localPSKCallback == nil {
-			var certificate [][]byte
-			if len(c.localCertificates) > 0 {
-				certificate = c.localCertificates[0].Certificate
+			certificate, err := c.getCertificate(c.serverName)
+			if err != nil {
+				return false, &alert{alertLevelFatal, alertHandshakeFailure}, err
 			}
+
 			if err := c.bufferPacket(&packet{
 				record: &recordLayer{
 					recordLayerHeader: recordLayerHeader{
@@ -362,7 +365,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 							messageSequence: uint16(messageSequence),
 						},
 						handshakeMessage: &handshakeMessageCertificate{
-							certificate: certificate,
+							certificate: certificate.Certificate,
 						}},
 				},
 			}); err != nil {
@@ -380,7 +383,7 @@ func serverFlightHandler(c *Conn) (bool, *alert, error) {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}
 
-				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, c.localCertificates[0].PrivateKey, hashAlgorithmSHA256)
+				signature, err := generateKeySignature(clientRandom, serverRandom, c.localKeypair.publicKey, c.namedCurve, certificate.PrivateKey, hashAlgorithmSHA256)
 				if err != nil {
 					return false, &alert{alertLevelFatal, alertInternalError}, err
 				}

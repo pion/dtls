@@ -18,7 +18,6 @@ type Config struct {
 	// Certificates contains certificate chain to present to the other side of the connection.
 	// Server MUST set this if PSK is non-nil
 	// client SHOULD sets this so CertificateRequests can be handled if PSK is non-nil
-	// TODO: add support to use more certificates then one.
 	Certificates []tls.Certificate
 
 	// CipherSuites is a list of supported cipher suites.
