@@ -778,7 +778,7 @@ func (c *Conn) startHandshakeOutbound() {
 
 func (c *Conn) close() error {
 	if c.connectionClosed.Err() == nil && c.handshakeErr.load() == nil {
-		c.notify(alertLevelFatal, alertCloseNotify) //nolint
+		c.notify(alertLevelWarning, alertCloseNotify) //nolint
 	}
 
 	c.workerTicker.Stop()
