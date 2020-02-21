@@ -667,6 +667,8 @@ func (c *Conn) handleIncomingPacket(buf []byte) (*alert, error) {
 	case *alert:
 		c.log.Tracef("<- %s", content.String())
 		if content.alertDescription == alertCloseNotify {
+			// Respond with a close_notify [RFC5246 Section 7.2.1]
+			_ = c.notify(alertLevelWarning, alertCloseNotify)
 			return nil, c.Close()
 		}
 		return nil, fmt.Errorf("alert: %v", content)
@@ -778,7 +780,7 @@ func (c *Conn) startHandshakeOutbound() {
 
 func (c *Conn) close() error {
 	if c.connectionClosed.Err() == nil && c.handshakeErr.load() == nil {
-		c.notify(alertLevelWarning, alertCloseNotify) //nolint
+		_ = c.notify(alertLevelWarning, alertCloseNotify)
 	}
 
 	c.workerTicker.Stop()
