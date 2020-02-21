@@ -115,10 +115,10 @@ func cipherSuiteForID(id CipherSuiteID) cipherSuite {
 // CipherSuites we support in order of preference
 func defaultCipherSuites() []cipherSuite {
 	return []cipherSuite{
-		&cipherSuiteTLSEcdheRsaWithAes256CbcSha{},
-		&cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{},
-		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
 		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
+		&cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{},
+		&cipherSuiteTLSEcdheRsaWithAes256CbcSha{},
 		newCipherSuiteTLSEcdheEcdsaWithAes128Ccm(),
 		newCipherSuiteTLSEcdheEcdsaWithAes128Ccm8(),
 	}
