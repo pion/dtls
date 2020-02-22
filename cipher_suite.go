@@ -119,8 +119,6 @@ func defaultCipherSuites() []cipherSuite {
 		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
 		&cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{},
 		&cipherSuiteTLSEcdheRsaWithAes256CbcSha{},
-		newCipherSuiteTLSEcdheEcdsaWithAes128Ccm(),
-		newCipherSuiteTLSEcdheEcdsaWithAes128Ccm8(),
 	}
 }
 
