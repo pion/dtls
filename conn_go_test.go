@@ -10,10 +10,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/dtls/v2/internal/net/dpipe"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	"github.com/pion/transport/test"
 )
 
 func TestContextConfig(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
 	addrListen, err := net.ResolveUDPAddr("udp", "localhost:0")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -41,64 +50,74 @@ func TestContextConfig(t *testing.T) {
 	}
 
 	dials := map[string]struct {
-		f     func() (net.Conn, error)
+		f     func() (func() (net.Conn, error), func())
 		order []byte
 	}{
 		"Dial": {
-			f: func() (net.Conn, error) {
-				return Dial("udp", addr, config)
+			f: func() (func() (net.Conn, error), func()) {
+				return func() (net.Conn, error) {
+						return Dial("udp", addr, config)
+					}, func() {
+					}
 			},
 			order: []byte{0, 1, 2},
 		},
 		"DialWithContext": {
-			f: func() (net.Conn, error) {
-				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
-				defer cancel()
-				return DialWithContext(ctx, "udp", addr, config)
+			f: func() (func() (net.Conn, error), func()) {
+				ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+				return func() (net.Conn, error) {
+						return DialWithContext(ctx, "udp", addr, config)
+					}, func() {
+						cancel()
+					}
 			},
 			order: []byte{0, 2, 1},
 		},
 		"Client": {
-			f: func() (net.Conn, error) {
-				ca, _ := net.Pipe()
-				defer func() {
-					_ = ca.Close()
-				}()
-				return Client(ca, config)
+			f: func() (func() (net.Conn, error), func()) {
+				ca, _ := dpipe.Pipe()
+				return func() (net.Conn, error) {
+						return Client(ca, config)
+					}, func() {
+						_ = ca.Close()
+					}
 			},
 			order: []byte{0, 1, 2},
 		},
 		"ClientWithContext": {
-			f: func() (net.Conn, error) {
-				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
-				defer cancel()
-				ca, _ := net.Pipe()
-				defer func() {
-					_ = ca.Close()
-				}()
-				return ClientWithContext(ctx, ca, config)
+			f: func() (func() (net.Conn, error), func()) {
+				ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+				ca, _ := dpipe.Pipe()
+				return func() (net.Conn, error) {
+						return ClientWithContext(ctx, ca, config)
+					}, func() {
+						cancel()
+						_ = ca.Close()
+					}
 			},
 			order: []byte{0, 2, 1},
 		},
 		"Server": {
-			f: func() (net.Conn, error) {
-				ca, _ := net.Pipe()
-				defer func() {
-					_ = ca.Close()
-				}()
-				return Server(ca, config)
+			f: func() (func() (net.Conn, error), func()) {
+				ca, _ := dpipe.Pipe()
+				return func() (net.Conn, error) {
+						return Server(ca, config)
+					}, func() {
+						_ = ca.Close()
+					}
 			},
 			order: []byte{0, 1, 2},
 		},
 		"ServerWithContext": {
-			f: func() (net.Conn, error) {
-				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
-				defer cancel()
-				ca, _ := net.Pipe()
-				defer func() {
-					_ = ca.Close()
-				}()
-				return ServerWithContext(ctx, ca, config)
+			f: func() (func() (net.Conn, error), func()) {
+				ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+				ca, _ := dpipe.Pipe()
+				return func() (net.Conn, error) {
+						return ServerWithContext(ctx, ca, config)
+					}, func() {
+						cancel()
+						_ = ca.Close()
+					}
 			},
 			order: []byte{0, 2, 1},
 		},
@@ -110,19 +129,23 @@ func TestContextConfig(t *testing.T) {
 			done := make(chan struct{})
 
 			go func() {
-				conn, err := dial.f()
+				d, cancel := dial.f()
+				conn, err := d()
+				defer cancel()
 				if err != errConnectTimeout {
 					t.Errorf("Expected error: '%v', got: '%v'", errConnectTimeout, err)
 					close(done)
 					return
 				}
 				done <- struct{}{}
-				_ = conn.Close()
+				if err == nil {
+					_ = conn.Close()
+				}
 			}()
 
 			var order []byte
-			early := time.After(30 * time.Millisecond)
-			late := time.After(50 * time.Millisecond)
+			early := time.After(20 * time.Millisecond)
+			late := time.After(60 * time.Millisecond)
 			func() {
 				for len(order) < 3 {
 					select {
