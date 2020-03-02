@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	"github.com/pion/transport/test"
 )
 
 func TestResumeClient(t *testing.T) {
@@ -26,6 +27,10 @@ func fatal(t *testing.T, errChan chan error, err error) {
 }
 
 func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Conn, error)) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
 	certificate, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)

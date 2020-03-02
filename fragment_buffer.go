@@ -46,10 +46,10 @@ func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 	return true, nil
 }
 
-func (f *fragmentBuffer) pop() []byte {
+func (f *fragmentBuffer) pop() (content []byte, epoch uint16) {
 	frags, ok := f.cache[f.currentMessageSequenceNumber]
 	if !ok {
-		return nil
+		return nil, 0
 	}
 
 	// Go doesn't support recursive lambdas
@@ -75,7 +75,7 @@ func (f *fragmentBuffer) pop() []byte {
 
 	// Recursively collect up
 	if !appendMessage(0) {
-		return nil
+		return nil, 0
 	}
 
 	firstHeader := frags[0].handshakeHeader
@@ -84,10 +84,12 @@ func (f *fragmentBuffer) pop() []byte {
 
 	rawHeader, err := firstHeader.Marshal()
 	if err != nil {
-		return nil
+		return nil, 0
 	}
+
+	messageEpoch := frags[0].recordLayerHeader.epoch
 
 	delete(f.cache, f.currentMessageSequenceNumber)
 	f.currentMessageSequenceNumber++
-	return append(rawHeader, rawMessage...)
+	return append(rawHeader, rawMessage...), messageEpoch
 }
