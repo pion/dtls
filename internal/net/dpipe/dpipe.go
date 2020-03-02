@@ -36,7 +36,7 @@ func Pipe() (net.Conn, net.Conn) {
 type pipeAddr struct{}
 
 func (pipeAddr) Network() string { return "pipe" }
-func (pipeAddr) String() string  { return "pipe" }
+func (pipeAddr) String() string  { return ":1" }
 
 type conn struct {
 	rCh       chan []byte
