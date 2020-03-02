@@ -74,10 +74,14 @@ func (h *handshakeMessageClientHello) Unmarshal(data []byte) error {
 	currOffset += int(data[currOffset]) + 1 // SessionID
 
 	currOffset++
-	if len(data) < currOffset {
+	if len(data) <= currOffset {
 		return errBufferTooSmall
 	}
-	h.cookie = append([]byte{}, data[currOffset:currOffset+int(data[currOffset-1])]...)
+	n := int(data[currOffset-1])
+	if len(data) <= currOffset+n {
+		return errBufferTooSmall
+	}
+	h.cookie = append([]byte{}, data[currOffset:currOffset+n]...)
 	currOffset += len(h.cookie)
 
 	// Cipher Suites
