@@ -193,8 +193,9 @@ func createConn(ctx context.Context, nextConn net.Conn, flightHandler flightHand
 		host, _, err = net.SplitHostPort(remoteAddr)
 		if err != nil {
 			c.serverName = remoteAddr
+		} else {
+			c.serverName = host
 		}
-		c.serverName = host
 	}
 
 	var zeroEpoch uint16
