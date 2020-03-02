@@ -3,15 +3,18 @@
 package deadline
 
 import (
+	"context"
 	"sync"
 	"time"
 )
 
 // Deadline signals updatable deadline timer.
+// Also, it implements context.Context.
 type Deadline struct {
 	exceeded chan struct{}
 	stop     chan struct{}
 	stopped  chan bool
+	deadline time.Time
 	mu       sync.RWMutex
 }
 
@@ -30,6 +33,8 @@ func New() *Deadline {
 func (d *Deadline) Set(t time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	d.deadline = t
 
 	close(d.stop)
 
@@ -74,4 +79,32 @@ func (d *Deadline) Done() <-chan struct{} {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.exceeded
+}
+
+// Err returns context.DeadlineExceeded if the deadline is exceeded.
+// Otherwise, it returns nil.
+func (d *Deadline) Err() error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	select {
+	case <-d.exceeded:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+// Deadline returns current deadline.
+func (d *Deadline) Deadline() (time.Time, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.deadline.IsZero() {
+		return d.deadline, false
+	}
+	return d.deadline, true
+}
+
+// Value returns nil.
+func (d *Deadline) Value(interface{}) interface{} {
+	return nil
 }
