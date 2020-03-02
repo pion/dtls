@@ -426,8 +426,11 @@ func TestSRTPConfiguration(t *testing.T) {
 		res := <-c
 		if res.err != nil || test.WantClientError != nil {
 			if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
-				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
+				t.Fatalf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 			}
+		}
+		if res.c == nil {
+			return
 		}
 
 		actualClientSRTP, _ := res.c.SelectedSRTPProtectionProfile()
@@ -726,8 +729,16 @@ func TestExtendedMasterSecret(t *testing.T) {
 				c <- result{client, err}
 			}()
 
-			_, err := testServer(ctx, cb, tt.serverCfg, true)
+			server, err := testServer(ctx, cb, tt.serverCfg, true)
 			res := <-c
+			defer func() {
+				if server != nil {
+					_ = server.Close()
+				}
+				if res.c != nil {
+					_ = res.c.Close()
+				}
+			}()
 
 			if tt.expectedClientErr != nil {
 				if res.err.Error() != tt.expectedClientErr.Error() {
@@ -818,15 +829,27 @@ func TestServerCertificate(t *testing.T) {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
 			ca, cb := dpipe.Pipe()
+
+			srvCh := make(chan *Conn)
 			go func() {
-				_, _ = Server(cb, tt.serverCfg)
+				s, _ := Server(cb, tt.serverCfg)
+				srvCh <- s
 			}()
-			_, err := Client(ca, tt.clientCfg)
+
+			cli, err := Client(ca, tt.clientCfg)
 			if !tt.wantErr && err != nil {
 				t.Errorf("TestClientCertificate: Client failed(%v)", err)
 			}
 			if tt.wantErr && err == nil {
 				t.Fatal("Error expected")
+			}
+
+			srv := <-srvCh
+			if cli != nil {
+				_ = cli.Close()
+			}
+			if srv != nil {
+				_ = srv.Close()
 			}
 		})
 	}
