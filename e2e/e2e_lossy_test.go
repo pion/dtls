@@ -21,6 +21,10 @@ const (
   DTLS Client/Server over a lossy transport, just asserts it can handle at increasing increments
 */
 func TestPionE2ELossy(t *testing.T) {
+	// Check for leaking routines
+	report := transportTest.CheckRoutines(t)
+	defer report()
+
 	type runResult struct {
 		dtlsConn *dtls.Conn
 		err      error
@@ -111,6 +115,10 @@ func TestPionE2ELossy(t *testing.T) {
 		}
 		test := test
 		t.Run(name, func(t *testing.T) {
+			// Limit runtime in case of deadlocks
+			lim := transportTest.TimeOut(lossyTestTimeout + time.Second)
+			defer lim.Stop()
+
 			rand.Seed(time.Now().UTC().UnixNano())
 			chosenLoss := rand.Intn(9) + test.LossChanceRange
 			serverDone := make(chan runResult)
@@ -154,6 +162,19 @@ func TestPionE2ELossy(t *testing.T) {
 
 			testTimer := time.NewTimer(lossyTestTimeout)
 			var serverConn, clientConn *dtls.Conn
+			defer func() {
+				if serverConn != nil {
+					if err = serverConn.Close(); err != nil {
+						t.Error(err)
+					}
+				}
+				if clientConn != nil {
+					if err = clientConn.Close(); err != nil {
+						t.Error(err)
+					}
+				}
+			}()
+
 			for {
 				if serverConn != nil && clientConn != nil {
 					break
@@ -163,27 +184,24 @@ func TestPionE2ELossy(t *testing.T) {
 				select {
 				case serverResult := <-serverDone:
 					if serverResult.err != nil {
-						t.Fatalf("Fail, serverError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientConn != nil, serverConn != nil, chosenLoss, serverResult.err)
+						t.Errorf("Fail, serverError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientConn != nil, serverConn != nil, chosenLoss, serverResult.err)
+						return
 					}
 
 					serverConn = serverResult.dtlsConn
 				case clientResult := <-clientDone:
 					if clientResult.err != nil {
-						t.Fatalf("Fail, clientError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientConn != nil, serverConn != nil, chosenLoss, clientResult.err)
+						t.Errorf("Fail, clientError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientConn != nil, serverConn != nil, chosenLoss, clientResult.err)
+						return
 					}
 
 					clientConn = clientResult.dtlsConn
 				case <-testTimer.C:
-					t.Fatalf("Test expired: clientComplete(%t) serverComplete(%t) LossChance(%d)", clientConn != nil, serverConn != nil, chosenLoss)
+					t.Errorf("Test expired: clientComplete(%t) serverComplete(%t) LossChance(%d)", clientConn != nil, serverConn != nil, chosenLoss)
+					return
 				case <-time.After(10 * time.Millisecond):
 				}
 			}
-
-			if err = serverConn.Close(); err != nil {
-				t.Fatal(err)
-			}
-
-			clientConn.Close() //nolint
 		})
 	}
 }
