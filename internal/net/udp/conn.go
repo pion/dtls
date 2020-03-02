@@ -124,9 +124,13 @@ func (l *Listener) readLoop() {
 		if err != nil {
 			continue
 		}
-		cBuf := <-conn.readCh
-		n = copy(cBuf, buf[:n])
-		conn.sizeCh <- n
+		select {
+		case <-l.doneCh:
+			return
+		case cBuf := <-conn.readCh:
+			n = copy(cBuf, buf[:n])
+			conn.sizeCh <- n
+		}
 	}
 }
 
@@ -140,7 +144,11 @@ func (l *Listener) getConn(raddr net.Addr) (*Conn, error) {
 		}
 		conn = l.newConn(raddr)
 		l.conns[raddr.String()] = conn
-		l.acceptCh <- conn
+		select {
+		case <-l.doneCh:
+			return nil, errClosedListener
+		case l.acceptCh <- conn:
+		}
 	}
 	return conn, nil
 }
