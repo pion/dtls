@@ -9,7 +9,7 @@ import (
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and encoding.BinaryUnmarshaler
 type State struct {
 	localEpoch, remoteEpoch   atomic.Value
-	localSequenceNumber       uint64 // uint48
+	localSequenceNumber       []uint64 // uint48
 	localRandom, remoteRandom handshakeRandom
 	masterSecret              []byte
 	cipherSuite               cipherSuite // nil if a cipherSuite hasn't been chosen
@@ -21,6 +21,18 @@ type State struct {
 
 	preMasterSecret      []byte
 	extendedMasterSecret bool
+
+	namedCurve                 namedCurve
+	localKeypair               *namedCurveKeypair
+	cookie                     []byte
+	handshakeSendSequence      int
+	handshakeRecvSequence      int
+	serverName                 string
+	remoteRequestedCertificate bool   // Did we get a CertificateRequest
+	localCertificatesVerify    []byte // cache CertificateVerify
+	localVerifyData            []byte // cached VerifyData
+	localKeySignature          []byte // cached keySignature
+	remoteCertificateVerified  bool
 }
 
 type serializedState struct {
@@ -69,12 +81,13 @@ func (s *State) serialize() (*serializedState, error) {
 		}
 	}
 
+	epoch := s.localEpoch.Load().(uint16)
 	serialized := serializedState{
-		LocalEpoch:            s.localEpoch.Load().(uint16),
+		LocalEpoch:            epoch,
 		RemoteEpoch:           s.remoteEpoch.Load().(uint16),
 		CipherSuiteID:         uint16(s.cipherSuite.ID()),
 		MasterSecret:          s.masterSecret,
-		SequenceNumber:        atomic.LoadUint64(&s.localSequenceNumber),
+		SequenceNumber:        atomic.LoadUint64(&s.localSequenceNumber[epoch]),
 		LocalRandom:           localRnd,
 		RemoteRandom:          remoteRnd,
 		SRTPProtectionProfile: uint16(s.srtpProtectionProfile),
@@ -87,8 +100,13 @@ func (s *State) serialize() (*serializedState, error) {
 
 func (s *State) deserialize(serialized serializedState) error {
 	// Set epoch values
+	epoch := serialized.LocalEpoch
 	s.localEpoch.Store(serialized.LocalEpoch)
 	s.remoteEpoch.Store(serialized.RemoteEpoch)
+
+	for len(s.localSequenceNumber) <= int(epoch) {
+		s.localSequenceNumber = append(s.localSequenceNumber, uint64(0))
+	}
 
 	// Set random values
 	localRandom := &handshakeRandom{}
@@ -116,7 +134,7 @@ func (s *State) deserialize(serialized serializedState) error {
 		return err
 	}
 
-	atomic.StoreUint64(&s.localSequenceNumber, serialized.SequenceNumber)
+	atomic.StoreUint64(&s.localSequenceNumber[epoch], serialized.SequenceNumber)
 	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
 
 	// Set remote certificate

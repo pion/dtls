@@ -132,8 +132,8 @@ func TestContextConfig(t *testing.T) {
 				d, cancel := dial.f()
 				conn, err := d()
 				defer cancel()
-				if err != errConnectTimeout {
-					t.Errorf("Expected error: '%v', got: '%v'", errConnectTimeout, err)
+				if err != errHandshakeTimeout {
+					t.Errorf("Expected error: '%v', got: '%v'", errHandshakeTimeout, err)
 					close(done)
 					return
 				}

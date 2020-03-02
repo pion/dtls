@@ -8,7 +8,6 @@ type recordLayerHeader struct {
 	protocolVersion protocolVersion
 	epoch           uint16
 	sequenceNumber  uint64 // uint48 in spec
-
 }
 
 const (
