@@ -1,11 +1,5 @@
 package dtls
 
-import (
-	"sync"
-
-	"github.com/pion/logging"
-)
-
 /*
   DTLS messages are grouped into a series of message flights, according
   to the diagrams below.  Although each flight of messages may consist
@@ -72,41 +66,10 @@ func (f flightVal) String() string {
 	}
 }
 
-type flight struct {
-	sync.RWMutex
-	val           flightVal
-	workerTrigger chan struct{} // Temporary way to trigger next flight
-
-	log logging.LeveledLogger
+func (f flightVal) isLastSendFlight() bool {
+	return f == flight6
 }
 
-func newFlight(isClient bool, logger logging.LeveledLogger) *flight {
-	val := flight0
-	if isClient {
-		val = flight1
-	}
-	return &flight{
-		val:           val,
-		workerTrigger: make(chan struct{}, 1),
-
-		log: logger,
-	}
-}
-
-func (f *flight) get() flightVal {
-	f.RLock()
-	defer f.RUnlock()
-	return f.val
-}
-
-func (f *flight) set(val flightVal) {
-	f.Lock()
-	f.log.Tracef("[handshake] Moving from %s to %s", f.val.String(), val.String())
-	f.val = val // TODO ensure no invalid transitions
-	f.Unlock()
-
-	select {
-	case f.workerTrigger <- struct{}{}:
-	default:
-	}
+func (f flightVal) isLastRecvFlight() bool {
+	return f == flight5
 }

@@ -3,6 +3,7 @@ package dtls
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"golang.org/x/xerrors"
 )
@@ -38,6 +39,7 @@ var (
 	errInvalidNamedCurve                 = errors.New("dtls: invalid named curve")
 	errInvalidPrivateKey                 = errors.New("dtls: invalid private key type")
 	errInvalidSignatureAlgorithm         = errors.New("dtls: invalid signature algorithm")
+	errInvalidFlight                     = errors.New("dtls: invalid flight number")
 	errKeySignatureGenerateUnimplemented = errors.New("dtls: Unable to generate key signature, unimplemented")
 	errKeySignatureMismatch              = errors.New("dtls: Expected and actual key signature do not match")
 	errKeySignatureVerifyUnimplemented   = errors.New("dtls: Unable to verify key signature, unimplemented")
@@ -65,5 +67,42 @@ var (
 	errInvalidCertificate                = errors.New("dtls: No certificate provided")
 
 	// Wrapped errors
-	errConnectTimeout = xerrors.Errorf("dtls: The connection timed out during the handshake: %w", context.DeadlineExceeded)
+	errHandshakeTimeout = newNetError(
+		xerrors.Errorf("dtls: The connection timed out during the handshake: %w", context.DeadlineExceeded),
+		true, false,
+	)
 )
+
+type errAlert struct {
+	*alert
+}
+
+func (e *errAlert) Error() string {
+	return fmt.Sprintf("alert: %s", e.alert.String())
+}
+
+func (e *errAlert) IsFatalOrCloseNotify() bool {
+	return e.alertLevel == alertLevelFatal || e.alertDescription == alertCloseNotify
+}
+
+type netError struct {
+	error
+	timeout   bool
+	temporary bool
+}
+
+func newNetError(err error, timeout, temporary bool) error {
+	return &netError{
+		error:     err,
+		timeout:   timeout,
+		temporary: temporary,
+	}
+}
+
+func (e *netError) Timeout() bool {
+	return e.timeout
+}
+
+func (e *netError) Temporary() bool {
+	return e.temporary
+}
