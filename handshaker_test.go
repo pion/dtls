@@ -9,9 +9,14 @@ import (
 
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	"github.com/pion/logging"
+	"github.com/pion/transport/test"
 )
 
 func TestHandshaker(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	loggerFactory := logging.NewDefaultLoggerFactory()
 	logger := loggerFactory.NewLogger("dtls")
 
@@ -27,7 +32,7 @@ func TestHandshaker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ca, cb := flightTestPipe()
+	ca, cb := flightTestPipe(ctx)
 	ca.state.isClient = true
 
 	var wg sync.WaitGroup
@@ -89,7 +94,7 @@ func TestHandshaker(t *testing.T) {
 	wg.Wait()
 }
 
-func flightTestPipe() (*flightTestConn, *flightTestConn) {
+func flightTestPipe(ctx context.Context) (*flightTestConn, *flightTestConn) {
 	ca := newHandshakeCache()
 	cb := newHandshakeCache()
 	chA := make(chan chan struct{})
@@ -99,11 +104,13 @@ func flightTestPipe() (*flightTestConn, *flightTestConn) {
 			otherEndCache:  cb,
 			recv:           chA,
 			otherEndRecv:   chB,
+			done:           ctx.Done(),
 		}, &flightTestConn{
 			handshakeCache: cb,
 			otherEndCache:  ca,
 			recv:           chB,
 			otherEndRecv:   chA,
+			done:           ctx.Done(),
 		}
 }
 
@@ -111,6 +118,7 @@ type flightTestConn struct {
 	state          State
 	handshakeCache *handshakeCache
 	recv           chan chan struct{}
+	done           <-chan struct{}
 	epoch          uint16
 
 	otherEndCache *handshakeCache
@@ -154,7 +162,10 @@ func (c *flightTestConn) writePackets(ctx context.Context, pkts []*packet) error
 		}
 	}
 	go func() {
-		c.otherEndRecv <- make(chan struct{})
+		select {
+		case c.otherEndRecv <- make(chan struct{}):
+		case <-c.done:
+		}
 	}()
 
 	return nil

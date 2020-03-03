@@ -144,9 +144,15 @@ func testServer(ctx context.Context, c net.Conn, cfg *Config, generateCertificat
 
 func TestHandshakeWithAlert(t *testing.T) {
 	alertErr := errors.New("alert: Alert LevelFatal: InsufficientSecurity")
+
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -176,6 +182,10 @@ func TestHandshakeWithAlert(t *testing.T) {
 }
 
 func TestExportKeyingMaterial(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	var rand [28]byte
 	exportLabel := "EXTRACTOR-dtls_srtp"
 
@@ -230,6 +240,10 @@ func TestPSK(t *testing.T) {
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
 
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	for _, test := range []struct {
 		Name           string
 		ServerIdentity []byte
@@ -249,7 +263,11 @@ func TestPSK(t *testing.T) {
 			defer cancel()
 
 			clientIdentity := []byte("Client Identity")
-			clientErr := make(chan error, 1)
+			type result struct {
+				c   *Conn
+				err error
+			}
+			clientRes := make(chan result, 1)
 
 			ca, cb := dpipe.Pipe()
 			go func() {
@@ -265,8 +283,8 @@ func TestPSK(t *testing.T) {
 					CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 				}
 
-				_, err := testClient(ctx, ca, conf, false)
-				clientErr <- err
+				c, err := testClient(ctx, ca, conf, false)
+				clientRes <- result{c, err}
 			}()
 
 			config := &Config{
@@ -280,18 +298,28 @@ func TestPSK(t *testing.T) {
 				CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 			}
 
-			if _, err := testServer(ctx, cb, config, false); err != nil {
+			server, err := testServer(ctx, cb, config, false)
+			if err != nil {
 				t.Fatalf("TestPSK: Server failed(%v)", err)
 			}
+			defer func() {
+				_ = server.Close()
+			}()
 
-			if err := <-clientErr; err != nil {
-				t.Fatal(err)
+			res := <-clientRes
+			if res.err != nil {
+				t.Fatal(res.err)
 			}
+			_ = res.c.Close()
 		})
 	}
 }
 
 func TestPSKHintFail(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	serverAlertError := errors.New("alert: Alert LevelFatal: InternalError")
 	pskRejected := errors.New("PSK Rejected")
 
@@ -338,6 +366,11 @@ func TestClientTimeout(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -347,18 +380,25 @@ func TestClientTimeout(t *testing.T) {
 	go func() {
 		conf := &Config{}
 
-		_, err := testClient(ctx, ca, conf, true)
+		c, err := testClient(ctx, ca, conf, true)
+		if err == nil {
+			_ = c.Close()
+		}
 		clientErr <- err
 	}()
 
 	// no server!
 
 	if err := <-clientErr; err != errHandshakeTimeout {
-		t.Fatalf("TestClientTimeout: Client error exp(%v) failed(%v)", errHandshakeTimeout, err)
+		t.Fatalf("Client error exp(%v) failed(%v)", errHandshakeTimeout, err)
 	}
 }
 
 func TestSRTPConfiguration(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	for _, test := range []struct {
 		Name            string
 		ClientSRTP      []SRTPProtectionProfile
@@ -421,8 +461,18 @@ func TestSRTPConfiguration(t *testing.T) {
 				t.Errorf("TestSRTPConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
 			}
 		}
+		if err == nil {
+			defer func() {
+				_ = server.Close()
+			}()
+		}
 
 		res := <-c
+		if res.err == nil {
+			defer func() {
+				_ = res.c.Close()
+			}()
+		}
 		if res.err != nil || test.WantClientError != nil {
 			if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
 				t.Fatalf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
@@ -445,6 +495,10 @@ func TestSRTPConfiguration(t *testing.T) {
 }
 
 func TestClientCertificate(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	srvCert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
@@ -467,152 +521,166 @@ func TestClientCertificate(t *testing.T) {
 	caPool := x509.NewCertPool()
 	caPool.AddCert(certificate)
 
-	t.Parallel()
-	tests := map[string]struct {
-		clientCfg *Config
-		serverCfg *Config
-		wantErr   bool
-	}{
-		"NoClientCert": {
-			clientCfg: &Config{RootCAs: srvCAPool},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   NoClientCert,
-				ClientCAs:    caPool,
+	t.Run("parallel", func(t *testing.T) { // sync routines to check routine leak
+		tests := map[string]struct {
+			clientCfg *Config
+			serverCfg *Config
+			wantErr   bool
+		}{
+			"NoClientCert": {
+				clientCfg: &Config{RootCAs: srvCAPool},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   NoClientCert,
+					ClientCAs:    caPool,
+				},
 			},
-		},
-		"NoClientCert_cert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   RequireAnyClientCert,
+			"NoClientCert_cert": {
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   RequireAnyClientCert,
+				},
 			},
-		},
-		"RequestClientCert_cert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   RequestClientCert,
+			"RequestClientCert_cert": {
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   RequestClientCert,
+				},
 			},
-		},
-		"RequestClientCert_no_cert": {
-			clientCfg: &Config{RootCAs: srvCAPool},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   RequestClientCert,
-				ClientCAs:    caPool,
+			"RequestClientCert_no_cert": {
+				clientCfg: &Config{RootCAs: srvCAPool},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   RequestClientCert,
+					ClientCAs:    caPool,
+				},
 			},
-		},
-		"RequireAnyClientCert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   RequireAnyClientCert,
+			"RequireAnyClientCert": {
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   RequireAnyClientCert,
+				},
 			},
-		},
-		"RequireAnyClientCert_error": {
-			clientCfg: &Config{RootCAs: srvCAPool},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   RequireAnyClientCert,
+			"RequireAnyClientCert_error": {
+				clientCfg: &Config{RootCAs: srvCAPool},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   RequireAnyClientCert,
+				},
+				wantErr: true,
 			},
-			wantErr: true,
-		},
-		"VerifyClientCertIfGiven_no_cert": {
-			clientCfg: &Config{RootCAs: srvCAPool},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   VerifyClientCertIfGiven,
-				ClientCAs:    caPool,
+			"VerifyClientCertIfGiven_no_cert": {
+				clientCfg: &Config{RootCAs: srvCAPool},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   VerifyClientCertIfGiven,
+					ClientCAs:    caPool,
+				},
 			},
-		},
-		"VerifyClientCertIfGiven_cert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   VerifyClientCertIfGiven,
-				ClientCAs:    caPool,
+			"VerifyClientCertIfGiven_cert": {
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   VerifyClientCertIfGiven,
+					ClientCAs:    caPool,
+				},
 			},
-		},
-		"VerifyClientCertIfGiven_error": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   VerifyClientCertIfGiven,
+			"VerifyClientCertIfGiven_error": {
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   VerifyClientCertIfGiven,
+				},
+				wantErr: true,
 			},
-			wantErr: true,
-		},
-		"RequireAndVerifyClientCert": {
-			clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
-			serverCfg: &Config{
-				Certificates: []tls.Certificate{srvCert},
-				ClientAuth:   RequireAndVerifyClientCert,
-				ClientCAs:    caPool,
+			"RequireAndVerifyClientCert": {
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   RequireAndVerifyClientCert,
+					ClientCAs:    caPool,
+				},
 			},
-		},
-	}
-	for name, tt := range tests {
-		tt := tt
-		t.Run(name, func(t *testing.T) {
-			ca, cb := dpipe.Pipe()
-			type result struct {
-				c   *Conn
-				err error
-			}
-			c := make(chan result)
+		}
+		for name, tt := range tests {
+			tt := tt
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
-			go func() {
-				client, err := Client(ca, tt.clientCfg)
-				c <- result{client, err}
-			}()
+				ca, cb := dpipe.Pipe()
+				type result struct {
+					c   *Conn
+					err error
+				}
+				c := make(chan result)
 
-			server, err := Server(cb, tt.serverCfg)
-			res := <-c
+				go func() {
+					client, err := Client(ca, tt.clientCfg)
+					c <- result{client, err}
+				}()
 
-			if tt.wantErr {
+				server, err := Server(cb, tt.serverCfg)
+				res := <-c
+				defer func() {
+					if err == nil {
+						_ = server.Close()
+					}
+					if res.err == nil {
+						_ = res.c.Close()
+					}
+				}()
+
+				if tt.wantErr {
+					if err != nil {
+						// Error expected, test succeeded
+						return
+					}
+					t.Error("Error expected")
+				}
 				if err != nil {
-					// Error expected, test succeeded
-					return
-				}
-				t.Error("Error expected")
-			}
-			if err != nil {
-				t.Errorf("TestClientCertificate: Server failed(%v)", err)
-			}
-
-			if res.err != nil {
-				t.Errorf("TestClientCertificate: Client failed(%v)", res.err)
-			}
-			actualClientCert := server.RemoteCertificate()
-			if tt.serverCfg.ClientAuth == RequireAnyClientCert || tt.serverCfg.ClientAuth == RequireAndVerifyClientCert {
-				if actualClientCert == nil {
-					t.Errorf("TestClientCertificate: Client did not provide a certificate")
+					t.Errorf("Server failed(%v)", err)
 				}
 
-				if len(actualClientCert) != len(tt.clientCfg.Certificates[0].Certificate) || !bytes.Equal(tt.clientCfg.Certificates[0].Certificate[0], actualClientCert[0]) {
-					t.Errorf("TestClientCertificate: Client certificate was not communicated correctly")
+				if res.err != nil {
+					t.Errorf("Client failed(%v)", res.err)
 				}
-			}
-			if tt.serverCfg.ClientAuth == NoClientCert {
-				if actualClientCert != nil {
-					t.Errorf("TestClientCertificate: Client certificate wasn't expected")
+				actualClientCert := server.RemoteCertificate()
+				if tt.serverCfg.ClientAuth == RequireAnyClientCert || tt.serverCfg.ClientAuth == RequireAndVerifyClientCert {
+					if actualClientCert == nil {
+						t.Errorf("Client did not provide a certificate")
+					}
+
+					if len(actualClientCert) != len(tt.clientCfg.Certificates[0].Certificate) || !bytes.Equal(tt.clientCfg.Certificates[0].Certificate[0], actualClientCert[0]) {
+						t.Errorf("Client certificate was not communicated correctly")
+					}
 				}
-			}
+				if tt.serverCfg.ClientAuth == NoClientCert {
+					if actualClientCert != nil {
+						t.Errorf("Client certificate wasn't expected")
+					}
+				}
 
-			actualServerCert := res.c.RemoteCertificate()
-			if actualServerCert == nil {
-				t.Errorf("TestClientCertificate: Server did not provide a certificate")
-			}
+				actualServerCert := res.c.RemoteCertificate()
+				if actualServerCert == nil {
+					t.Errorf("Server did not provide a certificate")
+				}
 
-			if len(actualServerCert) != len(tt.serverCfg.Certificates[0].Certificate) || !bytes.Equal(tt.serverCfg.Certificates[0].Certificate[0], actualServerCert[0]) {
-				t.Errorf("TestClientCertificate: Server certificate was not communicated correctly")
-			}
-		})
-	}
+				if len(actualServerCert) != len(tt.serverCfg.Certificates[0].Certificate) || !bytes.Equal(tt.serverCfg.Certificates[0].Certificate[0], actualServerCert[0]) {
+					t.Errorf("Server certificate was not communicated correctly")
+				}
+			})
+		}
+	})
 }
 
 func TestExtendedMasterSecret(t *testing.T) {
-	t.Parallel()
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	tests := map[string]struct {
 		clientCfg         *Config
 		serverCfg         *Config
@@ -731,10 +799,10 @@ func TestExtendedMasterSecret(t *testing.T) {
 			server, err := testServer(ctx, cb, tt.serverCfg, true)
 			res := <-c
 			defer func() {
-				if server != nil {
+				if err == nil {
 					_ = server.Close()
 				}
-				if res.c != nil {
+				if res.err == nil {
 					_ = res.c.Close()
 				}
 			}()
@@ -755,7 +823,9 @@ func TestExtendedMasterSecret(t *testing.T) {
 }
 
 func TestServerCertificate(t *testing.T) {
-	t.Parallel()
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
 
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
@@ -768,93 +838,105 @@ func TestServerCertificate(t *testing.T) {
 	caPool := x509.NewCertPool()
 	caPool.AddCert(certificate)
 
-	tests := map[string]struct {
-		clientCfg *Config
-		serverCfg *Config
-		wantErr   bool
-	}{
-		"no_ca": {
-			clientCfg: &Config{},
-			serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
-			wantErr:   true,
-		},
-		"good_ca": {
-			clientCfg: &Config{RootCAs: caPool},
-			serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
-		},
-		"no_ca_skip_verify": {
-			clientCfg: &Config{InsecureSkipVerify: true},
-			serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
-		},
-		"good_ca_skip_verify_custom_verify_peer": {
-			clientCfg: &Config{RootCAs: caPool, Certificates: []tls.Certificate{cert}},
-			serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: RequireAnyClientCert, VerifyPeerCertificate: func(cert [][]byte, chain [][]*x509.Certificate) error {
-				if len(chain) != 0 {
-					return errors.New("not expected chain")
-				}
-				return nil
-			}},
-		},
-		"good_ca_verify_custom_verify_peer": {
-			clientCfg: &Config{RootCAs: caPool, Certificates: []tls.Certificate{cert}},
-			serverCfg: &Config{ClientCAs: caPool, Certificates: []tls.Certificate{cert}, ClientAuth: RequireAndVerifyClientCert, VerifyPeerCertificate: func(cert [][]byte, chain [][]*x509.Certificate) error {
-				if len(chain) == 0 {
-					return errors.New("expected chain")
-				}
-				return nil
-			}},
-		},
-		"good_ca_custom_verify_peer": {
-			clientCfg: &Config{
-				RootCAs: caPool,
-				VerifyPeerCertificate: func([][]byte, [][]*x509.Certificate) error {
-					return errors.New("wrong cert")
-				},
+	t.Run("parallel", func(t *testing.T) { // sync routines to check routine leak
+		tests := map[string]struct {
+			clientCfg *Config
+			serverCfg *Config
+			wantErr   bool
+		}{
+			"no_ca": {
+				clientCfg: &Config{},
+				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
+				wantErr:   true,
 			},
-			serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
-			wantErr:   true,
-		},
-		"server_name": {
-			clientCfg: &Config{RootCAs: caPool, ServerName: certificate.Subject.CommonName},
-			serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
-		},
-		"server_name_error": {
-			clientCfg: &Config{RootCAs: caPool, ServerName: "barfoo"},
-			serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
-			wantErr:   true,
-		},
-	}
-	for name, tt := range tests {
-		tt := tt
-		t.Run(name, func(t *testing.T) {
-			ca, cb := dpipe.Pipe()
+			"good_ca": {
+				clientCfg: &Config{RootCAs: caPool},
+				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
+			},
+			"no_ca_skip_verify": {
+				clientCfg: &Config{InsecureSkipVerify: true},
+				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
+			},
+			"good_ca_skip_verify_custom_verify_peer": {
+				clientCfg: &Config{RootCAs: caPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: RequireAnyClientCert, VerifyPeerCertificate: func(cert [][]byte, chain [][]*x509.Certificate) error {
+					if len(chain) != 0 {
+						return errors.New("not expected chain")
+					}
+					return nil
+				}},
+			},
+			"good_ca_verify_custom_verify_peer": {
+				clientCfg: &Config{RootCAs: caPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{ClientCAs: caPool, Certificates: []tls.Certificate{cert}, ClientAuth: RequireAndVerifyClientCert, VerifyPeerCertificate: func(cert [][]byte, chain [][]*x509.Certificate) error {
+					if len(chain) == 0 {
+						return errors.New("expected chain")
+					}
+					return nil
+				}},
+			},
+			"good_ca_custom_verify_peer": {
+				clientCfg: &Config{
+					RootCAs: caPool,
+					VerifyPeerCertificate: func([][]byte, [][]*x509.Certificate) error {
+						return errors.New("wrong cert")
+					},
+				},
+				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
+				wantErr:   true,
+			},
+			"server_name": {
+				clientCfg: &Config{RootCAs: caPool, ServerName: certificate.Subject.CommonName},
+				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
+			},
+			"server_name_error": {
+				clientCfg: &Config{RootCAs: caPool, ServerName: "barfoo"},
+				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
+				wantErr:   true,
+			},
+		}
+		for name, tt := range tests {
+			tt := tt
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
-			srvCh := make(chan *Conn)
-			go func() {
-				s, _ := Server(cb, tt.serverCfg)
-				srvCh <- s
-			}()
+				ca, cb := dpipe.Pipe()
 
-			cli, err := Client(ca, tt.clientCfg)
-			if !tt.wantErr && err != nil {
-				t.Errorf("TestClientCertificate: Client failed(%v)", err)
-			}
-			if tt.wantErr && err == nil {
-				t.Fatal("Error expected")
-			}
+				type result struct {
+					c   *Conn
+					err error
+				}
+				srvCh := make(chan result)
+				go func() {
+					s, err := Server(cb, tt.serverCfg)
+					srvCh <- result{s, err}
+				}()
 
-			srv := <-srvCh
-			if cli != nil {
-				_ = cli.Close()
-			}
-			if srv != nil {
-				_ = srv.Close()
-			}
-		})
-	}
+				cli, err := Client(ca, tt.clientCfg)
+				if err == nil {
+					_ = cli.Close()
+				}
+				if !tt.wantErr && err != nil {
+					t.Errorf("Client failed(%v)", err)
+				}
+				if tt.wantErr && err == nil {
+					t.Fatal("Error expected")
+				}
+
+				srv := <-srvCh
+				if srv.err == nil {
+					_ = srv.c.Close()
+				}
+			})
+		}
+	})
 }
 
 func TestCipherSuiteConfiguration(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	for _, test := range []struct {
 		Name               string
 		ClientCipherSuites []CipherSuiteID
@@ -922,7 +1004,12 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 				c <- result{client, err}
 			}()
 
-			_, err := testServer(ctx, cb, &Config{CipherSuites: test.ServerCipherSuites}, true)
+			server, err := testServer(ctx, cb, &Config{CipherSuites: test.ServerCipherSuites}, true)
+			if err == nil {
+				defer func() {
+					_ = server.Close()
+				}()
+			}
 			if err != nil || test.WantServerError != nil {
 				if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
 					t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
@@ -930,6 +1017,9 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			}
 
 			res := <-c
+			if res.err == nil {
+				_ = server.Close()
+			}
 			if res.err != nil || test.WantClientError != nil {
 				if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
 					t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
@@ -940,6 +1030,10 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 }
 
 func TestPSKConfiguration(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	for _, test := range []struct {
 		Name                 string
 		ClientHasCertificate bool
@@ -1031,6 +1125,10 @@ func TestServerTimeout(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
 
 	cookie := make([]byte, 20)
 	_, err := rand.Read(cookie)
@@ -1137,14 +1235,14 @@ func TestServerTimeout(t *testing.T) {
 	}
 
 	if _, err := testServer(ctx, cb, config, true); err != errHandshakeTimeout {
-		t.Fatalf("TestServerTimeout: Client error exp(%v) failed(%v)", errHandshakeTimeout, err)
+		t.Fatalf("Client error exp(%v) failed(%v)", errHandshakeTimeout, err)
 	}
 
 	// Wait a little longer to ensure no additional messages have been sent by the server
 	time.Sleep(300 * time.Millisecond)
 	select {
 	case msg := <-caReadChan:
-		t.Fatalf("TestServerTimeout: Expected no additional messages from server, got: %+v", msg)
+		t.Fatalf("Expected no additional messages from server, got: %+v", msg)
 	default:
 	}
 }
