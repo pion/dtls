@@ -31,6 +31,10 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
 
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
 	certificate, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +87,9 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	if err != nil {
 		fatal(t, errChan, err)
 	}
+	defer func() {
+		_ = local.Close()
+	}()
 
 	// Test write and read
 	message := []byte("Hello")
@@ -129,6 +136,9 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	if err != nil {
 		fatal(t, errChan, err)
 	}
+	defer func() {
+		_ = resumed.Close()
+	}()
 
 	// Test write and read on resumed connection
 	if _, err = resumed.Write(message); err != nil {
