@@ -33,12 +33,12 @@ func TestUDPDecode(t *testing.T) {
 		{
 			Name:      "Invalid packet length",
 			Data:      []byte{0x14, 0xfe},
-			WantError: errDTLSPacketInvalidLength,
+			WantError: errInvalidPacketLength,
 		},
 		{
 			Name:      "Packet declared invalid length",
 			Data:      []byte{0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0xFF, 0x01},
-			WantError: errLengthMismatch,
+			WantError: errInvalidPacketLength,
 		},
 	} {
 		dtlsPkts, err := unpackDatagram(test.Data)

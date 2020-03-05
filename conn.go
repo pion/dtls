@@ -259,20 +259,20 @@ func ServerWithContext(ctx context.Context, conn net.Conn, config *Config) (*Con
 
 // Read reads data from the connection.
 func (c *Conn) Read(p []byte) (n int, err error) {
-	select {
-	case <-c.readDeadline.Done():
-		return 0, context.DeadlineExceeded
-	default:
-	}
-
 	if !c.isHandshakeCompletedSuccessfully() {
 		return 0, errHandshakeInProgress
+	}
+
+	select {
+	case <-c.readDeadline.Done():
+		return 0, errDeadlineExceeded
+	default:
 	}
 
 	for {
 		select {
 		case <-c.readDeadline.Done():
-			return 0, context.DeadlineExceeded
+			return 0, errDeadlineExceeded
 		case <-c.closed.Done():
 			return 0, io.EOF
 		case out, ok := <-c.decrypted:
@@ -295,17 +295,18 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (c *Conn) Write(p []byte) (int, error) {
+	if c.isConnectionClosed() {
+		return 0, ErrConnClosed
+	}
+
 	select {
 	case <-c.writeDeadline.Done():
-		return 0, context.DeadlineExceeded
+		return 0, errDeadlineExceeded
 	default:
 	}
 
 	if !c.isHandshakeCompletedSuccessfully() {
 		return 0, errHandshakeInProgress
-	}
-	if c.isConnectionClosed() {
-		return 0, ErrConnClosed
 	}
 
 	return len(p), c.writePackets(c.writeDeadline, []*packet{
@@ -421,7 +422,7 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 
 	for _, compactedRawPackets := range compactedRawPackets {
 		if _, err := c.nextConn.Write(ctx, compactedRawPackets); err != nil {
-			return err
+			return netError(err)
 		}
 	}
 
@@ -569,7 +570,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 	b := *bufptr
 	i, err := c.nextConn.Read(ctx, b)
 	if err != nil {
-		return err
+		return netError(err)
 	}
 
 	pkts, err := unpackDatagram(b[:i])

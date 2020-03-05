@@ -77,12 +77,12 @@ func unpackDatagram(buf []byte) ([][]byte, error) {
 
 	for offset := 0; len(buf) != offset; {
 		if len(buf)-offset <= recordLayerHeaderSize {
-			return nil, errDTLSPacketInvalidLength
+			return nil, errInvalidPacketLength
 		}
 
 		pktLen := (recordLayerHeaderSize + int(binary.BigEndian.Uint16(buf[offset+11:])))
 		if offset+pktLen > len(buf) {
-			return nil, errLengthMismatch
+			return nil, errInvalidPacketLength
 		}
 
 		out = append(out, buf[offset:offset+pktLen])

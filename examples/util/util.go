@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 )
@@ -17,9 +18,7 @@ func Chat(conn io.ReadWriter) {
 		b := make([]byte, bufSize)
 		for {
 			n, err := conn.Read(b)
-			if err != nil {
-				return
-			}
+			Check(err)
 			fmt.Printf("Got message: %s\n", string(b[:n]))
 		}
 	}()
@@ -38,7 +37,17 @@ func Chat(conn io.ReadWriter) {
 
 // Check is a helper to throw errors in the examples
 func Check(err error) {
-	if err != nil {
+	switch e := err.(type) {
+	case nil:
+	case (net.Error):
+		if e.Temporary() {
+			fmt.Printf("Warning: %v\n", err)
+			return
+		}
+		fmt.Printf("net.Error: %v\n", err)
+		panic(err)
+	default:
+		fmt.Printf("error: %v\n", err)
 		panic(err)
 	}
 }
