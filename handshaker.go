@@ -283,6 +283,7 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 		return handshakeErrored, errFlight
 	}
 
+	retransmitTimer := time.NewTimer(s.cfg.retransmitInterval)
 	select {
 	case done := <-c.recvHandshake():
 		nextFlight, alert, err := parse(ctx, c, s.state, s.cache, s.cfg)
@@ -300,6 +301,7 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 		if nextFlight == 0 {
 			break
 		}
+		<-retransmitTimer.C
 		// Retransmit last flight
 		return handshakeSending, nil
 
