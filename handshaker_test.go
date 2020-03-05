@@ -12,6 +12,8 @@ import (
 	"github.com/pion/transport/test"
 )
 
+const nonZeroRetransmitInterval = 100 * time.Millisecond
+
 func TestHandshaker(t *testing.T) {
 	// Check for leaking routines
 	report := test.CheckRoutines(t)
@@ -37,6 +39,7 @@ func TestHandshaker(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
+
 	ctxCliFinished, cancelCli := context.WithCancel(ctx)
 	ctxSrvFinished, cancelSrv := context.WithCancel(ctx)
 	go func() {
@@ -51,6 +54,7 @@ func TestHandshaker(t *testing.T) {
 					cancelCli()
 				}
 			},
+			retransmitInterval: nonZeroRetransmitInterval,
 		}
 
 		fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, flight1)
