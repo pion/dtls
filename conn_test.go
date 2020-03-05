@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -83,6 +84,64 @@ func TestRoutineLeakOnClose(t *testing.T) {
 	}
 	// Packet is sent, but not read.
 	// inboundLoop routine should not be leaked.
+}
+
+func TestReadWriteDeadline(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(5 * time.Second)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ca, cb, err := pipeMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ca.SetDeadline(time.Unix(0, 1)); err != nil {
+		t.Fatal(err)
+	}
+	_, werr := ca.Write(make([]byte, 100))
+	if e, ok := werr.(net.Error); ok {
+		if !e.Timeout() {
+			t.Error("Deadline exceeded Write must return Timeout error")
+		}
+		if !e.Temporary() {
+			t.Error("Deadline exceeded Write must return Temporary error")
+		}
+	} else {
+		t.Error("Write must return net.Error error")
+	}
+	_, rerr := ca.Read(make([]byte, 100))
+	if e, ok := rerr.(net.Error); ok {
+		if !e.Timeout() {
+			t.Error("Deadline exceeded Read must return Timeout error")
+		}
+		if !e.Temporary() {
+			t.Error("Deadline exceeded Read must return Temporary error")
+		}
+	} else {
+		t.Error("Read must return net.Error error")
+	}
+	if err := ca.SetDeadline(time.Time{}); err != nil {
+		t.Error(err)
+	}
+
+	if err := ca.Close(); err != nil {
+		t.Error(err)
+	}
+	if err := cb.Close(); err != nil {
+		t.Error(err)
+	}
+
+	if _, err := ca.Write(make([]byte, 100)); err != ErrConnClosed {
+		t.Errorf("Write must return %v after close, got %v", ErrConnClosed, err)
+	}
+	if _, err := ca.Read(make([]byte, 100)); err != io.EOF {
+		t.Errorf("Read must return %v after close, got %v", io.EOF, err)
+	}
 }
 
 func pipeMemory() (*Conn, *Conn, error) {
