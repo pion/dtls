@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"sync/atomic"
+
+	"github.com/pion/dtls/v2/internal/replaydetector"
 )
 
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and encoding.BinaryUnmarshaler
@@ -33,6 +35,8 @@ type State struct {
 	localVerifyData            []byte // cached VerifyData
 	localKeySignature          []byte // cached keySignature
 	remoteCertificateVerified  bool
+
+	replayDetector []replaydetector.ReplayDetector
 }
 
 type serializedState struct {
