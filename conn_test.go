@@ -88,7 +88,10 @@ func TestRoutineLeakOnClose(t *testing.T) {
 func pipeMemory() (*Conn, *Conn, error) {
 	// In memory pipe
 	ca, cb := dpipe.Pipe()
+	return pipeConn(ca, cb)
+}
 
+func pipeConn(ca, cb net.Conn) (*Conn, *Conn, error) {
 	type result struct {
 		c   *Conn
 		err error

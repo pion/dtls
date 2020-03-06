@@ -95,6 +95,12 @@ type Config struct {
 	// MTU is the length at which handshake messages will be fragmented to
 	// fit within the maximum transmission unit (default is 1200 bytes)
 	MTU int
+
+	// ReplayProtectionWindow is the size of the replay attack protection window.
+	// Duplication of the sequence number is checked in this window size.
+	// Packet with sequence number older than this value compared to the latest
+	// accepted packet will be discarded. (default is 64)
+	ReplayProtectionWindow int
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {
