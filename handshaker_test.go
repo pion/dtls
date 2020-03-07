@@ -172,6 +172,9 @@ func (c *flightTestConn) writePackets(ctx context.Context, pkts []*packet) error
 		}
 	}()
 
+	// Avoid deadlock on JS/WASM environment due to context switch problem.
+	time.Sleep(10 * time.Millisecond)
+
 	return nil
 }
 
