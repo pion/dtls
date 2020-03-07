@@ -455,6 +455,12 @@ func (c *Conn) processPacket(p *packet) ([]byte, error) {
 		c.state.localSequenceNumber = append(c.state.localSequenceNumber, uint64(0))
 	}
 	seq := atomic.AddUint64(&c.state.localSequenceNumber[epoch], 1) - 1
+	if seq > maxSequenceNumber {
+		// RFC 6347 Section 4.1.0
+		// The implementation must either abandon an association or rehandshake
+		// prior to allowing the sequence number to wrap.
+		return nil, errSequenceNumberOverflow
+	}
 	p.record.recordLayerHeader.sequenceNumber = seq
 
 	rawPacket, err := p.record.Marshal()
@@ -487,6 +493,9 @@ func (c *Conn) processHandshakePacket(p *packet, h *handshake) ([][]byte, error)
 
 	for _, handshakeFragment := range handshakeFragments {
 		seq := atomic.AddUint64(&c.state.localSequenceNumber[epoch], 1) - 1
+		if seq > maxSequenceNumber {
+			return nil, errSequenceNumberOverflow
+		}
 
 		recordLayerHeader := &recordLayerHeader{
 			protocolVersion: p.record.recordLayerHeader.protocolVersion,
