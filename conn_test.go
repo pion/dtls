@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,6 +142,36 @@ func TestReadWriteDeadline(t *testing.T) {
 	}
 	if _, err := ca.Read(make([]byte, 100)); err != io.EOF {
 		t.Errorf("Read must return %v after close, got %v", io.EOF, err)
+	}
+}
+
+func TestSequenceNumberOverflow(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(5 * time.Second)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ca, cb, err := pipeMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	atomic.StoreUint64(&ca.state.localSequenceNumber[1], maxSequenceNumber)
+	if _, werr := ca.Write(make([]byte, 100)); werr != nil {
+		t.Errorf("Write must send message with maximum sequence number, but errord: %v", werr)
+	}
+	if _, werr := ca.Write(make([]byte, 100)); werr != errSequenceNumberOverflow {
+		t.Errorf("Write must abandonsend message with maximum sequence number, but errord: %v", werr)
+	}
+
+	if err := ca.Close(); err != nil {
+		t.Error(err)
+	}
+	if err := cb.Close(); err != nil {
+		t.Error(err)
 	}
 }
 
