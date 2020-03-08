@@ -29,6 +29,10 @@ type protocolVersion struct {
 	major, minor uint8
 }
 
+func (v protocolVersion) Equal(x protocolVersion) bool {
+	return v.major == x.major && v.minor == x.minor
+}
+
 func (r *recordLayerHeader) Marshal() ([]byte, error) {
 	if r.sequenceNumber > maxSequenceNumber {
 		return nil, errSequenceNumberOverflow

@@ -18,6 +18,9 @@ func flight1Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	state.handshakeRecvSequence = seq
 
 	if h, ok := msgs[handshakeTypeHelloVerifyRequest].(*handshakeMessageHelloVerifyRequest); ok {
+		if !h.version.Equal(protocolVersion1_2) {
+			return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
+		}
 		state.cookie = append([]byte{}, h.cookie...)
 		return flight3, nil, nil
 	}

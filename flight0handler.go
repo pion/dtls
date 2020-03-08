@@ -24,6 +24,10 @@ func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		return 0, &alert{alertLevelFatal, alertInternalError}, nil
 	}
 
+	if !clientHello.version.Equal(protocolVersion1_2) {
+		return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
+	}
+
 	state.remoteRandom = clientHello.random
 
 	if _, ok := findMatchingCipherSuite(clientHello.cipherSuites, cfg.localCipherSuites); !ok {

@@ -43,6 +43,7 @@ type Conn struct {
 	state State // Internal state
 
 	maximumTransmissionUnit int
+	protocolVersion         protocolVersion
 
 	handshakeCompletedSuccessfully atomic.Value
 
@@ -111,6 +112,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		fragmentBuffer:          newFragmentBuffer(),
 		handshakeCache:          newHandshakeCache(),
 		maximumTransmissionUnit: mtu,
+		protocolVersion:         protocolVersion1_2,
 
 		decrypted: make(chan interface{}, 1),
 		log:       logger,
@@ -654,6 +656,10 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, err
 	h := &recordLayerHeader{}
 	if err := h.Unmarshal(buf); err != nil {
 		return false, &alert{alertLevelFatal, alertDecodeError}, err
+	}
+
+	if !h.protocolVersion.Equal(c.protocolVersion) {
+		return false, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
 	}
 
 	// Validate epoch

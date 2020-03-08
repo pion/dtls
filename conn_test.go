@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1338,4 +1339,318 @@ func TestServerTimeout(t *testing.T) {
 		t.Fatalf("Expected no additional messages from server, got: %+v", msg)
 	default:
 	}
+}
+
+func TestProtocolVersionValidation(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	cookie := make([]byte, 20)
+	if _, err := rand.Read(cookie); err != nil {
+		t.Fatal(err)
+	}
+
+	var rand [28]byte
+	random := handshakeRandom{time.Unix(500, 0), rand}
+
+	localKeypair, err := generateKeypair(namedCurveX25519)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := &Config{
+		CipherSuites:   []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		FlightInterval: 100 * time.Millisecond,
+	}
+
+	t.Run("Server", func(t *testing.T) {
+		serverCases := map[string]struct {
+			records []*recordLayer
+		}{
+			"RecordLayerVersion": {
+				records: []*recordLayer{
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion{0xfe, 0xff}, // try to downgrade
+						},
+						content: &handshake{
+							handshakeMessage: &handshakeMessageClientHello{
+								version:            protocolVersion1_2,
+								cookie:             cookie,
+								random:             random,
+								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								compressionMethods: defaultCompressionMethods,
+							}},
+					},
+				},
+			},
+			"ClientHelloVersion": {
+				records: []*recordLayer{
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+						},
+						content: &handshake{
+							handshakeMessage: &handshakeMessageClientHello{
+								version:            protocolVersion{0xfe, 0xff}, // try to downgrade
+								cookie:             cookie,
+								random:             random,
+								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								compressionMethods: defaultCompressionMethods,
+							}},
+					},
+				},
+			},
+			"SecondsClientHelloVersion": {
+				records: []*recordLayer{
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+						},
+						content: &handshake{
+							handshakeMessage: &handshakeMessageClientHello{
+								version:            protocolVersion1_2,
+								cookie:             cookie,
+								random:             random,
+								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								compressionMethods: defaultCompressionMethods,
+							}},
+					},
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+							sequenceNumber:  1,
+						},
+						content: &handshake{
+							handshakeHeader: handshakeHeader{
+								messageSequence: 1,
+							},
+							handshakeMessage: &handshakeMessageClientHello{
+								version:            protocolVersion{0xfe, 0xff}, // try to downgrade
+								cookie:             cookie,
+								random:             random,
+								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								compressionMethods: defaultCompressionMethods,
+							}},
+					},
+				},
+			},
+		}
+		for name, c := range serverCases {
+			c := c
+			t.Run(name, func(t *testing.T) {
+				ca, cb := dpipe.Pipe()
+				defer func() {
+					err := ca.Close()
+					if err != nil {
+						t.Error(err)
+					}
+				}()
+
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+
+				var wg sync.WaitGroup
+				wg.Add(1)
+				defer wg.Wait()
+				go func() {
+					defer wg.Done()
+					if _, err := testServer(ctx, cb, config, true); err != errUnsupportedProtocolVersion {
+						t.Errorf("Client error exp(%v) failed(%v)", errUnsupportedProtocolVersion, err)
+					}
+				}()
+
+				time.Sleep(50 * time.Millisecond)
+
+				resp := make([]byte, 1024)
+				for _, record := range c.records {
+					packet, err := record.Marshal()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, werr := ca.Write(packet); werr != nil {
+						t.Fatal(werr)
+					}
+					n, rerr := ca.Read(resp[:cap(resp)])
+					if rerr != nil {
+						t.Fatal(rerr)
+					}
+					resp = resp[:n]
+				}
+
+				h := &recordLayerHeader{}
+				if err := h.Unmarshal(resp); err != nil {
+					t.Fatal("Failed to unmarshal response")
+				}
+				if h.contentType != contentTypeAlert {
+					t.Errorf("Peer must return alert to unsupported protocol version")
+				}
+			})
+		}
+	})
+
+	t.Run("Client", func(t *testing.T) {
+		clientCases := map[string]struct {
+			records []*recordLayer
+		}{
+			"RecordLayerVersion": {
+				records: []*recordLayer{
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion{0xfe, 0xff}, // try to downgrade
+						},
+						content: &handshake{
+							handshakeMessage: &handshakeMessageHelloVerifyRequest{
+								version: protocolVersion1_2,
+								cookie:  cookie,
+							}},
+					},
+				},
+			},
+			"HelloVerifyRequestVersion": {
+				records: []*recordLayer{
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+						},
+						content: &handshake{
+							handshakeMessage: &handshakeMessageHelloVerifyRequest{
+								version: protocolVersion{0xfe, 0xff}, // try to downgrade
+								cookie:  cookie,
+							}},
+					},
+				},
+			},
+			"ServerHelloVersion": {
+				records: []*recordLayer{
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+						},
+						content: &handshake{
+							handshakeMessage: &handshakeMessageHelloVerifyRequest{
+								version: protocolVersion1_2,
+								cookie:  cookie,
+							}},
+					},
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+							sequenceNumber:  1,
+						},
+						content: &handshake{
+							handshakeHeader: handshakeHeader{
+								messageSequence: 1,
+							},
+							handshakeMessage: &handshakeMessageServerHello{
+								version:           protocolVersion{0xfe, 0xff}, // try to downgrade
+								random:            random,
+								cipherSuite:       &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+								compressionMethod: defaultCompressionMethods[0],
+							},
+						}},
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+							sequenceNumber:  2,
+						},
+						content: &handshake{
+							handshakeHeader: handshakeHeader{
+								messageSequence: 2,
+							},
+							handshakeMessage: &handshakeMessageCertificate{},
+						}},
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+							sequenceNumber:  3,
+						},
+						content: &handshake{
+							handshakeHeader: handshakeHeader{
+								messageSequence: 3,
+							},
+							handshakeMessage: &handshakeMessageServerKeyExchange{
+								ellipticCurveType:  ellipticCurveTypeNamedCurve,
+								namedCurve:         namedCurveX25519,
+								publicKey:          localKeypair.publicKey,
+								hashAlgorithm:      hashAlgorithmSHA256,
+								signatureAlgorithm: signatureAlgorithmECDSA,
+								signature:          make([]byte, 64),
+							},
+						}},
+					{
+						recordLayerHeader: recordLayerHeader{
+							protocolVersion: protocolVersion1_2,
+							sequenceNumber:  4,
+						},
+						content: &handshake{
+							handshakeHeader: handshakeHeader{
+								messageSequence: 4,
+							},
+							handshakeMessage: &handshakeMessageServerHelloDone{},
+						}},
+				},
+			},
+		}
+		for name, c := range clientCases {
+			c := c
+			t.Run(name, func(t *testing.T) {
+				ca, cb := dpipe.Pipe()
+				defer func() {
+					err := ca.Close()
+					if err != nil {
+						t.Error(err)
+					}
+				}()
+
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+
+				var wg sync.WaitGroup
+				wg.Add(1)
+				defer wg.Wait()
+				go func() {
+					defer wg.Done()
+					if _, err := testClient(ctx, cb, config, true); err != errUnsupportedProtocolVersion {
+						t.Errorf("Server error exp(%v) failed(%v)", errUnsupportedProtocolVersion, err)
+					}
+				}()
+
+				time.Sleep(50 * time.Millisecond)
+
+				for _, record := range c.records {
+					if _, err := ca.Read(make([]byte, 1024)); err != nil {
+						t.Fatal(err)
+					}
+
+					packet, err := record.Marshal()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := ca.Write(packet); err != nil {
+						t.Fatal(err)
+					}
+				}
+				resp := make([]byte, 1024)
+				n, err := ca.Read(resp)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp = resp[:n]
+
+				h := &recordLayerHeader{}
+				if err := h.Unmarshal(resp); err != nil {
+					t.Fatal("Failed to unmarshal response")
+				}
+				if h.contentType != contentTypeAlert {
+					t.Errorf("Peer must return alert to unsupported protocol version")
+				}
+			})
+		}
+	})
 }
