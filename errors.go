@@ -57,6 +57,7 @@ var (
 	errNoCertificates                   = &ErrFatal{errors.New("no certificates configured")}
 	errNoConfigProvided                 = &ErrFatal{errors.New("no config provided")}
 	errNoSupportedEllipticCurves        = &ErrFatal{errors.New("client requested zero or more elliptic curves that are not supported by the server")}
+	errUnsupportedProtocolVersion       = &ErrFatal{errors.New("unsupported protocol version")}
 	errPSKAndCertificate                = &ErrFatal{errors.New("Certificate and PSK provided")} // nolint:stylecheck
 	errPSKAndIdentityMustBeSetForClient = &ErrFatal{errors.New("PSK and PSK Identity Hint must both be set for client")}
 	errRequestedButNoSRTPExtension      = &ErrFatal{errors.New("SRTP support was requested but server did not respond with use_srtp extension")}

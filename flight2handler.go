@@ -22,6 +22,10 @@ func flight2Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		return 0, &alert{alertLevelFatal, alertInternalError}, nil
 	}
 
+	if !clientHello.version.Equal(protocolVersion1_2) {
+		return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
+	}
+
 	if len(clientHello.cookie) == 0 {
 		return 0, nil, nil
 	}
