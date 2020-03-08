@@ -31,6 +31,9 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	state.handshakeRecvSequence = seq
 
 	if h, ok := msgs[handshakeTypeServerHello].(*handshakeMessageServerHello); ok {
+		if !h.version.Equal(protocolVersion1_2) {
+			return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
+		}
 		for _, extension := range h.extensions {
 			switch e := extension.(type) {
 			case *extensionUseSRTP:

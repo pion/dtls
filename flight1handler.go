@@ -18,6 +18,11 @@ func flight1Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	state.handshakeRecvSequence = seq
 
 	if h, ok := msgs[handshakeTypeHelloVerifyRequest].(*handshakeMessageHelloVerifyRequest); ok {
+		// DTLS 1.2 clients must not assume that the server will use the protocol version
+		// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
+		if !h.version.Equal(protocolVersion1_0) && !h.version.Equal(protocolVersion1_2) {
+			return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
+		}
 		state.cookie = append([]byte{}, h.cookie...)
 		return flight3, nil, nil
 	}

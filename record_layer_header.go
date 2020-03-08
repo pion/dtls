@@ -17,16 +17,24 @@ const (
 	dtls1_2Major = 0xfe
 	dtls1_2Minor = 0xfd
 
+	dtls1_0Major = 0xfe
+	dtls1_0Minor = 0xff
+
 	// VersionDTLS12 is the DTLS version in the same style as
 	// VersionTLSXX from crypto/tls
 	VersionDTLS12 = 0xfefd
 )
 
+var protocolVersion1_0 = protocolVersion{dtls1_0Major, dtls1_0Minor}
 var protocolVersion1_2 = protocolVersion{dtls1_2Major, dtls1_2Minor}
 
 // https://tools.ietf.org/html/rfc4346#section-6.2.1
 type protocolVersion struct {
 	major, minor uint8
+}
+
+func (v protocolVersion) Equal(x protocolVersion) bool {
+	return v.major == x.major && v.minor == x.minor
 }
 
 func (r *recordLayerHeader) Marshal() ([]byte, error) {
@@ -57,6 +65,10 @@ func (r *recordLayerHeader) Unmarshal(data []byte) error {
 	seqCopy := make([]byte, 8)
 	copy(seqCopy[2:], data[5:11])
 	r.sequenceNumber = binary.BigEndian.Uint64(seqCopy)
+
+	if !r.protocolVersion.Equal(protocolVersion1_0) && !r.protocolVersion.Equal(protocolVersion1_2) {
+		return errUnsupportedProtocolVersion
+	}
 
 	return nil
 }

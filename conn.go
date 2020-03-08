@@ -486,9 +486,9 @@ func (c *Conn) processHandshakePacket(p *packet, h *handshake) ([][]byte, error)
 		seq := atomic.AddUint64(&c.state.localSequenceNumber[epoch], 1) - 1
 
 		recordLayerHeader := &recordLayerHeader{
+			protocolVersion: p.record.recordLayerHeader.protocolVersion,
 			contentType:     p.record.recordLayerHeader.contentType,
 			contentLen:      uint16(len(handshakeFragment)),
-			protocolVersion: p.record.recordLayerHeader.protocolVersion,
 			epoch:           p.record.recordLayerHeader.epoch,
 			sequenceNumber:  seq,
 		}
@@ -644,7 +644,10 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, err
 	// TODO: avoid separate unmarshal
 	h := &recordLayerHeader{}
 	if err := h.Unmarshal(buf); err != nil {
-		return false, &alert{alertLevelFatal, alertDecodeError}, err
+		// Decode error must be silently discarded
+		// [RFC6347 Section-4.1.2.7]
+		c.log.Debugf("discarded broken packet: %v", err)
+		return false, nil, nil
 	}
 
 	// Validate epoch
