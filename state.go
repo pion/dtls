@@ -5,7 +5,7 @@ import (
 	"encoding/gob"
 	"sync/atomic"
 
-	"github.com/pion/dtls/v2/internal/replaydetector"
+	"github.com/pion/transport/replaydetector"
 )
 
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and encoding.BinaryUnmarshaler
