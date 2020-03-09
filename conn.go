@@ -12,8 +12,8 @@ import (
 	"github.com/pion/dtls/v2/internal/closer"
 	"github.com/pion/dtls/v2/internal/net/connctx"
 	"github.com/pion/dtls/v2/internal/net/deadline"
-	"github.com/pion/dtls/v2/internal/replaydetector"
 	"github.com/pion/logging"
+	"github.com/pion/transport/replaydetector"
 )
 
 const (
