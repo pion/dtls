@@ -34,7 +34,6 @@ func randomPort(t testing.TB) int {
 	}()
 	switch addr := conn.LocalAddr().(type) {
 	case *net.UDPAddr:
-		t.Logf("Selected port %d", addr.Port)
 		return addr.Port
 	default:
 		t.Fatalf("unknown addr type %T", addr)
@@ -225,8 +224,6 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm)) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	serverPort := randomPort(t)
-
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
@@ -246,6 +243,7 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm)) {
 				CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 				InsecureSkipVerify: true,
 			}
+			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
 			comm.assert(t)
 		})
@@ -258,8 +256,6 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm)) {
 
 	report := test.CheckRoutines(t)
 	defer report()
-
-	serverPort := randomPort(t)
 
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_PSK_WITH_AES_128_CCM,
@@ -278,6 +274,7 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm)) {
 				PSKIdentityHint: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
 				CipherSuites:    []dtls.CipherSuiteID{cipherSuite},
 			}
+			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
 			comm.assert(t)
 		})
@@ -290,8 +287,6 @@ func testPionE2EMTUs(t *testing.T, server, client func(*comm)) {
 
 	report := test.CheckRoutines(t)
 	defer report()
-
-	serverPort := randomPort(t)
 
 	for _, mtu := range []int{
 		10000,
@@ -314,6 +309,7 @@ func testPionE2EMTUs(t *testing.T, server, client func(*comm)) {
 				InsecureSkipVerify: true,
 				MTU:                mtu,
 			}
+			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
 			comm.assert(t)
 		})
