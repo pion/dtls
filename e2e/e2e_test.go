@@ -34,6 +34,7 @@ func randomPort(t testing.TB) int {
 	}()
 	switch addr := conn.LocalAddr().(type) {
 	case *net.UDPAddr:
+		t.Logf("Selected port %d", addr.Port)
 		return addr.Port
 	default:
 		t.Fatalf("unknown addr type %T", addr)
@@ -137,6 +138,7 @@ func (c *comm) assert(t *testing.T) {
 		for {
 			select {
 			case err := <-c.errChan:
+				fmt.Printf("%v\n", err)
 				t.Fatal(err)
 			case <-time.After(testTimeLimit):
 				t.Fatalf("Test timeout, seenClient %t seenServer %t", seenClient, seenServer)

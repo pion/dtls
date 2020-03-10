@@ -51,6 +51,7 @@ test_job: &test_job
       go test \
         -coverpkg=${coverpkgs} -coverprofile=cover.out -covermode=atomic \
         -tags quic \
+        -run TestPionE2ESimple -count 100 -failfast \
         -v -race ./...
   after_success:
     - travis_retry bash <(curl -s https://codecov.io/bash) -c -F go
@@ -75,6 +76,7 @@ test_i386_job: &test_i386_job
         -it go-tester \
         /usr/local/go/bin/go test \
           -tags quic \
+          -run TestPionE2ESimple -count 100 -failfast \
           -v ./...
 test_wasm_job: &test_wasm_job
   env: CACHE_NAME=wasm
@@ -106,9 +108,6 @@ test_wasm_job: &test_wasm_job
 
 jobs:
   include:
-    - <<: *lint_job
-      name: Lint 1.13
-      go: 1.13
     - <<: *test_job
       name: Test 1.12
       go: 1.12
@@ -120,10 +119,6 @@ jobs:
       env: GO_VERSION=1.12
     - <<: *test_i386_job
       name: Test i386 1.13
-      env: GO_VERSION=1.13
-    - <<: *test_wasm_job
-      name: Test WASM 1.13
-      # Requires Go1.13 syscall/js
       env: GO_VERSION=1.13
 
 notifications:
