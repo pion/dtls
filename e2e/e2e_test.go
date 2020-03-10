@@ -112,19 +112,16 @@ func (c *comm) assert(t *testing.T) {
 	go c.server(c)
 
 	defer func() {
-		c.clientMutex.Lock()
-		c.serverMutex.Lock()
-		defer c.clientMutex.Unlock()
-		defer c.serverMutex.Unlock()
-
-		if err := c.clientConn.Close(); err != nil {
-			t.Fatal(err)
+		if c.clientConn != nil {
+			if err := c.clientConn.Close(); err != nil {
+				t.Fatal(err)
+			}
 		}
-
-		if err := c.serverConn.Close(); err != nil {
-			t.Fatal(err)
+		if c.serverConn != nil {
+			if err := c.serverConn.Close(); err != nil {
+				t.Fatal(err)
+			}
 		}
-
 		if c.serverListener != nil {
 			if err := c.serverListener.Close(); err != nil {
 				t.Fatal(err)
