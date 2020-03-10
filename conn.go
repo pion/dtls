@@ -48,7 +48,6 @@ type Conn struct {
 
 	encryptedPackets [][]byte
 
-	connectionClosed       bool
 	connectionClosedByUser bool
 	closeLock              sync.Mutex
 	closed                 *closer.Closer
@@ -273,8 +272,6 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 		select {
 		case <-c.readDeadline.Done():
 			return 0, errDeadlineExceeded
-		case <-c.closed.Done():
-			return 0, io.EOF
 		case out, ok := <-c.decrypted:
 			if !ok {
 				return 0, io.EOF
@@ -755,10 +752,6 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, err
 			return false, &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("ApplicationData with epoch of 0")
 		}
 
-		if c.isConnectionClosed() {
-			return false, nil, io.EOF
-		}
-
 		markPacketAsValid()
 
 		select {
@@ -836,6 +829,11 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 		}
 	}()
 	go func() {
+		defer func() {
+			// Escaping read loop.
+			// It's safe to close decrypted channnel now.
+			close(c.decrypted)
+		}()
 		defer c.handshakeLoopsFinished.Done()
 		for {
 			if err := c.readAndBuffer(ctxRead); err != nil {
@@ -910,7 +908,6 @@ func (c *Conn) translateHandshakeCtxError(err error) error {
 func (c *Conn) close(byUser bool) error {
 	c.cancelHandshaker()
 	c.cancelHandshakeReader()
-	c.closed.Close()
 
 	if c.isHandshakeCompletedSuccessfully() && byUser {
 		// Discard error from notify() to return non-error on the first user call of Close()
@@ -924,9 +921,7 @@ func (c *Conn) close(byUser bool) error {
 	if byUser {
 		c.connectionClosedByUser = true
 	}
-	if !c.connectionClosed {
-		c.connectionClosed = true
-	}
+	c.closed.Close()
 	c.closeLock.Unlock()
 
 	if closedByUser {
@@ -937,9 +932,12 @@ func (c *Conn) close(byUser bool) error {
 }
 
 func (c *Conn) isConnectionClosed() bool {
-	c.closeLock.Lock()
-	defer c.closeLock.Unlock()
-	return c.connectionClosed
+	select {
+	case <-c.closed.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Conn) setLocalEpoch(epoch uint16) {
