@@ -26,8 +26,6 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	serverPort := randomPort(t)
-
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
@@ -53,6 +51,7 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
 				CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 				InsecureSkipVerify: true,
 			}
+			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
 			comm.assert(t)
 		})
