@@ -42,6 +42,18 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			handshakeCachePullRule{handshakeTypeClientKeyExchange, cfg.initialEpoch, true, false},
 		)
 
+		// Verify that the pair of hash algorithm and signiture is listed.
+		var validSignatureScheme bool
+		for _, ss := range cfg.localSignatureSchemes {
+			if ss.hash == h.hashAlgorithm && ss.signature == h.signatureAlgorithm {
+				validSignatureScheme = true
+				break
+			}
+		}
+		if !validSignatureScheme {
+			return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errNoAvailableSignatureSchemes
+		}
+
 		if err := verifyCertificateVerify(plainText, h.hashAlgorithm, h.signature, state.remoteCertificate); err != nil {
 			return 0, &alert{alertLevelFatal, alertBadCertificate}, err
 		}
@@ -218,7 +230,13 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			return nil, &alert{alertLevelFatal, alertInternalError}, err
 		}
 
-		signature, err := generateKeySignature(clientRandom, serverRandom, state.localKeypair.publicKey, state.namedCurve, certificate.PrivateKey, hashAlgorithmSHA256)
+		// Find compatible signature scheme
+		signatureHashAlgo, err := selectSignatureScheme(cfg.localSignatureSchemes, certificate.PrivateKey)
+		if err != nil {
+			return nil, &alert{alertLevelFatal, alertInsufficientSecurity}, err
+		}
+
+		signature, err := generateKeySignature(clientRandom, serverRandom, state.localKeypair.publicKey, state.namedCurve, certificate.PrivateKey, signatureHashAlgo.hash)
 		if err != nil {
 			return nil, &alert{alertLevelFatal, alertInternalError}, err
 		}
@@ -234,8 +252,8 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 						ellipticCurveType:  ellipticCurveTypeNamedCurve,
 						namedCurve:         state.namedCurve,
 						publicKey:          state.localKeypair.publicKey,
-						hashAlgorithm:      hashAlgorithmSHA256,
-						signatureAlgorithm: signatureAlgorithmECDSA,
+						hashAlgorithm:      signatureHashAlgo.hash,
+						signatureAlgorithm: signatureHashAlgo.signature,
 						signature:          state.localKeySignature,
 					}},
 			},
@@ -249,15 +267,8 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 					},
 					content: &handshake{
 						handshakeMessage: &handshakeMessageCertificateRequest{
-							certificateTypes: []clientCertificateType{clientCertificateTypeRSASign, clientCertificateTypeECDSASign},
-							signatureHashAlgorithms: []signatureHashAlgorithm{
-								{hashAlgorithmSHA256, signatureAlgorithmRSA},
-								{hashAlgorithmSHA384, signatureAlgorithmRSA},
-								{hashAlgorithmSHA512, signatureAlgorithmRSA},
-								{hashAlgorithmSHA256, signatureAlgorithmECDSA},
-								{hashAlgorithmSHA384, signatureAlgorithmECDSA},
-								{hashAlgorithmSHA512, signatureAlgorithmECDSA},
-							},
+							certificateTypes:        []clientCertificateType{clientCertificateTypeRSASign, clientCertificateTypeECDSASign},
+							signatureHashAlgorithms: cfg.localSignatureSchemes,
 						},
 					},
 				},

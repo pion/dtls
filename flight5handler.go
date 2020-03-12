@@ -155,7 +155,13 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			handshakeCachePullRule{handshakeTypeClientKeyExchange, cfg.initialEpoch, true, false},
 		), merged...)
 
-		certVerify, err := generateCertificateVerify(plainText, privateKey)
+		// Find compatible signature scheme
+		signatureHashAlgo, err := selectSignatureScheme(cfg.localSignatureSchemes, privateKey)
+		if err != nil {
+			return nil, &alert{alertLevelFatal, alertInsufficientSecurity}, err
+		}
+
+		certVerify, err := generateCertificateVerify(plainText, privateKey, signatureHashAlgo.hash)
 		if err != nil {
 			return nil, &alert{alertLevelFatal, alertInternalError}, err
 		}
@@ -168,8 +174,8 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				},
 				content: &handshake{
 					handshakeMessage: &handshakeMessageCertificateVerify{
-						hashAlgorithm:      hashAlgorithmSHA256,
-						signatureAlgorithm: signatureAlgorithmECDSA,
+						hashAlgorithm:      signatureHashAlgo.hash,
+						signatureAlgorithm: signatureHashAlgo.signature,
 						signature:          state.localCertificatesVerify,
 					}},
 			},
@@ -272,8 +278,20 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 	}
 
 	if cfg.localPSKCallback == nil {
-		expectedHash := valueKeySignature(clientRandom, serverRandom, h.publicKey, h.namedCurve, h.hashAlgorithm)
-		if err = verifyKeySignature(expectedHash, h.signature, h.hashAlgorithm, state.remoteCertificate); err != nil {
+		// Verify that the pair of hash algorithm and signiture is listed.
+		var validSignatureScheme bool
+		for _, ss := range cfg.localSignatureSchemes {
+			if ss.hash == h.hashAlgorithm && ss.signature == h.signatureAlgorithm {
+				validSignatureScheme = true
+				break
+			}
+		}
+		if !validSignatureScheme {
+			return &alert{alertLevelFatal, alertInsufficientSecurity}, errNoAvailableSignatureSchemes
+		}
+
+		expectedMsg := valueKeyMessage(clientRandom, serverRandom, h.publicKey, h.namedCurve)
+		if err = verifyKeySignature(expectedMsg, h.signature, h.hashAlgorithm, state.remoteCertificate); err != nil {
 			return &alert{alertLevelFatal, alertBadCertificate}, err
 		}
 		var chains [][]*x509.Certificate

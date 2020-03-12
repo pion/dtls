@@ -8,6 +8,10 @@ import (
 
 func TestHashAlgorithm_StringRoundtrip(t *testing.T) {
 	for algo := range hashAlgorithms {
+		if algo == hashAlgorithmEd25519 {
+			// Ed25519 does hashing and signing in one time.
+			continue
+		}
 		str := algo.String()
 		hash1 := algo.cryptoHash()
 		hash2, err := fingerprint.HashFromString(str)

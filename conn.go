@@ -84,6 +84,11 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		return nil, err
 	}
 
+	signatureSchemes, err := parseSignatureSchemes(config.SignatureSchemes)
+	if err != nil {
+		return nil, err
+	}
+
 	workerInterval := initialTickerInterval
 	if config.FlightInterval != 0 {
 		workerInterval = config.FlightInterval
@@ -150,6 +155,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		localPSKCallback:            config.PSK,
 		localPSKIdentityHint:        config.PSKIdentityHint,
 		localCipherSuites:           cipherSuites,
+		localSignatureSchemes:       signatureSchemes,
 		extendedMasterSecret:        config.ExtendedMasterSecret,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		serverName:                  serverName,

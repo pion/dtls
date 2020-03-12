@@ -4,11 +4,13 @@ package dtls
 type signatureAlgorithm uint16
 
 const (
-	signatureAlgorithmRSA   signatureAlgorithm = 1
-	signatureAlgorithmECDSA signatureAlgorithm = 3
+	signatureAlgorithmRSA     signatureAlgorithm = 1
+	signatureAlgorithmECDSA   signatureAlgorithm = 3
+	signatureAlgorithmEd25519 signatureAlgorithm = 7
 )
 
 var signatureAlgorithms = map[signatureAlgorithm]bool{
-	signatureAlgorithmRSA:   true,
-	signatureAlgorithmECDSA: true,
+	signatureAlgorithmRSA:     true,
+	signatureAlgorithmECDSA:   true,
+	signatureAlgorithmEd25519: true,
 }

@@ -54,6 +54,7 @@ var (
 	errKeySignatureMismatch             = &ErrFatal{errors.New("expected and actual key signature do not match")}
 	errNilNextConn                      = &ErrFatal{errors.New("Conn can not be created with a nil nextConn")}
 	errNoAvailableCipherSuites          = &ErrFatal{errors.New("connection can not be created, no CipherSuites satisfy this Config")}
+	errNoAvailableSignatureSchemes      = &ErrFatal{errors.New("connection can not be created, no SignatureScheme satisfy this Config")}
 	errNoCertificates                   = &ErrFatal{errors.New("no certificates configured")}
 	errNoConfigProvided                 = &ErrFatal{errors.New("no config provided")}
 	errNoSupportedEllipticCurves        = &ErrFatal{errors.New("client requested zero or more elliptic curves that are not supported by the server")}

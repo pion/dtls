@@ -45,10 +45,11 @@ func TestHandshaker(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		cfg := &handshakeConfig{
-			localCipherSuites:  cipherSuites,
-			localCertificates:  []tls.Certificate{clientCert},
-			insecureSkipVerify: true,
-			log:                logger,
+			localCipherSuites:     cipherSuites,
+			localCertificates:     []tls.Certificate{clientCert},
+			localSignatureSchemes: defaultSignatureSchemes(),
+			insecureSkipVerify:    true,
+			log:                   logger,
 			onFlightState: func(f flightVal, s handshakeState) {
 				if s == handshakeFinished {
 					cancelCli()
@@ -70,10 +71,11 @@ func TestHandshaker(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		cfg := &handshakeConfig{
-			localCipherSuites:  cipherSuites,
-			localCertificates:  []tls.Certificate{clientCert},
-			insecureSkipVerify: true,
-			log:                logger,
+			localCipherSuites:     cipherSuites,
+			localCertificates:     []tls.Certificate{clientCert},
+			localSignatureSchemes: defaultSignatureSchemes(),
+			insecureSkipVerify:    true,
+			log:                   logger,
 			onFlightState: func(f flightVal, s handshakeState) {
 				if s == handshakeFinished {
 					cancelSrv()

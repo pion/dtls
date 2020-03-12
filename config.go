@@ -24,6 +24,9 @@ type Config struct {
 	// If CipherSuites is nil, a default list is used
 	CipherSuites []CipherSuiteID
 
+	// SignatureSchemes contains the signature and hash schemes that the peer requests to verify.
+	SignatureSchemes []tls.SignatureScheme
+
 	// SRTPProtectionProfiles are the supported protection profiles
 	// Clients will send this via use_srtp and assert that the server properly responds
 	// Servers will assert that clients send one of these profiles and will respond as needed
