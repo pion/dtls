@@ -7,7 +7,7 @@ import (
 )
 
 func TestPionOpenSSLE2ESimpleED25519(t *testing.T) {
-	t.Skip("TODO: make ED25519 test work with openssl")
+	t.Skip("TODO: waiting OpenSSL's DTLS Ed25519 support")
 	t.Run("OpenSSLServer", func(t *testing.T) {
 		testPionE2ESimpleED25519(t, serverOpenSSL, clientPion)
 	})

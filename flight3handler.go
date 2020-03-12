@@ -106,14 +106,7 @@ func handleServerKeyExchange(_ flightConn, state *State, cfg *handshakeConfig, h
 func flight3Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert, error) {
 	extensions := []extension{
 		&extensionSupportedSignatureAlgorithms{
-			signatureHashAlgorithms: []signatureHashAlgorithm{
-				{hashAlgorithmSHA256, signatureAlgorithmECDSA},
-				{hashAlgorithmSHA384, signatureAlgorithmECDSA},
-				{hashAlgorithmSHA512, signatureAlgorithmECDSA},
-				{hashAlgorithmSHA256, signatureAlgorithmRSA},
-				{hashAlgorithmSHA384, signatureAlgorithmRSA},
-				{hashAlgorithmSHA512, signatureAlgorithmRSA},
-			},
+			signatureHashAlgorithms: cfg.localSignatureSchemes,
 		},
 	}
 	if cfg.localPSKCallback == nil {

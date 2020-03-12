@@ -206,8 +206,6 @@ func testServer(ctx context.Context, c net.Conn, cfg *Config, generateCertificat
 }
 
 func TestHandshakeWithAlert(t *testing.T) {
-	alertErr := errors.New("alert: Alert LevelFatal: InsufficientSecurity")
-
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -219,28 +217,59 @@ func TestHandshakeWithAlert(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	clientErr := make(chan error, 1)
-
-	ca, cb := dpipe.Pipe()
-	go func() {
-		conf := &Config{
-			CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
-		}
-
-		_, err := testClient(ctx, ca, conf, true)
-		clientErr <- err
-	}()
-
-	config := &Config{
-		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+	cases := map[string]struct {
+		configServer, configClient *Config
+		errServer, errClient       interface{}
+	}{
+		"CipherSuiteNoIntersection": {
+			configServer: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			},
+			configClient: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+			},
+			errServer: errCipherSuiteNoIntersection,
+			errClient: "alert: Alert LevelFatal: InsufficientSecurity",
+		},
+		"SignatureSchemesNoIntersection": {
+			configServer: &Config{
+				CipherSuites:     []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256},
+			},
+			configClient: &Config{
+				CipherSuites:     []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP521AndSHA512},
+			},
+			errServer: "alert: Alert LevelFatal: InsufficientSecurity",
+			errClient: errNoAvailableSignatureSchemes,
+		},
 	}
 
-	if _, err := testServer(ctx, cb, config, true); err != errCipherSuiteNoIntersection {
-		t.Fatalf("TestHandshakeWithAlert: Client error exp(%v) failed(%v)", errCipherSuiteNoIntersection, err)
-	}
+	for name, testCase := range cases {
+		testCase := testCase
+		t.Run(name, func(t *testing.T) {
+			clientErr := make(chan error, 1)
 
-	if err := <-clientErr; err.Error() != alertErr.Error() {
-		t.Fatalf("TestHandshakeWithAlert: Client error exp(%v) failed(%v)", alertErr, err)
+			ca, cb := dpipe.Pipe()
+			go func() {
+				_, err := testClient(ctx, ca, testCase.configClient, true)
+				clientErr <- err
+			}()
+
+			_, errServer := testServer(ctx, cb, testCase.configServer, true)
+			if errExp, ok := testCase.errServer.(error); ok && errServer != errExp {
+				t.Fatalf("Server error exp(%v) failed(%v)", errExp, errServer)
+			} else if strExp, ok := testCase.errServer.(string); ok && errServer.Error() != strExp {
+				t.Fatalf("Server error exp(%s) failed(%v)", strExp, errServer)
+			}
+
+			errClient := <-clientErr
+			if errExp, ok := testCase.errClient.(error); ok && errClient != errExp {
+				t.Fatalf("Client error exp(%v) failed(%v)", errExp, errClient)
+			} else if strExp, ok := testCase.errClient.(string); ok && errClient.Error() != strExp {
+				t.Fatalf("Client error exp(%s) failed(%v)", strExp, errClient)
+			}
+		})
 	}
 }
 
