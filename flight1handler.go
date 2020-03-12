@@ -49,14 +49,7 @@ func flight1Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 	extensions := []extension{
 		&extensionSupportedSignatureAlgorithms{
-			signatureHashAlgorithms: []signatureHashAlgorithm{
-				{hashAlgorithmSHA256, signatureAlgorithmECDSA},
-				{hashAlgorithmSHA384, signatureAlgorithmECDSA},
-				{hashAlgorithmSHA512, signatureAlgorithmECDSA},
-				{hashAlgorithmSHA256, signatureAlgorithmRSA},
-				{hashAlgorithmSHA384, signatureAlgorithmRSA},
-				{hashAlgorithmSHA512, signatureAlgorithmRSA},
-			},
+			signatureHashAlgorithms: cfg.localSignatureSchemes,
 		},
 	}
 	if cfg.localPSKCallback == nil {

@@ -15,12 +15,13 @@ type hashAlgorithm uint16
 // Supported hash hash algorithms
 const (
 	// hashAlgorithmMD2    hashAlgorithm = 0 // Blacklisted
-	hashAlgorithmMD5    hashAlgorithm = 1 // Blacklisted
-	hashAlgorithmSHA1   hashAlgorithm = 2 // Blacklisted
-	hashAlgorithmSHA224 hashAlgorithm = 3
-	hashAlgorithmSHA256 hashAlgorithm = 4
-	hashAlgorithmSHA384 hashAlgorithm = 5
-	hashAlgorithmSHA512 hashAlgorithm = 6
+	hashAlgorithmMD5     hashAlgorithm = 1 // Blacklisted
+	hashAlgorithmSHA1    hashAlgorithm = 2 // Blacklisted
+	hashAlgorithmSHA224  hashAlgorithm = 3
+	hashAlgorithmSHA256  hashAlgorithm = 4
+	hashAlgorithmSHA384  hashAlgorithm = 5
+	hashAlgorithmSHA512  hashAlgorithm = 6
+	hashAlgorithmEd25519 hashAlgorithm = 8
 )
 
 // String makes hashAlgorithm printable
@@ -38,6 +39,8 @@ func (h hashAlgorithm) String() string {
 		return "sha-384" // [RFC4055]
 	case hashAlgorithmSHA512:
 		return "sha-512" // [RFC4055]
+	case hashAlgorithmEd25519:
+		return "null"
 	default:
 		return "unknown hash algorithm"
 	}
@@ -82,16 +85,19 @@ func (h hashAlgorithm) cryptoHash() crypto.Hash {
 		return crypto.SHA384
 	case hashAlgorithmSHA512:
 		return crypto.SHA512
+	case hashAlgorithmEd25519:
+		return crypto.Hash(0)
 	default:
 		return 0
 	}
 }
 
 var hashAlgorithms = map[hashAlgorithm]struct{}{
-	hashAlgorithmMD5:    {},
-	hashAlgorithmSHA1:   {},
-	hashAlgorithmSHA224: {},
-	hashAlgorithmSHA256: {},
-	hashAlgorithmSHA384: {},
-	hashAlgorithmSHA512: {},
+	hashAlgorithmMD5:     {},
+	hashAlgorithmSHA1:    {},
+	hashAlgorithmSHA224:  {},
+	hashAlgorithmSHA256:  {},
+	hashAlgorithmSHA384:  {},
+	hashAlgorithmSHA512:  {},
+	hashAlgorithmEd25519: {},
 }
