@@ -56,6 +56,10 @@ func main() {
 			util.Check(err)
 			// defer conn.Close() // TODO: graceful shutdown
 
+			// `conn` is of type `net.Conn` but may be casted to `dtls.Conn`
+			// using `dtlsConn := conn.(*dtls.Conn)` in order to to expose
+			// functions like `RemoteCertificate` etc.
+
 			// Register the connection with the chat hub
 			hub.Register(conn)
 		}
