@@ -22,10 +22,22 @@ func Listen(network string, laddr *net.UDPAddr, config *Config) (net.Listener, e
 	}, nil
 }
 
+// NewListener creates a DTLS listener which accepts connections from an inner Listener.
+func NewListener(inner net.Listener, config *Config) (net.Listener, error) {
+	if err := validateConfig(config); err != nil {
+		return nil, err
+	}
+
+	return &listener{
+		config: config,
+		parent: inner,
+	}, nil
+}
+
 // listener represents a DTLS listener
 type listener struct {
 	config *Config
-	parent *udp.Listener
+	parent net.Listener
 }
 
 // Accept waits for and returns the next connection to the listener.

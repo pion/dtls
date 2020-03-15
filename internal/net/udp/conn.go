@@ -4,21 +4,23 @@ package udp
 import (
 	"context"
 	"errors"
-	"io"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pion/dtls/v2/internal/net/deadline"
+	"github.com/pion/transport/packetio"
 )
 
 const receiveMTU = 8192
+const defaultListenBacklog = 128 // same as Linux default
 
 var errClosedListener = errors.New("udp: listener closed")
+var errListenQueueExceeded = errors.New("udp: listen queue exceeded")
 
-// Listener augments a connection-oriented Listener over a UDP PacketConn
-type Listener struct {
+// listener augments a connection-oriented Listener over a UDP PacketConn
+type listener struct {
 	pConn *net.UDPConn
 
 	accepting atomic.Value // bool
@@ -35,7 +37,7 @@ type Listener struct {
 }
 
 // Accept waits for and returns the next connection to the listener.
-func (l *Listener) Accept() (*Conn, error) {
+func (l *listener) Accept() (net.Conn, error) {
 	select {
 	case c := <-l.acceptCh:
 		l.connWG.Add(1)
@@ -48,16 +50,29 @@ func (l *Listener) Accept() (*Conn, error) {
 
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
-func (l *Listener) Close() error {
+func (l *listener) Close() error {
 	var err error
 	l.doneOnce.Do(func() {
-		l.connWG.Done()
 		l.accepting.Store(false)
 		close(l.doneCh)
 
 		l.connLock.Lock()
+		// Close unaccepted connections
+	L_CLOSE:
+		for {
+			select {
+			case c := <-l.acceptCh:
+				close(c.doneCh)
+				delete(l.conns, c.rAddr.String())
+
+			default:
+				break L_CLOSE
+			}
+		}
 		nConns := len(l.conns)
 		l.connLock.Unlock()
+
+		l.connWG.Done()
 
 		if nConns == 0 {
 			// Wait if this is the final connection
@@ -74,20 +89,35 @@ func (l *Listener) Close() error {
 }
 
 // Addr returns the listener's network address.
-func (l *Listener) Addr() net.Addr {
+func (l *listener) Addr() net.Addr {
 	return l.pConn.LocalAddr()
 }
 
-// Listen creates a new listener
-func Listen(network string, laddr *net.UDPAddr) (*Listener, error) {
+// ListenConfig stores options for listening to an address.
+type ListenConfig struct {
+	// Backlog defines the maximum length of the queue of pending
+	// connections. It is equivalent of the backlog argument of
+	// POSIX listen function.
+	// If a connection request arrives when the queue is full,
+	// the request will be silently discarded, unlike TCP.
+	// Set zero to use default value 128 which is same as Linux default.
+	Backlog int
+}
+
+// Listen creates a new listener based on the ListenConfig.
+func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (net.Listener, error) {
+	if lc.Backlog == 0 {
+		lc.Backlog = defaultListenBacklog
+	}
+
 	conn, err := net.ListenUDP(network, laddr)
 	if err != nil {
 		return nil, err
 	}
 
-	l := &Listener{
+	l := &listener{
 		pConn:    conn,
-		acceptCh: make(chan *Conn),
+		acceptCh: make(chan *Conn, lc.Backlog),
 		conns:    make(map[string]*Conn),
 		doneCh:   make(chan struct{}),
 	}
@@ -107,15 +137,27 @@ func Listen(network string, laddr *net.UDPAddr) (*Listener, error) {
 	return l, nil
 }
 
+// Listen creates a new listener using default ListenConfig.
+func Listen(network string, laddr *net.UDPAddr) (net.Listener, error) {
+	return (&ListenConfig{}).Listen(network, laddr)
+}
+
+var readBufferPool = &sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, receiveMTU)
+		return &buf
+	},
+}
+
 // readLoop has to tasks:
 // 1. Dispatching incoming packets to the correct Conn.
 //    It can therefore not be ended until all Conns are closed.
 // 2. Creating a new Conn when receiving from a new remote.
-func (l *Listener) readLoop() {
+func (l *listener) readLoop() {
 	defer l.readWG.Done()
-	buf := make([]byte, receiveMTU)
 
 	for {
+		buf := *(readBufferPool.Get().(*[]byte))
 		n, raddr, err := l.pConn.ReadFrom(buf)
 		if err != nil {
 			return
@@ -124,17 +166,11 @@ func (l *Listener) readLoop() {
 		if err != nil {
 			continue
 		}
-		select {
-		case <-l.doneCh:
-			return
-		case cBuf := <-conn.readCh:
-			n = copy(cBuf, buf[:n])
-			conn.sizeCh <- n
-		}
+		_, _ = conn.buffer.Write(buf[:n])
 	}
 }
 
-func (l *Listener) getConn(raddr net.Addr) (*Conn, error) {
+func (l *listener) getConn(raddr net.Addr) (*Conn, error) {
 	l.connLock.Lock()
 	defer l.connLock.Unlock()
 	conn, ok := l.conns[raddr.String()]
@@ -143,11 +179,11 @@ func (l *Listener) getConn(raddr net.Addr) (*Conn, error) {
 			return nil, errClosedListener
 		}
 		conn = l.newConn(raddr)
-		l.conns[raddr.String()] = conn
 		select {
-		case <-l.doneCh:
-			return nil, errClosedListener
 		case l.acceptCh <- conn:
+			l.conns[raddr.String()] = conn
+		default:
+			return nil, errListenQueueExceeded
 		}
 	}
 	return conn, nil
@@ -155,43 +191,31 @@ func (l *Listener) getConn(raddr net.Addr) (*Conn, error) {
 
 // Conn augments a connection-oriented connection over a UDP PacketConn
 type Conn struct {
-	listener *Listener
+	listener *listener
 
 	rAddr net.Addr
 
-	readCh chan []byte
-	sizeCh chan int
+	buffer *packetio.Buffer
 
 	doneCh   chan struct{}
 	doneOnce sync.Once
 
-	readDeadline  *deadline.Deadline
 	writeDeadline *deadline.Deadline
 }
 
-func (l *Listener) newConn(rAddr net.Addr) *Conn {
+func (l *listener) newConn(rAddr net.Addr) *Conn {
 	return &Conn{
 		listener:      l,
 		rAddr:         rAddr,
-		readCh:        make(chan []byte),
-		sizeCh:        make(chan int),
+		buffer:        packetio.NewBuffer(),
 		doneCh:        make(chan struct{}),
-		readDeadline:  deadline.New(),
 		writeDeadline: deadline.New(),
 	}
 }
 
 // Read
 func (c *Conn) Read(p []byte) (int, error) {
-	select {
-	case c.readCh <- p:
-		n := <-c.sizeCh
-		return n, nil
-	case <-c.doneCh:
-		return 0, io.EOF
-	case <-c.readDeadline.Done():
-		return 0, context.DeadlineExceeded
-	}
+	return c.buffer.Read(p)
 }
 
 // Write writes len(p) bytes from p to the DTLS connection
@@ -241,21 +265,19 @@ func (c *Conn) RemoteAddr() net.Addr {
 
 // SetDeadline implements net.Conn.SetDeadline
 func (c *Conn) SetDeadline(t time.Time) error {
-	c.readDeadline.Set(t)
 	c.writeDeadline.Set(t)
-	// Deadline of underlying connection should not be changed
-	// since the connection can be shared.
-	return nil
+	return c.SetReadDeadline(t)
 }
 
 // SetReadDeadline implements net.Conn.SetDeadline
 func (c *Conn) SetReadDeadline(t time.Time) error {
-	c.readDeadline.Set(t)
-	return nil
+	return c.buffer.SetReadDeadline(t)
 }
 
 // SetWriteDeadline implements net.Conn.SetDeadline
 func (c *Conn) SetWriteDeadline(t time.Time) error {
 	c.writeDeadline.Set(t)
+	// Write deadline of underlying connection should not be changed
+	// since the connection can be shared.
 	return nil
 }
