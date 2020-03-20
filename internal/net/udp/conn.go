@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pion/dtls/v2/internal/net/deadline"
+	"github.com/pion/transport/deadline"
 	"github.com/pion/transport/packetio"
 )
 
