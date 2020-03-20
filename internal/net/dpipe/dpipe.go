@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/dtls/v2/internal/net/deadline"
+	"github.com/pion/transport/deadline"
 )
 
 // Pipe creates pair of non-stream conn on memory.
