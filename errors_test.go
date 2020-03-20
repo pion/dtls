@@ -17,19 +17,19 @@ func TestErrorUnwrap(t *testing.T) {
 		errUnwrapped []error
 	}{
 		{
-			&ErrFatal{errExample},
+			&FatalError{errExample},
 			[]error{errExample},
 		},
 		{
-			&ErrTemporary{errExample},
+			&TemporaryError{errExample},
 			[]error{errExample},
 		},
 		{
-			&ErrInternal{errExample},
+			&InternalError{errExample},
 			[]error{errExample},
 		},
 		{
-			&ErrTimeout{errExample},
+			&TimeoutError{errExample},
 			[]error{errExample},
 		},
 	}
@@ -55,10 +55,10 @@ func TestErrorNetError(t *testing.T) {
 		str                string
 		timeout, temporary bool
 	}{
-		{&ErrFatal{errExample}, "dtls fatal: an example error", false, false},
-		{&ErrTemporary{errExample}, "dtls temporary: an example error", false, true},
-		{&ErrInternal{errExample}, "dtls internal: an example error", false, false},
-		{&ErrTimeout{errExample}, "dtls timeout: an example error", true, true},
+		{&FatalError{errExample}, "dtls fatal: an example error", false, false},
+		{&TemporaryError{errExample}, "dtls temporary: an example error", false, true},
+		{&InternalError{errExample}, "dtls internal: an example error", false, false},
+		{&TimeoutError{errExample}, "dtls timeout: an example error", true, true},
 	}
 	for _, c := range cases {
 		c := c
