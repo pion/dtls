@@ -70,12 +70,12 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 #### Pion DTLS
 For a DTLS 1.2 Server that listens on 127.0.0.1:4444
 ```sh
-go run examples/listen/main.go
+go run examples/listen/selfsign/main.go
 ```
 
 For a DTLS 1.2 Client that connects to 127.0.0.1:4444
 ```sh
-go run examples/dial/main.go
+go run examples/dial/selfsign/main.go
 ```
 
 #### OpenSSL
@@ -86,10 +86,10 @@ Pion DTLS can connect to itself and OpenSSL.
   openssl req -new -sha256 -key key.pem -out server.csr
   openssl x509 -req -sha256 -days 365 -in server.csr -signkey key.pem -out cert.pem
 
-  // Use with examples/dial/main.go
+  // Use with examples/dial/selfsign/main.go
   openssl s_server -dtls1_2 -cert cert.pem -key key.pem -accept 4444
 
-  // Use with examples/listen/main.go
+  // Use with examples/listen/selfsign/main.go
   openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -debug -cert cert.pem -key key.pem
 ```
 
@@ -99,19 +99,19 @@ Pion DTLS also comes with examples that do key exchange via PSK
 
 #### Pion DTLS
 ```sh
-go run examples/listen-psk/main.go
+go run examples/listen/psk/main.go
 ```
 
 ```sh
-go run examples/dial-psk/main.go
+go run examples/dial/psk/main.go
 ```
 
 #### OpenSSL
 ```
-  // Use with examples/dial-psk/main.go
+  // Use with examples/dial/psk/main.go
   openssl s_server -dtls1_2 -accept 4444 -nocert -psk abc123 -cipher PSK-AES128-CCM8
 
-  // Use with examples/listen-psk/main.go
+  // Use with examples/listen/psk/main.go
   openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -psk abc123 -cipher PSK-AES128-CCM8
 ```
 
