@@ -115,16 +115,25 @@ jobs:
     - <<: *test_job
       name: Test 1.13
       go: 1.13
+    - <<: *test_job
+      name: Test 1.14
+      go: 1.14
     - <<: *test_i386_job
       name: Test i386 1.12
       env: GO_VERSION=1.12
     - <<: *test_i386_job
       name: Test i386 1.13
       env: GO_VERSION=1.13
+    - <<: *test_i386_job
+      name: Test i386 1.14
+      env: GO_VERSION=1.14
     - <<: *test_wasm_job
       name: Test WASM 1.13
       # Requires Go1.13 syscall/js
       env: GO_VERSION=1.13
+    - <<: *test_wasm_job
+      name: Test WASM 1.14
+      env: GO_VERSION=1.14
 
 notifications:
   email: false
