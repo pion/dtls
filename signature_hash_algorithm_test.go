@@ -10,9 +10,10 @@ import (
 
 func TestParseSignatureSchemes(t *testing.T) {
 	cases := map[string]struct {
-		input    []tls.SignatureScheme
-		expected []signatureHashAlgorithm
-		err      error
+		input          []tls.SignatureScheme
+		expected       []signatureHashAlgorithm
+		err            error
+		insecureHashes bool
 	}{
 		"Translate": {
 			input: []tls.SignatureScheme{
@@ -31,30 +32,63 @@ func TestParseSignatureSchemes(t *testing.T) {
 				{hashAlgorithmSHA384, signatureAlgorithmRSA},
 				{hashAlgorithmSHA512, signatureAlgorithmRSA},
 			},
-			err: nil,
+			insecureHashes: false,
+			err:            nil,
 		},
 		"InvalidSignatureAlgorithm": {
 			input: []tls.SignatureScheme{
 				tls.ECDSAWithP256AndSHA256, // Valid
 				0x04FF,                     // Invalid: unknown signature with SHA-256
 			},
-			expected: nil,
-			err:      errInvalidSignatureAlgorithm,
+			expected:       nil,
+			insecureHashes: false,
+			err:            errInvalidSignatureAlgorithm,
 		},
 		"InvalidHashAlgorithm": {
 			input: []tls.SignatureScheme{
 				tls.ECDSAWithP256AndSHA256, // Valid
 				0x0003,                     // Invalid: ECDSA with MD2
 			},
-			expected: nil,
-			err:      errInvalidHashAlgorithm,
+			expected:       nil,
+			insecureHashes: false,
+			err:            errInvalidHashAlgorithm,
+		},
+		"InsecureHashAlgorithmDenied": {
+			input: []tls.SignatureScheme{
+				tls.ECDSAWithP256AndSHA256, // Valid
+				tls.ECDSAWithSHA1,          // Insecure
+			},
+			expected: []signatureHashAlgorithm{
+				{hashAlgorithmSHA256, signatureAlgorithmECDSA},
+			},
+			insecureHashes: false,
+			err:            nil,
+		},
+		"InsecureHashAlgorithmAllowed": {
+			input: []tls.SignatureScheme{
+				tls.ECDSAWithP256AndSHA256, // Valid
+				tls.ECDSAWithSHA1,          // Insecure
+			},
+			expected: []signatureHashAlgorithm{
+				{hashAlgorithmSHA256, signatureAlgorithmECDSA},
+				{hashAlgorithmSHA1, signatureAlgorithmECDSA},
+			},
+			insecureHashes: true,
+			err:            nil,
+		},
+		"OnlyInsecureHashAlgorithm": {
+			input: []tls.SignatureScheme{
+				tls.ECDSAWithSHA1, // Insecure
+			},
+			insecureHashes: false,
+			err:            errNoAvailableSignatureSchemes,
 		},
 	}
 
 	for name, testCase := range cases {
 		testCase := testCase
 		t.Run(name, func(t *testing.T) {
-			output, err := parseSignatureSchemes(testCase.input)
+			output, err := parseSignatureSchemes(testCase.input, testCase.insecureHashes)
 			if testCase.err != nil && !xerrors.Is(err, testCase.err) {
 				t.Fatalf("Expected error: %v, got: %v", testCase.err, err)
 			}

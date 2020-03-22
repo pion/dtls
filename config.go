@@ -57,6 +57,10 @@ type Config struct {
 	// This should be used only for testing.
 	InsecureSkipVerify bool
 
+	// InsecureHashes allows the use of hashing algorithms that are known
+	// to be vulnerable.
+	InsecureHashes bool
+
 	// VerifyPeerCertificate, if not nil, is called after normal
 	// certificate verification by either a client or server. It
 	// receives the certificate provided by the peer and also a flag
