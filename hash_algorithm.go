@@ -14,7 +14,7 @@ type hashAlgorithm uint16
 
 // Supported hash hash algorithms
 const (
-	// hashAlgorithmMD2    hashAlgorithm = 0 // Blacklisted
+	hashAlgorithmMD2     hashAlgorithm = 0 // Blacklisted
 	hashAlgorithmMD5     hashAlgorithm = 1 // Blacklisted
 	hashAlgorithmSHA1    hashAlgorithm = 2 // Blacklisted
 	hashAlgorithmSHA224  hashAlgorithm = 3
@@ -27,6 +27,8 @@ const (
 // String makes hashAlgorithm printable
 func (h hashAlgorithm) String() string {
 	switch h {
+	case hashAlgorithmMD2:
+		return "md2"
 	case hashAlgorithmMD5:
 		return "md5" // [RFC3279]
 	case hashAlgorithmSHA1:
@@ -42,7 +44,7 @@ func (h hashAlgorithm) String() string {
 	case hashAlgorithmEd25519:
 		return "null"
 	default:
-		return "unknown hash algorithm"
+		return "unknown or unsupported hash algorithm"
 	}
 }
 
@@ -71,6 +73,15 @@ func (h hashAlgorithm) digest(b []byte) []byte {
 	}
 }
 
+func (h hashAlgorithm) insecure() bool {
+	switch h {
+	case hashAlgorithmMD2, hashAlgorithmMD5, hashAlgorithmSHA1:
+		return true
+	default:
+		return false
+	}
+}
+
 func (h hashAlgorithm) cryptoHash() crypto.Hash {
 	switch h {
 	case hashAlgorithmMD5:
@@ -88,7 +99,7 @@ func (h hashAlgorithm) cryptoHash() crypto.Hash {
 	case hashAlgorithmEd25519:
 		return crypto.Hash(0)
 	default:
-		return 0
+		return crypto.Hash(0)
 	}
 }
 

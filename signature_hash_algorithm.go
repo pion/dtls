@@ -53,7 +53,7 @@ func (s *signatureHashAlgorithm) isCompatible(privateKey crypto.PrivateKey) bool
 
 // parseSignatureSchemes translates []tls.SignatureScheme to []signatureHashAlgorithm.
 // It returns default signature scheme list if no SignatureScheme is passed.
-func parseSignatureSchemes(sigs []tls.SignatureScheme) ([]signatureHashAlgorithm, error) {
+func parseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]signatureHashAlgorithm, error) {
 	if len(sigs) == 0 {
 		return defaultSignatureSchemes(), nil
 	}
@@ -71,10 +71,18 @@ func parseSignatureSchemes(sigs []tls.SignatureScheme) ([]signatureHashAlgorithm
 				xerrors.Errorf("SignatureScheme %04x: %w", ss, errInvalidHashAlgorithm),
 			}
 		}
+		if h.insecure() && !insecureHashes {
+			continue
+		}
 		out = append(out, signatureHashAlgorithm{
 			hash:      h,
 			signature: sig,
 		})
 	}
+
+	if len(out) == 0 {
+		return nil, errNoAvailableSignatureSchemes
+	}
+
 	return out, nil
 }

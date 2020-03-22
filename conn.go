@@ -83,7 +83,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		return nil, err
 	}
 
-	signatureSchemes, err := parseSignatureSchemes(config.SignatureSchemes)
+	signatureSchemes, err := parseSignatureSchemes(config.SignatureSchemes, config.InsecureHashes)
 	if err != nil {
 		return nil, err
 	}
