@@ -62,7 +62,9 @@ func main() {
 			// functions like `RemoteCertificate` etc.
 
 			// Register the connection with the chat hub
-			hub.Register(conn)
+			if err == nil {
+				hub.Register(conn)
+			}
 		}
 	}()
 
