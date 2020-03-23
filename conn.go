@@ -848,6 +848,9 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 			// Escaping read loop.
 			// It's safe to close decrypted channnel now.
 			close(c.decrypted)
+
+			// Force stop handshaker when the underlying connection is closed.
+			cancel()
 		}()
 		defer c.handshakeLoopsFinished.Done()
 		for {
