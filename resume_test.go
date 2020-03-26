@@ -108,18 +108,12 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 		fatal(t, errChan, fmt.Errorf("messages missmatch: %s != %s", message, recv[:n]))
 	}
 
-	// Export dtls connection
-	var state *State
-	var innerConn net.Conn
-	state, innerConn, err = local.Export()
-	if err != nil {
-		fatal(t, errChan, err)
-	}
-	if err = innerConn.Close(); err != nil {
+	if err = localConn1.Close(); err != nil {
 		fatal(t, errChan, err)
 	}
 
 	// Serialize and deserialize state
+	state := local.ConnectionState()
 	var b []byte
 	b, err = state.MarshalBinary()
 	if err != nil {

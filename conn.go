@@ -335,11 +335,12 @@ func (c *Conn) Close() error {
 	return err
 }
 
-// RemoteCertificate exposes the remote certificate
-func (c *Conn) RemoteCertificate() [][]byte {
+// ConnectionState returns basic DTLS details about the connection.
+// Note that this replaced the `Export` function of v1.
+func (c *Conn) ConnectionState() State {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return c.state.remoteCertificate
+	return *c.state.clone()
 }
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile

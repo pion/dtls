@@ -58,7 +58,7 @@ func main() {
 
 			// `conn` is of type `net.Conn` but may be casted to `dtls.Conn`
 			// using `dtlsConn := conn.(*dtls.Conn)` in order to to expose
-			// functions like `RemoteCertificate` etc.
+			// functions like `ConnectionState` etc.
 
 			// Register the connection with the chat hub
 			if err == nil {
