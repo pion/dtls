@@ -810,7 +810,8 @@ func TestClientCertificate(t *testing.T) {
 				if res.err != nil {
 					t.Errorf("Client failed(%v)", res.err)
 				}
-				actualClientCert := server.RemoteCertificate()
+
+				actualClientCert := server.ConnectionState().PeerCertificates
 				if tt.serverCfg.ClientAuth == RequireAnyClientCert || tt.serverCfg.ClientAuth == RequireAndVerifyClientCert {
 					if actualClientCert == nil {
 						t.Errorf("Client did not provide a certificate")
@@ -826,7 +827,7 @@ func TestClientCertificate(t *testing.T) {
 					}
 				}
 
-				actualServerCert := res.c.RemoteCertificate()
+				actualServerCert := res.c.ConnectionState().PeerCertificates
 				if actualServerCert == nil {
 					t.Errorf("Server did not provide a certificate")
 				}

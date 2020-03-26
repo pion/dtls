@@ -287,17 +287,17 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 		}
 
 		expectedMsg := valueKeyMessage(clientRandom[:], serverRandom[:], h.publicKey, h.namedCurve)
-		if err = verifyKeySignature(expectedMsg, h.signature, h.hashAlgorithm, state.remoteCertificate); err != nil {
+		if err = verifyKeySignature(expectedMsg, h.signature, h.hashAlgorithm, state.PeerCertificates); err != nil {
 			return &alert{alertLevelFatal, alertBadCertificate}, err
 		}
 		var chains [][]*x509.Certificate
 		if !cfg.insecureSkipVerify {
-			if chains, err = verifyServerCert(state.remoteCertificate, cfg.rootCAs, cfg.serverName); err != nil {
+			if chains, err = verifyServerCert(state.PeerCertificates, cfg.rootCAs, cfg.serverName); err != nil {
 				return &alert{alertLevelFatal, alertBadCertificate}, err
 			}
 		}
 		if cfg.verifyPeerCertificate != nil {
-			if err = cfg.verifyPeerCertificate(state.remoteCertificate, chains); err != nil {
+			if err = cfg.verifyPeerCertificate(state.PeerCertificates, chains); err != nil {
 				return &alert{alertLevelFatal, alertBadCertificate}, err
 			}
 		}
