@@ -17,7 +17,7 @@ type State struct {
 	cipherSuite               cipherSuite // nil if a cipherSuite hasn't been chosen
 
 	srtpProtectionProfile SRTPProtectionProfile // Negotiated SRTPProtectionProfile
-	remoteCertificate     [][]byte
+	PeerCertificates      [][]byte
 
 	isClient bool
 
@@ -34,7 +34,7 @@ type State struct {
 	localCertificatesVerify    []byte // cache CertificateVerify
 	localVerifyData            []byte // cached VerifyData
 	localKeySignature          []byte // cached keySignature
-	remoteCertificateVerified  bool
+	peerCertificatesVerified   bool
 
 	replayDetector []replaydetector.ReplayDetector
 }
@@ -48,7 +48,7 @@ type serializedState struct {
 	MasterSecret          []byte
 	SequenceNumber        uint64
 	SRTPProtectionProfile uint16
-	RemoteCertificate     [][]byte
+	PeerCertificates      [][]byte
 	IsClient              bool
 }
 
@@ -75,7 +75,7 @@ func (s *State) serialize() *serializedState {
 		LocalRandom:           localRnd,
 		RemoteRandom:          remoteRnd,
 		SRTPProtectionProfile: uint16(s.srtpProtectionProfile),
-		RemoteCertificate:     s.remoteCertificate,
+		PeerCertificates:      s.PeerCertificates,
 		IsClient:              s.isClient,
 	}
 }
@@ -111,7 +111,7 @@ func (s *State) deserialize(serialized serializedState) {
 	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
 
 	// Set remote certificate
-	s.remoteCertificate = serialized.RemoteCertificate
+	s.PeerCertificates = serialized.PeerCertificates
 }
 
 func (s *State) initCipherSuite() error {

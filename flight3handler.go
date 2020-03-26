@@ -64,7 +64,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	}
 
 	if h, ok := msgs[handshakeTypeCertificate].(*handshakeMessageCertificate); ok {
-		state.remoteCertificate = h.certificate
+		state.PeerCertificates = h.certificate
 	}
 
 	if h, ok := msgs[handshakeTypeServerKeyExchange].(*handshakeMessageServerKeyExchange); ok {
