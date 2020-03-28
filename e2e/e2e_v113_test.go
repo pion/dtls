@@ -4,12 +4,11 @@ package e2e
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
 	"testing"
 	"time"
-
-	"golang.org/x/crypto/ed25519"
 
 	"github.com/pion/dtls/v2"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"

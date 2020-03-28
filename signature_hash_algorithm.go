@@ -3,10 +3,10 @@ package dtls
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/tls"
 
-	"golang.org/x/crypto/ed25519"
 	"golang.org/x/xerrors"
 )
 
