@@ -369,20 +369,14 @@ func (c *Conn) ExportKeyingMaterial(label string, context []byte, length int) ([
 		return nil, errReservedExportKeyingMaterial
 	}
 
-	localRandom, err := c.state.localRandom.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	remoteRandom, err := c.state.remoteRandom.Marshal()
-	if err != nil {
-		return nil, err
-	}
+	localRandom := c.state.localRandom.marshalFixed()
+	remoteRandom := c.state.remoteRandom.marshalFixed()
 
 	seed := []byte(label)
 	if c.state.isClient {
-		seed = append(append(seed, localRandom...), remoteRandom...)
+		seed = append(append(seed, localRandom[:]...), remoteRandom[:]...)
 	} else {
-		seed = append(append(seed, remoteRandom...), localRandom...)
+		seed = append(append(seed, remoteRandom[:]...), localRandom[:]...)
 	}
 	return prfPHash(c.state.masterSecret, seed, length, c.state.cipherSuite.hashFunc())
 }

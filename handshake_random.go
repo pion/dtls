@@ -15,23 +15,18 @@ type handshakeRandom struct {
 	randomBytes [randomBytesLength]byte
 }
 
-func (h *handshakeRandom) Marshal() ([]byte, error) {
-	out := make([]byte, handshakeRandomLength)
+func (h *handshakeRandom) marshalFixed() [handshakeRandomLength]byte {
+	var out [handshakeRandomLength]byte
 
 	binary.BigEndian.PutUint32(out[0:], uint32(h.gmtUnixTime.Unix()))
 	copy(out[4:], h.randomBytes[:])
 
-	return out, nil
+	return out
 }
 
-func (h *handshakeRandom) Unmarshal(data []byte) error {
-	if len(data) != handshakeRandomLength {
-		return errBufferTooSmall
-	}
+func (h *handshakeRandom) unmarshalFixed(data [handshakeRandomLength]byte) {
 	h.gmtUnixTime = time.Unix(int64(binary.BigEndian.Uint32(data[0:])), 0)
 	copy(h.randomBytes[:], data[4:])
-
-	return nil
 }
 
 // populate fills the handshakeRandom with random values
