@@ -250,14 +250,10 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 		return nil, nil
 	}
 
-	clientRandom, err := state.localRandom.Marshal()
-	if err != nil {
-		return &alert{alertLevelFatal, alertInternalError}, err
-	}
-	serverRandom, err := state.remoteRandom.Marshal()
-	if err != nil {
-		return &alert{alertLevelFatal, alertInternalError}, err
-	}
+	clientRandom := state.localRandom.marshalFixed()
+	serverRandom := state.remoteRandom.marshalFixed()
+
+	var err error
 
 	if state.extendedMasterSecret {
 		var sessionHash []byte
@@ -271,7 +267,7 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 			return &alert{alertLevelFatal, alertIllegalParameter}, err
 		}
 	} else {
-		state.masterSecret, err = prfMasterSecret(state.preMasterSecret, clientRandom, serverRandom, state.cipherSuite.hashFunc())
+		state.masterSecret, err = prfMasterSecret(state.preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.hashFunc())
 		if err != nil {
 			return &alert{alertLevelFatal, alertInternalError}, err
 		}
@@ -290,7 +286,7 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 			return &alert{alertLevelFatal, alertInsufficientSecurity}, errNoAvailableSignatureSchemes
 		}
 
-		expectedMsg := valueKeyMessage(clientRandom, serverRandom, h.publicKey, h.namedCurve)
+		expectedMsg := valueKeyMessage(clientRandom[:], serverRandom[:], h.publicKey, h.namedCurve)
 		if err = verifyKeySignature(expectedMsg, h.signature, h.hashAlgorithm, state.remoteCertificate); err != nil {
 			return &alert{alertLevelFatal, alertBadCertificate}, err
 		}
@@ -307,7 +303,7 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 		}
 	}
 
-	if err = state.cipherSuite.init(state.masterSecret, clientRandom, serverRandom, true); err != nil {
+	if err = state.cipherSuite.init(state.masterSecret, clientRandom[:], serverRandom[:], true); err != nil {
 		return &alert{alertLevelFatal, alertInternalError}, err
 	}
 	return nil, nil
