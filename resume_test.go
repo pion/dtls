@@ -132,7 +132,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 
 	// Resume dtls connection
 	var resumed net.Conn
-	resumed, err = Resume(state, localConn2, config)
+	resumed, err = Resume(deserialized, localConn2, config)
 	if err != nil {
 		fatal(t, errChan, err)
 	}

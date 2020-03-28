@@ -75,15 +75,10 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	}
 
 	if !state.cipherSuite.isInitialized() {
-		serverRandom, err := state.localRandom.Marshal()
-		if err != nil {
-			return 0, &alert{alertLevelFatal, alertInternalError}, err
-		}
-		clientRandom, err := state.remoteRandom.Marshal()
-		if err != nil {
-			return 0, &alert{alertLevelFatal, alertInternalError}, err
-		}
+		serverRandom := state.localRandom.marshalFixed()
+		clientRandom := state.remoteRandom.marshalFixed()
 
+		var err error
 		var preMasterSecret []byte
 		if cfg.localPSKCallback != nil {
 			var psk []byte
@@ -111,13 +106,13 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 				return 0, &alert{alertLevelFatal, alertInternalError}, err
 			}
 		} else {
-			state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom, serverRandom, state.cipherSuite.hashFunc())
+			state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.hashFunc())
 			if err != nil {
 				return 0, &alert{alertLevelFatal, alertInternalError}, err
 			}
 		}
 
-		if err := state.cipherSuite.init(state.masterSecret, clientRandom, serverRandom, false); err != nil {
+		if err := state.cipherSuite.init(state.masterSecret, clientRandom[:], serverRandom[:], false); err != nil {
 			return 0, &alert{alertLevelFatal, alertInternalError}, err
 		}
 	}
@@ -221,14 +216,8 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			},
 		})
 
-		serverRandom, err := state.localRandom.Marshal()
-		if err != nil {
-			return nil, &alert{alertLevelFatal, alertInternalError}, err
-		}
-		clientRandom, err := state.remoteRandom.Marshal()
-		if err != nil {
-			return nil, &alert{alertLevelFatal, alertInternalError}, err
-		}
+		serverRandom := state.localRandom.marshalFixed()
+		clientRandom := state.remoteRandom.marshalFixed()
 
 		// Find compatible signature scheme
 		signatureHashAlgo, err := selectSignatureScheme(cfg.localSignatureSchemes, certificate.PrivateKey)
@@ -236,7 +225,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			return nil, &alert{alertLevelFatal, alertInsufficientSecurity}, err
 		}
 
-		signature, err := generateKeySignature(clientRandom, serverRandom, state.localKeypair.publicKey, state.namedCurve, certificate.PrivateKey, signatureHashAlgo.hash)
+		signature, err := generateKeySignature(clientRandom[:], serverRandom[:], state.localKeypair.publicKey, state.namedCurve, certificate.PrivateKey, signatureHashAlgo.hash)
 		if err != nil {
 			return nil, &alert{alertLevelFatal, alertInternalError}, err
 		}
