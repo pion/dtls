@@ -18,9 +18,11 @@
 </p>
 <br>
 
-Go DTLS 1.2 implementation. The original user is pion-WebRTC, but we would love to see it work for everyone.
+Native [DTLS 1.2][rfc6347] implementation in the Go programming language.
 
 A long term goal is a professional security review, and maye inclusion in stdlib.
+
+[rfc6347]: https://tools.ietf.org/html/rfc6347
 
 ### Goals/Progress
 This will only be targeting DTLS 1.2, and the most modern/common cipher suites.
@@ -67,7 +69,8 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 
 ### Using
 
-This library needs at least Go 1.13.
+This library needs at least Go 1.13, and you should have [Go modules
+enabled](https://github.com/golang/go/wiki/Modules).
 
 #### Pion DTLS
 For a DTLS 1.2 Server that listens on 127.0.0.1:4444
