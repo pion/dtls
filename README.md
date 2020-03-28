@@ -67,6 +67,8 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 
 ### Using
 
+This library needs at least Go 1.13.
+
 #### Pion DTLS
 For a DTLS 1.2 Server that listens on 127.0.0.1:4444
 ```sh

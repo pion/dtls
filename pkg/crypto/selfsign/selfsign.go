@@ -4,6 +4,7 @@ package selfsign
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
@@ -13,8 +14,6 @@ import (
 	"errors"
 	"math/big"
 	"time"
-
-	"golang.org/x/crypto/ed25519"
 )
 
 var errInvalidPrivateKey = errors.New("selfsign: invalid private key type")
