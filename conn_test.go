@@ -357,32 +357,38 @@ func TestExportKeyingMaterial(t *testing.T) {
 
 	c := &Conn{
 		state: State{
-			localRandom:  handshakeRandom{time.Unix(500, 0), rand},
-			remoteRandom: handshakeRandom{time.Unix(1000, 0), rand},
-			cipherSuite:  &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+			localRandom:         handshakeRandom{time.Unix(500, 0), rand},
+			remoteRandom:        handshakeRandom{time.Unix(1000, 0), rand},
+			localSequenceNumber: []uint64{0, 0},
+			cipherSuite:         &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
 		},
 	}
 	c.setLocalEpoch(0)
+	c.setRemoteEpoch(0)
 
-	_, err := c.ExportKeyingMaterial(exportLabel, nil, 0)
+	state := c.ConnectionState()
+	_, err := state.ExportKeyingMaterial(exportLabel, nil, 0)
 	if err != errHandshakeInProgress {
 		t.Errorf("ExportKeyingMaterial when epoch == 0: expected '%s' actual '%s'", errHandshakeInProgress, err)
 	}
 
 	c.setLocalEpoch(1)
-	_, err = c.ExportKeyingMaterial(exportLabel, []byte{0x00}, 0)
+	state = c.ConnectionState()
+	_, err = state.ExportKeyingMaterial(exportLabel, []byte{0x00}, 0)
 	if err != errContextUnsupported {
 		t.Errorf("ExportKeyingMaterial with context: expected '%s' actual '%s'", errContextUnsupported, err)
 	}
 
 	for k := range invalidKeyingLabels {
-		_, err = c.ExportKeyingMaterial(k, nil, 0)
+		state = c.ConnectionState()
+		_, err = state.ExportKeyingMaterial(k, nil, 0)
 		if err != errReservedExportKeyingMaterial {
 			t.Errorf("ExportKeyingMaterial reserved label: expected '%s' actual '%s'", errReservedExportKeyingMaterial, err)
 		}
 	}
 
-	keyingMaterial, err := c.ExportKeyingMaterial(exportLabel, nil, 10)
+	state = c.ConnectionState()
+	keyingMaterial, err := state.ExportKeyingMaterial(exportLabel, nil, 10)
 	if err != nil {
 		t.Errorf("ExportKeyingMaterial as server: unexpected error '%s'", err)
 	} else if !bytes.Equal(keyingMaterial, expectedServerKey) {
@@ -390,7 +396,8 @@ func TestExportKeyingMaterial(t *testing.T) {
 	}
 
 	c.state.isClient = true
-	keyingMaterial, err = c.ExportKeyingMaterial(exportLabel, nil, 10)
+	state = c.ConnectionState()
+	keyingMaterial, err = state.ExportKeyingMaterial(exportLabel, nil, 10)
 	if err != nil {
 		t.Errorf("ExportKeyingMaterial as server: unexpected error '%s'", err)
 	} else if !bytes.Equal(keyingMaterial, expectedClientKey) {
