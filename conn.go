@@ -355,33 +355,6 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 	return c.state.srtpProtectionProfile, true
 }
 
-// ExportKeyingMaterial from https://tools.ietf.org/html/rfc5705
-// This allows protocols to use DTLS for key establishment, but
-// then use some of the keying material for their own purposes
-func (c *Conn) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	if c.getLocalEpoch() == 0 {
-		return nil, errHandshakeInProgress
-	} else if len(context) != 0 {
-		return nil, errContextUnsupported
-	} else if _, ok := invalidKeyingLabels[label]; ok {
-		return nil, errReservedExportKeyingMaterial
-	}
-
-	localRandom := c.state.localRandom.marshalFixed()
-	remoteRandom := c.state.remoteRandom.marshalFixed()
-
-	seed := []byte(label)
-	if c.state.isClient {
-		seed = append(append(seed, localRandom[:]...), remoteRandom[:]...)
-	} else {
-		seed = append(append(seed, remoteRandom[:]...), localRandom[:]...)
-	}
-	return prfPHash(c.state.masterSecret, seed, length, c.state.cipherSuite.hashFunc())
-}
-
 func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()

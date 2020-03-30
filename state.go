@@ -160,3 +160,28 @@ func (s *State) UnmarshalBinary(data []byte) error {
 	}
 	return nil
 }
+
+// ExportKeyingMaterial returns length bytes of exported key material in a new
+// slice as defined in RFC 5705.
+// This allows protocols to use DTLS for key establishment, but
+// then use some of the keying material for their own purposes
+func (s *State) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
+	if s.localEpoch.Load().(uint16) == 0 {
+		return nil, errHandshakeInProgress
+	} else if len(context) != 0 {
+		return nil, errContextUnsupported
+	} else if _, ok := invalidKeyingLabels[label]; ok {
+		return nil, errReservedExportKeyingMaterial
+	}
+
+	localRandom := s.localRandom.marshalFixed()
+	remoteRandom := s.remoteRandom.marshalFixed()
+
+	seed := []byte(label)
+	if s.isClient {
+		seed = append(append(seed, localRandom[:]...), remoteRandom[:]...)
+	} else {
+		seed = append(append(seed, remoteRandom[:]...), localRandom[:]...)
+	}
+	return prfPHash(s.masterSecret, seed, length, s.cipherSuite.hashFunc())
+}
