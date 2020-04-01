@@ -1,9 +1,11 @@
 package dtls
 
 import (
+	"context"
 	"net"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,7 +26,17 @@ func TestReplayProtection(t *testing.T) {
 	c2, c3 := dpipe.Pipe()
 	conn := []net.Conn{c0, c1, c2, c3}
 
-	var wgReplays, wgRoutines sync.WaitGroup
+	var wgRoutines sync.WaitGroup
+	var cntReplays int32 = 1
+
+	ctxReplayDone, replayDone := context.WithCancel(context.Background())
+
+	replaySendDone := func() {
+		cnt := atomic.AddInt32(&cntReplays, -1)
+		if cnt == 0 {
+			replayDone()
+		}
+	}
 
 	replayer := func(ca, cb net.Conn) {
 		defer wgRoutines.Done()
@@ -40,9 +52,9 @@ func TestReplayProtection(t *testing.T) {
 				return
 			}
 
-			wgReplays.Add(1)
+			atomic.AddInt32(&cntReplays, 1)
 			go func() {
-				defer wgReplays.Done()
+				defer replaySendDone()
 				// Replay bit later
 				time.Sleep(time.Millisecond)
 				if _, werr := cb.Write(b[:n]); werr != nil {
@@ -67,7 +79,7 @@ func TestReplayProtection(t *testing.T) {
 		i := i
 		c := c
 		wgRoutines.Add(1)
-		wgReplays.Add(1) // Keep locked until the final message
+		atomic.AddInt32(&cntReplays, 1) // Keep locked until the final message
 		var lastMsgDone sync.Once
 		go func() {
 			defer wgRoutines.Done()
@@ -81,7 +93,7 @@ func TestReplayProtection(t *testing.T) {
 				if b[0] == numMsgs-1 {
 					// Final message received
 					lastMsgDone.Do(func() {
-						wgReplays.Done()
+						defer replaySendDone()
 					})
 				}
 			}
@@ -101,7 +113,9 @@ func TestReplayProtection(t *testing.T) {
 			return
 		}
 	}
-	wgReplays.Wait()
+
+	replaySendDone()
+	<-ctxReplayDone.Done()
 	time.Sleep(10 * time.Millisecond) // Ensure all replayed packets are sent
 
 	for i := 0; i < 4; i++ {
