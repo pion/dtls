@@ -195,3 +195,36 @@ func TestWriteClosed(t *testing.T) {
 		t.Errorf("Wrong data length, expected %d, got %d", 0, n)
 	}
 }
+
+// Test for TestLocalAddrAndRemoteAddr
+type stringAddr struct {
+	network string
+	addr    string
+}
+
+func (a stringAddr) Network() string { return a.network }
+func (a stringAddr) String() string  { return a.addr }
+
+type connAddrMock struct{}
+
+func (*connAddrMock) RemoteAddr() net.Addr               { return stringAddr{"remote_net", "remote_addr"} }
+func (*connAddrMock) LocalAddr() net.Addr                { return stringAddr{"local_net", "local_addr"} }
+func (*connAddrMock) Read(b []byte) (n int, err error)   { panic("unimplemented") }
+func (*connAddrMock) Write(b []byte) (n int, err error)  { panic("unimplemented") }
+func (*connAddrMock) Close() error                       { panic("unimplemented") }
+func (*connAddrMock) SetDeadline(t time.Time) error      { panic("unimplemented") }
+func (*connAddrMock) SetReadDeadline(t time.Time) error  { panic("unimplemented") }
+func (*connAddrMock) SetWriteDeadline(t time.Time) error { panic("unimplemented") }
+
+func TestLocalAddrAndRemoteAddr(t *testing.T) {
+	c := New(&connAddrMock{})
+	al := c.LocalAddr()
+	ar := c.RemoteAddr()
+
+	if al.String() != "local_addr" {
+		t.Error("Wrong LocalAddr implementation")
+	}
+	if ar.String() != "remote_addr" {
+		t.Error("Wrong RemoteAddr implementation")
+	}
+}
