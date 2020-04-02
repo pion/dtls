@@ -148,7 +148,7 @@ func (c *connCtx) LocalAddr() net.Addr {
 }
 
 func (c *connCtx) RemoteAddr() net.Addr {
-	return c.nextConn.LocalAddr()
+	return c.nextConn.RemoteAddr()
 }
 
 func (c *connCtx) Conn() net.Conn {
