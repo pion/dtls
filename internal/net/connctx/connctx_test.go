@@ -221,7 +221,10 @@ func TestLocalAddrAndRemoteAddr(t *testing.T) {
 	al := c.LocalAddr()
 	ar := c.RemoteAddr()
 
-	if al.String() == ar.String() {
-		t.Error("Wrong LocalAddr or RemoteAddr implementation")
+	if al.String() != "local_addr" {
+		t.Error("Wrong LocalAddr implementation")
+	}
+	if ar.String() != "remote_addr" {
+		t.Error("Wrong RemoteAddr implementation")
 	}
 }
