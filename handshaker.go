@@ -78,6 +78,7 @@ func (s handshakeState) String() string {
 type handshakeFSM struct {
 	currentFlight flightVal
 	flights       []*packet
+	retransmit    bool
 	state         *State
 	cache         *handshakeCache
 	cfg           *handshakeConfig
@@ -178,12 +179,13 @@ func (s *handshakeFSM) prepare(ctx context.Context, c flightConn) (handshakeStat
 		err  error
 		pkts []*packet
 	)
-	gen, errFlight := s.currentFlight.getFlightGenerator()
+	gen, retransmit, errFlight := s.currentFlight.getFlightGenerator()
 	if errFlight != nil {
 		err = errFlight
 		a = &alert{alertLevelFatal, alertInternalError}
 	} else {
 		pkts, a, err = gen(c, s.state, s.cache, s.cfg)
+		s.retransmit = retransmit
 	}
 	if a != nil {
 		if alertErr := c.notify(ctx, a.alertLevel, a.alertDescription); alertErr != nil {
@@ -266,6 +268,9 @@ func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, 
 			return handshakePreparing, nil
 
 		case <-retransmitTimer.C:
+			if !s.retransmit {
+				return handshakeWaiting, nil
+			}
 			return handshakeSending, nil
 		case <-ctx.Done():
 			return handshakeErrored, ctx.Err()
