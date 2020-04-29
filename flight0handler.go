@@ -6,14 +6,12 @@ import (
 )
 
 func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert, error) {
-	// HelloVerifyRequest can be skipped by the server,
-	// so allow ServerHello during flight1 also
-	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence,
+	seq, msgs, ok := cache.fullPullMap(0,
 		handshakeCachePullRule{handshakeTypeClientHello, cfg.initialEpoch, true, false},
 	)
 	if !ok {
 		// No valid message received. Keep reading
-		return flight0, nil, nil
+		return 0, nil, nil
 	}
 	state.handshakeRecvSequence = seq
 
