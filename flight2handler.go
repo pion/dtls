@@ -7,11 +7,12 @@ import (
 
 func flight2Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert, error) {
 	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence,
-		handshakeCachePullRule{handshakeTypeClientHello, cfg.initialEpoch, true, true},
+		handshakeCachePullRule{handshakeTypeClientHello, cfg.initialEpoch, true, false},
 	)
 	if !ok {
-		// No valid message received. Keep reading
-		return 0, nil, nil
+		// Client may retransmit the first ClientHello when HelloVerifyRequest is dropped.
+		// Parse as flight 0 in this case.
+		return flight0Parse(ctx, c, state, cache, cfg)
 	}
 	state.handshakeRecvSequence = seq
 
@@ -36,6 +37,7 @@ func flight2Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 }
 
 func flight2Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert, error) {
+	state.handshakeSendSequence = 0
 	return []*packet{
 		{
 			record: &recordLayer{

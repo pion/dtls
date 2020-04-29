@@ -31,23 +31,25 @@ func (f flightVal) getFlightParser() (flightParser, error) {
 	}
 }
 
-func (f flightVal) getFlightGenerator() (flightGenerator, error) {
+func (f flightVal) getFlightGenerator() (gen flightGenerator, retransmit bool, err error) {
 	switch f {
 	case flight0:
-		return flight0Generate, nil
+		return flight0Generate, true, nil
 	case flight1:
-		return flight1Generate, nil
+		return flight1Generate, true, nil
 	case flight2:
-		return flight2Generate, nil
+		// https://tools.ietf.org/html/rfc6347#section-3.2.1
+		// HelloVerifyRequests must not be retransmitted.
+		return flight2Generate, false, nil
 	case flight3:
-		return flight3Generate, nil
+		return flight3Generate, true, nil
 	case flight4:
-		return flight4Generate, nil
+		return flight4Generate, true, nil
 	case flight5:
-		return flight5Generate, nil
+		return flight5Generate, true, nil
 	case flight6:
-		return flight6Generate, nil
+		return flight6Generate, true, nil
 	default:
-		return nil, errInvalidFlight
+		return nil, false, errInvalidFlight
 	}
 }
