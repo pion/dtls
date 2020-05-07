@@ -22,9 +22,6 @@ func TestHandshaker(t *testing.T) {
 	loggerFactory := logging.NewDefaultLoggerFactory()
 	logger := loggerFactory.NewLogger("dtls")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	cipherSuites, err := parseCipherSuites(nil, true, false)
 	if err != nil {
 		t.Fatal(err)
@@ -34,73 +31,135 @@ func TestHandshaker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ca, cb := flightTestPipe(ctx)
-	ca.state.isClient = true
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	ctxCliFinished, cancelCli := context.WithCancel(ctx)
-	ctxSrvFinished, cancelSrv := context.WithCancel(ctx)
-	go func() {
-		defer wg.Done()
-		cfg := &handshakeConfig{
-			localCipherSuites:     cipherSuites,
-			localCertificates:     []tls.Certificate{clientCert},
-			localSignatureSchemes: defaultSignatureSchemes(),
-			insecureSkipVerify:    true,
-			log:                   logger,
-			onFlightState: func(f flightVal, s handshakeState) {
-				if s == handshakeFinished {
-					cancelCli()
+	genFilters := map[string]func() (packetFilter, packetFilter, func(t *testing.T)){
+		"PassThrough": func() (packetFilter, packetFilter, func(t *testing.T)) {
+			return nil, nil, nil
+		},
+		"HelloVerifyRequestLost": func() (packetFilter, packetFilter, func(t *testing.T)) {
+			var (
+				cntHelloVerifyRequest  = 0
+				cntClientHelloNoCookie = 0
+			)
+			const helloVerifyDrop = 5
+			return func(p *packet) bool {
+					h, ok := p.record.content.(*handshake)
+					if !ok {
+						return true
+					}
+					if hmch, ok := h.handshakeMessage.(*handshakeMessageClientHello); ok {
+						if len(hmch.cookie) == 0 {
+							cntClientHelloNoCookie++
+						}
+					}
+					return true
+				},
+				func(p *packet) bool {
+					h, ok := p.record.content.(*handshake)
+					if !ok {
+						return true
+					}
+					if _, ok := h.handshakeMessage.(*handshakeMessageHelloVerifyRequest); ok {
+						cntHelloVerifyRequest++
+						return cntHelloVerifyRequest > helloVerifyDrop
+					}
+					return true
+				},
+				func(t *testing.T) {
+					if cntHelloVerifyRequest != helloVerifyDrop+1 {
+						t.Errorf("Number of HelloVerifyRequest retransmit is wrong, expected: %d times, got: %d times", helloVerifyDrop+1, cntHelloVerifyRequest)
+					}
+					if cntClientHelloNoCookie != cntHelloVerifyRequest {
+						t.Errorf(
+							"HelloVerifyRequest must be triggered only by ClientHello, but HelloVerifyRequest was sent %d times and ClientHello was sent %d times",
+							cntHelloVerifyRequest, cntClientHelloNoCookie,
+						)
+					}
 				}
-			},
-			retransmitInterval: nonZeroRetransmitInterval,
-		}
+		},
+	}
 
-		fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, flight1)
-		switch err := fsm.Run(ctx, ca, handshakePreparing); err {
-		case context.Canceled:
-		case context.DeadlineExceeded:
-			t.Error("Timeout")
-		default:
-			t.Error(err)
-		}
-	}()
+	for name, filters := range genFilters {
+		f1, f2, report := filters()
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-	go func() {
-		defer wg.Done()
-		cfg := &handshakeConfig{
-			localCipherSuites:     cipherSuites,
-			localCertificates:     []tls.Certificate{clientCert},
-			localSignatureSchemes: defaultSignatureSchemes(),
-			insecureSkipVerify:    true,
-			log:                   logger,
-			onFlightState: func(f flightVal, s handshakeState) {
-				if s == handshakeFinished {
-					cancelSrv()
+			if report != nil {
+				defer report(t)
+			}
+
+			ca, cb := flightTestPipe(ctx, f1, f2)
+			ca.state.isClient = true
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+
+			ctxCliFinished, cancelCli := context.WithCancel(ctx)
+			ctxSrvFinished, cancelSrv := context.WithCancel(ctx)
+			go func() {
+				defer wg.Done()
+				cfg := &handshakeConfig{
+					localCipherSuites:     cipherSuites,
+					localCertificates:     []tls.Certificate{clientCert},
+					localSignatureSchemes: defaultSignatureSchemes(),
+					insecureSkipVerify:    true,
+					log:                   logger,
+					onFlightState: func(f flightVal, s handshakeState) {
+						if s == handshakeFinished {
+							cancelCli()
+						}
+					},
+					retransmitInterval: nonZeroRetransmitInterval,
 				}
-			},
-		}
 
-		fsm := newHandshakeFSM(&cb.state, cb.handshakeCache, cfg, flight0)
-		switch err := fsm.Run(ctx, cb, handshakePreparing); err {
-		case context.Canceled:
-		case context.DeadlineExceeded:
-			t.Error("Timeout")
-		default:
-			t.Error(err)
-		}
-	}()
+				fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, flight1)
+				switch err := fsm.Run(ctx, ca, handshakePreparing); err {
+				case context.Canceled:
+				case context.DeadlineExceeded:
+					t.Error("Timeout")
+				default:
+					t.Error(err)
+				}
+			}()
 
-	<-ctxCliFinished.Done()
-	<-ctxSrvFinished.Done()
+			go func() {
+				defer wg.Done()
+				cfg := &handshakeConfig{
+					localCipherSuites:     cipherSuites,
+					localCertificates:     []tls.Certificate{clientCert},
+					localSignatureSchemes: defaultSignatureSchemes(),
+					insecureSkipVerify:    true,
+					log:                   logger,
+					onFlightState: func(f flightVal, s handshakeState) {
+						if s == handshakeFinished {
+							cancelSrv()
+						}
+					},
+					retransmitInterval: nonZeroRetransmitInterval,
+				}
 
-	cancel()
-	wg.Wait()
+				fsm := newHandshakeFSM(&cb.state, cb.handshakeCache, cfg, flight0)
+				switch err := fsm.Run(ctx, cb, handshakePreparing); err {
+				case context.Canceled:
+				case context.DeadlineExceeded:
+					t.Error("Timeout")
+				default:
+					t.Error(err)
+				}
+			}()
+
+			<-ctxCliFinished.Done()
+			<-ctxSrvFinished.Done()
+
+			cancel()
+			wg.Wait()
+		})
+	}
 }
 
-func flightTestPipe(ctx context.Context) (*flightTestConn, *flightTestConn) {
+type packetFilter func(*packet) bool
+
+func flightTestPipe(ctx context.Context, filter1 packetFilter, filter2 packetFilter) (*flightTestConn, *flightTestConn) {
 	ca := newHandshakeCache()
 	cb := newHandshakeCache()
 	chA := make(chan chan struct{})
@@ -111,12 +170,14 @@ func flightTestPipe(ctx context.Context) (*flightTestConn, *flightTestConn) {
 			recv:           chA,
 			otherEndRecv:   chB,
 			done:           ctx.Done(),
+			filter:         filter1,
 		}, &flightTestConn{
 			handshakeCache: cb,
 			otherEndCache:  ca,
 			recv:           chB,
 			otherEndRecv:   chA,
 			done:           ctx.Done(),
+			filter:         filter2,
 		}
 }
 
@@ -126,6 +187,8 @@ type flightTestConn struct {
 	recv           chan chan struct{}
 	done           <-chan struct{}
 	epoch          uint16
+
+	filter packetFilter
 
 	otherEndCache *handshakeCache
 	otherEndRecv  chan chan struct{}
@@ -145,6 +208,9 @@ func (c *flightTestConn) notify(ctx context.Context, level alertLevel, desc aler
 
 func (c *flightTestConn) writePackets(ctx context.Context, pkts []*packet) error {
 	for _, p := range pkts {
+		if c.filter != nil && !c.filter(p) {
+			continue
+		}
 		if h, ok := p.record.content.(*handshake); ok {
 			handshakeRaw, err := p.record.Marshal()
 			if err != nil {
