@@ -23,10 +23,11 @@ var errListenQueueExceeded = errors.New("udp: listen queue exceeded")
 type listener struct {
 	pConn *net.UDPConn
 
-	accepting atomic.Value // bool
-	acceptCh  chan *Conn
-	doneCh    chan struct{}
-	doneOnce  sync.Once
+	accepting    atomic.Value // bool
+	acceptCh     chan *Conn
+	doneCh       chan struct{}
+	doneOnce     sync.Once
+	acceptFilter func([]byte) bool
 
 	connLock sync.Mutex
 	conns    map[string]*Conn
@@ -102,6 +103,10 @@ type ListenConfig struct {
 	// the request will be silently discarded, unlike TCP.
 	// Set zero to use default value 128 which is same as Linux default.
 	Backlog int
+
+	// AcceptFilter determines whether the new conn should be made for
+	// the incoming packet. If not set, any packet creates new conn.
+	AcceptFilter func([]byte) bool
 }
 
 // Listen creates a new listener based on the ListenConfig.
@@ -116,10 +121,11 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (net.Listener
 	}
 
 	l := &listener{
-		pConn:    conn,
-		acceptCh: make(chan *Conn, lc.Backlog),
-		conns:    make(map[string]*Conn),
-		doneCh:   make(chan struct{}),
+		pConn:        conn,
+		acceptCh:     make(chan *Conn, lc.Backlog),
+		conns:        make(map[string]*Conn),
+		doneCh:       make(chan struct{}),
+		acceptFilter: lc.AcceptFilter,
 	}
 	l.accepting.Store(true)
 	l.connWG.Add(1)
@@ -162,31 +168,38 @@ func (l *listener) readLoop() {
 		if err != nil {
 			return
 		}
-		conn, err := l.getConn(raddr)
+		conn, ok, err := l.getConn(raddr, buf[:n])
 		if err != nil {
 			continue
 		}
-		_, _ = conn.buffer.Write(buf[:n])
+		if ok {
+			_, _ = conn.buffer.Write(buf[:n])
+		}
 	}
 }
 
-func (l *listener) getConn(raddr net.Addr) (*Conn, error) {
+func (l *listener) getConn(raddr net.Addr, buf []byte) (*Conn, bool, error) {
 	l.connLock.Lock()
 	defer l.connLock.Unlock()
 	conn, ok := l.conns[raddr.String()]
 	if !ok {
 		if !l.accepting.Load().(bool) {
-			return nil, errClosedListener
+			return nil, false, errClosedListener
+		}
+		if l.acceptFilter != nil {
+			if !l.acceptFilter(buf) {
+				return nil, false, nil
+			}
 		}
 		conn = l.newConn(raddr)
 		select {
 		case l.acceptCh <- conn:
 			l.conns[raddr.String()] = conn
 		default:
-			return nil, errListenQueueExceeded
+			return nil, false, errListenQueueExceeded
 		}
 	}
-	return conn, nil
+	return conn, true, nil
 }
 
 // Conn augments a connection-oriented connection over a UDP PacketConn

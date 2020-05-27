@@ -145,6 +145,100 @@ func TestListenerCloseUnaccepted(t *testing.T) {
 	}
 }
 
+func TestListenerAcceptFilter(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	testCases := map[string]struct {
+		packet []byte
+		accept bool
+	}{
+		"CreateConn": {
+			packet: []byte{0xAA},
+			accept: true,
+		},
+		"Discarded": {
+			packet: []byte{0x00},
+			accept: false,
+		},
+	}
+
+	for name, testCase := range testCases {
+		testCase := testCase
+		t.Run(name, func(t *testing.T) {
+			network, addr := getConfig()
+			listener, err := (&ListenConfig{
+				AcceptFilter: func(pkt []byte) bool {
+					return pkt[0] == 0xAA
+				},
+			}).Listen(network, addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var wgAcceptLoop sync.WaitGroup
+			wgAcceptLoop.Add(1)
+			defer func() {
+				cerr := listener.Close()
+				if cerr != nil {
+					t.Fatal(cerr)
+				}
+				wgAcceptLoop.Wait()
+			}()
+
+			conn, derr := net.DialUDP(network, nil, listener.Addr().(*net.UDPAddr))
+			if derr != nil {
+				t.Fatal(derr)
+			}
+			if _, werr := conn.Write(testCase.packet); werr != nil {
+				t.Fatal(werr)
+			}
+			defer func() {
+				if cerr := conn.Close(); cerr != nil {
+					t.Error(cerr)
+				}
+			}()
+
+			chAccepted := make(chan struct{})
+			go func() {
+				defer wgAcceptLoop.Done()
+
+				conn, aerr := listener.Accept()
+				if aerr != nil {
+					if aerr != errClosedListener {
+						t.Error(aerr)
+					}
+					return
+				}
+				close(chAccepted)
+				if cerr := conn.Close(); cerr != nil {
+					t.Error(cerr)
+				}
+			}()
+
+			var accepted bool
+			select {
+			case <-chAccepted:
+				accepted = true
+			case <-time.After(10 * time.Millisecond):
+			}
+
+			if accepted != testCase.accept {
+				if testCase.accept {
+					t.Error("Packet should create new conn")
+				} else {
+					t.Error("Packet should not create new conn")
+				}
+			}
+		})
+	}
+}
+
 func TestListenerConcurrent(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
