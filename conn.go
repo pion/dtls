@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -879,16 +880,13 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 }
 
 func (c *Conn) translateHandshakeCtxError(err error) error {
-	switch err {
-	case context.Canceled:
-		if c.isHandshakeCompletedSuccessfully() {
-			return nil
-		}
-		return err
-	case context.DeadlineExceeded:
-		return errHandshakeTimeout
+	if err == nil {
+		return nil
 	}
-	return err
+	if errors.Is(err, context.Canceled) && c.isHandshakeCompletedSuccessfully() {
+		return nil
+	}
+	return &HandshakeError{err}
 }
 
 func (c *Conn) close(byUser bool) error {

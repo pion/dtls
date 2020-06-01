@@ -170,7 +170,7 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, excludePSK, excludeNo
 		for _, id := range ids {
 			c := cipherSuiteForID(id)
 			if c == nil {
-				return nil, fmt.Errorf("CipherSuite with id(%d) is not valid", id)
+				return nil, &invalidCipherSuite{id}
 			}
 			cipherSuites = append(cipherSuites, c)
 		}
