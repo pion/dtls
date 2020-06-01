@@ -32,6 +32,10 @@ func TestErrorUnwrap(t *testing.T) {
 			&TimeoutError{errExample},
 			[]error{errExample},
 		},
+		{
+			&HandshakeError{errExample},
+			[]error{errExample},
+		},
 	}
 	for _, c := range cases {
 		c := c
@@ -59,6 +63,8 @@ func TestErrorNetError(t *testing.T) {
 		{&TemporaryError{errExample}, "dtls temporary: an example error", false, true},
 		{&InternalError{errExample}, "dtls internal: an example error", false, false},
 		{&TimeoutError{errExample}, "dtls timeout: an example error", true, true},
+		{&HandshakeError{errExample}, "handshake error: an example error", false, false},
+		{&HandshakeError{&TimeoutError{errExample}}, "handshake error: dtls timeout: an example error", true, true},
 	}
 	for _, c := range cases {
 		c := c
@@ -72,6 +78,9 @@ func TestErrorNetError(t *testing.T) {
 			}
 			if ne.Temporary() != c.temporary {
 				t.Errorf("%T.Temporary() should be %v", c.err, c.temporary)
+			}
+			if ne.Error() != c.str {
+				t.Errorf("%T.Error() should be %v", c.err, c.str)
 			}
 		})
 	}

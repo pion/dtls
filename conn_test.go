@@ -290,7 +290,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 
 	cases := map[string]struct {
 		configServer, configClient *Config
-		errServer, errClient       interface{}
+		errServer, errClient       error
 	}{
 		"CipherSuiteNoIntersection": {
 			configServer: &Config{
@@ -300,7 +300,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
 			},
 			errServer: errCipherSuiteNoIntersection,
-			errClient: "alert: Alert LevelFatal: InsufficientSecurity",
+			errClient: &errAlert{&alert{alertLevelFatal, alertInsufficientSecurity}},
 		},
 		"SignatureSchemesNoIntersection": {
 			configServer: &Config{
@@ -311,7 +311,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 				CipherSuites:     []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 				SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP521AndSHA512},
 			},
-			errServer: "alert: Alert LevelFatal: InsufficientSecurity",
+			errServer: &errAlert{&alert{alertLevelFatal, alertInsufficientSecurity}},
 			errClient: errNoAvailableSignatureSchemes,
 		},
 	}
@@ -328,17 +328,13 @@ func TestHandshakeWithAlert(t *testing.T) {
 			}()
 
 			_, errServer := testServer(ctx, cb, testCase.configServer, true)
-			if errExp, ok := testCase.errServer.(error); ok && errServer != errExp {
-				t.Fatalf("Server error exp(%v) failed(%v)", errExp, errServer)
-			} else if strExp, ok := testCase.errServer.(string); ok && errServer.Error() != strExp {
-				t.Fatalf("Server error exp(%s) failed(%v)", strExp, errServer)
+			if !errors.Is(errServer, testCase.errServer) {
+				t.Fatalf("Server error exp(%v) failed(%v)", testCase.errServer, errServer)
 			}
 
 			errClient := <-clientErr
-			if errExp, ok := testCase.errClient.(error); ok && errClient != errExp {
-				t.Fatalf("Client error exp(%v) failed(%v)", errExp, errClient)
-			} else if strExp, ok := testCase.errClient.(string); ok && errClient.Error() != strExp {
-				t.Fatalf("Client error exp(%s) failed(%v)", strExp, errClient)
+			if !errors.Is(errClient, testCase.errClient) {
+				t.Fatalf("Client error exp(%v) failed(%v)", testCase.errClient, errClient)
 			}
 		})
 	}
@@ -490,7 +486,7 @@ func TestPSKHintFail(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	serverAlertError := errors.New("alert: Alert LevelFatal: InternalError")
+	serverAlertError := &errAlert{&alert{alertLevelFatal, alertInternalError}}
 	pskRejected := errors.New("PSK Rejected")
 
 	// Limit runtime in case of deadlocks
@@ -523,11 +519,11 @@ func TestPSKHintFail(t *testing.T) {
 		CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 	}
 
-	if _, err := testServer(ctx, cb, config, false); err.Error() != serverAlertError.Error() {
+	if _, err := testServer(ctx, cb, config, false); !errors.Is(err, serverAlertError) {
 		t.Fatalf("TestPSK: Server error exp(%v) failed(%v)", serverAlertError, err)
 	}
 
-	if err := <-clientErr; err != pskRejected {
+	if err := <-clientErr; !errors.Is(err, pskRejected) {
 		t.Fatalf("TestPSK: Client error exp(%v) failed(%v)", pskRejected, err)
 	}
 }
@@ -558,9 +554,9 @@ func TestClientTimeout(t *testing.T) {
 	}()
 
 	// no server!
-
-	if err := <-clientErr; err != errHandshakeTimeout {
-		t.Fatalf("Client error exp(%v) failed(%v)", errHandshakeTimeout, err)
+	err := <-clientErr
+	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("Client error exp(Temporary network error) failed(%v)", err)
 	}
 }
 
@@ -598,7 +594,7 @@ func TestSRTPConfiguration(t *testing.T) {
 			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			ServerSRTP:      nil,
 			ExpectedProfile: 0,
-			WantClientError: fmt.Errorf("alert: Alert LevelFatal: InsufficientSecurity"),
+			WantClientError: &errAlert{&alert{alertLevelFatal, alertInsufficientSecurity}},
 			WantServerError: errServerNoMatchingSRTPProfile,
 		},
 		{
@@ -626,10 +622,8 @@ func TestSRTPConfiguration(t *testing.T) {
 		}()
 
 		server, err := testServer(ctx, cb, &Config{SRTPProtectionProfiles: test.ServerSRTP}, true)
-		if err != nil || test.WantServerError != nil {
-			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
-				t.Errorf("TestSRTPConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
-			}
+		if !errors.Is(err, test.WantServerError) {
+			t.Errorf("TestSRTPConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
 		}
 		if err == nil {
 			defer func() {
@@ -643,10 +637,8 @@ func TestSRTPConfiguration(t *testing.T) {
 				_ = res.c.Close()
 			}()
 		}
-		if res.err != nil || test.WantClientError != nil {
-			if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
-				t.Fatalf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
-			}
+		if !errors.Is(res.err, test.WantClientError) {
+			t.Fatalf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 		}
 		if res.c == nil {
 			return
@@ -916,7 +908,7 @@ func TestExtendedMasterSecret(t *testing.T) {
 				ExtendedMasterSecret: DisableExtendedMasterSecret,
 			},
 			expectedClientErr: errClientRequiredButNoServerEMS,
-			expectedServerErr: fmt.Errorf("alert: Alert LevelFatal: InsufficientSecurity"),
+			expectedServerErr: &errAlert{&alert{alertLevelFatal, alertInsufficientSecurity}},
 		},
 		"Disable_Request_ExtendedMasterSecret": {
 			clientCfg: &Config{
@@ -935,7 +927,7 @@ func TestExtendedMasterSecret(t *testing.T) {
 			serverCfg: &Config{
 				ExtendedMasterSecret: RequireExtendedMasterSecret,
 			},
-			expectedClientErr: fmt.Errorf("alert: Alert LevelFatal: InsufficientSecurity"),
+			expectedClientErr: &errAlert{&alert{alertLevelFatal, alertInsufficientSecurity}},
 			expectedServerErr: errServerRequiredButNoClientEMS,
 		},
 		"Disable_Disable_ExtendedMasterSecret": {
@@ -978,16 +970,12 @@ func TestExtendedMasterSecret(t *testing.T) {
 				}
 			}()
 
-			if tt.expectedClientErr != nil {
-				if res.err.Error() != tt.expectedClientErr.Error() {
-					t.Errorf("Client error expected: \"%v\" but got \"%v\"", tt.expectedClientErr, res.err)
-				}
+			if !errors.Is(res.err, tt.expectedClientErr) {
+				t.Errorf("Client error expected: \"%v\" but got \"%v\"", tt.expectedClientErr, res.err)
 			}
 
-			if tt.expectedServerErr != nil {
-				if err.Error() != tt.expectedServerErr.Error() {
-					t.Errorf("Server error expected: \"%v\" but got \"%v\"", tt.expectedServerErr, err)
-				}
+			if !errors.Is(err, tt.expectedServerErr) {
+				t.Errorf("Server error expected: \"%v\" but got \"%v\"", tt.expectedServerErr, err)
 			}
 		})
 	}
@@ -1126,8 +1114,8 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			Name:               "Invalid CipherSuite",
 			ClientCipherSuites: []CipherSuiteID{0x00},
 			ServerCipherSuites: []CipherSuiteID{0x00},
-			WantClientError:    errors.New("CipherSuite with id(0) is not valid"),
-			WantServerError:    errors.New("CipherSuite with id(0) is not valid"),
+			WantClientError:    &invalidCipherSuite{0x00},
+			WantServerError:    &invalidCipherSuite{0x00},
 		},
 		{
 			Name:               "Valid CipherSuites specified",
@@ -1140,7 +1128,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			Name:               "CipherSuites mismatch",
 			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
-			WantClientError:    errors.New("alert: Alert LevelFatal: InsufficientSecurity"),
+			WantClientError:    &errAlert{&alert{alertLevelFatal, alertInsufficientSecurity}},
 			WantServerError:    errCipherSuiteNoIntersection,
 		},
 		{
@@ -1181,20 +1169,16 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 					_ = server.Close()
 				}()
 			}
-			if err != nil || test.WantServerError != nil {
-				if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
-					t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
-				}
+			if !errors.Is(err, test.WantServerError) {
+				t.Errorf("TestCipherSuiteConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
 			}
 
 			res := <-c
 			if res.err == nil {
 				_ = server.Close()
 			}
-			if res.err != nil || test.WantClientError != nil {
-				if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
-					t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
-				}
+			if !errors.Is(res.err, test.WantClientError) {
+				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 			}
 		})
 	}
@@ -1405,8 +1389,9 @@ func TestServerTimeout(t *testing.T) {
 		FlightInterval: 100 * time.Millisecond,
 	}
 
-	if _, err := testServer(ctx, cb, config, true); err != errHandshakeTimeout {
-		t.Fatalf("Client error exp(%v) failed(%v)", errHandshakeTimeout, err)
+	_, serverErr := testServer(ctx, cb, config, true)
+	if netErr, ok := serverErr.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("Client error exp(Temporary network error) failed(%v)", serverErr)
 	}
 
 	// Wait a little longer to ensure no additional messages have been sent by the server
@@ -1520,7 +1505,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 				defer wg.Wait()
 				go func() {
 					defer wg.Done()
-					if _, err := testServer(ctx, cb, config, true); err != errUnsupportedProtocolVersion {
+					if _, err := testServer(ctx, cb, config, true); !errors.Is(err, errUnsupportedProtocolVersion) {
 						t.Errorf("Client error exp(%v) failed(%v)", errUnsupportedProtocolVersion, err)
 					}
 				}()
@@ -1648,7 +1633,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 				defer wg.Wait()
 				go func() {
 					defer wg.Done()
-					if _, err := testClient(ctx, cb, config, true); err != errUnsupportedProtocolVersion {
+					if _, err := testClient(ctx, cb, config, true); !errors.Is(err, errUnsupportedProtocolVersion) {
 						t.Errorf("Server error exp(%v) failed(%v)", errUnsupportedProtocolVersion, err)
 					}
 				}()
