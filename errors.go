@@ -36,7 +36,6 @@ var (
 	errCompressionMethodUnset           = &FatalError{errors.New("server hello can not be created without a compression method")}
 	errCookieMismatch                   = &FatalError{errors.New("client+server cookie does not match")}
 	errCookieTooLong                    = &FatalError{errors.New("cookie must not be longer then 255 bytes")}
-	errHandshakeTimeout                 = &FatalError{xerrors.Errorf("the connection timed out during the handshake: %w", context.DeadlineExceeded)}
 	errIdentityNoPSK                    = &FatalError{errors.New("PSK Identity Hint provided but PSK is nil")}
 	errInvalidCertificate               = &FatalError{errors.New("no certificate provided")}
 	errInvalidCipherSpec                = &FatalError{errors.New("cipher spec invalid")}
@@ -100,6 +99,27 @@ type TimeoutError struct {
 	Err error
 }
 
+// HandshakeError indicates that the handshake failed.
+type HandshakeError struct {
+	Err error
+}
+
+// invalidCipherSuite indicates an attempt at using an unsupported cipher suite.
+type invalidCipherSuite struct {
+	id CipherSuiteID
+}
+
+func (e *invalidCipherSuite) Error() string {
+	return fmt.Sprintf("CipherSuite with id(%d) is not valid", e.id)
+}
+
+func (e *invalidCipherSuite) Is(err error) bool {
+	if other, ok := err.(*invalidCipherSuite); ok {
+		return e.id == other.id
+	}
+	return false
+}
+
 // Timeout implements net.Error.Timeout()
 func (*FatalError) Timeout() bool { return false }
 
@@ -144,6 +164,27 @@ func (e *TimeoutError) Unwrap() error { return e.Err }
 
 func (e *TimeoutError) Error() string { return fmt.Sprintf("dtls timeout: %v", e.Err) }
 
+// Timeout implements net.Error.Timeout()
+func (e *HandshakeError) Timeout() bool {
+	if netErr, ok := e.Err.(net.Error); ok {
+		return netErr.Timeout()
+	}
+	return false
+}
+
+// Temporary implements net.Error.Temporary()
+func (e *HandshakeError) Temporary() bool {
+	if netErr, ok := e.Err.(net.Error); ok {
+		return netErr.Temporary()
+	}
+	return false
+}
+
+// Unwrap implements Go1.13 error unwrapper.
+func (e *HandshakeError) Unwrap() error { return e.Err }
+
+func (e *HandshakeError) Error() string { return fmt.Sprintf("handshake error: %v", e.Err) }
+
 // errAlert wraps DTLS alert notification as an error
 type errAlert struct {
 	*alert
@@ -155,6 +196,13 @@ func (e *errAlert) Error() string {
 
 func (e *errAlert) IsFatalOrCloseNotify() bool {
 	return e.alertLevel == alertLevelFatal || e.alertDescription == alertCloseNotify
+}
+
+func (e *errAlert) Is(err error) bool {
+	if other, ok := err.(*errAlert); ok {
+		return e.alertLevel == other.alertLevel && e.alertDescription == other.alertDescription
+	}
+	return false
 }
 
 // netError translates an error from underlying Conn to corresponding net.Error.
