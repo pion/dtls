@@ -141,6 +141,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Julien Salleyron](https://github.com/juliens) - *Server Name Indication*
 * [Jeroen de Bruijn](https://github.com/vidavidorra)
 * [bjdgyc](https://github.com/bjdgyc)
+* [Jeffrey Stoke (Jeff Ctor)](https://github.com/jeffreystoke) - *Fragmentbuffer Fix*
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

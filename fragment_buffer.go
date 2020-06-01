@@ -31,17 +31,27 @@ func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 		return false, nil
 	}
 
-	if err := frag.handshakeHeader.Unmarshal(buf[recordLayerHeaderSize:]); err != nil {
-		return false, err
-	}
+	for buf = buf[recordLayerHeaderSize:]; len(buf) != 0; frag = new(fragment) {
+		if err := frag.handshakeHeader.Unmarshal(buf); err != nil {
+			return false, err
+		}
 
-	if _, ok := f.cache[frag.handshakeHeader.messageSequence]; !ok {
-		f.cache[frag.handshakeHeader.messageSequence] = []*fragment{}
-	}
+		if _, ok := f.cache[frag.handshakeHeader.messageSequence]; !ok {
+			f.cache[frag.handshakeHeader.messageSequence] = []*fragment{}
+		}
 
-	// Discard all headers, when rebuilding the packet we will re-build
-	frag.data = append([]byte{}, buf[recordLayerHeaderSize+handshakeHeaderLength:]...)
-	f.cache[frag.handshakeHeader.messageSequence] = append(f.cache[frag.handshakeHeader.messageSequence], frag)
+		// end index should be the length of handshake header but if the handshake
+		// was fragmented, we should keep them all
+		end := int(handshakeHeaderLength + frag.handshakeHeader.length)
+		if size := len(buf); end > size {
+			end = size
+		}
+
+		// Discard all headers, when rebuilding the packet we will re-build
+		frag.data = append([]byte{}, buf[handshakeHeaderLength:end]...)
+		f.cache[frag.handshakeHeader.messageSequence] = append(f.cache[frag.handshakeHeader.messageSequence], frag)
+		buf = buf[end:]
+	}
 
 	return true, nil
 }
