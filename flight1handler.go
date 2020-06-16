@@ -15,7 +15,12 @@ func flight1Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
-	state.handshakeRecvSequence = seq
+
+	if _, ok := msgs[handshakeTypeServerHello]; ok {
+		// Flight1 and flight2 were skipped.
+		// Parse as flight3.
+		return flight3Parse(ctx, c, state, cache, cfg)
+	}
 
 	if h, ok := msgs[handshakeTypeHelloVerifyRequest].(*handshakeMessageHelloVerifyRequest); ok {
 		// DTLS 1.2 clients must not assume that the server will use the protocol version
@@ -24,13 +29,8 @@ func flight1Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
 		}
 		state.cookie = append([]byte{}, h.cookie...)
+		state.handshakeRecvSequence = seq
 		return flight3, nil, nil
-	}
-
-	if _, ok := msgs[handshakeTypeServerHello]; ok {
-		// Flight1 and flight2 were skipped.
-		// Parse as flight3.
-		return flight3Parse(ctx, c, state, cache, cfg)
 	}
 
 	return 0, &alert{alertLevelFatal, alertInternalError}, nil
