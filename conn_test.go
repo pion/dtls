@@ -605,6 +605,22 @@ func TestSRTPConfiguration(t *testing.T) {
 			WantClientError: nil,
 			WantServerError: nil,
 		},
+		{
+			Name:            "Multiple Suites",
+			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AES128_CM_HMAC_SHA1_32},
+			ServerSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AES128_CM_HMAC_SHA1_32},
+			ExpectedProfile: SRTP_AES128_CM_HMAC_SHA1_80,
+			WantClientError: nil,
+			WantServerError: nil,
+		},
+		{
+			Name:            "Multiple Suites, Client Chooses",
+			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AES128_CM_HMAC_SHA1_32},
+			ServerSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_32, SRTP_AES128_CM_HMAC_SHA1_80},
+			ExpectedProfile: SRTP_AES128_CM_HMAC_SHA1_80,
+			WantClientError: nil,
+			WantServerError: nil,
+		},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
