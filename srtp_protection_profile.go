@@ -6,8 +6,14 @@ type SRTPProtectionProfile uint16
 
 const (
 	SRTP_AES128_CM_HMAC_SHA1_80 SRTPProtectionProfile = 0x0001 // nolint
+	SRTP_AES128_CM_HMAC_SHA1_32 SRTPProtectionProfile = 0x0002 // nolint
+	SRTP_AEAD_AES_128_GCM       SRTPProtectionProfile = 0x0007 // nolint
+	SRTP_AEAD_AES_256_GCM       SRTPProtectionProfile = 0x0008 // nolint
 )
 
 var srtpProtectionProfiles = map[SRTPProtectionProfile]bool{
 	SRTP_AES128_CM_HMAC_SHA1_80: true,
+	SRTP_AES128_CM_HMAC_SHA1_32: true,
+	SRTP_AEAD_AES_128_GCM:       true,
+	SRTP_AEAD_AES_256_GCM:       true,
 }
