@@ -5,9 +5,24 @@ import (
 )
 
 func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert, error) {
-	var msgs map[handshakeType]handshakeMessage
-	var ok bool
-	var seq int
+	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
+	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response
+	// to the new HelloVerifyRequest. RFC 6347 Section 4.2.1
+	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence,
+		handshakeCachePullRule{handshakeTypeHelloVerifyRequest, cfg.initialEpoch, false, true},
+	)
+	if ok {
+		if h, msgOk := msgs[handshakeTypeHelloVerifyRequest].(*handshakeMessageHelloVerifyRequest); msgOk {
+			// DTLS 1.2 clients must not assume that the server will use the protocol version
+			// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
+			if !h.version.Equal(protocolVersion1_0) && !h.version.Equal(protocolVersion1_2) {
+				return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
+			}
+			state.cookie = append([]byte{}, h.cookie...)
+			state.handshakeRecvSequence = seq
+			return flight3, nil, nil
+		}
+	}
 
 	if cfg.localPSKCallback != nil {
 		seq, msgs, ok = cache.fullPullMap(state.handshakeRecvSequence,
