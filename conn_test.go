@@ -1687,3 +1687,90 @@ func TestProtocolVersionValidation(t *testing.T) {
 		}
 	})
 }
+
+func TestMultipleHelloVerifyRequest(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	cookies := [][]byte{
+		// first clientHello contains an empty cookie
+		{},
+	}
+	var packets [][]byte
+	for i := 0; i < 2; i++ {
+		cookie := make([]byte, 20)
+		if _, err := rand.Read(cookie); err != nil {
+			t.Fatal(err)
+		}
+		cookies = append(cookies, cookie)
+
+		record := &recordLayer{
+			recordLayerHeader: recordLayerHeader{
+				sequenceNumber:  uint64(i),
+				protocolVersion: protocolVersion1_2,
+			},
+			content: &handshake{
+				handshakeHeader: handshakeHeader{
+					messageSequence: uint16(i),
+				},
+				handshakeMessage: &handshakeMessageHelloVerifyRequest{
+					version: protocolVersion1_2,
+					cookie:  cookie,
+				}},
+		}
+		packet, err := record.Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		packets = append(packets, packet)
+	}
+
+	ca, cb := dpipe.Pipe()
+	defer func() {
+		err := ca.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Wait()
+	go func() {
+		defer wg.Done()
+		_, _ = testClient(ctx, ca, &Config{}, false)
+	}()
+
+	for i, cookie := range cookies {
+		// read client hello
+		resp := make([]byte, 1024)
+		n, err := cb.Read(resp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := &recordLayer{}
+		if err := record.Unmarshal(resp[:n]); err != nil {
+			t.Fatal(err)
+		}
+		clientHello := record.content.(*handshake).handshakeMessage.(*handshakeMessageClientHello)
+		if !bytes.Equal(clientHello.cookie, cookie) {
+			t.Fatalf("Wrong cookie, expected: %x, got: %x", clientHello.cookie, cookie)
+		}
+		if len(packets) <= i {
+			break
+		}
+		// write hello verify request
+		if _, err := cb.Write(packets[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cancel()
+}
