@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/hex"
 	"errors"
 	"math/big"
@@ -67,6 +66,9 @@ func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate,
 		return tls.Certificate{}, err
 	}
 
+	names := []string{cn}
+	names = append(names, sans...)
+
 	template := x509.Certificate{
 		ExtKeyUsage: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageClientAuth,
@@ -78,9 +80,8 @@ func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate,
 		NotAfter:              time.Now().AddDate(0, 1, 0),
 		SerialNumber:          serialNumber,
 		Version:               2,
-		Subject:               pkix.Name{CommonName: cn},
 		IsCA:                  true,
-		DNSNames:              sans,
+		DNSNames:              names,
 	}
 
 	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, pubKey, key)
