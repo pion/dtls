@@ -5,32 +5,33 @@ linters-settings:
     locale: US
 
 linters:
-  enable-all: true
-  disable:
+  enable:
+    - deadcode
+    - depguard
+    - dogsled
     - dupl
-    - funlen
+    - errcheck
     - gochecknoglobals
+    - gochecknoinits
+    - goconst
+    - gocritic
     - gocyclo
-    - godox
-    - lll
-    - maligned
-
-issues:
-  exclude-use-default: false
-
-  exclude-rules:
-    - path: pkg/crypto/ccm
-      text: "L' should not be capitalized"
-      linters:
-        - gocritic
-    - path: cipher_suite
-      text: "should not use ALL_CAPS in Go names; use CamelCase instead"
-      linters:
-        - stylecheck
-    - path: cipher_suite
-      text: "don't use ALL_CAPS in Go names; use CamelCase"
-      linters:
-        - golint
+    - gofmt
+    - goimports
+    - golint
+    - ineffassign
+    - interfacer
+    - misspell
+    - nakedret
+    - prealloc
+    - scopelint
+    - structcheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - varcheck
+    - whitespace
 
 run:
   skip-dirs-use-default: false
