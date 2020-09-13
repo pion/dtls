@@ -195,7 +195,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		return nil, err
 	}
 
-	c.log.Trace(fmt.Sprintf("Handshake Completed"))
+	c.log.Trace("Handshake Completed")
 
 	return c, nil
 }
