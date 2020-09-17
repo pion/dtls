@@ -7,6 +7,8 @@ const (
 	ellipticCurveTypeNamedCurve ellipticCurveType = 0x03
 )
 
-var ellipticCurveTypes = map[ellipticCurveType]bool{
-	ellipticCurveTypeNamedCurve: true,
+func ellipticCurveTypes() map[ellipticCurveType]bool {
+	return map[ellipticCurveType]bool{
+		ellipticCurveTypeNamedCurve: true,
+	}
 }

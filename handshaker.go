@@ -230,7 +230,7 @@ func (s *handshakeFSM) send(ctx context.Context, c flightConn) (handshakeState, 
 	return handshakeWaiting, nil
 }
 
-func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, error) {
+func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, error) { //nolint:gocognit
 	parse, errFlight := s.currentFlight.getFlightParser()
 	if errFlight != nil {
 		if alertErr := c.notify(ctx, alertLevelFatal, alertInternalError); alertErr != nil {

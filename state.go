@@ -170,7 +170,7 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 		return nil, errHandshakeInProgress
 	} else if len(context) != 0 {
 		return nil, errContextUnsupported
-	} else if _, ok := invalidKeyingLabels[label]; ok {
+	} else if _, ok := invalidKeyingLabels()[label]; ok {
 		return nil, errReservedExportKeyingMaterial
 	}
 

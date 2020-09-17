@@ -3,6 +3,7 @@ package dtls
 import (
 	"bytes"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	"github.com/pion/transport/test"
 )
+
+var errMessageMissmatch = errors.New("messages missmatch")
 
 func TestResumeClient(t *testing.T) {
 	DoTestResume(t, Client, Server)
@@ -105,7 +108,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	}
 
 	if !bytes.Equal(message, recv[:n]) {
-		fatal(t, errChan, fmt.Errorf("messages missmatch: %s != %s", message, recv[:n]))
+		fatal(t, errChan, fmt.Errorf("%w: %s != %s", errMessageMissmatch, message, recv[:n]))
 	}
 
 	if err = localConn1.Close(); err != nil {
@@ -146,7 +149,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.Conn, *Config) (*Co
 	}
 
 	if !bytes.Equal(message, recv[:n]) {
-		fatal(t, errChan, fmt.Errorf("messages missmatch: %s != %s", message, recv[:n]))
+		fatal(t, errChan, fmt.Errorf("%w: %s != %s", errMessageMissmatch, message, recv[:n]))
 	}
 }
 

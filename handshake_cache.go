@@ -28,7 +28,7 @@ func newHandshakeCache() *handshakeCache {
 	return &handshakeCache{}
 }
 
-func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, typ handshakeType, isClient bool) bool {
+func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, typ handshakeType, isClient bool) bool { //nolint
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

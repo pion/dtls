@@ -92,9 +92,10 @@ func flight1Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 						cookie:             state.cookie,
 						random:             state.localRandom,
 						cipherSuites:       cfg.localCipherSuites,
-						compressionMethods: defaultCompressionMethods,
+						compressionMethods: defaultCompressionMethods(),
 						extensions:         extensions,
-					}},
+					},
+				},
 			},
 		},
 	}, nil, nil

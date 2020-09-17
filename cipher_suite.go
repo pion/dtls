@@ -12,25 +12,23 @@ type CipherSuiteID uint16
 // Supported Cipher Suites
 const (
 	// AES-128-CCM
-	TLS_ECDHE_ECDSA_WITH_AES_128_CCM   CipherSuiteID = 0xc0ac
-	TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 CipherSuiteID = 0xc0ae
+	TLS_ECDHE_ECDSA_WITH_AES_128_CCM   CipherSuiteID = 0xc0ac //nolint:golint,stylecheck
+	TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 CipherSuiteID = 0xc0ae //nolint:golint,stylecheck
 
 	// AES-128-GCM-SHA256
-	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0xc02b
-	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   CipherSuiteID = 0xc02f
+	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0xc02b //nolint:golint,stylecheck
+	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   CipherSuiteID = 0xc02f //nolint:golint,stylecheck
 
 	// AES-256-CBC-SHA
-	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA CipherSuiteID = 0xc00a
-	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   CipherSuiteID = 0xc014
+	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA CipherSuiteID = 0xc00a //nolint:golint,stylecheck
+	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   CipherSuiteID = 0xc014 //nolint:golint,stylecheck
 
-	TLS_PSK_WITH_AES_128_CCM        CipherSuiteID = 0xc0a4
-	TLS_PSK_WITH_AES_128_CCM_8      CipherSuiteID = 0xc0a8
-	TLS_PSK_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0x00a8
+	TLS_PSK_WITH_AES_128_CCM        CipherSuiteID = 0xc0a4 //nolint:golint,stylecheck
+	TLS_PSK_WITH_AES_128_CCM_8      CipherSuiteID = 0xc0a8 //nolint:golint,stylecheck
+	TLS_PSK_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0x00a8 //nolint:golint,stylecheck
 )
 
-var (
-	_ = allCipherSuites() // Necessary until this function isn't only used by Go 1.14
-)
+var _ = allCipherSuites() // Necessary until this function isn't only used by Go 1.14
 
 func (c CipherSuiteID) String() string {
 	switch c {

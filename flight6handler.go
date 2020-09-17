@@ -65,7 +65,8 @@ func flight6Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				content: &handshake{
 					handshakeMessage: &handshakeMessageFinished{
 						verifyData: state.localVerifyData,
-					}},
+					},
+				},
 			},
 			shouldEncrypt:            true,
 			resetLocalSequenceNumber: true,

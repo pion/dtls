@@ -2,7 +2,7 @@ package dtls
 
 import (
 	"crypto/sha256"
-	"errors"
+	"fmt"
 	"hash"
 	"sync/atomic"
 )
@@ -61,7 +61,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientR
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 	gcm := c.gcm.Load()
 	if gcm == nil { // !c.isInitialized()
-		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
+		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
 	}
 
 	return gcm.(*cryptoGCM).encrypt(pkt, raw)
@@ -70,7 +70,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) decrypt(raw []byte) ([]byte, error) {
 	gcm := c.gcm.Load()
 	if gcm == nil { // !c.isInitialized()
-		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
+		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
 	}
 
 	return gcm.(*cryptoGCM).decrypt(raw)
