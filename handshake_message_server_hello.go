@@ -81,7 +81,7 @@ func (h *handshakeMessageServerHello) Unmarshal(data []byte) error {
 	if len(data) < currOffset {
 		return errBufferTooSmall
 	}
-	if compressionMethod, ok := compressionMethods[compressionMethodID(data[currOffset])]; ok {
+	if compressionMethod, ok := compressionMethods()[compressionMethodID(data[currOffset])]; ok {
 		h.compressionMethod = compressionMethod
 		currOffset++
 	} else {

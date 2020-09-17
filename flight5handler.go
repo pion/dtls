@@ -44,7 +44,7 @@ func flight5Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	return flight5, nil, nil
 }
 
-func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert, error) {
+func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert, error) { //nolint:gocognit
 	var certBytes [][]byte
 	var privateKey crypto.PrivateKey
 	if len(cfg.localCertificates) > 0 {
@@ -68,7 +68,8 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 					content: &handshake{
 						handshakeMessage: &handshakeMessageCertificate{
 							certificate: certBytes,
-						}},
+						},
+					},
 				},
 			})
 	}
@@ -177,7 +178,8 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 						hashAlgorithm:      signatureHashAlgo.hash,
 						signatureAlgorithm: signatureHashAlgo.signature,
 						signature:          state.localCertificatesVerify,
-					}},
+					},
+				},
 			},
 		}
 		pkts = append(pkts, p)
@@ -236,7 +238,8 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				content: &handshake{
 					handshakeMessage: &handshakeMessageFinished{
 						verifyData: state.localVerifyData,
-					}},
+					},
+				},
 			},
 			shouldEncrypt:            true,
 			resetLocalSequenceNumber: true,
@@ -245,7 +248,7 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 	return pkts, nil, nil
 }
 
-func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeConfig, h *handshakeMessageServerKeyExchange, sendingPlainText []byte) (*alert, error) {
+func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeConfig, h *handshakeMessageServerKeyExchange, sendingPlainText []byte) (*alert, error) { //nolint:gocognit
 	if state.cipherSuite.isInitialized() {
 		return nil, nil
 	}

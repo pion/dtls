@@ -26,11 +26,18 @@ const (
 	defaultReplayProtectionWindow = 64
 )
 
-var invalidKeyingLabels = map[string]bool{
-	"client finished": true,
-	"server finished": true,
-	"master secret":   true,
-	"key expansion":   true,
+var (
+	errApplicationDataEpochZero = errors.New("ApplicationData with epoch of 0")
+	errUnhandledContextType     = errors.New("unhandled contentType")
+)
+
+func invalidKeyingLabels() map[string]bool {
+	return map[string]bool{
+		"client finished": true,
+		"server finished": true,
+		"master secret":   true,
+		"key expansion":   true,
+	}
 }
 
 // Conn represents a DTLS connection
@@ -537,7 +544,7 @@ func (c *Conn) fragmentHandshake(h *handshake) ([][]byte, error) {
 	return fragmentedHandshakes, nil
 }
 
-var poolReadBuffer = sync.Pool{
+var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	New: func() interface{} {
 		b := make([]byte, inboundBufferSize)
 		return &b
@@ -621,8 +628,7 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	return nil
 }
 
-func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, error) {
-	// TODO: avoid separate unmarshal
+func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, error) { //nolint:gocognit
 	h := &recordLayerHeader{}
 	if err := h.Unmarshal(buf); err != nil {
 		// Decode error must be silently discarded
@@ -733,7 +739,7 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, err
 		}
 	case *applicationData:
 		if h.epoch == 0 {
-			return false, &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("ApplicationData with epoch of 0")
+			return false, &alert{alertLevelFatal, alertUnexpectedMessage}, errApplicationDataEpochZero
 		}
 
 		markPacketAsValid()
@@ -744,7 +750,7 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, err
 		}
 
 	default:
-		return false, &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("unhandled contentType %d", content.contentType())
+		return false, &alert{alertLevelFatal, alertUnexpectedMessage}, fmt.Errorf("%w: %d", errUnhandledContextType, content.contentType())
 	}
 	return false, nil, nil
 }
@@ -780,7 +786,7 @@ func (c *Conn) isHandshakeCompletedSuccessfully() bool {
 	return boolean.bool
 }
 
-func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFlight flightVal, initialState handshakeState) error {
+func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFlight flightVal, initialState handshakeState) error { //nolint:gocognit
 	c.fsm = newHandshakeFSM(&c.state, c.handshakeCache, cfg, initialFlight)
 
 	done := make(chan struct{})
@@ -805,7 +811,7 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 	go func() {
 		defer c.handshakeLoopsFinished.Done()
 		err := c.fsm.Run(ctxHs, c, initialState)
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			select {
 			case firstErr <- err:
 			default:

@@ -45,7 +45,7 @@ func (e *extensionUseSRTP) Unmarshal(data []byte) error {
 
 	for i := 0; i < profileCount; i++ {
 		supportedProfile := SRTPProtectionProfile(binary.BigEndian.Uint16(data[(extensionUseSRTPHeaderSize + (i * 2)):]))
-		if _, ok := srtpProtectionProfiles[supportedProfile]; ok {
+		if _, ok := srtpProtectionProfiles()[supportedProfile]; ok {
 			e.protectionProfiles = append(e.protectionProfiles, supportedProfile)
 		}
 	}

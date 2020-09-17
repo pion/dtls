@@ -1,9 +1,9 @@
 package dtls
 
-import (
+import ( //nolint:gci
 	"crypto"
-	"crypto/md5"  // #nosec
-	"crypto/sha1" // #nosec
+	"crypto/md5"  //nolint:gosec
+	"crypto/sha1" //nolint:gosec
 	"crypto/sha256"
 	"crypto/sha512"
 )
@@ -103,12 +103,14 @@ func (h hashAlgorithm) cryptoHash() crypto.Hash {
 	}
 }
 
-var hashAlgorithms = map[hashAlgorithm]struct{}{
-	hashAlgorithmMD5:     {},
-	hashAlgorithmSHA1:    {},
-	hashAlgorithmSHA224:  {},
-	hashAlgorithmSHA256:  {},
-	hashAlgorithmSHA384:  {},
-	hashAlgorithmSHA512:  {},
-	hashAlgorithmEd25519: {},
+func hashAlgorithms() map[hashAlgorithm]struct{} {
+	return map[hashAlgorithm]struct{}{
+		hashAlgorithmMD5:     {},
+		hashAlgorithmSHA1:    {},
+		hashAlgorithmSHA224:  {},
+		hashAlgorithmSHA256:  {},
+		hashAlgorithmSHA384:  {},
+		hashAlgorithmSHA512:  {},
+		hashAlgorithmEd25519: {},
+	}
 }

@@ -120,7 +120,7 @@ func TestPionE2ELossy(t *testing.T) {
 			defer lim.Stop()
 
 			rand.Seed(time.Now().UTC().UnixNano())
-			chosenLoss := rand.Intn(9) + test.LossChanceRange
+			chosenLoss := rand.Intn(9) + test.LossChanceRange //nolint:gosec
 			serverDone := make(chan runResult)
 			clientDone := make(chan runResult)
 			br := transportTest.NewBridge()

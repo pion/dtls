@@ -26,7 +26,8 @@ func serverOpenSSL(c *comm) {
 		cfg := c.serverConfig
 
 		// create openssl arguments
-		args := []string{"s_server",
+		args := []string{
+			"s_server",
 			"-dtls1_2",
 			"-quiet",
 			"-verify_quiet",
@@ -106,7 +107,8 @@ func clientOpenSSL(c *comm) {
 	cfg := c.clientConfig
 
 	// create openssl arguments
-	args := []string{"s_client",
+	args := []string{
+		"s_client",
 		"-dtls1_2",
 		"-quiet",
 		"-verify_quiet",
@@ -228,6 +230,7 @@ func TestPionOpenSSLE2ESimple(t *testing.T) {
 		testPionE2ESimple(t, serverPion, clientOpenSSL)
 	})
 }
+
 func TestPionOpenSSLE2ESimplePSK(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
 		testPionE2ESimplePSK(t, serverOpenSSL, clientPion)
@@ -236,6 +239,7 @@ func TestPionOpenSSLE2ESimplePSK(t *testing.T) {
 		testPionE2ESimplePSK(t, serverPion, clientOpenSSL)
 	})
 }
+
 func TestPionOpenSSLE2EMTUs(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
 		testPionE2EMTUs(t, serverOpenSSL, clientPion)

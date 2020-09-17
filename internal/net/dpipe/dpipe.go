@@ -57,10 +57,12 @@ func (c *conn) SetDeadline(t time.Time) error {
 	c.writeDeadline.Set(t)
 	return nil
 }
+
 func (c *conn) SetReadDeadline(t time.Time) error {
 	c.readDeadline.Set(t)
 	return nil
 }
+
 func (c *conn) SetWriteDeadline(t time.Time) error {
 	c.writeDeadline.Set(t)
 	return nil

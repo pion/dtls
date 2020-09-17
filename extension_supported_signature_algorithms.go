@@ -46,8 +46,8 @@ func (e *extensionSupportedSignatureAlgorithms) Unmarshal(data []byte) error {
 	for i := 0; i < algorithmCount; i++ {
 		supportedHashAlgorithm := hashAlgorithm(data[extensionSupportedSignatureAlgorithmsHeaderSize+(i*2)])
 		supportedSignatureAlgorithm := signatureAlgorithm(data[extensionSupportedSignatureAlgorithmsHeaderSize+(i*2)+1])
-		if _, ok := hashAlgorithms[supportedHashAlgorithm]; ok {
-			if _, ok := signatureAlgorithms[supportedSignatureAlgorithm]; ok {
+		if _, ok := hashAlgorithms()[supportedHashAlgorithm]; ok {
+			if _, ok := signatureAlgorithms()[supportedSignatureAlgorithm]; ok {
 				e.signatureHashAlgorithms = append(e.signatureHashAlgorithms, signatureHashAlgorithm{
 					supportedHashAlgorithm,
 					supportedSignatureAlgorithm,

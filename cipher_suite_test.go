@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -15,10 +16,9 @@ func TestDecodeCipherSuites(t *testing.T) {
 
 	for _, testCase := range testCases {
 		_, err := decodeCipherSuites(testCase.buf)
-		if err != testCase.err {
+		if !errors.Is(err, testCase.err) {
 			t.Fatal("Unexpected error", err)
 		}
-		// todo: compare result
 	}
 }
 

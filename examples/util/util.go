@@ -21,6 +21,14 @@ import (
 
 const bufSize = 8192
 
+var (
+	errBlockIsNotPrivateKey  = errors.New("block is not a private key, unable to load key")
+	errUnknownKeyTime        = errors.New("unknown key time in PKCS#8 wrapping, unable to load key")
+	errNoPrivateKeyFound     = errors.New("no private key found, unable to load key")
+	errBlockIsNotCertificate = errors.New("block is not a certificate, unable to load certificates")
+	errNoCertificateFound    = errors.New("no certificate found, unable to load certificates")
+)
+
 // Chat simulates a simple text chat session over the connection
 func Chat(conn io.ReadWriter) {
 	go func() {
@@ -92,7 +100,7 @@ func LoadKey(path string) (crypto.PrivateKey, error) {
 
 	block, _ := pem.Decode(rawData)
 	if block == nil || !strings.HasSuffix(block.Type, "PRIVATE KEY") {
-		return nil, errors.New("block is not a private key, unable to load key")
+		return nil, errBlockIsNotPrivateKey
 	}
 
 	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
@@ -104,7 +112,7 @@ func LoadKey(path string) (crypto.PrivateKey, error) {
 		case *rsa.PrivateKey, *ecdsa.PrivateKey:
 			return key, nil
 		default:
-			return nil, errors.New("unknown key time in PKCS#8 wrapping, unable to load key")
+			return nil, errUnknownKeyTime
 		}
 	}
 
@@ -112,7 +120,7 @@ func LoadKey(path string) (crypto.PrivateKey, error) {
 		return key, nil
 	}
 
-	return nil, errors.New("no private key found, unable to load key")
+	return nil, errNoPrivateKeyFound
 }
 
 // LoadCertificate Load/read certificate(s) from file
@@ -131,7 +139,7 @@ func LoadCertificate(path string) (*tls.Certificate, error) {
 		}
 
 		if block.Type != "CERTIFICATE" {
-			return nil, errors.New("block is not a certificate, unable to load certificates")
+			return nil, errBlockIsNotCertificate
 		}
 
 		certificate.Certificate = append(certificate.Certificate, block.Bytes)
@@ -139,7 +147,7 @@ func LoadCertificate(path string) (*tls.Certificate, error) {
 	}
 
 	if len(certificate.Certificate) == 0 {
-		return nil, errors.New("no certificate found, unable to load certificates")
+		return nil, errNoCertificateFound
 	}
 
 	return &certificate, nil

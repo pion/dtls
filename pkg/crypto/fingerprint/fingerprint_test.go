@@ -3,8 +3,11 @@ package fingerprint
 import (
 	"crypto"
 	"crypto/x509"
+	"errors"
 	"testing"
 )
+
+var errInvalidHashID = errors.New("invalid hash ID")
 
 func TestFingerprint(t *testing.T) {
 	rawCertificate := []byte{
@@ -43,7 +46,7 @@ func TestFingerprint(t *testing.T) {
 
 func TestFingerprint_UnavailableHash(t *testing.T) {
 	_, err := Fingerprint(&x509.Certificate{}, crypto.Hash(0xFFFFFFFF))
-	if err != errHashUnavailable {
-		t.Errorf("Expected error '%v' for invalid hash ID, got '%v'", errHashUnavailable, err)
+	if !errors.Is(err, errHashUnavailable) {
+		t.Errorf("%w: Expected error '%v' for invalid hash ID, got '%v'", errInvalidHashID, errHashUnavailable, err)
 	}
 }

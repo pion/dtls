@@ -2,13 +2,14 @@ package fingerprint
 
 import (
 	"crypto"
+	"errors"
 	"testing"
 )
 
 func TestHashFromString(t *testing.T) {
 	t.Run("InvalidHashAlgorithm", func(t *testing.T) {
 		_, err := HashFromString("invalid-hash-algorithm")
-		if err != errInvalidHashAlgorithm {
+		if !errors.Is(err, errInvalidHashAlgorithm) {
 			t.Errorf("Expected error '%v' for invalid hash name, got '%v'", errInvalidHashAlgorithm, err)
 		}
 	})
@@ -24,7 +25,7 @@ func TestHashFromString(t *testing.T) {
 }
 
 func TestStringFromHash_Roundtrip(t *testing.T) {
-	for _, h := range nameToHash {
+	for _, h := range nameToHash() {
 		s, err := StringFromHash(h)
 		if err != nil {
 			t.Fatalf("Unexpected error for valid hash algorithm, got '%v'", err)

@@ -22,14 +22,16 @@ const (
 	namedCurveX25519 namedCurve = 0x001d
 )
 
-var namedCurves = map[namedCurve]bool{
-	namedCurveX25519: true,
-	namedCurveP256:   true,
-	namedCurveP384:   true,
+func namedCurves() map[namedCurve]bool {
+	return map[namedCurve]bool{
+		namedCurveX25519: true,
+		namedCurveP256:   true,
+		namedCurveP384:   true,
+	}
 }
 
 func generateKeypair(c namedCurve) (*namedCurveKeypair, error) {
-	switch c {
+	switch c { //nolint:golint
 	case namedCurveX25519:
 		tmp := make([]byte, 32)
 		if _, err := rand.Read(tmp); err != nil {
@@ -45,8 +47,9 @@ func generateKeypair(c namedCurve) (*namedCurveKeypair, error) {
 		return ellipticCurveKeypair(namedCurveP256, elliptic.P256(), elliptic.P256())
 	case namedCurveP384:
 		return ellipticCurveKeypair(namedCurveP384, elliptic.P384(), elliptic.P384())
+	default:
+		return nil, errInvalidNamedCurve
 	}
-	return nil, errInvalidNamedCurve
 }
 
 func ellipticCurveKeypair(nc namedCurve, c1, c2 elliptic.Curve) (*namedCurveKeypair, error) {

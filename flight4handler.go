@@ -5,7 +5,7 @@ import (
 	"crypto/x509"
 )
 
-func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert, error) {
+func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert, error) { //nolint:gocognit
 	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence,
 		handshakeCachePullRule{handshakeTypeCertificate, cfg.initialEpoch, true, true},
 		handshakeCachePullRule{handshakeTypeClientKeyExchange, cfg.initialEpoch, true, false},
@@ -151,6 +151,8 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		if !state.peerCertificatesVerified {
 			return 0, &alert{alertLevelFatal, alertBadCertificate}, errClientCertificateNotVerified
 		}
+	case NoClientCert, RequestClientCert:
+		return flight6, nil, nil
 	}
 
 	return flight6, nil, nil
@@ -192,9 +194,10 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 					version:           protocolVersion1_2,
 					random:            state.localRandom,
 					cipherSuite:       state.cipherSuite,
-					compressionMethod: defaultCompressionMethods[0],
+					compressionMethod: defaultCompressionMethods()[0],
 					extensions:        extensions,
-				}},
+				},
+			},
 		},
 	})
 
@@ -212,7 +215,8 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				content: &handshake{
 					handshakeMessage: &handshakeMessageCertificate{
 						certificate: certificate.Certificate,
-					}},
+					},
+				},
 			},
 		})
 
@@ -244,7 +248,8 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 						hashAlgorithm:      signatureHashAlgo.hash,
 						signatureAlgorithm: signatureHashAlgo.signature,
 						signature:          state.localKeySignature,
-					}},
+					},
+				},
 			},
 		})
 
@@ -277,7 +282,8 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				content: &handshake{
 					handshakeMessage: &handshakeMessageServerKeyExchange{
 						identityHint: cfg.localPSKIdentityHint,
-					}},
+					},
+				},
 			},
 		})
 	}
