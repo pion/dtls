@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -15,9 +16,8 @@ func TestDecodeCompressionMethods(t *testing.T) {
 
 	for _, testCase := range testCases {
 		_, err := decodeCompressionMethods(testCase.buf)
-		if err != testCase.err {
+		if !errors.Is(err, testCase.err) {
 			t.Fatal("Unexpected error", err)
 		}
-		// todo: compare result
 	}
 }

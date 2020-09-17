@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -28,7 +29,7 @@ func TestAlert(t *testing.T) {
 		},
 	} {
 		a := &alert{}
-		if err := a.Unmarshal(test.Data); err != test.WantUnmarshalError {
+		if err := a.Unmarshal(test.Data); !errors.Is(err, test.WantUnmarshalError) {
 			t.Errorf("Unexpected Error %v: exp: %v got: %v", test.Name, test.WantUnmarshalError, err)
 		} else if !reflect.DeepEqual(test.Want, a) {
 			t.Errorf("%q alert.unmarshal: got %v, want %v", test.Name, a, test.Want)

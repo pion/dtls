@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -42,7 +43,7 @@ func TestUDPDecode(t *testing.T) {
 		},
 	} {
 		dtlsPkts, err := unpackDatagram(test.Data)
-		if err != test.WantError {
+		if !errors.Is(err, test.WantError) {
 			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantError, err)
 		} else if !reflect.DeepEqual(test.Want, dtlsPkts) {
 			t.Errorf("%q UDP decode: got %q, want %q", test.Name, dtlsPkts, test.Want)
@@ -73,14 +74,14 @@ func TestRecordLayerRoundTrip(t *testing.T) {
 		},
 	} {
 		r := &recordLayer{}
-		if err := r.Unmarshal(test.Data); err != test.WantUnmarshalError {
+		if err := r.Unmarshal(test.Data); !errors.Is(err, test.WantUnmarshalError) {
 			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantUnmarshalError, err)
 		} else if !reflect.DeepEqual(test.Want, r) {
 			t.Errorf("%q recordLayer.unmarshal: got %q, want %q", test.Name, r, test.Want)
 		}
 
 		data, marshalErr := r.Marshal()
-		if marshalErr != test.WantMarshalError {
+		if !errors.Is(marshalErr, test.WantMarshalError) {
 			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantMarshalError, marshalErr)
 		} else if !reflect.DeepEqual(test.Data, data) {
 			t.Errorf("%q recordLayer.marshal: got % 02x, want % 02x", test.Name, data, test.Data)

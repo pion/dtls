@@ -4,6 +4,7 @@ package dpipe
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -71,7 +72,7 @@ func TestPipe(t *testing.T) {
 	if err := ca.Close(); err != nil {
 		t.Errorf("Unexpected error on Close: %v", err)
 	}
-	if _, err := ca.Write(testData); err != io.ErrClosedPipe {
+	if _, err := ca.Write(testData); !errors.Is(err, io.ErrClosedPipe) {
 		t.Errorf("Write to closed conn should fail with %v, got %v", io.ErrClosedPipe, err)
 	}
 
@@ -81,7 +82,7 @@ func TestPipe(t *testing.T) {
 	}
 
 	readData := make([]byte, 4)
-	if _, err := ca.Read(readData); err != io.EOF {
+	if _, err := ca.Read(readData); !errors.Is(err, io.EOF) {
 		t.Errorf("Read from closed conn should fail with %v, got %v", io.EOF, err)
 	}
 
