@@ -55,7 +55,7 @@ func generateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 	return nil, errKeySignatureGenerateUnimplemented
 }
 
-func verifyKeySignature(message, remoteKeySignature []byte, hashAlgorithm hashAlgorithm, rawCertificates [][]byte) error {
+func verifyKeySignature(message, remoteKeySignature []byte, hashAlgorithm hashAlgorithm, rawCertificates [][]byte) error { //nolint:dupl
 	if len(rawCertificates) == 0 {
 		return errLengthMismatch
 	}
@@ -88,6 +88,8 @@ func verifyKeySignature(message, remoteKeySignature []byte, hashAlgorithm hashAl
 		case x509.SHA1WithRSA, x509.SHA256WithRSA, x509.SHA384WithRSA, x509.SHA512WithRSA:
 			hashed := hashAlgorithm.digest(message)
 			return rsa.VerifyPKCS1v15(p, hashAlgorithm.cryptoHash(), hashed, remoteKeySignature)
+		default:
+			return errKeySignatureVerifyUnimplemented
 		}
 	}
 
@@ -122,7 +124,7 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 	return nil, errInvalidSignatureAlgorithm
 }
 
-func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hashAlgorithm, remoteKeySignature []byte, rawCertificates [][]byte) error {
+func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hashAlgorithm, remoteKeySignature []byte, rawCertificates [][]byte) error { //nolint:dupl
 	if len(rawCertificates) == 0 {
 		return errLengthMismatch
 	}
@@ -155,6 +157,8 @@ func verifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hashAlgorithm
 		case x509.SHA1WithRSA, x509.SHA256WithRSA, x509.SHA384WithRSA, x509.SHA512WithRSA:
 			hash := hashAlgorithm.digest(handshakeBodies)
 			return rsa.VerifyPKCS1v15(p, hashAlgorithm.cryptoHash(), hash, remoteKeySignature)
+		default:
+			return errKeySignatureVerifyUnimplemented
 		}
 	}
 

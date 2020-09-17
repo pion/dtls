@@ -9,9 +9,9 @@ import (
 	"golang.org/x/xerrors"
 )
 
-func TestErrorUnwrap(t *testing.T) {
-	errExample := errors.New("an example error")
+var errExample = errors.New("an example error")
 
+func TestErrorUnwrap(t *testing.T) {
 	cases := []struct {
 		err          error
 		errUnwrapped []error
@@ -43,7 +43,7 @@ func TestErrorUnwrap(t *testing.T) {
 			err := c.err
 			for _, unwrapped := range c.errUnwrapped {
 				e := xerrors.Unwrap(err)
-				if e != unwrapped {
+				if !errors.Is(e, unwrapped) {
 					t.Errorf("Unwrapped error is expected to be '%v', got '%v'", unwrapped, e)
 				}
 			}
@@ -52,8 +52,6 @@ func TestErrorUnwrap(t *testing.T) {
 }
 
 func TestErrorNetError(t *testing.T) {
-	errExample := errors.New("an example error")
-
 	cases := []struct {
 		err                error
 		str                string

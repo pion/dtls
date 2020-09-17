@@ -3,6 +3,7 @@ package connctx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -188,7 +189,7 @@ func TestWriteClosed(t *testing.T) {
 
 	b := make([]byte, 100)
 	n, err := c.Write(context.Background(), b)
-	if err != ErrClosing {
+	if !errors.Is(err, ErrClosing) {
 		t.Errorf("Expected error '%v', got '%v'", ErrClosing, err)
 	}
 	if n != 0 {

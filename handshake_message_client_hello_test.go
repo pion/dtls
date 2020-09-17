@@ -26,7 +26,7 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 			&cipherSuiteTLSEcdheEcdsaWithAes256CbcSha{},
 		},
 		compressionMethods: []*compressionMethod{
-			compressionMethods[compressionMethodNull],
+			compressionMethods()[compressionMethodNull],
 		},
 		extensions: []extension{
 			&extensionSupportedEllipticCurves{ellipticCurves: []namedCurve{namedCurveX25519}},

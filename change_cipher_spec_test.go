@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -24,7 +25,7 @@ func TestChangeCipherSpecRoundTrip(t *testing.T) {
 
 func TestChangeCipherSpecInvalid(t *testing.T) {
 	c := changeCipherSpec{}
-	if err := c.Unmarshal([]byte{0x00}); err != errInvalidCipherSpec {
+	if err := c.Unmarshal([]byte{0x00}); !errors.Is(err, errInvalidCipherSpec) {
 		t.Errorf("ChangeCipherSpec invalid assert: got %#v, want %#v", err, errInvalidCipherSpec)
 	}
 }

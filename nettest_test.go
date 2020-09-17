@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/net/nettest"
-
 	"github.com/pion/transport/test"
+	"golang.org/x/net/nettest"
 )
 
 func TestNetTest(t *testing.T) {

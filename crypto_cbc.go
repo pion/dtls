@@ -1,11 +1,11 @@
 package dtls
 
-import (
+import ( //nolint:gci
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha1" // #nosec
+	"crypto/sha1" //nolint:gosec
 	"encoding/binary"
 )
 
@@ -22,7 +22,7 @@ type cryptoCBC struct {
 }
 
 // Currently hardcoded to be SHA1 only
-var cryptoCBCMacFunc = sha1.New
+var cryptoCBCMacFunc = sha1.New //nolint:gochecknoglobals
 
 func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte) (*cryptoCBC, error) {
 	writeBlock, err := aes.NewCipher(localKey)

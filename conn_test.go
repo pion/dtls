@@ -20,6 +20,14 @@ import (
 	"github.com/pion/transport/test"
 )
 
+var (
+	errTestPSKInvalidIdentity = errors.New("TestPSK: Server got invalid identity")
+	errPSKRejected            = errors.New("PSK Rejected")
+	errNotExpectedChain       = errors.New("not expected chain")
+	errExpecedChain           = errors.New("expected chain")
+	errWrongCert              = errors.New("wrong cert")
+)
+
 func TestStressDuplex(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
@@ -138,10 +146,10 @@ func TestReadWriteDeadline(t *testing.T) {
 		t.Error(err)
 	}
 
-	if _, err := ca.Write(make([]byte, 100)); err != ErrConnClosed {
+	if _, err := ca.Write(make([]byte, 100)); !errors.Is(err, ErrConnClosed) {
 		t.Errorf("Write must return %v after close, got %v", ErrConnClosed, err)
 	}
-	if _, err := ca.Read(make([]byte, 100)); err != io.EOF {
+	if _, err := ca.Read(make([]byte, 100)); !errors.Is(err, io.EOF) {
 		t.Errorf("Read must return %v after close, got %v", io.EOF, err)
 	}
 }
@@ -165,7 +173,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		if _, werr := ca.Write(make([]byte, 100)); werr != nil {
 			t.Errorf("Write must send message with maximum sequence number, but errord: %v", werr)
 		}
-		if _, werr := ca.Write(make([]byte, 100)); werr != errSequenceNumberOverflow {
+		if _, werr := ca.Write(make([]byte, 100)); !errors.Is(werr, errSequenceNumberOverflow) {
 			t.Errorf("Write must abandonsend message with maximum sequence number, but errord: %v", werr)
 		}
 
@@ -199,11 +207,12 @@ func TestSequenceNumberOverflow(t *testing.T) {
 							version:            protocolVersion1_2,
 							cookie:             make([]byte, 64),
 							cipherSuites:       defaultCipherSuites(),
-							compressionMethods: defaultCompressionMethods,
-						}},
+							compressionMethods: defaultCompressionMethods(),
+						},
+					},
 				},
 			},
-		}); werr != errSequenceNumberOverflow {
+		}); !errors.Is(werr, errSequenceNumberOverflow) {
 			t.Errorf("Connection must fail on handshake packet reaches maximum sequence number")
 		}
 
@@ -364,21 +373,21 @@ func TestExportKeyingMaterial(t *testing.T) {
 
 	state := c.ConnectionState()
 	_, err := state.ExportKeyingMaterial(exportLabel, nil, 0)
-	if err != errHandshakeInProgress {
+	if !errors.Is(err, errHandshakeInProgress) {
 		t.Errorf("ExportKeyingMaterial when epoch == 0: expected '%s' actual '%s'", errHandshakeInProgress, err)
 	}
 
 	c.setLocalEpoch(1)
 	state = c.ConnectionState()
 	_, err = state.ExportKeyingMaterial(exportLabel, []byte{0x00}, 0)
-	if err != errContextUnsupported {
+	if !errors.Is(err, errContextUnsupported) {
 		t.Errorf("ExportKeyingMaterial with context: expected '%s' actual '%s'", errContextUnsupported, err)
 	}
 
-	for k := range invalidKeyingLabels {
+	for k := range invalidKeyingLabels() {
 		state = c.ConnectionState()
 		_, err = state.ExportKeyingMaterial(k, nil, 0)
-		if err != errReservedExportKeyingMaterial {
+		if !errors.Is(err, errReservedExportKeyingMaterial) {
 			t.Errorf("ExportKeyingMaterial reserved label: expected '%s' actual '%s'", errReservedExportKeyingMaterial, err)
 		}
 	}
@@ -456,7 +465,7 @@ func TestPSK(t *testing.T) {
 			config := &Config{
 				PSK: func(hint []byte) ([]byte, error) {
 					if !bytes.Equal(clientIdentity, hint) {
-						return nil, fmt.Errorf("TestPSK: Server got invalid identity expected(% 02x) actual(% 02x)", clientIdentity, hint)
+						return nil, fmt.Errorf("%w: expected(% 02x) actual(% 02x)", errTestPSKInvalidIdentity, clientIdentity, hint)
 					}
 					return []byte{0xAB, 0xC1, 0x23}, nil
 				},
@@ -487,7 +496,7 @@ func TestPSKHintFail(t *testing.T) {
 	defer report()
 
 	serverAlertError := &errAlert{&alert{alertLevelFatal, alertInternalError}}
-	pskRejected := errors.New("PSK Rejected")
+	pskRejected := errPSKRejected
 
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
@@ -1036,7 +1045,7 @@ func TestServerCertificate(t *testing.T) {
 				clientCfg: &Config{RootCAs: caPool, Certificates: []tls.Certificate{cert}},
 				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: RequireAnyClientCert, VerifyPeerCertificate: func(cert [][]byte, chain [][]*x509.Certificate) error {
 					if len(chain) != 0 {
-						return errors.New("not expected chain")
+						return errNotExpectedChain
 					}
 					return nil
 				}},
@@ -1045,7 +1054,7 @@ func TestServerCertificate(t *testing.T) {
 				clientCfg: &Config{RootCAs: caPool, Certificates: []tls.Certificate{cert}},
 				serverCfg: &Config{ClientCAs: caPool, Certificates: []tls.Certificate{cert}, ClientAuth: RequireAndVerifyClientCert, VerifyPeerCertificate: func(cert [][]byte, chain [][]*x509.Certificate) error {
 					if len(chain) == 0 {
-						return errors.New("expected chain")
+						return errExpecedChain
 					}
 					return nil
 				}},
@@ -1054,7 +1063,7 @@ func TestServerCertificate(t *testing.T) {
 				clientCfg: &Config{
 					RootCAs: caPool,
 					VerifyPeerCertificate: func([][]byte, [][]*x509.Certificate) error {
-						return errors.New("wrong cert")
+						return errWrongCert
 					},
 				},
 				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: NoClientCert},
@@ -1349,9 +1358,10 @@ func TestServerTimeout(t *testing.T) {
 				cookie:             cookie,
 				random:             random,
 				cipherSuites:       cipherSuites,
-				compressionMethods: defaultCompressionMethods,
+				compressionMethods: defaultCompressionMethods(),
 				extensions:         extensions,
-			}},
+			},
+		},
 	}
 
 	packet, err := record.Marshal()
@@ -1462,8 +1472,9 @@ func TestProtocolVersionValidation(t *testing.T) {
 								cookie:             cookie,
 								random:             random,
 								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
-								compressionMethods: defaultCompressionMethods,
-							}},
+								compressionMethods: defaultCompressionMethods(),
+							},
+						},
 					},
 				},
 			},
@@ -1479,8 +1490,9 @@ func TestProtocolVersionValidation(t *testing.T) {
 								cookie:             cookie,
 								random:             random,
 								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
-								compressionMethods: defaultCompressionMethods,
-							}},
+								compressionMethods: defaultCompressionMethods(),
+							},
+						},
 					},
 					{
 						recordLayerHeader: recordLayerHeader{
@@ -1496,8 +1508,9 @@ func TestProtocolVersionValidation(t *testing.T) {
 								cookie:             cookie,
 								random:             random,
 								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
-								compressionMethods: defaultCompressionMethods,
-							}},
+								compressionMethods: defaultCompressionMethods(),
+							},
+						},
 					},
 				},
 			},
@@ -1569,7 +1582,8 @@ func TestProtocolVersionValidation(t *testing.T) {
 							handshakeMessage: &handshakeMessageHelloVerifyRequest{
 								version: protocolVersion1_2,
 								cookie:  cookie,
-							}},
+							},
+						},
 					},
 					{
 						recordLayerHeader: recordLayerHeader{
@@ -1584,9 +1598,10 @@ func TestProtocolVersionValidation(t *testing.T) {
 								version:           protocolVersion{0xfe, 0xff}, // try to downgrade
 								random:            random,
 								cipherSuite:       &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
-								compressionMethod: defaultCompressionMethods[0],
+								compressionMethod: defaultCompressionMethods()[0],
 							},
-						}},
+						},
+					},
 					{
 						recordLayerHeader: recordLayerHeader{
 							protocolVersion: protocolVersion1_2,
@@ -1597,7 +1612,8 @@ func TestProtocolVersionValidation(t *testing.T) {
 								messageSequence: 2,
 							},
 							handshakeMessage: &handshakeMessageCertificate{},
-						}},
+						},
+					},
 					{
 						recordLayerHeader: recordLayerHeader{
 							protocolVersion: protocolVersion1_2,
@@ -1615,7 +1631,8 @@ func TestProtocolVersionValidation(t *testing.T) {
 								signatureAlgorithm: signatureAlgorithmECDSA,
 								signature:          make([]byte, 64),
 							},
-						}},
+						},
+					},
 					{
 						recordLayerHeader: recordLayerHeader{
 							protocolVersion: protocolVersion1_2,
@@ -1626,7 +1643,8 @@ func TestProtocolVersionValidation(t *testing.T) {
 								messageSequence: 4,
 							},
 							handshakeMessage: &handshakeMessageServerHelloDone{},
-						}},
+						},
+					},
 				},
 			},
 		}
@@ -1721,7 +1739,8 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 				handshakeMessage: &handshakeMessageHelloVerifyRequest{
 					version: protocolVersion1_2,
 					cookie:  cookie,
-				}},
+				},
+			},
 		}
 		packet, err := record.Marshal()
 		if err != nil {

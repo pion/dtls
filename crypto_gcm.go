@@ -8,8 +8,10 @@ import (
 	"fmt"
 )
 
-const cryptoGCMTagLength = 16
-const cryptoGCMNonceLength = 12
+const (
+	cryptoGCMTagLength   = 16
+	cryptoGCMNonceLength = 12
+)
 
 // State needed to handle encrypted input/output
 type cryptoGCM struct {
@@ -86,7 +88,7 @@ func (c *cryptoGCM) decrypt(in []byte) ([]byte, error) {
 	additionalData := generateAEADAdditionalData(&h, len(out)-cryptoGCMTagLength)
 	out, err = c.remoteGCM.Open(out[:0], nonce, out, additionalData)
 	if err != nil {
-		return nil, fmt.Errorf("decryptPacket: %v", err)
+		return nil, fmt.Errorf("%w: %v", errDecryptPacket, err)
 	}
 	return append(in[:recordLayerHeaderSize], out...), nil
 }

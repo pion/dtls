@@ -46,7 +46,7 @@ func (e *extensionSupportedEllipticCurves) Unmarshal(data []byte) error {
 
 	for i := 0; i < groupCount; i++ {
 		supportedGroupID := namedCurve(binary.BigEndian.Uint16(data[(extensionSupportedGroupsHeaderSize + (i * 2)):]))
-		if _, ok := namedCurves[supportedGroupID]; ok {
+		if _, ok := namedCurves()[supportedGroupID]; ok {
 			e.ellipticCurves = append(e.ellipticCurves, supportedGroupID)
 		}
 	}

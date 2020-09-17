@@ -4,10 +4,13 @@ import (
 	"crypto/aes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/pion/dtls/v2/pkg/crypto/ccm"
 )
+
+var errDecryptPacket = errors.New("decryptPacket")
 
 type cryptoCCMTagLen int
 
@@ -91,7 +94,7 @@ func (c *cryptoCCM) decrypt(in []byte) ([]byte, error) {
 	additionalData := generateAEADAdditionalData(&h, len(out)-int(c.tagLen))
 	out, err = c.remoteCCM.Open(out[:0], nonce, out, additionalData)
 	if err != nil {
-		return nil, fmt.Errorf("decryptPacket: %v", err)
+		return nil, fmt.Errorf("%w: %v", errDecryptPacket, err)
 	}
 	return append(in[:recordLayerHeaderSize], out...), nil
 }

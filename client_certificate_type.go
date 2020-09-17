@@ -8,7 +8,9 @@ const (
 	clientCertificateTypeECDSASign clientCertificateType = 64
 )
 
-var clientCertificateTypes = map[clientCertificateType]bool{
-	clientCertificateTypeRSASign:   true,
-	clientCertificateTypeECDSASign: true,
+func clientCertificateTypes() map[clientCertificateType]bool {
+	return map[clientCertificateType]bool{
+		clientCertificateTypeRSASign:   true,
+		clientCertificateTypeECDSASign: true,
+	}
 }

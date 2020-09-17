@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert, error) {
+func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert, error) { //nolint:gocognit
 	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
 	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response
 	// to the new HelloVerifyRequest. RFC 6347 Section 4.2.1
@@ -164,9 +164,10 @@ func flight3Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 						cookie:             state.cookie,
 						random:             state.localRandom,
 						cipherSuites:       cfg.localCipherSuites,
-						compressionMethods: defaultCompressionMethods,
+						compressionMethods: defaultCompressionMethods(),
 						extensions:         extensions,
-					}},
+					},
+				},
 			},
 		},
 	}, nil, nil

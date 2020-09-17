@@ -52,7 +52,7 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 		return nil
 	}
 
-	if _, ok := ellipticCurveTypes[ellipticCurveType(data[0])]; ok {
+	if _, ok := ellipticCurveTypes()[ellipticCurveType(data[0])]; ok {
 		h.ellipticCurveType = ellipticCurveType(data[0])
 	} else {
 		return errInvalidEllipticCurveType
@@ -62,7 +62,7 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 	h.namedCurve = namedCurve(binary.BigEndian.Uint16(data[1:3]))
-	if _, ok := namedCurves[h.namedCurve]; !ok {
+	if _, ok := namedCurves()[h.namedCurve]; !ok {
 		return errInvalidNamedCurve
 	}
 	if len(data) < 4 {
@@ -79,7 +79,7 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 	h.hashAlgorithm = hashAlgorithm(data[offset])
-	if _, ok := hashAlgorithms[h.hashAlgorithm]; !ok {
+	if _, ok := hashAlgorithms()[h.hashAlgorithm]; !ok {
 		return errInvalidHashAlgorithm
 	}
 	offset++
@@ -87,7 +87,7 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 	h.signatureAlgorithm = signatureAlgorithm(data[offset])
-	if _, ok := signatureAlgorithms[h.signatureAlgorithm]; !ok {
+	if _, ok := signatureAlgorithms()[h.signatureAlgorithm]; !ok {
 		return errInvalidSignatureAlgorithm
 	}
 	offset++

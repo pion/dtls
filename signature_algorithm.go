@@ -9,8 +9,10 @@ const (
 	signatureAlgorithmEd25519 signatureAlgorithm = 7
 )
 
-var signatureAlgorithms = map[signatureAlgorithm]bool{
-	signatureAlgorithmRSA:     true,
-	signatureAlgorithmECDSA:   true,
-	signatureAlgorithmEd25519: true,
+func signatureAlgorithms() map[signatureAlgorithm]bool {
+	return map[signatureAlgorithm]bool{
+		signatureAlgorithmRSA:     true,
+		signatureAlgorithmECDSA:   true,
+		signatureAlgorithmEd25519: true,
+	}
 }

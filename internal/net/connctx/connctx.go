@@ -32,7 +32,7 @@ type connCtx struct {
 	writeMu   sync.Mutex
 }
 
-var veryOld = time.Unix(0, 1)
+var veryOld = time.Unix(0, 1) //nolint:gochecknoglobals
 
 // New creates a new ConnCtx wrapping given net.Conn.
 func New(conn net.Conn) ConnCtx {

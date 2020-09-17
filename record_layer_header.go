@@ -25,8 +25,10 @@ const (
 	VersionDTLS12 = 0xfefd
 )
 
-var protocolVersion1_0 = protocolVersion{dtls1_0Major, dtls1_0Minor}
-var protocolVersion1_2 = protocolVersion{dtls1_2Major, dtls1_2Minor}
+var (
+	protocolVersion1_0 = protocolVersion{dtls1_0Major, dtls1_0Minor} //nolint:gochecknoglobals
+	protocolVersion1_2 = protocolVersion{dtls1_2Major, dtls1_2Minor} //nolint:gochecknoglobals
+)
 
 // https://tools.ietf.org/html/rfc4346#section-6.2.1
 type protocolVersion struct {

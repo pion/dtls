@@ -19,9 +19,13 @@ import (
 	"github.com/pion/transport/test"
 )
 
-const testMessage = "Hello World"
-const testTimeLimit = 5 * time.Second
-const messageRetry = 200 * time.Millisecond
+const (
+	testMessage   = "Hello World"
+	testTimeLimit = 5 * time.Second
+	messageRetry  = 200 * time.Millisecond
+)
+
+var errServerTimeout = errors.New("waiting on serverReady err: timeout")
 
 func randomPort(t testing.TB) int {
 	t.Helper()
@@ -165,7 +169,7 @@ func clientPion(c *comm) {
 	case <-c.serverReady:
 		// OK
 	case <-time.After(time.Second):
-		c.errChan <- errors.New("waiting on serverReady err: timeout")
+		c.errChan <- errServerTimeout
 	}
 
 	c.clientMutex.Lock()
@@ -315,9 +319,11 @@ func testPionE2EMTUs(t *testing.T, server, client func(*comm)) {
 func TestPionE2ESimple(t *testing.T) {
 	testPionE2ESimple(t, serverPion, clientPion)
 }
+
 func TestPionE2ESimplePSK(t *testing.T) {
 	testPionE2ESimplePSK(t, serverPion, clientPion)
 }
+
 func TestPionE2EMTUs(t *testing.T) {
 	testPionE2EMTUs(t, serverPion, clientPion)
 }

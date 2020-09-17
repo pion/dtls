@@ -60,13 +60,13 @@ func parseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]s
 	out := []signatureHashAlgorithm{}
 	for _, ss := range sigs {
 		sig := signatureAlgorithm(ss & 0xFF)
-		if _, ok := signatureAlgorithms[sig]; !ok {
+		if _, ok := signatureAlgorithms()[sig]; !ok {
 			return nil, &FatalError{
 				xerrors.Errorf("SignatureScheme %04x: %w", ss, errInvalidSignatureAlgorithm),
 			}
 		}
 		h := hashAlgorithm(ss >> 8)
-		if _, ok := hashAlgorithms[h]; !ok {
+		if _, ok := hashAlgorithms()[h]; !ok {
 			return nil, &FatalError{
 				xerrors.Errorf("SignatureScheme %04x: %w", ss, errInvalidHashAlgorithm),
 			}

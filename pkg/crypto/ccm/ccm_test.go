@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -18,8 +19,10 @@ func mustHexDecode(s string) []byte {
 	return r
 }
 
-var aesKey1to12 = mustHexDecode("c0c1c2c3c4c5c6c7c8c9cacbcccdcecf")
-var aesKey13to24 = mustHexDecode("d7828d13b2b0bdc325a76236df93cc6b")
+var (
+	aesKey1to12  = mustHexDecode("c0c1c2c3c4c5c6c7c8c9cacbcccdcecf") //nolint:gochecknoglobals
+	aesKey13to24 = mustHexDecode("d7828d13b2b0bdc325a76236df93cc6b") //nolint:gochecknoglobals
+)
 
 // AESKey: AES Key
 // CipherText: Authenticated and encrypted output
@@ -320,7 +323,7 @@ func TestNewCCMError(t *testing.T) {
 				t.Fatalf("could not initialize AES block cipher from key: %v", err)
 			}
 
-			if _, err := NewCCM(blk, c.M, len(c.Nonce)); err != c.err {
+			if _, err := NewCCM(blk, c.M, len(c.Nonce)); !errors.Is(err, c.err) {
 				t.Fatalf("expected error '%v', got '%v'", c.err, err)
 			}
 		})
@@ -362,7 +365,7 @@ func TestSealError(t *testing.T) {
 		c := c
 		t.Run(name, func(t *testing.T) {
 			defer func() {
-				if err := recover(); err != c.err {
+				if err := recover(); !errors.Is(err.(error), c.err) {
 					t.Errorf("expected panic '%v', got '%v'", c.err, err)
 				}
 			}()
@@ -408,7 +411,7 @@ func TestOpenError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var dst []byte
 			_, err = lccm.Open(dst, c.Nonce, c.CipherText[c.ClearHeaderOctets:], c.CipherText[:c.ClearHeaderOctets])
-			if err != c.err {
+			if !errors.Is(err, c.err) {
 				t.Errorf("expected error '%v', got '%v'", c.err, err)
 			}
 		})

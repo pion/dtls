@@ -57,7 +57,7 @@ func (h *handshakeMessageCertificateRequest) Unmarshal(data []byte) error {
 
 	for i := 0; i < certificateTypesLength; i++ {
 		certType := clientCertificateType(data[offset+i])
-		if _, ok := clientCertificateTypes[certType]; ok {
+		if _, ok := clientCertificateTypes()[certType]; ok {
 			h.certificateTypes = append(h.certificateTypes, certType)
 		}
 	}
@@ -79,9 +79,9 @@ func (h *handshakeMessageCertificateRequest) Unmarshal(data []byte) error {
 		hash := hashAlgorithm(data[offset+i])
 		signature := signatureAlgorithm(data[offset+i+1])
 
-		if _, ok := hashAlgorithms[hash]; !ok {
+		if _, ok := hashAlgorithms()[hash]; !ok {
 			continue
-		} else if _, ok := signatureAlgorithms[signature]; !ok {
+		} else if _, ok := signatureAlgorithms()[signature]; !ok {
 			continue
 		}
 		h.signatureHashAlgorithms = append(h.signatureHashAlgorithms, signatureHashAlgorithm{signature: signature, hash: hash})

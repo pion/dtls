@@ -32,12 +32,12 @@ func (h *handshakeMessageCertificateVerify) Unmarshal(data []byte) error {
 	}
 
 	h.hashAlgorithm = hashAlgorithm(data[0])
-	if _, ok := hashAlgorithms[h.hashAlgorithm]; !ok {
+	if _, ok := hashAlgorithms()[h.hashAlgorithm]; !ok {
 		return errInvalidHashAlgorithm
 	}
 
 	h.signatureAlgorithm = signatureAlgorithm(data[1])
-	if _, ok := signatureAlgorithms[h.signatureAlgorithm]; !ok {
+	if _, ok := signatureAlgorithms()[h.signatureAlgorithm]; !ok {
 		return errInvalidSignatureAlgorithm
 	}
 

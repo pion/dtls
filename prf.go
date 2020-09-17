@@ -1,9 +1,9 @@
 package dtls
 
-import (
+import ( //nolint:gci
 	"crypto/elliptic"
 	"crypto/hmac"
-	"crypto/sha1" // #nosec
+	"crypto/sha1" //nolint:gosec
 	"encoding/binary"
 	"fmt"
 	"hash"
@@ -74,9 +74,9 @@ func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte,
 		return ellipticCurvePreMasterSecret(publicKey, privateKey, elliptic.P256(), elliptic.P256())
 	case namedCurveP384:
 		return ellipticCurvePreMasterSecret(publicKey, privateKey, elliptic.P384(), elliptic.P384())
+	default:
+		return nil, errInvalidNamedCurve
 	}
-
-	return nil, errInvalidNamedCurve
 }
 
 func ellipticCurvePreMasterSecret(publicKey, privateKey []byte, c1, c2 elliptic.Curve) ([]byte, error) {

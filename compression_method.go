@@ -10,12 +10,16 @@ type compressionMethod struct {
 	id compressionMethodID
 }
 
-var compressionMethods = map[compressionMethodID]*compressionMethod{
-	compressionMethodNull: {id: compressionMethodNull},
+func compressionMethods() map[compressionMethodID]*compressionMethod {
+	return map[compressionMethodID]*compressionMethod{
+		compressionMethodNull: {id: compressionMethodNull},
+	}
 }
 
-var defaultCompressionMethods = []*compressionMethod{
-	compressionMethods[compressionMethodNull],
+func defaultCompressionMethods() []*compressionMethod {
+	return []*compressionMethod{
+		compressionMethods()[compressionMethodNull],
+	}
 }
 
 func decodeCompressionMethods(buf []byte) ([]*compressionMethod, error) {
@@ -29,7 +33,7 @@ func decodeCompressionMethods(buf []byte) ([]*compressionMethod, error) {
 			return nil, errBufferTooSmall
 		}
 		id := compressionMethodID(buf[i+1])
-		if compressionMethod, ok := compressionMethods[id]; ok {
+		if compressionMethod, ok := compressionMethods()[id]; ok {
 			c = append(c, compressionMethod)
 		}
 	}

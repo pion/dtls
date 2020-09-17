@@ -6,8 +6,10 @@ import (
 	"time"
 )
 
-const randomBytesLength = 28
-const handshakeRandomLength = randomBytesLength + 4
+const (
+	randomBytesLength     = 28
+	handshakeRandomLength = randomBytesLength + 4
+)
 
 // https://tools.ietf.org/html/rfc4346#section-7.4.1.2
 type handshakeRandom struct {
