@@ -53,9 +53,9 @@ func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) Init(masterSecret, clientR
 
 	var gcm *CryptoGCM
 	if isClient {
-		gcm, err = NewCryptoGCM(keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
+		gcm, err = NewCryptoGCM(keys.ClientWriteKey, keys.ClientWriteIV, keys.ServerWriteKey, keys.ServerWriteIV)
 	} else {
-		gcm, err = NewCryptoGCM(keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
+		gcm, err = NewCryptoGCM(keys.ServerWriteKey, keys.ServerWriteIV, keys.ClientWriteKey, keys.ClientWriteIV)
 	}
 	c.gcm.Store(gcm)
 

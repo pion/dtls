@@ -67,9 +67,9 @@ func (c *CipherSuiteAes128Ccm) Init(masterSecret, clientRandom, serverRandom []b
 
 	var ccm *CryptoCCM
 	if isClient {
-		ccm, err = NewCryptoCCM(c.cryptoCCMTagLen, keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
+		ccm, err = NewCryptoCCM(c.cryptoCCMTagLen, keys.ClientWriteKey, keys.ClientWriteIV, keys.ServerWriteKey, keys.ServerWriteIV)
 	} else {
-		ccm, err = NewCryptoCCM(c.cryptoCCMTagLen, keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
+		ccm, err = NewCryptoCCM(c.cryptoCCMTagLen, keys.ServerWriteKey, keys.ServerWriteIV, keys.ClientWriteKey, keys.ClientWriteIV)
 	}
 	c.ccm.Store(ccm)
 

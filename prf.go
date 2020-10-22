@@ -22,18 +22,18 @@ const (
 
 type hashFunc func() hash.Hash
 
-type encryptionKeys struct {
-	masterSecret   []byte
-	clientMACKey   []byte
-	serverMACKey   []byte
-	clientWriteKey []byte
-	serverWriteKey []byte
-	clientWriteIV  []byte
-	serverWriteIV  []byte
+type EncryptionKeys struct {
+	MasterSecret   []byte
+	ClientMACKey   []byte
+	ServerMACKey   []byte
+	ClientWriteKey []byte
+	ServerWriteKey []byte
+	ClientWriteIV  []byte
+	ServerWriteIV  []byte
 }
 
-func (e *encryptionKeys) String() string {
-	return fmt.Sprintf(`encryptionKeys:
+func (e *EncryptionKeys) String() string {
+	return fmt.Sprintf(`EncryptionKeys:
 - masterSecret: %#v
 - clientMACKey: %#v
 - serverMACKey: %#v
@@ -42,13 +42,13 @@ func (e *encryptionKeys) String() string {
 - clientWriteIV: %#v
 - serverWriteIV: %#v
 `,
-		e.masterSecret,
-		e.clientMACKey,
-		e.serverMACKey,
-		e.clientWriteKey,
-		e.serverWriteKey,
-		e.clientWriteIV,
-		e.serverWriteIV)
+		e.MasterSecret,
+		e.ClientMACKey,
+		e.ServerMACKey,
+		e.ClientWriteKey,
+		e.ServerWriteKey,
+		e.ClientWriteIV,
+		e.ServerWriteIV)
 }
 
 // The premaster secret is formed as follows: if the PSK is N octets
@@ -154,7 +154,7 @@ func prfMasterSecret(preMasterSecret, clientRandom, serverRandom []byte, h hashF
 	return prfPHash(preMasterSecret, seed, 48, h)
 }
 
-func PrfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte, prfMacLen, prfKeyLen, prfIvLen int, h hashFunc) (*encryptionKeys, error) {
+func PrfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte, prfMacLen, prfKeyLen, prfIvLen int, h hashFunc) (*EncryptionKeys, error) {
 	seed := append(append([]byte(prfKeyExpansionLabel), serverRandom...), clientRandom...)
 	keyMaterial, err := prfPHash(masterSecret, seed, (2*prfMacLen)+(2*prfKeyLen)+(2*prfIvLen), h)
 	if err != nil {
@@ -178,14 +178,14 @@ func PrfEncryptionKeys(masterSecret, clientRandom, serverRandom []byte, prfMacLe
 
 	serverWriteIV := keyMaterial[:prfIvLen]
 
-	return &encryptionKeys{
-		masterSecret:   masterSecret,
-		clientMACKey:   clientMACKey,
-		serverMACKey:   serverMACKey,
-		clientWriteKey: clientWriteKey,
-		serverWriteKey: serverWriteKey,
-		clientWriteIV:  clientWriteIV,
-		serverWriteIV:  serverWriteIV,
+	return &EncryptionKeys{
+		MasterSecret:   masterSecret,
+		ClientMACKey:   clientMACKey,
+		ServerMACKey:   serverMACKey,
+		ClientWriteKey: clientWriteKey,
+		ServerWriteKey: serverWriteKey,
+		ClientWriteIV:  clientWriteIV,
+		ServerWriteIV:  serverWriteIV,
 	}, nil
 }
 

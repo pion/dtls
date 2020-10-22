@@ -61,13 +61,13 @@ func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) Init(masterSecret, clientRan
 	var cbc *CryptoCBC
 	if isClient {
 		cbc, err = NewCryptoCBC(
-			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
-			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
+			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
+			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
 		)
 	} else {
 		cbc, err = NewCryptoCBC(
-			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
-			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
+			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
+			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
 		)
 	}
 	c.cbc.Store(cbc)
