@@ -1,6 +1,6 @@
 package dtls
 
-import (
+import ( //nolint:gci
 	"crypto/sha1" //nolint:gosec
 	"fmt"
 	"hash"
