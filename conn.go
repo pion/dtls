@@ -167,22 +167,6 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		}
 	}
 
-	cipherSuiteFactory := func(id CipherSuiteID) CipherSuite {
-		c := cipherSuiteForID(id)
-		if c != nil {
-			return c
-		}
-		if config.CipherSuitesFactory == nil {
-			return nil
-		}
-		for _, c := range config.CipherSuitesFactory() {
-			if c.ID() == id {
-				return c
-			}
-		}
-		return nil
-	}
-
 	hsCfg := &handshakeConfig{
 		localPSKCallback:            config.PSK,
 		localPSKIdentityHint:        config.PSKIdentityHint,
@@ -200,7 +184,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		retransmitInterval:          workerInterval,
 		log:                         logger,
 		initialEpoch:                0,
-		cipherSuiteFactory:          cipherSuiteFactory,
+		cipherSuiteFactory:          createCipherSuiteFactory(config.CipherSuitesFactory),
 	}
 
 	var initialFlight flightVal
@@ -231,6 +215,24 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 	c.log.Trace("Handshake Completed")
 
 	return c, nil
+}
+
+func createCipherSuiteFactory(cipherSuitesFactory func() []CipherSuite) func(id CipherSuiteID) CipherSuite {
+	return func(id CipherSuiteID) CipherSuite {
+		c := cipherSuiteForID(id)
+		if c != nil {
+			return c
+		}
+		if cipherSuitesFactory == nil {
+			return nil
+		}
+		for _, c := range cipherSuitesFactory() {
+			if c.ID() == id {
+				return c
+			}
+		}
+		return nil
+	}
 }
 
 // Dial connects to the given network address and establishes a DTLS connection on top.

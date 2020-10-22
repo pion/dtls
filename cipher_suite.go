@@ -186,16 +186,6 @@ func encodeCipherSuitesIDs(cipherSuites []CipherSuiteID) []byte {
 	return out
 }
 
-func encodeCipherSuites(cipherSuites []CipherSuite) []byte {
-	out := []byte{0x00, 0x00}
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(cipherSuites)*2))
-	for _, c := range cipherSuites {
-		out = append(out, []byte{0x00, 0x00}...)
-		binary.BigEndian.PutUint16(out[len(out)-2:], uint16(c.ID()))
-	}
-	return out
-}
-
 func appendCustomCipherSuites(orig []CipherSuite, customSuites []CipherSuite, excludePSK, excludeNonPSK bool) ([]CipherSuite, error) {
 	for _, c := range customSuites {
 		if excludePSK && c.IsPSK() || excludeNonPSK && !c.IsPSK() {

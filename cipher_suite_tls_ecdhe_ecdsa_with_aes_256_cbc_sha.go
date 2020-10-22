@@ -1,7 +1,7 @@
 package dtls
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec
 	"fmt"
 	"hash"
 	"sync/atomic"
