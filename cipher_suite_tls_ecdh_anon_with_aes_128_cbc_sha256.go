@@ -23,7 +23,7 @@ func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) CertificateType() ClientCert
 }
 
 func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) ID() CipherSuiteID {
-	return TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256
+	return c.id
 }
 
 func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) String() string {
