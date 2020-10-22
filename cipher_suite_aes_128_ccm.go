@@ -10,7 +10,7 @@ import (
 
 type CipherSuiteAes128Ccm struct {
 	ccm                   atomic.Value // *CryptoCCM
-	ClientCertificateType ClientCertificateType
+	clientCertificateType ClientCertificateType
 	id                    CipherSuiteID
 	psk                   bool
 	cryptoCCMTagLen       cryptoCCMTagLen
@@ -18,7 +18,7 @@ type CipherSuiteAes128Ccm struct {
 
 func NewCipherSuiteAes128Ccm(ClientCertificateType ClientCertificateType, id CipherSuiteID, psk bool, cryptoCCMTagLen cryptoCCMTagLen) *CipherSuiteAes128Ccm {
 	return &CipherSuiteAes128Ccm{
-		ClientCertificateType: ClientCertificateType,
+		clientCertificateType: ClientCertificateType,
 		id:                    id,
 		psk:                   psk,
 		cryptoCCMTagLen:       cryptoCCMTagLen,
@@ -26,7 +26,7 @@ func NewCipherSuiteAes128Ccm(ClientCertificateType ClientCertificateType, id Cip
 }
 
 func (c *CipherSuiteAes128Ccm) CertificateType() ClientCertificateType {
-	return c.ClientCertificateType
+	return c.clientCertificateType
 }
 
 func (c *CipherSuiteAes128Ccm) ID() CipherSuiteID {

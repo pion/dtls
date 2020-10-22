@@ -7,46 +7,46 @@ import (
 	"sync/atomic"
 )
 
-type CipherCuiteTlsEcdhAnonWithAes128CbcSha256 struct {
+type CipherSuiteTLSEcdhAnonWithAes128CbcSha256 struct {
 	cbc atomic.Value // *CryptoCBC
 	id  CipherSuiteID
 }
 
-func NewCipherCuiteTlsEcdhAnonWithAes128CbcSha256(id CipherSuiteID) *CipherCuiteTlsEcdhAnonWithAes128CbcSha256 {
-	return &CipherCuiteTlsEcdhAnonWithAes128CbcSha256{
+func NewCipherSuiteTLSEcdhAnonWithAes128CbcSha256(id CipherSuiteID) *CipherSuiteTLSEcdhAnonWithAes128CbcSha256 {
+	return &CipherSuiteTLSEcdhAnonWithAes128CbcSha256{
 		id: id,
 	}
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) CertificateType() ClientCertificateType {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) CertificateType() ClientCertificateType {
 	return ClientCertificateType(0)
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) ID() CipherSuiteID {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) ID() CipherSuiteID {
 	return TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) String() string {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) String() string {
 	return "TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256"
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) HashFunc() func() hash.Hash {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) HashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) IsPSK() bool {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) IsPSK() bool {
 	return false
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) IsAnon() bool {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) IsAnon() bool {
 	return true
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) IsInitialized() bool {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) IsInitialized() bool {
 	return c.cbc.Load() != nil
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
 		prfMacLen = 20
 		prfKeyLen = 32
@@ -75,7 +75,7 @@ func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) Init(masterSecret, clientRan
 	return err
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
 	if cbc == nil { // !c.IsInitialized()
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
@@ -84,7 +84,7 @@ func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) Encrypt(pkt *RecordLayer, ra
 	return cbc.(*CryptoCBC).Encrypt(pkt, raw)
 }
 
-func (c *CipherCuiteTlsEcdhAnonWithAes128CbcSha256) Decrypt(raw []byte) ([]byte, error) {
+func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) Decrypt(raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
 	if cbc == nil { // !c.IsInitialized()
 		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)

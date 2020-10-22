@@ -113,7 +113,7 @@ func cipherSuiteForID(id CipherSuiteID) CipherSuite {
 	case TLS_PSK_WITH_AES_128_GCM_SHA256:
 		return &CipherSuiteTLSPskWithAes128GcmSha256{}
 	case TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256:
-		return NewCipherCuiteTlsEcdhAnonWithAes128CbcSha256(TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256)
+		return NewCipherSuiteTLSEcdhAnonWithAes128CbcSha256(TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256)
 	}
 	return nil
 }
