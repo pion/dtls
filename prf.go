@@ -208,7 +208,7 @@ func prfVerifyDataServer(masterSecret, handshakeBodies []byte, h hashFunc) ([]by
 }
 
 // compute the MAC using HMAC-SHA1
-func prfMac(epoch uint16, sequenceNumber uint64, contentType ContentType, ProtocolVersion ProtocolVersion, payload []byte, key []byte) ([]byte, error) {
+func prfMac(epoch uint16, sequenceNumber uint64, contentType ContentType, protocolVersion ProtocolVersion, payload []byte, key []byte) ([]byte, error) {
 	h := hmac.New(sha1.New, key)
 
 	msg := make([]byte, 13)
@@ -216,8 +216,8 @@ func prfMac(epoch uint16, sequenceNumber uint64, contentType ContentType, Protoc
 	binary.BigEndian.PutUint16(msg, epoch)
 	putBigEndianUint48(msg[2:], sequenceNumber)
 	msg[8] = byte(contentType)
-	msg[9] = ProtocolVersion.Major
-	msg[10] = ProtocolVersion.Minor
+	msg[9] = protocolVersion.Major
+	msg[10] = protocolVersion.Minor
 	binary.BigEndian.PutUint16(msg[11:], uint16(len(payload)))
 
 	if _, err := h.Write(msg); err != nil {

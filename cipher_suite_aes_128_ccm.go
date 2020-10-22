@@ -16,9 +16,9 @@ type CipherSuiteAes128Ccm struct {
 	cryptoCCMTagLen       cryptoCCMTagLen
 }
 
-func NewCipherSuiteAes128Ccm(ClientCertificateType ClientCertificateType, id CipherSuiteID, psk bool, cryptoCCMTagLen cryptoCCMTagLen) *CipherSuiteAes128Ccm {
+func NewCipherSuiteAes128Ccm(clientCertificateType ClientCertificateType, id CipherSuiteID, psk bool, cryptoCCMTagLen cryptoCCMTagLen) *CipherSuiteAes128Ccm {
 	return &CipherSuiteAes128Ccm{
-		clientCertificateType: ClientCertificateType,
+		clientCertificateType: clientCertificateType,
 		id:                    id,
 		psk:                   psk,
 		cryptoCCMTagLen:       cryptoCCMTagLen,

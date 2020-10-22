@@ -205,7 +205,8 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		},
 	})
 
-	if state.CipherSuite != nil && state.CipherSuite.IsAnon() {
+	switch {
+	case state.CipherSuite != nil && state.CipherSuite.IsAnon():
 		pkts = append(pkts, &packet{
 			record: &RecordLayer{
 				RecordLayerHeader: RecordLayerHeader{
@@ -220,7 +221,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				},
 			},
 		})
-	} else if cfg.localPSKCallback == nil {
+	case cfg.localPSKCallback == nil:
 		certificate, err := cfg.getCertificate(cfg.serverName)
 		if err != nil {
 			return nil, &alert{alertLevelFatal, alertHandshakeFailure}, err
@@ -287,7 +288,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				},
 			})
 		}
-	} else if cfg.localPSKIdentityHint != nil {
+	case cfg.localPSKIdentityHint != nil:
 		// To help the client in selecting which identity to use, the server
 		// can provide a "PSK identity hint" in the ServerKeyExchange message.
 		// If no hint is provided, the ServerKeyExchange message is omitted.
