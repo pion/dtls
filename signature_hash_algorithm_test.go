@@ -47,7 +47,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 		"InvalidHashAlgorithm": {
 			input: []tls.SignatureScheme{
 				tls.ECDSAWithP256AndSHA256, // Valid
-				0x0003,                     // Invalid: ECDSA with MD2
+				0x0003,                     // Invalid: ECDSA with None
 			},
 			expected:       nil,
 			insecureHashes: false,
