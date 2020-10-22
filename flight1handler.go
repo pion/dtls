@@ -91,7 +91,7 @@ func flight1Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 						version:            ProtocolVersion1_2,
 						cookie:             state.cookie,
 						random:             state.localRandom,
-						cipherSuites:       cfg.localCipherSuites,
+						cipherSuitesIDs:    cipherSuitesToIDs(cfg.localCipherSuites),
 						compressionMethods: defaultCompressionMethods(),
 						extensions:         extensions,
 					},

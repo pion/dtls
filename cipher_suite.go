@@ -142,6 +142,22 @@ func allCipherSuites() []CipherSuite {
 	}
 }
 
+func decodeCipherSuitesIDs(buf []byte) ([]CipherSuiteID, error) {
+	if len(buf) < 2 {
+		return nil, errDTLSPacketInvalidLength
+	}
+	cipherSuitesCount := int(binary.BigEndian.Uint16(buf[0:])) / 2
+	rtrn := make([]CipherSuiteID, 0, 8)
+	for i := 0; i < cipherSuitesCount; i++ {
+		if len(buf) < (i*2 + 4) {
+			return nil, errBufferTooSmall
+		}
+		id := CipherSuiteID(binary.BigEndian.Uint16(buf[(i*2)+2:]))
+		rtrn = append(rtrn, id)
+	}
+	return rtrn, nil
+}
+
 func decodeCipherSuites(buf []byte) ([]CipherSuite, error) {
 	if len(buf) < 2 {
 		return nil, errDTLSPacketInvalidLength
@@ -158,6 +174,16 @@ func decodeCipherSuites(buf []byte) ([]CipherSuite, error) {
 		}
 	}
 	return rtrn, nil
+}
+
+func encodeCipherSuitesIDs(cipherSuites []CipherSuiteID) []byte {
+	out := []byte{0x00, 0x00}
+	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(cipherSuites)*2))
+	for _, c := range cipherSuites {
+		out = append(out, []byte{0x00, 0x00}...)
+		binary.BigEndian.PutUint16(out[len(out)-2:], uint16(c))
+	}
+	return out
 }
 
 func encodeCipherSuites(cipherSuites []CipherSuite) []byte {

@@ -28,11 +28,15 @@ func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 	state.remoteRandom = clientHello.random
 
-	if _, ok := findMatchingCipherSuite(clientHello.cipherSuites, cfg.localCipherSuites); !ok {
+	cipherSuitID, ok := findMatchingCipherSuiteID(clientHello.cipherSuitesIDs, cfg.localCipherSuites)
+	if !ok {
 		return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errCipherSuiteNoIntersection
 	}
-
-	state.CipherSuite = clientHello.cipherSuites[0]
+	cipherSuite := cfg.cipherSuiteFactory(cipherSuitID)
+	if cipherSuite == nil {
+		return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errCipherSuiteNoIntersection
+	}
+	state.CipherSuite = cipherSuite
 
 	for _, extension := range clientHello.extensions {
 		switch e := extension.(type) {

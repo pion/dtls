@@ -197,7 +197,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				handshakeMessage: &handshakeMessageServerHello{
 					version:           ProtocolVersion1_2,
 					random:            state.localRandom,
-					CipherSuite:       state.CipherSuite,
+					cipherSuiteID:     state.CipherSuite.ID(),
 					compressionMethod: defaultCompressionMethods()[0],
 					extensions:        extensions,
 				},

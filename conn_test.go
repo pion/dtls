@@ -207,7 +207,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 						handshakeMessage: &handshakeMessageClientHello{
 							version:            ProtocolVersion1_2,
 							cookie:             make([]byte, 64),
-							cipherSuites:       defaultCipherSuites(),
+							cipherSuitesIDs:    cipherSuitesToIDs(defaultCipherSuites()),
 							compressionMethods: defaultCompressionMethods(),
 						},
 					},
@@ -1391,7 +1391,7 @@ func TestServerTimeout(t *testing.T) {
 				version:            ProtocolVersion1_2,
 				cookie:             cookie,
 				random:             random,
-				cipherSuites:       cipherSuites,
+				cipherSuitesIDs:    cipherSuitesToIDs(cipherSuites),
 				compressionMethods: defaultCompressionMethods(),
 				extensions:         extensions,
 			},
@@ -1505,7 +1505,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								version:            ProtocolVersion{0xfe, 0xff}, // try to downgrade
 								cookie:             cookie,
 								random:             random,
-								cipherSuites:       []CipherSuite{&CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								cipherSuitesIDs:    []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 								compressionMethods: defaultCompressionMethods(),
 							},
 						},
@@ -1523,7 +1523,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								version:            ProtocolVersion1_2,
 								cookie:             cookie,
 								random:             random,
-								cipherSuites:       []CipherSuite{&CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								cipherSuitesIDs:    []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 								compressionMethods: defaultCompressionMethods(),
 							},
 						},
@@ -1541,7 +1541,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								version:            ProtocolVersion{0xfe, 0xff}, // try to downgrade
 								cookie:             cookie,
 								random:             random,
-								cipherSuites:       []CipherSuite{&CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								cipherSuitesIDs:    []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 								compressionMethods: defaultCompressionMethods(),
 							},
 						},
@@ -1631,7 +1631,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 							handshakeMessage: &handshakeMessageServerHello{
 								version:           ProtocolVersion{0xfe, 0xff}, // try to downgrade
 								random:            random,
-								CipherSuite:       &CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+								cipherSuiteID:     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, // &CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
 								compressionMethod: defaultCompressionMethods()[0],
 							},
 						},

@@ -16,7 +16,7 @@ type handshakeMessageClientHello struct {
 	random  handshakeRandom
 	cookie  []byte
 
-	cipherSuites       []CipherSuite
+	cipherSuitesIDs    []CipherSuiteID
 	compressionMethods []*compressionMethod
 	extensions         []extension
 }
@@ -43,7 +43,7 @@ func (h *handshakeMessageClientHello) Marshal() ([]byte, error) {
 
 	out = append(out, byte(len(h.cookie)))
 	out = append(out, h.cookie...)
-	out = append(out, encodeCipherSuites(h.cipherSuites)...)
+	out = append(out, encodeCipherSuitesIDs(h.cipherSuitesIDs)...)
 	out = append(out, encodeCompressionMethods(h.compressionMethods)...)
 
 	extensions, err := encodeExtensions(h.extensions)
@@ -85,11 +85,11 @@ func (h *handshakeMessageClientHello) Unmarshal(data []byte) error {
 	if len(data) < currOffset {
 		return errBufferTooSmall
 	}
-	cipherSuites, err := decodeCipherSuites(data[currOffset:])
+	cipherSuites, err := decodeCipherSuitesIDs(data[currOffset:])
 	if err != nil {
 		return err
 	}
-	h.cipherSuites = cipherSuites
+	h.cipherSuitesIDs = cipherSuites
 	if len(data) < currOffset+2 {
 		return errBufferTooSmall
 	}

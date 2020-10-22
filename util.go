@@ -87,15 +87,23 @@ func findMatchingSRTPProfile(a, b []SRTPProtectionProfile) (SRTPProtectionProfil
 	return 0, false
 }
 
-func findMatchingCipherSuite(a, b []CipherSuite) (CipherSuite, bool) { //nolint
-	for _, aSuite := range a {
+func findMatchingCipherSuiteID(a []CipherSuiteID, b []CipherSuite) (CipherSuiteID, bool) { //nolint
+	for _, aSuiteID := range a {
 		for _, bSuite := range b {
-			if aSuite.ID() == bSuite.ID() {
-				return aSuite, true
+			if aSuiteID == bSuite.ID() {
+				return aSuiteID, true
 			}
 		}
 	}
-	return nil, false
+	return CipherSuiteID(0), false
+}
+
+func cipherSuitesToIDs(b []CipherSuite) []CipherSuiteID {
+	ids := make([]CipherSuiteID, 0, 8)
+	for _, c := range b {
+		ids = append(ids, c.ID())
+	}
+	return ids
 }
 
 func splitBytes(bytes []byte, splitLen int) [][]byte {

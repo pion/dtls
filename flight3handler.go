@@ -69,13 +69,18 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		if len(cfg.localSRTPProtectionProfiles) > 0 && state.srtpProtectionProfile == 0 {
 			return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errRequestedButNoSRTPExtension
 		}
-		if _, ok := findMatchingCipherSuite([]CipherSuite{h.CipherSuite}, cfg.localCipherSuites); !ok {
+
+		cipherSuitID, ok := findMatchingCipherSuiteID([]CipherSuiteID{h.cipherSuiteID}, cfg.localCipherSuites)
+		if !ok {
 			return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errCipherSuiteNoIntersection
 		}
-
-		state.CipherSuite = h.CipherSuite
+		cipherSuite := cfg.cipherSuiteFactory(cipherSuitID)
+		if cipherSuite == nil {
+			return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errCipherSuiteNoIntersection
+		}
+		state.CipherSuite = cipherSuite
 		state.remoteRandom = h.random
-		cfg.log.Tracef("[handshake] use cipher suite: %s", h.CipherSuite.String())
+		cfg.log.Tracef("[handshake] use cipher suite: %s", h.cipherSuiteID.String())
 	}
 
 	if h, ok := msgs[handshakeTypeCertificate].(*handshakeMessageCertificate); ok {
@@ -163,7 +168,7 @@ func flight3Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 						version:            ProtocolVersion1_2,
 						cookie:             state.cookie,
 						random:             state.localRandom,
-						cipherSuites:       cfg.localCipherSuites,
+						cipherSuitesIDs:    cipherSuitesToIDs(cfg.localCipherSuites),
 						compressionMethods: defaultCompressionMethods(),
 						extensions:         extensions,
 					},

@@ -110,6 +110,7 @@ func TestHandshaker(t *testing.T) {
 						}
 					},
 					retransmitInterval: nonZeroRetransmitInterval,
+					cipherSuiteFactory: cipherSuiteForID,
 				}
 
 				fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, flight1)
@@ -136,6 +137,7 @@ func TestHandshaker(t *testing.T) {
 						}
 					},
 					retransmitInterval: nonZeroRetransmitInterval,
+					cipherSuiteFactory: cipherSuiteForID,
 				}
 
 				fsm := newHandshakeFSM(&cb.state, cb.handshakeCache, cfg, flight0)

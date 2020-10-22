@@ -167,6 +167,22 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		}
 	}
 
+	cipherSuiteFactory := func(id CipherSuiteID) CipherSuite {
+		c := cipherSuiteForID(id)
+		if c != nil {
+			return c
+		}
+		if config.CipherSuitesFactory == nil {
+			return nil
+		}
+		for _, c := range config.CipherSuitesFactory() {
+			if c.ID() == id {
+				return c
+			}
+		}
+		return nil
+	}
+
 	hsCfg := &handshakeConfig{
 		localPSKCallback:            config.PSK,
 		localPSKIdentityHint:        config.PSKIdentityHint,
@@ -184,6 +200,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		retransmitInterval:          workerInterval,
 		log:                         logger,
 		initialEpoch:                0,
+		cipherSuiteFactory:          cipherSuiteFactory,
 	}
 
 	var initialFlight flightVal
