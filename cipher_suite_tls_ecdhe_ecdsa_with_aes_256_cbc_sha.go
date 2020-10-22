@@ -2,6 +2,7 @@ package dtls
 
 import ( //nolint:gci
 	"crypto/sha1" //nolint:gosec
+	"crypto/sha256"
 	"fmt"
 	"hash"
 	"sync/atomic"
@@ -24,7 +25,7 @@ func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) String() string {
 }
 
 func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) HashFunc() func() hash.Hash {
-	return sha1.New
+	return sha256.New
 }
 
 func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) IsPSK() bool {
@@ -54,13 +55,13 @@ func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) Init(masterSecret, clientRand
 	var cbc *CryptoCBC
 	if isClient {
 		cbc, err = NewCryptoCBC(
-			c.HashFunc(),
+			sha1.New,
 			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
 			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
 		)
 	} else {
 		cbc, err = NewCryptoCBC(
-			c.HashFunc(),
+			sha1.New,
 			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
 			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
 		)
