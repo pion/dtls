@@ -8,7 +8,7 @@ import (
 
 func TestHashAlgorithm_StringRoundtrip(t *testing.T) {
 	for algo := range hashAlgorithms() {
-		if algo == hashAlgorithmEd25519 {
+		if algo == hashAlgorithmEd25519 || algo == hashAlgorithmNone {
 			// Ed25519 does hashing and signing in one time.
 			continue
 		}
