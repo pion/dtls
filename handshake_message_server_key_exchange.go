@@ -33,6 +33,9 @@ func (h *handshakeMessageServerKeyExchange) Marshal() ([]byte, error) {
 	out = append(out, byte(len(h.publicKey)))
 	out = append(out, h.publicKey...)
 
+	if h.hashAlgorithm == hashAlgorithmNone && h.signatureAlgorithm == signatureAlgorithmAnonymous && len(h.signature) == 0 {
+		return out, nil
+	}
 	out = append(out, []byte{byte(h.hashAlgorithm), byte(h.signatureAlgorithm), 0x00, 0x00}...)
 
 	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(h.signature)))
@@ -75,10 +78,10 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 	h.publicKey = append([]byte{}, data[4:offset]...)
-	if len(data) <= offset {
+	if len(data) < offset {
 		return errBufferTooSmall
 	}
-	if len(data) == offset+4 {
+	if len(data) == offset {
 		// Anon connection doesn't contains hashAlgorithm, signatureAlgorithm, signature
 		return nil
 	}

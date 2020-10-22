@@ -4,15 +4,17 @@ package dtls
 type signatureAlgorithm uint16
 
 const (
-	signatureAlgorithmRSA     signatureAlgorithm = 1
-	signatureAlgorithmECDSA   signatureAlgorithm = 3
-	signatureAlgorithmEd25519 signatureAlgorithm = 7
+	signatureAlgorithmAnonymous signatureAlgorithm = 0
+	signatureAlgorithmRSA       signatureAlgorithm = 1
+	signatureAlgorithmECDSA     signatureAlgorithm = 3
+	signatureAlgorithmEd25519   signatureAlgorithm = 7
 )
 
 func signatureAlgorithms() map[signatureAlgorithm]bool {
 	return map[signatureAlgorithm]bool{
-		signatureAlgorithmRSA:     true,
-		signatureAlgorithmECDSA:   true,
-		signatureAlgorithmEd25519: true,
+		signatureAlgorithmAnonymous: true,
+		signatureAlgorithmRSA:       true,
+		signatureAlgorithmECDSA:     true,
+		signatureAlgorithmEd25519:   true,
 	}
 }

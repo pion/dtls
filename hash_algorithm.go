@@ -14,7 +14,7 @@ type hashAlgorithm uint16
 
 // Supported hash hash algorithms
 const (
-	hashAlgorithmMD2     hashAlgorithm = 0 // Blacklisted
+	hashAlgorithmNone    hashAlgorithm = 0 // Blacklisted
 	hashAlgorithmMD5     hashAlgorithm = 1 // Blacklisted
 	hashAlgorithmSHA1    hashAlgorithm = 2 // Blacklisted
 	hashAlgorithmSHA224  hashAlgorithm = 3
@@ -27,8 +27,8 @@ const (
 // String makes hashAlgorithm printable
 func (h hashAlgorithm) String() string {
 	switch h {
-	case hashAlgorithmMD2:
-		return "md2"
+	case hashAlgorithmNone:
+		return "none"
 	case hashAlgorithmMD5:
 		return "md5" // [RFC3279]
 	case hashAlgorithmSHA1:
@@ -50,6 +50,8 @@ func (h hashAlgorithm) String() string {
 
 func (h hashAlgorithm) digest(b []byte) []byte {
 	switch h {
+	case hashAlgorithmNone:
+		return nil
 	case hashAlgorithmMD5:
 		hash := md5.Sum(b) // #nosec
 		return hash[:]
@@ -75,7 +77,7 @@ func (h hashAlgorithm) digest(b []byte) []byte {
 
 func (h hashAlgorithm) insecure() bool {
 	switch h {
-	case hashAlgorithmMD2, hashAlgorithmMD5, hashAlgorithmSHA1:
+	case hashAlgorithmNone, hashAlgorithmMD5, hashAlgorithmSHA1:
 		return true
 	default:
 		return false
@@ -84,6 +86,8 @@ func (h hashAlgorithm) insecure() bool {
 
 func (h hashAlgorithm) cryptoHash() crypto.Hash {
 	switch h {
+	case hashAlgorithmNone:
+		return crypto.Hash(0)
 	case hashAlgorithmMD5:
 		return crypto.MD5
 	case hashAlgorithmSHA1:
@@ -105,6 +109,7 @@ func (h hashAlgorithm) cryptoHash() crypto.Hash {
 
 func hashAlgorithms() map[hashAlgorithm]struct{} {
 	return map[hashAlgorithm]struct{}{
+		hashAlgorithmNone:    {},
 		hashAlgorithmMD5:     {},
 		hashAlgorithmSHA1:    {},
 		hashAlgorithmSHA224:  {},

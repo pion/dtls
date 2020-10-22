@@ -4,9 +4,9 @@ import ( //nolint:gci
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha1" //nolint:gosec
+	"crypto/rand" //nolint:gosec
 	"encoding/binary"
+	"hash"
 )
 
 // block ciphers using cipher block chaining.
@@ -19,12 +19,10 @@ type cbcMode interface {
 type CryptoCBC struct {
 	writeCBC, readCBC cbcMode
 	writeMac, readMac []byte
+	hash              func() hash.Hash
 }
 
-// Currently hardcoded to be SHA1 only
-var cryptoCBCMacFunc = sha1.New //nolint:gochecknoglobals
-
-func NewCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte) (*CryptoCBC, error) {
+func NewCryptoCBC(hash func() hash.Hash, localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte) (*CryptoCBC, error) {
 	writeBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err
@@ -41,6 +39,7 @@ func NewCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, re
 
 		readCBC: cipher.NewCBCDecrypter(readBlock, remoteWriteIV).(cbcMode),
 		readMac: remoteMac,
+		hash:    hash,
 	}, nil
 }
 
@@ -52,7 +51,7 @@ func (c *CryptoCBC) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
 	// Generate + Append MAC
 	h := pkt.RecordLayerHeader
 
-	MAC, err := prfMac(h.Epoch, h.SequenceNumber, h.ContentType, h.ProtocolVersion, payload, c.writeMac)
+	MAC, err := prfMac(c.hash, h.Epoch, h.SequenceNumber, h.ContentType, h.ProtocolVersion, payload, c.writeMac)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +88,7 @@ func (c *CryptoCBC) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
 func (c *CryptoCBC) Decrypt(in []byte) ([]byte, error) {
 	body := in[recordLayerHeaderSize:]
 	blockSize := c.readCBC.BlockSize()
-	mac := cryptoCBCMacFunc()
+	mac := c.hash()
 
 	var h RecordLayerHeader
 	err := h.Unmarshal(in)
@@ -122,7 +121,7 @@ func (c *CryptoCBC) Decrypt(in []byte) ([]byte, error) {
 	dataEnd := len(body) - macSize - paddingLen
 
 	expectedMAC := body[dataEnd : dataEnd+macSize]
-	actualMAC, err := prfMac(h.Epoch, h.SequenceNumber, h.ContentType, h.ProtocolVersion, body[:dataEnd], c.readMac)
+	actualMAC, err := prfMac(c.hash, h.Epoch, h.SequenceNumber, h.ContentType, h.ProtocolVersion, body[:dataEnd], c.readMac)
 
 	// Compute Local MAC and compare
 	if paddingGood != 255 || err != nil || !hmac.Equal(actualMAC, expectedMAC) {

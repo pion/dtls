@@ -48,8 +48,8 @@ func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) IsInitialized() bool {
 
 func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
-		prfMacLen = 20
-		prfKeyLen = 32
+		prfMacLen = 32
+		prfKeyLen = 16
 		prfIvLen  = 16
 	)
 
@@ -61,11 +61,13 @@ func (c *CipherSuiteTLSEcdhAnonWithAes128CbcSha256) Init(masterSecret, clientRan
 	var cbc *CryptoCBC
 	if isClient {
 		cbc, err = NewCryptoCBC(
+			c.HashFunc(),
 			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
 			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
 		)
 	} else {
 		cbc, err = NewCryptoCBC(
+			c.HashFunc(),
 			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
 			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
 		)

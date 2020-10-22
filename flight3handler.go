@@ -80,7 +80,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		}
 		state.CipherSuite = cipherSuite
 		state.remoteRandom = h.random
-		cfg.log.Tracef("[handshake] use cipher suite: %s", h.cipherSuiteID.String())
+		cfg.log.Tracef("[handshake] use cipher suite: %s", cipherSuite.String())
 	}
 
 	if h, ok := msgs[handshakeTypeCertificate].(*handshakeMessageCertificate); ok {
