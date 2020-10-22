@@ -1220,9 +1220,18 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			res := <-c
 			if res.err == nil {
 				if res.c != nil {
-					_, err = res.c.Write([]byte("aaa"))
+					expectedData := []byte("aaa")
+					_, err = res.c.Write(expectedData)
 					if err != nil {
-						t.Errorf("err: %v", err)
+						t.Errorf("TestCipherSuiteConfiguration: Client Error Write: %v", err)
+					}
+					buf := make([]byte, 10)
+					n, err := server.Read(buf)
+					if err != nil {
+						t.Errorf("TestCipherSuiteConfiguration: Server Error Read: %v", err)
+					}
+					if !bytes.Equal(expectedData, buf[:n]) {
+						t.Errorf("TestCipherSuiteConfiguration:  Server Error Read Mismatch: expected(%v) actual(%v)", expectedData, buf)
 					}
 				}
 				_ = server.Close()
@@ -1230,7 +1239,6 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			if !errors.Is(res.err, test.WantClientError) {
 				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 			}
-
 		})
 	}
 }
