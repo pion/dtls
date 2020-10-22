@@ -26,11 +26,11 @@ func flight6Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 	pkts = append(pkts,
 		&packet{
-			record: &recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
+			record: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ProtocolVersion: ProtocolVersion1_2,
 				},
-				content: &changeCipherSpec{},
+				Content: &changeCipherSpec{},
 			},
 		})
 
@@ -49,7 +49,7 @@ func flight6Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		)
 
 		var err error
-		state.localVerifyData, err = prfVerifyDataServer(state.masterSecret, plainText, state.cipherSuite.hashFunc())
+		state.localVerifyData, err = prfVerifyDataServer(state.masterSecret, plainText, state.CipherSuite.HashFunc())
 		if err != nil {
 			return nil, &alert{alertLevelFatal, alertInternalError}, err
 		}
@@ -57,12 +57,12 @@ func flight6Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 	pkts = append(pkts,
 		&packet{
-			record: &recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
-					epoch:           1,
+			record: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ProtocolVersion: ProtocolVersion1_2,
+					Epoch:           1,
 				},
-				content: &handshake{
+				Content: &handshake{
 					handshakeMessage: &handshakeMessageFinished{
 						verifyData: state.localVerifyData,
 					},

@@ -18,11 +18,11 @@ func Listen(network string, laddr *net.UDPAddr, config *Config) (net.Listener, e
 			if err != nil || len(pkts) < 1 {
 				return false
 			}
-			h := &recordLayerHeader{}
+			h := &RecordLayerHeader{}
 			if err := h.Unmarshal(pkts[0]); err != nil {
 				return false
 			}
-			return h.contentType == contentTypeHandshake
+			return h.ContentType == ContentTypeHandshake
 		},
 	}
 	parent, err := lc.Listen(network, laddr)

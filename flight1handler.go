@@ -25,7 +25,7 @@ func flight1Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	if h, ok := msgs[handshakeTypeHelloVerifyRequest].(*handshakeMessageHelloVerifyRequest); ok {
 		// DTLS 1.2 clients must not assume that the server will use the protocol version
 		// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
-		if !h.version.Equal(protocolVersion1_0) && !h.version.Equal(protocolVersion1_2) {
+		if !h.version.Equal(ProtocolVersion1_0) && !h.version.Equal(ProtocolVersion1_2) {
 			return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
 		}
 		state.cookie = append([]byte{}, h.cookie...)
@@ -82,13 +82,13 @@ func flight1Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 	return []*packet{
 		{
-			record: &recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
+			record: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ProtocolVersion: ProtocolVersion1_2,
 				},
-				content: &handshake{
+				Content: &handshake{
 					handshakeMessage: &handshakeMessageClientHello{
-						version:            protocolVersion1_2,
+						version:            ProtocolVersion1_2,
 						cookie:             state.cookie,
 						random:             state.localRandom,
 						cipherSuites:       cfg.localCipherSuites,

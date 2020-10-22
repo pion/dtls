@@ -8,7 +8,7 @@ import (
 func TestDecodeCipherSuites(t *testing.T) {
 	testCases := []struct {
 		buf    []byte
-		result []*cipherSuite
+		result []*CipherSuite
 		err    error
 	}{
 		{[]byte{}, nil, errDTLSPacketInvalidLength},

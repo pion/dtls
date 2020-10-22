@@ -8,64 +8,68 @@ import (
 	"sync/atomic"
 )
 
-type cipherSuiteAes128Ccm struct {
-	ccm                   atomic.Value // *cryptoCCM
-	clientCertificateType clientCertificateType
+type CipherSuiteAes128Ccm struct {
+	ccm                   atomic.Value // *CryptoCCM
+	ClientCertificateType ClientCertificateType
 	id                    CipherSuiteID
 	psk                   bool
 	cryptoCCMTagLen       cryptoCCMTagLen
 }
 
-func newCipherSuiteAes128Ccm(clientCertificateType clientCertificateType, id CipherSuiteID, psk bool, cryptoCCMTagLen cryptoCCMTagLen) *cipherSuiteAes128Ccm {
-	return &cipherSuiteAes128Ccm{
-		clientCertificateType: clientCertificateType,
+func NewCipherSuiteAes128Ccm(ClientCertificateType ClientCertificateType, id CipherSuiteID, psk bool, cryptoCCMTagLen cryptoCCMTagLen) *CipherSuiteAes128Ccm {
+	return &CipherSuiteAes128Ccm{
+		ClientCertificateType: ClientCertificateType,
 		id:                    id,
 		psk:                   psk,
 		cryptoCCMTagLen:       cryptoCCMTagLen,
 	}
 }
 
-func (c *cipherSuiteAes128Ccm) certificateType() clientCertificateType {
-	return c.clientCertificateType
+func (c *CipherSuiteAes128Ccm) CertificateType() ClientCertificateType {
+	return c.ClientCertificateType
 }
 
-func (c *cipherSuiteAes128Ccm) ID() CipherSuiteID {
+func (c *CipherSuiteAes128Ccm) ID() CipherSuiteID {
 	return c.id
 }
 
-func (c *cipherSuiteAes128Ccm) String() string {
+func (c *CipherSuiteAes128Ccm) String() string {
 	return c.id.String()
 }
 
-func (c *cipherSuiteAes128Ccm) hashFunc() func() hash.Hash {
+func (c *CipherSuiteAes128Ccm) HashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-func (c *cipherSuiteAes128Ccm) isPSK() bool {
+func (c *CipherSuiteAes128Ccm) IsPSK() bool {
 	return c.psk
 }
 
-func (c *cipherSuiteAes128Ccm) isInitialized() bool {
+func (c *CipherSuiteAes128Ccm) IsAnon() bool {
+	return false
+}
+
+func (c *CipherSuiteAes128Ccm) IsInitialized() bool {
 	return c.ccm.Load() != nil
 }
 
-func (c *cipherSuiteAes128Ccm) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
+func (c *CipherSuiteAes128Ccm) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
 		prfMacLen = 0
 		prfKeyLen = 16
 		prfIvLen  = 4
 	)
 
-	keys, err := prfEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.hashFunc())
+	keys, err := PrfEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.HashFunc())
 	if err != nil {
 		return err
 	}
 
-	var ccm *cryptoCCM
+	var ccm *CryptoCCM
 	if isClient {
-		ccm, err = newCryptoCCM(c.cryptoCCMTagLen, keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
+		ccm, err = NewCryptoCCM(c.cryptoCCMTagLen, keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
 	} else {
-		ccm, err = newCryptoCCM(c.cryptoCCMTagLen, keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
+		ccm, err = NewCryptoCCM(c.cryptoCCMTagLen, keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
 	}
 	c.ccm.Store(ccm)
 
@@ -74,20 +78,20 @@ func (c *cipherSuiteAes128Ccm) init(masterSecret, clientRandom, serverRandom []b
 
 var errCipherSuiteNotInit = errors.New("CipherSuite has not been initialized")
 
-func (c *cipherSuiteAes128Ccm) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
+func (c *CipherSuiteAes128Ccm) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
 	ccm := c.ccm.Load()
-	if ccm == nil { // !c.isInitialized()
+	if ccm == nil { // !c.IsInitialized()
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
 	}
 
-	return ccm.(*cryptoCCM).encrypt(pkt, raw)
+	return ccm.(*CryptoCCM).Encrypt(pkt, raw)
 }
 
-func (c *cipherSuiteAes128Ccm) decrypt(raw []byte) ([]byte, error) {
+func (c *CipherSuiteAes128Ccm) Decrypt(raw []byte) ([]byte, error) {
 	ccm := c.ccm.Load()
-	if ccm == nil { // !c.isInitialized()
+	if ccm == nil { // !c.IsInitialized()
 		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
 	}
 
-	return ccm.(*cryptoCCM).decrypt(raw)
+	return ccm.(*CryptoCCM).Decrypt(raw)
 }

@@ -42,7 +42,7 @@ func TestHandshaker(t *testing.T) {
 			)
 			const helloVerifyDrop = 5
 			return func(p *packet) bool {
-					h, ok := p.record.content.(*handshake)
+					h, ok := p.record.Content.(*handshake)
 					if !ok {
 						return true
 					}
@@ -54,7 +54,7 @@ func TestHandshaker(t *testing.T) {
 					return true
 				},
 				func(p *packet) bool {
-					h, ok := p.record.content.(*handshake)
+					h, ok := p.record.Content.(*handshake)
 					if !ok {
 						return true
 					}
@@ -211,13 +211,13 @@ func (c *flightTestConn) writePackets(ctx context.Context, pkts []*packet) error
 		if c.filter != nil && !c.filter(p) {
 			continue
 		}
-		if h, ok := p.record.content.(*handshake); ok {
+		if h, ok := p.record.Content.(*handshake); ok {
 			handshakeRaw, err := p.record.Marshal()
 			if err != nil {
 				return err
 			}
 
-			c.handshakeCache.push(handshakeRaw[recordLayerHeaderSize:], p.record.recordLayerHeader.epoch, h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
+			c.handshakeCache.push(handshakeRaw[recordLayerHeaderSize:], p.record.RecordLayerHeader.Epoch, h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
 
 			content, err := h.handshakeMessage.Marshal()
 			if err != nil {
@@ -230,7 +230,7 @@ func (c *flightTestConn) writePackets(ctx context.Context, pkts []*packet) error
 				return err
 			}
 			c.otherEndCache.push(
-				append(hdr, content...), p.record.recordLayerHeader.epoch, h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
+				append(hdr, content...), p.record.RecordLayerHeader.Epoch, h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
 		}
 	}
 	go func() {

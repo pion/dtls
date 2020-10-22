@@ -13,7 +13,7 @@ server's Certificate message).
 */
 
 type handshakeMessageCertificateRequest struct {
-	certificateTypes        []clientCertificateType
+	certificateTypes        []ClientCertificateType
 	signatureHashAlgorithms []signatureHashAlgorithm
 }
 
@@ -56,7 +56,7 @@ func (h *handshakeMessageCertificateRequest) Unmarshal(data []byte) error {
 	}
 
 	for i := 0; i < certificateTypesLength; i++ {
-		certType := clientCertificateType(data[offset+i])
+		certType := ClientCertificateType(data[offset+i])
 		if _, ok := clientCertificateTypes()[certType]; ok {
 			h.certificateTypes = append(h.certificateTypes, certType)
 		}

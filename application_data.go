@@ -9,8 +9,8 @@ type applicationData struct {
 	data []byte
 }
 
-func (a applicationData) contentType() contentType {
-	return contentTypeApplicationData
+func (a applicationData) ContentType() ContentType {
+	return ContentTypeApplicationData
 }
 
 func (a *applicationData) Marshal() ([]byte, error) {

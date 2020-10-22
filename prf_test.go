@@ -48,7 +48,7 @@ func TestEncryptionKeys(t *testing.T) {
 		clientWriteIV:  []byte{0x0e, 0xb2, 0x09, 0x06},
 		serverWriteIV:  []byte{0xf7, 0x81, 0xfa, 0xd2},
 	}
-	keys, err := prfEncryptionKeys(masterSecret, clientRandom, serverRandom, 0, 16, 4, sha256.New)
+	keys, err := PrfEncryptionKeys(masterSecret, clientRandom, serverRandom, 0, 16, 4, sha256.New)
 
 	if err != nil {
 		t.Fatal(err)

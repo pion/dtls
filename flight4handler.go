@@ -74,7 +74,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		state.peerCertificatesVerified = verified
 	}
 
-	if !state.cipherSuite.isInitialized() {
+	if !state.CipherSuite.IsInitialized() {
 		serverRandom := state.localRandom.marshalFixed()
 		clientRandom := state.remoteRandom.marshalFixed()
 
@@ -96,23 +96,23 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 		if state.extendedMasterSecret {
 			var sessionHash []byte
-			sessionHash, err = cache.sessionHash(state.cipherSuite.hashFunc(), cfg.initialEpoch)
+			sessionHash, err = cache.sessionHash(state.CipherSuite.HashFunc(), cfg.initialEpoch)
 			if err != nil {
 				return 0, &alert{alertLevelFatal, alertInternalError}, err
 			}
 
-			state.masterSecret, err = prfExtendedMasterSecret(preMasterSecret, sessionHash, state.cipherSuite.hashFunc())
+			state.masterSecret, err = prfExtendedMasterSecret(preMasterSecret, sessionHash, state.CipherSuite.HashFunc())
 			if err != nil {
 				return 0, &alert{alertLevelFatal, alertInternalError}, err
 			}
 		} else {
-			state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.hashFunc())
+			state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.CipherSuite.HashFunc())
 			if err != nil {
 				return 0, &alert{alertLevelFatal, alertInternalError}, err
 			}
 		}
 
-		if err := state.cipherSuite.init(state.masterSecret, clientRandom[:], serverRandom[:], false); err != nil {
+		if err := state.CipherSuite.Init(state.masterSecret, clientRandom[:], serverRandom[:], false); err != nil {
 			return 0, &alert{alertLevelFatal, alertInternalError}, err
 		}
 	}
@@ -133,6 +133,10 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 	if _, ok = msgs[handshakeTypeFinished].(*handshakeMessageFinished); !ok {
 		return 0, &alert{alertLevelFatal, alertInternalError}, nil
+	}
+
+	if state.CipherSuite != nil && state.CipherSuite.IsAnon() {
+		return flight6, nil, nil
 	}
 
 	switch cfg.clientAuth {
@@ -185,15 +189,15 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 	var pkts []*packet
 
 	pkts = append(pkts, &packet{
-		record: &recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
+		record: &RecordLayer{
+			RecordLayerHeader: RecordLayerHeader{
+				ProtocolVersion: ProtocolVersion1_2,
 			},
-			content: &handshake{
+			Content: &handshake{
 				handshakeMessage: &handshakeMessageServerHello{
-					version:           protocolVersion1_2,
+					version:           ProtocolVersion1_2,
 					random:            state.localRandom,
-					cipherSuite:       state.cipherSuite,
+					CipherSuite:       state.CipherSuite,
 					compressionMethod: defaultCompressionMethods()[0],
 					extensions:        extensions,
 				},
@@ -201,18 +205,33 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		},
 	})
 
-	if cfg.localPSKCallback == nil {
+	if state.CipherSuite != nil && state.CipherSuite.IsAnon() {
+		pkts = append(pkts, &packet{
+			record: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ProtocolVersion: ProtocolVersion1_2,
+				},
+				Content: &handshake{
+					handshakeMessage: &handshakeMessageServerKeyExchange{
+						ellipticCurveType: ellipticCurveTypeNamedCurve,
+						namedCurve:        state.namedCurve,
+						publicKey:         state.localKeypair.publicKey,
+					},
+				},
+			},
+		})
+	} else if cfg.localPSKCallback == nil {
 		certificate, err := cfg.getCertificate(cfg.serverName)
 		if err != nil {
 			return nil, &alert{alertLevelFatal, alertHandshakeFailure}, err
 		}
 
 		pkts = append(pkts, &packet{
-			record: &recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
+			record: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ProtocolVersion: ProtocolVersion1_2,
 				},
-				content: &handshake{
+				Content: &handshake{
 					handshakeMessage: &handshakeMessageCertificate{
 						certificate: certificate.Certificate,
 					},
@@ -236,11 +255,11 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		state.localKeySignature = signature
 
 		pkts = append(pkts, &packet{
-			record: &recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
+			record: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ProtocolVersion: ProtocolVersion1_2,
 				},
-				content: &handshake{
+				Content: &handshake{
 					handshakeMessage: &handshakeMessageServerKeyExchange{
 						ellipticCurveType:  ellipticCurveTypeNamedCurve,
 						namedCurve:         state.namedCurve,
@@ -255,13 +274,13 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 		if cfg.clientAuth > NoClientCert {
 			pkts = append(pkts, &packet{
-				record: &recordLayer{
-					recordLayerHeader: recordLayerHeader{
-						protocolVersion: protocolVersion1_2,
+				record: &RecordLayer{
+					RecordLayerHeader: RecordLayerHeader{
+						ProtocolVersion: ProtocolVersion1_2,
 					},
-					content: &handshake{
+					Content: &handshake{
 						handshakeMessage: &handshakeMessageCertificateRequest{
-							certificateTypes:        []clientCertificateType{clientCertificateTypeRSASign, clientCertificateTypeECDSASign},
+							certificateTypes:        []ClientCertificateType{ClientCertificateTypeRSASign, ClientCertificateTypeECDSASign},
 							signatureHashAlgorithms: cfg.localSignatureSchemes,
 						},
 					},
@@ -275,11 +294,11 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		//
 		// https://tools.ietf.org/html/rfc4279#section-2
 		pkts = append(pkts, &packet{
-			record: &recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
+			record: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ProtocolVersion: ProtocolVersion1_2,
 				},
-				content: &handshake{
+				Content: &handshake{
 					handshakeMessage: &handshakeMessageServerKeyExchange{
 						identityHint: cfg.localPSKIdentityHint,
 					},
@@ -289,11 +308,11 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 	}
 
 	pkts = append(pkts, &packet{
-		record: &recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				protocolVersion: protocolVersion1_2,
+		record: &RecordLayer{
+			RecordLayerHeader: RecordLayerHeader{
+				ProtocolVersion: ProtocolVersion1_2,
 			},
-			content: &handshake{
+			Content: &handshake{
 				handshakeMessage: &handshakeMessageServerHelloDone{},
 			},
 		},

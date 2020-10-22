@@ -1,7 +1,7 @@
 package dtls
 
 type packet struct {
-	record                   *recordLayer
+	record                   *RecordLayer
 	shouldEncrypt            bool
 	resetLocalSequenceNumber bool
 }

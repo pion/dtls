@@ -1,16 +1,16 @@
 package dtls
 
 // https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-10
-type clientCertificateType byte
+type ClientCertificateType byte
 
 const (
-	clientCertificateTypeRSASign   clientCertificateType = 1
-	clientCertificateTypeECDSASign clientCertificateType = 64
+	ClientCertificateTypeRSASign   ClientCertificateType = 1
+	ClientCertificateTypeECDSASign ClientCertificateType = 64
 )
 
-func clientCertificateTypes() map[clientCertificateType]bool {
-	return map[clientCertificateType]bool{
-		clientCertificateTypeRSASign:   true,
-		clientCertificateTypeECDSASign: true,
+func clientCertificateTypes() map[ClientCertificateType]bool {
+	return map[ClientCertificateType]bool{
+		ClientCertificateTypeRSASign:   true,
+		ClientCertificateTypeECDSASign: true,
 	}
 }

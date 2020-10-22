@@ -12,11 +12,11 @@ initiative in order to renegotiate the security parameters in an
 existing connection.
 */
 type handshakeMessageClientHello struct {
-	version protocolVersion
+	version ProtocolVersion
 	random  handshakeRandom
 	cookie  []byte
 
-	cipherSuites       []cipherSuite
+	cipherSuites       []CipherSuite
 	compressionMethods []*compressionMethod
 	extensions         []extension
 }
@@ -33,8 +33,8 @@ func (h *handshakeMessageClientHello) Marshal() ([]byte, error) {
 	}
 
 	out := make([]byte, handshakeMessageClientHelloVariableWidthStart)
-	out[0] = h.version.major
-	out[1] = h.version.minor
+	out[0] = h.version.Major
+	out[1] = h.version.Minor
 
 	rand := h.random.marshalFixed()
 	copy(out[2:], rand[:])
@@ -59,8 +59,8 @@ func (h *handshakeMessageClientHello) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 
-	h.version.major = data[0]
-	h.version.minor = data[1]
+	h.version.Major = data[0]
+	h.version.Minor = data[1]
 
 	var random [handshakeRandomLength]byte
 	copy(random[:], data[2:])

@@ -14,7 +14,7 @@ type State struct {
 	localSequenceNumber       []uint64 // uint48
 	localRandom, remoteRandom handshakeRandom
 	masterSecret              []byte
-	cipherSuite               cipherSuite // nil if a cipherSuite hasn't been chosen
+	CipherSuite               CipherSuite // nil if a CipherSuite hasn't been chosen
 
 	srtpProtectionProfile SRTPProtectionProfile // Negotiated SRTPProtectionProfile
 	PeerCertificates      [][]byte
@@ -69,7 +69,7 @@ func (s *State) serialize() *serializedState {
 	return &serializedState{
 		LocalEpoch:            epoch,
 		RemoteEpoch:           s.remoteEpoch.Load().(uint16),
-		CipherSuiteID:         uint16(s.cipherSuite.ID()),
+		CipherSuiteID:         uint16(s.CipherSuite.ID()),
 		MasterSecret:          s.masterSecret,
 		SequenceNumber:        atomic.LoadUint64(&s.localSequenceNumber[epoch]),
 		LocalRandom:           localRnd,
@@ -105,7 +105,7 @@ func (s *State) deserialize(serialized serializedState) {
 	s.masterSecret = serialized.MasterSecret
 
 	// Set cipher suite
-	s.cipherSuite = cipherSuiteForID(CipherSuiteID(serialized.CipherSuiteID))
+	s.CipherSuite = cipherSuiteForID(CipherSuiteID(serialized.CipherSuiteID))
 
 	atomic.StoreUint64(&s.localSequenceNumber[epoch], serialized.SequenceNumber)
 	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
@@ -115,7 +115,7 @@ func (s *State) deserialize(serialized serializedState) {
 }
 
 func (s *State) initCipherSuite() error {
-	if s.cipherSuite.isInitialized() {
+	if s.CipherSuite.IsInitialized() {
 		return nil
 	}
 
@@ -124,9 +124,9 @@ func (s *State) initCipherSuite() error {
 
 	var err error
 	if s.isClient {
-		err = s.cipherSuite.init(s.masterSecret, localRandom[:], remoteRandom[:], true)
+		err = s.CipherSuite.Init(s.masterSecret, localRandom[:], remoteRandom[:], true)
 	} else {
-		err = s.cipherSuite.init(s.masterSecret, remoteRandom[:], localRandom[:], false)
+		err = s.CipherSuite.Init(s.masterSecret, remoteRandom[:], localRandom[:], false)
 	}
 	if err != nil {
 		return err
@@ -183,5 +183,5 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 	} else {
 		seed = append(append(seed, remoteRandom[:]...), localRandom[:]...)
 	}
-	return prfPHash(s.masterSecret, seed, length, s.cipherSuite.hashFunc())
+	return prfPHash(s.masterSecret, seed, length, s.CipherSuite.HashFunc())
 }

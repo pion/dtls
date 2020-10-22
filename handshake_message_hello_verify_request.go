@@ -18,7 +18,7 @@ package dtls
    https://tools.ietf.org/html/rfc6347#section-4.2.1
 */
 type handshakeMessageHelloVerifyRequest struct {
-	version protocolVersion
+	version ProtocolVersion
 	cookie  []byte
 }
 
@@ -32,8 +32,8 @@ func (h *handshakeMessageHelloVerifyRequest) Marshal() ([]byte, error) {
 	}
 
 	out := make([]byte, 3+len(h.cookie))
-	out[0] = h.version.major
-	out[1] = h.version.minor
+	out[0] = h.version.Major
+	out[1] = h.version.Minor
 	out[2] = byte(len(h.cookie))
 	copy(out[3:], h.cookie)
 
@@ -44,8 +44,8 @@ func (h *handshakeMessageHelloVerifyRequest) Unmarshal(data []byte) error {
 	if len(data) < 3 {
 		return errBufferTooSmall
 	}
-	h.version.major = data[0]
-	h.version.minor = data[1]
+	h.version.Major = data[0]
+	h.version.Minor = data[1]
 	cookieLength := data[2]
 	if len(data) < (int(cookieLength) + 3) {
 		return errBufferTooSmall

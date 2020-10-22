@@ -217,15 +217,15 @@ func verifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName
 	return certificate[0].Verify(opts)
 }
 
-func generateAEADAdditionalData(h *recordLayerHeader, payloadLen int) []byte {
+func generateAEADAdditionalData(h *RecordLayerHeader, payloadLen int) []byte {
 	var additionalData [13]byte
 	// SequenceNumber MUST be set first
 	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
-	binary.BigEndian.PutUint64(additionalData[:], h.sequenceNumber)
-	binary.BigEndian.PutUint16(additionalData[:], h.epoch)
-	additionalData[8] = byte(h.contentType)
-	additionalData[9] = h.protocolVersion.major
-	additionalData[10] = h.protocolVersion.minor
+	binary.BigEndian.PutUint64(additionalData[:], h.SequenceNumber)
+	binary.BigEndian.PutUint16(additionalData[:], h.Epoch)
+	additionalData[8] = byte(h.ContentType)
+	additionalData[9] = h.ProtocolVersion.Major
+	additionalData[10] = h.ProtocolVersion.Minor
 	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(payloadLen))
 
 	return additionalData[:]

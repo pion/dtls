@@ -11,9 +11,9 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 		0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x00, 0x00,
 	}
 	parsedCertificateRequest := &handshakeMessageCertificateRequest{
-		certificateTypes: []clientCertificateType{
-			clientCertificateTypeRSASign,
-			clientCertificateTypeECDSASign,
+		certificateTypes: []ClientCertificateType{
+			ClientCertificateTypeRSASign,
+			ClientCertificateTypeECDSASign,
 		},
 		signatureHashAlgorithms: []signatureHashAlgorithm{
 			{hash: hashAlgorithmSHA256, signature: signatureAlgorithmECDSA},

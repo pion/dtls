@@ -55,36 +55,36 @@ func TestRecordLayerRoundTrip(t *testing.T) {
 	for _, test := range []struct {
 		Name               string
 		Data               []byte
-		Want               *recordLayer
+		Want               *RecordLayer
 		WantMarshalError   error
 		WantUnmarshalError error
 	}{
 		{
 			Name: "Change Cipher Spec, single packet",
 			Data: []byte{0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
-			Want: &recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					contentType:     contentTypeChangeCipherSpec,
-					protocolVersion: protocolVersion{0xfe, 0xff},
-					epoch:           0,
-					sequenceNumber:  18,
+			Want: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ContentType:     ContentTypeChangeCipherSpec,
+					ProtocolVersion: ProtocolVersion{0xfe, 0xff},
+					Epoch:           0,
+					SequenceNumber:  18,
 				},
-				content: &changeCipherSpec{},
+				Content: &changeCipherSpec{},
 			},
 		},
 	} {
-		r := &recordLayer{}
+		r := &RecordLayer{}
 		if err := r.Unmarshal(test.Data); !errors.Is(err, test.WantUnmarshalError) {
 			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantUnmarshalError, err)
 		} else if !reflect.DeepEqual(test.Want, r) {
-			t.Errorf("%q recordLayer.unmarshal: got %q, want %q", test.Name, r, test.Want)
+			t.Errorf("%q RecordLayer.unmarshal: got %q, want %q", test.Name, r, test.Want)
 		}
 
 		data, marshalErr := r.Marshal()
 		if !errors.Is(marshalErr, test.WantMarshalError) {
 			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantMarshalError, marshalErr)
 		} else if !reflect.DeepEqual(test.Data, data) {
-			t.Errorf("%q recordLayer.marshal: got % 02x, want % 02x", test.Name, data, test.Data)
+			t.Errorf("%q RecordLayer.marshal: got % 02x, want % 02x", test.Name, data, test.Data)
 		}
 	}
 }

@@ -22,7 +22,7 @@ func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		return 0, &alert{alertLevelFatal, alertInternalError}, nil
 	}
 
-	if !clientHello.version.Equal(protocolVersion1_2) {
+	if !clientHello.version.Equal(ProtocolVersion1_2) {
 		return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
 	}
 
@@ -32,7 +32,7 @@ func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errCipherSuiteNoIntersection
 	}
 
-	state.cipherSuite = clientHello.cipherSuites[0]
+	state.CipherSuite = clientHello.cipherSuites[0]
 
 	for _, extension := range clientHello.extensions {
 		switch e := extension.(type) {

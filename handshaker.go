@@ -88,7 +88,7 @@ type handshakeFSM struct {
 type handshakeConfig struct {
 	localPSKCallback            PSKCallback
 	localPSKIdentityHint        []byte
-	localCipherSuites           []cipherSuite            // Available CipherSuites
+	localCipherSuites           []CipherSuite            // Available CipherSuites
 	localSignatureSchemes       []signatureHashAlgorithm // Available signature schemes
 	extendedMasterSecret        ExtendedMasterSecretType // Policy for the Extended Master Support extension
 	localSRTPProtectionProfiles []SRTPProtectionProfile  // Available SRTPProtectionProfiles, if empty no SRTP support
@@ -202,11 +202,11 @@ func (s *handshakeFSM) prepare(ctx context.Context, c flightConn) (handshakeStat
 	epoch := s.cfg.initialEpoch
 	nextEpoch := epoch
 	for _, p := range s.flights {
-		p.record.recordLayerHeader.epoch += epoch
-		if p.record.recordLayerHeader.epoch > nextEpoch {
-			nextEpoch = p.record.recordLayerHeader.epoch
+		p.record.RecordLayerHeader.Epoch += epoch
+		if p.record.RecordLayerHeader.Epoch > nextEpoch {
+			nextEpoch = p.record.RecordLayerHeader.Epoch
 		}
-		if h, ok := p.record.content.(*handshake); ok {
+		if h, ok := p.record.Content.(*handshake); ok {
 			h.handshakeHeader.messageSequence = uint16(s.state.handshakeSendSequence)
 			s.state.handshakeSendSequence++
 		}

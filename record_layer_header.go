@@ -2,12 +2,12 @@ package dtls
 
 import "encoding/binary"
 
-type recordLayerHeader struct {
-	contentType     contentType
-	contentLen      uint16
-	protocolVersion protocolVersion
-	epoch           uint16
-	sequenceNumber  uint64 // uint48 in spec
+type RecordLayerHeader struct {
+	ContentType     ContentType
+	ContentLen      uint16
+	ProtocolVersion ProtocolVersion
+	Epoch           uint16
+	SequenceNumber  uint64 // uint48 in spec
 }
 
 const (
@@ -26,49 +26,49 @@ const (
 )
 
 var (
-	protocolVersion1_0 = protocolVersion{dtls1_0Major, dtls1_0Minor} //nolint:gochecknoglobals
-	protocolVersion1_2 = protocolVersion{dtls1_2Major, dtls1_2Minor} //nolint:gochecknoglobals
+	ProtocolVersion1_0 = ProtocolVersion{dtls1_0Major, dtls1_0Minor} //nolint:gochecknoglobals
+	ProtocolVersion1_2 = ProtocolVersion{dtls1_2Major, dtls1_2Minor} //nolint:gochecknoglobals
 )
 
 // https://tools.ietf.org/html/rfc4346#section-6.2.1
-type protocolVersion struct {
-	major, minor uint8
+type ProtocolVersion struct {
+	Major, Minor uint8
 }
 
-func (v protocolVersion) Equal(x protocolVersion) bool {
-	return v.major == x.major && v.minor == x.minor
+func (v ProtocolVersion) Equal(x ProtocolVersion) bool {
+	return v.Major == x.Major && v.Minor == x.Minor
 }
 
-func (r *recordLayerHeader) Marshal() ([]byte, error) {
-	if r.sequenceNumber > maxSequenceNumber {
+func (r *RecordLayerHeader) Marshal() ([]byte, error) {
+	if r.SequenceNumber > maxSequenceNumber {
 		return nil, errSequenceNumberOverflow
 	}
 
 	out := make([]byte, recordLayerHeaderSize)
-	out[0] = byte(r.contentType)
-	out[1] = r.protocolVersion.major
-	out[2] = r.protocolVersion.minor
-	binary.BigEndian.PutUint16(out[3:], r.epoch)
-	putBigEndianUint48(out[5:], r.sequenceNumber)
-	binary.BigEndian.PutUint16(out[recordLayerHeaderSize-2:], r.contentLen)
+	out[0] = byte(r.ContentType)
+	out[1] = r.ProtocolVersion.Major
+	out[2] = r.ProtocolVersion.Minor
+	binary.BigEndian.PutUint16(out[3:], r.Epoch)
+	putBigEndianUint48(out[5:], r.SequenceNumber)
+	binary.BigEndian.PutUint16(out[recordLayerHeaderSize-2:], r.ContentLen)
 	return out, nil
 }
 
-func (r *recordLayerHeader) Unmarshal(data []byte) error {
+func (r *RecordLayerHeader) Unmarshal(data []byte) error {
 	if len(data) < recordLayerHeaderSize {
 		return errBufferTooSmall
 	}
-	r.contentType = contentType(data[0])
-	r.protocolVersion.major = data[1]
-	r.protocolVersion.minor = data[2]
-	r.epoch = binary.BigEndian.Uint16(data[3:])
+	r.ContentType = ContentType(data[0])
+	r.ProtocolVersion.Major = data[1]
+	r.ProtocolVersion.Minor = data[2]
+	r.Epoch = binary.BigEndian.Uint16(data[3:])
 
 	// SequenceNumber is stored as uint48, make into uint64
 	seqCopy := make([]byte, 8)
 	copy(seqCopy[2:], data[5:11])
-	r.sequenceNumber = binary.BigEndian.Uint64(seqCopy)
+	r.SequenceNumber = binary.BigEndian.Uint64(seqCopy)
 
-	if !r.protocolVersion.Equal(protocolVersion1_0) && !r.protocolVersion.Equal(protocolVersion1_2) {
+	if !r.ProtocolVersion.Equal(ProtocolVersion1_0) && !r.ProtocolVersion.Equal(ProtocolVersion1_2) {
 		return errUnsupportedProtocolVersion
 	}
 

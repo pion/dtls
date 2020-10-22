@@ -107,6 +107,8 @@ type Config struct {
 	// Packet with sequence number older than this value compared to the latest
 	// accepted packet will be discarded. (default is 64)
 	ReplayProtectionWindow int
+
+	CipherSuitesFactory func() []CipherSuite
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {

@@ -21,13 +21,13 @@ const (
 )
 
 // State needed to handle encrypted input/output
-type cryptoCCM struct {
+type CryptoCCM struct {
 	localCCM, remoteCCM         ccm.CCM
 	localWriteIV, remoteWriteIV []byte
 	tagLen                      cryptoCCMTagLen
 }
 
-func newCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cryptoCCM, error) {
+func NewCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*CryptoCCM, error) {
 	localBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func newCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, rem
 		return nil, err
 	}
 
-	return &cryptoCCM{
+	return &CryptoCCM{
 		localCCM:      localCCM,
 		localWriteIV:  localWriteIV,
 		remoteCCM:     remoteCCM,
@@ -55,7 +55,7 @@ func newCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, rem
 	}, nil
 }
 
-func (c *cryptoCCM) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
+func (c *CryptoCCM) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
 	payload := raw[recordLayerHeaderSize:]
 	raw = raw[:recordLayerHeaderSize]
 
@@ -64,24 +64,24 @@ func (c *cryptoCCM) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	additionalData := generateAEADAdditionalData(&pkt.recordLayerHeader, len(payload))
+	additionalData := generateAEADAdditionalData(&pkt.RecordLayerHeader, len(payload))
 	encryptedPayload := c.localCCM.Seal(nil, nonce, payload, additionalData)
 
 	encryptedPayload = append(nonce[4:], encryptedPayload...)
 	raw = append(raw, encryptedPayload...)
 
-	// Update recordLayer size to include explicit nonce
+	// Update RecordLayer size to include explicit nonce
 	binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
 	return raw, nil
 }
 
-func (c *cryptoCCM) decrypt(in []byte) ([]byte, error) {
-	var h recordLayerHeader
+func (c *CryptoCCM) Decrypt(in []byte) ([]byte, error) {
+	var h RecordLayerHeader
 	err := h.Unmarshal(in)
 	switch {
 	case err != nil:
 		return nil, err
-	case h.contentType == contentTypeChangeCipherSpec:
+	case h.ContentType == ContentTypeChangeCipherSpec:
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
 	case len(in) <= (8 + recordLayerHeaderSize):

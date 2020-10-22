@@ -1,7 +1,7 @@
 package dtls
 
 type fragment struct {
-	recordLayerHeader recordLayerHeader
+	RecordLayerHeader RecordLayerHeader
 	handshakeHeader   handshakeHeader
 	data              []byte
 }
@@ -22,12 +22,12 @@ func newFragmentBuffer() *fragmentBuffer {
 // when an error returns it is fatal, and the DTLS connection should be stopped
 func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 	frag := new(fragment)
-	if err := frag.recordLayerHeader.Unmarshal(buf); err != nil {
+	if err := frag.RecordLayerHeader.Unmarshal(buf); err != nil {
 		return false, err
 	}
 
 	// fragment isn't a handshake, we don't need to handle it
-	if frag.recordLayerHeader.contentType != contentTypeHandshake {
+	if frag.RecordLayerHeader.ContentType != ContentTypeHandshake {
 		return false, nil
 	}
 
@@ -97,7 +97,7 @@ func (f *fragmentBuffer) pop() (content []byte, epoch uint16) {
 		return nil, 0
 	}
 
-	messageEpoch := frags[0].recordLayerHeader.epoch
+	messageEpoch := frags[0].RecordLayerHeader.Epoch
 
 	delete(f.cache, f.currentMessageSequenceNumber)
 	f.currentMessageSequenceNumber++

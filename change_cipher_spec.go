@@ -8,8 +8,8 @@ package dtls
 type changeCipherSpec struct {
 }
 
-func (c changeCipherSpec) contentType() contentType {
-	return contentTypeChangeCipherSpec
+func (c changeCipherSpec) ContentType() ContentType {
+	return ContentTypeChangeCipherSpec
 }
 
 func (c *changeCipherSpec) Marshal() ([]byte, error) {

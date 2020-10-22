@@ -12,10 +12,10 @@ failure alert.
 https://tools.ietf.org/html/rfc5246#section-7.4.1.3
 */
 type handshakeMessageServerHello struct {
-	version protocolVersion
+	version ProtocolVersion
 	random  handshakeRandom
 
-	cipherSuite       cipherSuite
+	CipherSuite       CipherSuite
 	compressionMethod *compressionMethod
 	extensions        []extension
 }
@@ -27,15 +27,15 @@ func (h handshakeMessageServerHello) handshakeType() handshakeType {
 }
 
 func (h *handshakeMessageServerHello) Marshal() ([]byte, error) {
-	if h.cipherSuite == nil {
+	if h.CipherSuite == nil {
 		return nil, errCipherSuiteUnset
 	} else if h.compressionMethod == nil {
 		return nil, errCompressionMethodUnset
 	}
 
 	out := make([]byte, handshakeMessageServerHelloVariableWidthStart)
-	out[0] = h.version.major
-	out[1] = h.version.minor
+	out[0] = h.version.Major
+	out[1] = h.version.Minor
 
 	rand := h.random.marshalFixed()
 	copy(out[2:], rand[:])
@@ -43,7 +43,7 @@ func (h *handshakeMessageServerHello) Marshal() ([]byte, error) {
 	out = append(out, 0x00) // SessionID
 
 	out = append(out, []byte{0x00, 0x00}...)
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(h.cipherSuite.ID()))
+	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(h.CipherSuite.ID()))
 
 	out = append(out, byte(h.compressionMethod.id))
 
@@ -60,8 +60,8 @@ func (h *handshakeMessageServerHello) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 
-	h.version.major = data[0]
-	h.version.minor = data[1]
+	h.version.Major = data[0]
+	h.version.Minor = data[1]
 
 	var random [handshakeRandomLength]byte
 	copy(random[:], data[2:])
@@ -73,7 +73,7 @@ func (h *handshakeMessageServerHello) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 	if c := cipherSuiteForID(CipherSuiteID(binary.BigEndian.Uint16(data[currOffset:]))); c != nil {
-		h.cipherSuite = c
+		h.CipherSuite = c
 		currOffset += 2
 	} else {
 		return errInvalidCipherSuite

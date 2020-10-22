@@ -20,13 +20,13 @@ func TestHandshakeMessage(t *testing.T) {
 			handshakeType:  handshakeTypeClientHello,
 		},
 		handshakeMessage: &handshakeMessageClientHello{
-			version: protocolVersion{0xFE, 0xFD},
+			version: ProtocolVersion{0xFE, 0xFD},
 			random: handshakeRandom{
 				time.Unix(3056586332, 0),
 				[28]byte{0x42, 0x54, 0xff, 0x86, 0xe1, 0x24, 0x41, 0x91, 0x42, 0x62, 0x15, 0xad, 0x16, 0xc9, 0x15, 0x8d, 0x95, 0x71, 0x8a, 0xbb, 0x22, 0xd7, 0x47, 0xec, 0xd8, 0x3d, 0xdc, 0x4b},
 			},
 			cookie:             []byte{},
-			cipherSuites:       []cipherSuite{},
+			cipherSuites:       []CipherSuite{},
 			compressionMethods: []*compressionMethod{},
 			extensions:         []extension{},
 		},

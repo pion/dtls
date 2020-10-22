@@ -122,8 +122,8 @@ type alert struct {
 	alertDescription alertDescription
 }
 
-func (a alert) contentType() contentType {
-	return contentTypeAlert
+func (a alert) ContentType() ContentType {
+	return ContentTypeAlert
 }
 
 func (a *alert) Marshal() ([]byte, error) {

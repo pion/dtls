@@ -195,8 +195,8 @@ func TestHandshakeCacheSessionHash(t *testing.T) {
 			h.push(i.data, i.epoch, i.messageSequence, i.typ, i.isClient)
 		}
 
-		cipherSuite := cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}
-		verifyData, err := h.sessionHash(cipherSuite.hashFunc(), 0)
+		CipherSuite := CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}
+		verifyData, err := h.sessionHash(CipherSuite.HashFunc(), 0)
 		if err != nil {
 			t.Error(err)
 		}

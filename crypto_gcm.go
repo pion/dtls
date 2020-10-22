@@ -14,12 +14,12 @@ const (
 )
 
 // State needed to handle encrypted input/output
-type cryptoGCM struct {
+type CryptoGCM struct {
 	localGCM, remoteGCM         cipher.AEAD
 	localWriteIV, remoteWriteIV []byte
 }
 
-func newCryptoGCM(localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cryptoGCM, error) {
+func NewCryptoGCM(localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*CryptoGCM, error) {
 	localBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func newCryptoGCM(localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cry
 		return nil, err
 	}
 
-	return &cryptoGCM{
+	return &CryptoGCM{
 		localGCM:      localGCM,
 		localWriteIV:  localWriteIV,
 		remoteGCM:     remoteGCM,
@@ -46,7 +46,7 @@ func newCryptoGCM(localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cry
 	}, nil
 }
 
-func (c *cryptoGCM) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
+func (c *CryptoGCM) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
 	payload := raw[recordLayerHeaderSize:]
 	raw = raw[:recordLayerHeaderSize]
 
@@ -56,25 +56,25 @@ func (c *cryptoGCM) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	additionalData := generateAEADAdditionalData(&pkt.recordLayerHeader, len(payload))
+	additionalData := generateAEADAdditionalData(&pkt.RecordLayerHeader, len(payload))
 	encryptedPayload := c.localGCM.Seal(nil, nonce, payload, additionalData)
 	r := make([]byte, len(raw)+len(nonce[4:])+len(encryptedPayload))
 	copy(r, raw)
 	copy(r[len(raw):], nonce[4:])
 	copy(r[len(raw)+len(nonce[4:]):], encryptedPayload)
 
-	// Update recordLayer size to include explicit nonce
+	// Update RecordLayer size to include explicit nonce
 	binary.BigEndian.PutUint16(r[recordLayerHeaderSize-2:], uint16(len(r)-recordLayerHeaderSize))
 	return r, nil
 }
 
-func (c *cryptoGCM) decrypt(in []byte) ([]byte, error) {
-	var h recordLayerHeader
+func (c *CryptoGCM) Decrypt(in []byte) ([]byte, error) {
+	var h RecordLayerHeader
 	err := h.Unmarshal(in)
 	switch {
 	case err != nil:
 		return nil, err
-	case h.contentType == contentTypeChangeCipherSpec:
+	case h.ContentType == ContentTypeChangeCipherSpec:
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
 	case len(in) <= (8 + recordLayerHeaderSize):

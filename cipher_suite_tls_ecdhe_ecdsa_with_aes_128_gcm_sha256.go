@@ -7,71 +7,75 @@ import (
 	"sync/atomic"
 )
 
-type cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256 struct {
-	gcm atomic.Value // *cryptoGCM
+type CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256 struct {
+	gcm atomic.Value // *CryptoGCM
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) certificateType() clientCertificateType {
-	return clientCertificateTypeECDSASign
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) CertificateType() ClientCertificateType {
+	return ClientCertificateTypeECDSASign
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) ID() CipherSuiteID {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) ID() CipherSuiteID {
 	return TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) String() string {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) String() string {
 	return "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) hashFunc() func() hash.Hash {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) HashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isPSK() bool {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) IsPSK() bool {
 	return false
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) isInitialized() bool {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) IsAnon() bool {
+	return false
+}
+
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) IsInitialized() bool {
 	return c.gcm.Load() != nil
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
 		prfMacLen = 0
 		prfKeyLen = 16
 		prfIvLen  = 4
 	)
 
-	keys, err := prfEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.hashFunc())
+	keys, err := PrfEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.HashFunc())
 	if err != nil {
 		return err
 	}
 
-	var gcm *cryptoGCM
+	var gcm *CryptoGCM
 	if isClient {
-		gcm, err = newCryptoGCM(keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
+		gcm, err = NewCryptoGCM(keys.clientWriteKey, keys.clientWriteIV, keys.serverWriteKey, keys.serverWriteIV)
 	} else {
-		gcm, err = newCryptoGCM(keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
+		gcm, err = NewCryptoGCM(keys.serverWriteKey, keys.serverWriteIV, keys.clientWriteKey, keys.clientWriteIV)
 	}
 	c.gcm.Store(gcm)
 
 	return err
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
 	gcm := c.gcm.Load()
-	if gcm == nil { // !c.isInitialized()
+	if gcm == nil { // !c.IsInitialized()
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
 	}
 
-	return gcm.(*cryptoGCM).encrypt(pkt, raw)
+	return gcm.(*CryptoGCM).Encrypt(pkt, raw)
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) decrypt(raw []byte) ([]byte, error) {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) Decrypt(raw []byte) ([]byte, error) {
 	gcm := c.gcm.Load()
-	if gcm == nil { // !c.isInitialized()
+	if gcm == nil { // !c.IsInitialized()
 		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
 	}
 
-	return gcm.(*cryptoGCM).decrypt(raw)
+	return gcm.(*CryptoGCM).Decrypt(raw)
 }

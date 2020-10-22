@@ -7,54 +7,58 @@ import (
 	"sync/atomic"
 )
 
-type cipherSuiteTLSEcdheEcdsaWithAes256CbcSha struct {
-	cbc atomic.Value // *cryptoCBC
+type CipherSuiteTLSEcdheEcdsaWithAes256CbcSha struct {
+	cbc atomic.Value // *CryptoCBC
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) certificateType() clientCertificateType {
-	return clientCertificateTypeECDSASign
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) CertificateType() ClientCertificateType {
+	return ClientCertificateTypeECDSASign
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) ID() CipherSuiteID {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) ID() CipherSuiteID {
 	return TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) String() string {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) String() string {
 	return "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) hashFunc() func() hash.Hash {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) HashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isPSK() bool {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) IsPSK() bool {
 	return false
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) isInitialized() bool {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) IsAnon() bool {
+	return false
+}
+
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) IsInitialized() bool {
 	return c.cbc.Load() != nil
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
 		prfMacLen = 20
 		prfKeyLen = 32
 		prfIvLen  = 16
 	)
 
-	keys, err := prfEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.hashFunc())
+	keys, err := PrfEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.HashFunc())
 	if err != nil {
 		return err
 	}
 
-	var cbc *cryptoCBC
+	var cbc *CryptoCBC
 	if isClient {
-		cbc, err = newCryptoCBC(
+		cbc, err = NewCryptoCBC(
 			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
 			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
 		)
 	} else {
-		cbc, err = newCryptoCBC(
+		cbc, err = NewCryptoCBC(
 			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
 			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
 		)
@@ -64,20 +68,20 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRand
 	return err
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) Encrypt(pkt *RecordLayer, raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
-	if cbc == nil { // !c.isInitialized()
+	if cbc == nil { // !c.IsInitialized()
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
 	}
 
-	return cbc.(*cryptoCBC).encrypt(pkt, raw)
+	return cbc.(*CryptoCBC).Encrypt(pkt, raw)
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) decrypt(raw []byte) ([]byte, error) {
+func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) Decrypt(raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
-	if cbc == nil { // !c.isInitialized()
+	if cbc == nil { // !c.IsInitialized()
 		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
 	}
 
-	return cbc.(*cryptoCBC).decrypt(raw)
+	return cbc.(*CryptoCBC).Decrypt(raw)
 }

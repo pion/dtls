@@ -25,14 +25,14 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	for _, cipherSuite := range []dtls.CipherSuiteID{
+	for _, CipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
-		cipherSuite := cipherSuite
-		t.Run(cipherSuite.String(), func(t *testing.T) {
+		CipherSuite := CipherSuite
+		t.Run(CipherSuite.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -47,7 +47,7 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
 
 			cfg := &dtls.Config{
 				Certificates:       []tls.Certificate{cert},
-				CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
+				CipherSuites:       []dtls.CipherSuiteID{CipherSuite},
 				InsecureSkipVerify: true,
 			}
 			serverPort := randomPort(t)

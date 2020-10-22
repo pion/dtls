@@ -15,7 +15,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		if h, msgOk := msgs[handshakeTypeHelloVerifyRequest].(*handshakeMessageHelloVerifyRequest); msgOk {
 			// DTLS 1.2 clients must not assume that the server will use the protocol version
 			// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
-			if !h.version.Equal(protocolVersion1_0) && !h.version.Equal(protocolVersion1_2) {
+			if !h.version.Equal(ProtocolVersion1_0) && !h.version.Equal(ProtocolVersion1_2) {
 				return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
 			}
 			state.cookie = append([]byte{}, h.cookie...)
@@ -33,7 +33,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	} else {
 		seq, msgs, ok = cache.fullPullMap(state.handshakeRecvSequence,
 			handshakeCachePullRule{handshakeTypeServerHello, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshakeTypeCertificate, cfg.initialEpoch, false, false},
+			handshakeCachePullRule{handshakeTypeCertificate, cfg.initialEpoch, false, true},
 			handshakeCachePullRule{handshakeTypeServerKeyExchange, cfg.initialEpoch, false, false},
 			handshakeCachePullRule{handshakeTypeCertificateRequest, cfg.initialEpoch, false, true},
 			handshakeCachePullRule{handshakeTypeServerHelloDone, cfg.initialEpoch, false, false},
@@ -46,7 +46,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	state.handshakeRecvSequence = seq
 
 	if h, ok := msgs[handshakeTypeServerHello].(*handshakeMessageServerHello); ok {
-		if !h.version.Equal(protocolVersion1_2) {
+		if !h.version.Equal(ProtocolVersion1_2) {
 			return 0, &alert{alertLevelFatal, alertProtocolVersion}, errUnsupportedProtocolVersion
 		}
 		for _, extension := range h.extensions {
@@ -69,13 +69,13 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		if len(cfg.localSRTPProtectionProfiles) > 0 && state.srtpProtectionProfile == 0 {
 			return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errRequestedButNoSRTPExtension
 		}
-		if _, ok := findMatchingCipherSuite([]cipherSuite{h.cipherSuite}, cfg.localCipherSuites); !ok {
+		if _, ok := findMatchingCipherSuite([]CipherSuite{h.CipherSuite}, cfg.localCipherSuites); !ok {
 			return 0, &alert{alertLevelFatal, alertInsufficientSecurity}, errCipherSuiteNoIntersection
 		}
 
-		state.cipherSuite = h.cipherSuite
+		state.CipherSuite = h.CipherSuite
 		state.remoteRandom = h.random
-		cfg.log.Tracef("[handshake] use cipher suite: %s", h.cipherSuite.String())
+		cfg.log.Tracef("[handshake] use cipher suite: %s", h.CipherSuite.String())
 	}
 
 	if h, ok := msgs[handshakeTypeCertificate].(*handshakeMessageCertificate); ok {
@@ -154,13 +154,13 @@ func flight3Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 	return []*packet{
 		{
-			record: &recordLayer{
-				recordLayerHeader: recordLayerHeader{
-					protocolVersion: protocolVersion1_2,
+			record: &RecordLayer{
+				RecordLayerHeader: RecordLayerHeader{
+					ProtocolVersion: ProtocolVersion1_2,
 				},
-				content: &handshake{
+				Content: &handshake{
 					handshakeMessage: &handshakeMessageClientHello{
-						version:            protocolVersion1_2,
+						version:            ProtocolVersion1_2,
 						cookie:             state.cookie,
 						random:             state.localRandom,
 						cipherSuites:       cfg.localCipherSuites,

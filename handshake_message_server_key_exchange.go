@@ -78,6 +78,10 @@ func (h *handshakeMessageServerKeyExchange) Unmarshal(data []byte) error {
 	if len(data) <= offset {
 		return errBufferTooSmall
 	}
+	if len(data) == offset+4 {
+		// Anon connection doesn't contains hashAlgorithm, signatureAlgorithm, signature
+		return nil
+	}
 	h.hashAlgorithm = hashAlgorithm(data[offset])
 	if _, ok := hashAlgorithms()[h.hashAlgorithm]; !ok {
 		return errInvalidHashAlgorithm

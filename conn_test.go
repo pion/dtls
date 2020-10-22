@@ -17,6 +17,7 @@ import (
 
 	"github.com/pion/dtls/v2/internal/net/dpipe"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	"github.com/pion/logging"
 	"github.com/pion/transport/test"
 )
 
@@ -198,13 +199,13 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		// Try to send handshake packet.
 		if werr := ca.writePackets(ctx, []*packet{
 			{
-				record: &recordLayer{
-					recordLayerHeader: recordLayerHeader{
-						protocolVersion: protocolVersion1_2,
+				record: &RecordLayer{
+					RecordLayerHeader: RecordLayerHeader{
+						ProtocolVersion: ProtocolVersion1_2,
 					},
-					content: &handshake{
+					Content: &handshake{
 						handshakeMessage: &handshakeMessageClientHello{
-							version:            protocolVersion1_2,
+							version:            ProtocolVersion1_2,
 							cookie:             make([]byte, 64),
 							cipherSuites:       defaultCipherSuites(),
 							compressionMethods: defaultCompressionMethods(),
@@ -365,7 +366,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 			localRandom:         handshakeRandom{time.Unix(500, 0), rand},
 			remoteRandom:        handshakeRandom{time.Unix(1000, 0), rand},
 			localSequenceNumber: []uint64{0, 0},
-			cipherSuite:         &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+			CipherSuite:         &CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
 		},
 	}
 	c.setLocalEpoch(0)
@@ -1122,58 +1123,73 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 	defer report()
 
 	for _, test := range []struct {
-		Name               string
-		ClientCipherSuites []CipherSuiteID
-		ServerCipherSuites []CipherSuiteID
-		WantClientError    error
-		WantServerError    error
+		Name                string
+		ClientCipherSuites  []CipherSuiteID
+		ServerCipherSuites  []CipherSuiteID
+		GenerateCertificate bool
+		WantClientError     error
+		WantServerError     error
 	}{
 		{
-			Name:               "No CipherSuites specified",
-			ClientCipherSuites: nil,
-			ServerCipherSuites: nil,
-			WantClientError:    nil,
-			WantServerError:    nil,
+			Name:                "No CipherSuites specified",
+			ClientCipherSuites:  nil,
+			ServerCipherSuites:  nil,
+			WantClientError:     nil,
+			WantServerError:     nil,
+			GenerateCertificate: true,
 		},
 		{
-			Name:               "Invalid CipherSuite",
-			ClientCipherSuites: []CipherSuiteID{0x00},
-			ServerCipherSuites: []CipherSuiteID{0x00},
-			WantClientError:    &invalidCipherSuite{0x00},
-			WantServerError:    &invalidCipherSuite{0x00},
+			Name:                "Invalid CipherSuite",
+			ClientCipherSuites:  []CipherSuiteID{0x00},
+			ServerCipherSuites:  []CipherSuiteID{0x00},
+			WantClientError:     &invalidCipherSuite{0x00},
+			WantServerError:     &invalidCipherSuite{0x00},
+			GenerateCertificate: true,
 		},
 		{
-			Name:               "Valid CipherSuites specified",
-			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			WantClientError:    nil,
-			WantServerError:    nil,
+			Name:                "Valid CipherSuites specified",
+			ClientCipherSuites:  []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ServerCipherSuites:  []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			WantClientError:     nil,
+			WantServerError:     nil,
+			GenerateCertificate: true,
 		},
 		{
-			Name:               "CipherSuites mismatch",
-			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
-			WantClientError:    &errAlert{&alert{alertLevelFatal, alertInsufficientSecurity}},
-			WantServerError:    errCipherSuiteNoIntersection,
+			Name:                "CipherSuites mismatch",
+			ClientCipherSuites:  []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ServerCipherSuites:  []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			WantClientError:     &errAlert{&alert{alertLevelFatal, alertInsufficientSecurity}},
+			WantServerError:     errCipherSuiteNoIntersection,
+			GenerateCertificate: true,
 		},
 		{
-			Name:               "Valid CipherSuites CCM specified",
-			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
-			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
-			WantClientError:    nil,
-			WantServerError:    nil,
+			Name:                "Valid CipherSuites CCM specified",
+			ClientCipherSuites:  []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
+			ServerCipherSuites:  []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
+			WantClientError:     nil,
+			WantServerError:     nil,
+			GenerateCertificate: true,
 		},
 		{
-			Name:               "Valid CipherSuites CCM-8 specified",
-			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
-			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
-			WantClientError:    nil,
-			WantServerError:    nil,
+			Name:                "Valid CipherSuites CCM-8 specified",
+			ClientCipherSuites:  []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
+			ServerCipherSuites:  []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
+			WantClientError:     nil,
+			WantServerError:     nil,
+			GenerateCertificate: true,
+		},
+		{
+			Name:                "Valid CipherSuites ANON specified",
+			ClientCipherSuites:  []CipherSuiteID{TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256},
+			ServerCipherSuites:  []CipherSuiteID{TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256},
+			WantClientError:     nil,
+			WantServerError:     nil,
+			GenerateCertificate: false,
 		},
 	} {
 		test := test
 		t.Run(test.Name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 3600*time.Second)
 			defer cancel()
 
 			ca, cb := dpipe.Pipe()
@@ -1183,12 +1199,15 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			}
 			c := make(chan result)
 
+			log := logging.NewDefaultLoggerFactory()
+			log.DefaultLogLevel = logging.LogLevelTrace
+
 			go func() {
-				client, err := testClient(ctx, ca, &Config{CipherSuites: test.ClientCipherSuites}, true)
+				client, err := testClient(ctx, ca, &Config{CipherSuites: test.ClientCipherSuites, LoggerFactory: log}, test.GenerateCertificate)
 				c <- result{client, err}
 			}()
 
-			server, err := testServer(ctx, cb, &Config{CipherSuites: test.ServerCipherSuites}, true)
+			server, err := testServer(ctx, cb, &Config{CipherSuites: test.ServerCipherSuites, LoggerFactory: log}, test.GenerateCertificate)
 			if err == nil {
 				defer func() {
 					_ = server.Close()
@@ -1200,11 +1219,18 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 
 			res := <-c
 			if res.err == nil {
+				if res.c != nil {
+					_, err = res.c.Write([]byte("aaa"))
+					if err != nil {
+						t.Errorf("err: %v", err)
+					}
+				}
 				_ = server.Close()
 			}
 			if !errors.Is(res.err, test.WantClientError) {
 				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
 			}
+
 		})
 	}
 }
@@ -1319,9 +1345,9 @@ func TestServerTimeout(t *testing.T) {
 	var rand [28]byte
 	random := handshakeRandom{time.Unix(500, 0), rand}
 
-	cipherSuites := []cipherSuite{
-		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
-		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
+	cipherSuites := []CipherSuite{
+		&CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+		&CipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
 	}
 
 	extensions := []extension{
@@ -1343,18 +1369,18 @@ func TestServerTimeout(t *testing.T) {
 		},
 	}
 
-	record := &recordLayer{
-		recordLayerHeader: recordLayerHeader{
-			sequenceNumber:  0,
-			protocolVersion: protocolVersion1_2,
+	record := &RecordLayer{
+		RecordLayerHeader: RecordLayerHeader{
+			SequenceNumber:  0,
+			ProtocolVersion: ProtocolVersion1_2,
 		},
-		content: &handshake{
+		Content: &handshake{
 			// sequenceNumber and messageSequence line up, may need to be re-evaluated
 			handshakeHeader: handshakeHeader{
 				messageSequence: 0,
 			},
 			handshakeMessage: &handshakeMessageClientHello{
-				version:            protocolVersion1_2,
+				version:            ProtocolVersion1_2,
 				cookie:             cookie,
 				random:             random,
 				cipherSuites:       cipherSuites,
@@ -1458,20 +1484,20 @@ func TestProtocolVersionValidation(t *testing.T) {
 
 	t.Run("Server", func(t *testing.T) {
 		serverCases := map[string]struct {
-			records []*recordLayer
+			records []*RecordLayer
 		}{
 			"ClientHelloVersion": {
-				records: []*recordLayer{
+				records: []*RecordLayer{
 					{
-						recordLayerHeader: recordLayerHeader{
-							protocolVersion: protocolVersion1_2,
+						RecordLayerHeader: RecordLayerHeader{
+							ProtocolVersion: ProtocolVersion1_2,
 						},
-						content: &handshake{
+						Content: &handshake{
 							handshakeMessage: &handshakeMessageClientHello{
-								version:            protocolVersion{0xfe, 0xff}, // try to downgrade
+								version:            ProtocolVersion{0xfe, 0xff}, // try to downgrade
 								cookie:             cookie,
 								random:             random,
-								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								cipherSuites:       []CipherSuite{&CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
 								compressionMethods: defaultCompressionMethods(),
 							},
 						},
@@ -1479,35 +1505,35 @@ func TestProtocolVersionValidation(t *testing.T) {
 				},
 			},
 			"SecondsClientHelloVersion": {
-				records: []*recordLayer{
+				records: []*RecordLayer{
 					{
-						recordLayerHeader: recordLayerHeader{
-							protocolVersion: protocolVersion1_2,
+						RecordLayerHeader: RecordLayerHeader{
+							ProtocolVersion: ProtocolVersion1_2,
 						},
-						content: &handshake{
+						Content: &handshake{
 							handshakeMessage: &handshakeMessageClientHello{
-								version:            protocolVersion1_2,
+								version:            ProtocolVersion1_2,
 								cookie:             cookie,
 								random:             random,
-								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								cipherSuites:       []CipherSuite{&CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
 								compressionMethods: defaultCompressionMethods(),
 							},
 						},
 					},
 					{
-						recordLayerHeader: recordLayerHeader{
-							protocolVersion: protocolVersion1_2,
-							sequenceNumber:  1,
+						RecordLayerHeader: RecordLayerHeader{
+							ProtocolVersion: ProtocolVersion1_2,
+							SequenceNumber:  1,
 						},
-						content: &handshake{
+						Content: &handshake{
 							handshakeHeader: handshakeHeader{
 								messageSequence: 1,
 							},
 							handshakeMessage: &handshakeMessageClientHello{
-								version:            protocolVersion{0xfe, 0xff}, // try to downgrade
+								version:            ProtocolVersion{0xfe, 0xff}, // try to downgrade
 								cookie:             cookie,
 								random:             random,
-								cipherSuites:       []cipherSuite{&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
+								cipherSuites:       []CipherSuite{&CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}},
 								compressionMethods: defaultCompressionMethods(),
 							},
 						},
@@ -1557,11 +1583,11 @@ func TestProtocolVersionValidation(t *testing.T) {
 					resp = resp[:n]
 				}
 
-				h := &recordLayerHeader{}
+				h := &RecordLayerHeader{}
 				if err := h.Unmarshal(resp); err != nil {
 					t.Fatal("Failed to unmarshal response")
 				}
-				if h.contentType != contentTypeAlert {
+				if h.ContentType != ContentTypeAlert {
 					t.Errorf("Peer must return alert to unsupported protocol version")
 				}
 			})
@@ -1570,44 +1596,44 @@ func TestProtocolVersionValidation(t *testing.T) {
 
 	t.Run("Client", func(t *testing.T) {
 		clientCases := map[string]struct {
-			records []*recordLayer
+			records []*RecordLayer
 		}{
 			"ServerHelloVersion": {
-				records: []*recordLayer{
+				records: []*RecordLayer{
 					{
-						recordLayerHeader: recordLayerHeader{
-							protocolVersion: protocolVersion1_2,
+						RecordLayerHeader: RecordLayerHeader{
+							ProtocolVersion: ProtocolVersion1_2,
 						},
-						content: &handshake{
+						Content: &handshake{
 							handshakeMessage: &handshakeMessageHelloVerifyRequest{
-								version: protocolVersion1_2,
+								version: ProtocolVersion1_2,
 								cookie:  cookie,
 							},
 						},
 					},
 					{
-						recordLayerHeader: recordLayerHeader{
-							protocolVersion: protocolVersion1_2,
-							sequenceNumber:  1,
+						RecordLayerHeader: RecordLayerHeader{
+							ProtocolVersion: ProtocolVersion1_2,
+							SequenceNumber:  1,
 						},
-						content: &handshake{
+						Content: &handshake{
 							handshakeHeader: handshakeHeader{
 								messageSequence: 1,
 							},
 							handshakeMessage: &handshakeMessageServerHello{
-								version:           protocolVersion{0xfe, 0xff}, // try to downgrade
+								version:           ProtocolVersion{0xfe, 0xff}, // try to downgrade
 								random:            random,
-								cipherSuite:       &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+								CipherSuite:       &CipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
 								compressionMethod: defaultCompressionMethods()[0],
 							},
 						},
 					},
 					{
-						recordLayerHeader: recordLayerHeader{
-							protocolVersion: protocolVersion1_2,
-							sequenceNumber:  2,
+						RecordLayerHeader: RecordLayerHeader{
+							ProtocolVersion: ProtocolVersion1_2,
+							SequenceNumber:  2,
 						},
-						content: &handshake{
+						Content: &handshake{
 							handshakeHeader: handshakeHeader{
 								messageSequence: 2,
 							},
@@ -1615,11 +1641,11 @@ func TestProtocolVersionValidation(t *testing.T) {
 						},
 					},
 					{
-						recordLayerHeader: recordLayerHeader{
-							protocolVersion: protocolVersion1_2,
-							sequenceNumber:  3,
+						RecordLayerHeader: RecordLayerHeader{
+							ProtocolVersion: ProtocolVersion1_2,
+							SequenceNumber:  3,
 						},
-						content: &handshake{
+						Content: &handshake{
 							handshakeHeader: handshakeHeader{
 								messageSequence: 3,
 							},
@@ -1634,11 +1660,11 @@ func TestProtocolVersionValidation(t *testing.T) {
 						},
 					},
 					{
-						recordLayerHeader: recordLayerHeader{
-							protocolVersion: protocolVersion1_2,
-							sequenceNumber:  4,
+						RecordLayerHeader: RecordLayerHeader{
+							ProtocolVersion: ProtocolVersion1_2,
+							SequenceNumber:  4,
 						},
-						content: &handshake{
+						Content: &handshake{
 							handshakeHeader: handshakeHeader{
 								messageSequence: 4,
 							},
@@ -1694,11 +1720,11 @@ func TestProtocolVersionValidation(t *testing.T) {
 				}
 				resp = resp[:n]
 
-				h := &recordLayerHeader{}
+				h := &RecordLayerHeader{}
 				if err := h.Unmarshal(resp); err != nil {
 					t.Fatal("Failed to unmarshal response")
 				}
-				if h.contentType != contentTypeAlert {
+				if h.ContentType != ContentTypeAlert {
 					t.Errorf("Peer must return alert to unsupported protocol version")
 				}
 			})
@@ -1727,17 +1753,17 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 		}
 		cookies = append(cookies, cookie)
 
-		record := &recordLayer{
-			recordLayerHeader: recordLayerHeader{
-				sequenceNumber:  uint64(i),
-				protocolVersion: protocolVersion1_2,
+		record := &RecordLayer{
+			RecordLayerHeader: RecordLayerHeader{
+				SequenceNumber:  uint64(i),
+				ProtocolVersion: ProtocolVersion1_2,
 			},
-			content: &handshake{
+			Content: &handshake{
 				handshakeHeader: handshakeHeader{
 					messageSequence: uint16(i),
 				},
 				handshakeMessage: &handshakeMessageHelloVerifyRequest{
-					version: protocolVersion1_2,
+					version: ProtocolVersion1_2,
 					cookie:  cookie,
 				},
 			},
@@ -1775,11 +1801,11 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		record := &recordLayer{}
+		record := &RecordLayer{}
 		if err := record.Unmarshal(resp[:n]); err != nil {
 			t.Fatal(err)
 		}
-		clientHello := record.content.(*handshake).handshakeMessage.(*handshakeMessageClientHello)
+		clientHello := record.Content.(*handshake).handshakeMessage.(*handshakeMessageClientHello)
 		if !bytes.Equal(clientHello.cookie, cookie) {
 			t.Fatalf("Wrong cookie, expected: %x, got: %x", clientHello.cookie, cookie)
 		}

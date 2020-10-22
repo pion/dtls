@@ -67,8 +67,8 @@ type handshake struct {
 	handshakeMessage handshakeMessage
 }
 
-func (h handshake) contentType() contentType {
-	return contentTypeHandshake
+func (h handshake) ContentType() ContentType {
+	return ContentTypeHandshake
 }
 
 func (h *handshake) Marshal() ([]byte, error) {

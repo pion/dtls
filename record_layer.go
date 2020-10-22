@@ -20,21 +20,21 @@ import (
  verify the TLS MAC.
  https://tools.ietf.org/html/rfc4347#section-4.1
 */
-type recordLayer struct {
-	recordLayerHeader recordLayerHeader
-	content           content
+type RecordLayer struct {
+	RecordLayerHeader RecordLayerHeader
+	Content           Content
 }
 
-func (r *recordLayer) Marshal() ([]byte, error) {
-	contentRaw, err := r.content.Marshal()
+func (r *RecordLayer) Marshal() ([]byte, error) {
+	contentRaw, err := r.Content.Marshal()
 	if err != nil {
 		return nil, err
 	}
 
-	r.recordLayerHeader.contentLen = uint16(len(contentRaw))
-	r.recordLayerHeader.contentType = r.content.contentType()
+	r.RecordLayerHeader.ContentLen = uint16(len(contentRaw))
+	r.RecordLayerHeader.ContentType = r.Content.ContentType()
 
-	headerRaw, err := r.recordLayerHeader.Marshal()
+	headerRaw, err := r.RecordLayerHeader.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -42,28 +42,28 @@ func (r *recordLayer) Marshal() ([]byte, error) {
 	return append(headerRaw, contentRaw...), nil
 }
 
-func (r *recordLayer) Unmarshal(data []byte) error {
+func (r *RecordLayer) Unmarshal(data []byte) error {
 	if len(data) < recordLayerHeaderSize {
 		return errBufferTooSmall
 	}
-	if err := r.recordLayerHeader.Unmarshal(data); err != nil {
+	if err := r.RecordLayerHeader.Unmarshal(data); err != nil {
 		return err
 	}
 
-	switch contentType(data[0]) {
-	case contentTypeChangeCipherSpec:
-		r.content = &changeCipherSpec{}
-	case contentTypeAlert:
-		r.content = &alert{}
-	case contentTypeHandshake:
-		r.content = &handshake{}
-	case contentTypeApplicationData:
-		r.content = &applicationData{}
+	switch ContentType(data[0]) {
+	case ContentTypeChangeCipherSpec:
+		r.Content = &changeCipherSpec{}
+	case ContentTypeAlert:
+		r.Content = &alert{}
+	case ContentTypeHandshake:
+		r.Content = &handshake{}
+	case ContentTypeApplicationData:
+		r.Content = &applicationData{}
 	default:
 		return errInvalidContentType
 	}
 
-	return r.content.Unmarshal(data[recordLayerHeaderSize:])
+	return r.Content.Unmarshal(data[recordLayerHeaderSize:])
 }
 
 // Note that as with TLS, multiple handshake messages may be placed in
