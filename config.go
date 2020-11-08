@@ -154,8 +154,6 @@ func validateConfig(config *Config) error {
 	switch {
 	case config == nil:
 		return errNoConfigProvided
-	case len(config.Certificates) > 0 && config.PSK != nil:
-		return errPSKAndCertificate
 	case config.PSKIdentityHint != nil && config.PSK == nil:
 		return errIdentityNoPSK
 	}
@@ -174,6 +172,6 @@ func validateConfig(config *Config) error {
 		}
 	}
 
-	_, err := parseCipherSuites(config.CipherSuites, config.PSK == nil, config.PSK != nil)
+	_, err := parseCipherSuites(config.CipherSuites, config.PSK == nil || len(config.Certificates) > 0, config.PSK != nil)
 	return err
 }

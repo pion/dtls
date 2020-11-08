@@ -53,12 +53,13 @@ var (
 	errKeySignatureMismatch             = &FatalError{errors.New("expected and actual key signature do not match")}                                           //nolint:goerr113
 	errNilNextConn                      = &FatalError{errors.New("Conn can not be created with a nil nextConn")}                                              //nolint:goerr113
 	errNoAvailableCipherSuites          = &FatalError{errors.New("connection can not be created, no CipherSuites satisfy this Config")}                       //nolint:goerr113
+	errNoAvailablePSKCipherSuite        = &FatalError{errors.New("connection can not be created, pre-shared key present but no compatible CipherSuite")}      //nolint:goerr113
+	errNoAvailableNonPSKCipherSuite     = &FatalError{errors.New("connection can not be created, certificate present but no compatible CipherSuite")}         //nolint:goerr113
 	errNoAvailableSignatureSchemes      = &FatalError{errors.New("connection can not be created, no SignatureScheme satisfy this Config")}                    //nolint:goerr113
 	errNoCertificates                   = &FatalError{errors.New("no certificates configured")}                                                               //nolint:goerr113
 	errNoConfigProvided                 = &FatalError{errors.New("no config provided")}                                                                       //nolint:goerr113
 	errNoSupportedEllipticCurves        = &FatalError{errors.New("client requested zero or more elliptic curves that are not supported by the server")}       //nolint:goerr113
 	errUnsupportedProtocolVersion       = &FatalError{errors.New("unsupported protocol version")}                                                             //nolint:goerr113
-	errPSKAndCertificate                = &FatalError{errors.New("Certificate and PSK provided")}                                                             //nolint:stylecheck
 	errPSKAndIdentityMustBeSetForClient = &FatalError{errors.New("PSK and PSK Identity Hint must both be set for client")}                                    //nolint:goerr113
 	errRequestedButNoSRTPExtension      = &FatalError{errors.New("SRTP support was requested but server did not respond with use_srtp extension")}            //nolint:goerr113
 	errServerMustHaveCertificate        = &FatalError{errors.New("Certificate is mandatory for server")}                                                      //nolint:stylecheck
