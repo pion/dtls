@@ -16,21 +16,45 @@ func TestValidateConfig(t *testing.T) {
 		t.Fatalf("TestValidateConfig: Config validation error exp(%v) failed(%v)", errNoConfigProvided, err)
 	}
 
-	// PSK and Certificate
+	// PSK and Certificate, valid cipher suites
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), self signed certificate not generated", err)
 		return
 	}
 	config := &Config{
+		CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		PSK: func(hint []byte) ([]byte, error) {
+			return nil, nil
+		},
+		Certificates: []tls.Certificate{cert},
+	}
+	if err = validateConfig(config); err != nil {
+		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", nil, err)
+	}
+
+	// PSK and Certificate, no PSK cipher suite
+	config = &Config{
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		PSK: func(hint []byte) ([]byte, error) {
 			return nil, nil
 		},
 		Certificates: []tls.Certificate{cert},
 	}
-	if err = validateConfig(config); !errors.Is(err, errPSKAndCertificate) {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errPSKAndCertificate, err)
+	if err = validateConfig(config); !errors.Is(errNoAvailablePSKCipherSuite, err) {
+		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errNoAvailablePSKCipherSuite, err)
+	}
+
+	// PSK and Certificate, no non-PSK cipher suite
+	config = &Config{
+		CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+		PSK: func(hint []byte) ([]byte, error) {
+			return nil, nil
+		},
+		Certificates: []tls.Certificate{cert},
+	}
+	if err = validateConfig(config); !errors.Is(errNoAvailableNonPSKCipherSuite, err) {
+		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errNoAvailableNonPSKCipherSuite, err)
 	}
 
 	// PSK identity hint with not PSK
