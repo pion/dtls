@@ -1122,11 +1122,12 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 	defer report()
 
 	for _, test := range []struct {
-		Name               string
-		ClientCipherSuites []CipherSuiteID
-		ServerCipherSuites []CipherSuiteID
-		WantClientError    error
-		WantServerError    error
+		Name                    string
+		ClientCipherSuites      []CipherSuiteID
+		ServerCipherSuites      []CipherSuiteID
+		WantClientError         error
+		WantServerError         error
+		WantSelectedCipherSuite CipherSuiteID
 	}{
 		{
 			Name:               "No CipherSuites specified",
@@ -1143,11 +1144,12 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			WantServerError:    &invalidCipherSuite{0x00},
 		},
 		{
-			Name:               "Valid CipherSuites specified",
-			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			WantClientError:    nil,
-			WantServerError:    nil,
+			Name:                    "Valid CipherSuites specified",
+			ClientCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ServerCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			WantClientError:         nil,
+			WantServerError:         nil,
+			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		},
 		{
 			Name:               "CipherSuites mismatch",
@@ -1157,18 +1159,28 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			WantServerError:    errCipherSuiteNoIntersection,
 		},
 		{
-			Name:               "Valid CipherSuites CCM specified",
-			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
-			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
-			WantClientError:    nil,
-			WantServerError:    nil,
+			Name:                    "Valid CipherSuites CCM specified",
+			ClientCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
+			ServerCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
+			WantClientError:         nil,
+			WantServerError:         nil,
+			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
 		},
 		{
-			Name:               "Valid CipherSuites CCM-8 specified",
-			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
-			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
-			WantClientError:    nil,
-			WantServerError:    nil,
+			Name:                    "Valid CipherSuites CCM-8 specified",
+			ClientCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
+			ServerCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
+			WantClientError:         nil,
+			WantServerError:         nil,
+			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
+		},
+		{
+			Name:                    "Server supports subset of client suites",
+			ClientCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			ServerCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			WantClientError:         nil,
+			WantServerError:         nil,
+			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 		},
 	} {
 		test := test
@@ -1204,6 +1216,9 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			}
 			if !errors.Is(res.err, test.WantClientError) {
 				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
+			}
+			if test.WantSelectedCipherSuite != 0x00 && res.c.state.cipherSuite.ID() != test.WantSelectedCipherSuite {
+				t.Errorf("TestCipherSuiteConfiguration: Server Selected Bad Cipher Suite '%s': expected(%v) actual(%v)", test.Name, test.WantSelectedCipherSuite, res.c.state.cipherSuite.ID())
 			}
 		})
 	}
