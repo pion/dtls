@@ -167,8 +167,8 @@ func encodeCipherSuites(cipherSuites []cipherSuite) []byte {
 	return out
 }
 
-func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeNonPSK, includePSK bool) ([]cipherSuite, error) {
-	if !includeNonPSK && !includePSK {
+func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSuites, includePSKSuites bool) ([]cipherSuite, error) {
+	if !includeCertificateSuites && !includePSKSuites {
 		return nil, errNoAvailableCipherSuites
 	}
 
@@ -198,13 +198,13 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeNonPSK, includ
 		cipherSuites = defaultCipherSuites()
 	}
 
-	var foundPSK, foundNonPSK bool
+	var foundCertificateSuite, foundPSKSuite bool
 	for _, c := range cipherSuites {
 		switch {
-		case includePSK && c.isPSK():
-			foundPSK = true
-		case includeNonPSK && !c.isPSK():
-			foundNonPSK = true
+		case includeCertificateSuites && !c.isPSK():
+			foundCertificateSuite = true
+		case includePSKSuites && c.isPSK():
+			foundPSKSuite = true
 		default:
 			continue
 		}
@@ -212,11 +212,11 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeNonPSK, includ
 		i++
 	}
 
-	if includePSK && !foundPSK {
-		return nil, errNoAvailablePSKCipherSuite
+	if includeCertificateSuites && !foundCertificateSuite {
+		return nil, errNoAvailableCertificateCipherSuite
 	}
-	if includeNonPSK && !foundNonPSK {
-		return nil, errNoAvailableNonPSKCipherSuite
+	if includePSKSuites && !foundPSKSuite {
+		return nil, errNoAvailablePSKCipherSuite
 	}
 
 	return cipherSuites[:i], nil
