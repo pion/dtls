@@ -53,8 +53,8 @@ func TestValidateConfig(t *testing.T) {
 		},
 		Certificates: []tls.Certificate{cert},
 	}
-	if err = validateConfig(config); !errors.Is(errNoAvailableNonPSKCipherSuite, err) {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errNoAvailableNonPSKCipherSuite, err)
+	if err = validateConfig(config); !errors.Is(errNoAvailableCertificateCipherSuite, err) {
+		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errNoAvailableCertificateCipherSuite, err)
 	}
 
 	// PSK identity hint with not PSK
