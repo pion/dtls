@@ -655,10 +655,21 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, err
 	}
 	markPacketAsValid, ok := c.state.replayDetector[int(h.epoch)].Check(h.sequenceNumber)
 	if !ok {
-		c.log.Debugf("discarded duplicated packet (epoch: %d, seq: %d)",
-			h.epoch, h.sequenceNumber,
-		)
-		return false, nil, nil
+		if h.epoch == 0 &&
+			h.sequenceNumber == 0 &&
+			h.contentType == contentTypeHandshake &&
+			len(buf) >= recordLayerHeaderSize+1 &&
+			buf[recordLayerHeaderSize] == byte(handshakeTypeClientHello) {
+			// special exception to anti-replay to allow clients to re-establish a handshake with a new clientHello
+			c.log.Debugf("session reset via new clientHello")
+			c.close(true)
+			return false, nil, nil
+		} else {
+			c.log.Debugf("discarded duplicated packet (epoch: %d, seq: %d)",
+				h.epoch, h.sequenceNumber,
+			)
+			return false, nil, nil
+		}
 	}
 
 	// Decrypt
