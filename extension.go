@@ -24,6 +24,9 @@ type extension interface {
 }
 
 func decodeExtensions(buf []byte) ([]extension, error) {
+	if len(buf) == 0 {
+		return []extension{}, nil
+	}
 	if len(buf) < 2 {
 		return nil, errBufferTooSmall
 	}
