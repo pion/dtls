@@ -146,6 +146,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [ZHENK](https://github.com/scorpionknifes)
 * [Carson Hoffman](https://github.com/CarsonHoffman)
 * [Vadim Filimonov](https://github.com/fffilimonov)
+* [Jim Wert](https://github.com/bocajim)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text

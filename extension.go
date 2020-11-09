@@ -25,9 +25,13 @@ type extension interface {
 }
 
 func decodeExtensions(buf []byte) ([]extension, error) {
-	if len(buf) < 2 {
+	switch {
+	case len(buf) == 0:
+		return []extension{}, nil
+	case len(buf) < 2:
 		return nil, errBufferTooSmall
 	}
+
 	declaredLen := binary.BigEndian.Uint16(buf)
 	if len(buf)-2 != int(declaredLen) {
 		return nil, errLengthMismatch
