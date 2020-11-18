@@ -73,7 +73,8 @@ type Conn struct {
 
 	fsm *handshakeFSM
 
-	replayProtectionWindow uint
+	replayProtectionWindow  uint
+	clientHelloBypassReplay bool
 }
 
 func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient bool, initialState *State) (*Conn, error) {
@@ -135,7 +136,8 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		closed:           closer.NewCloser(),
 		cancelHandshaker: func() {},
 
-		replayProtectionWindow: uint(replayProtectionWindow),
+		replayProtectionWindow:  uint(replayProtectionWindow),
+		clientHelloBypassReplay: config.ClientHelloBypassReplay,
 
 		state: State{
 			isClient: isClient,
@@ -661,10 +663,21 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, err
 	}
 	markPacketAsValid, ok := c.state.replayDetector[int(h.epoch)].Check(h.sequenceNumber)
 	if !ok {
-		c.log.Debugf("discarded duplicated packet (epoch: %d, seq: %d)",
-			h.epoch, h.sequenceNumber,
-		)
-		return false, nil, nil
+		if c.clientHelloBypassReplay && h.epoch == 0 &&
+			h.sequenceNumber == 0 &&
+			h.contentType == contentTypeHandshake &&
+			len(buf) >= recordLayerHeaderSize+1 &&
+			buf[recordLayerHeaderSize] == byte(handshakeTypeClientHello) {
+			// special exception to anti-replay to allow clients to re-establish a handshake with a new clientHello
+			c.log.Debugf("session reset via new clientHello")
+			c.close(true)
+			return false, nil, nil
+		} else {
+			c.log.Debugf("discarded duplicated packet (epoch: %d, seq: %d)",
+				h.epoch, h.sequenceNumber,
+			)
+			return false, nil, nil
+		}
 	}
 
 	// Decrypt
