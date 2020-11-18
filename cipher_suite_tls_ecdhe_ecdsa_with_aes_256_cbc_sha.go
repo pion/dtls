@@ -52,11 +52,13 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRand
 		cbc, err = newCryptoCBC(
 			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
 			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
+			c.hashFunc(),
 		)
 	} else {
 		cbc, err = newCryptoCBC(
 			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
 			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
+			c.hashFunc(),
 		)
 	}
 	c.cbc.Store(cbc)

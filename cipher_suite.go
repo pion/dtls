@@ -26,6 +26,7 @@ const (
 	TLS_PSK_WITH_AES_128_CCM        CipherSuiteID = 0xc0a4 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_CCM_8      CipherSuiteID = 0xc0a8 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0x00a8 //nolint:golint,stylecheck
+	TLS_PSK_WITH_AES_128_CBC_SHA256 CipherSuiteID = 0x00ae //nolint:golint,stylecheck
 )
 
 var _ = allCipherSuites() // Necessary until this function isn't only used by Go 1.14
@@ -50,6 +51,8 @@ func (c CipherSuiteID) String() string {
 		return "TLS_PSK_WITH_AES_128_CCM_8"
 	case TLS_PSK_WITH_AES_128_GCM_SHA256:
 		return "TLS_PSK_WITH_AES_128_GCM_SHA256"
+	case TLS_PSK_WITH_AES_128_CBC_SHA256:
+		return "TLS_PSK_WITH_AES_128_CBC_SHA256"
 	default:
 		return fmt.Sprintf("unknown(%v)", uint16(c))
 	}
@@ -106,6 +109,8 @@ func cipherSuiteForID(id CipherSuiteID) cipherSuite {
 		return newCipherSuiteTLSPskWithAes128Ccm8()
 	case TLS_PSK_WITH_AES_128_GCM_SHA256:
 		return &cipherSuiteTLSPskWithAes128GcmSha256{}
+	case TLS_PSK_WITH_AES_128_CBC_SHA256:
+		return &cipherSuiteTLSPskWithAes128CbcSha256{}
 	}
 	return nil
 }
