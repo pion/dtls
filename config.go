@@ -107,6 +107,11 @@ type Config struct {
 	// Packet with sequence number older than this value compared to the latest
 	// accepted packet will be discarded. (default is 64)
 	ReplayProtectionWindow int
+
+	// ClientHelloBypassReplay causes the server to reset a session, bypassing
+	// the replay window protection if a ClientHello message is received after the
+	// session has started.  (default is false)
+	ClientHelloBypassReplay bool
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {
