@@ -3,7 +3,6 @@ package dtls
 import ( //nolint:gci
 	"crypto/elliptic"
 	"crypto/hmac"
-	"crypto/sha1" //nolint:gosec
 	"encoding/binary"
 	"fmt"
 	"hash"
@@ -208,8 +207,8 @@ func prfVerifyDataServer(masterSecret, handshakeBodies []byte, h hashFunc) ([]by
 }
 
 // compute the MAC using HMAC-SHA1
-func prfMac(epoch uint16, sequenceNumber uint64, contentType contentType, protocolVersion protocolVersion, payload []byte, key []byte) ([]byte, error) {
-	h := hmac.New(sha1.New, key)
+func prfMac(epoch uint16, sequenceNumber uint64, contentType contentType, protocolVersion protocolVersion, payload []byte, key []byte, hf hashFunc) ([]byte, error) {
+	h := hmac.New(hf, key)
 
 	msg := make([]byte, 13)
 
