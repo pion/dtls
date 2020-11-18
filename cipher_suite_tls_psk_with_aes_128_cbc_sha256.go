@@ -2,7 +2,7 @@ package dtls
 
 import (
 	"crypto/sha256"
-	"errors"
+	"fmt"
 	"hash"
 	"sync/atomic"
 )
@@ -69,7 +69,7 @@ func (c *cipherSuiteTLSPskWithAes128CbcSha256) init(masterSecret, clientRandom, 
 func (c *cipherSuiteTLSPskWithAes128CbcSha256) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
 	if cbc == nil { // !c.isInitialized()
-		return nil, errors.New("CipherSuite has not been initialized, unable to encrypt")
+		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
 	}
 
 	return cbc.(*cryptoCBC).encrypt(pkt, raw)
@@ -78,7 +78,7 @@ func (c *cipherSuiteTLSPskWithAes128CbcSha256) encrypt(pkt *recordLayer, raw []b
 func (c *cipherSuiteTLSPskWithAes128CbcSha256) decrypt(raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
 	if cbc == nil { // !c.isInitialized()
-		return nil, errors.New("CipherSuite has not been initialized, unable to decrypt ")
+		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
 	}
 
 	return cbc.(*cryptoCBC).decrypt(raw)

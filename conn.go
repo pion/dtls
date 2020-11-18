@@ -670,14 +670,13 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert, err
 			buf[recordLayerHeaderSize] == byte(handshakeTypeClientHello) {
 			// special exception to anti-replay to allow clients to re-establish a handshake with a new clientHello
 			c.log.Debugf("session reset via new clientHello")
-			c.close(true)
-			return false, nil, nil
+			_ = c.close(true)
 		} else {
 			c.log.Debugf("discarded duplicated packet (epoch: %d, seq: %d)",
 				h.epoch, h.sequenceNumber,
 			)
-			return false, nil, nil
 		}
+		return false, nil, nil
 	}
 
 	// Decrypt
