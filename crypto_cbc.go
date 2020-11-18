@@ -5,7 +5,6 @@ import ( //nolint:gci
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha1" //nolint:gosec
 	"encoding/binary"
 )
 
@@ -19,12 +18,10 @@ type cbcMode interface {
 type cryptoCBC struct {
 	writeCBC, readCBC cbcMode
 	writeMac, readMac []byte
+	h                 hashFunc
 }
 
-// Currently hardcoded to be SHA1 only
-var cryptoCBCMacFunc = sha1.New //nolint:gochecknoglobals
-
-func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte) (*cryptoCBC, error) {
+func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte, h hashFunc) (*cryptoCBC, error) {
 	writeBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err
@@ -41,6 +38,7 @@ func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, re
 
 		readCBC: cipher.NewCBCDecrypter(readBlock, remoteWriteIV).(cbcMode),
 		readMac: remoteMac,
+		h:       h,
 	}, nil
 }
 
@@ -52,7 +50,7 @@ func (c *cryptoCBC) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 	// Generate + Append MAC
 	h := pkt.recordLayerHeader
 
-	MAC, err := prfMac(h.epoch, h.sequenceNumber, h.contentType, h.protocolVersion, payload, c.writeMac)
+	MAC, err := prfMac(h.epoch, h.sequenceNumber, h.contentType, h.protocolVersion, payload, c.writeMac, c.h)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +87,7 @@ func (c *cryptoCBC) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 func (c *cryptoCBC) decrypt(in []byte) ([]byte, error) {
 	body := in[recordLayerHeaderSize:]
 	blockSize := c.readCBC.BlockSize()
-	mac := cryptoCBCMacFunc()
+	mac := c.h()
 
 	var h recordLayerHeader
 	err := h.Unmarshal(in)
@@ -122,7 +120,7 @@ func (c *cryptoCBC) decrypt(in []byte) ([]byte, error) {
 	dataEnd := len(body) - macSize - paddingLen
 
 	expectedMAC := body[dataEnd : dataEnd+macSize]
-	actualMAC, err := prfMac(h.epoch, h.sequenceNumber, h.contentType, h.protocolVersion, body[:dataEnd], c.readMac)
+	actualMAC, err := prfMac(h.epoch, h.sequenceNumber, h.contentType, h.protocolVersion, body[:dataEnd], c.readMac, c.h)
 
 	// Compute Local MAC and compare
 	if paddingGood != 255 || err != nil || !hmac.Equal(actualMAC, expectedMAC) {

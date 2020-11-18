@@ -422,14 +422,22 @@ func TestPSK(t *testing.T) {
 	for _, test := range []struct {
 		Name           string
 		ServerIdentity []byte
+		CipherSuites   []CipherSuiteID
 	}{
 		{
 			Name:           "Server identity specified",
 			ServerIdentity: []byte("Test Identity"),
+			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		},
 		{
 			Name:           "Server identity nil",
 			ServerIdentity: nil,
+			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+		},
+		{
+			Name:           "TLS_PSK_WITH_AES_128_CBC_SHA256",
+			ServerIdentity: nil,
+			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CBC_SHA256},
 		},
 	} {
 		test := test
@@ -455,7 +463,7 @@ func TestPSK(t *testing.T) {
 						return []byte{0xAB, 0xC1, 0x23}, nil
 					},
 					PSKIdentityHint: clientIdentity,
-					CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+					CipherSuites:    test.CipherSuites,
 				}
 
 				c, err := testClient(ctx, ca, conf, false)
@@ -470,7 +478,7 @@ func TestPSK(t *testing.T) {
 					return []byte{0xAB, 0xC1, 0x23}, nil
 				},
 				PSKIdentityHint: test.ServerIdentity,
-				CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+				CipherSuites:    test.CipherSuites,
 			}
 
 			server, err := testServer(ctx, cb, config, false)

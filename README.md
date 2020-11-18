@@ -53,6 +53,7 @@ We would love contributes that fall under the 'Planned Features' and fixing any 
 * TLS_PSK_WITH_AES_128_CCM ([RFC 6655][rfc6655])
 * TLS_PSK_WITH_AES_128_CCM_8 ([RFC 6655][rfc6655])
 * TLS_PSK_WITH_AES_128_GCM_SHA256 ([RFC 5487][rfc5487])
+* TLS_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5487][rfc5487])
 
 [rfc5289]: https://tools.ietf.org/html/rfc5289
 [rfc8422]: https://tools.ietf.org/html/rfc8422
