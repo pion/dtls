@@ -123,6 +123,9 @@ func flight3Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		&extensionSupportedSignatureAlgorithms{
 			signatureHashAlgorithms: cfg.localSignatureSchemes,
 		},
+		&extensionRenegotiationInfo{
+			renegotiatedConnection: 0,
+		},
 	}
 	if cfg.localPSKCallback == nil {
 		extensions = append(extensions, []extension{
