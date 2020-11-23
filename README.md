@@ -145,6 +145,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Frank Olbricht](https://github.com/folbricht)
 * [ZHENK](https://github.com/scorpionknifes)
 * [Carson Hoffman](https://github.com/CarsonHoffman)
+* [Vadim Filimonov](https://github.com/fffilimonov)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
