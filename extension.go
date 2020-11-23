@@ -14,6 +14,7 @@ const (
 	extensionSupportedSignatureAlgorithmsValue extensionValue = 13
 	extensionUseSRTPValue                      extensionValue = 14
 	extensionUseExtendedMasterSecretValue      extensionValue = 23
+	extensionRenegotiationInfoValue            extensionValue = 65281
 )
 
 type extension interface {
@@ -56,6 +57,8 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 			err = unmarshalAndAppend(buf[offset:], &extensionUseSRTP{})
 		case extensionUseExtendedMasterSecretValue:
 			err = unmarshalAndAppend(buf[offset:], &extensionUseExtendedMasterSecret{})
+		case extensionRenegotiationInfoValue:
+			err = unmarshalAndAppend(buf[offset:], &extensionRenegotiationInfo{})
 		default:
 		}
 		if err != nil {
