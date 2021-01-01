@@ -5,7 +5,7 @@ require (
 	github.com/pion/transport v0.12.1
 	github.com/pion/udp v0.1.0
 	golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad
-	golang.org/x/net v0.0.0-20201201195509-5d6afe98e0b7
+	golang.org/x/net v0.0.0-20201224014010-6772e930b67b
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1
 )
 
