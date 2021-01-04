@@ -27,6 +27,8 @@ const (
 	TLS_PSK_WITH_AES_128_CCM_8      CipherSuiteID = 0xc0a8 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_GCM_SHA256 CipherSuiteID = 0x00a8 //nolint:golint,stylecheck
 
+	TLS_PSK_WITH_AES_128_CBC_SHA256 CipherSuiteID = 0x00ae //nolint:golint,stylecheck
+
 	// https://tools.ietf.org/html/rfc8422#section-6
 	TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256 CipherSuiteID = 0xc018 //nolint:golint,stylecheck
 )
@@ -55,6 +57,8 @@ func (c CipherSuiteID) String() string {
 		return "TLS_PSK_WITH_AES_128_GCM_SHA256"
 	case TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256:
 		return "TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256"
+	case TLS_PSK_WITH_AES_128_CBC_SHA256:
+		return "TLS_PSK_WITH_AES_128_CBC_SHA256"
 	default:
 		return fmt.Sprintf("unknown(%v)", uint16(c))
 	}
@@ -114,6 +118,8 @@ func cipherSuiteForID(id CipherSuiteID) CipherSuite {
 		return &CipherSuiteTLSPskWithAes128GcmSha256{}
 	case TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256:
 		return NewCipherSuiteTLSEcdhAnonWithAes128CbcSha256(TLS_ECDH_ANON_WITH_AES_128_CBC_SHA256)
+	case TLS_PSK_WITH_AES_128_CBC_SHA256:
+		return &CipherSuiteTLSPskWithAes128CbcSha256{}
 	}
 	return nil
 }
@@ -209,7 +215,11 @@ func appendCustomCipherSuites(orig []CipherSuite, customSuites []CipherSuite, ex
 	return orig, nil
 }
 
-func parseCipherSuites(userSelectedSuites []CipherSuiteID, excludePSK, excludeNonPSK bool) ([]CipherSuite, error) {
+func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSuites, includePSKSuites bool) ([]CipherSuite, error) {
+	if !includeCertificateSuites && !includePSKSuites {
+		return nil, errNoAvailableCipherSuites
+	}
+
 	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]CipherSuite, error) {
 		cipherSuites := []CipherSuite{}
 		for _, id := range ids {
@@ -236,18 +246,26 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, excludePSK, excludeNo
 		cipherSuites = defaultCipherSuites()
 	}
 
+	var foundCertificateSuite, foundPSKSuite bool
 	for _, c := range cipherSuites {
-		if excludePSK && c.IsPSK() || excludeNonPSK && !c.IsPSK() {
+		switch {
+		case includeCertificateSuites && !c.IsPSK():
+			foundCertificateSuite = true
+		case includePSKSuites && c.IsPSK():
+			foundPSKSuite = true
+		default:
 			continue
 		}
 		cipherSuites[i] = c
 		i++
 	}
 
-	cipherSuites = cipherSuites[:i]
-	if len(cipherSuites) == 0 {
-		return nil, errNoAvailableCipherSuites
+	if includeCertificateSuites && !foundCertificateSuite {
+		return nil, errNoAvailableCertificateCipherSuite
+	}
+	if includePSKSuites && !foundPSKSuite {
+		return nil, errNoAvailablePSKCipherSuite
 	}
 
-	return cipherSuites, nil
+	return cipherSuites[:i], nil
 }

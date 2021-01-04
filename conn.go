@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/internal/closer"
-	"github.com/pion/dtls/v2/internal/net/connctx"
 	"github.com/pion/logging"
+	"github.com/pion/transport/connctx"
 	"github.com/pion/transport/deadline"
 	"github.com/pion/transport/replaydetector"
 )
@@ -86,7 +86,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		return nil, errNilNextConn
 	}
 
-	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.PSK == nil, config.PSK != nil)
+	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.PSK == nil || len(config.Certificates) > 0, config.PSK != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +445,7 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 	compactedRawPackets := c.compactRawPackets(rawPackets)
 
 	for _, compactedRawPackets := range compactedRawPackets {
-		if _, err := c.nextConn.Write(ctx, compactedRawPackets); err != nil {
+		if _, err := c.nextConn.WriteContext(ctx, compactedRawPackets); err != nil {
 			return netError(err)
 		}
 	}
@@ -601,7 +601,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 	defer poolReadBuffer.Put(bufptr)
 
 	b := *bufptr
-	i, err := c.nextConn.Read(ctx, b)
+	i, err := c.nextConn.ReadContext(ctx, b)
 	if err != nil {
 		return netError(err)
 	}

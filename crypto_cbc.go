@@ -22,7 +22,7 @@ type CryptoCBC struct {
 	hash              func() hash.Hash
 }
 
-func NewCryptoCBC(hash func() hash.Hash, localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte) (*CryptoCBC, error) {
+func NewCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte, hash func() hash.Hash) (*CryptoCBC, error) {
 	writeBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err

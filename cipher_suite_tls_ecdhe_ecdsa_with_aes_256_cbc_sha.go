@@ -1,7 +1,7 @@
 package dtls
 
-import ( //nolint:gci
-	"crypto/sha1" //nolint:gosec
+import (
+	"crypto/sha1" //nolint: gosec,gci
 	"crypto/sha256"
 	"fmt"
 	"hash"
@@ -55,15 +55,16 @@ func (c *CipherSuiteTLSEcdheEcdsaWithAes256CbcSha) Init(masterSecret, clientRand
 	var cbc *CryptoCBC
 	if isClient {
 		cbc, err = NewCryptoCBC(
-			sha1.New,
 			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
 			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
+			sha1.New,
 		)
 	} else {
 		cbc, err = NewCryptoCBC(
-			sha1.New,
+
 			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
 			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
+			sha1.New,
 		)
 	}
 	c.cbc.Store(cbc)

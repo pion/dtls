@@ -14,6 +14,7 @@ const (
 	extensionSupportedSignatureAlgorithmsValue extensionValue = 13
 	extensionUseSRTPValue                      extensionValue = 14
 	extensionUseExtendedMasterSecretValue      extensionValue = 23
+	extensionRenegotiationInfoValue            extensionValue = 65281
 )
 
 type extension interface {
@@ -24,9 +25,13 @@ type extension interface {
 }
 
 func decodeExtensions(buf []byte) ([]extension, error) {
-	if len(buf) < 2 {
+	switch {
+	case len(buf) == 0:
+		return []extension{}, nil
+	case len(buf) < 2:
 		return nil, errBufferTooSmall
 	}
+
 	declaredLen := binary.BigEndian.Uint16(buf)
 	if len(buf)-2 != int(declaredLen) {
 		return nil, errLengthMismatch
@@ -56,6 +61,8 @@ func decodeExtensions(buf []byte) ([]extension, error) {
 			err = unmarshalAndAppend(buf[offset:], &extensionUseSRTP{})
 		case extensionUseExtendedMasterSecretValue:
 			err = unmarshalAndAppend(buf[offset:], &extensionUseExtendedMasterSecret{})
+		case extensionRenegotiationInfoValue:
+			err = unmarshalAndAppend(buf[offset:], &extensionRenegotiationInfo{})
 		default:
 		}
 		if err != nil {

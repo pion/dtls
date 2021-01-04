@@ -9,8 +9,12 @@ jobs:
   lint-commit-message:
     name: Metadata
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
     steps:
         - uses: actions/checkout@v2
+          with:
+            fetch-depth: 0
 
         - name: Commit Message
           run: .github/lint-commit-message.sh
@@ -27,11 +31,13 @@ jobs:
   lint-go:
     name: Go
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
     steps:
       - uses: actions/checkout@v2
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v1
+        uses: golangci/golangci-lint-action@v2
         with:
           version: v1.31
           args: $GOLANGCI_LINT_EXRA_ARGS
