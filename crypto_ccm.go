@@ -8,6 +8,8 @@ import (
 	"fmt"
 
 	"github.com/pion/dtls/v2/pkg/crypto/ccm"
+	"github.com/pion/dtls/v2/pkg/protocol"
+	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
 var errDecryptPacket = errors.New("decryptPacket")
@@ -55,46 +57,46 @@ func newCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, rem
 	}, nil
 }
 
-func (c *cryptoCCM) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
-	payload := raw[recordLayerHeaderSize:]
-	raw = raw[:recordLayerHeaderSize]
+func (c *cryptoCCM) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
+	payload := raw[recordlayer.HeaderSize:]
+	raw = raw[:recordlayer.HeaderSize]
 
 	nonce := append(append([]byte{}, c.localWriteIV[:4]...), make([]byte, 8)...)
 	if _, err := rand.Read(nonce[4:]); err != nil {
 		return nil, err
 	}
 
-	additionalData := generateAEADAdditionalData(&pkt.recordLayerHeader, len(payload))
+	additionalData := generateAEADAdditionalData(&pkt.Header, len(payload))
 	encryptedPayload := c.localCCM.Seal(nil, nonce, payload, additionalData)
 
 	encryptedPayload = append(nonce[4:], encryptedPayload...)
 	raw = append(raw, encryptedPayload...)
 
 	// Update recordLayer size to include explicit nonce
-	binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
+	binary.BigEndian.PutUint16(raw[recordlayer.HeaderSize-2:], uint16(len(raw)-recordlayer.HeaderSize))
 	return raw, nil
 }
 
 func (c *cryptoCCM) decrypt(in []byte) ([]byte, error) {
-	var h recordLayerHeader
+	var h recordlayer.Header
 	err := h.Unmarshal(in)
 	switch {
 	case err != nil:
 		return nil, err
-	case h.contentType == contentTypeChangeCipherSpec:
+	case h.ContentType == protocol.ContentTypeChangeCipherSpec:
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
-	case len(in) <= (8 + recordLayerHeaderSize):
+	case len(in) <= (8 + recordlayer.HeaderSize):
 		return nil, errNotEnoughRoomForNonce
 	}
 
-	nonce := append(append([]byte{}, c.remoteWriteIV[:4]...), in[recordLayerHeaderSize:recordLayerHeaderSize+8]...)
-	out := in[recordLayerHeaderSize+8:]
+	nonce := append(append([]byte{}, c.remoteWriteIV[:4]...), in[recordlayer.HeaderSize:recordlayer.HeaderSize+8]...)
+	out := in[recordlayer.HeaderSize+8:]
 
 	additionalData := generateAEADAdditionalData(&h, len(out)-int(c.tagLen))
 	out, err = c.remoteCCM.Open(out[:0], nonce, out, additionalData)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errDecryptPacket, err)
 	}
-	return append(in[:recordLayerHeaderSize], out...), nil
+	return append(in[:recordlayer.HeaderSize], out...), nil
 }

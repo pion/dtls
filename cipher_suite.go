@@ -1,9 +1,11 @@
 package dtls
 
 import (
-	"encoding/binary"
 	"fmt"
 	"hash"
+
+	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
 // CipherSuiteID is an ID for our supported CipherSuites
@@ -61,7 +63,7 @@ func (c CipherSuiteID) String() string {
 type cipherSuite interface {
 	String() string
 	ID() CipherSuiteID
-	certificateType() clientCertificateType
+	certificateType() clientcertificate.Type
 	hashFunc() func() hash.Hash
 	isPSK() bool
 	isInitialized() bool
@@ -69,7 +71,7 @@ type cipherSuite interface {
 	// Generate the internal encryption state
 	init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error
 
-	encrypt(pkt *recordLayer, raw []byte) ([]byte, error)
+	encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
 	decrypt(in []byte) ([]byte, error)
 }
 
@@ -139,32 +141,12 @@ func allCipherSuites() []cipherSuite {
 	}
 }
 
-func decodeCipherSuites(buf []byte) ([]cipherSuite, error) {
-	if len(buf) < 2 {
-		return nil, errDTLSPacketInvalidLength
-	}
-	cipherSuitesCount := int(binary.BigEndian.Uint16(buf[0:])) / 2
-	rtrn := []cipherSuite{}
-	for i := 0; i < cipherSuitesCount; i++ {
-		if len(buf) < (i*2 + 4) {
-			return nil, errBufferTooSmall
-		}
-		id := CipherSuiteID(binary.BigEndian.Uint16(buf[(i*2)+2:]))
-		if c := cipherSuiteForID(id); c != nil {
-			rtrn = append(rtrn, c)
-		}
-	}
-	return rtrn, nil
-}
-
-func encodeCipherSuites(cipherSuites []cipherSuite) []byte {
-	out := []byte{0x00, 0x00}
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(cipherSuites)*2))
+func cipherSuiteIDs(cipherSuites []cipherSuite) []uint16 {
+	rtrn := []uint16{}
 	for _, c := range cipherSuites {
-		out = append(out, []byte{0x00, 0x00}...)
-		binary.BigEndian.PutUint16(out[len(out)-2:], uint16(c.ID()))
+		rtrn = append(rtrn, uint16(c.ID()))
 	}
-	return out
+	return rtrn
 }
 
 func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSuites, includePSKSuites bool) ([]cipherSuite, error) {

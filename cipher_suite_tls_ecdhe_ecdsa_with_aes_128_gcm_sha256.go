@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"hash"
 	"sync/atomic"
+
+	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
 type cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256 struct {
 	gcm atomic.Value // *cryptoGCM
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) certificateType() clientCertificateType {
-	return clientCertificateTypeECDSASign
+func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) certificateType() clientcertificate.Type {
+	return clientcertificate.ECDSASign
 }
 
 func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) ID() CipherSuiteID {
@@ -58,7 +61,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientR
 	return err
 }
 
-func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
+func (c *cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	gcm := c.gcm.Load()
 	if gcm == nil { // !c.isInitialized()
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)

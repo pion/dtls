@@ -5,6 +5,8 @@ import (
 	"encoding/gob"
 	"sync/atomic"
 
+	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
+	handshakePkg "github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/transport/replaydetector"
 )
 
@@ -12,7 +14,7 @@ import (
 type State struct {
 	localEpoch, remoteEpoch   atomic.Value
 	localSequenceNumber       []uint64 // uint48
-	localRandom, remoteRandom handshakeRandom
+	localRandom, remoteRandom handshakePkg.Random
 	masterSecret              []byte
 	cipherSuite               cipherSuite // nil if a cipherSuite hasn't been chosen
 
@@ -25,8 +27,8 @@ type State struct {
 	preMasterSecret      []byte
 	extendedMasterSecret bool
 
-	namedCurve                 namedCurve
-	localKeypair               *namedCurveKeypair
+	namedCurve                 elliptic.Curve
+	localKeypair               *elliptic.Keypair
 	cookie                     []byte
 	handshakeSendSequence      int
 	handshakeRecvSequence      int
@@ -43,8 +45,8 @@ type State struct {
 type serializedState struct {
 	LocalEpoch            uint16
 	RemoteEpoch           uint16
-	LocalRandom           [handshakeRandomLength]byte
-	RemoteRandom          [handshakeRandomLength]byte
+	LocalRandom           [handshakePkg.RandomLength]byte
+	RemoteRandom          [handshakePkg.RandomLength]byte
 	CipherSuiteID         uint16
 	MasterSecret          []byte
 	SequenceNumber        uint64
@@ -64,8 +66,8 @@ func (s *State) clone() *State {
 
 func (s *State) serialize() *serializedState {
 	// Marshal random values
-	localRnd := s.localRandom.marshalFixed()
-	remoteRnd := s.remoteRandom.marshalFixed()
+	localRnd := s.localRandom.MarshalFixed()
+	remoteRnd := s.remoteRandom.MarshalFixed()
 
 	epoch := s.localEpoch.Load().(uint16)
 	return &serializedState{
@@ -94,12 +96,12 @@ func (s *State) deserialize(serialized serializedState) {
 	}
 
 	// Set random values
-	localRandom := &handshakeRandom{}
-	localRandom.unmarshalFixed(serialized.LocalRandom)
+	localRandom := &handshakePkg.Random{}
+	localRandom.UnmarshalFixed(serialized.LocalRandom)
 	s.localRandom = *localRandom
 
-	remoteRandom := &handshakeRandom{}
-	remoteRandom.unmarshalFixed(serialized.RemoteRandom)
+	remoteRandom := &handshakePkg.Random{}
+	remoteRandom.UnmarshalFixed(serialized.RemoteRandom)
 	s.remoteRandom = *remoteRandom
 
 	s.isClient = serialized.IsClient
@@ -123,8 +125,8 @@ func (s *State) initCipherSuite() error {
 		return nil
 	}
 
-	localRandom := s.localRandom.marshalFixed()
-	remoteRandom := s.remoteRandom.marshalFixed()
+	localRandom := s.localRandom.MarshalFixed()
+	remoteRandom := s.remoteRandom.MarshalFixed()
 
 	var err error
 	if s.isClient {
@@ -178,8 +180,8 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 		return nil, errReservedExportKeyingMaterial
 	}
 
-	localRandom := s.localRandom.marshalFixed()
-	remoteRandom := s.remoteRandom.marshalFixed()
+	localRandom := s.localRandom.MarshalFixed()
+	remoteRandom := s.remoteRandom.MarshalFixed()
 
 	seed := []byte(label)
 	if s.isClient {

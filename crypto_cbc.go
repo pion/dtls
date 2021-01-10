@@ -6,6 +6,10 @@ import ( //nolint:gci
 	"crypto/hmac"
 	"crypto/rand"
 	"encoding/binary"
+
+	"github.com/pion/dtls/v2/internal/util"
+	"github.com/pion/dtls/v2/pkg/protocol"
+	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
 // block ciphers using cipher block chaining.
@@ -42,15 +46,15 @@ func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, re
 	}, nil
 }
 
-func (c *cryptoCBC) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
-	payload := raw[recordLayerHeaderSize:]
-	raw = raw[:recordLayerHeaderSize]
+func (c *cryptoCBC) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
+	payload := raw[recordlayer.HeaderSize:]
+	raw = raw[:recordlayer.HeaderSize]
 	blockSize := c.writeCBC.BlockSize()
 
 	// Generate + Append MAC
-	h := pkt.recordLayerHeader
+	h := pkt.Header
 
-	MAC, err := prfMac(h.epoch, h.sequenceNumber, h.contentType, h.protocolVersion, payload, c.writeMac, c.h)
+	MAC, err := prfMac(h.Epoch, h.SequenceNumber, h.ContentType, h.Version, payload, c.writeMac, c.h)
 	if err != nil {
 		return nil, err
 	}
@@ -79,25 +83,25 @@ func (c *cryptoCBC) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
 	raw = append(raw, payload...)
 
 	// Update recordLayer size to include IV+MAC+Padding
-	binary.BigEndian.PutUint16(raw[recordLayerHeaderSize-2:], uint16(len(raw)-recordLayerHeaderSize))
+	binary.BigEndian.PutUint16(raw[recordlayer.HeaderSize-2:], uint16(len(raw)-recordlayer.HeaderSize))
 
 	return raw, nil
 }
 
 func (c *cryptoCBC) decrypt(in []byte) ([]byte, error) {
-	body := in[recordLayerHeaderSize:]
+	body := in[recordlayer.HeaderSize:]
 	blockSize := c.readCBC.BlockSize()
 	mac := c.h()
 
-	var h recordLayerHeader
+	var h recordlayer.Header
 	err := h.Unmarshal(in)
 	switch {
 	case err != nil:
 		return nil, err
-	case h.contentType == contentTypeChangeCipherSpec:
+	case h.ContentType == protocol.ContentTypeChangeCipherSpec:
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
-	case len(body)%blockSize != 0 || len(body) < blockSize+max(mac.Size()+1, blockSize):
+	case len(body)%blockSize != 0 || len(body) < blockSize+util.Max(mac.Size()+1, blockSize):
 		return nil, errNotEnoughRoomForNonce
 	}
 
@@ -120,12 +124,12 @@ func (c *cryptoCBC) decrypt(in []byte) ([]byte, error) {
 	dataEnd := len(body) - macSize - paddingLen
 
 	expectedMAC := body[dataEnd : dataEnd+macSize]
-	actualMAC, err := prfMac(h.epoch, h.sequenceNumber, h.contentType, h.protocolVersion, body[:dataEnd], c.readMac, c.h)
+	actualMAC, err := prfMac(h.Epoch, h.SequenceNumber, h.ContentType, h.Version, body[:dataEnd], c.readMac, c.h)
 
 	// Compute Local MAC and compare
 	if paddingGood != 255 || err != nil || !hmac.Equal(actualMAC, expectedMAC) {
 		return nil, errInvalidMAC
 	}
 
-	return append(in[:recordLayerHeaderSize], body[:dataEnd]...), nil
+	return append(in[:recordlayer.HeaderSize], body[:dataEnd]...), nil
 }

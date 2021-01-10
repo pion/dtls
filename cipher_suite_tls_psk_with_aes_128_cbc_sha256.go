@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"hash"
 	"sync/atomic"
+
+	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
 type cipherSuiteTLSPskWithAes128CbcSha256 struct {
 	cbc atomic.Value // *cryptoCBC
 }
 
-func (c *cipherSuiteTLSPskWithAes128CbcSha256) certificateType() clientCertificateType {
-	return clientCertificateType(0)
+func (c *cipherSuiteTLSPskWithAes128CbcSha256) certificateType() clientcertificate.Type {
+	return clientcertificate.Type(0)
 }
 
 func (c *cipherSuiteTLSPskWithAes128CbcSha256) ID() CipherSuiteID {
@@ -66,7 +69,7 @@ func (c *cipherSuiteTLSPskWithAes128CbcSha256) init(masterSecret, clientRandom, 
 	return err
 }
 
-func (c *cipherSuiteTLSPskWithAes128CbcSha256) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
+func (c *cipherSuiteTLSPskWithAes128CbcSha256) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
 	if cbc == nil { // !c.isInitialized()
 		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
