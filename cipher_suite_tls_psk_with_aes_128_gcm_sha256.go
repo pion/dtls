@@ -1,11 +1,13 @@
 package dtls
 
+import "github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
+
 type cipherSuiteTLSPskWithAes128GcmSha256 struct {
 	cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256
 }
 
-func (c *cipherSuiteTLSPskWithAes128GcmSha256) certificateType() clientCertificateType {
-	return clientCertificateType(0)
+func (c *cipherSuiteTLSPskWithAes128GcmSha256) certificateType() clientcertificate.Type {
+	return clientcertificate.Type(0)
 }
 
 func (c *cipherSuiteTLSPskWithAes128GcmSha256) ID() CipherSuiteID {

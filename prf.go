@@ -1,13 +1,16 @@
 package dtls
 
 import ( //nolint:gci
-	"crypto/elliptic"
+	ellipticStdlib "crypto/elliptic"
 	"crypto/hmac"
 	"encoding/binary"
 	"fmt"
 	"hash"
 	"math"
 
+	"github.com/pion/dtls/v2/internal/util"
+	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v2/pkg/protocol"
 	"golang.org/x/crypto/curve25519"
 )
 
@@ -65,21 +68,21 @@ func prfPSKPreMasterSecret(psk []byte) []byte {
 	return out
 }
 
-func prfPreMasterSecret(publicKey, privateKey []byte, curve namedCurve) ([]byte, error) {
+func prfPreMasterSecret(publicKey, privateKey []byte, curve elliptic.Curve) ([]byte, error) {
 	switch curve {
-	case namedCurveX25519:
+	case elliptic.X25519:
 		return curve25519.X25519(privateKey, publicKey)
-	case namedCurveP256:
-		return ellipticCurvePreMasterSecret(publicKey, privateKey, elliptic.P256(), elliptic.P256())
-	case namedCurveP384:
-		return ellipticCurvePreMasterSecret(publicKey, privateKey, elliptic.P384(), elliptic.P384())
+	case elliptic.P256:
+		return ellipticCurvePreMasterSecret(publicKey, privateKey, ellipticStdlib.P256(), ellipticStdlib.P256())
+	case elliptic.P384:
+		return ellipticCurvePreMasterSecret(publicKey, privateKey, ellipticStdlib.P384(), ellipticStdlib.P384())
 	default:
 		return nil, errInvalidNamedCurve
 	}
 }
 
-func ellipticCurvePreMasterSecret(publicKey, privateKey []byte, c1, c2 elliptic.Curve) ([]byte, error) {
-	x, y := elliptic.Unmarshal(c1, publicKey)
+func ellipticCurvePreMasterSecret(publicKey, privateKey []byte, c1, c2 ellipticStdlib.Curve) ([]byte, error) {
+	x, y := ellipticStdlib.Unmarshal(c1, publicKey)
 	if x == nil || y == nil {
 		return nil, errInvalidNamedCurve
 	}
@@ -207,16 +210,16 @@ func prfVerifyDataServer(masterSecret, handshakeBodies []byte, h hashFunc) ([]by
 }
 
 // compute the MAC using HMAC-SHA1
-func prfMac(epoch uint16, sequenceNumber uint64, contentType contentType, protocolVersion protocolVersion, payload []byte, key []byte, hf hashFunc) ([]byte, error) {
+func prfMac(epoch uint16, sequenceNumber uint64, contentType protocol.ContentType, protocolVersion protocol.Version, payload []byte, key []byte, hf hashFunc) ([]byte, error) {
 	h := hmac.New(hf, key)
 
 	msg := make([]byte, 13)
 
 	binary.BigEndian.PutUint16(msg, epoch)
-	putBigEndianUint48(msg[2:], sequenceNumber)
+	util.PutBigEndianUint48(msg[2:], sequenceNumber)
 	msg[8] = byte(contentType)
-	msg[9] = protocolVersion.major
-	msg[10] = protocolVersion.minor
+	msg[9] = protocolVersion.Major
+	msg[10] = protocolVersion.Minor
 	binary.BigEndian.PutUint16(msg[11:], uint16(len(payload)))
 
 	if _, err := h.Write(msg); err != nil {

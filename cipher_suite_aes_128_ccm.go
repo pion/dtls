@@ -6,17 +6,20 @@ import (
 	"fmt"
 	"hash"
 	"sync/atomic"
+
+	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
 type cipherSuiteAes128Ccm struct {
 	ccm                   atomic.Value // *cryptoCCM
-	clientCertificateType clientCertificateType
+	clientCertificateType clientcertificate.Type
 	id                    CipherSuiteID
 	psk                   bool
 	cryptoCCMTagLen       cryptoCCMTagLen
 }
 
-func newCipherSuiteAes128Ccm(clientCertificateType clientCertificateType, id CipherSuiteID, psk bool, cryptoCCMTagLen cryptoCCMTagLen) *cipherSuiteAes128Ccm {
+func newCipherSuiteAes128Ccm(clientCertificateType clientcertificate.Type, id CipherSuiteID, psk bool, cryptoCCMTagLen cryptoCCMTagLen) *cipherSuiteAes128Ccm {
 	return &cipherSuiteAes128Ccm{
 		clientCertificateType: clientCertificateType,
 		id:                    id,
@@ -25,7 +28,7 @@ func newCipherSuiteAes128Ccm(clientCertificateType clientCertificateType, id Cip
 	}
 }
 
-func (c *cipherSuiteAes128Ccm) certificateType() clientCertificateType {
+func (c *cipherSuiteAes128Ccm) certificateType() clientcertificate.Type {
 	return c.clientCertificateType
 }
 
@@ -74,7 +77,7 @@ func (c *cipherSuiteAes128Ccm) init(masterSecret, clientRandom, serverRandom []b
 
 var errCipherSuiteNotInit = errors.New("CipherSuite has not been initialized")
 
-func (c *cipherSuiteAes128Ccm) encrypt(pkt *recordLayer, raw []byte) ([]byte, error) {
+func (c *cipherSuiteAes128Ccm) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	ccm := c.ccm.Load()
 	if ccm == nil { // !c.isInitialized()
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)

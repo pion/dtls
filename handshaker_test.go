@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v2/pkg/protocol/alert"
+	"github.com/pion/dtls/v2/pkg/protocol/handshake"
+	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
 	"github.com/pion/transport/test"
 )
@@ -42,23 +46,23 @@ func TestHandshaker(t *testing.T) {
 			)
 			const helloVerifyDrop = 5
 			return func(p *packet) bool {
-					h, ok := p.record.content.(*handshake)
+					h, ok := p.record.Content.(*handshake.Handshake)
 					if !ok {
 						return true
 					}
-					if hmch, ok := h.handshakeMessage.(*handshakeMessageClientHello); ok {
-						if len(hmch.cookie) == 0 {
+					if hmch, ok := h.Message.(*handshake.MessageClientHello); ok {
+						if len(hmch.Cookie) == 0 {
 							cntClientHelloNoCookie++
 						}
 					}
 					return true
 				},
 				func(p *packet) bool {
-					h, ok := p.record.content.(*handshake)
+					h, ok := p.record.Content.(*handshake.Handshake)
 					if !ok {
 						return true
 					}
-					if _, ok := h.handshakeMessage.(*handshakeMessageHelloVerifyRequest); ok {
+					if _, ok := h.Message.(*handshake.MessageHelloVerifyRequest); ok {
 						cntHelloVerifyRequest++
 						return cntHelloVerifyRequest > helloVerifyDrop
 					}
@@ -101,7 +105,7 @@ func TestHandshaker(t *testing.T) {
 				cfg := &handshakeConfig{
 					localCipherSuites:     cipherSuites,
 					localCertificates:     []tls.Certificate{clientCert},
-					localSignatureSchemes: defaultSignatureSchemes(),
+					localSignatureSchemes: signaturehash.Algorithms(),
 					insecureSkipVerify:    true,
 					log:                   logger,
 					onFlightState: func(f flightVal, s handshakeState) {
@@ -127,7 +131,7 @@ func TestHandshaker(t *testing.T) {
 				cfg := &handshakeConfig{
 					localCipherSuites:     cipherSuites,
 					localCertificates:     []tls.Certificate{clientCert},
-					localSignatureSchemes: defaultSignatureSchemes(),
+					localSignatureSchemes: signaturehash.Algorithms(),
 					insecureSkipVerify:    true,
 					log:                   logger,
 					onFlightState: func(f flightVal, s handshakeState) {
@@ -202,7 +206,7 @@ func (c *flightTestConn) setLocalEpoch(epoch uint16) {
 	c.epoch = epoch
 }
 
-func (c *flightTestConn) notify(ctx context.Context, level alertLevel, desc alertDescription) error {
+func (c *flightTestConn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
 	return nil
 }
 
@@ -211,26 +215,26 @@ func (c *flightTestConn) writePackets(ctx context.Context, pkts []*packet) error
 		if c.filter != nil && !c.filter(p) {
 			continue
 		}
-		if h, ok := p.record.content.(*handshake); ok {
+		if h, ok := p.record.Content.(*handshake.Handshake); ok {
 			handshakeRaw, err := p.record.Marshal()
 			if err != nil {
 				return err
 			}
 
-			c.handshakeCache.push(handshakeRaw[recordLayerHeaderSize:], p.record.recordLayerHeader.epoch, h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
+			c.handshakeCache.push(handshakeRaw[recordlayer.HeaderSize:], p.record.Header.Epoch, h.Header.MessageSequence, h.Header.Type, c.state.isClient)
 
-			content, err := h.handshakeMessage.Marshal()
+			content, err := h.Message.Marshal()
 			if err != nil {
 				return err
 			}
-			h.handshakeHeader.length = uint32(len(content))
-			h.handshakeHeader.fragmentLength = uint32(len(content))
-			hdr, err := h.handshakeHeader.Marshal()
+			h.Header.Length = uint32(len(content))
+			h.Header.FragmentLength = uint32(len(content))
+			hdr, err := h.Header.Marshal()
 			if err != nil {
 				return err
 			}
 			c.otherEndCache.push(
-				append(hdr, content...), p.record.recordLayerHeader.epoch, h.handshakeHeader.messageSequence, h.handshakeHeader.handshakeType, c.state.isClient)
+				append(hdr, content...), p.record.Header.Epoch, h.Header.MessageSequence, h.Header.Type, c.state.isClient)
 		}
 	}
 	go func() {
