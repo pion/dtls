@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/pion/dtls/v2/pkg/protocol/alert"
 	"golang.org/x/xerrors"
 )
 
@@ -15,40 +16,28 @@ import (
 var (
 	ErrConnClosed = &FatalError{errors.New("conn is closed")} //nolint:goerr113
 
-	errDeadlineExceeded = &TimeoutError{xerrors.Errorf("read/write timeout: %w", context.DeadlineExceeded)}
+	errDeadlineExceeded   = &TimeoutError{xerrors.Errorf("read/write timeout: %w", context.DeadlineExceeded)}
+	errInvalidContentType = errors.New("invalid content type")
 
 	errBufferTooSmall               = &TemporaryError{errors.New("buffer is too small")}                                        //nolint:goerr113
 	errContextUnsupported           = &TemporaryError{errors.New("context is not supported for ExportKeyingMaterial")}          //nolint:goerr113
-	errDTLSPacketInvalidLength      = &TemporaryError{errors.New("packet is too short")}                                        //nolint:goerr113
 	errHandshakeInProgress          = &TemporaryError{errors.New("handshake is in progress")}                                   //nolint:goerr113
-	errInvalidContentType           = &TemporaryError{errors.New("invalid content type")}                                       //nolint:goerr113
 	errInvalidMAC                   = &TemporaryError{errors.New("invalid mac")}                                                //nolint:goerr113
-	errInvalidPacketLength          = &TemporaryError{errors.New("packet length and declared length do not match")}             //nolint:goerr113
 	errReservedExportKeyingMaterial = &TemporaryError{errors.New("ExportKeyingMaterial can not be used with a reserved label")} //nolint:goerr113
 
 	errCertificateVerifyNoCertificate    = &FatalError{errors.New("client sent certificate verify but we have no certificate to verify")}                      //nolint:goerr113
 	errCipherSuiteNoIntersection         = &FatalError{errors.New("client+server do not support any shared cipher suites")}                                    //nolint:goerr113
-	errCipherSuiteUnset                  = &FatalError{errors.New("server hello can not be created without a cipher suite")}                                   //nolint:goerr113
 	errClientCertificateNotVerified      = &FatalError{errors.New("client sent certificate but did not verify it")}                                            //nolint:goerr113
 	errClientCertificateRequired         = &FatalError{errors.New("server required client verification, but got none")}                                        //nolint:goerr113
 	errClientNoMatchingSRTPProfile       = &FatalError{errors.New("server responded with SRTP Profile we do not support")}                                     //nolint:goerr113
 	errClientRequiredButNoServerEMS      = &FatalError{errors.New("client required Extended Master Secret extension, but server does not support it")}         //nolint:goerr113
-	errCompressionMethodUnset            = &FatalError{errors.New("server hello can not be created without a compression method")}                             //nolint:goerr113
 	errCookieMismatch                    = &FatalError{errors.New("client+server cookie does not match")}                                                      //nolint:goerr113
-	errCookieTooLong                     = &FatalError{errors.New("cookie must not be longer then 255 bytes")}                                                 //nolint:goerr113
 	errIdentityNoPSK                     = &FatalError{errors.New("PSK Identity Hint provided but PSK is nil")}                                                //nolint:goerr113
 	errInvalidCertificate                = &FatalError{errors.New("no certificate provided")}                                                                  //nolint:goerr113
-	errInvalidCipherSpec                 = &FatalError{errors.New("cipher spec invalid")}                                                                      //nolint:goerr113
 	errInvalidCipherSuite                = &FatalError{errors.New("invalid or unknown cipher suite")}                                                          //nolint:goerr113
-	errInvalidClientKeyExchange          = &FatalError{errors.New("unable to determine if ClientKeyExchange is a public key or PSK Identity")}                 //nolint:goerr113
-	errInvalidCompressionMethod          = &FatalError{errors.New("invalid or unknown compression method")}                                                    //nolint:goerr113
 	errInvalidECDSASignature             = &FatalError{errors.New("ECDSA signature contained zero or negative values")}                                        //nolint:goerr113
-	errInvalidEllipticCurveType          = &FatalError{errors.New("invalid or unknown elliptic curve type")}                                                   //nolint:goerr113
-	errInvalidExtensionType              = &FatalError{errors.New("invalid extension type")}                                                                   //nolint:goerr113
-	errInvalidHashAlgorithm              = &FatalError{errors.New("invalid hash algorithm")}                                                                   //nolint:goerr113
 	errInvalidNamedCurve                 = &FatalError{errors.New("invalid named curve")}                                                                      //nolint:goerr113
 	errInvalidPrivateKey                 = &FatalError{errors.New("invalid private key type")}                                                                 //nolint:goerr113
-	errInvalidSNIFormat                  = &FatalError{errors.New("invalid server name format")}                                                               //nolint:goerr113
 	errInvalidSignatureAlgorithm         = &FatalError{errors.New("invalid signature algorithm")}                                                              //nolint:goerr113
 	errKeySignatureMismatch              = &FatalError{errors.New("expected and actual key signature do not match")}                                           //nolint:goerr113
 	errNilNextConn                       = &FatalError{errors.New("Conn can not be created with a nil nextConn")}                                              //nolint:goerr113
@@ -67,15 +56,12 @@ var (
 	errServerRequiredButNoClientEMS      = &FatalError{errors.New("server requires the Extended Master Secret extension, but the client does not support it")} //nolint:goerr113
 	errVerifyDataMismatch                = &FatalError{errors.New("expected and actual verify data does not match")}                                           //nolint:goerr113
 
-	errHandshakeMessageUnset             = &InternalError{errors.New("handshake message unset, unable to marshal")}      //nolint:goerr113
 	errInvalidFlight                     = &InternalError{errors.New("invalid flight number")}                           //nolint:goerr113
 	errKeySignatureGenerateUnimplemented = &InternalError{errors.New("unable to generate key signature, unimplemented")} //nolint:goerr113
 	errKeySignatureVerifyUnimplemented   = &InternalError{errors.New("unable to verify key signature, unimplemented")}   //nolint:goerr113
 	errLengthMismatch                    = &InternalError{errors.New("data length and declared length do not match")}    //nolint:goerr113
 	errNotEnoughRoomForNonce             = &InternalError{errors.New("buffer not long enough to contain nonce")}         //nolint:goerr113
-	errNotImplemented                    = &InternalError{errors.New("feature has not been implemented yet")}            //nolint:goerr113
 	errSequenceNumberOverflow            = &InternalError{errors.New("sequence number overflow")}                        //nolint:goerr113
-	errUnableToMarshalFragmented         = &InternalError{errors.New("unable to marshal fragmented handshakes")}         //nolint:goerr113
 )
 
 // FatalError indicates that the DTLS connection is no longer available.
@@ -188,20 +174,20 @@ func (e *HandshakeError) Error() string { return fmt.Sprintf("handshake error: %
 
 // errAlert wraps DTLS alert notification as an error
 type errAlert struct {
-	*alert
+	*alert.Alert
 }
 
 func (e *errAlert) Error() string {
-	return fmt.Sprintf("alert: %s", e.alert.String())
+	return fmt.Sprintf("alert: %s", e.Alert.String())
 }
 
 func (e *errAlert) IsFatalOrCloseNotify() bool {
-	return e.alertLevel == alertLevelFatal || e.alertDescription == alertCloseNotify
+	return e.Level == alert.Fatal || e.Description == alert.CloseNotify
 }
 
 func (e *errAlert) Is(err error) bool {
 	if other, ok := err.(*errAlert); ok {
-		return e.alertLevel == other.alertLevel && e.alertDescription == other.alertDescription
+		return e.Level == other.Level && e.Description == other.Description
 	}
 	return false
 }

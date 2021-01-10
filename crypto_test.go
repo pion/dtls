@@ -5,6 +5,9 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"testing"
+
+	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v2/pkg/crypto/hash"
 )
 
 const rawPrivateKey = `
@@ -61,7 +64,7 @@ func TestGenerateKeySignature(t *testing.T) {
 		0x87, 0x5e, 0x5c, 0x36, 0x75, 0x86,
 	}
 
-	signature, err := generateKeySignature(clientRandom, serverRandom, publicKey, namedCurveX25519, key, hashAlgorithmSHA256)
+	signature, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519, key, hash.SHA256)
 	if err != nil {
 		t.Error(err)
 	} else if !bytes.Equal(expectedSignature, signature) {
