@@ -485,6 +485,12 @@ func TestPSK(t *testing.T) {
 			if err != nil {
 				t.Fatalf("TestPSK: Server failed(%v)", err)
 			}
+
+			actualPSKIdentityHint := server.ConnectionState().IdentityHint
+			if !bytes.Equal(actualPSKIdentityHint, clientIdentity) {
+				t.Errorf("TestPSK: Server ClientPSKIdentity Mismatch '%s': expected(%v) actual(%v)", test.Name, clientIdentity, actualPSKIdentityHint)
+			}
+
 			defer func() {
 				_ = server.Close()
 			}()
