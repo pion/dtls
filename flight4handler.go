@@ -85,7 +85,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			if psk, err = cfg.localPSKCallback(clientKeyExchange.identityHint); err != nil {
 				return 0, &alert{alertLevelFatal, alertInternalError}, err
 			}
-
+			state.IdentityHint = clientKeyExchange.identityHint
 			preMasterSecret = prfPSKPreMasterSecret(psk)
 		} else {
 			preMasterSecret, err = prfPreMasterSecret(clientKeyExchange.publicKey, state.localKeypair.privateKey, state.localKeypair.curve)

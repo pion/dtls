@@ -148,6 +148,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Carson Hoffman](https://github.com/CarsonHoffman)
 * [Vadim Filimonov](https://github.com/fffilimonov)
 * [Jim Wert](https://github.com/bocajim)
+* [Alvaro Viebrantz](https://github.com/alvarowolfx)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
