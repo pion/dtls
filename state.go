@@ -18,6 +18,7 @@ type State struct {
 
 	srtpProtectionProfile SRTPProtectionProfile // Negotiated SRTPProtectionProfile
 	PeerCertificates      [][]byte
+	IdentityHint          []byte
 
 	isClient bool
 
@@ -49,6 +50,7 @@ type serializedState struct {
 	SequenceNumber        uint64
 	SRTPProtectionProfile uint16
 	PeerCertificates      [][]byte
+	IdentityHint          []byte
 	IsClient              bool
 }
 
@@ -76,6 +78,7 @@ func (s *State) serialize() *serializedState {
 		RemoteRandom:          remoteRnd,
 		SRTPProtectionProfile: uint16(s.srtpProtectionProfile),
 		PeerCertificates:      s.PeerCertificates,
+		IdentityHint:          s.IdentityHint,
 		IsClient:              s.isClient,
 	}
 }
@@ -112,6 +115,7 @@ func (s *State) deserialize(serialized serializedState) {
 
 	// Set remote certificate
 	s.PeerCertificates = serialized.PeerCertificates
+	s.IdentityHint = serialized.IdentityHint
 }
 
 func (s *State) initCipherSuite() error {
