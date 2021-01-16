@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"sync"
 	"time"
 
@@ -48,8 +47,6 @@ import (
 //                 +---+
 //              Read retransmit
 //           Retransmit last flight
-
-var errInvalidFSMTransition = errors.New("invalid state machine transition")
 
 type handshakeState uint8
 

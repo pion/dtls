@@ -17,23 +17,23 @@ func TestErrorUnwrap(t *testing.T) {
 		errUnwrapped []error
 	}{
 		{
-			&FatalError{errExample},
+			&FatalError{Err: errExample},
 			[]error{errExample},
 		},
 		{
-			&TemporaryError{errExample},
+			&TemporaryError{Err: errExample},
 			[]error{errExample},
 		},
 		{
-			&InternalError{errExample},
+			&InternalError{Err: errExample},
 			[]error{errExample},
 		},
 		{
-			&TimeoutError{errExample},
+			&TimeoutError{Err: errExample},
 			[]error{errExample},
 		},
 		{
-			&HandshakeError{errExample},
+			&HandshakeError{Err: errExample},
 			[]error{errExample},
 		},
 	}
@@ -57,12 +57,12 @@ func TestErrorNetError(t *testing.T) {
 		str                string
 		timeout, temporary bool
 	}{
-		{&FatalError{errExample}, "dtls fatal: an example error", false, false},
-		{&TemporaryError{errExample}, "dtls temporary: an example error", false, true},
-		{&InternalError{errExample}, "dtls internal: an example error", false, false},
-		{&TimeoutError{errExample}, "dtls timeout: an example error", true, true},
-		{&HandshakeError{errExample}, "handshake error: an example error", false, false},
-		{&HandshakeError{&TimeoutError{errExample}}, "handshake error: dtls timeout: an example error", true, true},
+		{&FatalError{Err: errExample}, "dtls fatal: an example error", false, false},
+		{&TemporaryError{Err: errExample}, "dtls temporary: an example error", false, true},
+		{&InternalError{Err: errExample}, "dtls internal: an example error", false, false},
+		{&TimeoutError{Err: errExample}, "dtls timeout: an example error", true, true},
+		{&HandshakeError{Err: errExample}, "handshake error: an example error", false, false},
+		{&HandshakeError{Err: &TimeoutError{Err: errExample}}, "handshake error: dtls timeout: an example error", true, true},
 	}
 	for _, c := range cases {
 		c := c
