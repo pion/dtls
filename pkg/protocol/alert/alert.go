@@ -8,7 +8,7 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol"
 )
 
-var errBufferTooSmall = errors.New("buffer is too small")
+var errBufferTooSmall = &protocol.TemporaryError{Err: errors.New("buffer is too small")} //nolint:goerr113
 
 // Level is the level of the TLS Alert
 type Level byte

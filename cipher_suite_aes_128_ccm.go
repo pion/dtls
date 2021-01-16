@@ -2,7 +2,6 @@ package dtls
 
 import (
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"hash"
 	"sync/atomic"
@@ -74,8 +73,6 @@ func (c *cipherSuiteAes128Ccm) init(masterSecret, clientRandom, serverRandom []b
 
 	return err
 }
-
-var errCipherSuiteNotInit = errors.New("CipherSuite has not been initialized")
 
 func (c *cipherSuiteAes128Ccm) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	ccm := c.ccm.Load()

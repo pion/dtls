@@ -32,11 +32,6 @@ const (
 	defaultReplayProtectionWindow = 64
 )
 
-var (
-	errApplicationDataEpochZero = errors.New("ApplicationData with epoch of 0")
-	errUnhandledContextType     = errors.New("unhandled contentType")
-)
-
 func invalidKeyingLabels() map[string]bool {
 	return map[string]bool{
 		"client finished": true,
@@ -898,7 +893,7 @@ func (c *Conn) translateHandshakeCtxError(err error) error {
 	if errors.Is(err, context.Canceled) && c.isHandshakeCompletedSuccessfully() {
 		return nil
 	}
-	return &HandshakeError{err}
+	return &HandshakeError{Err: err}
 }
 
 func (c *Conn) close(byUser bool) error {

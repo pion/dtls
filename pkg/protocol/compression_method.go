@@ -1,9 +1,5 @@
 package protocol
 
-import "errors"
-
-var errBufferTooSmall = errors.New("buffer is too small")
-
 // CompressionMethodID is the ID for a CompressionMethod
 type CompressionMethodID byte
 
