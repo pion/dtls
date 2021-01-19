@@ -8,12 +8,12 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol"
 	"github.com/pion/dtls/v2/pkg/protocol/alert"
 	"github.com/pion/dtls/v2/pkg/protocol/extension"
-	handshakePkg "github.com/pion/dtls/v2/pkg/protocol/handshake"
+	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 )
 
 func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) {
 	seq, msgs, ok := cache.fullPullMap(0,
-		handshakeCachePullRule{handshakePkg.TypeClientHello, cfg.initialEpoch, true, false},
+		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 	)
 	if !ok {
 		// No valid message received. Keep reading
@@ -21,10 +21,10 @@ func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	}
 	state.handshakeRecvSequence = seq
 
-	var clientHello *handshakePkg.MessageClientHello
+	var clientHello *handshake.MessageClientHello
 
 	// Validate type
-	if clientHello, ok = msgs[handshakePkg.TypeClientHello].(*handshakePkg.MessageClientHello); !ok {
+	if clientHello, ok = msgs[handshake.TypeClientHello].(*handshake.MessageClientHello); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 

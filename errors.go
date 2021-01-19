@@ -40,7 +40,6 @@ var (
 	errInvalidCertificate                = &FatalError{Err: errors.New("no certificate provided")}                                                                  //nolint:goerr113
 	errInvalidCipherSuite                = &FatalError{Err: errors.New("invalid or unknown cipher suite")}                                                          //nolint:goerr113
 	errInvalidECDSASignature             = &FatalError{Err: errors.New("ECDSA signature contained zero or negative values")}                                        //nolint:goerr113
-	errInvalidNamedCurve                 = &FatalError{Err: errors.New("invalid named curve")}                                                                      //nolint:goerr113
 	errInvalidPrivateKey                 = &FatalError{Err: errors.New("invalid private key type")}                                                                 //nolint:goerr113
 	errInvalidSignatureAlgorithm         = &FatalError{Err: errors.New("invalid signature algorithm")}                                                              //nolint:goerr113
 	errKeySignatureMismatch              = &FatalError{Err: errors.New("expected and actual key signature do not match")}                                           //nolint:goerr113
