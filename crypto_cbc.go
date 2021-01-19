@@ -6,8 +6,10 @@ import ( //nolint:gci
 	"crypto/hmac"
 	"crypto/rand"
 	"encoding/binary"
+	"hash"
 
 	"github.com/pion/dtls/v2/internal/util"
+	"github.com/pion/dtls/v2/pkg/crypto/prf"
 	"github.com/pion/dtls/v2/pkg/protocol"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
@@ -22,10 +24,10 @@ type cbcMode interface {
 type cryptoCBC struct {
 	writeCBC, readCBC cbcMode
 	writeMac, readMac []byte
-	h                 hashFunc
+	h                 prf.HashFunc
 }
 
-func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte, h hashFunc) (*cryptoCBC, error) {
+func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte, h prf.HashFunc) (*cryptoCBC, error) {
 	writeBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err
@@ -54,7 +56,7 @@ func (c *cryptoCBC) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, e
 	// Generate + Append MAC
 	h := pkt.Header
 
-	MAC, err := prfMac(h.Epoch, h.SequenceNumber, h.ContentType, h.Version, payload, c.writeMac, c.h)
+	MAC, err := c.hmac(h.Epoch, h.SequenceNumber, h.ContentType, h.Version, payload, c.writeMac, c.h)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +126,7 @@ func (c *cryptoCBC) decrypt(in []byte) ([]byte, error) {
 	dataEnd := len(body) - macSize - paddingLen
 
 	expectedMAC := body[dataEnd : dataEnd+macSize]
-	actualMAC, err := prfMac(h.Epoch, h.SequenceNumber, h.ContentType, h.Version, body[:dataEnd], c.readMac, c.h)
+	actualMAC, err := c.hmac(h.Epoch, h.SequenceNumber, h.ContentType, h.Version, body[:dataEnd], c.readMac, c.h)
 
 	// Compute Local MAC and compare
 	if paddingGood != 255 || err != nil || !hmac.Equal(actualMAC, expectedMAC) {
@@ -132,4 +134,25 @@ func (c *cryptoCBC) decrypt(in []byte) ([]byte, error) {
 	}
 
 	return append(in[:recordlayer.HeaderSize], body[:dataEnd]...), nil
+}
+
+func (c *cryptoCBC) hmac(epoch uint16, sequenceNumber uint64, contentType protocol.ContentType, protocolVersion protocol.Version, payload []byte, key []byte, hf func() hash.Hash) ([]byte, error) {
+	h := hmac.New(hf, key)
+
+	msg := make([]byte, 13)
+
+	binary.BigEndian.PutUint16(msg, epoch)
+	util.PutBigEndianUint48(msg[2:], sequenceNumber)
+	msg[8] = byte(contentType)
+	msg[9] = protocolVersion.Major
+	msg[10] = protocolVersion.Minor
+	binary.BigEndian.PutUint16(msg[11:], uint16(len(payload)))
+
+	if _, err := h.Write(msg); err != nil {
+		return nil, err
+	} else if _, err := h.Write(payload); err != nil {
+		return nil, err
+	}
+
+	return h.Sum(nil), nil
 }

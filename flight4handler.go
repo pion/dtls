@@ -6,6 +6,7 @@ import (
 
 	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v2/pkg/crypto/prf"
 	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v2/pkg/protocol"
 	"github.com/pion/dtls/v2/pkg/protocol/alert"
@@ -95,9 +96,9 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 			state.IdentityHint = clientKeyExchange.IdentityHint
-			preMasterSecret = prfPSKPreMasterSecret(psk)
+			preMasterSecret = prf.PSKPreMasterSecret(psk)
 		} else {
-			preMasterSecret, err = prfPreMasterSecret(clientKeyExchange.PublicKey, state.localKeypair.PrivateKey, state.localKeypair.Curve)
+			preMasterSecret, err = prf.PreMasterSecret(clientKeyExchange.PublicKey, state.localKeypair.PrivateKey, state.localKeypair.Curve)
 			if err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 			}
@@ -110,12 +111,12 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 
-			state.masterSecret, err = prfExtendedMasterSecret(preMasterSecret, sessionHash, state.cipherSuite.hashFunc())
+			state.masterSecret, err = prf.ExtendedMasterSecret(preMasterSecret, sessionHash, state.cipherSuite.hashFunc())
 			if err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 		} else {
-			state.masterSecret, err = prfMasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.hashFunc())
+			state.masterSecret, err = prf.MasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.hashFunc())
 			if err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}

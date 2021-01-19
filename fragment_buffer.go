@@ -2,13 +2,13 @@ package dtls
 
 import (
 	"github.com/pion/dtls/v2/pkg/protocol"
-	handshakePkg "github.com/pion/dtls/v2/pkg/protocol/handshake"
+	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
 type fragment struct {
 	recordLayerHeader recordlayer.Header
-	handshakeHeader   handshakePkg.Header
+	handshakeHeader   handshake.Header
 	data              []byte
 }
 
@@ -48,13 +48,13 @@ func (f *fragmentBuffer) push(buf []byte) (bool, error) {
 
 		// end index should be the length of handshake header but if the handshake
 		// was fragmented, we should keep them all
-		end := int(handshakePkg.HeaderLength + frag.handshakeHeader.Length)
+		end := int(handshake.HeaderLength + frag.handshakeHeader.Length)
 		if size := len(buf); end > size {
 			end = size
 		}
 
 		// Discard all headers, when rebuilding the packet we will re-build
-		frag.data = append([]byte{}, buf[handshakePkg.HeaderLength:end]...)
+		frag.data = append([]byte{}, buf[handshake.HeaderLength:end]...)
 		f.cache[frag.handshakeHeader.MessageSequence] = append(f.cache[frag.handshakeHeader.MessageSequence], frag)
 		buf = buf[end:]
 	}
