@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v2/pkg/crypto/prf"
 	"github.com/pion/dtls/v2/pkg/protocol"
 	"github.com/pion/dtls/v2/pkg/protocol/alert"
 	"github.com/pion/dtls/v2/pkg/protocol/extension"
@@ -118,13 +119,13 @@ func handleServerKeyExchange(_ flightConn, state *State, cfg *handshakeConfig, h
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		state.IdentityHint = h.IdentityHint
-		state.preMasterSecret = prfPSKPreMasterSecret(psk)
+		state.preMasterSecret = prf.PSKPreMasterSecret(psk)
 	} else {
 		if state.localKeypair, err = elliptic.GenerateKeypair(h.NamedCurve); err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 
-		if state.preMasterSecret, err = prfPreMasterSecret(h.PublicKey, state.localKeypair.PrivateKey, state.localKeypair.Curve); err != nil {
+		if state.preMasterSecret, err = prf.PreMasterSecret(h.PublicKey, state.localKeypair.PrivateKey, state.localKeypair.Curve); err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}

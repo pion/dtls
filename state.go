@@ -6,7 +6,8 @@ import (
 	"sync/atomic"
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
-	handshakePkg "github.com/pion/dtls/v2/pkg/protocol/handshake"
+	"github.com/pion/dtls/v2/pkg/crypto/prf"
+	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/transport/replaydetector"
 )
 
@@ -14,7 +15,7 @@ import (
 type State struct {
 	localEpoch, remoteEpoch   atomic.Value
 	localSequenceNumber       []uint64 // uint48
-	localRandom, remoteRandom handshakePkg.Random
+	localRandom, remoteRandom handshake.Random
 	masterSecret              []byte
 	cipherSuite               cipherSuite // nil if a cipherSuite hasn't been chosen
 
@@ -45,8 +46,8 @@ type State struct {
 type serializedState struct {
 	LocalEpoch            uint16
 	RemoteEpoch           uint16
-	LocalRandom           [handshakePkg.RandomLength]byte
-	RemoteRandom          [handshakePkg.RandomLength]byte
+	LocalRandom           [handshake.RandomLength]byte
+	RemoteRandom          [handshake.RandomLength]byte
 	CipherSuiteID         uint16
 	MasterSecret          []byte
 	SequenceNumber        uint64
@@ -96,11 +97,11 @@ func (s *State) deserialize(serialized serializedState) {
 	}
 
 	// Set random values
-	localRandom := &handshakePkg.Random{}
+	localRandom := &handshake.Random{}
 	localRandom.UnmarshalFixed(serialized.LocalRandom)
 	s.localRandom = *localRandom
 
-	remoteRandom := &handshakePkg.Random{}
+	remoteRandom := &handshake.Random{}
 	remoteRandom.UnmarshalFixed(serialized.RemoteRandom)
 	s.remoteRandom = *remoteRandom
 
@@ -189,5 +190,5 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 	} else {
 		seed = append(append(seed, remoteRandom[:]...), localRandom[:]...)
 	}
-	return prfPHash(s.masterSecret, seed, length, s.cipherSuite.hashFunc())
+	return prf.PHash(s.masterSecret, seed, length, s.cipherSuite.hashFunc())
 }

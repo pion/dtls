@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v2/pkg/crypto/prf"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
@@ -46,7 +47,7 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRand
 		prfIvLen  = 16
 	)
 
-	keys, err := prfEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.hashFunc())
+	keys, err := prf.GenerateEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.hashFunc())
 	if err != nil {
 		return err
 	}
@@ -54,14 +55,14 @@ func (c *cipherSuiteTLSEcdheEcdsaWithAes256CbcSha) init(masterSecret, clientRand
 	var cbc *cryptoCBC
 	if isClient {
 		cbc, err = newCryptoCBC(
-			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
-			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
+			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
+			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
 			sha1.New,
 		)
 	} else {
 		cbc, err = newCryptoCBC(
-			keys.serverWriteKey, keys.serverWriteIV, keys.serverMACKey,
-			keys.clientWriteKey, keys.clientWriteIV, keys.clientMACKey,
+			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
+			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
 			sha1.New,
 		)
 	}

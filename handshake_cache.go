@@ -3,6 +3,7 @@ package dtls
 import (
 	"sync"
 
+	"github.com/pion/dtls/v2/pkg/crypto/prf"
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 )
 
@@ -135,7 +136,7 @@ func (h *handshakeCache) pullAndMerge(rules ...handshakeCachePullRule) []byte {
 
 // sessionHash returns the session hash for Extended Master Secret support
 // https://tools.ietf.org/html/draft-ietf-tls-session-hash-06#section-4
-func (h *handshakeCache) sessionHash(hf hashFunc, epoch uint16, additional ...[]byte) ([]byte, error) {
+func (h *handshakeCache) sessionHash(hf prf.HashFunc, epoch uint16, additional ...[]byte) ([]byte, error) {
 	merged := []byte{}
 
 	// Order defined by https://tools.ietf.org/html/rfc5246#section-7.3
