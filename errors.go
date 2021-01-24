@@ -23,9 +23,7 @@ var (
 	errBufferTooSmall               = &TemporaryError{Err: errors.New("buffer is too small")}                                        //nolint:goerr113
 	errContextUnsupported           = &TemporaryError{Err: errors.New("context is not supported for ExportKeyingMaterial")}          //nolint:goerr113
 	errHandshakeInProgress          = &TemporaryError{Err: errors.New("handshake is in progress")}                                   //nolint:goerr113
-	errInvalidMAC                   = &TemporaryError{Err: errors.New("invalid mac")}                                                //nolint:goerr113
 	errReservedExportKeyingMaterial = &TemporaryError{Err: errors.New("ExportKeyingMaterial can not be used with a reserved label")} //nolint:goerr113
-	errCipherSuiteNotInit           = &TemporaryError{Err: errors.New("CipherSuite has not been initialized")}                       //nolint:goerr113
 	errApplicationDataEpochZero     = &TemporaryError{Err: errors.New("ApplicationData with epoch of 0")}                            //nolint:goerr113
 	errUnhandledContextType         = &TemporaryError{Err: errors.New("unhandled contentType")}                                      //nolint:goerr113
 
@@ -63,7 +61,6 @@ var (
 	errKeySignatureGenerateUnimplemented = &InternalError{Err: errors.New("unable to generate key signature, unimplemented")} //nolint:goerr113
 	errKeySignatureVerifyUnimplemented   = &InternalError{Err: errors.New("unable to verify key signature, unimplemented")}   //nolint:goerr113
 	errLengthMismatch                    = &InternalError{Err: errors.New("data length and declared length do not match")}    //nolint:goerr113
-	errNotEnoughRoomForNonce             = &InternalError{Err: errors.New("buffer not long enough to contain nonce")}         //nolint:goerr113
 	errSequenceNumberOverflow            = &InternalError{Err: errors.New("sequence number overflow")}                        //nolint:goerr113
 	errInvalidFSMTransition              = &InternalError{Err: errors.New("invalid state machine transition")}                //nolint:goerr113
 )

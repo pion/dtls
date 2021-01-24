@@ -1,10 +1,9 @@
-package dtls
+package ciphersuite
 
 import (
 	"crypto/aes"
 	"crypto/rand"
 	"encoding/binary"
-	"errors"
 	"fmt"
 
 	"github.com/pion/dtls/v2/pkg/crypto/ccm"
@@ -12,29 +11,30 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
-var errDecryptPacket = errors.New("decryptPacket")
+// CCMTagLen is the length of Authentication Tag
+type CCMTagLen int
 
-type cryptoCCMTagLen int
-
+// CCM Enums
 const (
-	cryptoCCM8TagLength  cryptoCCMTagLen = 8
-	cryptoCCMTagLength   cryptoCCMTagLen = 16
-	cryptoCCMNonceLength                 = 12
+	CCMTagLength8  CCMTagLen = 8
+	CCMTagLength   CCMTagLen = 16
+	ccmNonceLength           = 12
 )
 
-// State needed to handle encrypted input/output
-type cryptoCCM struct {
+// CCM Provides an API to Encrypt/Decrypt DTLS 1.2 Packets
+type CCM struct {
 	localCCM, remoteCCM         ccm.CCM
 	localWriteIV, remoteWriteIV []byte
-	tagLen                      cryptoCCMTagLen
+	tagLen                      CCMTagLen
 }
 
-func newCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*cryptoCCM, error) {
+// NewCCM creates a DTLS GCM Cipher
+func NewCCM(tagLen CCMTagLen, localKey, localWriteIV, remoteKey, remoteWriteIV []byte) (*CCM, error) {
 	localBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err
 	}
-	localCCM, err := ccm.NewCCM(localBlock, int(tagLen), cryptoCCMNonceLength)
+	localCCM, err := ccm.NewCCM(localBlock, int(tagLen), ccmNonceLength)
 	if err != nil {
 		return nil, err
 	}
@@ -43,12 +43,12 @@ func newCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, rem
 	if err != nil {
 		return nil, err
 	}
-	remoteCCM, err := ccm.NewCCM(remoteBlock, int(tagLen), cryptoCCMNonceLength)
+	remoteCCM, err := ccm.NewCCM(remoteBlock, int(tagLen), ccmNonceLength)
 	if err != nil {
 		return nil, err
 	}
 
-	return &cryptoCCM{
+	return &CCM{
 		localCCM:      localCCM,
 		localWriteIV:  localWriteIV,
 		remoteCCM:     remoteCCM,
@@ -57,7 +57,8 @@ func newCryptoCCM(tagLen cryptoCCMTagLen, localKey, localWriteIV, remoteKey, rem
 	}, nil
 }
 
-func (c *cryptoCCM) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
+// Encrypt encrypt a DTLS RecordLayer message
+func (c *CCM) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	payload := raw[recordlayer.HeaderSize:]
 	raw = raw[:recordlayer.HeaderSize]
 
@@ -77,7 +78,8 @@ func (c *cryptoCCM) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, e
 	return raw, nil
 }
 
-func (c *cryptoCCM) decrypt(in []byte) ([]byte, error) {
+// Decrypt decrypts a DTLS RecordLayer message
+func (c *CCM) Decrypt(in []byte) ([]byte, error) {
 	var h recordlayer.Header
 	err := h.Unmarshal(in)
 	switch {

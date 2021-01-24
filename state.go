@@ -122,7 +122,7 @@ func (s *State) deserialize(serialized serializedState) {
 }
 
 func (s *State) initCipherSuite() error {
-	if s.cipherSuite.isInitialized() {
+	if s.cipherSuite.IsInitialized() {
 		return nil
 	}
 
@@ -131,9 +131,9 @@ func (s *State) initCipherSuite() error {
 
 	var err error
 	if s.isClient {
-		err = s.cipherSuite.init(s.masterSecret, localRandom[:], remoteRandom[:], true)
+		err = s.cipherSuite.Init(s.masterSecret, localRandom[:], remoteRandom[:], true)
 	} else {
-		err = s.cipherSuite.init(s.masterSecret, remoteRandom[:], localRandom[:], false)
+		err = s.cipherSuite.Init(s.masterSecret, remoteRandom[:], localRandom[:], false)
 	}
 	if err != nil {
 		return err
@@ -190,5 +190,5 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 	} else {
 		seed = append(append(seed, remoteRandom[:]...), localRandom[:]...)
 	}
-	return prf.PHash(s.masterSecret, seed, length, s.cipherSuite.hashFunc())
+	return prf.PHash(s.masterSecret, seed, length, s.cipherSuite.HashFunc())
 }
