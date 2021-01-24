@@ -1,4 +1,4 @@
-package dtls
+package ciphersuite
 
 import ( //nolint:gci
 	"crypto/aes"
@@ -20,14 +20,15 @@ type cbcMode interface {
 	SetIV([]byte)
 }
 
-// State needed to handle encrypted input/output
-type cryptoCBC struct {
+// CBC Provides an API to Encrypt/Decrypt DTLS 1.2 Packets
+type CBC struct {
 	writeCBC, readCBC cbcMode
 	writeMac, readMac []byte
 	h                 prf.HashFunc
 }
 
-func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte, h prf.HashFunc) (*cryptoCBC, error) {
+// NewCBC creates a DTLS CBC Cipher
+func NewCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, remoteMac []byte, h prf.HashFunc) (*CBC, error) {
 	writeBlock, err := aes.NewCipher(localKey)
 	if err != nil {
 		return nil, err
@@ -38,7 +39,7 @@ func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, re
 		return nil, err
 	}
 
-	return &cryptoCBC{
+	return &CBC{
 		writeCBC: cipher.NewCBCEncrypter(writeBlock, localWriteIV).(cbcMode),
 		writeMac: localMac,
 
@@ -48,7 +49,8 @@ func newCryptoCBC(localKey, localWriteIV, localMac, remoteKey, remoteWriteIV, re
 	}, nil
 }
 
-func (c *cryptoCBC) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
+// Encrypt encrypt a DTLS RecordLayer message
+func (c *CBC) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	payload := raw[recordlayer.HeaderSize:]
 	raw = raw[:recordlayer.HeaderSize]
 	blockSize := c.writeCBC.BlockSize()
@@ -90,7 +92,8 @@ func (c *cryptoCBC) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, e
 	return raw, nil
 }
 
-func (c *cryptoCBC) decrypt(in []byte) ([]byte, error) {
+// Decrypt decrypts a DTLS RecordLayer message
+func (c *CBC) Decrypt(in []byte) ([]byte, error) {
 	body := in[recordlayer.HeaderSize:]
 	blockSize := c.readCBC.BlockSize()
 	mac := c.h()
@@ -136,7 +139,7 @@ func (c *cryptoCBC) decrypt(in []byte) ([]byte, error) {
 	return append(in[:recordlayer.HeaderSize], body[:dataEnd]...), nil
 }
 
-func (c *cryptoCBC) hmac(epoch uint16, sequenceNumber uint64, contentType protocol.ContentType, protocolVersion protocol.Version, payload []byte, key []byte, hf func() hash.Hash) ([]byte, error) {
+func (c *CBC) hmac(epoch uint16, sequenceNumber uint64, contentType protocol.ContentType, protocolVersion protocol.Version, payload []byte, key []byte, hf func() hash.Hash) ([]byte, error) {
 	h := hmac.New(hf, key)
 
 	msg := make([]byte, 13)

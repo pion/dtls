@@ -447,7 +447,7 @@ func (c *Conn) processPacket(p *packet) ([]byte, error) {
 
 	if p.shouldEncrypt {
 		var err error
-		rawPacket, err = c.state.cipherSuite.encrypt(p.record, rawPacket)
+		rawPacket, err = c.state.cipherSuite.Encrypt(p.record, rawPacket)
 		if err != nil {
 			return nil, err
 		}
@@ -492,7 +492,7 @@ func (c *Conn) processHandshakePacket(p *packet, h *handshake.Handshake) ([][]by
 		rawPacket := append(recordlayerHeaderBytes, handshakeFragment...)
 		if p.shouldEncrypt {
 			var err error
-			rawPacket, err = c.state.cipherSuite.encrypt(p.record, rawPacket)
+			rawPacket, err = c.state.cipherSuite.Encrypt(p.record, rawPacket)
 			if err != nil {
 				return nil, err
 			}
@@ -670,7 +670,7 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert.Aler
 
 	// Decrypt
 	if h.Epoch != 0 {
-		if c.state.cipherSuite == nil || !c.state.cipherSuite.isInitialized() {
+		if c.state.cipherSuite == nil || !c.state.cipherSuite.IsInitialized() {
 			if enqueue {
 				c.encryptedPackets = append(c.encryptedPackets, buf)
 				c.log.Debug("handshake not finished, queuing packet")
@@ -679,7 +679,7 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert.Aler
 		}
 
 		var err error
-		buf, err = c.state.cipherSuite.decrypt(buf)
+		buf, err = c.state.cipherSuite.Decrypt(buf)
 		if err != nil {
 			c.log.Debugf("%s: decrypt failed: %s", srvCliStr(c.state.isClient), err)
 			return false, nil, nil
@@ -723,7 +723,7 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert.Aler
 		markPacketAsValid()
 		return false, a, &errAlert{content}
 	case *protocol.ChangeCipherSpec:
-		if c.state.cipherSuite == nil || !c.state.cipherSuite.isInitialized() {
+		if c.state.cipherSuite == nil || !c.state.cipherSuite.IsInitialized() {
 			if enqueue {
 				c.encryptedPackets = append(c.encryptedPackets, buf)
 				c.log.Debugf("CipherSuite not initialized, queuing packet")

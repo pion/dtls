@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/pion/dtls/v2/internal/ciphersuite"
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 )
 
@@ -197,8 +198,8 @@ func TestHandshakeCacheSessionHash(t *testing.T) {
 			h.push(i.data, i.epoch, i.messageSequence, i.typ, i.isClient)
 		}
 
-		cipherSuite := cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}
-		verifyData, err := h.sessionHash(cipherSuite.hashFunc(), 0)
+		cipherSuite := ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
+		verifyData, err := h.sessionHash(cipherSuite.HashFunc(), 0)
 		if err != nil {
 			t.Error(err)
 		}

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/dtls/v2/internal/ciphersuite"
 	"github.com/pion/dtls/v2/internal/net/dpipe"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/hash"
@@ -374,7 +375,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 			localRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand},
 			remoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0), RandomBytes: rand},
 			localSequenceNumber: []uint64{0, 0},
-			cipherSuite:         &cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
+			cipherSuite:         &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
 		},
 	}
 	c.setLocalEpoch(0)
@@ -1428,8 +1429,8 @@ func TestServerTimeout(t *testing.T) {
 	random := handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand}
 
 	cipherSuites := []cipherSuite{
-		&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{},
-		&cipherSuiteTLSEcdheRsaWithAes128GcmSha256{},
+		&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
+		&ciphersuite.TLSEcdheRsaWithAes128GcmSha256{},
 	}
 
 	extensions := []extension.Extension{
@@ -1579,7 +1580,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								Version:            protocol.Version{Major: 0xfe, Minor: 0xff}, // try to downgrade
 								Cookie:             cookie,
 								Random:             random,
-								CipherSuiteIDs:     []uint16{uint16((&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
+								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
 								CompressionMethods: defaultCompressionMethods(),
 							},
 						},
@@ -1597,7 +1598,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								Version:            protocol.Version1_2,
 								Cookie:             cookie,
 								Random:             random,
-								CipherSuiteIDs:     []uint16{uint16((&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
+								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
 								CompressionMethods: defaultCompressionMethods(),
 							},
 						},
@@ -1615,7 +1616,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								Version:            protocol.Version{Major: 0xfe, Minor: 0xff}, // try to downgrade
 								Cookie:             cookie,
 								Random:             random,
-								CipherSuiteIDs:     []uint16{uint16((&cipherSuiteTLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
+								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
 								CompressionMethods: defaultCompressionMethods(),
 							},
 						},

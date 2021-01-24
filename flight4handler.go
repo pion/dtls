@@ -84,13 +84,13 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		state.peerCertificatesVerified = verified
 	}
 
-	if !state.cipherSuite.isInitialized() {
+	if !state.cipherSuite.IsInitialized() {
 		serverRandom := state.localRandom.MarshalFixed()
 		clientRandom := state.remoteRandom.MarshalFixed()
 
 		var err error
 		var preMasterSecret []byte
-		if state.cipherSuite.isPSK() {
+		if state.cipherSuite.IsPSK() {
 			var psk []byte
 			if psk, err = cfg.localPSKCallback(clientKeyExchange.IdentityHint); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
@@ -106,23 +106,23 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 		if state.extendedMasterSecret {
 			var sessionHash []byte
-			sessionHash, err = cache.sessionHash(state.cipherSuite.hashFunc(), cfg.initialEpoch)
+			sessionHash, err = cache.sessionHash(state.cipherSuite.HashFunc(), cfg.initialEpoch)
 			if err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 
-			state.masterSecret, err = prf.ExtendedMasterSecret(preMasterSecret, sessionHash, state.cipherSuite.hashFunc())
+			state.masterSecret, err = prf.ExtendedMasterSecret(preMasterSecret, sessionHash, state.cipherSuite.HashFunc())
 			if err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 		} else {
-			state.masterSecret, err = prf.MasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.hashFunc())
+			state.masterSecret, err = prf.MasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.HashFunc())
 			if err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 		}
 
-		if err := state.cipherSuite.init(state.masterSecret, clientRandom[:], serverRandom[:], false); err != nil {
+		if err := state.cipherSuite.Init(state.masterSecret, clientRandom[:], serverRandom[:], false); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}
@@ -181,7 +181,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			ProtectionProfiles: []SRTPProtectionProfile{state.srtpProtectionProfile},
 		})
 	}
-	if !state.cipherSuite.isPSK() {
+	if !state.cipherSuite.IsPSK() {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
 				EllipticCurves: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
@@ -212,7 +212,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		},
 	})
 
-	if !state.cipherSuite.isPSK() {
+	if !state.cipherSuite.IsPSK() {
 		certificate, err := cfg.getCertificate(cfg.serverName)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err

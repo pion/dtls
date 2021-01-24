@@ -55,7 +55,7 @@ func flight6Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		)
 
 		var err error
-		state.localVerifyData, err = prf.VerifyDataServer(state.masterSecret, plainText, state.cipherSuite.hashFunc())
+		state.localVerifyData, err = prf.VerifyDataServer(state.masterSecret, plainText, state.cipherSuite.HashFunc())
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
