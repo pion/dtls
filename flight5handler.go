@@ -40,7 +40,7 @@ func flight5Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, true, false},
 	)
 
-	expectedVerifyData, err := prf.VerifyDataServer(state.masterSecret, plainText, state.cipherSuite.hashFunc())
+	expectedVerifyData, err := prf.VerifyDataServer(state.masterSecret, plainText, state.cipherSuite.HashFunc())
 	if err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -229,7 +229,7 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		)
 
 		var err error
-		state.localVerifyData, err = prf.VerifyDataClient(state.masterSecret, append(plainText, merged...), state.cipherSuite.hashFunc())
+		state.localVerifyData, err = prf.VerifyDataClient(state.masterSecret, append(plainText, merged...), state.cipherSuite.HashFunc())
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
@@ -256,7 +256,7 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 }
 
 func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeConfig, h *handshake.MessageServerKeyExchange, sendingPlainText []byte) (*alert.Alert, error) { //nolint:gocognit
-	if state.cipherSuite.isInitialized() {
+	if state.cipherSuite.IsInitialized() {
 		return nil, nil
 	}
 
@@ -267,17 +267,17 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 
 	if state.extendedMasterSecret {
 		var sessionHash []byte
-		sessionHash, err = cache.sessionHash(state.cipherSuite.hashFunc(), cfg.initialEpoch, sendingPlainText)
+		sessionHash, err = cache.sessionHash(state.cipherSuite.HashFunc(), cfg.initialEpoch, sendingPlainText)
 		if err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 
-		state.masterSecret, err = prf.ExtendedMasterSecret(state.preMasterSecret, sessionHash, state.cipherSuite.hashFunc())
+		state.masterSecret, err = prf.ExtendedMasterSecret(state.preMasterSecret, sessionHash, state.cipherSuite.HashFunc())
 		if err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 		}
 	} else {
-		state.masterSecret, err = prf.MasterSecret(state.preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.hashFunc())
+		state.masterSecret, err = prf.MasterSecret(state.preMasterSecret, clientRandom[:], serverRandom[:], state.cipherSuite.HashFunc())
 		if err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
@@ -313,7 +313,7 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 		}
 	}
 
-	if err = state.cipherSuite.init(state.masterSecret, clientRandom[:], serverRandom[:], true); err != nil {
+	if err = state.cipherSuite.Init(state.masterSecret, clientRandom[:], serverRandom[:], true); err != nil {
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	return nil, nil
