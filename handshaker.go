@@ -88,7 +88,7 @@ type handshakeFSM struct {
 type handshakeConfig struct {
 	localPSKCallback            PSKCallback
 	localPSKIdentityHint        []byte
-	localCipherSuites           []cipherSuite             // Available CipherSuites
+	localCipherSuites           []CipherSuite             // Available CipherSuites
 	localSignatureSchemes       []signaturehash.Algorithm // Available signature schemes
 	extendedMasterSecret        ExtendedMasterSecretType  // Policy for the Extended Master Support extension
 	localSRTPProtectionProfiles []SRTPProtectionProfile   // Available SRTPProtectionProfiles, if empty no SRTP support

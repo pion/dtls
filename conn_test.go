@@ -1428,7 +1428,7 @@ func TestServerTimeout(t *testing.T) {
 	var rand [28]byte
 	random := handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand}
 
-	cipherSuites := []cipherSuite{
+	cipherSuites := []CipherSuite{
 		&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
 		&ciphersuite.TLSEcdheRsaWithAes128GcmSha256{},
 	}

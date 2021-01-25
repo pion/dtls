@@ -17,7 +17,7 @@ type State struct {
 	localSequenceNumber       []uint64 // uint48
 	localRandom, remoteRandom handshake.Random
 	masterSecret              []byte
-	cipherSuite               cipherSuite // nil if a cipherSuite hasn't been chosen
+	cipherSuite               CipherSuite // nil if a cipherSuite hasn't been chosen
 
 	srtpProtectionProfile SRTPProtectionProfile // Negotiated SRTPProtectionProfile
 	PeerCertificates      [][]byte

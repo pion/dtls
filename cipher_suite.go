@@ -32,18 +32,38 @@ const (
 	TLS_PSK_WITH_AES_128_CBC_SHA256 CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_128_CBC_SHA256 //nolint:golint,stylecheck
 )
 
+// CipherSuiteAuthenticationType controls what authentication method is using during the handshake for a CipherSuite
+type CipherSuiteAuthenticationType = ciphersuite.AuthenticationType
+
+// AuthenticationType Enums
+const (
+	CipherSuiteAuthenticationTypeCertificate  CipherSuiteAuthenticationType = ciphersuite.AuthenticationTypeCertificate
+	CipherSuiteAuthenticationTypePreSharedKey CipherSuiteAuthenticationType = ciphersuite.AuthenticationTypePreSharedKey
+	CipherSuiteAuthenticationTypeAnonymous    CipherSuiteAuthenticationType = ciphersuite.AuthenticationTypeAnonymous
+)
+
 var _ = allCipherSuites() // Necessary until this function isn't only used by Go 1.14
 
-type cipherSuite interface {
+// CipherSuite is an interface that all DTLS CipherSuites must satisfy
+type CipherSuite interface {
+	// String of CipherSuite, only used for logging
 	String() string
-	ID() CipherSuiteID
-	CertificateType() clientcertificate.Type
-	HashFunc() func() hash.Hash
-	IsPSK() bool
-	IsInitialized() bool
 
-	// Generate the internal encryption state
+	// ID of CipherSuite.
+	ID() CipherSuiteID
+
+	// What type of Certificate does this CipherSuite use
+	CertificateType() clientcertificate.Type
+
+	// What Hash function is used during verification
+	HashFunc() func() hash.Hash
+
+	// AuthenticationType controls what authentication method is using during the handshake
+	AuthenticationType() CipherSuiteAuthenticationType
+
+	// Called when keying material has been generated, should initialize the internal cipher
 	Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error
+	IsInitialized() bool
 
 	Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
 	Decrypt(in []byte) ([]byte, error)
@@ -65,7 +85,7 @@ func CipherSuiteName(id CipherSuiteID) string {
 // Taken from https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
 // A cipherSuite is a specific combination of key agreement, cipher and MAC
 // function.
-func cipherSuiteForID(id CipherSuiteID) cipherSuite {
+func cipherSuiteForID(id CipherSuiteID) CipherSuite {
 	switch id { //nolint:exhaustive
 	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM:
 		return ciphersuite.NewTLSEcdheEcdsaWithAes128Ccm()
@@ -92,8 +112,8 @@ func cipherSuiteForID(id CipherSuiteID) cipherSuite {
 }
 
 // CipherSuites we support in order of preference
-func defaultCipherSuites() []cipherSuite {
-	return []cipherSuite{
+func defaultCipherSuites() []CipherSuite {
+	return []CipherSuite{
 		&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
 		&ciphersuite.TLSEcdheRsaWithAes128GcmSha256{},
 		&ciphersuite.TLSEcdheEcdsaWithAes256CbcSha{},
@@ -101,8 +121,8 @@ func defaultCipherSuites() []cipherSuite {
 	}
 }
 
-func allCipherSuites() []cipherSuite {
-	return []cipherSuite{
+func allCipherSuites() []CipherSuite {
+	return []CipherSuite{
 		ciphersuite.NewTLSEcdheEcdsaWithAes128Ccm(),
 		ciphersuite.NewTLSEcdheEcdsaWithAes128Ccm8(),
 		&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
@@ -115,7 +135,7 @@ func allCipherSuites() []cipherSuite {
 	}
 }
 
-func cipherSuiteIDs(cipherSuites []cipherSuite) []uint16 {
+func cipherSuiteIDs(cipherSuites []CipherSuite) []uint16 {
 	rtrn := []uint16{}
 	for _, c := range cipherSuites {
 		rtrn = append(rtrn, uint16(c.ID()))
@@ -123,13 +143,13 @@ func cipherSuiteIDs(cipherSuites []cipherSuite) []uint16 {
 	return rtrn
 }
 
-func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSuites, includePSKSuites bool) ([]cipherSuite, error) {
+func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSuites, includePSKSuites bool) ([]CipherSuite, error) {
 	if !includeCertificateSuites && !includePSKSuites {
 		return nil, errNoAvailableCipherSuites
 	}
 
-	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]cipherSuite, error) {
-		cipherSuites := []cipherSuite{}
+	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]CipherSuite, error) {
+		cipherSuites := []CipherSuite{}
 		for _, id := range ids {
 			c := cipherSuiteForID(id)
 			if c == nil {
@@ -141,7 +161,7 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSui
 	}
 
 	var (
-		cipherSuites []cipherSuite
+		cipherSuites []CipherSuite
 		err          error
 		i            int
 	)
@@ -157,9 +177,9 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSui
 	var foundCertificateSuite, foundPSKSuite bool
 	for _, c := range cipherSuites {
 		switch {
-		case includeCertificateSuites && !c.IsPSK():
+		case includeCertificateSuites && c.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate:
 			foundCertificateSuite = true
-		case includePSKSuites && c.IsPSK():
+		case includePSKSuites && c.AuthenticationType() == CipherSuiteAuthenticationTypePreSharedKey:
 			foundPSKSuite = true
 		default:
 			continue
