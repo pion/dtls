@@ -36,7 +36,7 @@ func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 	cipherSuites := []CipherSuite{}
 	for _, id := range clientHello.CipherSuiteIDs {
-		if c := cipherSuiteForID(CipherSuiteID(id)); c != nil {
+		if c := cipherSuiteForID(CipherSuiteID(id), cfg.customCipherSuites); c != nil {
 			cipherSuites = append(cipherSuites, c)
 		}
 	}
