@@ -49,9 +49,12 @@ func (c *Aes128Ccm) HashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-// IsPSK returns if the CipherSuite requires a pre-shared key
-func (c *Aes128Ccm) IsPSK() bool {
-	return c.psk
+// AuthenticationType controls what authentication method is using during the handshake
+func (c *Aes128Ccm) AuthenticationType() AuthenticationType {
+	if c.psk {
+		return AuthenticationTypePreSharedKey
+	}
+	return AuthenticationTypeCertificate
 }
 
 // IsInitialized returns if the CipherSuite has keying material and can
