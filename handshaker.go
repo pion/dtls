@@ -101,6 +101,7 @@ type handshakeConfig struct {
 	rootCAs                     *x509.CertPool
 	clientCAs                   *x509.CertPool
 	retransmitInterval          time.Duration
+	customCipherSuites          func() []CipherSuite
 
 	onFlightState func(flightVal, handshakeState)
 	log           logging.LeveledLogger

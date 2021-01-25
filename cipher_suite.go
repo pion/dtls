@@ -75,7 +75,7 @@ type CipherSuite interface {
 // Our implementation differs slightly in that it takes in a CiperSuiteID,
 // like the rest of our library, instead of a uint16 like crypto/tls.
 func CipherSuiteName(id CipherSuiteID) string {
-	suite := cipherSuiteForID(id)
+	suite := cipherSuiteForID(id, nil)
 	if suite != nil {
 		return suite.String()
 	}
@@ -85,7 +85,7 @@ func CipherSuiteName(id CipherSuiteID) string {
 // Taken from https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
 // A cipherSuite is a specific combination of key agreement, cipher and MAC
 // function.
-func cipherSuiteForID(id CipherSuiteID) CipherSuite {
+func cipherSuiteForID(id CipherSuiteID, customCiphers func() []CipherSuite) CipherSuite {
 	switch id { //nolint:exhaustive
 	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM:
 		return ciphersuite.NewTLSEcdheEcdsaWithAes128Ccm()
@@ -108,6 +108,15 @@ func cipherSuiteForID(id CipherSuiteID) CipherSuite {
 	case TLS_PSK_WITH_AES_128_CBC_SHA256:
 		return &ciphersuite.TLSPskWithAes128CbcSha256{}
 	}
+
+	if customCiphers != nil {
+		for _, c := range customCiphers() {
+			if c.ID() == id {
+				return c
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -143,7 +152,7 @@ func cipherSuiteIDs(cipherSuites []CipherSuite) []uint16 {
 	return rtrn
 }
 
-func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSuites, includePSKSuites bool) ([]CipherSuite, error) {
+func parseCipherSuites(userSelectedSuites []CipherSuiteID, customCipherSuites func() []CipherSuite, includeCertificateSuites, includePSKSuites bool) ([]CipherSuite, error) {
 	if !includeCertificateSuites && !includePSKSuites {
 		return nil, errNoAvailableCipherSuites
 	}
@@ -151,7 +160,7 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSui
 	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]CipherSuite, error) {
 		cipherSuites := []CipherSuite{}
 		for _, id := range ids {
-			c := cipherSuiteForID(id)
+			c := cipherSuiteForID(id, nil)
 			if c == nil {
 				return nil, &invalidCipherSuite{id}
 			}
@@ -165,13 +174,18 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, includeCertificateSui
 		err          error
 		i            int
 	)
-	if len(userSelectedSuites) != 0 {
+	if userSelectedSuites != nil {
 		cipherSuites, err = cipherSuitesForIDs(userSelectedSuites)
 		if err != nil {
 			return nil, err
 		}
 	} else {
 		cipherSuites = defaultCipherSuites()
+	}
+
+	// Put CustomCipherSuites before ID selected suites
+	if customCipherSuites != nil {
+		cipherSuites = append(customCipherSuites(), cipherSuites...)
 	}
 
 	var foundCertificateSuite, foundPSKSuite bool

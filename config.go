@@ -23,6 +23,11 @@ type Config struct {
 	// If CipherSuites is nil, a default list is used
 	CipherSuites []CipherSuiteID
 
+	// CustomCipherSuites is a list of CipherSuites that can be
+	// provided by the user. This allow users to user Ciphers that are reserved
+	// for private usage.
+	CustomCipherSuites func() []CipherSuite
+
 	// SignatureSchemes contains the signature and hash schemes that the peer requests to verify.
 	SignatureSchemes []tls.SignatureScheme
 
@@ -172,6 +177,6 @@ func validateConfig(config *Config) error {
 		}
 	}
 
-	_, err := parseCipherSuites(config.CipherSuites, config.PSK == nil || len(config.Certificates) > 0, config.PSK != nil)
+	_, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.PSK == nil || len(config.Certificates) > 0, config.PSK != nil)
 	return err
 }
