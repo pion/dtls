@@ -111,7 +111,7 @@ func (s *State) deserialize(serialized serializedState) {
 	s.masterSecret = serialized.MasterSecret
 
 	// Set cipher suite
-	s.cipherSuite = cipherSuiteForID(CipherSuiteID(serialized.CipherSuiteID))
+	s.cipherSuite = cipherSuiteForID(CipherSuiteID(serialized.CipherSuiteID), nil)
 
 	atomic.StoreUint64(&s.localSequenceNumber[epoch], serialized.SequenceNumber)
 	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)

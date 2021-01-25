@@ -26,7 +26,7 @@ func TestHandshaker(t *testing.T) {
 	loggerFactory := logging.NewDefaultLoggerFactory()
 	logger := loggerFactory.NewLogger("dtls")
 
-	cipherSuites, err := parseCipherSuites(nil, true, false)
+	cipherSuites, err := parseCipherSuites(nil, nil, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}

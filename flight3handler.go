@@ -78,7 +78,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errRequestedButNoSRTPExtension
 		}
 
-		remoteCipherSuite := cipherSuiteForID(CipherSuiteID(*h.CipherSuiteID))
+		remoteCipherSuite := cipherSuiteForID(CipherSuiteID(*h.CipherSuiteID), cfg.customCipherSuites)
 		if remoteCipherSuite == nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 		}
