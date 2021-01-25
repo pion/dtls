@@ -59,3 +59,13 @@ const (
 	TLS_PSK_WITH_AES_128_GCM_SHA256 ID = 0x00a8 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_CBC_SHA256 ID = 0x00ae //nolint:golint,stylecheck
 )
+
+// AuthenticationType controls what authentication method is using during the handshake
+type AuthenticationType int
+
+// AuthenticationType Enums
+const (
+	AuthenticationTypeCertificate AuthenticationType = iota + 1
+	AuthenticationTypePreSharedKey
+	AuthenticationTypeAnonymous
+)

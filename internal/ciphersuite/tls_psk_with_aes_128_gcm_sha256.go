@@ -21,7 +21,7 @@ func (c *TLSPskWithAes128GcmSha256) String() string {
 	return "TLS_PSK_WITH_AES_128_GCM_SHA256"
 }
 
-// IsPSK returns if the CipherSuite requires a pre-shared key
-func (c *TLSPskWithAes128GcmSha256) IsPSK() bool {
-	return true
+// AuthenticationType controls what authentication method is using during the handshake
+func (c *TLSPskWithAes128GcmSha256) AuthenticationType() AuthenticationType {
+	return AuthenticationTypePreSharedKey
 }

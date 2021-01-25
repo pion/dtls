@@ -90,7 +90,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 		var err error
 		var preMasterSecret []byte
-		if state.cipherSuite.IsPSK() {
+		if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypePreSharedKey {
 			var psk []byte
 			if psk, err = cfg.localPSKCallback(clientKeyExchange.IdentityHint); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
@@ -181,7 +181,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			ProtectionProfiles: []SRTPProtectionProfile{state.srtpProtectionProfile},
 		})
 	}
-	if !state.cipherSuite.IsPSK() {
+	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
 				EllipticCurves: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
@@ -212,7 +212,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		},
 	})
 
-	if !state.cipherSuite.IsPSK() {
+	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
 		certificate, err := cfg.getCertificate(cfg.serverName)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err

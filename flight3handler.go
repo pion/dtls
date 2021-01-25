@@ -83,7 +83,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 		}
 
-		selectedCipherSuite, ok := findMatchingCipherSuite([]cipherSuite{remoteCipherSuite}, cfg.localCipherSuites)
+		selectedCipherSuite, ok := findMatchingCipherSuite([]CipherSuite{remoteCipherSuite}, cfg.localCipherSuites)
 		if !ok {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
 		}
