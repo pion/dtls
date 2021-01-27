@@ -73,7 +73,7 @@ func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]A
 				xerrors.Errorf("SignatureScheme %04x: %w", ss, errInvalidSignatureAlgorithm)
 		}
 		h := hash.Algorithm(ss >> 8)
-		if _, ok := hash.Algorithms()[h]; !ok {
+		if _, ok := hash.Algorithms()[h]; !ok || (ok && h == hash.None) {
 			return nil, xerrors.Errorf("SignatureScheme %04x: %w", ss, errInvalidHashAlgorithm)
 		}
 		if h.Insecure() && !insecureHashes {

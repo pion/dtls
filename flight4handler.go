@@ -145,6 +145,10 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
+	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous {
+		return flight6, nil, nil
+	}
+
 	switch cfg.clientAuth {
 	case RequireAnyClientCert:
 		if state.PeerCertificates == nil {
@@ -212,7 +216,8 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		},
 	})
 
-	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
+	switch {
+	case state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate:
 		certificate, err := cfg.getCertificate(cfg.serverName)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
@@ -279,7 +284,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				},
 			})
 		}
-	} else if cfg.localPSKIdentityHint != nil {
+	case cfg.localPSKIdentityHint != nil:
 		// To help the client in selecting which identity to use, the server
 		// can provide a "PSK identity hint" in the ServerKeyExchange message.
 		// If no hint is provided, the ServerKeyExchange message is omitted.
@@ -293,6 +298,21 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageServerKeyExchange{
 						IdentityHint: cfg.localPSKIdentityHint,
+					},
+				},
+			},
+		})
+	case state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous:
+		pkts = append(pkts, &packet{
+			record: &recordlayer.RecordLayer{
+				Header: recordlayer.Header{
+					Version: protocol.Version1_2,
+				},
+				Content: &handshake.Handshake{
+					Message: &handshake.MessageServerKeyExchange{
+						EllipticCurveType: elliptic.CurveTypeNamedCurve,
+						NamedCurve:        state.namedCurve,
+						PublicKey:         state.localKeypair.PublicKey,
 					},
 				},
 			},

@@ -1376,7 +1376,7 @@ func TestPSKConfiguration(t *testing.T) {
 			ClientPSKIdentity:    []byte{0x00},
 			ServerPSKIdentity:    []byte{0x00},
 			WantClientError:      errIdentityNoPSK,
-			WantServerError:      errServerMustHaveCertificate,
+			WantServerError:      errIdentityNoPSK,
 		},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

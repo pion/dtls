@@ -7,16 +7,18 @@ type Algorithm uint16
 
 // SignatureAlgorithm enums
 const (
-	RSA     Algorithm = 1
-	ECDSA   Algorithm = 3
-	Ed25519 Algorithm = 7
+	Anonymous Algorithm = 0
+	RSA       Algorithm = 1
+	ECDSA     Algorithm = 3
+	Ed25519   Algorithm = 7
 )
 
 // Algorithms returns all implemented Signature Algorithms
 func Algorithms() map[Algorithm]struct{} {
 	return map[Algorithm]struct{}{
-		RSA:     {},
-		ECDSA:   {},
-		Ed25519: {},
+		Anonymous: {},
+		RSA:       {},
+		ECDSA:     {},
+		Ed25519:   {},
 	}
 }

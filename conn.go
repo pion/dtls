@@ -262,11 +262,8 @@ func ClientWithContext(ctx context.Context, conn net.Conn, config *Config) (*Con
 
 // ServerWithContext listens for incoming DTLS connections.
 func ServerWithContext(ctx context.Context, conn net.Conn, config *Config) (*Conn, error) {
-	switch {
-	case config == nil:
+	if config == nil {
 		return nil, errNoConfigProvided
-	case config.PSK == nil && len(config.Certificates) == 0:
-		return nil, errServerMustHaveCertificate
 	}
 
 	return createConn(ctx, conn, config, false, nil)

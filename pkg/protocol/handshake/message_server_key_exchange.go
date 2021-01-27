@@ -39,8 +39,11 @@ func (m *MessageServerKeyExchange) Marshal() ([]byte, error) {
 	out = append(out, byte(len(m.PublicKey)))
 	out = append(out, m.PublicKey...)
 
-	out = append(out, []byte{byte(m.HashAlgorithm), byte(m.SignatureAlgorithm), 0x00, 0x00}...)
+	if m.HashAlgorithm == hash.None && m.SignatureAlgorithm == signature.Anonymous && len(m.Signature) == 0 {
+		return out, nil
+	}
 
+	out = append(out, []byte{byte(m.HashAlgorithm), byte(m.SignatureAlgorithm), 0x00, 0x00}...)
 	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(m.Signature)))
 	out = append(out, m.Signature...)
 
@@ -82,9 +85,14 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 	m.PublicKey = append([]byte{}, data[4:offset]...)
-	if len(data) <= offset {
+
+	// Anon connection doesn't contains hashAlgorithm, signatureAlgorithm, signature
+	if len(data) == offset {
+		return nil
+	} else if len(data) <= offset {
 		return errBufferTooSmall
 	}
+
 	m.HashAlgorithm = hash.Algorithm(data[offset])
 	if _, ok := hash.Algorithms()[m.HashAlgorithm]; !ok {
 		return errInvalidHashAlgorithm
