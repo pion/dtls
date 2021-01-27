@@ -120,6 +120,9 @@ func (c *CBC) Decrypt(in []byte) ([]byte, error) {
 	// Padding+MAC needs to be checked in constant time
 	// Otherwise we reveal information about the level of correctness
 	paddingLen, paddingGood := examinePadding(body)
+	if paddingGood != 255 {
+		return nil, errInvalidMAC
+	}
 
 	macSize := mac.Size()
 	if len(body) < macSize {
@@ -132,7 +135,7 @@ func (c *CBC) Decrypt(in []byte) ([]byte, error) {
 	actualMAC, err := c.hmac(h.Epoch, h.SequenceNumber, h.ContentType, h.Version, body[:dataEnd], c.readMac, c.h)
 
 	// Compute Local MAC and compare
-	if paddingGood != 255 || err != nil || !hmac.Equal(actualMAC, expectedMAC) {
+	if err != nil || !hmac.Equal(actualMAC, expectedMAC) {
 		return nil, errInvalidMAC
 	}
 
