@@ -283,7 +283,7 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 		}
 	}
 
-	if cfg.localPSKCallback == nil {
+	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
 		// Verify that the pair of hash algorithm and signiture is listed.
 		var validSignatureScheme bool
 		for _, ss := range cfg.localSignatureSchemes {

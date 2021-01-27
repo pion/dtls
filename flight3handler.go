@@ -41,7 +41,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	} else {
 		seq, msgs, ok = cache.fullPullMap(state.handshakeRecvSequence,
 			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, false},
+			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, true},
 			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
 			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, true},
 			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
@@ -95,6 +95,8 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 	if h, ok := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
 		state.PeerCertificates = h.Certificate
+	} else if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errInvalidCertificate
 	}
 
 	if h, ok := msgs[handshake.TypeServerKeyExchange].(*handshake.MessageServerKeyExchange); ok {

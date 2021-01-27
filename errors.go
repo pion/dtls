@@ -52,7 +52,6 @@ var (
 	errUnsupportedProtocolVersion        = &FatalError{Err: errors.New("unsupported protocol version")}                                                             //nolint:goerr113
 	errPSKAndIdentityMustBeSetForClient  = &FatalError{Err: errors.New("PSK and PSK Identity Hint must both be set for client")}                                    //nolint:goerr113
 	errRequestedButNoSRTPExtension       = &FatalError{Err: errors.New("SRTP support was requested but server did not respond with use_srtp extension")}            //nolint:goerr113
-	errServerMustHaveCertificate         = &FatalError{Err: errors.New("Certificate is mandatory for server")}                                                      //nolint:stylecheck
 	errServerNoMatchingSRTPProfile       = &FatalError{Err: errors.New("client requested SRTP but we have no matching profiles")}                                   //nolint:goerr113
 	errServerRequiredButNoClientEMS      = &FatalError{Err: errors.New("server requires the Extended Master Secret extension, but the client does not support it")} //nolint:goerr113
 	errVerifyDataMismatch                = &FatalError{Err: errors.New("expected and actual verify data does not match")}                                           //nolint:goerr113

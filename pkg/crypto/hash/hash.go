@@ -15,7 +15,7 @@ type Algorithm uint16
 
 // Supported hash algorithms
 const (
-	MD2     Algorithm = 0 // Blacklisted
+	None    Algorithm = 0 // Blacklisted
 	MD5     Algorithm = 1 // Blacklisted
 	SHA1    Algorithm = 2 // Blacklisted
 	SHA224  Algorithm = 3
@@ -28,8 +28,8 @@ const (
 // String makes hashAlgorithm printable
 func (a Algorithm) String() string {
 	switch a {
-	case MD2:
-		return "md2"
+	case None:
+		return "none"
 	case MD5:
 		return "md5" // [RFC3279]
 	case SHA1:
@@ -52,6 +52,8 @@ func (a Algorithm) String() string {
 // Digest performs a digest on the passed value
 func (a Algorithm) Digest(b []byte) []byte {
 	switch a {
+	case None:
+		return nil
 	case MD5:
 		hash := md5.Sum(b) // #nosec
 		return hash[:]
@@ -78,7 +80,7 @@ func (a Algorithm) Digest(b []byte) []byte {
 // Insecure returns if the given HashAlgorithm is considered secure in DTLS 1.2
 func (a Algorithm) Insecure() bool {
 	switch a {
-	case MD2, MD5, SHA1:
+	case None, MD5, SHA1:
 		return true
 	default:
 		return false
@@ -88,6 +90,8 @@ func (a Algorithm) Insecure() bool {
 // CryptoHash returns the crypto.Hash implementation for the given HashAlgorithm
 func (a Algorithm) CryptoHash() crypto.Hash {
 	switch a {
+	case None:
+		return crypto.Hash(0)
 	case MD5:
 		return crypto.MD5
 	case SHA1:
@@ -110,6 +114,7 @@ func (a Algorithm) CryptoHash() crypto.Hash {
 // Algorithms returns all the supported Hash Algorithms
 func Algorithms() map[Algorithm]struct{} {
 	return map[Algorithm]struct{}{
+		None:    {},
 		MD5:     {},
 		SHA1:    {},
 		SHA224:  {},

@@ -153,10 +153,6 @@ func cipherSuiteIDs(cipherSuites []CipherSuite) []uint16 {
 }
 
 func parseCipherSuites(userSelectedSuites []CipherSuiteID, customCipherSuites func() []CipherSuite, includeCertificateSuites, includePSKSuites bool) ([]CipherSuite, error) {
-	if !includeCertificateSuites && !includePSKSuites {
-		return nil, errNoAvailableCipherSuites
-	}
-
 	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]CipherSuite, error) {
 		cipherSuites := []CipherSuite{}
 		for _, id := range ids {
@@ -188,13 +184,15 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, customCipherSuites fu
 		cipherSuites = append(customCipherSuites(), cipherSuites...)
 	}
 
-	var foundCertificateSuite, foundPSKSuite bool
+	var foundCertificateSuite, foundPSKSuite, foundAnonymousSuite bool
 	for _, c := range cipherSuites {
 		switch {
 		case includeCertificateSuites && c.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate:
 			foundCertificateSuite = true
 		case includePSKSuites && c.AuthenticationType() == CipherSuiteAuthenticationTypePreSharedKey:
 			foundPSKSuite = true
+		case c.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous:
+			foundAnonymousSuite = true
 		default:
 			continue
 		}
@@ -202,11 +200,13 @@ func parseCipherSuites(userSelectedSuites []CipherSuiteID, customCipherSuites fu
 		i++
 	}
 
-	if includeCertificateSuites && !foundCertificateSuite {
+	switch {
+	case includeCertificateSuites && !foundCertificateSuite && !foundAnonymousSuite:
 		return nil, errNoAvailableCertificateCipherSuite
-	}
-	if includePSKSuites && !foundPSKSuite {
+	case includePSKSuites && !foundPSKSuite:
 		return nil, errNoAvailablePSKCipherSuite
+	case i == 0:
+		return nil, errNoAvailableCipherSuites
 	}
 
 	return cipherSuites[:i], nil
