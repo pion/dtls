@@ -177,6 +177,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		retransmitInterval:          workerInterval,
 		log:                         logger,
 		initialEpoch:                0,
+		keyLogWriter:                config.KeyLogWriter,
 	}
 
 	var initialFlight flightVal

@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -105,6 +107,7 @@ type handshakeConfig struct {
 
 	onFlightState func(flightVal, handshakeState)
 	log           logging.LeveledLogger
+	keyLogWriter  io.Writer
 
 	initialEpoch uint16
 
@@ -117,6 +120,18 @@ type flightConn interface {
 	recvHandshake() <-chan chan struct{}
 	setLocalEpoch(epoch uint16)
 	handleQueuedPackets(context.Context) error
+}
+
+func (c *handshakeConfig) writeKeyLog(label string, clientRandom, secret []byte) {
+	if c.keyLogWriter == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, err := c.keyLogWriter.Write([]byte(fmt.Sprintf("%s %x %x\n", label, clientRandom, secret)))
+	if err != nil {
+		c.log.Debugf("failed to write key log file: %s", err)
+	}
 }
 
 func srvCliStr(isClient bool) string {

@@ -6,10 +6,13 @@ import (
 	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
+	"io"
 	"time"
 
 	"github.com/pion/logging"
 )
+
+const keyLogLabelTLS12 = "CLIENT_RANDOM"
 
 // Config is used to configure a DTLS client or server.
 // After a Config is passed to a DTLS function it must not be modified.
@@ -112,6 +115,14 @@ type Config struct {
 	// Packet with sequence number older than this value compared to the latest
 	// accepted packet will be discarded. (default is 64)
 	ReplayProtectionWindow int
+
+	// KeyLogWriter optionally specifies a destination for TLS master secrets
+	// in NSS key log format that can be used to allow external programs
+	// such as Wireshark to decrypt TLS connections.
+	// See https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Key_Log_Format.
+	// Use of KeyLogWriter compromises security and should only be
+	// used for debugging.
+	KeyLogWriter io.Writer
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {
