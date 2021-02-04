@@ -316,5 +316,8 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 	if err = state.cipherSuite.Init(state.masterSecret, clientRandom[:], serverRandom[:], true); err != nil {
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
+
+	cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
+
 	return nil, nil
 }

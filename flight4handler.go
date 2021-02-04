@@ -125,6 +125,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		if err := state.cipherSuite.Init(state.masterSecret, clientRandom[:], serverRandom[:], false); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
+		cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
 	}
 
 	// Now, encrypted packets can be handled
