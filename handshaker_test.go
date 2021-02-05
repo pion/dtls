@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"sync"
@@ -17,6 +18,27 @@ import (
 )
 
 const nonZeroRetransmitInterval = 100 * time.Millisecond
+
+// Test that writes to the key log are in the correct format and only applies
+// when a key log writer is given.
+func TestWriteKeyLog(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := handshakeConfig{
+		keyLogWriter: &buf,
+	}
+	cfg.writeKeyLog("LABEL", []byte{0xAA, 0xBB, 0xCC}, []byte{0xDD, 0xEE, 0xFF})
+
+	// Secrets follow the format <Label> <space> <ClientRandom> <space> <Secret>
+	// https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Key_Log_Format
+	want := "LABEL aabbcc ddeeff\n"
+	if buf.String() != want {
+		t.Fatalf("Got %s want %s", buf.String(), want)
+	}
+
+	// no key log writer = no writes
+	cfg = handshakeConfig{}
+	cfg.writeKeyLog("LABEL", []byte{0xAA, 0xBB, 0xCC}, []byte{0xDD, 0xEE, 0xFF})
+}
 
 func TestHandshaker(t *testing.T) {
 	// Check for leaking routines
