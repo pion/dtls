@@ -185,6 +185,11 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			ProtectionProfiles: []SRTPProtectionProfile{state.srtpProtectionProfile},
 		})
 	}
+	if state.remoteSupportsRenegotiation {
+		extensions = append(extensions, &extension.RenegotiationInfo{
+			RenegotiatedConnection: 0,
+		})
+	}
 	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{

@@ -1902,3 +1902,125 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 	}
 	cancel()
 }
+
+// Assert that a DTLS Server only responds with RenegotiationInfo if
+// a ClientHello contained that extension
+func TestRenegotationInfo(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(10 * time.Second)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	resp := make([]byte, 1024)
+
+	for _, testCase := range []struct {
+		Name                    string
+		ExpectRenegotiationInfo bool
+	}{
+		{
+			"Include RenegotiationInfo",
+			true,
+		},
+		{
+			"No RenegotiationInfo",
+			false,
+		},
+	} {
+		test := testCase
+		t.Run(test.Name, func(t *testing.T) {
+			sendClientHello := func(cookie []byte, ca net.Conn, sequenceNumber uint64) {
+				extensions := []extension.Extension{}
+				if test.ExpectRenegotiationInfo {
+					extensions = append(extensions, &extension.RenegotiationInfo{
+						RenegotiatedConnection: 0,
+					})
+				}
+
+				packet, err := (&recordlayer.RecordLayer{
+					Header: recordlayer.Header{
+						Version:        protocol.Version1_2,
+						SequenceNumber: sequenceNumber,
+					},
+					Content: &handshake.Handshake{
+						Header: handshake.Header{
+							MessageSequence: uint16(sequenceNumber),
+						},
+						Message: &handshake.MessageClientHello{
+							Version:            protocol.Version1_2,
+							Cookie:             cookie,
+							CipherSuiteIDs:     cipherSuiteIDs(defaultCipherSuites()),
+							CompressionMethods: defaultCompressionMethods(),
+							Extensions:         extensions,
+						},
+					},
+				}).Marshal()
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if _, err = ca.Write(packet); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ca, cb := dpipe.Pipe()
+			defer func() {
+				if err := ca.Close(); err != nil {
+					t.Error(err)
+				}
+			}()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			go func() {
+				if _, err := testServer(ctx, cb, &Config{}, true); !errors.Is(err, context.Canceled) {
+					t.Error(err)
+				}
+			}()
+
+			time.Sleep(50 * time.Millisecond)
+
+			sendClientHello([]byte{}, ca, 0)
+			n, err := ca.Read(resp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := &recordlayer.RecordLayer{}
+			if err = r.Unmarshal(resp[:n]); err != nil {
+				t.Fatal(err)
+			}
+
+			helloVerifyRequest := r.Content.(*handshake.Handshake).Message.(*handshake.MessageHelloVerifyRequest)
+
+			sendClientHello(helloVerifyRequest.Cookie, ca, 1)
+			if n, err = ca.Read(resp); err != nil {
+				t.Fatal(err)
+			}
+
+			messages, err := recordlayer.UnpackDatagram(resp[:n])
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := r.Unmarshal(messages[0]); err != nil {
+				t.Fatal(err)
+			}
+
+			serverHello := r.Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello)
+			actualNegotationInfo := false
+			for _, v := range serverHello.Extensions {
+				if _, ok := v.(*extension.RenegotiationInfo); ok {
+					actualNegotationInfo = true
+				}
+			}
+
+			if test.ExpectRenegotiationInfo != actualNegotationInfo {
+				t.Fatalf("NegotationInfo state in ServerHello is incorrect: expected(%t) actual(%t)", test.ExpectRenegotiationInfo, actualNegotationInfo)
+			}
+		})
+	}
+}
