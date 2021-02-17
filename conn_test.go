@@ -1903,8 +1903,8 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 	cancel()
 }
 
-// Assert that a DTLS Server only responds with RenegotiationInfo if
-// a ClientHello contained that extension
+// Assert that a DTLS Server always responds with RenegotiationInfo if
+// a ClientHello contained that extension or not
 func TestRenegotationInfo(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(10 * time.Second)
@@ -1917,8 +1917,8 @@ func TestRenegotationInfo(t *testing.T) {
 	resp := make([]byte, 1024)
 
 	for _, testCase := range []struct {
-		Name                    string
-		ExpectRenegotiationInfo bool
+		Name                  string
+		SendRenegotiationInfo bool
 	}{
 		{
 			"Include RenegotiationInfo",
@@ -1933,7 +1933,7 @@ func TestRenegotationInfo(t *testing.T) {
 		t.Run(test.Name, func(t *testing.T) {
 			sendClientHello := func(cookie []byte, ca net.Conn, sequenceNumber uint64) {
 				extensions := []extension.Extension{}
-				if test.ExpectRenegotiationInfo {
+				if test.SendRenegotiationInfo {
 					extensions = append(extensions, &extension.RenegotiationInfo{
 						RenegotiatedConnection: 0,
 					})
@@ -2011,15 +2011,15 @@ func TestRenegotationInfo(t *testing.T) {
 			}
 
 			serverHello := r.Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello)
-			actualNegotationInfo := false
+			gotNegotationInfo := false
 			for _, v := range serverHello.Extensions {
 				if _, ok := v.(*extension.RenegotiationInfo); ok {
-					actualNegotationInfo = true
+					gotNegotationInfo = true
 				}
 			}
 
-			if test.ExpectRenegotiationInfo != actualNegotationInfo {
-				t.Fatalf("NegotationInfo state in ServerHello is incorrect: expected(%t) actual(%t)", test.ExpectRenegotiationInfo, actualNegotationInfo)
+			if !gotNegotationInfo {
+				t.Fatalf("Received ServerHello without RenegotiationInfo")
 			}
 		})
 	}

@@ -13,12 +13,11 @@ import (
 
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and encoding.BinaryUnmarshaler
 type State struct {
-	localEpoch, remoteEpoch     atomic.Value
-	localSequenceNumber         []uint64 // uint48
-	localRandom, remoteRandom   handshake.Random
-	masterSecret                []byte
-	cipherSuite                 CipherSuite // nil if a cipherSuite hasn't been chosen
-	remoteSupportsRenegotiation bool        // did ClientHello contain a RenegotiationInfo
+	localEpoch, remoteEpoch   atomic.Value
+	localSequenceNumber       []uint64 // uint48
+	localRandom, remoteRandom handshake.Random
+	masterSecret              []byte
+	cipherSuite               CipherSuite // nil if a cipherSuite hasn't been chosen
 
 	srtpProtectionProfile SRTPProtectionProfile // Negotiated SRTPProtectionProfile
 	PeerCertificates      [][]byte
