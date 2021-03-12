@@ -21,9 +21,11 @@ func findMatchingCipherSuite(a, b []CipherSuite) (CipherSuite, bool) { //nolint
 			if aSuite.ID() == bSuite.ID() {
 				if aSuite.ID() == TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA {
 					return aSuite, true
-				} else {
+				} else if retSuite == nil {
+					// record the first match except TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
 					retSuite = aSuite
 				}
+				break
 			}
 		}
 	}
