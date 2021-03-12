@@ -11,26 +11,13 @@ func findMatchingSRTPProfile(a, b []SRTPProtectionProfile) (SRTPProtectionProfil
 	return 0, false
 }
 
-// Prefers TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA like Chrome does, also because
-// pion/webrtc uses it by default without any configuration interface
-// https://github.com/pion/webrtc/blob/master/dtlstransport.go#L75
-func findMatchingCipherSuite(a, b []CipherSuite) (CipherSuite, bool) { //nolint
-	var retSuite CipherSuite
-	for _, aSuite := range a {
-		for _, bSuite := range b {
+func findMatchingCipherSuite(remote, local []CipherSuite) (CipherSuite, bool) { //nolint
+	for _, aSuite := range local {
+		for _, bSuite := range remote {
 			if aSuite.ID() == bSuite.ID() {
-				if aSuite.ID() == TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA {
-					return aSuite, true
-				} else if retSuite == nil {
-					// record the first match except TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
-					retSuite = aSuite
-				}
-				break
+				return aSuite, true
 			}
 		}
-	}
-	if retSuite != nil {
-		return retSuite, true
 	}
 	return nil, false
 }
