@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"io"
@@ -182,6 +183,7 @@ func validateConfig(config *Config) error {
 			switch cert.PrivateKey.(type) {
 			case ed25519.PrivateKey:
 			case *ecdsa.PrivateKey:
+			case *rsa.PrivateKey:
 			default:
 				return errInvalidPrivateKey
 			}

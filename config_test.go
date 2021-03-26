@@ -1,9 +1,10 @@
 package dtls
 
 import (
+	"crypto/dsa" //nolint
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"testing"
 
@@ -68,14 +69,20 @@ func TestValidateConfig(t *testing.T) {
 	}
 
 	// Invalid private key
-	block, _ := pem.Decode([]byte(rawPrivateKey))
-	rsaKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	dsaPrivateKey := &dsa.PrivateKey{}
+	err = dsa.GenerateParameters(&dsaPrivateKey.Parameters, rand.Reader, dsa.L1024N160)
 	if err != nil {
-		t.Fatalf("TestValidateConfig: Config validation error(%v), parsing RSA private key", err)
+		t.Fatalf("TestValidateConfig: Config validation error(%v), DSA parameters not generated", err)
+		return
+	}
+	err = dsa.GenerateKey(dsaPrivateKey, rand.Reader)
+	if err != nil {
+		t.Fatalf("TestValidateConfig: Config validation error(%v), DSA private key not generated", err)
+		return
 	}
 	config = &Config{
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		Certificates: []tls.Certificate{{Certificate: cert.Certificate, PrivateKey: rsaKey}},
+		Certificates: []tls.Certificate{{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey}},
 	}
 	if err = validateConfig(config); !errors.Is(err, errInvalidPrivateKey) {
 		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errInvalidPrivateKey, err)
@@ -97,9 +104,14 @@ func TestValidateConfig(t *testing.T) {
 	}
 
 	// Valid config
+	rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("TestValidateConfig: Config validation error(%v), RSA private key not generated", err)
+		return
+	}
 	config = &Config{
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		Certificates: []tls.Certificate{cert},
+		Certificates: []tls.Certificate{cert, {Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}},
 	}
 	if err = validateConfig(config); err != nil {
 		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", nil, err)
