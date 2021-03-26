@@ -150,6 +150,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Jim Wert](https://github.com/bocajim)
 * [Alvaro Viebrantz](https://github.com/alvarowolfx)
 * [Kegan Dougal](https://github.com/Kegsay)
+* [Michael Zabka](https://github.com/misak113)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
