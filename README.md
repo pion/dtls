@@ -20,13 +20,13 @@
 
 Native [DTLS 1.2][rfc6347] implementation in the Go programming language.
 
-A long term goal is a professional security review, and maye inclusion in stdlib.
+A long term goal is a professional security review, and maybe an inclusion in stdlib.
 
 [rfc6347]: https://tools.ietf.org/html/rfc6347
 
 ### Goals/Progress
 This will only be targeting DTLS 1.2, and the most modern/common cipher suites.
-We would love contributes that fall under the 'Planned Features' and fixing any bugs!
+We would love contributions that fall under the 'Planned Features' and any bug fixes!
 
 #### Current features
 * DTLS 1.2 Client/Server
@@ -151,6 +151,7 @@ Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contribu
 * [Alvaro Viebrantz](https://github.com/alvarowolfx)
 * [Kegan Dougal](https://github.com/Kegsay)
 * [Michael Zabka](https://github.com/misak113)
+* [Bragadeesh](https://github.com/bragboy)
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
