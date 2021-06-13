@@ -124,6 +124,9 @@ type Config struct {
 	// Use of KeyLogWriter compromises security and should only be
 	// used for debugging.
 	KeyLogWriter io.Writer
+
+	// SessionStore is the container to store session for resumption.
+	SessionStore SessionStore
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {
