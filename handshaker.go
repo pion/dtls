@@ -100,6 +100,7 @@ type handshakeConfig struct {
 	nameToCertificate           map[string]*tls.Certificate
 	insecureSkipVerify          bool
 	verifyPeerCertificate       func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	sessionStore                SessionStore
 	rootCAs                     *x509.CertPool
 	clientCAs                   *x509.CertPool
 	retransmitInterval          time.Duration

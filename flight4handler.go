@@ -2,6 +2,7 @@ package dtls
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
 
 	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
@@ -34,6 +35,12 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 	if h, hasCert := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
 		state.PeerCertificates = h.Certificate
+		// If the client offer its certificate, just disable session resumption.
+		// Otherwise, we have to store the certificate identitfication and expire time.
+		// And we have to check whether this certificate expired, revoked or changed.
+		//
+		// https://curl.se/docs/CVE-2016-5419.html
+		state.SessionID = nil
 	}
 
 	if h, hasCertVerify := msgs[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasCertVerify {
@@ -128,6 +135,17 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
 	}
 
+	if len(state.SessionID) > 0 {
+		s := Session{
+			ID:     state.SessionID,
+			Secret: state.masterSecret,
+		}
+		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
+		if err := cfg.sessionStore.Set(state.SessionID, s); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
+
 	// Now, encrypted packets can be handled
 	if err := c.handleQueuedPackets(ctx); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
@@ -197,6 +215,13 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 	var pkts []*packet
 	cipherSuiteID := uint16(state.cipherSuite.ID())
 
+	if cfg.sessionStore != nil {
+		state.SessionID = make([]byte, sessionLength)
+		if _, err := rand.Read(state.SessionID); err != nil {
+			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
+
 	pkts = append(pkts, &packet{
 		record: &recordlayer.RecordLayer{
 			Header: recordlayer.Header{
@@ -206,6 +231,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				Message: &handshake.MessageServerHello{
 					Version:           protocol.Version1_2,
 					Random:            state.localRandom,
+					SessionID:         state.SessionID,
 					CipherSuiteID:     &cipherSuiteID,
 					CompressionMethod: defaultCompressionMethods()[0],
 					Extensions:        extensions,
