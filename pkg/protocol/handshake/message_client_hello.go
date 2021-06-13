@@ -19,6 +19,8 @@ type MessageClientHello struct {
 	Random  Random
 	Cookie  []byte
 
+	SessionID []byte
+
 	CipherSuiteIDs     []uint16
 	CompressionMethods []*protocol.CompressionMethod
 	Extensions         []extension.Extension
@@ -44,7 +46,8 @@ func (m *MessageClientHello) Marshal() ([]byte, error) {
 	rand := m.Random.MarshalFixed()
 	copy(out[2:], rand[:])
 
-	out = append(out, 0x00) // SessionID
+	out = append(out, byte(len(m.SessionID)))
+	out = append(out, m.SessionID...)
 
 	out = append(out, byte(len(m.Cookie)))
 	out = append(out, m.Cookie...)
@@ -74,13 +77,23 @@ func (m *MessageClientHello) Unmarshal(data []byte) error {
 
 	// rest of packet has variable width sections
 	currOffset := handshakeMessageClientHelloVariableWidthStart
-	currOffset += int(data[currOffset]) + 1 // SessionID
 
 	currOffset++
 	if len(data) <= currOffset {
 		return errBufferTooSmall
 	}
 	n := int(data[currOffset-1])
+	if len(data) <= currOffset+n {
+		return errBufferTooSmall
+	}
+	m.SessionID = append([]byte{}, data[currOffset:currOffset+n]...)
+	currOffset += len(m.SessionID)
+
+	currOffset++
+	if len(data) <= currOffset {
+		return errBufferTooSmall
+	}
+	n = int(data[currOffset-1])
 	if len(data) <= currOffset+n {
 		return errBufferTooSmall
 	}

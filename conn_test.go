@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -1584,11 +1585,6 @@ func TestProtocolVersionValidation(t *testing.T) {
 	var rand [28]byte
 	random := handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand}
 
-	localKeypair, err := elliptic.GenerateKeypair(elliptic.X25519)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	config := &Config{
 		CipherSuites:   []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		FlightInterval: 100 * time.Millisecond,
@@ -1738,49 +1734,6 @@ func TestProtocolVersionValidation(t *testing.T) {
 								CipherSuiteID:     func() *uint16 { id := uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256); return &id }(),
 								CompressionMethod: defaultCompressionMethods()[0],
 							},
-						},
-					},
-					{
-						Header: recordlayer.Header{
-							Version:        protocol.Version1_2,
-							SequenceNumber: 2,
-						},
-						Content: &handshake.Handshake{
-							Header: handshake.Header{
-								MessageSequence: 2,
-							},
-							Message: &handshake.MessageCertificate{},
-						},
-					},
-					{
-						Header: recordlayer.Header{
-							Version:        protocol.Version1_2,
-							SequenceNumber: 3,
-						},
-						Content: &handshake.Handshake{
-							Header: handshake.Header{
-								MessageSequence: 3,
-							},
-							Message: &handshake.MessageServerKeyExchange{
-								EllipticCurveType:  elliptic.CurveTypeNamedCurve,
-								NamedCurve:         elliptic.X25519,
-								PublicKey:          localKeypair.PublicKey,
-								HashAlgorithm:      hash.SHA256,
-								SignatureAlgorithm: signature.ECDSA,
-								Signature:          make([]byte, 64),
-							},
-						},
-					},
-					{
-						Header: recordlayer.Header{
-							Version:        protocol.Version1_2,
-							SequenceNumber: 4,
-						},
-						Content: &handshake.Handshake{
-							Header: handshake.Header{
-								MessageSequence: 4,
-							},
-							Message: &handshake.MessageServerHelloDone{},
 						},
 					},
 				},
@@ -2189,4 +2142,159 @@ func TestSupportedGroupsExtension(t *testing.T) {
 			t.Errorf("TestSupportedGroups: supported_groups extension was sent in ServerHello")
 		}
 	})
+}
+
+func TestSessionResume(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	t.Run("session resumption old", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		type result struct {
+			c   *Conn
+			err error
+		}
+		clientRes := make(chan result, 1)
+
+		ss := &memSessStore{}
+
+		id, _ := hex.DecodeString("9b9fc92255634d9fb109febed42166717bb8ded8c738ba71bc7f2a0d9dae0306")
+		secret, _ := hex.DecodeString("2e942a37aca5241deb2295b5fcedac221c7078d2503d2b62aeb48c880d7da73c001238b708559686b9da6e829c05ead7")
+
+		s := Session{ID: id, Secret: secret}
+
+		_ = ss.Set(id, s)
+		_ = ss.Set([]byte("example.com"), s)
+
+		ca, cb := dpipe.Pipe()
+		go func() {
+			config := &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				ServerName:   "example.com",
+				SessionStore: ss,
+				MTU:          100,
+			}
+			c, err := testClient(ctx, ca, config, false)
+			clientRes <- result{c, err}
+		}()
+
+		config := &Config{
+			CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ServerName:   "example.com",
+			SessionStore: ss,
+			MTU:          100,
+		}
+		server, err := testServer(ctx, cb, config, true)
+		if err != nil {
+			t.Fatalf("TestSessionResume: Server failed(%v)", err)
+		}
+
+		actualSessionID := server.ConnectionState().SessionID
+		actualMasterSecret := server.ConnectionState().masterSecret
+		if !bytes.Equal(actualSessionID, id) {
+			t.Errorf("TestSessionResumetion: SessionID Mismatch: expected(%v) actual(%v)", id, actualSessionID)
+		}
+		if !bytes.Equal(actualMasterSecret, secret) {
+			t.Errorf("TestSessionResumetion: masterSecret Mismatch: expected(%v) actual(%v)", secret, actualMasterSecret)
+		}
+
+		defer func() {
+			_ = server.Close()
+		}()
+
+		res := <-clientRes
+		if res.err != nil {
+			t.Fatal(res.err)
+		}
+		_ = res.c.Close()
+	})
+
+	t.Run("session resumption new", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		type result struct {
+			c   *Conn
+			err error
+		}
+		clientRes := make(chan result, 1)
+
+		s1 := &memSessStore{}
+		s2 := &memSessStore{}
+
+		ca, cb := dpipe.Pipe()
+		go func() {
+			config := &Config{
+				ServerName:   "example.com",
+				SessionStore: s1,
+			}
+			c, err := testClient(ctx, ca, config, false)
+			clientRes <- result{c, err}
+		}()
+
+		config := &Config{
+			SessionStore: s2,
+		}
+		server, err := testServer(ctx, cb, config, true)
+		if err != nil {
+			t.Fatalf("TestSessionResumetion: Server failed(%v)", err)
+		}
+
+		actualSessionID := server.ConnectionState().SessionID
+		actualMasterSecret := server.ConnectionState().masterSecret
+		ss, _ := s2.Get(actualSessionID)
+		if !bytes.Equal(actualMasterSecret, ss.Secret) {
+			t.Errorf("TestSessionResumetion: masterSecret Mismatch: expected(%v) actual(%v)", ss.Secret, actualMasterSecret)
+		}
+
+		defer func() {
+			_ = server.Close()
+		}()
+
+		res := <-clientRes
+		if res.err != nil {
+			t.Fatal(res.err)
+		}
+		cs, _ := s1.Get([]byte("example.com"))
+		if !bytes.Equal(actualMasterSecret, cs.Secret) {
+			t.Errorf("TestSessionResumetion: masterSecret Mismatch: expected(%v) actual(%v)", ss.Secret, actualMasterSecret)
+		}
+		_ = res.c.Close()
+	})
+}
+
+type memSessStore struct {
+	sync.Map
+}
+
+func (ms *memSessStore) Set(key []byte, s Session) error {
+	k := hex.EncodeToString(key)
+	ms.Store(k, s)
+
+	return nil
+}
+
+func (ms *memSessStore) Get(key []byte) (Session, error) {
+	k := hex.EncodeToString(key)
+
+	v, ok := ms.Load(k)
+	if !ok {
+		return Session{}, nil
+	}
+
+	return v.(Session), nil
+}
+
+func (ms *memSessStore) Del(key []byte) error {
+	k := hex.EncodeToString(key)
+	ms.Delete(k)
+
+	return nil
 }

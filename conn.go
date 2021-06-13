@@ -26,6 +26,7 @@ import (
 const (
 	initialTickerInterval = time.Second
 	cookieLength          = 20
+	sessionLength         = 32
 	defaultNamedCurve     = elliptic.X25519
 	inboundBufferSize     = 8192
 	// Default replay protection window is specified by RFC 6347 Section 4.1.2.6
@@ -81,6 +82,10 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 	err := validateConfig(config)
 	if err != nil {
 		return nil, err
+	}
+
+	if isClient && config.SessionStore != nil && config.ServerName == "" {
+		return nil, errSessionStoreNoServerName
 	}
 
 	if nextConn == nil {
@@ -172,6 +177,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		log:                         logger,
 		initialEpoch:                0,
 		keyLogWriter:                config.KeyLogWriter,
+		sessionStore:                config.SessionStore,
 	}
 
 	var initialFlight flightVal
@@ -674,6 +680,14 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert.Aler
 		var err error
 		buf, err = c.state.cipherSuite.Decrypt(buf)
 		if err != nil {
+			if len(c.state.SessionID) > 0 {
+				// According to the RFC, we need to delete the stored session.
+				// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
+				if delErr := c.fsm.cfg.sessionStore.Del(c.state.SessionID); delErr != nil {
+					return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, delErr
+				}
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.DecryptError}, err
+			}
 			c.log.Debugf("%s: decrypt failed: %s", srvCliStr(c.state.isClient), err)
 			return false, nil, nil
 		}
