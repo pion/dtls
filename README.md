@@ -124,34 +124,5 @@ go run examples/dial/psk/main.go
 ### Contributing
 Check out the **[contributing wiki](https://github.com/pion/webrtc/wiki/Contributing)** to join the group of amazing people making this project possible:
 
-* [Sean DuBois](https://github.com/Sean-Der) - *Original Author*
-* [Michiel De Backker](https://github.com/backkem) - *Public API*
-* [Chris Hiszpanski](https://github.com/thinkski) - *Support Signature Algorithms Extension*
-* [Iñigo Garcia Olaizola](https://github.com/igolaizola) - *Serialization & resumption, cert verification, E2E*
-* [Daniele Sluijters](https://github.com/daenney) - *AES-CCM support*
-* [Jin Lei](https://github.com/jinleileiking) - *Logging*
-* [Hugo Arregui](https://github.com/hugoArregui)
-* [Lander Noterman](https://github.com/LanderN)
-* [Aleksandr Razumov](https://github.com/ernado) - *Fuzzing*
-* [Ryan Gordon](https://github.com/ryangordon)
-* [Stefan Tatschner](https://rumpelsepp.org/contact.html)
-* [Hayden James](https://github.com/hjames9)
-* [Jozef Kralik](https://github.com/jkralik)
-* [Robert Eperjesi](https://github.com/epes)
-* [Atsushi Watanabe](https://github.com/at-wat)
-* [Julien Salleyron](https://github.com/juliens) - *Server Name Indication*
-* [Jeroen de Bruijn](https://github.com/vidavidorra)
-* [bjdgyc](https://github.com/bjdgyc)
-* [Jeffrey Stoke (Jeff Ctor)](https://github.com/jeffreystoke) - *Fragmentbuffer Fix*
-* [Frank Olbricht](https://github.com/folbricht)
-* [ZHENK](https://github.com/scorpionknifes)
-* [Carson Hoffman](https://github.com/CarsonHoffman)
-* [Vadim Filimonov](https://github.com/fffilimonov)
-* [Jim Wert](https://github.com/bocajim)
-* [Alvaro Viebrantz](https://github.com/alvarowolfx)
-* [Kegan Dougal](https://github.com/Kegsay)
-* [Michael Zabka](https://github.com/misak113)
-* [Bragadeesh](https://github.com/bragboy)
-
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
