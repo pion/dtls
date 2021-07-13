@@ -5,6 +5,9 @@ on:
 
 jobs:
   generate-authors:
+    env:
+      PIONBOT_PRIVATE_KEY: ${{ secrets.PIONBOT_PRIVATE_KEY }}
+    if: env.PIONBOT_PRIVATE_KEY != null
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
