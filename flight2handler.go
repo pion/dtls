@@ -38,7 +38,8 @@ func flight2Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	if !bytes.Equal(state.cookie, clientHello.Cookie) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, errCookieMismatch
 	}
-	return flight4, nil, nil
+
+	return handleHelloResume(clientHello.SessionID, state, cfg, flight4)
 }
 
 func flight2Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert.Alert, error) {

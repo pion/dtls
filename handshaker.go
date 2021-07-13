@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -100,6 +101,8 @@ type handshakeConfig struct {
 	nameToCertificate           map[string]*tls.Certificate
 	insecureSkipVerify          bool
 	verifyPeerCertificate       func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	sessionStore                SessionStore
+	fastResumption              bool
 	rootCAs                     *x509.CertPool
 	clientCAs                   *x509.CertPool
 	retransmitInterval          time.Duration
@@ -120,6 +123,7 @@ type flightConn interface {
 	recvHandshake() <-chan chan struct{}
 	setLocalEpoch(epoch uint16)
 	handleQueuedPackets(context.Context) error
+	RemoteAddr() net.Addr
 }
 
 func (c *handshakeConfig) writeKeyLog(label string, clientRandom, secret []byte) {

@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
@@ -32,21 +33,9 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		}
 	}
 
-	if cfg.localPSKCallback != nil {
-		seq, msgs, ok = cache.fullPullMap(state.handshakeRecvSequence,
-			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, true},
-			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
-		)
-	} else {
-		seq, msgs, ok = cache.fullPullMap(state.handshakeRecvSequence,
-			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, true},
-			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, true},
-			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
-		)
-	}
+	seq, msgs, ok = cache.fullPullMap(state.handshakeRecvSequence,
+		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
+	)
 	if !ok {
 		// Don't have enough messages. Keep reading
 		return 0, nil, nil
@@ -91,7 +80,43 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		state.cipherSuite = selectedCipherSuite
 		state.remoteRandom = h.Random
 		cfg.log.Tracef("[handshake] use cipher suite: %s", selectedCipherSuite.String())
+
+		if len(h.SessionID) > 0 && bytes.Equal(state.SessionID, h.SessionID) {
+			return handleResumption(ctx, c, state, cache, cfg)
+		}
+
+		if len(state.SessionID) > 0 {
+			cfg.log.Tracef("[handshake] clean old session : %s", state.SessionID)
+			cfg.sessionStore.Del(state.SessionID)
+		}
+
+		if cfg.sessionStore == nil {
+			state.SessionID = []byte{}
+		} else {
+			state.SessionID = h.SessionID
+		}
+
+		state.masterSecret = []byte{}
 	}
+
+	if cfg.localPSKCallback != nil {
+		seq, msgs, ok = cache.fullPullMap(state.handshakeRecvSequence,
+			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, true},
+			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
+		)
+	} else {
+		seq, msgs, ok = cache.fullPullMap(state.handshakeRecvSequence,
+			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, true},
+			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
+			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, true},
+			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
+		)
+	}
+	if !ok {
+		// Don't have enough messages. Keep reading
+		return 0, nil, nil
+	}
+	state.handshakeRecvSequence = seq
 
 	if h, ok := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
 		state.PeerCertificates = h.Certificate
@@ -111,6 +136,50 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	}
 
 	return flight5, nil, nil
+}
+
+func handleResumption(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) {
+	if err := state.initCipherSuite(); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+
+	// Now, encrypted packets can be handled
+	if err := c.handleQueuedPackets(ctx); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+
+	_, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence,
+		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
+	)
+	if !ok {
+		// No valid message received. Keep reading
+		return 0, nil, nil
+	}
+
+	var finished *handshake.MessageFinished
+	if finished, ok = msgs[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+	plainText := cache.pullAndMerge(
+		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
+		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
+	)
+
+	expectedVerifyData, err := prf.VerifyDataServer(state.masterSecret, plainText, state.cipherSuite.HashFunc())
+	if err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	if !bytes.Equal(expectedVerifyData, finished.VerifyData) {
+		cfg.log.Tracef("[handshake] clean invalid session: %s", state.SessionID)
+		cfg.sessionStore.Del(state.SessionID)
+
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errVerifyDataMismatch
+	}
+
+	clientRandom := state.localRandom.MarshalFixed()
+	cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
+
+	return flight5b, nil, nil
 }
 
 func handleServerKeyExchange(_ flightConn, state *State, cfg *handshakeConfig, h *handshake.MessageServerKeyExchange) (*alert.Alert, error) {
@@ -181,6 +250,7 @@ func flight3Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageClientHello{
 						Version:            protocol.Version1_2,
+						SessionID:          state.SessionID,
 						Cookie:             state.cookie,
 						Random:             state.localRandom,
 						CipherSuiteIDs:     cipherSuiteIDs(cfg.localCipherSuites),

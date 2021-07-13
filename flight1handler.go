@@ -90,6 +90,16 @@ func flight1Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		extensions = append(extensions, &extension.ServerName{ServerName: cfg.serverName})
 	}
 
+	if cfg.sessionStore != nil {
+		addr := c.RemoteAddr().String()
+		if s := cfg.sessionStore.GetByAddr(addr); s != nil {
+			cfg.log.Tracef("[handshake] get saved session: %x", s.ID)
+
+			state.SessionID = s.ID
+			state.masterSecret = s.Secret
+		}
+	}
+
 	return []*packet{
 		{
 			record: &recordlayer.RecordLayer{
@@ -99,6 +109,7 @@ func flight1Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageClientHello{
 						Version:            protocol.Version1_2,
+						SessionID:          state.SessionID,
 						Cookie:             state.cookie,
 						Random:             state.localRandom,
 						CipherSuiteIDs:     cipherSuiteIDs(cfg.localCipherSuites),

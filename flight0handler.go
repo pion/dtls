@@ -79,7 +79,33 @@ func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		}
 	}
 
+	if cfg.fastResumption {
+		return handleHelloResume(clientHello.SessionID, state, cfg, flight2)
+	}
+
 	return flight2, nil, nil
+}
+
+func handleHelloResume(sessionID []byte, state *State, cfg *handshakeConfig, next flightVal) (flightVal, *alert.Alert, error) {
+	if len(sessionID) > 0 && cfg.sessionStore != nil {
+		if s := cfg.sessionStore.Get(sessionID); s != nil {
+			cfg.log.Tracef("[handshake] resume session: %x", sessionID)
+
+			state.masterSecret = s.Secret
+			state.SessionID = sessionID
+
+			if err := state.initCipherSuite(); err != nil {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+
+			clientRandom := state.localRandom.MarshalFixed()
+			cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
+
+			return flight4b, nil, nil
+		}
+	}
+
+	return next, nil, nil
 }
 
 func flight0Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert.Alert, error) {

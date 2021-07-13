@@ -48,6 +48,16 @@ func flight5Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errVerifyDataMismatch
 	}
 
+	if len(state.SessionID) > 0 {
+		s := Session{
+			ID:     state.SessionID,
+			Secret: state.masterSecret,
+			Addr:   c.RemoteAddr().String(),
+		}
+		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
+		cfg.sessionStore.Set(&s, true)
+	}
+
 	return flight5, nil, nil
 }
 
