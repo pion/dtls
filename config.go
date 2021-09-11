@@ -23,6 +23,14 @@ type Config struct {
 	// client SHOULD sets this so CertificateRequests can be handled if PSK is non-nil
 	Certificates []tls.Certificate
 
+	// GetCertificate returns a Certificate based on the given ClientHelloInfo.
+	// It will only be called if Certificates is empty. Note that this behavior is different than
+	// *tls.Config's GetCertificate as ServerName will always be populated
+	//
+	// Because of the way dtls implements certificate lookup, only ServerName is populated
+	// in ClientHelloInfo.
+	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+
 	// CipherSuites is a list of supported cipher suites.
 	// If CipherSuites is nil, a default list is used
 	CipherSuites []CipherSuiteID
@@ -190,6 +198,6 @@ func validateConfig(config *Config) error {
 		}
 	}
 
-	_, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.PSK == nil || len(config.Certificates) > 0, config.PSK != nil)
+	_, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.PSK == nil || len(config.Certificates) > 0 || config.GetCertificate != nil, config.PSK != nil)
 	return err
 }

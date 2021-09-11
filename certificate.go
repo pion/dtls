@@ -10,10 +10,24 @@ func (c *handshakeConfig) getCertificate(serverName string) (*tls.Certificate, e
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	certs := c.localCertificates
+	if len(c.localCertificates) == 0 && c.getCertificateFunc != nil {
+		cert, err := c.getCertificateFunc(&tls.ClientHelloInfo{
+			ServerName: serverName,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if cert != nil {
+			// TODO(zllovesuki): can we do away with allocation in hot path?
+			certs = []tls.Certificate{*cert}
+		}
+	}
+
 	if c.nameToCertificate == nil {
 		nameToCertificate := make(map[string]*tls.Certificate)
-		for i := range c.localCertificates {
-			cert := &c.localCertificates[i]
+		for i := range certs {
+			cert := &certs[i]
 			x509Cert := cert.Leaf
 			if x509Cert == nil {
 				var parseErr error
@@ -32,17 +46,17 @@ func (c *handshakeConfig) getCertificate(serverName string) (*tls.Certificate, e
 		c.nameToCertificate = nameToCertificate
 	}
 
-	if len(c.localCertificates) == 0 {
+	if len(certs) == 0 {
 		return nil, errNoCertificates
 	}
 
-	if len(c.localCertificates) == 1 {
+	if len(certs) == 1 {
 		// There's only one choice, so no point doing any work.
-		return &c.localCertificates[0], nil
+		return &certs[0], nil
 	}
 
 	if len(serverName) == 0 {
-		return &c.localCertificates[0], nil
+		return &certs[0], nil
 	}
 
 	name := strings.TrimRight(strings.ToLower(serverName), ".")
@@ -63,5 +77,5 @@ func (c *handshakeConfig) getCertificate(serverName string) (*tls.Certificate, e
 	}
 
 	// If nothing matches, return the first certificate.
-	return &c.localCertificates[0], nil
+	return &certs[0], nil
 }

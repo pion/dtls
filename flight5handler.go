@@ -54,7 +54,7 @@ func flight5Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert.Alert, error) { //nolint:gocognit
 	var certBytes [][]byte
 	var privateKey crypto.PrivateKey
-	if len(cfg.localCertificates) > 0 {
+	if len(cfg.localCertificates) > 0 || cfg.getCertificateFunc != nil {
 		certificate, err := cfg.getCertificate(cfg.serverName)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
@@ -151,7 +151,7 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 	// If the client has sent a certificate with signing ability, a digitally-signed
 	// CertificateVerify message is sent to explicitly verify possession of the
 	// private key in the certificate.
-	if state.remoteRequestedCertificate && len(cfg.localCertificates) > 0 {
+	if state.remoteRequestedCertificate && (len(cfg.localCertificates) > 0 || cfg.getCertificateFunc != nil) {
 		plainText := append(cache.pullAndMerge(
 			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},

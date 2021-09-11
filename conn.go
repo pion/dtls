@@ -87,7 +87,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		return nil, errNilNextConn
 	}
 
-	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.PSK == nil || len(config.Certificates) > 0, config.PSK != nil)
+	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.PSK == nil || len(config.Certificates) > 0 || config.GetCertificate != nil, config.PSK != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +168,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		serverName:                  serverName,
 		clientAuth:                  config.ClientAuth,
+		getCertificateFunc:          config.GetCertificate,
 		localCertificates:           config.Certificates,
 		insecureSkipVerify:          config.InsecureSkipVerify,
 		verifyPeerCertificate:       config.VerifyPeerCertificate,
