@@ -35,6 +35,10 @@ func (i ID) String() string {
 		return "TLS_PSK_WITH_AES_128_GCM_SHA256"
 	case TLS_PSK_WITH_AES_128_CBC_SHA256:
 		return "TLS_PSK_WITH_AES_128_CBC_SHA256"
+	case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+		return "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+	case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+		return "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
 	default:
 		return fmt.Sprintf("unknown(%v)", uint16(i))
 	}
@@ -50,6 +54,8 @@ const (
 	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ID = 0xc02b //nolint:golint,stylecheck
 	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   ID = 0xc02f //nolint:golint,stylecheck
 
+	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 ID = 0xc02c //nolint:golint,stylecheck
+	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384   ID = 0xc030 //nolint:golint,stylecheck
 	// AES-256-CBC-SHA
 	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA ID = 0xc00a //nolint:golint,stylecheck
 	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   ID = 0xc014 //nolint:golint,stylecheck

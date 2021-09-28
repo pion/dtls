@@ -226,6 +226,7 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm)) {
 
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
 		cipherSuite := cipherSuite

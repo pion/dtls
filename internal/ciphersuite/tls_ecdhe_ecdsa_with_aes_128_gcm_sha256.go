@@ -47,15 +47,8 @@ func (c *TLSEcdheEcdsaWithAes128GcmSha256) IsInitialized() bool {
 	return c.gcm.Load() != nil
 }
 
-// Init initializes the internal Cipher with keying material
-func (c *TLSEcdheEcdsaWithAes128GcmSha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
-	const (
-		prfMacLen = 0
-		prfKeyLen = 16
-		prfIvLen  = 4
-	)
-
-	keys, err := prf.GenerateEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, c.HashFunc())
+func (c *TLSEcdheEcdsaWithAes128GcmSha256) init(masterSecret, clientRandom, serverRandom []byte, isClient bool, prfMacLen, prfKeyLen, prfIvLen int, hashFunc func() hash.Hash) error {
+	keys, err := prf.GenerateEncryptionKeys(masterSecret, clientRandom, serverRandom, prfMacLen, prfKeyLen, prfIvLen, hashFunc)
 	if err != nil {
 		return err
 	}
@@ -67,8 +60,18 @@ func (c *TLSEcdheEcdsaWithAes128GcmSha256) Init(masterSecret, clientRandom, serv
 		gcm, err = ciphersuite.NewGCM(keys.ServerWriteKey, keys.ServerWriteIV, keys.ClientWriteKey, keys.ClientWriteIV)
 	}
 	c.gcm.Store(gcm)
-
 	return err
+}
+
+// Init initializes the internal Cipher with keying material
+func (c *TLSEcdheEcdsaWithAes128GcmSha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
+	const (
+		prfMacLen = 0
+		prfKeyLen = 16
+		prfIvLen  = 4
+	)
+
+	return c.init(masterSecret, clientRandom, serverRandom, isClient, prfMacLen, prfKeyLen, prfIvLen, c.HashFunc())
 }
 
 // Encrypt encrypts a single TLS RecordLayer
