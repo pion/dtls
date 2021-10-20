@@ -2,6 +2,9 @@ package dtls
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/internal/closer"
+	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v2/pkg/protocol"
@@ -179,6 +183,26 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		initialEpoch:                0,
 		keyLogWriter:                config.KeyLogWriter,
 	}
+
+	cert, _ := hsCfg.getCertificate(serverName)
+	includeCertificateSuites := make(map[clientcertificate.Type]bool)
+	if cert != nil && cert.PrivateKey != nil {
+		switch cert.PrivateKey.(type) {
+		case ed25519.PrivateKey:
+			includeCertificateSuites[clientcertificate.ECDSASign] = true
+		case *ecdsa.PrivateKey:
+			includeCertificateSuites[clientcertificate.ECDSASign] = true
+		case *rsa.PrivateKey:
+			includeCertificateSuites[clientcertificate.RSASign] = true
+		}
+	}
+	cipherSuites = []CipherSuite{}
+	for _, c := range hsCfg.localCipherSuites {
+		if c.AuthenticationType() != CipherSuiteAuthenticationTypeCertificate || includeCertificateSuites[c.CertificateType()] {
+			cipherSuites = append(cipherSuites, c)
+		}
+	}
+	hsCfg.localCipherSuites = cipherSuites
 
 	var initialFlight flightVal
 	var initialFSMState handshakeState
