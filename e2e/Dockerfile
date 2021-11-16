@@ -1,4 +1,4 @@
-FROM golang:buster
+FROM golang:stretch
 
 COPY . /go/src/github.com/pion/dtls
 WORKDIR /go/src/github.com/pion/dtls/e2e
