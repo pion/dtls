@@ -147,16 +147,10 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 	c.setLocalEpoch(0)
 
 	serverName := config.ServerName
-	// Use host from conn address when serverName is not provided
-	if isClient && serverName == "" && nextConn.RemoteAddr() != nil {
-		remoteAddr := nextConn.RemoteAddr().String()
-		var host string
-		host, _, err = net.SplitHostPort(remoteAddr)
-		if err != nil {
-			serverName = remoteAddr
-		} else {
-			serverName = host
-		}
+	// Do not allow the use of an IP address literal as an SNI value.
+	// See RFC 6066, Section 3.
+	if net.ParseIP(serverName) != nil {
+		serverName = ""
 	}
 
 	hsCfg := &handshakeConfig{
