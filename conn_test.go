@@ -2024,3 +2024,83 @@ func TestRenegotationInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestServerNameIndicationExtension(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, test := range []struct {
+		Name       string
+		ServerName string
+		Expected   []byte
+		IncludeSNI bool
+	}{
+		{
+			Name:       "Server name is a valid hostname",
+			ServerName: "example.com",
+			Expected:   []byte("example.com"),
+			IncludeSNI: true,
+		},
+		{
+			Name:       "Server name is an IP literal",
+			ServerName: "1.2.3.4",
+			Expected:   []byte(""),
+			IncludeSNI: false,
+		},
+		{
+			Name:       "Server name is empty",
+			ServerName: "",
+			Expected:   []byte(""),
+			IncludeSNI: false,
+		},
+	} {
+		test := test
+		t.Run(test.Name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			ca, cb := dpipe.Pipe()
+			go func() {
+				conf := &Config{
+					ServerName: test.ServerName,
+				}
+
+				_, _ = testClient(ctx, ca, conf, false)
+			}()
+
+			// Receive ClientHello
+			resp := make([]byte, 1024)
+			n, err := cb.Read(resp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := &recordlayer.RecordLayer{}
+			if err = r.Unmarshal(resp[:n]); err != nil {
+				t.Fatal(err)
+			}
+
+			clientHello := r.Content.(*handshake.Handshake).Message.(*handshake.MessageClientHello)
+			gotSNI := false
+			var actualServerName string
+			for _, v := range clientHello.Extensions {
+				if _, ok := v.(*extension.ServerName); ok {
+					gotSNI = true
+					actualServerName = v.(*extension.ServerName).ServerName
+				}
+			}
+
+			if gotSNI != test.IncludeSNI {
+				t.Errorf("TestSNI: unexpected SNI inclusion '%s': expected(%v) actual(%v)", test.Name, test.IncludeSNI, gotSNI)
+			}
+
+			if !bytes.Equal([]byte(actualServerName), test.Expected) {
+				t.Errorf("TestSNI: server name mismatch '%s': expected(%v) actual(%v)", test.Name, test.Expected, actualServerName)
+			}
+		})
+	}
+}
