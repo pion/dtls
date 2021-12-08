@@ -189,14 +189,9 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		})
 	}
 	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
-		extensions = append(extensions, []extension.Extension{
-			&extension.SupportedEllipticCurves{
-				EllipticCurves: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
-			},
-			&extension.SupportedPointFormats{
-				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
-			},
-		}...)
+		extensions = append(extensions, &extension.SupportedPointFormats{
+			PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
+		})
 	}
 
 	var pkts []*packet
