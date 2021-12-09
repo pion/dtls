@@ -295,6 +295,35 @@ func testServer(ctx context.Context, c net.Conn, cfg *Config, generateCertificat
 	return ServerWithContext(ctx, c, cfg)
 }
 
+func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensions []extension.Extension) error {
+	packet, err := (&recordlayer.RecordLayer{
+		Header: recordlayer.Header{
+			Version:        protocol.Version1_2,
+			SequenceNumber: sequenceNumber,
+		},
+		Content: &handshake.Handshake{
+			Header: handshake.Header{
+				MessageSequence: uint16(sequenceNumber),
+			},
+			Message: &handshake.MessageClientHello{
+				Version:            protocol.Version1_2,
+				Cookie:             cookie,
+				CipherSuiteIDs:     cipherSuiteIDs(defaultCipherSuites()),
+				CompressionMethods: defaultCompressionMethods(),
+				Extensions:         extensions,
+			},
+		},
+	}).Marshal()
+	if err != nil {
+		return err
+	}
+
+	if _, err = ca.Write(packet); err != nil {
+		return err
+	}
+	return nil
+}
+
 func TestHandshakeWithAlert(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
@@ -1931,41 +1960,6 @@ func TestRenegotationInfo(t *testing.T) {
 	} {
 		test := testCase
 		t.Run(test.Name, func(t *testing.T) {
-			sendClientHello := func(cookie []byte, ca net.Conn, sequenceNumber uint64) {
-				extensions := []extension.Extension{}
-				if test.SendRenegotiationInfo {
-					extensions = append(extensions, &extension.RenegotiationInfo{
-						RenegotiatedConnection: 0,
-					})
-				}
-
-				packet, err := (&recordlayer.RecordLayer{
-					Header: recordlayer.Header{
-						Version:        protocol.Version1_2,
-						SequenceNumber: sequenceNumber,
-					},
-					Content: &handshake.Handshake{
-						Header: handshake.Header{
-							MessageSequence: uint16(sequenceNumber),
-						},
-						Message: &handshake.MessageClientHello{
-							Version:            protocol.Version1_2,
-							Cookie:             cookie,
-							CipherSuiteIDs:     cipherSuiteIDs(defaultCipherSuites()),
-							CompressionMethods: defaultCompressionMethods(),
-							Extensions:         extensions,
-						},
-					},
-				}).Marshal()
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				if _, err = ca.Write(packet); err != nil {
-					t.Fatal(err)
-				}
-			}
-
 			ca, cb := dpipe.Pipe()
 			defer func() {
 				if err := ca.Close(); err != nil {
@@ -1984,7 +1978,16 @@ func TestRenegotationInfo(t *testing.T) {
 
 			time.Sleep(50 * time.Millisecond)
 
-			sendClientHello([]byte{}, ca, 0)
+			extensions := []extension.Extension{}
+			if test.SendRenegotiationInfo {
+				extensions = append(extensions, &extension.RenegotiationInfo{
+					RenegotiatedConnection: 0,
+				})
+			}
+			err := sendClientHello([]byte{}, ca, 0, extensions)
+			if err != nil {
+				t.Fatal(err)
+			}
 			n, err := ca.Read(resp)
 			if err != nil {
 				t.Fatal(err)
@@ -1996,7 +1999,10 @@ func TestRenegotationInfo(t *testing.T) {
 
 			helloVerifyRequest := r.Content.(*handshake.Handshake).Message.(*handshake.MessageHelloVerifyRequest)
 
-			sendClientHello(helloVerifyRequest.Cookie, ca, 1)
+			err = sendClientHello(helloVerifyRequest.Cookie, ca, 1, extensions)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if n, err = ca.Read(resp); err != nil {
 				t.Fatal(err)
 			}
@@ -2103,4 +2109,84 @@ func TestServerNameIndicationExtension(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Make sure the supported_groups extension is not included in the ServerHello
+func TestSupportedGroupsExtension(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	t.Run("ServerHello Supported Groups", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		ca, cb := dpipe.Pipe()
+		go func() {
+			if _, err := testServer(ctx, cb, &Config{}, true); !errors.Is(err, context.Canceled) {
+				t.Error(err)
+			}
+		}()
+		extensions := []extension.Extension{
+			&extension.SupportedEllipticCurves{
+				EllipticCurves: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
+			},
+			&extension.SupportedPointFormats{
+				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
+			},
+		}
+
+		time.Sleep(50 * time.Millisecond)
+
+		resp := make([]byte, 1024)
+		err := sendClientHello([]byte{}, ca, 0, extensions)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Receive ServerHello
+		n, err := ca.Read(resp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := &recordlayer.RecordLayer{}
+		if err = r.Unmarshal(resp[:n]); err != nil {
+			t.Fatal(err)
+		}
+
+		helloVerifyRequest := r.Content.(*handshake.Handshake).Message.(*handshake.MessageHelloVerifyRequest)
+
+		err = sendClientHello(helloVerifyRequest.Cookie, ca, 1, extensions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, err = ca.Read(resp); err != nil {
+			t.Fatal(err)
+		}
+
+		messages, err := recordlayer.UnpackDatagram(resp[:n])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := r.Unmarshal(messages[0]); err != nil {
+			t.Fatal(err)
+		}
+
+		serverHello := r.Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello)
+		gotGroups := false
+		for _, v := range serverHello.Extensions {
+			if _, ok := v.(*extension.SupportedEllipticCurves); ok {
+				gotGroups = true
+			}
+		}
+
+		if gotGroups {
+			t.Errorf("TestSupportedGroups: supported_groups extension was sent in ServerHello")
+		}
+	})
 }
