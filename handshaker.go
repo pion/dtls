@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -121,6 +122,7 @@ type flightConn interface {
 	recvHandshake() <-chan chan struct{}
 	setLocalEpoch(epoch uint16)
 	handleQueuedPackets(context.Context) error
+	RemoteAddr() net.Addr
 }
 
 func (c *handshakeConfig) writeKeyLog(label string, clientRandom, secret []byte) {
