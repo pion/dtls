@@ -92,7 +92,7 @@ func flight1Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 	if cfg.sessionStore != nil {
 		cfg.log.Tracef("[handshake] try to resume session")
-		key := []byte(cfg.serverName)
+		key := []byte(c.RemoteAddr().String() + cfg.serverName)
 		if s, err := cfg.sessionStore.Get(key); err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		} else if s.ID != nil {

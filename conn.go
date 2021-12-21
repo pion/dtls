@@ -84,10 +84,6 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		return nil, err
 	}
 
-	if isClient && config.SessionStore != nil && config.ServerName == "" {
-		return nil, errSessionStoreNoServerName
-	}
-
 	if nextConn == nil {
 		return nil, errNilNextConn
 	}

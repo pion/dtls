@@ -2170,10 +2170,11 @@ func TestSessionResume(t *testing.T) {
 
 		s := Session{ID: id, Secret: secret}
 
-		_ = ss.Set(id, s)
-		_ = ss.Set([]byte("example.com"), s)
-
 		ca, cb := dpipe.Pipe()
+
+		_ = ss.Set(id, s)
+		_ = ss.Set([]byte(ca.RemoteAddr().String()+"example.com"), s)
+
 		go func() {
 			config := &Config{
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
@@ -2262,7 +2263,7 @@ func TestSessionResume(t *testing.T) {
 		if res.err != nil {
 			t.Fatal(res.err)
 		}
-		cs, _ := s1.Get([]byte("example.com"))
+		cs, _ := s1.Get([]byte(ca.RemoteAddr().String() + "example.com"))
 		if !bytes.Equal(actualMasterSecret, cs.Secret) {
 			t.Errorf("TestSessionResumetion: masterSecret Mismatch: expected(%v) actual(%v)", ss.Secret, actualMasterSecret)
 		}

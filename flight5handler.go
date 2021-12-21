@@ -54,7 +54,8 @@ func flight5Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			Secret: state.masterSecret,
 		}
 		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
-		if err := cfg.sessionStore.Set([]byte(cfg.serverName), s); err != nil {
+		key := []byte(c.RemoteAddr().String() + cfg.serverName)
+		if err := cfg.sessionStore.Set(key, s); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}
