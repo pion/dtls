@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"net"
 	"sync"
 	"testing"
 	"time"
@@ -277,6 +276,6 @@ func (c *flightTestConn) handleQueuedPackets(ctx context.Context) error {
 	return nil
 }
 
-func (c *flightTestConn) RemoteAddr() net.Addr {
+func (c *flightTestConn) sessionKey() []byte {
 	return nil
 }
