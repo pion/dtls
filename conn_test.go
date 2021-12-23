@@ -2153,7 +2153,7 @@ func TestSessionResume(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	t.Run("session resumption old", func(t *testing.T) {
+	t.Run("resumed", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -2173,7 +2173,7 @@ func TestSessionResume(t *testing.T) {
 		ca, cb := dpipe.Pipe()
 
 		_ = ss.Set(id, s)
-		_ = ss.Set([]byte(ca.RemoteAddr().String()+"example.com"), s)
+		_ = ss.Set([]byte(ca.RemoteAddr().String()+"_example.com"), s)
 
 		go func() {
 			config := &Config{
@@ -2217,7 +2217,7 @@ func TestSessionResume(t *testing.T) {
 		_ = res.c.Close()
 	})
 
-	t.Run("session resumption new", func(t *testing.T) {
+	t.Run("new session", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -2263,7 +2263,7 @@ func TestSessionResume(t *testing.T) {
 		if res.err != nil {
 			t.Fatal(res.err)
 		}
-		cs, _ := s1.Get([]byte(ca.RemoteAddr().String() + "example.com"))
+		cs, _ := s1.Get([]byte(ca.RemoteAddr().String() + "_example.com"))
 		if !bytes.Equal(actualMasterSecret, cs.Secret) {
 			t.Errorf("TestSessionResumetion: masterSecret Mismatch: expected(%v) actual(%v)", ss.Secret, actualMasterSecret)
 		}

@@ -34,11 +34,6 @@ func flight4bParse(ctx context.Context, c flightConn, state *State, cache *hands
 
 	expectedVerifyData, err := prf.VerifyDataClient(state.masterSecret, plainText, state.cipherSuite.HashFunc())
 	if err != nil {
-		cfg.log.Tracef("[handshake] clean invalid session: %s", state.SessionID)
-		if delErr := cfg.sessionStore.Del(state.SessionID); delErr != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, delErr
-		}
-
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	if !bytes.Equal(expectedVerifyData, finished.VerifyData) {

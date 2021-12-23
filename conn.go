@@ -676,14 +676,6 @@ func (c *Conn) handleIncomingPacket(buf []byte, enqueue bool) (bool, *alert.Aler
 		var err error
 		buf, err = c.state.cipherSuite.Decrypt(buf)
 		if err != nil {
-			if len(c.state.SessionID) > 0 {
-				// According to the RFC, we need to delete the stored session.
-				// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
-				if delErr := c.fsm.cfg.sessionStore.Del(c.state.SessionID); delErr != nil {
-					return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, delErr
-				}
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.DecryptError}, err
-			}
 			c.log.Debugf("%s: decrypt failed: %s", srvCliStr(c.state.isClient), err)
 			return false, nil, nil
 		}
@@ -764,6 +756,16 @@ func (c *Conn) recvHandshake() <-chan chan struct{} {
 }
 
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
+	if level == alert.Fatal && len(c.state.SessionID) > 0 {
+		// According to the RFC, we need to delete the stored session.
+		// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
+		if ss := c.fsm.cfg.sessionStore; ss != nil {
+			c.log.Tracef("clean invalid session: %s", c.state.SessionID)
+			if err := ss.Del(c.sessionKey()); err != nil {
+				return err
+			}
+		}
+	}
 	return c.writePackets(ctx, []*packet{
 		{
 			record: &recordlayer.RecordLayer{
@@ -958,6 +960,16 @@ func (c *Conn) LocalAddr() net.Addr {
 // RemoteAddr implements net.Conn.RemoteAddr
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.nextConn.RemoteAddr()
+}
+
+func (c *Conn) sessionKey() []byte {
+	if c.state.isClient {
+		// As ServerName can be like 0.example.com, it's better to add
+		// delimiter character which is not allowed to be in
+		// neither address or domain name.
+		return []byte(c.nextConn.RemoteAddr().String() + "_" + c.fsm.cfg.serverName)
+	}
+	return c.state.SessionID
 }
 
 // SetDeadline implements net.Conn.SetDeadline
