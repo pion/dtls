@@ -45,7 +45,7 @@ func flight4bParse(ctx context.Context, c flightConn, state *State, cache *hands
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errVerifyDataMismatch
 	}
 
-	// Other party retransmitted the last flight.
+	// Other party may re-transmit the last flight. Keep state to be flight4b.
 	return flight4b, nil, nil
 }
 
