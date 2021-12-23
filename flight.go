@@ -7,7 +7,7 @@ package dtls
   purpose of timeout and retransmission.
   https://tools.ietf.org/html/rfc4347#section-4.2.4
 
-  Note: The flight4b and flight5b will be only used in session resumption.
+  Message flights for full handshake:
 
   Client                                          Server
   ------                                          ------
@@ -25,22 +25,32 @@ package dtls
                                      CertificateRequest*     /
                           <--------      ServerHelloDone    /
 
-                                             ServerHello    \
-                                      [ChangeCipherSpec]      Flight 4b
-                          <--------             Finished    /
-
   Certificate*                                              \
   ClientKeyExchange                                          \
   CertificateVerify*                                          Flight 5
   [ChangeCipherSpec]                                         /
   Finished                -------->                         /
 
+                                      [ChangeCipherSpec]    \ Flight 6
+                          <--------             Finished    /
+
+  Message flights for session-resuming handshake (no cookie exchange):
+
+  Client                                          Server
+  ------                                          ------
+                                      Waiting                 Flight 0
+
+  ClientHello             -------->                           Flight 1
+
+                                             ServerHello    \
+                                      [ChangeCipherSpec]      Flight 4b
+                          <--------             Finished    /
+
   [ChangeCipherSpec]                                        \ Flight 5b
   Finished                -------->                         /
 
                                       [ChangeCipherSpec]    \ Flight 6
                           <--------             Finished    /
-
 */
 
 type flightVal uint8
