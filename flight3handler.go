@@ -171,11 +171,6 @@ func handleResumption(ctx context.Context, c flightConn, state *State, cache *ha
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	if !bytes.Equal(expectedVerifyData, finished.VerifyData) {
-		cfg.log.Tracef("[handshake] clean invalid session: %s", state.SessionID)
-		if err := cfg.sessionStore.Del(state.SessionID); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
-
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errVerifyDataMismatch
 	}
 
