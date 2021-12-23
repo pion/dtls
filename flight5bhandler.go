@@ -23,7 +23,7 @@ func flight5bParse(ctx context.Context, c flightConn, state *State, cache *hands
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	// Other party retransmitted the last flight.
+	// Other party may re-transmit the last flight. Keep state to be flight5b.
 	return flight5b, nil, nil
 }
 
