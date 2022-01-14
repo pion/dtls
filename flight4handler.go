@@ -212,6 +212,17 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		})
 	}
 
+	selectedProto, err := extension.ALPNProtocolSelection(cfg.supportedProtocols, state.peerSupportedProtocols)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.NoApplicationProtocol}, err
+	}
+	if selectedProto != "" {
+		extensions = append(extensions, &extension.ALPN{
+			ProtocolNameList: []string{selectedProto},
+		})
+		state.NegotiatedProtocol = selectedProto
+	}
+
 	var pkts []*packet
 	cipherSuiteID := uint16(state.cipherSuite.ID())
 
