@@ -2068,6 +2068,214 @@ func TestServerNameIndicationExtension(t *testing.T) {
 	}
 }
 
+func TestALPNExtension(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, test := range []struct {
+		Name                   string
+		ClientProtocolNameList []string
+		ServerProtocolNameList []string
+		ExpectedProtocol       string
+		ExpectAlertFromClient  bool
+		ExpectAlertFromServer  bool
+		Alert                  alert.Description
+	}{
+		{
+			Name:                   "Negotiate a protocol",
+			ClientProtocolNameList: []string{"http/1.1", "spd/1"},
+			ServerProtocolNameList: []string{"spd/1"},
+			ExpectedProtocol:       "spd/1",
+			ExpectAlertFromClient:  false,
+			ExpectAlertFromServer:  false,
+			Alert:                  0,
+		},
+		{
+			Name:                   "Server doesn't support any",
+			ClientProtocolNameList: []string{"http/1.1", "spd/1"},
+			ServerProtocolNameList: []string{},
+			ExpectedProtocol:       "",
+			ExpectAlertFromClient:  false,
+			ExpectAlertFromServer:  false,
+			Alert:                  0,
+		},
+		{
+			Name:                   "Negotiate with higher server precedence",
+			ClientProtocolNameList: []string{"http/1.1", "spd/1", "http/3"},
+			ServerProtocolNameList: []string{"ssh/2", "http/3", "spd/1"},
+			ExpectedProtocol:       "http/3",
+			ExpectAlertFromClient:  false,
+			ExpectAlertFromServer:  false,
+			Alert:                  0,
+		},
+		{
+			Name:                   "Empty intersection",
+			ClientProtocolNameList: []string{"http/1.1", "http/3"},
+			ServerProtocolNameList: []string{"ssh/2", "spd/1"},
+			ExpectedProtocol:       "",
+			ExpectAlertFromClient:  false,
+			ExpectAlertFromServer:  true,
+			Alert:                  alert.NoApplicationProtocol,
+		},
+		{
+			Name:                   "Multiple protocols in ServerHello",
+			ClientProtocolNameList: []string{"http/1.1"},
+			ServerProtocolNameList: []string{"http/1.1"},
+			ExpectedProtocol:       "http/1.1",
+			ExpectAlertFromClient:  true,
+			ExpectAlertFromServer:  false,
+			Alert:                  alert.InternalError,
+		},
+	} {
+		test := test
+		t.Run(test.Name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			ca, cb := dpipe.Pipe()
+			go func() {
+				conf := &Config{
+					SupportedProtocols: test.ClientProtocolNameList,
+				}
+				_, _ = testClient(ctx, ca, conf, false)
+			}()
+
+			// Receive ClientHello
+			resp := make([]byte, 1024)
+			n, err := cb.Read(resp)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel2()
+
+			ca2, cb2 := dpipe.Pipe()
+			go func() {
+				conf := &Config{
+					SupportedProtocols: test.ServerProtocolNameList,
+				}
+				if _, err2 := testServer(ctx2, cb2, conf, true); !errors.Is(err2, context.Canceled) {
+					if test.ExpectAlertFromServer {
+						// Assert the error type?
+					} else {
+						t.Error(err2)
+					}
+				}
+			}()
+
+			time.Sleep(50 * time.Millisecond)
+
+			// Forward ClientHello
+			if _, err = ca2.Write(resp[:n]); err != nil {
+				t.Fatal(err)
+			}
+
+			// Receive HelloVerify
+			resp2 := make([]byte, 1024)
+			n, err = ca2.Read(resp2)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Forward HelloVerify
+			if _, err = cb.Write(resp2[:n]); err != nil {
+				t.Fatal(err)
+			}
+
+			// Receive ClientHello
+			resp3 := make([]byte, 1024)
+			n, err = cb.Read(resp3)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Forward ClientHello
+			if _, err = ca2.Write(resp3[:n]); err != nil {
+				t.Fatal(err)
+			}
+
+			// Receive ServerHello
+			resp4 := make([]byte, 1024)
+			n, err = ca2.Read(resp4)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			messages, err := recordlayer.UnpackDatagram(resp4[:n])
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			r := &recordlayer.RecordLayer{}
+			if err := r.Unmarshal(messages[0]); err != nil {
+				t.Fatal(err)
+			}
+
+			if test.ExpectAlertFromServer {
+				a := r.Content.(*alert.Alert)
+				if a.Description != test.Alert {
+					t.Errorf("ALPN %v: expected(%v) actual(%v)", test.Name, test.Alert, a.Description)
+				}
+			} else {
+				serverHello := r.Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello)
+
+				var negotiatedProtocol string
+				for _, v := range serverHello.Extensions {
+					if _, ok := v.(*extension.ALPN); ok {
+						e := v.(*extension.ALPN)
+						negotiatedProtocol = e.ProtocolNameList[0]
+
+						// Manipulate ServerHello
+						if test.ExpectAlertFromClient {
+							e.ProtocolNameList = append(e.ProtocolNameList, "oops")
+						}
+					}
+				}
+
+				if negotiatedProtocol != test.ExpectedProtocol {
+					t.Errorf("ALPN %v: expected(%v) actual(%v)", test.Name, test.ExpectedProtocol, negotiatedProtocol)
+				}
+
+				s, err := r.Marshal()
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				// Forward ServerHello
+				if _, err = cb.Write(s); err != nil {
+					t.Fatal(err)
+				}
+
+				if test.ExpectAlertFromClient {
+					resp5 := make([]byte, 1024)
+					n, err = cb.Read(resp5)
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					r2 := &recordlayer.RecordLayer{}
+					if err := r2.Unmarshal(resp5[:n]); err != nil {
+						t.Fatal(err)
+					}
+
+					a := r2.Content.(*alert.Alert)
+					if a.Description != test.Alert {
+						t.Errorf("ALPN %v: expected(%v) actual(%v)", test.Name, test.Alert, a.Description)
+					}
+				}
+			}
+
+			time.Sleep(50 * time.Millisecond) // Give some time for returned errors
+		})
+	}
+}
+
 // Make sure the supported_groups extension is not included in the ServerHello
 func TestSupportedGroupsExtension(t *testing.T) {
 	// Limit runtime in case of deadlocks
