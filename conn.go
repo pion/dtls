@@ -162,6 +162,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		extendedMasterSecret:        config.ExtendedMasterSecret,
 		localSRTPProtectionProfiles: config.SRTPProtectionProfiles,
 		serverName:                  serverName,
+		supportedProtocols:          config.SupportedProtocols,
 		clientAuth:                  config.ClientAuth,
 		localCertificates:           config.Certificates,
 		insecureSkipVerify:          config.InsecureSkipVerify,
