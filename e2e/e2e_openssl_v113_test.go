@@ -1,3 +1,4 @@
+//go:build openssl && go1.13 && !js
 // +build openssl,go1.13,!js
 
 package e2e
