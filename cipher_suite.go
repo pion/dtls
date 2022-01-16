@@ -71,7 +71,6 @@ type CipherSuite interface {
 	// Called when keying material has been generated, should initialize the internal cipher
 	Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error
 	IsInitialized() bool
-
 	Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
 	Decrypt(in []byte) ([]byte, error)
 }
