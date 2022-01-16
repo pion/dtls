@@ -1,3 +1,4 @@
+//go:build go1.13 && !js
 // +build go1.13,!js
 
 package e2e
