@@ -3,7 +3,11 @@ package dtls
 import (
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	cryptoElliptic "crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
@@ -2298,4 +2302,85 @@ func (ms *memSessStore) Del(key []byte) error {
 	ms.Delete(k)
 
 	return nil
+}
+
+// Assert that the server only uses CipherSuites with a hash+signature that matches
+// the certificate. As specified in rfc5246#section-7.4.3
+func TestCipherSuiteMatchesCertificateType(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, test := range []struct {
+		Name           string
+		cipherList     []CipherSuiteID
+		expectedCipher CipherSuiteID
+		generateRSA    bool
+	}{
+		{
+			Name:           "ECDSA Certificate with RSA CipherSuite first",
+			cipherList:     []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			expectedCipher: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		},
+		{
+			Name:           "RSA Certificate with ECDSA CipherSuite first",
+			cipherList:     []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+			expectedCipher: TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			generateRSA:    true,
+		},
+	} {
+		test := test
+		t.Run(test.Name, func(t *testing.T) {
+			clientErr := make(chan error, 1)
+			client := make(chan *Conn, 1)
+
+			ca, cb := dpipe.Pipe()
+			go func() {
+				c, err := testClient(context.TODO(), ca, &Config{CipherSuites: test.cipherList}, false)
+				clientErr <- err
+				client <- c
+			}()
+
+			var (
+				priv crypto.PrivateKey
+				err  error
+			)
+
+			if test.generateRSA {
+				if priv, err = rsa.GenerateKey(rand.Reader, 2048); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if priv, err = ecdsa.GenerateKey(cryptoElliptic.P256(), rand.Reader); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			serverCert, err := selfsign.SelfSign(priv)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if s, err := testServer(context.TODO(), cb, &Config{
+				CipherSuites: test.cipherList,
+				Certificates: []tls.Certificate{serverCert},
+			}, false); err != nil {
+				t.Fatal(err)
+			} else if err = s.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			if c, err := <-client, <-clientErr; err != nil {
+				t.Fatal(err)
+			} else if err := c.Close(); err != nil {
+				t.Fatal(err)
+			} else if c.ConnectionState().cipherSuite.ID() != test.expectedCipher {
+				t.Fatalf("Expected(%s) and Actual(%s) CipherSuite do not match", test.expectedCipher, c.ConnectionState().cipherSuite.ID())
+			}
+		})
+	}
 }
