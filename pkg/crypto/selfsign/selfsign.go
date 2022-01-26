@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
@@ -53,6 +54,8 @@ func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate,
 	case ed25519.PrivateKey:
 		pubKey = k.Public()
 	case *ecdsa.PrivateKey:
+		pubKey = k.Public()
+	case *rsa.PrivateKey:
 		pubKey = k.Public()
 	default:
 		return tls.Certificate{}, errInvalidPrivateKey

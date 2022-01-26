@@ -176,6 +176,12 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		sessionStore:                config.SessionStore,
 	}
 
+	cert, err := hsCfg.getCertificate(serverName)
+	if err != nil && !errors.Is(err, errNoCertificates) {
+		return nil, err
+	}
+	hsCfg.localCipherSuites = filterCipherSuitesForCertificate(cert, cipherSuites)
+
 	var initialFlight flightVal
 	var initialFSMState handshakeState
 
