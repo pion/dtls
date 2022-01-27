@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/binary"
@@ -108,11 +107,7 @@ func verifyKeySignature(message, remoteKeySignature []byte, hashAlgorithm hash.A
 // the private key in the certificate.
 // https://tools.ietf.org/html/rfc5246#section-7.3
 func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.PrivateKey, hashAlgorithm hash.Algorithm) ([]byte, error) {
-	h := sha256.New()
-	if _, err := h.Write(handshakeBodies); err != nil {
-		return nil, err
-	}
-	hashed := h.Sum(nil)
+	hashed := hashAlgorithm.Digest(handshakeBodies)
 
 	switch p := privateKey.(type) {
 	case ed25519.PrivateKey:

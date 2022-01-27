@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/x509"
+	"fmt"
 
 	"github.com/pion/dtls/v2/pkg/crypto/prf"
 	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
@@ -175,8 +176,10 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		), merged...)
 
 		// Find compatible signature scheme
-		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(cfg.localSignatureSchemes, privateKey)
+
+		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(state.remoteCertRequestAlgs, privateKey)
 		if err != nil {
+			fmt.Printf("Could not find a compatible signature algorithm: %v\n", err)
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}
 
