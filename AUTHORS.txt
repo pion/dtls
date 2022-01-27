@@ -27,8 +27,10 @@ Jozef Kralik <jojo.lwin@gmail.com>
 Julien Salleyron <julien.salleyron@gmail.com>
 Kegan Dougal <kegan@matrix.org>
 Lander Noterman <lander.noterman@basalte.be>
+Len <len@hpcnt.com>
 Michael Zabka <zabka.michael@gmail.com>
 Michiel De Backker <mail@backkem.me>
+mschexnaydre <michael.schexnaydre@viasat.com>
 Robert Eperjesi <eperjesi@uber.com>
 Ryan Gordon <ryan.gordon@getcruise.com>
 Sean DuBois <seaduboi@amazon.com>
