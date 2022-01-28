@@ -242,7 +242,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 	switch {
 	case state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate:
-		certificate, err := cfg.getCertificate(cfg.serverName)
+		certificate, err := cfg.getCertificate(state.serverName)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 		}
