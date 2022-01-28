@@ -2384,3 +2384,83 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) {
 		})
 	}
 }
+
+// Test that we return the proper certificate if we are serving multiple ServerNames on a single Server
+func TestMultipleServerCertificates(t *testing.T) {
+	fooCert, err := selfsign.GenerateSelfSignedWithDNS("foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	barCert, err := selfsign.GenerateSelfSignedWithDNS("bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	caPool := x509.NewCertPool()
+	for _, cert := range []tls.Certificate{fooCert, barCert} {
+		certificate, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		caPool.AddCert(certificate)
+	}
+
+	for _, test := range []struct {
+		RequestServerName string
+		ExpectedDNSName   string
+	}{
+		{
+			"foo",
+			"foo",
+		},
+		{
+			"bar",
+			"bar",
+		},
+		{
+			"invalid",
+			"foo",
+		},
+	} {
+		test := test
+		t.Run(test.RequestServerName, func(t *testing.T) {
+			clientErr := make(chan error, 2)
+			client := make(chan *Conn, 1)
+
+			ca, cb := dpipe.Pipe()
+			go func() {
+				c, err := testClient(context.TODO(), ca, &Config{
+					RootCAs:    caPool,
+					ServerName: test.RequestServerName,
+					VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+						certificate, err := x509.ParseCertificate(rawCerts[0])
+						if err != nil {
+							return err
+						}
+
+						if certificate.DNSNames[0] != test.ExpectedDNSName {
+							return errWrongCert
+						}
+
+						return nil
+					},
+				}, false)
+				clientErr <- err
+				client <- c
+			}()
+
+			if s, err := testServer(context.TODO(), cb, &Config{Certificates: []tls.Certificate{fooCert, barCert}}, false); err != nil {
+				t.Fatal(err)
+			} else if err = s.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			if c, err := <-client, <-clientErr; err != nil {
+				t.Fatal(err)
+			} else if err := c.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
