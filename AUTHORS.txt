@@ -5,6 +5,7 @@
 # see `.github/generate-authors.sh` for the scripting
 Aleksandr Razumov <ar@gortc.io>
 alvarowolfx <alvarowolfx@gmail.com>
+Arlo Breault <arlolra@gmail.com>
 Atsushi Watanabe <atsushi.w@ieee.org>
 backkem <mail@backkem.me>
 bjdgyc <bjdgyc@163.com>
