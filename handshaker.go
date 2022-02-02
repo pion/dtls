@@ -326,6 +326,9 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 		if nextFlight == 0 {
 			break
 		}
+		if nextFlight.isLastRecvFlight() && s.currentFlight == nextFlight {
+			return handshakeFinished, nil
+		}
 		<-retransmitTimer.C
 		// Retransmit last flight
 		return handshakeSending, nil
