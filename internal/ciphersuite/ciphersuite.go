@@ -31,6 +31,8 @@ func (i ID) String() string {
 		return "TLS_PSK_WITH_AES_128_CCM"
 	case TLS_PSK_WITH_AES_128_CCM_8:
 		return "TLS_PSK_WITH_AES_128_CCM_8"
+	case TLS_PSK_WITH_AES_256_CCM_8:
+		return "TLS_PSK_WITH_AES_256_CCM_8"
 	case TLS_PSK_WITH_AES_128_GCM_SHA256:
 		return "TLS_PSK_WITH_AES_128_GCM_SHA256"
 	case TLS_PSK_WITH_AES_128_CBC_SHA256:
@@ -62,6 +64,7 @@ const (
 
 	TLS_PSK_WITH_AES_128_CCM        ID = 0xc0a4 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_CCM_8      ID = 0xc0a8 //nolint:golint,stylecheck
+	TLS_PSK_WITH_AES_256_CCM_8      ID = 0xc0a9 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_GCM_SHA256 ID = 0x00a8 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_CBC_SHA256 ID = 0x00ae //nolint:golint,stylecheck
 )
