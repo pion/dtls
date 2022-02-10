@@ -179,6 +179,7 @@ func ciphersOpenSSL(cfg *dtls.Config) string {
 
 		dtls.TLS_PSK_WITH_AES_128_CCM:        "PSK-AES128-CCM",
 		dtls.TLS_PSK_WITH_AES_128_CCM_8:      "PSK-AES128-CCM8",
+		dtls.TLS_PSK_WITH_AES_256_CCM_8:      "PSK-AES256-CCM8",
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256: "PSK-AES128-GCM-SHA256",
 	}
 

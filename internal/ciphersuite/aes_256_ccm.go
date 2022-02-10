@@ -5,13 +5,13 @@ import (
 	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
 )
 
-// Aes128Ccm is a base class used by multiple AES-CCM Ciphers
-type Aes128Ccm struct {
+// Aes256Ccm is a base class used by multiple AES-CCM Ciphers
+type Aes256Ccm struct {
 	AesCcm
 }
 
-func newAes128Ccm(clientCertificateType clientcertificate.Type, id ID, psk bool, cryptoCCMTagLen ciphersuite.CCMTagLen) *Aes128Ccm {
-	return &Aes128Ccm{
+func newAes256Ccm(clientCertificateType clientcertificate.Type, id ID, psk bool, cryptoCCMTagLen ciphersuite.CCMTagLen) *Aes256Ccm {
+	return &Aes256Ccm{
 		AesCcm: AesCcm{
 			clientCertificateType: clientCertificateType,
 			id:                    id,
@@ -22,7 +22,7 @@ func newAes128Ccm(clientCertificateType clientcertificate.Type, id ID, psk bool,
 }
 
 // Init initializes the internal Cipher with keying material
-func (c *Aes128Ccm) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
-	const prfKeyLen = 16
+func (c *Aes256Ccm) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
+	const prfKeyLen = 32
 	return c.AesCcm.Init(masterSecret, clientRandom, serverRandom, isClient, prfKeyLen)
 }
