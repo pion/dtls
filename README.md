@@ -56,6 +56,7 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 ##### PSK
 * TLS_PSK_WITH_AES_128_CCM ([RFC 6655][rfc6655])
 * TLS_PSK_WITH_AES_128_CCM_8 ([RFC 6655][rfc6655])
+* TLS_PSK_WITH_AES_256_CCM_8 ([RFC 6655][rfc6655])
 * TLS_PSK_WITH_AES_128_GCM_SHA256 ([RFC 5487][rfc5487])
 * TLS_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5487][rfc5487])
 
