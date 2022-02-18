@@ -177,11 +177,16 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		sessionStore:                config.SessionStore,
 	}
 
-	cert, err := hsCfg.getCertificate(serverName)
-	if err != nil && !errors.Is(err, errNoCertificates) {
-		return nil, err
+	// rfc5246#section-7.4.3
+	// In addition, the hash and signature algorithms MUST be compatible
+	// with the key in the server's end-entity certificate.
+	if !isClient {
+		cert, err := hsCfg.getCertificate("")
+		if err != nil && !errors.Is(err, errNoCertificates) {
+			return nil, err
+		}
+		hsCfg.localCipherSuites = filterCipherSuitesForCertificate(cert, cipherSuites)
 	}
-	hsCfg.localCipherSuites = filterCipherSuitesForCertificate(cert, cipherSuites)
 
 	var initialFlight flightVal
 	var initialFSMState handshakeState
