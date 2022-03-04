@@ -264,6 +264,7 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm)) {
 		dtls.TLS_PSK_WITH_AES_128_CCM_8,
 		dtls.TLS_PSK_WITH_AES_256_CCM_8,
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
+		dtls.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
 	} {
 		cipherSuite := cipherSuite
 		t.Run(cipherSuite.String(), func(t *testing.T) {

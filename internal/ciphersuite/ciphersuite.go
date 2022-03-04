@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/pion/dtls/v2/internal/ciphersuite/types"
 	"github.com/pion/dtls/v2/pkg/protocol"
 )
 
@@ -41,6 +42,8 @@ func (i ID) String() string {
 		return "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
 	case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
 		return "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+	case TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256:
+		return "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256"
 	default:
 		return fmt.Sprintf("unknown(%v)", uint16(i))
 	}
@@ -67,14 +70,26 @@ const (
 	TLS_PSK_WITH_AES_256_CCM_8      ID = 0xc0a9 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_GCM_SHA256 ID = 0x00a8 //nolint:golint,stylecheck
 	TLS_PSK_WITH_AES_128_CBC_SHA256 ID = 0x00ae //nolint:golint,stylecheck
+
+	TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ID = 0xC037 //nolint:golint,stylecheck
 )
 
 // AuthenticationType controls what authentication method is using during the handshake
-type AuthenticationType int
+type AuthenticationType = types.AuthenticationType
 
 // AuthenticationType Enums
 const (
-	AuthenticationTypeCertificate AuthenticationType = iota + 1
-	AuthenticationTypePreSharedKey
-	AuthenticationTypeAnonymous
+	AuthenticationTypeCertificate  AuthenticationType = types.AuthenticationTypeCertificate
+	AuthenticationTypePreSharedKey AuthenticationType = types.AuthenticationTypePreSharedKey
+	AuthenticationTypeAnonymous    AuthenticationType = types.AuthenticationTypeAnonymous
+)
+
+// KeyExchangeAlgorithm controls what exchange algorithm was chosen.
+type KeyExchangeAlgorithm = types.KeyExchangeAlgorithm
+
+// KeyExchangeAlgorithm Bitmask
+const (
+	KeyExchangeAlgorithmNone  KeyExchangeAlgorithm = types.KeyExchangeAlgorithmNone
+	KeyExchangeAlgorithmPsk   KeyExchangeAlgorithm = types.KeyExchangeAlgorithmPsk
+	KeyExchangeAlgorithmEcdhe KeyExchangeAlgorithm = types.KeyExchangeAlgorithmEcdhe
 )

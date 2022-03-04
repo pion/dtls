@@ -18,7 +18,9 @@ type AesCcm struct {
 	clientCertificateType clientcertificate.Type
 	id                    ID
 	psk                   bool
+	keyExchangeAlgorithm  KeyExchangeAlgorithm
 	cryptoCCMTagLen       ciphersuite.CCMTagLen
+	ecc                   bool
 }
 
 // CertificateType returns what type of certificate this CipherSuite exchanges
@@ -33,6 +35,16 @@ func (c *AesCcm) ID() ID {
 
 func (c *AesCcm) String() string {
 	return c.id.String()
+}
+
+// ECC uses Elliptic Curve Cryptography
+func (c *AesCcm) ECC() bool {
+	return c.ecc
+}
+
+// KeyExchangeAlgorithm controls what key exchange algorithm is using during the handshake
+func (c *AesCcm) KeyExchangeAlgorithm() KeyExchangeAlgorithm {
+	return c.keyExchangeAlgorithm
 }
 
 // HashFunc returns the hashing func for this CipherSuite

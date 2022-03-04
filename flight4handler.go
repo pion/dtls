@@ -17,7 +17,7 @@ import (
 )
 
 func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) { //nolint:gocognit
-	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence,
+	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
 		handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, true},
 		handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
 		handshakeCachePullRule{handshake.TypeCertificateVerify, cfg.initialEpoch, true, true},
@@ -103,7 +103,16 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 			state.IdentityHint = clientKeyExchange.IdentityHint
-			preMasterSecret = prf.PSKPreMasterSecret(psk)
+			switch state.cipherSuite.KeyExchangeAlgorithm() {
+			case CipherSuiteKeyExchangeAlgorithmPsk:
+				preMasterSecret = prf.PSKPreMasterSecret(psk)
+			case (CipherSuiteKeyExchangeAlgorithmPsk | CipherSuiteKeyExchangeAlgorithmEcdhe):
+				if preMasterSecret, err = prf.EcdhePSKPreMasterSecret(psk, clientKeyExchange.PublicKey, state.localKeypair.PrivateKey, state.localKeypair.Curve); err != nil {
+					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+				}
+			default:
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidCipherSuite
+			}
 		} else {
 			preMasterSecret, err = prf.PreMasterSecret(clientKeyExchange.PublicKey, state.localKeypair.PrivateKey, state.localKeypair.Curve)
 			if err != nil {
@@ -151,7 +160,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
-	seq, msgs, ok = cache.fullPullMap(seq,
+	seq, msgs, ok = cache.fullPullMap(seq, state.cipherSuite,
 		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, true, false},
 	)
 	if !ok {
@@ -319,36 +328,28 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 				},
 			})
 		}
-	case cfg.localPSKIdentityHint != nil:
+	case cfg.localPSKIdentityHint != nil || state.cipherSuite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe):
 		// To help the client in selecting which identity to use, the server
 		// can provide a "PSK identity hint" in the ServerKeyExchange message.
-		// If no hint is provided, the ServerKeyExchange message is omitted.
+		// If no hint is provided and cipher suite doesn't use elliptic curve,
+		// the ServerKeyExchange message is omitted.
 		//
 		// https://tools.ietf.org/html/rfc4279#section-2
+		srvExchange := &handshake.MessageServerKeyExchange{
+			IdentityHint: cfg.localPSKIdentityHint,
+		}
+		if state.cipherSuite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe) {
+			srvExchange.EllipticCurveType = elliptic.CurveTypeNamedCurve
+			srvExchange.NamedCurve = state.namedCurve
+			srvExchange.PublicKey = state.localKeypair.PublicKey
+		}
 		pkts = append(pkts, &packet{
 			record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},
 				Content: &handshake.Handshake{
-					Message: &handshake.MessageServerKeyExchange{
-						IdentityHint: cfg.localPSKIdentityHint,
-					},
-				},
-			},
-		})
-	case state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous:
-		pkts = append(pkts, &packet{
-			record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageServerKeyExchange{
-						EllipticCurveType: elliptic.CurveTypeNamedCurve,
-						NamedCurve:        state.namedCurve,
-						PublicKey:         state.localKeypair.PublicKey,
-					},
+					Message: srvExchange,
 				},
 			},
 		})

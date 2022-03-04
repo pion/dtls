@@ -1,7 +1,6 @@
 package ciphersuite
 
 import (
-	"crypto/sha1" //nolint: gosec,gci
 	"crypto/sha256"
 	"fmt"
 	"hash"
@@ -13,56 +12,61 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
-// TLSEcdheEcdsaWithAes256CbcSha represents a TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA CipherSuite
-type TLSEcdheEcdsaWithAes256CbcSha struct {
+// TLSEcdhePskWithAes128CbcSha256 implements the TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 CipherSuite
+type TLSEcdhePskWithAes128CbcSha256 struct {
 	cbc atomic.Value // *cryptoCBC
 }
 
-// CertificateType returns what type of certficate this CipherSuite exchanges
-func (c *TLSEcdheEcdsaWithAes256CbcSha) CertificateType() clientcertificate.Type {
-	return clientcertificate.ECDSASign
+// NewTLSEcdhePskWithAes128CbcSha256 creates TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 cipher.
+func NewTLSEcdhePskWithAes128CbcSha256() *TLSEcdhePskWithAes128CbcSha256 {
+	return &TLSEcdhePskWithAes128CbcSha256{}
+}
+
+// CertificateType returns what type of certificate this CipherSuite exchanges
+func (c *TLSEcdhePskWithAes128CbcSha256) CertificateType() clientcertificate.Type {
+	return clientcertificate.Type(0)
 }
 
 // KeyExchangeAlgorithm controls what key exchange algorithm is using during the handshake
-func (c *TLSEcdheEcdsaWithAes256CbcSha) KeyExchangeAlgorithm() KeyExchangeAlgorithm {
-	return KeyExchangeAlgorithmEcdhe
+func (c *TLSEcdhePskWithAes128CbcSha256) KeyExchangeAlgorithm() KeyExchangeAlgorithm {
+	return (KeyExchangeAlgorithmPsk | KeyExchangeAlgorithmEcdhe)
 }
 
 // ECC uses Elliptic Curve Cryptography
-func (c *TLSEcdheEcdsaWithAes256CbcSha) ECC() bool {
+func (c *TLSEcdhePskWithAes128CbcSha256) ECC() bool {
 	return true
 }
 
 // ID returns the ID of the CipherSuite
-func (c *TLSEcdheEcdsaWithAes256CbcSha) ID() ID {
-	return TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+func (c *TLSEcdhePskWithAes128CbcSha256) ID() ID {
+	return TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256
 }
 
-func (c *TLSEcdheEcdsaWithAes256CbcSha) String() string {
-	return "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
+func (c *TLSEcdhePskWithAes128CbcSha256) String() string {
+	return "TLS-ECDHE-PSK-WITH-AES-128-CBC-SHA256"
 }
 
 // HashFunc returns the hashing func for this CipherSuite
-func (c *TLSEcdheEcdsaWithAes256CbcSha) HashFunc() func() hash.Hash {
+func (c *TLSEcdhePskWithAes128CbcSha256) HashFunc() func() hash.Hash {
 	return sha256.New
 }
 
 // AuthenticationType controls what authentication method is using during the handshake
-func (c *TLSEcdheEcdsaWithAes256CbcSha) AuthenticationType() AuthenticationType {
-	return AuthenticationTypeCertificate
+func (c *TLSEcdhePskWithAes128CbcSha256) AuthenticationType() AuthenticationType {
+	return AuthenticationTypePreSharedKey
 }
 
 // IsInitialized returns if the CipherSuite has keying material and can
 // encrypt/decrypt packets
-func (c *TLSEcdheEcdsaWithAes256CbcSha) IsInitialized() bool {
+func (c *TLSEcdhePskWithAes128CbcSha256) IsInitialized() bool {
 	return c.cbc.Load() != nil
 }
 
 // Init initializes the internal Cipher with keying material
-func (c *TLSEcdheEcdsaWithAes256CbcSha) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
+func (c *TLSEcdhePskWithAes128CbcSha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
 	const (
-		prfMacLen = 20
-		prfKeyLen = 32
+		prfMacLen = 32
+		prfKeyLen = 16
 		prfIvLen  = 16
 	)
 
@@ -76,13 +80,13 @@ func (c *TLSEcdheEcdsaWithAes256CbcSha) Init(masterSecret, clientRandom, serverR
 		cbc, err = ciphersuite.NewCBC(
 			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
 			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
-			sha1.New,
+			c.HashFunc(),
 		)
 	} else {
 		cbc, err = ciphersuite.NewCBC(
 			keys.ServerWriteKey, keys.ServerWriteIV, keys.ServerMACKey,
 			keys.ClientWriteKey, keys.ClientWriteIV, keys.ClientMACKey,
-			sha1.New,
+			c.HashFunc(),
 		)
 	}
 	c.cbc.Store(cbc)
@@ -91,7 +95,7 @@ func (c *TLSEcdheEcdsaWithAes256CbcSha) Init(masterSecret, clientRandom, serverR
 }
 
 // Encrypt encrypts a single TLS RecordLayer
-func (c *TLSEcdheEcdsaWithAes256CbcSha) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
+func (c *TLSEcdhePskWithAes128CbcSha256) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
 	if cbc == nil { // !c.isInitialized()
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
@@ -101,10 +105,10 @@ func (c *TLSEcdheEcdsaWithAes256CbcSha) Encrypt(pkt *recordlayer.RecordLayer, ra
 }
 
 // Decrypt decrypts a single TLS RecordLayer
-func (c *TLSEcdheEcdsaWithAes256CbcSha) Decrypt(raw []byte) ([]byte, error) {
+func (c *TLSEcdhePskWithAes128CbcSha256) Decrypt(raw []byte) ([]byte, error) {
 	cbc := c.cbc.Load()
 	if cbc == nil { // !c.isInitialized()
-		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
+		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
 	}
 
 	return cbc.(*ciphersuite.CBC).Decrypt(raw)

@@ -15,7 +15,7 @@ import (
 )
 
 func flight5Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) {
-	_, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence,
+	_, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
 		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
 	)
 	if !ok {
@@ -98,6 +98,9 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 	} else {
 		clientKeyExchange.IdentityHint = cfg.localPSKIdentityHint
 	}
+	if state != nil && state.localKeypair != nil && len(state.localKeypair.PublicKey) > 0 {
+		clientKeyExchange.PublicKey = state.localKeypair.PublicKey
+	}
 
 	pkts = append(pkts,
 		&packet{
@@ -124,7 +127,9 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			return nil, alertPtr, err
 		}
 	} else {
-		rawHandshake := &handshake.Handshake{}
+		rawHandshake := &handshake.Handshake{
+			KeyExchangeAlgorithm: state.cipherSuite.KeyExchangeAlgorithm(),
+		}
 		err := rawHandshake.Unmarshal(serverKeyExchangeData)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, err

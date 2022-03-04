@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/pion/dtls/v2/internal/ciphersuite/types"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/hash"
 	"github.com/pion/dtls/v2/pkg/crypto/signature"
@@ -11,7 +12,9 @@ import (
 
 func TestHandshakeMessageServerKeyExchange(t *testing.T) {
 	test := func(rawServerKeyExchange []byte, parsedServerKeyExchange *MessageServerKeyExchange) {
-		c := &MessageServerKeyExchange{}
+		c := &MessageServerKeyExchange{
+			KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+		}
 		if err := c.Unmarshal(rawServerKeyExchange); err != nil {
 			t.Error(err)
 		} else if !reflect.DeepEqual(c, parsedServerKeyExchange) {
@@ -39,12 +42,13 @@ func TestHandshakeMessageServerKeyExchange(t *testing.T) {
 			0xe8, 0xdf, 0x43, 0x75, 0xc7, 0xb9, 0x37, 0x6e, 0x90, 0xe5, 0x3b, 0x81, 0xd4, 0xda, 0x68, 0xcd,
 		}
 		parsedServerKeyExchange := &MessageServerKeyExchange{
-			EllipticCurveType:  elliptic.CurveTypeNamedCurve,
-			NamedCurve:         elliptic.X25519,
-			PublicKey:          rawServerKeyExchange[4:69],
-			HashAlgorithm:      hash.SHA1,
-			SignatureAlgorithm: signature.ECDSA,
-			Signature:          rawServerKeyExchange[73:144],
+			EllipticCurveType:    elliptic.CurveTypeNamedCurve,
+			NamedCurve:           elliptic.X25519,
+			PublicKey:            rawServerKeyExchange[4:69],
+			HashAlgorithm:        hash.SHA1,
+			SignatureAlgorithm:   signature.ECDSA,
+			Signature:            rawServerKeyExchange[73:144],
+			KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
 		}
 
 		test(rawServerKeyExchange, parsedServerKeyExchange)
@@ -59,11 +63,12 @@ func TestHandshakeMessageServerKeyExchange(t *testing.T) {
 			0x45, 0x28, 0xac, 0x3f, 0x35,
 		}
 		parsedServerKeyExchange := &MessageServerKeyExchange{
-			EllipticCurveType:  elliptic.CurveTypeNamedCurve,
-			NamedCurve:         elliptic.X25519,
-			PublicKey:          rawServerKeyExchange[4:69],
-			HashAlgorithm:      hash.None,
-			SignatureAlgorithm: signature.Anonymous,
+			EllipticCurveType:    elliptic.CurveTypeNamedCurve,
+			NamedCurve:           elliptic.X25519,
+			PublicKey:            rawServerKeyExchange[4:69],
+			HashAlgorithm:        hash.None,
+			SignatureAlgorithm:   signature.Anonymous,
+			KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
 		}
 
 		test(rawServerKeyExchange, parsedServerKeyExchange)
