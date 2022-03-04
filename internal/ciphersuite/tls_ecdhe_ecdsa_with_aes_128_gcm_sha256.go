@@ -22,6 +22,16 @@ func (c *TLSEcdheEcdsaWithAes128GcmSha256) CertificateType() clientcertificate.T
 	return clientcertificate.ECDSASign
 }
 
+// KeyExchangeAlgorithm controls what key exchange algorithm is using during the handshake
+func (c *TLSEcdheEcdsaWithAes128GcmSha256) KeyExchangeAlgorithm() KeyExchangeAlgorithm {
+	return KeyExchangeAlgorithmEcdhe
+}
+
+// ECC uses Elliptic Curve Cryptography
+func (c *TLSEcdheEcdsaWithAes128GcmSha256) ECC() bool {
+	return true
+}
+
 // ID returns the ID of the CipherSuite
 func (c *TLSEcdheEcdsaWithAes128GcmSha256) ID() ID {
 	return TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256

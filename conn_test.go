@@ -483,6 +483,11 @@ func TestPSK(t *testing.T) {
 			ServerIdentity: nil,
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CBC_SHA256},
 		},
+		{
+			Name:           "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256",
+			ServerIdentity: nil,
+			CipherSuites:   []CipherSuiteID{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256},
+		},
 	} {
 		test := test
 		t.Run(test.Name, func(t *testing.T) {

@@ -22,6 +22,16 @@ func (c *TLSPskWithAes128CbcSha256) CertificateType() clientcertificate.Type {
 	return clientcertificate.Type(0)
 }
 
+// KeyExchangeAlgorithm controls what key exchange algorithm is using during the handshake
+func (c *TLSPskWithAes128CbcSha256) KeyExchangeAlgorithm() KeyExchangeAlgorithm {
+	return KeyExchangeAlgorithmPsk
+}
+
+// ECC uses Elliptic Curve Cryptography
+func (c *TLSPskWithAes128CbcSha256) ECC() bool {
+	return false
+}
+
 // ID returns the ID of the CipherSuite
 func (c *TLSPskWithAes128CbcSha256) ID() ID {
 	return TLS_PSK_WITH_AES_128_CBC_SHA256

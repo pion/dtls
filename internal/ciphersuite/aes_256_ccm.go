@@ -10,13 +10,15 @@ type Aes256Ccm struct {
 	AesCcm
 }
 
-func newAes256Ccm(clientCertificateType clientcertificate.Type, id ID, psk bool, cryptoCCMTagLen ciphersuite.CCMTagLen) *Aes256Ccm {
+func newAes256Ccm(clientCertificateType clientcertificate.Type, id ID, psk bool, cryptoCCMTagLen ciphersuite.CCMTagLen, keyExchangeAlgorithm KeyExchangeAlgorithm, ecc bool) *Aes256Ccm {
 	return &Aes256Ccm{
 		AesCcm: AesCcm{
 			clientCertificateType: clientCertificateType,
 			id:                    id,
 			psk:                   psk,
 			cryptoCCMTagLen:       cryptoCCMTagLen,
+			keyExchangeAlgorithm:  keyExchangeAlgorithm,
+			ecc:                   ecc,
 		},
 	}
 }
