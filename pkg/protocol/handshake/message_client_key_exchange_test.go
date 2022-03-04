@@ -3,6 +3,8 @@ package handshake
 import (
 	"reflect"
 	"testing"
+
+	"github.com/pion/dtls/v2/internal/ciphersuite/types"
 )
 
 func TestHandshakeMessageClientKeyExchange(t *testing.T) {
@@ -12,10 +14,13 @@ func TestHandshakeMessageClientKeyExchange(t *testing.T) {
 		0x54,
 	}
 	parsedClientKeyExchange := &MessageClientKeyExchange{
-		PublicKey: rawClientKeyExchange[1:],
+		PublicKey:            rawClientKeyExchange[1:],
+		KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
 	}
 
-	c := &MessageClientKeyExchange{}
+	c := &MessageClientKeyExchange{
+		KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+	}
 	if err := c.Unmarshal(rawClientKeyExchange); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(c, parsedClientKeyExchange) {

@@ -44,6 +44,7 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 #### Supported ciphers
 
 ##### ECDHE
+
 * TLS_ECDHE_ECDSA_WITH_AES_128_CCM ([RFC 6655][rfc6655])
 * TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 ([RFC 6655][rfc6655])
 * TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ([RFC 5289][rfc5289])
@@ -54,16 +55,22 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 * TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA ([RFC 8422][rfc8422])
 
 ##### PSK
+
 * TLS_PSK_WITH_AES_128_CCM ([RFC 6655][rfc6655])
 * TLS_PSK_WITH_AES_128_CCM_8 ([RFC 6655][rfc6655])
 * TLS_PSK_WITH_AES_256_CCM_8 ([RFC 6655][rfc6655])
 * TLS_PSK_WITH_AES_128_GCM_SHA256 ([RFC 5487][rfc5487])
 * TLS_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5487][rfc5487])
 
+##### ECDHE & PSK
+
+* TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5489][rfc5489])
+
 [rfc5289]: https://tools.ietf.org/html/rfc5289
 [rfc8422]: https://tools.ietf.org/html/rfc8422
 [rfc6655]: https://tools.ietf.org/html/rfc6655
 [rfc5487]: https://tools.ietf.org/html/rfc5487
+[rfc5489]: https://tools.ietf.org/html/rfc5489
 
 #### Planned Features
 * Chacha20Poly1305

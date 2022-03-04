@@ -702,13 +702,12 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, enqueue boo
 	} else if isHandshake {
 		markPacketAsValid()
 		for out, epoch := c.fragmentBuffer.pop(); out != nil; out, epoch = c.fragmentBuffer.pop() {
-			rawHandshake := &handshake.Handshake{}
-			if err := rawHandshake.Unmarshal(out); err != nil {
+			header := &handshake.Header{}
+			if err := header.Unmarshal(out); err != nil {
 				c.log.Debugf("%s: handshake parse failed: %s", srvCliStr(c.state.isClient), err)
 				continue
 			}
-
-			_ = c.handshakeCache.push(out, epoch, rawHandshake.Header.MessageSequence, rawHandshake.Header.Type, !c.state.isClient)
+			_ = c.handshakeCache.push(out, epoch, header.MessageSequence, header.Type, !c.state.isClient)
 		}
 
 		return true, nil, nil

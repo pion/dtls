@@ -77,7 +77,7 @@ func (h *handshakeCache) pull(rules ...handshakeCachePullRule) []*handshakeCache
 }
 
 // fullPullMap pulls all handshakes between rules[0] to rules[len(rules)-1] as map.
-func (h *handshakeCache) fullPullMap(startSeq int, rules ...handshakeCachePullRule) (int, map[handshake.Type]handshake.Message, bool) {
+func (h *handshakeCache) fullPullMap(startSeq int, cipherSuite CipherSuite, rules ...handshakeCachePullRule) (int, map[handshake.Type]handshake.Message, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -108,7 +108,13 @@ func (h *handshakeCache) fullPullMap(startSeq int, rules ...handshakeCachePullRu
 		if i == nil {
 			continue
 		}
-		rawHandshake := &handshake.Handshake{}
+		var keyExchangeAlgorithm CipherSuiteKeyExchangeAlgorithm
+		if cipherSuite != nil {
+			keyExchangeAlgorithm = cipherSuite.KeyExchangeAlgorithm()
+		}
+		rawHandshake := &handshake.Handshake{
+			KeyExchangeAlgorithm: keyExchangeAlgorithm,
+		}
 		if err := rawHandshake.Unmarshal(i.data); err != nil {
 			return startSeq, nil, false
 		}
