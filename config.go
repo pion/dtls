@@ -57,6 +57,10 @@ type Config struct {
 	// defaults to time.Second
 	FlightInterval time.Duration
 
+	// DisableRetransmitBackoff can be used to the disable the backoff feature
+	// when sending outbound messages as specified in RFC 4347 4.2.4.1
+	DisableRetransmitBackoff bool
+
 	// PSK sets the pre-shared key used by this DTLS connection
 	// If PSK is non-nil only PSK CipherSuites will be used
 	PSK             PSKCallback

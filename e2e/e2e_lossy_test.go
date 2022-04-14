@@ -135,10 +135,11 @@ func TestPionE2ELossy(t *testing.T) {
 
 			go func() {
 				cfg := &dtls.Config{
-					FlightInterval:     flightInterval,
-					CipherSuites:       test.CipherSuites,
-					InsecureSkipVerify: true,
-					MTU:                test.MTU,
+					FlightInterval:           flightInterval,
+					CipherSuites:             test.CipherSuites,
+					InsecureSkipVerify:       true,
+					MTU:                      test.MTU,
+					DisableRetransmitBackoff: true,
 				}
 
 				if test.DoClientAuth {
@@ -151,9 +152,10 @@ func TestPionE2ELossy(t *testing.T) {
 
 			go func() {
 				cfg := &dtls.Config{
-					Certificates:   []tls.Certificate{serverCert},
-					FlightInterval: flightInterval,
-					MTU:            test.MTU,
+					Certificates:             []tls.Certificate{serverCert},
+					FlightInterval:           flightInterval,
+					MTU:                      test.MTU,
+					DisableRetransmitBackoff: true,
 				}
 
 				if test.DoClientAuth {

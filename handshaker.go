@@ -82,13 +82,14 @@ func (s handshakeState) String() string {
 }
 
 type handshakeFSM struct {
-	currentFlight flightVal
-	flights       []*packet
-	retransmit    bool
-	state         *State
-	cache         *handshakeCache
-	cfg           *handshakeConfig
-	closed        chan struct{}
+	currentFlight      flightVal
+	flights            []*packet
+	retransmit         bool
+	retransmitInterval time.Duration
+	state              *State
+	cache              *handshakeCache
+	cfg                *handshakeConfig
+	closed             chan struct{}
 }
 
 type handshakeConfig struct {
@@ -109,7 +110,8 @@ type handshakeConfig struct {
 	sessionStore                SessionStore
 	rootCAs                     *x509.CertPool
 	clientCAs                   *x509.CertPool
-	retransmitInterval          time.Duration
+	initialRetransmitInterval   time.Duration
+	disableRetransmitBackoff    bool
 	customCipherSuites          func() []CipherSuite
 	ellipticCurves              []elliptic.Curve
 	insecureSkipHelloVerify     bool
@@ -165,11 +167,12 @@ func newHandshakeFSM(
 	initialFlight flightVal,
 ) *handshakeFSM {
 	return &handshakeFSM{
-		currentFlight: initialFlight,
-		state:         s,
-		cache:         cache,
-		cfg:           cfg,
-		closed:        make(chan struct{}),
+		currentFlight:      initialFlight,
+		state:              s,
+		cache:              cache,
+		cfg:                cfg,
+		retransmitInterval: cfg.initialRetransmitInterval,
+		closed:             make(chan struct{}),
 	}
 }
 
@@ -274,11 +277,12 @@ func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, 
 		return handshakeErrored, errFlight
 	}
 
-	retransmitTimer := time.NewTimer(s.cfg.retransmitInterval)
+	retransmitTimer := time.NewTimer(s.retransmitInterval)
 	for {
 		select {
 		case done := <-c.recvHandshake():
 			nextFlight, alert, err := parse(ctx, c, s.state, s.cache, s.cfg)
+			s.retransmitInterval = s.cfg.initialRetransmitInterval
 			close(done)
 			if alert != nil {
 				if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
@@ -304,8 +308,19 @@ func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, 
 			if !s.retransmit {
 				return handshakeWaiting, nil
 			}
+
+			// RFC 4347 4.2.4.1:
+			// Implementations SHOULD use an initial timer value of 1 second (the minimum defined in RFC 2988 [RFC2988])
+			// and double the value at each retransmission, up to no less than the RFC 2988 maximum of 60 seconds.
+			if !s.cfg.disableRetransmitBackoff {
+				s.retransmitInterval *= 2
+			}
+			if s.retransmitInterval > time.Second*60 {
+				s.retransmitInterval = time.Second * 60
+			}
 			return handshakeSending, nil
 		case <-ctx.Done():
+			s.retransmitInterval = s.cfg.initialRetransmitInterval
 			return handshakeErrored, ctx.Err()
 		}
 	}
@@ -320,11 +335,12 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 		return handshakeErrored, errFlight
 	}
 
-	retransmitTimer := time.NewTimer(s.cfg.retransmitInterval)
+	retransmitTimer := time.NewTimer(s.retransmitInterval)
 	select {
 	case done := <-c.recvHandshake():
 		nextFlight, alert, err := parse(ctx, c, s.state, s.cache, s.cfg)
 		close(done)
+		s.retransmitInterval = s.cfg.initialRetransmitInterval
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 				if err != nil {
@@ -342,10 +358,16 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 			return handshakeFinished, nil
 		}
 		<-retransmitTimer.C
+		// RFC 4347 4.2.4.1
+		s.retransmitInterval *= 2
+		if s.retransmitInterval > time.Second*60 {
+			s.retransmitInterval = time.Second * 60
+		}
 		// Retransmit last flight
 		return handshakeSending, nil
 
 	case <-ctx.Done():
+		s.retransmitInterval = s.cfg.initialRetransmitInterval
 		return handshakeErrored, ctx.Err()
 	}
 	return handshakeFinished, nil
