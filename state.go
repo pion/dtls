@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"sync/atomic"
+	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/prf"
@@ -23,6 +24,7 @@ type State struct {
 	PeerCertificates      [][]byte
 	IdentityHint          []byte
 	SessionID             []byte
+	VerifiedCertExpiry    time.Time
 
 	isClient bool
 

@@ -88,24 +88,25 @@ type handshakeFSM struct {
 }
 
 type handshakeConfig struct {
-	localPSKCallback            PSKCallback
-	localPSKIdentityHint        []byte
-	localCipherSuites           []CipherSuite             // Available CipherSuites
-	localSignatureSchemes       []signaturehash.Algorithm // Available signature schemes
-	extendedMasterSecret        ExtendedMasterSecretType  // Policy for the Extended Master Support extension
-	localSRTPProtectionProfiles []SRTPProtectionProfile   // Available SRTPProtectionProfiles, if empty no SRTP support
-	serverName                  string
-	supportedProtocols          []string
-	clientAuth                  ClientAuthType // If we are a client should we request a client certificate
-	localCertificates           []tls.Certificate
-	nameToCertificate           map[string]*tls.Certificate
-	insecureSkipVerify          bool
-	verifyPeerCertificate       func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
-	sessionStore                SessionStore
-	rootCAs                     *x509.CertPool
-	clientCAs                   *x509.CertPool
-	retransmitInterval          time.Duration
-	customCipherSuites          func() []CipherSuite
+	localPSKCallback                  PSKCallback
+	localPSKIdentityHint              []byte
+	localCipherSuites                 []CipherSuite             // Available CipherSuites
+	localSignatureSchemes             []signaturehash.Algorithm // Available signature schemes
+	extendedMasterSecret              ExtendedMasterSecretType  // Policy for the Extended Master Support extension
+	localSRTPProtectionProfiles       []SRTPProtectionProfile   // Available SRTPProtectionProfiles, if empty no SRTP support
+	serverName                        string
+	supportedProtocols                []string
+	clientAuth                        ClientAuthType // If we are a client should we request a client certificate
+	localCertificates                 []tls.Certificate
+	nameToCertificate                 map[string]*tls.Certificate
+	insecureSkipVerify                bool
+	verifyPeerCertificate             func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	sessionStore                      SessionStore
+	peerCertDisablesSessionResumption bool
+	rootCAs                           *x509.CertPool
+	clientCAs                         *x509.CertPool
+	retransmitInterval                time.Duration
+	customCipherSuites                func() []CipherSuite
 
 	onFlightState func(flightVal, handshakeState)
 	log           logging.LeveledLogger

@@ -184,28 +184,30 @@ func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-func verifyClientCert(rawCertificates [][]byte, roots *x509.CertPool) (chains [][]*x509.Certificate, err error) {
+func verifyClientCert(rawCertificates [][]byte, roots *x509.CertPool) (chains [][]*x509.Certificate, expiry time.Time, err error) {
 	certificate, err := loadCerts(rawCertificates)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	intermediateCAPool := x509.NewCertPool()
 	for _, cert := range certificate[1:] {
 		intermediateCAPool.AddCert(cert)
 	}
+
 	opts := x509.VerifyOptions{
 		Roots:         roots,
 		CurrentTime:   time.Now(),
 		Intermediates: intermediateCAPool,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	return certificate[0].Verify(opts)
+	chains, err = certificate[0].Verify(opts)
+	return chains, certificate[0].NotAfter, err
 }
 
-func verifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName string) (chains [][]*x509.Certificate, err error) {
+func verifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName string) (chains [][]*x509.Certificate, expiry time.Time, err error) {
 	certificate, err := loadCerts(rawCertificates)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	intermediateCAPool := x509.NewCertPool()
 	for _, cert := range certificate[1:] {
@@ -217,5 +219,6 @@ func verifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName
 		DNSName:       serverName,
 		Intermediates: intermediateCAPool,
 	}
-	return certificate[0].Verify(opts)
+	chains, err = certificate[0].Verify(opts)
+	return chains, certificate[0].NotAfter, err
 }

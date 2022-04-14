@@ -128,6 +128,10 @@ type Config struct {
 	// SessionStore is the container to store session for resumption.
 	SessionStore SessionStore
 
+	// PeerCertDisablesSessionResumption prevents session resumption if a client certificate
+	// is provided, regardless of the state of the session store
+	PeerCertDisablesSessionResumption bool
+
 	// List of application protocols the peer supports, for ALPN
 	SupportedProtocols []string
 }

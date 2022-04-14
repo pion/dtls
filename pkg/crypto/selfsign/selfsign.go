@@ -10,6 +10,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"errors"
 	"math/big"
@@ -85,6 +86,9 @@ func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate,
 		Version:               2,
 		IsCA:                  true,
 		DNSNames:              names,
+		Subject: pkix.Name{
+			CommonName: cn,
+		},
 	}
 
 	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, pubKey, key)
