@@ -3319,7 +3319,6 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 				if qlen > maxAppDataPacketQueueSize {
 					t.Error("too many encrypted packets enqueued", len(dconn.encryptedPackets))
 				}
-				t.Log(qlen)
 				time.Sleep(1 * time.Second)
 			}
 		}()
