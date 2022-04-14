@@ -176,7 +176,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		rootCAs:                     config.RootCAs,
 		clientCAs:                   config.ClientCAs,
 		customCipherSuites:          config.CustomCipherSuites,
-		retransmitInterval:          workerInterval,
+		initialRetransmitInterval:   workerInterval,
 		log:                         logger,
 		initialEpoch:                0,
 		keyLogWriter:                config.KeyLogWriter,

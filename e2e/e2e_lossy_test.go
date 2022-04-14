@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	flightInterval   = time.Millisecond * 100
-	lossyTestTimeout = 30 * time.Second
+	flightInterval   = time.Millisecond * 10
+	lossyTestTimeout = 60 * time.Second
 )
 
 /*
