@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net"
 	"testing"
-
-	"golang.org/x/xerrors"
 )
 
 var errExample = errors.New("an example error")
@@ -42,7 +40,7 @@ func TestErrorUnwrap(t *testing.T) {
 		t.Run(fmt.Sprintf("%T", c.err), func(t *testing.T) {
 			err := c.err
 			for _, unwrapped := range c.errUnwrapped {
-				e := xerrors.Unwrap(err)
+				e := errors.Unwrap(err)
 				if !errors.Is(e, unwrapped) {
 					t.Errorf("Unwrapped error is expected to be '%v', got '%v'", unwrapped, e)
 				}
