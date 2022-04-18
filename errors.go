@@ -10,14 +10,13 @@ import (
 
 	"github.com/pion/dtls/v2/pkg/protocol"
 	"github.com/pion/dtls/v2/pkg/protocol/alert"
-	"golang.org/x/xerrors"
 )
 
 // Typed errors
 var (
 	ErrConnClosed = &FatalError{Err: errors.New("conn is closed")} //nolint:goerr113
 
-	errDeadlineExceeded   = &TimeoutError{Err: xerrors.Errorf("read/write timeout: %w", context.DeadlineExceeded)}
+	errDeadlineExceeded   = &TimeoutError{Err: fmt.Errorf("read/write timeout: %w", context.DeadlineExceeded)}
 	errInvalidContentType = &TemporaryError{Err: errors.New("invalid content type")} //nolint:goerr113
 
 	errBufferTooSmall               = &TemporaryError{Err: errors.New("buffer is too small")}                                        //nolint:goerr113
