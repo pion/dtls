@@ -5,12 +5,12 @@ package signaturehash
 
 import (
 	"crypto/tls"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/pion/dtls/v2/pkg/crypto/hash"
 	"github.com/pion/dtls/v2/pkg/crypto/signature"
-	"golang.org/x/xerrors"
 )
 
 func TestParseSignatureSchemes_Ed25519(t *testing.T) {
@@ -36,7 +36,7 @@ func TestParseSignatureSchemes_Ed25519(t *testing.T) {
 		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			output, err := ParseSignatureSchemes(testCase.input, testCase.insecureHashes)
-			if testCase.err != nil && !xerrors.Is(err, testCase.err) {
+			if testCase.err != nil && !errors.Is(err, testCase.err) {
 				t.Fatalf("Expected error: %v, got: %v", testCase.err, err)
 			}
 			if !reflect.DeepEqual(testCase.expected, output) {
