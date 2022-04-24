@@ -37,7 +37,7 @@ func main() {
 
 	// Prepare the configuration of the DTLS connection
 	config := &dtls.Config{
-		Certificates:         []tls.Certificate{*certificate},
+		Certificates:         []tls.Certificate{certificate},
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
 		ClientAuth:           dtls.RequireAndVerifyClientCert,
 		ClientCAs:            certPool,
