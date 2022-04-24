@@ -27,6 +27,7 @@ Jim Wert <jimwert@gmail.com>
 jinleileiking <jinleileiking@gmail.com>
 Jozef Kralik <jojo.lwin@gmail.com>
 Julien Salleyron <julien.salleyron@gmail.com>
+Juliusz Chroboczek <jch@irif.fr>
 Kegan Dougal <kegan@matrix.org>
 Lander Noterman <lander.noterman@basalte.be>
 Len <len@hpcnt.com>
