@@ -40,7 +40,7 @@ func TestSimpleReadWrite(t *testing.T) {
 			t.Error(sErr)
 		}
 		gotHello <- struct{}{}
-		if sErr = server.Close(); sErr != nil {
+		if sErr = server.Close(); sErr != nil { //nolint:contextcheck
 			t.Error(sErr)
 		}
 	}()
@@ -96,7 +96,7 @@ func benchmarkConn(b *testing.B, n int64) {
 				b.Error(err)
 			}
 			for {
-				if _, cErr = client.Write(hw); cErr != nil {
+				if _, cErr = client.Write(hw); cErr != nil { //nolint:contextcheck
 					b.Error(err)
 				}
 			}

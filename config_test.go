@@ -1,7 +1,7 @@
 package dtls
 
 import (
-	"crypto/dsa" //nolint
+	"crypto/dsa" //nolint:staticcheck
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -280,9 +281,10 @@ func TestHandshaker(t *testing.T) {
 				}
 
 				fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, flight1)
-				switch err := fsm.Run(ctx, ca, handshakePreparing); err {
-				case context.Canceled:
-				case context.DeadlineExceeded:
+				err := fsm.Run(ctx, ca, handshakePreparing)
+				switch {
+				case errors.Is(err, context.Canceled):
+				case errors.Is(err, context.DeadlineExceeded):
 					t.Error("Timeout")
 				default:
 					t.Error(err)
@@ -311,9 +313,10 @@ func TestHandshaker(t *testing.T) {
 				}
 
 				fsm := newHandshakeFSM(&cb.state, cb.handshakeCache, cfg, flight0)
-				switch err := fsm.Run(ctx, cb, handshakePreparing); err {
-				case context.Canceled:
-				case context.DeadlineExceeded:
+				err := fsm.Run(ctx, cb, handshakePreparing)
+				switch {
+				case errors.Is(err, context.Canceled):
+				case errors.Is(err, context.DeadlineExceeded):
 					t.Error("Timeout")
 				default:
 					t.Error(err)

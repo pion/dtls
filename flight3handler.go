@@ -221,7 +221,7 @@ func handleServerKeyExchange(_ flightConn, state *State, cfg *handshakeConfig, h
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func flight3Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert.Alert, error) {

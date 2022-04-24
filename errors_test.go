@@ -65,14 +65,14 @@ func TestErrorNetError(t *testing.T) {
 	for _, c := range cases {
 		c := c
 		t.Run(fmt.Sprintf("%T", c.err), func(t *testing.T) {
-			ne, ok := c.err.(net.Error)
-			if !ok {
+			var ne net.Error
+			if !errors.As(c.err, &ne) {
 				t.Fatalf("%T doesn't implement net.Error", c.err)
 			}
 			if ne.Timeout() != c.timeout {
 				t.Errorf("%T.Timeout() should be %v", c.err, c.timeout)
 			}
-			if ne.Temporary() != c.temporary {
+			if ne.Temporary() != c.temporary { //nolint:staticcheck
 				t.Errorf("%T.Temporary() should be %v", c.err, c.temporary)
 			}
 			if ne.Error() != c.str {

@@ -245,7 +245,6 @@ func TestRFC3610Vectors(t *testing.T) {
 	for idx, c := range cases {
 		c := c
 		t.Run(fmt.Sprintf("packet vector #%d", idx+1), func(t *testing.T) {
-			t.Parallel()
 			blk, err := aes.NewCipher(c.AESKey)
 			if err != nil {
 				t.Fatalf("could not initialize AES block cipher from key: %v", err)
@@ -365,7 +364,12 @@ func TestSealError(t *testing.T) {
 		c := c
 		t.Run(name, func(t *testing.T) {
 			defer func() {
-				if err := recover(); !errors.Is(err.(error), c.err) {
+				err, ok := recover().(error)
+				if !ok {
+					t.Errorf("expected panic '%v', got '%v'", c.err, err)
+				}
+
+				if !errors.Is(err, c.err) {
 					t.Errorf("expected panic '%v', got '%v'", c.err, err)
 				}
 			}()

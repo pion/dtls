@@ -31,16 +31,9 @@ func newHandshakeCache() *handshakeCache {
 	return &handshakeCache{}
 }
 
-func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, typ handshake.Type, isClient bool) bool { //nolint
+func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, typ handshake.Type, isClient bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-
-	for _, i := range h.cache {
-		if i.messageSequence == messageSequence &&
-			i.isClient == isClient {
-			return false
-		}
-	}
 
 	h.cache = append(h.cache, &handshakeCacheItem{
 		data:            append([]byte{}, data...),
@@ -49,7 +42,6 @@ func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, typ ha
 		typ:             typ,
 		isClient:        isClient,
 	})
-	return true
 }
 
 // returns a list handshakes that match the requested rules
