@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -37,7 +38,10 @@ func TestContextConfig(t *testing.T) {
 	defer func() {
 		_ = listen.Close()
 	}()
-	addr := listen.LocalAddr().(*net.UDPAddr)
+	addr, ok := listen.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		t.Fatal("Failed to cast net.UDPAddr")
+	}
 
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
@@ -133,7 +137,8 @@ func TestContextConfig(t *testing.T) {
 				d, cancel := dial.f()
 				conn, err := d()
 				defer cancel()
-				if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+				var netError net.Error
+				if !errors.As(err, &netError) || !netError.Temporary() { //nolint:staticcheck
 					t.Errorf("Client error exp(Temporary network error) failed(%v)", err)
 					close(done)
 					return

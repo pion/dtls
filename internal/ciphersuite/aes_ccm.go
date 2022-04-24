@@ -96,7 +96,12 @@ func (c *AesCcm) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
 	}
 
-	return ccm.(*ciphersuite.CCM).Encrypt(pkt, raw)
+	cipherSuite, ok := ccm.(*ciphersuite.CCM)
+	if !ok {
+		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
+	}
+
+	return cipherSuite.Encrypt(pkt, raw)
 }
 
 // Decrypt decrypts a single TLS RecordLayer
@@ -106,5 +111,10 @@ func (c *AesCcm) Decrypt(raw []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
 	}
 
-	return ccm.(*ciphersuite.CCM).Decrypt(raw)
+	cipherSuite, ok := ccm.(*ciphersuite.CCM)
+	if !ok {
+		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
+	}
+
+	return cipherSuite.Decrypt(raw)
 }

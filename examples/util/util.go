@@ -51,17 +51,10 @@ func Chat(conn io.ReadWriter) {
 
 // Check is a helper to throw errors in the examples
 func Check(err error) {
-	switch e := err.(type) {
-	case nil:
-	case (net.Error):
-		if e.Temporary() {
-			fmt.Printf("Warning: %v\n", err)
-			return
-		}
-
-		fmt.Printf("net.Error: %v\n", err)
-		panic(err)
-	default:
+	var netError net.Error
+	if errors.As(err, &netError) && netError.Temporary() { //nolint:staticcheck
+		fmt.Printf("Warning: %v\n", err)
+	} else if err != nil {
 		fmt.Printf("error: %v\n", err)
 		panic(err)
 	}

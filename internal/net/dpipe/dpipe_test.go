@@ -6,6 +6,7 @@ package dpipe
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -14,11 +15,23 @@ import (
 	"golang.org/x/net/nettest"
 )
 
+var errFailedToCast = fmt.Errorf("failed to cast net.Conn to conn")
+
 func TestNetTest(t *testing.T) {
 	nettest.TestConn(t, func() (net.Conn, net.Conn, func(), error) {
 		ca, cb := Pipe()
-		return &closePropagator{ca.(*conn), cb.(*conn)},
-			&closePropagator{cb.(*conn), ca.(*conn)},
+		caConn, ok := ca.(*conn)
+		if !ok {
+			return nil, nil, nil, errFailedToCast
+		}
+
+		cbConn, ok := cb.(*conn)
+		if !ok {
+			return nil, nil, nil, errFailedToCast
+		}
+
+		return &closePropagator{caConn, cbConn},
+			&closePropagator{cbConn, caConn},
 			func() {
 				_ = ca.Close()
 				_ = cb.Close()
