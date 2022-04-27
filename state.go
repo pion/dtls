@@ -201,16 +201,14 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 }
 
 func (s *State) getRemoteEpoch() uint16 {
-	remoteEpoch, ok := s.remoteEpoch.Load().(uint16)
-	if ok {
+	if remoteEpoch, ok := s.remoteEpoch.Load().(uint16); ok {
 		return remoteEpoch
 	}
 	return 0
 }
 
 func (s *State) getLocalEpoch() uint16 {
-	localEpoch, ok := s.localEpoch.Load().(uint16)
-	if ok {
+	if localEpoch, ok := s.localEpoch.Load().(uint16); ok {
 		return localEpoch
 	}
 	return 0
