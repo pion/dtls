@@ -91,12 +91,7 @@ func (c *TLSPskWithAes128CbcSha256) Init(masterSecret, clientRandom, serverRando
 
 // Encrypt encrypts a single TLS RecordLayer
 func (c *TLSPskWithAes128CbcSha256) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
-	cbc := c.cbc.Load()
-	if cbc == nil { // !c.isInitialized()
-		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
-	}
-
-	cipherSuite, ok := cbc.(*ciphersuite.CBC)
+	cipherSuite, ok := c.cbc.Load().(*ciphersuite.CBC)
 	if !ok {
 		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
 	}
@@ -106,12 +101,7 @@ func (c *TLSPskWithAes128CbcSha256) Encrypt(pkt *recordlayer.RecordLayer, raw []
 
 // Decrypt decrypts a single TLS RecordLayer
 func (c *TLSPskWithAes128CbcSha256) Decrypt(raw []byte) ([]byte, error) {
-	cbc := c.cbc.Load()
-	if cbc == nil { // !c.isInitialized()
-		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
-	}
-
-	cipherSuite, ok := cbc.(*ciphersuite.CBC)
+	cipherSuite, ok := c.cbc.Load().(*ciphersuite.CBC)
 	if !ok {
 		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
 	}
