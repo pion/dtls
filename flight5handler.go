@@ -275,7 +275,7 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeConfig, h *handshake.MessageServerKeyExchange, sendingPlainText []byte) (*alert.Alert, error) { //nolint:gocognit
 	if state.cipherSuite.IsInitialized() {
-		return nil, nil
+		return nil, nil //nolint
 	}
 
 	clientRandom := state.localRandom.MarshalFixed()
@@ -339,5 +339,5 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 
 	cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
 
-	return nil, nil
+	return nil, nil //nolint
 }

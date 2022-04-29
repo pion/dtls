@@ -64,8 +64,6 @@ func TestGetCertificate(t *testing.T) {
 		test := test
 
 		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
 			cert, err := cfg.getCertificate(test.serverName)
 			if err != nil {
 				t.Fatal(err)

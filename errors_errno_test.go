@@ -7,6 +7,7 @@
 package dtls
 
 import (
+	"errors"
 	"net"
 	"testing"
 )
@@ -29,14 +30,16 @@ func TestErrorsTemporary(t *testing.T) {
 	if err == nil {
 		t.Skip("ECONNREFUSED is not set by system")
 	}
-	ne, ok := netError(err).(net.Error)
-	if !ok {
+
+	var ne net.Error
+	if !errors.As(netError(err), &ne) {
 		t.Fatalf("netError must return net.Error")
 	}
+
 	if ne.Timeout() {
 		t.Errorf("%v must not be timeout error", err)
 	}
-	if !ne.Temporary() {
+	if !ne.Temporary() { //nolint:staticcheck
 		t.Errorf("%v must be temporary error", err)
 	}
 }
