@@ -157,6 +157,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 	hsCfg := &handshakeConfig{
 		localPSKCallback:            config.PSK,
 		localPSKIdentityHint:        config.PSKIdentityHint,
+		localHandshakeCallback:      config.OnHandshakeState,
 		localCipherSuites:           cipherSuites,
 		localSignatureSchemes:       signatureSchemes,
 		extendedMasterSecret:        config.ExtendedMasterSecret,
@@ -188,25 +189,25 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		hsCfg.localCipherSuites = filterCipherSuitesForCertificate(cert, cipherSuites)
 	}
 
-	var initialFlight flightVal
-	var initialFSMState handshakeState
+	var initialFlight FlightVal
+	var initialFSMState HandshakeState
 
 	if initialState != nil {
 		if c.state.isClient {
-			initialFlight = flight5
+			initialFlight = Flight5
 		} else {
-			initialFlight = flight6
+			initialFlight = Flight6
 		}
-		initialFSMState = handshakeFinished
+		initialFSMState = HandshakeFinished
 
 		c.state = *initialState
 	} else {
 		if c.state.isClient {
-			initialFlight = flight1
+			initialFlight = Flight1
 		} else {
-			initialFlight = flight0
+			initialFlight = Flight0
 		}
-		initialFSMState = handshakePreparing
+		initialFSMState = HandshakePreparing
 	}
 	// Do handshake
 	if err := c.handshake(ctx, hsCfg, initialFlight, initialFSMState); err != nil {
@@ -806,14 +807,17 @@ func (c *Conn) isHandshakeCompletedSuccessfully() bool {
 	return boolean.bool
 }
 
-func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFlight flightVal, initialState handshakeState) error { //nolint:gocognit
+func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFlight FlightVal, initialState HandshakeState) error { //nolint:gocognit
 	c.fsm = newHandshakeFSM(&c.state, c.handshakeCache, cfg, initialFlight)
 
 	done := make(chan struct{})
 	ctxRead, cancelRead := context.WithCancel(context.Background())
 	c.cancelHandshakeReader = cancelRead
-	cfg.onFlightState = func(f flightVal, s handshakeState) {
-		if s == handshakeFinished && !c.isHandshakeCompletedSuccessfully() {
+	cfg.onFlightState = func(f FlightVal, s HandshakeState) {
+		if cfg.localHandshakeCallback != nil {
+			cfg.localHandshakeCallback(c, f, s, nil)
+		}
+		if s == HandshakeFinished && !c.isHandshakeCompletedSuccessfully() {
 			c.setHandshakeCompletedSuccessfully()
 			close(done)
 		}
@@ -894,15 +898,26 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 		}
 	}()
 
+	cfg.log.Tracef("waiting for handshake")
 	select {
 	case err := <-firstErr:
+		cfg.log.Tracef("handshake finished with firstErr: %v", err)
 		cancelRead()
 		cancel()
-		return c.translateHandshakeCtxError(err)
+		hsErr := c.translateHandshakeCtxError(err)
+		if cfg.localHandshakeCallback != nil {
+			cfg.localHandshakeCallback(c, c.fsm.currentFlight, HandshakeErrored, hsErr)
+		}
+		return hsErr
 	case <-ctx.Done():
+		cfg.log.Tracef("handshake finished with ctx: %v", ctx.Err())
 		cancelRead()
 		cancel()
-		return c.translateHandshakeCtxError(ctx.Err())
+		hsErr := c.translateHandshakeCtxError(ctx.Err())
+		if cfg.localHandshakeCallback != nil {
+			cfg.localHandshakeCallback(c, c.fsm.currentFlight, HandshakeErrored, hsErr)
+		}
+		return hsErr
 	case <-done:
 		return nil
 	}

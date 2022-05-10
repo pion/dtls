@@ -6,58 +6,58 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/alert"
 )
 
-// Parse received handshakes and return next flightVal
-type flightParser func(context.Context, flightConn, *State, *handshakeCache, *handshakeConfig) (flightVal, *alert.Alert, error)
+// Parse received handshakes and return next FlightVal
+type flightParser func(context.Context, flightConn, *State, *handshakeCache, *handshakeConfig) (FlightVal, *alert.Alert, error)
 
 // Generate flights
 type flightGenerator func(flightConn, *State, *handshakeCache, *handshakeConfig) ([]*packet, *alert.Alert, error)
 
-func (f flightVal) getFlightParser() (flightParser, error) {
+func (f FlightVal) getFlightParser() (flightParser, error) {
 	switch f {
-	case flight0:
+	case Flight0:
 		return flight0Parse, nil
-	case flight1:
+	case Flight1:
 		return flight1Parse, nil
-	case flight2:
+	case Flight2:
 		return flight2Parse, nil
-	case flight3:
+	case Flight3:
 		return flight3Parse, nil
-	case flight4:
+	case Flight4:
 		return flight4Parse, nil
-	case flight4b:
+	case Flight4b:
 		return flight4bParse, nil
-	case flight5:
+	case Flight5:
 		return flight5Parse, nil
-	case flight5b:
+	case Flight5b:
 		return flight5bParse, nil
-	case flight6:
+	case Flight6:
 		return flight6Parse, nil
 	default:
 		return nil, errInvalidFlight
 	}
 }
 
-func (f flightVal) getFlightGenerator() (gen flightGenerator, retransmit bool, err error) {
+func (f FlightVal) getFlightGenerator() (gen flightGenerator, retransmit bool, err error) {
 	switch f {
-	case flight0:
+	case Flight0:
 		return flight0Generate, true, nil
-	case flight1:
+	case Flight1:
 		return flight1Generate, true, nil
-	case flight2:
+	case Flight2:
 		// https://tools.ietf.org/html/rfc6347#section-3.2.1
 		// HelloVerifyRequests must not be retransmitted.
 		return flight2Generate, false, nil
-	case flight3:
+	case Flight3:
 		return flight3Generate, true, nil
-	case flight4:
+	case Flight4:
 		return flight4Generate, true, nil
-	case flight4b:
+	case Flight4b:
 		return flight4bGenerate, true, nil
-	case flight5:
+	case Flight5:
 		return flight5Generate, true, nil
-	case flight5b:
+	case Flight5b:
 		return flight5bGenerate, true, nil
-	case flight6:
+	case Flight6:
 		return flight6Generate, true, nil
 	default:
 		return nil, false, errInvalidFlight

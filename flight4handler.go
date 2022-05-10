@@ -16,7 +16,7 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
-func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) { //nolint:gocognit
+func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (FlightVal, *alert.Alert, error) { //nolint:gocognit
 	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
 		handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, true},
 		handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
@@ -174,7 +174,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	}
 
 	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous {
-		return flight6, nil, nil
+		return Flight6, nil, nil
 	}
 
 	switch cfg.clientAuth {
@@ -194,10 +194,10 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, errClientCertificateNotVerified
 		}
 	case NoClientCert, RequestClientCert:
-		return flight6, nil, nil
+		return Flight6, nil, nil
 	}
 
-	return flight6, nil, nil
+	return Flight6, nil, nil
 }
 
 func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) ([]*packet, *alert.Alert, error) {

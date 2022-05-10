@@ -267,8 +267,8 @@ func TestHandshaker(t *testing.T) {
 					localSignatureSchemes: signaturehash.Algorithms(),
 					insecureSkipVerify:    true,
 					log:                   logger,
-					onFlightState: func(f flightVal, s handshakeState) {
-						if s == handshakeFinished {
+					onFlightState: func(f FlightVal, s HandshakeState) {
+						if s == HandshakeFinished {
 							if clientEndpoint.OnFinished != nil {
 								clientEndpoint.OnFinished()
 							}
@@ -280,8 +280,8 @@ func TestHandshaker(t *testing.T) {
 					retransmitInterval: nonZeroRetransmitInterval,
 				}
 
-				fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, flight1)
-				err := fsm.Run(ctx, ca, handshakePreparing)
+				fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, Flight1)
+				err := fsm.Run(ctx, ca, HandshakePreparing)
 				switch {
 				case errors.Is(err, context.Canceled):
 				case errors.Is(err, context.DeadlineExceeded):
@@ -299,8 +299,8 @@ func TestHandshaker(t *testing.T) {
 					localSignatureSchemes: signaturehash.Algorithms(),
 					insecureSkipVerify:    true,
 					log:                   logger,
-					onFlightState: func(f flightVal, s handshakeState) {
-						if s == handshakeFinished {
+					onFlightState: func(f FlightVal, s HandshakeState) {
+						if s == HandshakeFinished {
 							if serverEndpoint.OnFinished != nil {
 								serverEndpoint.OnFinished()
 							}
@@ -312,8 +312,8 @@ func TestHandshaker(t *testing.T) {
 					retransmitInterval: nonZeroRetransmitInterval,
 				}
 
-				fsm := newHandshakeFSM(&cb.state, cb.handshakeCache, cfg, flight0)
-				err := fsm.Run(ctx, cb, handshakePreparing)
+				fsm := newHandshakeFSM(&cb.state, cb.handshakeCache, cfg, Flight0)
+				err := fsm.Run(ctx, cb, HandshakePreparing)
 				switch {
 				case errors.Is(err, context.Canceled):
 				case errors.Is(err, context.DeadlineExceeded):

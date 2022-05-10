@@ -11,7 +11,7 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 )
 
-func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) {
+func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (FlightVal, *alert.Alert, error) {
 	seq, msgs, ok := cache.fullPullMap(0, state.cipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 	)
@@ -81,10 +81,10 @@ func flight0Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		}
 	}
 
-	return handleHelloResume(clientHello.SessionID, state, cfg, flight2)
+	return handleHelloResume(clientHello.SessionID, state, cfg, Flight2)
 }
 
-func handleHelloResume(sessionID []byte, state *State, cfg *handshakeConfig, next flightVal) (flightVal, *alert.Alert, error) {
+func handleHelloResume(sessionID []byte, state *State, cfg *handshakeConfig, next FlightVal) (FlightVal, *alert.Alert, error) {
 	if len(sessionID) > 0 && cfg.sessionStore != nil {
 		if s, err := cfg.sessionStore.Get(sessionID); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
@@ -101,7 +101,7 @@ func handleHelloResume(sessionID []byte, state *State, cfg *handshakeConfig, nex
 			clientRandom := state.localRandom.MarshalFixed()
 			cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
 
-			return flight4b, nil, nil
+			return Flight4b, nil, nil
 		}
 	}
 	return next, nil, nil

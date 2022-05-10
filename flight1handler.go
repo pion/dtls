@@ -11,7 +11,7 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
-func flight1Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) {
+func flight1Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (FlightVal, *alert.Alert, error) {
 	// HelloVerifyRequest can be skipped by the server,
 	// so allow ServerHello during flight1 also
 	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
@@ -37,7 +37,7 @@ func flight1Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		}
 		state.cookie = append([]byte{}, h.Cookie...)
 		state.handshakeRecvSequence = seq
-		return flight3, nil, nil
+		return Flight3, nil, nil
 	}
 
 	return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
