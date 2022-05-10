@@ -76,7 +76,7 @@ func (f *fragmentBuffer) pop() (content []byte, epoch uint16) {
 		for _, f := range frags {
 			if f.handshakeHeader.FragmentOffset == targetOffset {
 				fragmentEnd := (f.handshakeHeader.FragmentOffset + f.handshakeHeader.FragmentLength)
-				if fragmentEnd != f.handshakeHeader.Length {
+				if fragmentEnd != f.handshakeHeader.Length && f.handshakeHeader.FragmentLength != 0 {
 					if !appendMessage(fragmentEnd) {
 						return false
 					}
