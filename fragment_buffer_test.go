@@ -1,6 +1,7 @@
 package dtls
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -57,7 +58,7 @@ func TestFragmentBuffer(t *testing.T) {
 			Epoch: 0,
 		},
 		{
-			Name: "Multiple Handshakes in Signle Fragment",
+			Name: "Multiple Handshakes in Single Fragment",
 			In: [][]byte{
 				{
 					0x16, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x30, /* record header */
@@ -111,5 +112,20 @@ func TestFragmentBuffer(t *testing.T) {
 		if frag, _ := fragmentBuffer.pop(); frag != nil {
 			t.Errorf("fragmentBuffer popped single buffer multiple times for '%s'", test.Name)
 		}
+	}
+}
+
+func TestFragmentBuffer_Overflow(t *testing.T) {
+	fragmentBuffer := newFragmentBuffer()
+
+	// Push a buffer that doesn't exceed size limits
+	if _, err := fragmentBuffer.push([]byte{0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xfe, 0xff, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Allocate a buffer that exceeds cache size
+	largeBuffer := make([]byte, fragmentBufferMaxSize)
+	if _, err := fragmentBuffer.push(largeBuffer); !errors.Is(err, errFragmentBufferOverflow) {
+		t.Fatalf("Pushing a large buffer returned (%s) expected(%s)", err, errFragmentBufferOverflow)
 	}
 }

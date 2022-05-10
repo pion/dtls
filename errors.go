@@ -62,6 +62,7 @@ var (
 	errSequenceNumberOverflow            = &InternalError{Err: errors.New("sequence number overflow")}                        //nolint:goerr113
 	errInvalidFSMTransition              = &InternalError{Err: errors.New("invalid state machine transition")}                //nolint:goerr113
 	errFailedToAccessPoolReadBuffer      = &InternalError{Err: errors.New("failed to access pool read buffer")}               //nolint:goerr113
+	errFragmentBufferOverflow            = &InternalError{Err: errors.New("fragment buffer overflow")}                        //nolint:goerr113
 )
 
 // FatalError indicates that the DTLS connection is no longer available.
