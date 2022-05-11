@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -167,19 +168,22 @@ func clientOpenSSL(c *comm) {
 func ciphersOpenSSL(cfg *dtls.Config) string {
 	// See https://tls.mbed.org/supported-ssl-ciphersuites
 	translate := map[dtls.CipherSuiteID]string{
-		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM:        "ECDHE-ECDSA-AES128-CCM",
-		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8:      "ECDHE-ECDSA-AES128-CCM8",
+		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM:   "ECDHE-ECDSA-AES128-CCM",
+		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8: "ECDHE-ECDSA-AES128-CCM8",
+
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: "ECDHE-ECDSA-AES128-GCM-SHA256",
-		dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:   "ECDHE-RSA-AES128-GCM-SHA256",
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: "ECDHE-ECDSA-AES256-GCM-SHA384",
-		dtls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:   "ECDHE-RSA-AES256-GCM-SHA384",
+
+		dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: "ECDHE-RSA-AES128-GCM-SHA256",
+		dtls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: "ECDHE-RSA-AES256-GCM-SHA384",
 
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA: "ECDHE-ECDSA-AES256-SHA",
 		dtls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:   "ECDHE-RSA-AES256-SHA",
 
-		dtls.TLS_PSK_WITH_AES_128_CCM:        "PSK-AES128-CCM",
-		dtls.TLS_PSK_WITH_AES_128_CCM_8:      "PSK-AES128-CCM8",
-		dtls.TLS_PSK_WITH_AES_256_CCM_8:      "PSK-AES256-CCM8",
+		dtls.TLS_PSK_WITH_AES_128_CCM:   "PSK-AES128-CCM",
+		dtls.TLS_PSK_WITH_AES_128_CCM_8: "PSK-AES128-CCM8",
+		dtls.TLS_PSK_WITH_AES_256_CCM_8: "PSK-AES256-CCM8",
+
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256: "PSK-AES128-GCM-SHA256",
 
 		dtls.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256: "ECDHE-PSK-AES128-CBC-SHA256",
@@ -228,6 +232,38 @@ func writeTempPEM(cfg *dtls.Config) (string, string, error) {
 	return certOut.Name(), keyOut.Name(), nil
 }
 
+func minimumOpenSSLVersion(t *testing.T) bool {
+	t.Helper()
+
+	cmd := exec.Command("openssl", "version")
+	allOut, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Log("Cannot determine OpenSSL version: ", err)
+		return false
+	}
+	verMatch := regexp.MustCompile(`(?i)^OpenSSL\s(?P<version>(\d+\.)?(\d+\.)?(\*|\d+)(\w)?).+$`)
+	match := verMatch.FindStringSubmatch(strings.TrimSpace(string(allOut)))
+	params := map[string]string{}
+	for i, name := range verMatch.SubexpNames() {
+		if i > 0 && i <= len(match) {
+			params[name] = match[i]
+		}
+	}
+	var ver string
+	if val, ok := params["version"]; !ok {
+		t.Log("Could not extract OpenSSL version")
+		return false
+	} else {
+		ver = val
+	}
+
+	cmp := strings.Compare(ver, "3.0.0")
+	if cmp == -1 {
+		return false
+	}
+	return true
+}
+
 func TestPionOpenSSLE2ESimple(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
 		testPionE2ESimple(t, serverOpenSSL, clientPion)
@@ -252,5 +288,17 @@ func TestPionOpenSSLE2EMTUs(t *testing.T) {
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2EMTUs(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2ESimpleED25519(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		if !minimumOpenSSLVersion(t) {
+			t.Skip("Cannot use OpenSSL < 3.0 as a DTLS server with ED25519 keys")
+			testPionE2ESimpleED25519(t, serverOpenSSL, clientPion)
+		}
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2ESimpleED25519(t, serverPion, clientOpenSSL)
 	})
 }
