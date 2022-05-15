@@ -89,6 +89,10 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			}
 		}
 		state.peerCertificatesVerified = verified
+	} else if state.PeerCertificates != nil {
+		// A certificate was received, but we haven't seen a CertificateVerify
+		// keep reading until we receieve one
+		return 0, nil, nil
 	}
 
 	if !state.cipherSuite.IsInitialized() {
