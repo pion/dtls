@@ -25,6 +25,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 				tls.PKCS1WithSHA256,
 				tls.PKCS1WithSHA384,
 				tls.PKCS1WithSHA512,
+				tls.Ed25519,
 			},
 			expected: []Algorithm{
 				{hash.SHA256, signature.ECDSA},
@@ -33,6 +34,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 				{hash.SHA256, signature.RSA},
 				{hash.SHA384, signature.RSA},
 				{hash.SHA512, signature.RSA},
+				{hash.Ed25519, signature.Ed25519},
 			},
 			insecureHashes: false,
 			err:            nil,
