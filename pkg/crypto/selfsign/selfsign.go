@@ -72,6 +72,11 @@ func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate,
 	names := []string{cn}
 	names = append(names, sans...)
 
+	keyUsage := x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign
+	if _, isRSA := key.(*rsa.PrivateKey); isRSA {
+		keyUsage |= x509.KeyUsageKeyEncipherment
+	}
+
 	template := x509.Certificate{
 		ExtKeyUsage: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageClientAuth,
@@ -79,7 +84,7 @@ func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate,
 		},
 		BasicConstraintsValid: true,
 		NotBefore:             time.Now(),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		KeyUsage:              keyUsage,
 		NotAfter:              time.Now().AddDate(0, 1, 0),
 		SerialNumber:          serialNumber,
 		Version:               2,
