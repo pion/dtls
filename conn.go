@@ -154,6 +154,11 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		serverName = ""
 	}
 
+	curves := config.EllipticCurves
+	if len(curves) == 0 {
+		curves = defaultCurves
+	}
+
 	hsCfg := &handshakeConfig{
 		localPSKCallback:            config.PSK,
 		localPSKIdentityHint:        config.PSKIdentityHint,
@@ -175,6 +180,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		initialEpoch:                0,
 		keyLogWriter:                config.KeyLogWriter,
 		sessionStore:                config.SessionStore,
+		ellipticCurves:              curves,
 	}
 
 	// rfc5246#section-7.4.3
