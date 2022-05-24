@@ -2724,3 +2724,82 @@ func TestMultipleServerCertificates(t *testing.T) {
 		})
 	}
 }
+
+func TestEllipticCurveConfiguration(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, test := range []struct {
+		Name            string
+		ConfigCurves    []elliptic.Curve
+		HadnshakeCurves []elliptic.Curve
+	}{
+		{
+			Name:            "Curve defaulting",
+			ConfigCurves:    nil,
+			HadnshakeCurves: defaultCurves,
+		},
+		{
+			Name:            "Single curve",
+			ConfigCurves:    []elliptic.Curve{elliptic.X25519},
+			HadnshakeCurves: []elliptic.Curve{elliptic.X25519},
+		},
+		{
+			Name:            "Multiple curves",
+			ConfigCurves:    []elliptic.Curve{elliptic.P384, elliptic.X25519},
+			HadnshakeCurves: []elliptic.Curve{elliptic.P384, elliptic.X25519},
+		},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		ca, cb := dpipe.Pipe()
+		type result struct {
+			c   *Conn
+			err error
+		}
+		c := make(chan result)
+
+		go func() {
+			client, err := testClient(ctx, ca, &Config{CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}, EllipticCurves: test.ConfigCurves}, true)
+			c <- result{client, err}
+		}()
+
+		server, err := testServer(ctx, cb, &Config{CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}, EllipticCurves: test.ConfigCurves}, true)
+		if err != nil {
+			t.Fatalf("Server error: %v", err)
+		}
+
+		if len(test.ConfigCurves) == 0 && len(test.HadnshakeCurves) != len(server.fsm.cfg.ellipticCurves) {
+			t.Fatalf("Failed to default Elliptic curves, expected %d, got: %d", len(test.HadnshakeCurves), len(server.fsm.cfg.ellipticCurves))
+		}
+
+		if len(test.ConfigCurves) != 0 {
+			if len(test.HadnshakeCurves) != len(server.fsm.cfg.ellipticCurves) {
+				t.Fatalf("Failed to configure Elliptic curves, expect %d, got %d", len(test.HadnshakeCurves), len(server.fsm.cfg.ellipticCurves))
+			}
+			for i, c := range test.ConfigCurves {
+				if c != server.fsm.cfg.ellipticCurves[i] {
+					t.Fatalf("Failed to maintain Elliptic curve order, expected %s, got %s", c, server.fsm.cfg.ellipticCurves[i])
+				}
+			}
+		}
+
+		res := <-c
+		if res.err != nil {
+			t.Fatalf("Client error; %v", err)
+		}
+
+		defer func() {
+			err = server.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = res.c.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}()
+	}
+}

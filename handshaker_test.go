@@ -1,3 +1,4 @@
+//nolint:dupl
 package dtls
 
 import (
@@ -264,6 +265,7 @@ func TestHandshaker(t *testing.T) {
 				cfg := &handshakeConfig{
 					localCipherSuites:     cipherSuites,
 					localCertificates:     []tls.Certificate{clientCert},
+					ellipticCurves:        defaultCurves,
 					localSignatureSchemes: signaturehash.Algorithms(),
 					insecureSkipVerify:    true,
 					log:                   logger,
@@ -296,6 +298,7 @@ func TestHandshaker(t *testing.T) {
 				cfg := &handshakeConfig{
 					localCipherSuites:     cipherSuites,
 					localCertificates:     []tls.Certificate{clientCert},
+					ellipticCurves:        defaultCurves,
 					localSignatureSchemes: signaturehash.Algorithms(),
 					insecureSkipVerify:    true,
 					log:                   logger,

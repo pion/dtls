@@ -10,6 +10,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/logging"
 )
 
@@ -130,6 +131,12 @@ type Config struct {
 
 	// List of application protocols the peer supports, for ALPN
 	SupportedProtocols []string
+
+	// List of Elliptic Curves to use
+	//
+	// If an ECC ciphersuite is configured and EllipticCurves is empty
+	// it will default to X25519, P-256, P-384 in this specific order.
+	EllipticCurves []elliptic.Curve
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {
@@ -144,6 +151,8 @@ func (c *Config) connectContextMaker() (context.Context, func()) {
 }
 
 const defaultMTU = 1200 // bytes
+
+var defaultCurves = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384} //nolint:gochecknoglobals
 
 // PSKCallback is called once we have the remote's PSKIdentityHint.
 // If the remote provided none it will be nil

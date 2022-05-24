@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v2/pkg/protocol/alert"
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
@@ -106,6 +107,7 @@ type handshakeConfig struct {
 	clientCAs                   *x509.CertPool
 	retransmitInterval          time.Duration
 	customCipherSuites          func() []CipherSuite
+	ellipticCurves              []elliptic.Curve
 
 	onFlightState func(flightVal, handshakeState)
 	log           logging.LeveledLogger
