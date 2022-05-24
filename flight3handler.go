@@ -236,7 +236,7 @@ func flight3Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 	if state.namedCurve != 0 {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
-				EllipticCurves: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
+				EllipticCurves: []elliptic.Curve{elliptic.P256, elliptic.P384, elliptic.X25519},
 			},
 			&extension.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
