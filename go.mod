@@ -8,4 +8,4 @@ require (
 	golang.org/x/net v0.0.0-20220630215102-69896b714898
 )
 
-go 1.13
+go 1.18
