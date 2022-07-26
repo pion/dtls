@@ -1,11 +1,15 @@
 package dtls
 
+import "time"
+
 // Session store data needed in resumption
 type Session struct {
 	// ID store session id
 	ID []byte
 	// Secret store session master secret
 	Secret []byte
+	// Optional expiry based on a verified certificate NotAfter date, otherwise empty
+	Expiry time.Time
 }
 
 // SessionStore defines methods needed for session resumption.

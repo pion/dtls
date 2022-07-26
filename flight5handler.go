@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/x509"
+	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/prf"
 	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
@@ -52,6 +53,7 @@ func flight5Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		s := Session{
 			ID:     state.SessionID,
 			Secret: state.masterSecret,
+			Expiry: state.VerifiedCertExpiry,
 		}
 		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
 		if err := cfg.sessionStore.Set(c.sessionKey(), s); err != nil {
@@ -317,10 +319,12 @@ func initalizeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCon
 			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 		}
 		var chains [][]*x509.Certificate
+		var expiry time.Time
 		if !cfg.insecureSkipVerify {
-			if chains, err = verifyServerCert(state.PeerCertificates, cfg.rootCAs, cfg.serverName); err != nil {
+			if chains, expiry, err = verifyServerCert(state.PeerCertificates, cfg.rootCAs, cfg.serverName); err != nil {
 				return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
+			state.VerifiedCertExpiry = expiry
 		}
 		if cfg.verifyPeerCertificate != nil {
 			if err = cfg.verifyPeerCertificate(state.PeerCertificates, chains); err != nil {

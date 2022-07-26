@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/x509"
+	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
@@ -40,7 +41,9 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		// And we have to check whether this certificate expired, revoked or changed.
 		//
 		// https://curl.se/docs/CVE-2016-5419.html
-		state.SessionID = nil
+		if cfg.peerCertDisablesSessionResumption {
+			state.SessionID = nil
+		}
 	}
 
 	if h, hasCertVerify := msgs[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasCertVerify {
@@ -75,13 +78,15 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 		}
 		var chains [][]*x509.Certificate
+		var expiry time.Time
 		var err error
 		var verified bool
 		if cfg.clientAuth >= VerifyClientCertIfGiven {
-			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs); err != nil {
+			if chains, expiry, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
 			verified = true
+			state.VerifiedCertExpiry = expiry
 		}
 		if cfg.verifyPeerCertificate != nil {
 			if err := cfg.verifyPeerCertificate(state.PeerCertificates, chains); err != nil {
@@ -152,6 +157,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		s := Session{
 			ID:     state.SessionID,
 			Secret: state.masterSecret,
+			Expiry: state.VerifiedCertExpiry,
 		}
 		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
 		if err := cfg.sessionStore.Set(state.SessionID, s); err != nil {
