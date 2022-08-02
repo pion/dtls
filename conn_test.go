@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -466,14 +467,41 @@ func TestPSK(t *testing.T) {
 	defer report()
 
 	for _, test := range []struct {
-		Name           string
-		ServerIdentity []byte
-		CipherSuites   []CipherSuiteID
+		Name                   string
+		ServerIdentity         []byte
+		CipherSuites           []CipherSuiteID
+		ClientVerifyConnection func(*State) error
+		ServerVerifyConnection func(*State) error
+		WantFail               bool
+		ExpectedServerErr      string
+		ExpectedClientErr      string
 	}{
 		{
 			Name:           "Server identity specified",
 			ServerIdentity: []byte("Test Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+		},
+		{
+			Name:           "Server identity specified - Server verify connection fails",
+			ServerIdentity: []byte("Test Identity"),
+			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+			ServerVerifyConnection: func(s *State) error {
+				return errExample
+			},
+			WantFail:          true,
+			ExpectedServerErr: errExample.Error(),
+			ExpectedClientErr: alert.BadCertificate.String(),
+		},
+		{
+			Name:           "Server identity specified - Client verify connection fails",
+			ServerIdentity: []byte("Test Identity"),
+			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+			ClientVerifyConnection: func(s *State) error {
+				return errExample
+			},
+			WantFail:          true,
+			ExpectedServerErr: alert.BadCertificate.String(),
+			ExpectedClientErr: errExample.Error(),
 		},
 		{
 			Name:           "Server identity nil",
@@ -513,8 +541,9 @@ func TestPSK(t *testing.T) {
 
 						return []byte{0xAB, 0xC1, 0x23}, nil
 					},
-					PSKIdentityHint: clientIdentity,
-					CipherSuites:    test.CipherSuites,
+					PSKIdentityHint:  clientIdentity,
+					CipherSuites:     test.CipherSuites,
+					VerifyConnection: test.ClientVerifyConnection,
 				}
 
 				c, err := testClient(ctx, ca, conf, false)
@@ -528,11 +557,22 @@ func TestPSK(t *testing.T) {
 					}
 					return []byte{0xAB, 0xC1, 0x23}, nil
 				},
-				PSKIdentityHint: test.ServerIdentity,
-				CipherSuites:    test.CipherSuites,
+				PSKIdentityHint:  test.ServerIdentity,
+				CipherSuites:     test.CipherSuites,
+				VerifyConnection: test.ServerVerifyConnection,
 			}
 
 			server, err := testServer(ctx, cb, config, false)
+			if test.WantFail {
+				res := <-clientRes
+				if err == nil || !strings.Contains(err.Error(), test.ExpectedServerErr) {
+					t.Fatalf("TestPSK: Server expected(%v) actual(%v)", test.ExpectedServerErr, err)
+				}
+				if res.err == nil || !strings.Contains(res.err.Error(), test.ExpectedClientErr) {
+					t.Fatalf("TestPSK: Client expected(%v) actual(%v)", test.ExpectedClientErr, res.err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("TestPSK: Server failed(%v)", err)
 			}
@@ -788,6 +828,29 @@ func TestClientCertificate(t *testing.T) {
 					ClientCAs:    caPool,
 				},
 			},
+			"NoClientCert_ServerVerifyConnectionFails": {
+				clientCfg: &Config{RootCAs: srvCAPool},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   NoClientCert,
+					ClientCAs:    caPool,
+					VerifyConnection: func(s *State) error {
+						return errExample
+					},
+				},
+				wantErr: true,
+			},
+			"NoClientCert_ClientVerifyConnectionFails": {
+				clientCfg: &Config{RootCAs: srvCAPool, VerifyConnection: func(s *State) error {
+					return errExample
+				}},
+				serverCfg: &Config{
+					Certificates: []tls.Certificate{srvCert},
+					ClientAuth:   NoClientCert,
+					ClientCAs:    caPool,
+				},
+				wantErr: true,
+			},
 			"NoClientCert_cert": {
 				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
 				serverCfg: &Config{
@@ -850,11 +913,22 @@ func TestClientCertificate(t *testing.T) {
 				wantErr: true,
 			},
 			"RequireAndVerifyClientCert": {
-				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}, VerifyConnection: func(s *State) error {
+					if ok := bytes.Equal(s.PeerCertificates[0], srvCertificate.Raw); !ok {
+						return errExample
+					}
+					return nil
+				}},
 				serverCfg: &Config{
 					Certificates: []tls.Certificate{srvCert},
 					ClientAuth:   RequireAndVerifyClientCert,
 					ClientCAs:    caPool,
+					VerifyConnection: func(s *State) error {
+						if ok := bytes.Equal(s.PeerCertificates[0], certificate.Raw); !ok {
+							return errExample
+						}
+						return nil
+					},
 				},
 			},
 		}
