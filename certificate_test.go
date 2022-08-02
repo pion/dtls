@@ -24,47 +24,71 @@ func TestGetCertificate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &handshakeConfig{
-		localCertificates: []tls.Certificate{
-			certificateRandom,
-			certificateTest,
-			certificateWildcard,
-		},
-	}
-
 	testCases := []struct {
+		localCertificates   []tls.Certificate
 		desc                string
 		serverName          string
 		expectedCertificate tls.Certificate
+		getCertificate      func(info *ClientHelloInfo) (*tls.Certificate, error)
 	}{
 		{
-			desc:                "Simple match in CN",
+			desc: "Simple match in CN",
+			localCertificates: []tls.Certificate{
+				certificateRandom,
+				certificateTest,
+				certificateWildcard,
+			},
 			serverName:          "test.test",
 			expectedCertificate: certificateTest,
 		},
 		{
-			desc:                "Simple match in SANs",
+			desc: "Simple match in SANs",
+			localCertificates: []tls.Certificate{
+				certificateRandom,
+				certificateTest,
+				certificateWildcard,
+			},
 			serverName:          "www.test.test",
 			expectedCertificate: certificateTest,
 		},
 
 		{
-			desc:                "Wildcard match",
+			desc: "Wildcard match",
+			localCertificates: []tls.Certificate{
+				certificateRandom,
+				certificateTest,
+				certificateWildcard,
+			},
 			serverName:          "foo.test.test",
 			expectedCertificate: certificateWildcard,
 		},
 		{
-			desc:                "No match return first",
+			desc: "No match return first",
+			localCertificates: []tls.Certificate{
+				certificateRandom,
+				certificateTest,
+				certificateWildcard,
+			},
 			serverName:          "foo.bar",
 			expectedCertificate: certificateRandom,
+		},
+		{
+			desc: "Get certificate from callback",
+			getCertificate: func(info *ClientHelloInfo) (*tls.Certificate, error) {
+				return &certificateTest, nil
+			},
+			expectedCertificate: certificateTest,
 		},
 	}
 
 	for _, test := range testCases {
 		test := test
-
 		t.Run(test.desc, func(t *testing.T) {
-			cert, err := cfg.getCertificate(test.serverName)
+			cfg := &handshakeConfig{
+				localCertificates:   test.localCertificates,
+				localGetCertificate: test.getCertificate,
+			}
+			cert, err := cfg.getCertificate(&ClientHelloInfo{ServerName: test.serverName})
 			if err != nil {
 				t.Fatal(err)
 			}

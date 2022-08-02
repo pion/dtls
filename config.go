@@ -147,6 +147,27 @@ type Config struct {
 	// If an ECC ciphersuite is configured and EllipticCurves is empty
 	// it will default to X25519, P-256, P-384 in this specific order.
 	EllipticCurves []elliptic.Curve
+
+	// GetCertificate returns a Certificate based on the given
+	// ClientHelloInfo. It will only be called if the client supplies SNI
+	// information or if Certificates is empty.
+	//
+	// If GetCertificate is nil or returns nil, then the certificate is
+	// retrieved from NameToCertificate. If NameToCertificate is nil, the
+	// best element of Certificates will be used.
+	GetCertificate func(*ClientHelloInfo) (*tls.Certificate, error)
+
+	// GetClientCertificate, if not nil, is called when a server requests a
+	// certificate from a client. If set, the contents of Certificates will
+	// be ignored.
+	//
+	// If GetClientCertificate returns an error, the handshake will be
+	// aborted and that error will be returned. Otherwise
+	// GetClientCertificate must return a non-nil Certificate. If
+	// Certificate.Certificate is empty then no certificate will be sent to
+	// the server. If this is unacceptable to the server then it may abort
+	// the handshake.
+	GetClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error)
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {
@@ -158,6 +179,10 @@ func (c *Config) connectContextMaker() (context.Context, func()) {
 		return defaultConnectContextMaker()
 	}
 	return c.ConnectContextMaker()
+}
+
+func (c *Config) includeCertificateSuites() bool {
+	return c.PSK == nil || len(c.Certificates) > 0 || c.GetCertificate != nil || c.GetClientCertificate != nil
 }
 
 const defaultMTU = 1200 // bytes
@@ -215,6 +240,6 @@ func validateConfig(config *Config) error {
 		}
 	}
 
-	_, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.PSK == nil || len(config.Certificates) > 0, config.PSK != nil)
+	_, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.includeCertificateSuites(), config.PSK != nil)
 	return err
 }

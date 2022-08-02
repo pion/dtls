@@ -88,7 +88,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		return nil, errNilNextConn
 	}
 
-	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.PSK == nil || len(config.Certificates) > 0, config.PSK != nil)
+	cipherSuites, err := parseCipherSuites(config.CipherSuites, config.CustomCipherSuites, config.includeCertificateSuites(), config.PSK != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -182,13 +182,15 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		keyLogWriter:                config.KeyLogWriter,
 		sessionStore:                config.SessionStore,
 		ellipticCurves:              curves,
+		localGetCertificate:         config.GetCertificate,
+		localGetClientCertificate:   config.GetClientCertificate,
 	}
 
 	// rfc5246#section-7.4.3
 	// In addition, the hash and signature algorithms MUST be compatible
 	// with the key in the server's end-entity certificate.
 	if !isClient {
-		cert, err := hsCfg.getCertificate("")
+		cert, err := hsCfg.getCertificate(&ClientHelloInfo{})
 		if err != nil && !errors.Is(err, errNoCertificates) {
 			return nil, err
 		}

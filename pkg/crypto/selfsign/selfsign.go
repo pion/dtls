@@ -10,7 +10,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
+	"crypto/x509/pkix"
 	"errors"
 	"math/big"
 	"time"
@@ -40,7 +40,7 @@ func GenerateSelfSignedWithDNS(cn string, sans ...string) (tls.Certificate, erro
 
 // SelfSign creates a self-signed certificate from a elliptic curve key
 func SelfSign(key crypto.PrivateKey) (tls.Certificate, error) {
-	return WithDNS(key, hex.EncodeToString(make([]byte, 16)))
+	return WithDNS(key, "self-signed cert")
 }
 
 // WithDNS creates a self-signed certificate from a elliptic curve key
@@ -90,6 +90,9 @@ func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate,
 		Version:               2,
 		IsCA:                  true,
 		DNSNames:              names,
+		Subject: pkix.Name{
+			CommonName: cn,
+		},
 	}
 
 	raw, err := x509.CreateCertificate(rand.Reader, &template, &template, pubKey, key)
@@ -97,9 +100,14 @@ func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate,
 		return tls.Certificate{}, err
 	}
 
+	leaf, err := x509.ParseCertificate(raw)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
 	return tls.Certificate{
 		Certificate: [][]byte{raw},
 		PrivateKey:  key,
-		Leaf:        &template,
+		Leaf:        leaf,
 	}, nil
 }

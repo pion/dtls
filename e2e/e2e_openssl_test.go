@@ -114,7 +114,6 @@ func clientOpenSSL(c *comm) {
 		"-dtls1_2",
 		"-quiet",
 		"-verify_quiet",
-		"-verify_return_error",
 		"-servername=localhost",
 		fmt.Sprintf("-connect=127.0.0.1:%d", c.serverPort),
 	}
@@ -141,11 +140,14 @@ func clientOpenSSL(c *comm) {
 			c.errChan <- err
 			return
 		}
-		args = append(args, fmt.Sprintf("-CAfile=%s", certPEM))
+		args = append(args, fmt.Sprintf("-CAfile=%s", certPEM), fmt.Sprintf("-cert=%s", certPEM), fmt.Sprintf("-key=%s", keyPEM))
 		defer func() {
 			_ = os.Remove(certPEM)
 			_ = os.Remove(keyPEM)
 		}()
+	}
+	if !cfg.InsecureSkipVerify {
+		args = append(args, "-verify_return_error")
 	}
 
 	// launch command
@@ -295,10 +297,31 @@ func TestPionOpenSSLE2ESimpleED25519(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
 		if !minimumOpenSSLVersion(t) {
 			t.Skip("Cannot use OpenSSL < 3.0 as a DTLS server with ED25519 keys")
-			testPionE2ESimpleED25519(t, serverOpenSSL, clientPion)
 		}
+		testPionE2ESimpleED25519(t, serverOpenSSL, clientPion)
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2ESimpleED25519(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2ESimpleED25519ClientCert(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		if !minimumOpenSSLVersion(t) {
+			t.Skip("Cannot use OpenSSL < 3.0 as a DTLS server with ED25519 keys")
+		}
+		testPionE2ESimpleED25519ClientCert(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2ESimpleED25519ClientCert(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2ESimpleECDSAClientCert(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2ESimpleECDSAClientCert(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2ESimpleECDSAClientCert(t, serverPion, clientOpenSSL)
 	})
 }

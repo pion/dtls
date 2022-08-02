@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -426,7 +427,15 @@ func testPionE2ESimpleECDSAClientCert(t *testing.T, server, client func(*comm)) 
 		t.Fatal(err)
 	}
 
+	clientCAs := x509.NewCertPool()
+	caCert, err := x509.ParseCertificate(ccert.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCAs.AddCert(caCert)
+
 	scfg := &dtls.Config{
+		ClientCAs:    clientCAs,
 		Certificates: []tls.Certificate{scert},
 		CipherSuites: []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		ClientAuth:   dtls.RequireAnyClientCert,
