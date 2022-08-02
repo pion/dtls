@@ -91,7 +91,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		state.peerCertificatesVerified = verified
 	} else if state.PeerCertificates != nil {
 		// A certificate was received, but we haven't seen a CertificateVerify
-		// keep reading until we receieve one
+		// keep reading until we receive one
 		return 0, nil, nil
 	}
 
@@ -178,6 +178,11 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 	}
 
 	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous {
+		if cfg.verifyConnection != nil {
+			if err := cfg.verifyConnection(state.clone()); err != nil {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+			}
+		}
 		return flight6, nil, nil
 	}
 
@@ -198,7 +203,12 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, errClientCertificateNotVerified
 		}
 	case NoClientCert, RequestClientCert:
-		return flight6, nil, nil
+		// go to flight6
+	}
+	if cfg.verifyConnection != nil {
+		if err := cfg.verifyConnection(state.clone()); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+		}
 	}
 
 	return flight6, nil, nil

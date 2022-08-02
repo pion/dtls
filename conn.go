@@ -172,6 +172,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		localCertificates:           config.Certificates,
 		insecureSkipVerify:          config.InsecureSkipVerify,
 		verifyPeerCertificate:       config.VerifyPeerCertificate,
+		verifyConnection:            config.VerifyConnection,
 		rootCAs:                     config.RootCAs,
 		clientCAs:                   config.ClientCAs,
 		customCipherSuites:          config.CustomCipherSuites,

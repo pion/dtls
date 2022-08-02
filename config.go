@@ -83,6 +83,16 @@ type Config struct {
 	// be considered but the verifiedChains will always be nil.
 	VerifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 
+	// VerifyConnection, if not nil, is called after normal certificate
+	// verification/PSK and after VerifyPeerCertificate by either a TLS client
+	// or server. If it returns a non-nil error, the handshake is aborted
+	// and that error results.
+	//
+	// If normal verification fails then the handshake will abort before
+	// considering this callback. This callback will run for all connections
+	// regardless of InsecureSkipVerify or ClientAuth settings.
+	VerifyConnection func(*State) error
+
 	// RootCAs defines the set of root certificate authorities
 	// that one peer uses when verifying the other peer's certificates.
 	// If RootCAs is nil, TLS uses the host's root CA set.
