@@ -12,63 +12,11 @@ import (
 )
 
 func TestValidateConfig(t *testing.T) {
-	// Empty config
-	if err := validateConfig(nil); !errors.Is(err, errNoConfigProvided) {
-		t.Fatalf("TestValidateConfig: Config validation error exp(%v) failed(%v)", errNoConfigProvided, err)
-	}
-
-	// PSK and Certificate, valid cipher suites
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), self signed certificate not generated", err)
 		return
 	}
-	config := &Config{
-		CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		PSK: func(hint []byte) ([]byte, error) {
-			return nil, nil
-		},
-		Certificates: []tls.Certificate{cert},
-	}
-	if err = validateConfig(config); err != nil {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", nil, err)
-	}
-
-	// PSK and Certificate, no PSK cipher suite
-	config = &Config{
-		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		PSK: func(hint []byte) ([]byte, error) {
-			return nil, nil
-		},
-		Certificates: []tls.Certificate{cert},
-	}
-	if err = validateConfig(config); !errors.Is(errNoAvailablePSKCipherSuite, err) {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errNoAvailablePSKCipherSuite, err)
-	}
-
-	// PSK and Certificate, no non-PSK cipher suite
-	config = &Config{
-		CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
-		PSK: func(hint []byte) ([]byte, error) {
-			return nil, nil
-		},
-		Certificates: []tls.Certificate{cert},
-	}
-	if err = validateConfig(config); !errors.Is(errNoAvailableCertificateCipherSuite, err) {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errNoAvailableCertificateCipherSuite, err)
-	}
-
-	// PSK identity hint with not PSK
-	config = &Config{
-		CipherSuites:    []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		PSK:             nil,
-		PSKIdentityHint: []byte{},
-	}
-	if err = validateConfig(config); !errors.Is(err, errIdentityNoPSK) {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errIdentityNoPSK, err)
-	}
-
-	// Invalid private key
 	dsaPrivateKey := &dsa.PrivateKey{}
 	err = dsa.GenerateParameters(&dsaPrivateKey.Parameters, rand.Reader, dsa.L1024N160)
 	if err != nil {
@@ -80,40 +28,110 @@ func TestValidateConfig(t *testing.T) {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), DSA private key not generated", err)
 		return
 	}
-	config = &Config{
-		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		Certificates: []tls.Certificate{{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey}},
-	}
-	if err = validateConfig(config); !errors.Is(err, errInvalidPrivateKey) {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errInvalidPrivateKey, err)
-	}
-
-	// PrivateKey without Certificate
-	config = &Config{
-		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		Certificates: []tls.Certificate{{PrivateKey: cert.PrivateKey}},
-	}
-	if err = validateConfig(config); !errors.Is(err, errInvalidCertificate) {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", errInvalidCertificate, err)
-	}
-
-	// Invalid cipher suites
-	config = &Config{CipherSuites: []CipherSuiteID{0x0000}}
-	if err = validateConfig(config); err == nil {
-		t.Fatal("TestValidateConfig: Client error expected with invalid CipherSuiteID")
-	}
-
-	// Valid config
 	rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), RSA private key not generated", err)
 		return
 	}
-	config = &Config{
-		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		Certificates: []tls.Certificate{cert, {Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}},
+	cases := map[string]struct {
+		config     *Config
+		wantAnyErr bool
+		expErr     error
+	}{
+		"Empty config": {
+			expErr: errNoConfigProvided,
+		},
+		"PSK and Certificate, valid cipher suites": {
+			config: &Config{
+				CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				PSK: func(hint []byte) ([]byte, error) {
+					return nil, nil
+				},
+				Certificates: []tls.Certificate{cert},
+			},
+		},
+		"PSK and Certificate, no PSK cipher suite": {
+			config: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				PSK: func(hint []byte) ([]byte, error) {
+					return nil, nil
+				},
+				Certificates: []tls.Certificate{cert},
+			},
+			expErr: errNoAvailablePSKCipherSuite,
+		},
+		"PSK and Certificate, no non-PSK cipher suite": {
+			config: &Config{
+				CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+				PSK: func(hint []byte) ([]byte, error) {
+					return nil, nil
+				},
+				Certificates: []tls.Certificate{cert},
+			},
+			expErr: errNoAvailableCertificateCipherSuite,
+		},
+		"PSK identity hint with not PSK": {
+			config: &Config{
+				CipherSuites:    []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				PSK:             nil,
+				PSKIdentityHint: []byte{},
+			},
+			expErr: errIdentityNoPSK,
+		},
+		"Invalid private key": {
+			config: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				Certificates: []tls.Certificate{{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey}},
+			},
+			expErr: errInvalidPrivateKey,
+		},
+		"PrivateKey without Certificate": {
+			config: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				Certificates: []tls.Certificate{{PrivateKey: cert.PrivateKey}},
+			},
+			expErr: errInvalidCertificate,
+		},
+		"Invalid cipher suites": {
+			config:     &Config{CipherSuites: []CipherSuiteID{0x0000}},
+			wantAnyErr: true,
+		},
+		"Valid config": {
+			config: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				Certificates: []tls.Certificate{cert, {Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}},
+			},
+		},
+		"Valid config with get certificate": {
+			config: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				GetCertificate: func(chi *ClientHelloInfo) (*tls.Certificate, error) {
+					return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
+				},
+			},
+		},
+		"Valid config with get client certificate": {
+			config: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				GetClientCertificate: func(cri *CertificateRequestInfo) (*tls.Certificate, error) {
+					return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
+				},
+			},
+		},
 	}
-	if err = validateConfig(config); err != nil {
-		t.Fatalf("TestValidateConfig: Client error exp(%v) failed(%v)", nil, err)
+
+	for name, testCase := range cases {
+		testCase := testCase
+		t.Run(name, func(t *testing.T) {
+			err := validateConfig(testCase.config)
+			if testCase.expErr != nil || testCase.wantAnyErr {
+				if testCase.expErr != nil && !errors.Is(err, testCase.expErr) {
+					t.Fatalf("TestValidateConfig: Config validation error exp(%v) failed(%v)", testCase.expErr, err)
+				}
+				if err == nil {
+					t.Fatalf("TestValidateConfig: Config validation expected an error")
+				}
+			}
+		})
 	}
 }

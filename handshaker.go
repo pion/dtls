@@ -114,6 +114,9 @@ type handshakeConfig struct {
 	log           logging.LeveledLogger
 	keyLogWriter  io.Writer
 
+	localGetCertificate       func(*ClientHelloInfo) (*tls.Certificate, error)
+	localGetClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error)
+
 	initialEpoch uint16
 
 	mu sync.Mutex

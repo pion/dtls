@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 
+	"github.com/pion/dtls/v2/internal/ciphersuite"
 	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/prf"
@@ -276,7 +277,10 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 
 	switch {
 	case state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate:
-		certificate, err := cfg.getCertificate(state.serverName)
+		certificate, err := cfg.getCertificate(&ClientHelloInfo{
+			ServerName:   state.serverName,
+			CipherSuites: []ciphersuite.ID{state.cipherSuite.ID()},
+		})
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 		}
@@ -328,6 +332,15 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 		})
 
 		if cfg.clientAuth > NoClientCert {
+			// An empty list of certificateAuthorities signals to
+			// the client that it may send any certificate in response
+			// to our request. When we know the CAs we trust, then
+			// we can send them down, so that the client can choose
+			// an appropriate certificate to give to us.
+			var certificateAuthorities [][]byte
+			if cfg.clientCAs != nil {
+				certificateAuthorities = cfg.clientCAs.Subjects()
+			}
 			pkts = append(pkts, &packet{
 				record: &recordlayer.RecordLayer{
 					Header: recordlayer.Header{
@@ -335,8 +348,9 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 					},
 					Content: &handshake.Handshake{
 						Message: &handshake.MessageCertificateRequest{
-							CertificateTypes:        []clientcertificate.Type{clientcertificate.RSASign, clientcertificate.ECDSASign},
-							SignatureHashAlgorithms: cfg.localSignatureSchemes,
+							CertificateTypes:            []clientcertificate.Type{clientcertificate.RSASign, clientcertificate.ECDSASign},
+							SignatureHashAlgorithms:     cfg.localSignatureSchemes,
+							CertificateAuthoritiesNames: certificateAuthorities,
 						},
 					},
 				},
