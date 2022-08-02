@@ -931,6 +931,19 @@ func TestClientCertificate(t *testing.T) {
 					},
 				},
 			},
+			"RequireAndVerifyClientCert_callbacks": {
+				clientCfg: &Config{
+					RootCAs: srvCAPool,
+					// Certificates:   []tls.Certificate{cert},
+					GetClientCertificate: func(cri *CertificateRequestInfo) (*tls.Certificate, error) { return &cert, nil },
+				},
+				serverCfg: &Config{
+					GetCertificate: func(chi *ClientHelloInfo) (*tls.Certificate, error) { return &srvCert, nil },
+					// Certificates:   []tls.Certificate{srvCert},
+					ClientAuth: RequireAndVerifyClientCert,
+					ClientCAs:  caPool,
+				},
+			},
 		}
 		for name, tt := range tests {
 			tt := tt
@@ -979,7 +992,18 @@ func TestClientCertificate(t *testing.T) {
 						t.Errorf("Client did not provide a certificate")
 					}
 
-					if len(actualClientCert) != len(tt.clientCfg.Certificates[0].Certificate) || !bytes.Equal(tt.clientCfg.Certificates[0].Certificate[0], actualClientCert[0]) {
+					var cfgCert [][]byte
+					if len(tt.clientCfg.Certificates) > 0 {
+						cfgCert = tt.clientCfg.Certificates[0].Certificate
+					}
+					if tt.clientCfg.GetClientCertificate != nil {
+						crt, err := tt.clientCfg.GetClientCertificate(&CertificateRequestInfo{})
+						if err != nil {
+							t.Errorf("Server configuration did not provide a certificate")
+						}
+						cfgCert = crt.Certificate
+					}
+					if len(cfgCert) == 0 || !bytes.Equal(cfgCert[0], actualClientCert[0]) {
 						t.Errorf("Client certificate was not communicated correctly")
 					}
 				}
@@ -993,8 +1017,18 @@ func TestClientCertificate(t *testing.T) {
 				if actualServerCert == nil {
 					t.Errorf("Server did not provide a certificate")
 				}
-
-				if len(actualServerCert) != len(tt.serverCfg.Certificates[0].Certificate) || !bytes.Equal(tt.serverCfg.Certificates[0].Certificate[0], actualServerCert[0]) {
+				var cfgCert [][]byte
+				if len(tt.serverCfg.Certificates) > 0 {
+					cfgCert = tt.serverCfg.Certificates[0].Certificate
+				}
+				if tt.serverCfg.GetCertificate != nil {
+					crt, err := tt.serverCfg.GetCertificate(&ClientHelloInfo{})
+					if err != nil {
+						t.Errorf("Server configuration did not provide a certificate")
+					}
+					cfgCert = crt.Certificate
+				}
+				if len(cfgCert) == 0 || !bytes.Equal(cfgCert[0], actualServerCert[0]) {
 					t.Errorf("Server certificate was not communicated correctly")
 				}
 			})
