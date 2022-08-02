@@ -14,7 +14,7 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 )
 
-func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) { //nolint:gocognit
+func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (FlightVal, *alert.Alert, error) { //nolint:gocognit
 	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
 	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response
 	// to the new HelloVerifyRequest. RFC 6347 Section 4.2.1
@@ -30,7 +30,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 			}
 			state.cookie = append([]byte{}, h.Cookie...)
 			state.handshakeRecvSequence = seq
-			return flight3, nil, nil
+			return Flight3, nil, nil
 		}
 	}
 
@@ -142,10 +142,10 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		state.remoteRequestedCertificate = true
 	}
 
-	return flight5, nil, nil
+	return Flight5, nil, nil
 }
 
-func handleResumption(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (flightVal, *alert.Alert, error) {
+func handleResumption(ctx context.Context, c flightConn, state *State, cache *handshakeCache, cfg *handshakeConfig) (FlightVal, *alert.Alert, error) {
 	if err := state.initCipherSuite(); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -183,7 +183,7 @@ func handleResumption(ctx context.Context, c flightConn, state *State, cache *ha
 	clientRandom := state.localRandom.MarshalFixed()
 	cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
 
-	return flight5b, nil, nil
+	return Flight5b, nil, nil
 }
 
 func handleServerKeyExchange(_ flightConn, state *State, cfg *handshakeConfig, h *handshake.MessageServerKeyExchange) (*alert.Alert, error) {

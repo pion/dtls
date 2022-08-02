@@ -51,27 +51,27 @@ import (
 //              Read retransmit
 //           Retransmit last flight
 
-type handshakeState uint8
+type HandshakeState uint8
 
 const (
-	handshakeErrored handshakeState = iota
-	handshakePreparing
-	handshakeSending
-	handshakeWaiting
-	handshakeFinished
+	HandshakeErrored HandshakeState = iota
+	HandshakePreparing
+	HandshakeSending
+	HandshakeWaiting
+	HandshakeFinished
 )
 
-func (s handshakeState) String() string {
+func (s HandshakeState) String() string {
 	switch s {
-	case handshakeErrored:
+	case HandshakeErrored:
 		return "Errored"
-	case handshakePreparing:
+	case HandshakePreparing:
 		return "Preparing"
-	case handshakeSending:
+	case HandshakeSending:
 		return "Sending"
-	case handshakeWaiting:
+	case HandshakeWaiting:
 		return "Waiting"
-	case handshakeFinished:
+	case HandshakeFinished:
 		return "Finished"
 	default:
 		return "Unknown"
@@ -79,7 +79,7 @@ func (s handshakeState) String() string {
 }
 
 type handshakeFSM struct {
-	currentFlight flightVal
+	currentFlight FlightVal
 	flights       []*packet
 	retransmit    bool
 	state         *State
@@ -91,6 +91,7 @@ type handshakeFSM struct {
 type handshakeConfig struct {
 	localPSKCallback            PSKCallback
 	localPSKIdentityHint        []byte
+	localHandshakeCallback      HandshakeCallback
 	localCipherSuites           []CipherSuite             // Available CipherSuites
 	localSignatureSchemes       []signaturehash.Algorithm // Available signature schemes
 	extendedMasterSecret        ExtendedMasterSecretType  // Policy for the Extended Master Support extension
@@ -109,7 +110,7 @@ type handshakeConfig struct {
 	customCipherSuites          func() []CipherSuite
 	ellipticCurves              []elliptic.Curve
 
-	onFlightState func(flightVal, handshakeState)
+	onFlightState func(FlightVal, HandshakeState)
 	log           logging.LeveledLogger
 	keyLogWriter  io.Writer
 
@@ -148,7 +149,7 @@ func srvCliStr(isClient bool) string {
 
 func newHandshakeFSM(
 	s *State, cache *handshakeCache, cfg *handshakeConfig,
-	initialFlight flightVal,
+	initialFlight FlightVal,
 ) *handshakeFSM {
 	return &handshakeFSM{
 		currentFlight: initialFlight,
@@ -159,7 +160,7 @@ func newHandshakeFSM(
 	}
 }
 
-func (s *handshakeFSM) Run(ctx context.Context, c flightConn, initialState handshakeState) error {
+func (s *handshakeFSM) Run(ctx context.Context, c flightConn, initialState HandshakeState) error {
 	state := initialState
 	defer func() {
 		close(s.closed)
@@ -171,13 +172,13 @@ func (s *handshakeFSM) Run(ctx context.Context, c flightConn, initialState hands
 		}
 		var err error
 		switch state {
-		case handshakePreparing:
+		case HandshakePreparing:
 			state, err = s.prepare(ctx, c)
-		case handshakeSending:
+		case HandshakeSending:
 			state, err = s.send(ctx, c)
-		case handshakeWaiting:
+		case HandshakeWaiting:
 			state, err = s.wait(ctx, c)
-		case handshakeFinished:
+		case HandshakeFinished:
 			state, err = s.finish(ctx, c)
 		default:
 			return errInvalidFSMTransition
@@ -192,7 +193,7 @@ func (s *handshakeFSM) Done() <-chan struct{} {
 	return s.closed
 }
 
-func (s *handshakeFSM) prepare(ctx context.Context, c flightConn) (handshakeState, error) {
+func (s *handshakeFSM) prepare(ctx context.Context, c flightConn) (HandshakeState, error) {
 	s.flights = nil
 	// Prepare flights
 	var (
@@ -216,7 +217,7 @@ func (s *handshakeFSM) prepare(ctx context.Context, c flightConn) (handshakeStat
 		}
 	}
 	if err != nil {
-		return handshakeErrored, err
+		return HandshakeErrored, err
 	}
 
 	s.flights = pkts
@@ -236,30 +237,30 @@ func (s *handshakeFSM) prepare(ctx context.Context, c flightConn) (handshakeStat
 		s.cfg.log.Tracef("[handshake:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.isClient), nextEpoch)
 		c.setLocalEpoch(nextEpoch)
 	}
-	return handshakeSending, nil
+	return HandshakeSending, nil
 }
 
-func (s *handshakeFSM) send(ctx context.Context, c flightConn) (handshakeState, error) {
+func (s *handshakeFSM) send(ctx context.Context, c flightConn) (HandshakeState, error) {
 	// Send flights
 	if err := c.writePackets(ctx, s.flights); err != nil {
-		return handshakeErrored, err
+		return HandshakeErrored, err
 	}
 
 	if s.currentFlight.isLastSendFlight() {
-		return handshakeFinished, nil
+		return HandshakeFinished, nil
 	}
-	return handshakeWaiting, nil
+	return HandshakeWaiting, nil
 }
 
-func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, error) { //nolint:gocognit
+func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (HandshakeState, error) { //nolint:gocognit
 	parse, errFlight := s.currentFlight.getFlightParser()
 	if errFlight != nil {
 		if alertErr := c.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
 			if errFlight != nil {
-				return handshakeErrored, alertErr
+				return HandshakeErrored, alertErr
 			}
 		}
-		return handshakeErrored, errFlight
+		return HandshakeErrored, errFlight
 	}
 
 	retransmitTimer := time.NewTimer(s.cfg.retransmitInterval)
@@ -276,38 +277,38 @@ func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, 
 				}
 			}
 			if err != nil {
-				return handshakeErrored, err
+				return HandshakeErrored, err
 			}
 			if nextFlight == 0 {
 				break
 			}
 			s.cfg.log.Tracef("[handshake:%s] %s -> %s", srvCliStr(s.state.isClient), s.currentFlight.String(), nextFlight.String())
 			if nextFlight.isLastRecvFlight() && s.currentFlight == nextFlight {
-				return handshakeFinished, nil
+				return HandshakeFinished, nil
 			}
 			s.currentFlight = nextFlight
-			return handshakePreparing, nil
+			return HandshakePreparing, nil
 
 		case <-retransmitTimer.C:
 			if !s.retransmit {
-				return handshakeWaiting, nil
+				return HandshakeWaiting, nil
 			}
-			return handshakeSending, nil
+			return HandshakeSending, nil
 		case <-ctx.Done():
-			return handshakeErrored, ctx.Err()
+			return HandshakeErrored, ctx.Err()
 		}
 	}
 }
 
-func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState, error) {
+func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (HandshakeState, error) {
 	parse, errFlight := s.currentFlight.getFlightParser()
 	if errFlight != nil {
 		if alertErr := c.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
 			if errFlight != nil {
-				return handshakeErrored, alertErr
+				return HandshakeErrored, alertErr
 			}
 		}
-		return handshakeErrored, errFlight
+		return HandshakeErrored, errFlight
 	}
 
 	retransmitTimer := time.NewTimer(s.cfg.retransmitInterval)
@@ -323,20 +324,20 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 			}
 		}
 		if err != nil {
-			return handshakeErrored, err
+			return HandshakeErrored, err
 		}
 		if nextFlight == 0 {
 			break
 		}
 		if nextFlight.isLastRecvFlight() && s.currentFlight == nextFlight {
-			return handshakeFinished, nil
+			return HandshakeFinished, nil
 		}
 		<-retransmitTimer.C
 		// Retransmit last flight
-		return handshakeSending, nil
+		return HandshakeSending, nil
 
 	case <-ctx.Done():
-		return handshakeErrored, ctx.Err()
+		return HandshakeErrored, ctx.Err()
 	}
-	return handshakeFinished, nil
+	return HandshakeFinished, nil
 }

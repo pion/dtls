@@ -58,6 +58,9 @@ type Config struct {
 	PSK             PSKCallback
 	PSKIdentityHint []byte
 
+	// Callback to monitor handshake state
+	OnHandshakeState HandshakeCallback
+
 	// InsecureSkipVerify controls whether a client verifies the
 	// server's certificate chain and host name.
 	// If InsecureSkipVerify is true, TLS accepts any certificate
@@ -157,6 +160,9 @@ var defaultCurves = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P3
 // PSKCallback is called once we have the remote's PSKIdentityHint.
 // If the remote provided none it will be nil
 type PSKCallback func([]byte) ([]byte, error)
+
+// HandshakeCallback is called multiple times as handshake progresses.
+type HandshakeCallback func(conn *Conn, f FlightVal, s HandshakeState, err error)
 
 // ClientAuthType declares the policy the server will follow for
 // TLS Client Authentication.
