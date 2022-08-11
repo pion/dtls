@@ -274,6 +274,7 @@ func pipeConn(ca, cb net.Conn) (*Conn, *Conn, error) {
 	// Receive client
 	res := <-c
 	if res.err != nil {
+		_ = server.Close()
 		return nil, nil, res.err
 	}
 
@@ -1349,6 +1350,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			res := <-c
 			if res.err == nil {
 				_ = server.Close()
+				_ = res.c.Close()
 			}
 			if !errors.Is(res.err, test.WantClientError) {
 				t.Errorf("TestSRTPConfiguration: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantClientError, res.err)
@@ -1423,6 +1425,7 @@ func TestCertificateAndPSKServer(t *testing.T) {
 			res := <-c
 			if res.err == nil {
 				_ = server.Close()
+				_ = res.c.Close()
 			} else {
 				t.Errorf("TestCertificateAndPSKServer: Client Error Mismatch '%s': expected(%v) actual(%v)", test.Name, nil, res.err)
 			}
