@@ -898,6 +898,10 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 						_ = c.close(false) //nolint:contextcheck
 					}
 				}
+				if !c.isConnectionClosed() && errors.Is(err, context.Canceled) {
+					c.log.Trace("handshake timeouts - closing underline connection")
+					_ = c.close(false) //nolint:contextcheck
+				}
 				return
 			}
 		}
@@ -907,10 +911,12 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 	case err := <-firstErr:
 		cancelRead()
 		cancel()
+		c.handshakeLoopsFinished.Wait()
 		return c.translateHandshakeCtxError(err)
 	case <-ctx.Done():
 		cancelRead()
 		cancel()
+		c.handshakeLoopsFinished.Wait()
 		return c.translateHandshakeCtxError(ctx.Err())
 	case <-done:
 		return nil
@@ -943,11 +949,16 @@ func (c *Conn) close(byUser bool) error {
 	if byUser {
 		c.connectionClosedByUser = true
 	}
+	isClosed := c.isConnectionClosed()
 	c.closed.Close()
 	c.closeLock.Unlock()
 
 	if closedByUser {
 		return ErrConnClosed
+	}
+
+	if isClosed {
+		return nil
 	}
 
 	return c.nextConn.Close()
