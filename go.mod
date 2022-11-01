@@ -5,7 +5,7 @@ require (
 	github.com/pion/transport v0.13.1
 	github.com/pion/udp v0.1.1
 	golang.org/x/crypto v0.0.0-20220926161630-eccd6366d1be
-	golang.org/x/net v0.0.0-20220930213112-107f3e3c3b0b
+	golang.org/x/net v0.1.0
 )
 
 go 1.13
