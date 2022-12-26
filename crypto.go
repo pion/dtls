@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/binary"
@@ -115,11 +114,12 @@ func generateCertificateVerify(handshakeBodies []byte, privateKey crypto.Private
 		return p.Sign(rand.Reader, handshakeBodies, crypto.Hash(0))
 	}
 
-	h := sha256.New()
-	if _, err := h.Write(handshakeBodies); err != nil {
-		return nil, err
-	}
-	hashed := h.Sum(nil)
+	// h := sha256.New()
+	// if _, err := h.Write(handshakeBodies); err != nil {
+	// 	return nil, err
+	// }
+	// hashed := h.Sum(nil)
+	hashed := hashAlgorithm.Digest(handshakeBodies)
 
 	switch p := privateKey.(type) {
 	case *ecdsa.PrivateKey:

@@ -138,7 +138,8 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		}
 	}
 
-	if _, ok := msgs[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok {
+	if creq, ok := msgs[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok {
+		state.remoteCertRequestAlgs = creq.SignatureHashAlgorithms
 		state.remoteRequestedCertificate = true
 	}
 

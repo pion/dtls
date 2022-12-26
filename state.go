@@ -7,6 +7,7 @@ import (
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/prf"
+	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/transport/replaydetector"
 )
@@ -35,6 +36,7 @@ type State struct {
 	handshakeSendSequence      int
 	handshakeRecvSequence      int
 	serverName                 string
+	remoteCertRequestAlgs      []signaturehash.Algorithm
 	remoteRequestedCertificate bool   // Did we get a CertificateRequest
 	localCertificatesVerify    []byte // cache CertificateVerify
 	localVerifyData            []byte // cached VerifyData
