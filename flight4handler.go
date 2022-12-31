@@ -339,6 +339,7 @@ func flight4Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 			// an appropriate certificate to give to us.
 			var certificateAuthorities [][]byte
 			if cfg.clientCAs != nil {
+				// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR because cert does not come from SystemCertPool and it's ok if certificate authorities is empty.
 				certificateAuthorities = cfg.clientCAs.Subjects()
 			}
 			pkts = append(pkts, &packet{
