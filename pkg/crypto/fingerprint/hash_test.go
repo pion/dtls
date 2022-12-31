@@ -22,6 +22,15 @@ func TestHashFromString(t *testing.T) {
 			t.Errorf("Expected hash ID of %d, got %d", int(crypto.SHA512), int(h))
 		}
 	})
+	t.Run("ValidCaseInsensitiveHashAlgorithm", func(t *testing.T) {
+		h, err := HashFromString("SHA-512")
+		if err != nil {
+			t.Fatalf("Unexpected error for valid hash name, got '%v'", err)
+		}
+		if h != crypto.SHA512 {
+			t.Errorf("Expected hash ID of %d, got %d", int(crypto.SHA512), int(h))
+		}
+	})
 }
 
 func TestStringFromHash_Roundtrip(t *testing.T) {
