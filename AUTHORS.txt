@@ -36,6 +36,7 @@ Lukas Lihotzki <lukas@lihotzki.de>
 ManuelBk <26275612+ManuelBk@users.noreply.github.com>
 Michael Zabka <zabka.michael@gmail.com>
 Michiel De Backker <mail@backkem.me>
+Rachel Chen <rachel@chens.email>
 Robert Eperjesi <eperjesi@uber.com>
 Ryan Gordon <ryan.gordon@getcruise.com>
 Sean DuBois <seaduboi@amazon.com>
