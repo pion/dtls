@@ -184,6 +184,7 @@ func createConn(ctx context.Context, nextConn net.Conn, config *Config, isClient
 		ellipticCurves:              curves,
 		localGetCertificate:         config.GetCertificate,
 		localGetClientCertificate:   config.GetClientCertificate,
+		insecureSkipHelloVerify:     config.InsecureSkipVerifyHello,
 	}
 
 	// rfc5246#section-7.4.3
