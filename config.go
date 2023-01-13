@@ -168,6 +168,11 @@ type Config struct {
 	// the server. If this is unacceptable to the server then it may abort
 	// the handshake.
 	GetClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error)
+
+	// InsecureSkipVerifyHello, if true and when acting as server, allow client to
+	// skip hello verify phase and receive ServerHello after initial ClientHello.
+	// This have implication on DoS attack resistance.
+	InsecureSkipVerifyHello bool
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {
