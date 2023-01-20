@@ -2,7 +2,7 @@
 # we would love to have you https://github.com/pion/webrtc/wiki/Contributing
 #
 # This file is auto generated, using git to list all individuals contributors.
-# see `.github/generate-authors.sh` for the scripting
+# see https://github.com/pion/.goassets/blob/master/scripts/generate-authors.sh for the scripting
 Aleksandr Razumov <ar@gortc.io>
 alvarowolfx <alvarowolfx@gmail.com>
 Arlo Breault <arlolra@gmail.com>
