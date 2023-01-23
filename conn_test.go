@@ -33,7 +33,7 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/extension"
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
-	"github.com/pion/transport/test"
+	"github.com/pion/transport/v2/test"
 )
 
 var (

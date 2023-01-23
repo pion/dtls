@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/internal/net/dpipe"
-	"github.com/pion/transport/test"
+	"github.com/pion/transport/v2/test"
 )
 
 func TestReplayProtection(t *testing.T) {

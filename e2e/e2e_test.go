@@ -21,7 +21,7 @@ import (
 
 	"github.com/pion/dtls/v2"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
-	"github.com/pion/transport/test"
+	"github.com/pion/transport/v2/test"
 )
 
 const (
@@ -217,10 +217,10 @@ func serverPion(c *comm) {
 }
 
 /*
-  Simple DTLS Client/Server can communicate
-    - Assert that you can send messages both ways
-	- Assert that Close() on both ends work
-	- Assert that no Goroutines are leaked
+	  Simple DTLS Client/Server can communicate
+	    - Assert that you can send messages both ways
+		- Assert that Close() on both ends work
+		- Assert that no Goroutines are leaked
 */
 func testPionE2ESimple(t *testing.T, server, client func(*comm)) {
 	lim := test.TimeOut(time.Second * 30)

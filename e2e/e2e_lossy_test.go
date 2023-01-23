@@ -9,7 +9,7 @@ import (
 
 	"github.com/pion/dtls/v2"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
-	transportTest "github.com/pion/transport/test"
+	transportTest "github.com/pion/transport/v2/test"
 )
 
 const (
@@ -18,7 +18,7 @@ const (
 )
 
 /*
-  DTLS Client/Server over a lossy transport, just asserts it can handle at increasing increments
+DTLS Client/Server over a lossy transport, just asserts it can handle at increasing increments
 */
 func TestPionE2ELossy(t *testing.T) {
 	// Check for leaking routines
