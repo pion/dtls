@@ -14,7 +14,7 @@ import (
 
 	"github.com/pion/dtls/v2/internal/net/dpipe"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
-	"github.com/pion/transport/test"
+	"github.com/pion/transport/v2/test"
 )
 
 func TestContextConfig(t *testing.T) {
