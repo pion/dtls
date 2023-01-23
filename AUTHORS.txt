@@ -42,8 +42,12 @@ Ryan Gordon <ryan.gordon@getcruise.com>
 Sean DuBois <seaduboi@amazon.com>
 Sean DuBois <sean@siobud.com>
 Stefan Tatschner <stefan@rumpelsepp.org>
+Steffen Vogel <post@steffenvogel.de>
 Vadim <fffilimonov@yandex.ru>
 Vadim Filimonov <fffilimonov@yandex.ru>
 wmiao <wu.miao@viasat.com>
 ZHENK <chengzhenyang@gmail.com>
 吕海涛 <hi@taoshu.in>
+
+# List of contributors not appearing in Git history
+
