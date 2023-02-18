@@ -4,8 +4,6 @@ github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSs
 github.com/pion/logging v0.2.2 h1:M9+AIj/+pxNsDfAT64+MAVgJO0rsyLnoJKCqf//DoeY=
 github.com/pion/logging v0.2.2/go.mod h1:k0/tDVsRCX2Mb2ZEmTqNa7CWsQPc+YYCB7Q+5pahoms=
 github.com/pion/transport/v2 v2.0.0/go.mod h1:HS2MEBJTwD+1ZI2eSXSvHJx/HnzQqRy2/LXxt6eVMHc=
-github.com/pion/transport/v2 v2.0.1 h1:cbSk3gzoSBEIKVGNYeghXQSp47s1H9ttoP5JyLCgxLE=
-github.com/pion/transport/v2 v2.0.1/go.mod h1:93OYg91+mrGxKW+Jrgzmqr80kgXqD7J0yybOrdr7w0Y=
 github.com/pion/transport/v2 v2.0.2 h1:St+8o+1PEzPT51O9bv+tH/KYYLMNR5Vwm5Z3Qkjsywg=
 github.com/pion/transport/v2 v2.0.2/go.mod h1:vrz6bUbFr/cjdwbnxq8OdDDzHf7JJfGsIRkxfpZoTA0=
 github.com/pion/udp/v2 v2.0.0 h1:7FnS6OF29BYNlQs2Jp2vdsmcwP5qKhHSlQXEb23I2II=
