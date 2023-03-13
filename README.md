@@ -21,7 +21,22 @@ Native [DTLS 1.2][rfc6347] implementation in the Go programming language.
 
 A long term goal is a professional security review, and maybe an inclusion in stdlib.
 
+### RFCs
+#### Implemented
+- **RFC 6347**: [Datagram Transport Layer Security Version 1.2][rfc6347]
+- **RFC 5705**: [Keying Material Exporters for Transport Layer Security (TLS)][rfc5705]
+- **RFC 7627**: [Transport Layer Security (TLS) - Session Hash and Extended Master Secret Extension][rfc7627]
+- **RFC 7301**: [Transport Layer Security (TLS) - Application-Layer Protocol Negotiation Extension][rfc7301]
+
+[rfc5289]: https://tools.ietf.org/html/rfc5289
+[rfc5487]: https://tools.ietf.org/html/rfc5487
+[rfc5489]: https://tools.ietf.org/html/rfc5489
+[rfc5705]: https://tools.ietf.org/html/rfc5705
 [rfc6347]: https://tools.ietf.org/html/rfc6347
+[rfc6655]: https://tools.ietf.org/html/rfc6655
+[rfc7301]: https://tools.ietf.org/html/rfc7301
+[rfc7627]: https://tools.ietf.org/html/rfc7627
+[rfc8422]: https://tools.ietf.org/html/rfc8422
 
 ### Goals/Progress
 This will only be targeting DTLS 1.2, and the most modern/common cipher suites.
@@ -35,10 +50,6 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 * Serialization and Resumption of sessions
 * Extended Master Secret extension ([RFC 7627][rfc7627])
 * ALPN extension ([RFC 7301][rfc7301])
-
-[rfc5705]: https://tools.ietf.org/html/rfc5705
-[rfc7627]: https://tools.ietf.org/html/rfc7627
-[rfc7301]: https://tools.ietf.org/html/rfc7301
 
 #### Supported ciphers
 
@@ -64,12 +75,6 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 ##### ECDHE & PSK
 
 * TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5489][rfc5489])
-
-[rfc5289]: https://tools.ietf.org/html/rfc5289
-[rfc8422]: https://tools.ietf.org/html/rfc8422
-[rfc6655]: https://tools.ietf.org/html/rfc6655
-[rfc5487]: https://tools.ietf.org/html/rfc5487
-[rfc5489]: https://tools.ietf.org/html/rfc5489
 
 #### Planned Features
 * Chacha20Poly1305
@@ -112,7 +117,6 @@ Pion DTLS can connect to itself and OpenSSL.
 
 ### Using with PSK
 Pion DTLS also comes with examples that do key exchange via PSK
-
 
 #### Pion DTLS
 ```sh
