@@ -132,9 +132,6 @@ go run examples/dial/psk/main.go
   openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -psk abc123 -cipher PSK-AES128-CCM8
 ```
 
-### Roadmap
-The library is used as a part of our WebRTC implementation. Please refer to that [roadmap](https://github.com/pion/webrtc/issues/9) to track our major milestones.
-
 ### Community
 Pion has an active community on the [Slack](https://pion.ly/slack).
 
