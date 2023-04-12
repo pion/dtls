@@ -169,10 +169,8 @@ func (s *State) UnmarshalBinary(data []byte) error {
 	}
 
 	s.deserialize(serialized)
-	if err := s.initCipherSuite(); err != nil {
-		return err
-	}
-	return nil
+
+	return s.initCipherSuite()
 }
 
 // ExportKeyingMaterial returns length bytes of exported key material in a new

@@ -238,8 +238,8 @@ func TestRFC3610Vectors(t *testing.T) {
 	}
 
 	if len(cases) != 24 {
-		t.Fatalf("Expected %d test cases, got: %d", 24, len(cases))
-		t.FailNow()
+		t.Fatalf("Expected %d test cases, got: %d", 24, len(cases)) //nolint:revive
+		t.FailNow()                                                 //nolint:revive
 	}
 
 	for idx, c := range cases {
