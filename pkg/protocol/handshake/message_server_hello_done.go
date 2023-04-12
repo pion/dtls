@@ -16,6 +16,6 @@ func (m *MessageServerHelloDone) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the message from encoded data
-func (m *MessageServerHelloDone) Unmarshal(data []byte) error {
+func (m *MessageServerHelloDone) Unmarshal([]byte) error {
 	return nil
 }

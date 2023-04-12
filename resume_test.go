@@ -195,14 +195,14 @@ func (b *backupConn) RemoteAddr() net.Addr {
 	return nil
 }
 
-func (b *backupConn) SetDeadline(t time.Time) error {
+func (b *backupConn) SetDeadline(time.Time) error {
 	return nil
 }
 
-func (b *backupConn) SetReadDeadline(t time.Time) error {
+func (b *backupConn) SetReadDeadline(time.Time) error {
 	return nil
 }
 
-func (b *backupConn) SetWriteDeadline(t time.Time) error {
+func (b *backupConn) SetWriteDeadline(time.Time) error {
 	return nil
 }
