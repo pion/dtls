@@ -1,3 +1,4 @@
+// Package main implements a DTLS client using a client certificate.
 package main
 
 import (

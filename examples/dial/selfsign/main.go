@@ -1,3 +1,4 @@
+// Package main implements a DTLS client using self-signed certificates.
 package main
 
 import (

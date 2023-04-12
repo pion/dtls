@@ -1,3 +1,4 @@
+// Package main implements an example DTLS client using a pre-shared key.
 package main
 
 import (
