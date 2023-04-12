@@ -1,3 +1,4 @@
+// Package main implements an example DTLS server which verifies client certificates.
 package main
 
 import (
