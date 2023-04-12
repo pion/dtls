@@ -5,7 +5,7 @@ import (
 
 	"github.com/pion/dtls/v2/pkg/protocol"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
-	"github.com/pion/udp/v2"
+	"github.com/pion/transport/v2/udp"
 )
 
 // Listen creates a DTLS listener
