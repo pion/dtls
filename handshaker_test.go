@@ -391,11 +391,11 @@ func (c *flightTestConn) setLocalEpoch(epoch uint16) {
 	c.epoch = epoch
 }
 
-func (c *flightTestConn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
+func (c *flightTestConn) notify(context.Context, alert.Level, alert.Description) error {
 	return nil
 }
 
-func (c *flightTestConn) writePackets(ctx context.Context, pkts []*packet) error {
+func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 	time.Sleep(c.delay)
 	for _, p := range pkts {
 		if c.filter != nil && !c.filter(p) {
@@ -436,7 +436,7 @@ func (c *flightTestConn) writePackets(ctx context.Context, pkts []*packet) error
 	return nil
 }
 
-func (c *flightTestConn) handleQueuedPackets(ctx context.Context) error {
+func (c *flightTestConn) handleQueuedPackets(context.Context) error {
 	return nil
 }
 

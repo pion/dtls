@@ -2298,7 +2298,7 @@ func TestALPNExtension(t *testing.T) {
 					SupportedProtocols: test.ServerProtocolNameList,
 				}
 				if _, err2 := testServer(ctx2, cb2, conf, true); !errors.Is(err2, context.Canceled) {
-					if test.ExpectAlertFromServer {
+					if test.ExpectAlertFromServer { //nolint
 						// Assert the error type?
 					} else {
 						t.Error(err2)
