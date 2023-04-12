@@ -4,7 +4,7 @@ package clientcertificate
 // Type is used to communicate what
 // type of certificate is being transported
 //
-//https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-2
+// https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-2
 type Type byte
 
 // ClientCertificateType enums
