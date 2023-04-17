@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/internal/ciphersuite"
-	"github.com/pion/dtls/v2/internal/net/dpipe"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/hash"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
@@ -34,6 +33,7 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
+	"github.com/pion/transport/v2/dpipe"
 	"github.com/pion/transport/v2/test"
 )
 
