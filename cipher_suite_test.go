@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/internal/ciphersuite"
-	"github.com/pion/dtls/v2/internal/net/dpipe"
+	"github.com/pion/transport/v2/dpipe"
 	"github.com/pion/transport/v2/test"
 )
 
