@@ -430,6 +430,11 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 }
 
 func (c *Conn) compactRawPackets(rawPackets [][]byte) [][]byte {
+	// avoid a useless copy in the common case
+	if len(rawPackets) == 1 {
+		return rawPackets
+	}
+
 	combinedRawPackets := make([][]byte, 0)
 	currentCombinedRawPacket := make([]byte, 0)
 
