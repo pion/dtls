@@ -122,7 +122,7 @@ issues:
       text: "of func `main` is high"
       linters:
         - gocognit
-
+    
     # Allow forbidden identifiers in examples
     - path: examples
       linters:
