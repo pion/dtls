@@ -263,9 +263,7 @@ func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, 
 	parse, errFlight := s.currentFlight.getFlightParser()
 	if errFlight != nil {
 		if alertErr := c.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
-			if errFlight != nil {
-				return handshakeErrored, alertErr
-			}
+			return handshakeErrored, alertErr
 		}
 		return handshakeErrored, errFlight
 	}
@@ -311,9 +309,7 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 	parse, errFlight := s.currentFlight.getFlightParser()
 	if errFlight != nil {
 		if alertErr := c.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
-			if errFlight != nil {
-				return handshakeErrored, alertErr
-			}
+			return handshakeErrored, alertErr
 		}
 		return handshakeErrored, errFlight
 	}
