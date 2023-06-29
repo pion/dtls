@@ -85,10 +85,12 @@ type comm struct {
 	messageRecvCount           *uint64 // Counter to make sure both sides got a message
 	clientMutex                *sync.Mutex
 	clientConn                 net.Conn
+	clientDone                 chan error
 	serverMutex                *sync.Mutex
 	serverConn                 net.Conn
 	serverListener             net.Listener
 	serverReady                chan struct{}
+	serverDone                 chan error
 	errChan                    chan error
 	clientChan                 chan string
 	serverChan                 chan string
@@ -107,6 +109,8 @@ func newComm(ctx context.Context, clientConfig, serverConfig *dtls.Config, serve
 		clientMutex:      &sync.Mutex{},
 		serverMutex:      &sync.Mutex{},
 		serverReady:      make(chan struct{}),
+		serverDone:       make(chan error),
+		clientDone:       make(chan error),
 		errChan:          make(chan error),
 		clientChan:       make(chan string),
 		serverChan:       make(chan string),
@@ -172,6 +176,32 @@ func (c *comm) assert(t *testing.T) {
 	}()
 }
 
+func (c *comm) cleanup(t *testing.T) {
+	clientDone, serverDone := false, false
+	for {
+		select {
+		case err := <-c.clientDone:
+			if err != nil {
+				t.Fatal(err)
+			}
+			clientDone = true
+			if clientDone && serverDone {
+				return
+			}
+		case err := <-c.serverDone:
+			if err != nil {
+				t.Fatal(err)
+			}
+			serverDone = true
+			if clientDone && serverDone {
+				return
+			}
+		case <-time.After(testTimeLimit):
+			t.Fatalf("Test timeout waiting for server shutdown")
+		}
+	}
+}
+
 func clientPion(c *comm) {
 	select {
 	case <-c.serverReady:
@@ -194,6 +224,8 @@ func clientPion(c *comm) {
 	}
 
 	simpleReadWrite(c.errChan, c.clientChan, c.clientConn, c.messageRecvCount)
+	c.clientDone <- nil
+	close(c.clientDone)
 }
 
 func serverPion(c *comm) {
@@ -217,6 +249,8 @@ func serverPion(c *comm) {
 	}
 
 	simpleReadWrite(c.errChan, c.serverChan, c.serverConn, c.messageRecvCount)
+	c.serverDone <- nil
+	close(c.serverDone)
 }
 
 /*
@@ -254,6 +288,7 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm)) {
 			}
 			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
+			defer comm.cleanup(t)
 			comm.assert(t)
 		})
 	}
@@ -287,6 +322,7 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm)) {
 			}
 			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
+			defer comm.cleanup(t)
 			comm.assert(t)
 		})
 	}
@@ -322,6 +358,7 @@ func testPionE2EMTUs(t *testing.T, server, client func(*comm)) {
 			}
 			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
+			defer comm.cleanup(t)
 			comm.assert(t)
 		})
 	}
@@ -362,6 +399,7 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
 			}
 			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
+			defer comm.cleanup(t)
 			comm.assert(t)
 		})
 	}
@@ -407,6 +445,7 @@ func testPionE2ESimpleED25519ClientCert(t *testing.T, server, client func(*comm)
 	}
 	serverPort := randomPort(t)
 	comm := newComm(ctx, ccfg, scfg, serverPort, server, client)
+	defer comm.cleanup(t)
 	comm.assert(t)
 }
 
@@ -450,6 +489,7 @@ func testPionE2ESimpleECDSAClientCert(t *testing.T, server, client func(*comm)) 
 	}
 	serverPort := randomPort(t)
 	comm := newComm(ctx, ccfg, scfg, serverPort, server, client)
+	defer comm.cleanup(t)
 	comm.assert(t)
 }
 
@@ -493,6 +533,7 @@ func testPionE2ESimpleRSAClientCert(t *testing.T, server, client func(*comm)) {
 	}
 	serverPort := randomPort(t)
 	comm := newComm(ctx, ccfg, scfg, serverPort, server, client)
+	defer comm.cleanup(t)
 	comm.assert(t)
 }
 
