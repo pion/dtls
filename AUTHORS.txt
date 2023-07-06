@@ -15,6 +15,7 @@ Carson Hoffman <c@rsonhoffman.com>
 Cecylia Bocovich <cohosh@torproject.org>
 Chris Hiszpanski <thinkski@users.noreply.github.com>
 cnderrauber <zengjie9004@gmail.com>
+Daniel Mangum <georgedanielmangum@gmail.com>
 Daniele Sluijters <daenney@users.noreply.github.com>
 folbrich <frank.olbricht@gmail.com>
 Hayden James <hayden.james@gmail.com>
