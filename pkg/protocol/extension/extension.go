@@ -64,6 +64,8 @@ func Unmarshal(buf []byte) ([]Extension, error) {
 			err = unmarshalAndAppend(buf[offset:], &ServerName{})
 		case SupportedEllipticCurvesTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &SupportedEllipticCurves{})
+		case SupportedPointFormatsTypeValue:
+			err = unmarshalAndAppend(buf[offset:], &SupportedPointFormats{})
 		case UseSRTPTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &UseSRTP{})
 		case ALPNTypeValue:
