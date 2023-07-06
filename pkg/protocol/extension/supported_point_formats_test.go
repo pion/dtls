@@ -22,4 +22,11 @@ func TestExtensionSupportedPointFormats(t *testing.T) {
 	} else if !reflect.DeepEqual(raw, rawExtensionSupportedPointFormats) {
 		t.Errorf("extensionSupportedPointFormats marshal: got %#v, want %#v", raw, rawExtensionSupportedPointFormats)
 	}
+
+	roundtrip := &SupportedPointFormats{}
+	if err := roundtrip.Unmarshal(raw); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(roundtrip, parsedExtensionSupportedPointFormats) {
+		t.Errorf("extensionSupportedPointFormats unmarshal: got %#v, want %#v", roundtrip, parsedExtensionSupportedPointFormats)
+	}
 }
