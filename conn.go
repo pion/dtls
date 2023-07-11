@@ -615,7 +615,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 				return e
 			}
 		} else if err != nil {
-			return e
+			return err
 		}
 	}
 	if hasHandshake {
@@ -650,7 +650,7 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 				return e
 			}
 		} else if err != nil {
-			return e
+			return err
 		}
 	}
 	return nil
