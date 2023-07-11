@@ -605,17 +605,16 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 				}
 			}
 		}
-		if hs {
-			hasHandshake = true
-		}
 
 		var e *alertError
-		if errors.As(err, &e) {
-			if e.IsFatalOrCloseNotify() {
-				return e
-			}
-		} else if err != nil {
+		if errors.As(err, &e) && e.IsFatalOrCloseNotify() {
+			return e
+		}
+		if err != nil {
 			return err
+		}
+		if hs {
+			hasHandshake = true
 		}
 	}
 	if hasHandshake {
@@ -645,11 +644,10 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 			}
 		}
 		var e *alertError
-		if errors.As(err, &e) {
-			if e.IsFatalOrCloseNotify() {
-				return e
-			}
-		} else if err != nil {
+		if errors.As(err, &e) && e.IsFatalOrCloseNotify() {
+			return e
+		}
+		if err != nil {
 			return err
 		}
 	}
