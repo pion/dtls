@@ -18,9 +18,9 @@ func TestExtensionSupportedPointFormats(t *testing.T) {
 
 	raw, err := parsedExtensionSupportedPointFormats.Marshal()
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	} else if !reflect.DeepEqual(raw, rawExtensionSupportedPointFormats) {
-		t.Errorf("extensionSupportedPointFormats marshal: got %#v, want %#v", raw, rawExtensionSupportedPointFormats)
+		t.Fatalf("extensionSupportedPointFormats marshal: got %#v, want %#v", raw, rawExtensionSupportedPointFormats)
 	}
 
 	roundtrip := &SupportedPointFormats{}

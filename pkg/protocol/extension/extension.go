@@ -20,6 +20,7 @@ const (
 	UseSRTPTypeValue                      TypeValue = 14
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
+	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
 )
 
@@ -76,6 +77,8 @@ func Unmarshal(buf []byte) ([]Extension, error) {
 			err = unmarshalAndAppend(buf[offset:], &UseExtendedMasterSecret{})
 		case RenegotiationInfoTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &RenegotiationInfo{})
+		case ConnectionIDTypeValue:
+			err = unmarshalAndAppend(buf[offset:], &ConnectionID{})
 		default:
 		}
 		if err != nil {
