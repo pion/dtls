@@ -31,9 +31,9 @@ func TestExtensionSupportedSignatureAlgorithms(t *testing.T) {
 
 	raw, err := parsedExtensionSupportedSignatureAlgorithms.Marshal()
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	} else if !reflect.DeepEqual(raw, rawExtensionSupportedSignatureAlgorithms) {
-		t.Errorf("extensionSupportedSignatureAlgorithms marshal: got %#v, want %#v", raw, rawExtensionSupportedSignatureAlgorithms)
+		t.Fatalf("extensionSupportedSignatureAlgorithms marshal: got %#v, want %#v", raw, rawExtensionSupportedSignatureAlgorithms)
 	}
 
 	roundtrip := &SupportedSignatureAlgorithms{}

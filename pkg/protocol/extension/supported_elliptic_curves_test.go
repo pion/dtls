@@ -18,9 +18,9 @@ func TestExtensionSupportedGroups(t *testing.T) {
 
 	raw, err := parsedSupportedGroups.Marshal()
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	} else if !reflect.DeepEqual(raw, rawSupportedGroups) {
-		t.Errorf("extensionSupportedGroups marshal: got %#v, want %#v", raw, rawSupportedGroups)
+		t.Fatalf("extensionSupportedGroups marshal: got %#v, want %#v", raw, rawSupportedGroups)
 	}
 
 	roundtrip := &SupportedEllipticCurves{}
