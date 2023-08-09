@@ -253,13 +253,21 @@ func serverPion(c *comm) {
 	close(c.serverDone)
 }
 
+type dtlsConfOpts func(*dtls.Config)
+
+func withConnectionIDGenerator(g func() []byte) dtlsConfOpts {
+	return func(c *dtls.Config) {
+		c.ConnectionIDGenerator = g
+	}
+}
+
 /*
 	  Simple DTLS Client/Server can communicate
 	    - Assert that you can send messages both ways
 		- Assert that Close() on both ends work
 		- Assert that no Goroutines are leaked
 */
-func testPionE2ESimple(t *testing.T, server, client func(*comm)) {
+func testPionE2ESimple(t *testing.T, server, client func(*comm), opts ...dtlsConfOpts) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -286,6 +294,9 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm)) {
 				CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 				InsecureSkipVerify: true,
 			}
+			for _, o := range opts {
+				o(cfg)
+			}
 			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
 			defer comm.cleanup(t)
@@ -294,7 +305,7 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm)) {
 	}
 }
 
-func testPionE2ESimplePSK(t *testing.T, server, client func(*comm)) {
+func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtlsConfOpts) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -320,6 +331,9 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm)) {
 				PSKIdentityHint: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
 				CipherSuites:    []dtls.CipherSuiteID{cipherSuite},
 			}
+			for _, o := range opts {
+				o(cfg)
+			}
 			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
 			defer comm.cleanup(t)
@@ -328,7 +342,7 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm)) {
 	}
 }
 
-func testPionE2EMTUs(t *testing.T, server, client func(*comm)) {
+func testPionE2EMTUs(t *testing.T, server, client func(*comm), opts ...dtlsConfOpts) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -356,6 +370,9 @@ func testPionE2EMTUs(t *testing.T, server, client func(*comm)) {
 				InsecureSkipVerify: true,
 				MTU:                mtu,
 			}
+			for _, o := range opts {
+				o(cfg)
+			}
 			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
 			defer comm.cleanup(t)
@@ -364,7 +381,7 @@ func testPionE2EMTUs(t *testing.T, server, client func(*comm)) {
 	}
 }
 
-func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
+func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm), opts ...dtlsConfOpts) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -397,6 +414,9 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
 				CipherSuites:       []dtls.CipherSuiteID{cipherSuite},
 				InsecureSkipVerify: true,
 			}
+			for _, o := range opts {
+				o(cfg)
+			}
 			serverPort := randomPort(t)
 			comm := newComm(ctx, cfg, cfg, serverPort, server, client)
 			defer comm.cleanup(t)
@@ -405,7 +425,7 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm)) {
 	}
 }
 
-func testPionE2ESimpleED25519ClientCert(t *testing.T, server, client func(*comm)) {
+func testPionE2ESimpleED25519ClientCert(t *testing.T, server, client func(*comm), opts ...dtlsConfOpts) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -443,13 +463,17 @@ func testPionE2ESimpleED25519ClientCert(t *testing.T, server, client func(*comm)
 		CipherSuites:       []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		InsecureSkipVerify: true,
 	}
+	for _, o := range opts {
+		o(scfg)
+		o(ccfg)
+	}
 	serverPort := randomPort(t)
 	comm := newComm(ctx, ccfg, scfg, serverPort, server, client)
 	defer comm.cleanup(t)
 	comm.assert(t)
 }
 
-func testPionE2ESimpleECDSAClientCert(t *testing.T, server, client func(*comm)) {
+func testPionE2ESimpleECDSAClientCert(t *testing.T, server, client func(*comm), opts ...dtlsConfOpts) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -487,13 +511,17 @@ func testPionE2ESimpleECDSAClientCert(t *testing.T, server, client func(*comm)) 
 		CipherSuites:       []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		InsecureSkipVerify: true,
 	}
+	for _, o := range opts {
+		o(scfg)
+		o(ccfg)
+	}
 	serverPort := randomPort(t)
 	comm := newComm(ctx, ccfg, scfg, serverPort, server, client)
 	defer comm.cleanup(t)
 	comm.assert(t)
 }
 
-func testPionE2ESimpleRSAClientCert(t *testing.T, server, client func(*comm)) {
+func testPionE2ESimpleRSAClientCert(t *testing.T, server, client func(*comm), opts ...dtlsConfOpts) {
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -531,6 +559,10 @@ func testPionE2ESimpleRSAClientCert(t *testing.T, server, client func(*comm)) {
 		CipherSuites:       []dtls.CipherSuiteID{dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
 		InsecureSkipVerify: true,
 	}
+	for _, o := range opts {
+		o(scfg)
+		o(ccfg)
+	}
 	serverPort := randomPort(t)
 	comm := newComm(ctx, ccfg, scfg, serverPort, server, client)
 	defer comm.cleanup(t)
@@ -563,4 +595,32 @@ func TestPionE2ESimpleECDSAClientCert(t *testing.T) {
 
 func TestPionE2ESimpleRSAClientCert(t *testing.T) {
 	testPionE2ESimpleRSAClientCert(t, serverPion, clientPion)
+}
+
+func TestPionE2ESimpleCID(t *testing.T) {
+	testPionE2ESimple(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2ESimplePSKCID(t *testing.T) {
+	testPionE2ESimplePSK(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2EMTUsCID(t *testing.T) {
+	testPionE2EMTUs(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2ESimpleED25519CID(t *testing.T) {
+	testPionE2ESimpleED25519(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2ESimpleED25519ClientCertCID(t *testing.T) {
+	testPionE2ESimpleED25519ClientCert(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2ESimpleECDSAClientCertCID(t *testing.T) {
+	testPionE2ESimpleECDSAClientCert(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2ESimpleRSAClientCertCID(t *testing.T) {
+	testPionE2ESimpleRSAClientCert(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
 }
