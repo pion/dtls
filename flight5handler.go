@@ -277,6 +277,7 @@ func flight5Generate(c flightConn, state *State, cache *handshakeCache, cfg *han
 					},
 				},
 			},
+			shouldWrapCID:            len(state.remoteConnectionID) > 0,
 			shouldEncrypt:            true,
 			resetLocalSequenceNumber: true,
 		})
