@@ -113,6 +113,7 @@ type handshakeConfig struct {
 	customCipherSuites          func() []CipherSuite
 	ellipticCurves              []elliptic.Curve
 	insecureSkipHelloVerify     bool
+	connectionIDGenerator       func() []byte
 
 	onFlightState func(flightVal, handshakeState)
 	log           logging.LeveledLogger

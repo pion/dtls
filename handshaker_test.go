@@ -409,7 +409,7 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 				return err
 			}
 
-			c.handshakeCache.push(handshakeRaw[recordlayer.HeaderSize:], p.record.Header.Epoch, h.Header.MessageSequence, h.Header.Type, c.state.isClient)
+			c.handshakeCache.push(handshakeRaw[recordlayer.FixedHeaderSize:], p.record.Header.Epoch, h.Header.MessageSequence, h.Header.Type, c.state.isClient)
 
 			content, err := h.Message.Marshal()
 			if err != nil {
