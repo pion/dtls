@@ -4,13 +4,14 @@
 package recordlayer
 
 import (
+	"reflect"
 	"testing"
 )
 
-func partialHeaderMismatch(a, b Header) bool {
+func headerMismatch(a, b Header) bool {
 	// Ignoring content length for now.
 	a.ContentLen = b.ContentLen
-	return a != b
+	return !reflect.DeepEqual(a, b)
 }
 
 func FuzzRecordLayer(f *testing.F) {
@@ -34,7 +35,7 @@ func FuzzRecordLayer(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		if partialHeaderMismatch(nr.Header, r.Header) {
+		if headerMismatch(nr.Header, r.Header) {
 			t.Fatalf("Header mismatch: %+v != %+v", nr.Header, r.Header)
 		}
 	})
