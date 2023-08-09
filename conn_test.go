@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/internal/ciphersuite"
+	"github.com/pion/dtls/v2/internal/util"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/hash"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
@@ -265,12 +266,12 @@ func pipeConn(ca, cb net.Conn) (*Conn, *Conn, error) {
 
 	// Setup client
 	go func() {
-		client, err := testClient(ctx, ca, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
+		client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
 		c <- result{client, err}
 	}()
 
 	// Setup server
-	server, err := testServer(ctx, cb, &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
+	server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}}, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -285,7 +286,7 @@ func pipeConn(ca, cb net.Conn) (*Conn, *Conn, error) {
 	return res.c, server, nil
 }
 
-func testClient(ctx context.Context, c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
+func testClient(ctx context.Context, c net.PacketConn, rAddr net.Addr, cfg *Config, generateCertificate bool) (*Conn, error) {
 	if generateCertificate {
 		clientCert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
@@ -294,10 +295,10 @@ func testClient(ctx context.Context, c net.Conn, cfg *Config, generateCertificat
 		cfg.Certificates = []tls.Certificate{clientCert}
 	}
 	cfg.InsecureSkipVerify = true
-	return ClientWithContext(ctx, c, cfg)
+	return ClientWithContext(ctx, c, rAddr, cfg)
 }
 
-func testServer(ctx context.Context, c net.Conn, cfg *Config, generateCertificate bool) (*Conn, error) {
+func testServer(ctx context.Context, c net.PacketConn, rAddr net.Addr, cfg *Config, generateCertificate bool) (*Conn, error) {
 	if generateCertificate {
 		serverCert, err := selfsign.GenerateSelfSigned()
 		if err != nil {
@@ -305,7 +306,7 @@ func testServer(ctx context.Context, c net.Conn, cfg *Config, generateCertificat
 		}
 		cfg.Certificates = []tls.Certificate{serverCert}
 	}
-	return ServerWithContext(ctx, c, cfg)
+	return ServerWithContext(ctx, c, rAddr, cfg)
 }
 
 func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensions []extension.Extension) error {
@@ -384,11 +385,11 @@ func TestHandshakeWithAlert(t *testing.T) {
 
 			ca, cb := dpipe.Pipe()
 			go func() {
-				_, err := testClient(ctx, ca, testCase.configClient, true)
+				_, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), testCase.configClient, true)
 				clientErr <- err
 			}()
 
-			_, errServer := testServer(ctx, cb, testCase.configServer, true)
+			_, errServer := testServer(ctx, util.FromConn(cb), ca.RemoteAddr(), testCase.configServer, true)
 			if !errors.Is(errServer, testCase.errServer) {
 				t.Fatalf("Server error exp(%v) failed(%v)", testCase.errServer, errServer)
 			}
@@ -551,7 +552,7 @@ func TestPSK(t *testing.T) {
 					VerifyConnection: test.ClientVerifyConnection,
 				}
 
-				c, err := testClient(ctx, ca, conf, false)
+				c, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), conf, false)
 				clientRes <- result{c, err}
 			}()
 
@@ -567,7 +568,7 @@ func TestPSK(t *testing.T) {
 				VerifyConnection: test.ServerVerifyConnection,
 			}
 
-			server, err := testServer(ctx, cb, config, false)
+			server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), config, false)
 			if test.WantFail {
 				res := <-clientRes
 				if err == nil || !strings.Contains(err.Error(), test.ExpectedServerErr) {
@@ -626,7 +627,7 @@ func TestPSKHintFail(t *testing.T) {
 			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		}
 
-		_, err := testClient(ctx, ca, conf, false)
+		_, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), conf, false)
 		clientErr <- err
 	}()
 
@@ -638,7 +639,7 @@ func TestPSKHintFail(t *testing.T) {
 		CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 	}
 
-	if _, err := testServer(ctx, cb, config, false); !errors.Is(err, serverAlertError) {
+	if _, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), config, false); !errors.Is(err, serverAlertError) {
 		t.Fatalf("TestPSK: Server error exp(%v) failed(%v)", serverAlertError, err)
 	}
 
@@ -665,7 +666,7 @@ func TestClientTimeout(t *testing.T) {
 	go func() {
 		conf := &Config{}
 
-		c, err := testClient(ctx, ca, conf, true)
+		c, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), conf, true)
 		if err == nil {
 			_ = c.Close() //nolint:contextcheck
 		}
@@ -753,11 +754,11 @@ func TestSRTPConfiguration(t *testing.T) {
 		c := make(chan result)
 
 		go func() {
-			client, err := testClient(ctx, ca, &Config{SRTPProtectionProfiles: test.ClientSRTP}, true)
+			client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{SRTPProtectionProfiles: test.ClientSRTP}, true)
 			c <- result{client, err}
 		}()
 
-		server, err := testServer(ctx, cb, &Config{SRTPProtectionProfiles: test.ServerSRTP}, true)
+		server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{SRTPProtectionProfiles: test.ServerSRTP}, true)
 		if !errors.Is(err, test.WantServerError) {
 			t.Errorf("TestSRTPConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
 		}
@@ -961,11 +962,11 @@ func TestClientCertificate(t *testing.T) {
 				c := make(chan result)
 
 				go func() {
-					client, err := Client(ca, tt.clientCfg)
+					client, err := Client(util.FromConn(ca), ca.RemoteAddr(), tt.clientCfg)
 					c <- result{client, err}
 				}()
 
-				server, err := Server(cb, tt.serverCfg)
+				server, err := Server(util.FromConn(cb), cb.RemoteAddr(), tt.serverCfg)
 				res := <-c
 				defer func() {
 					if err == nil {
@@ -1039,6 +1040,120 @@ func TestClientCertificate(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestConnectionID(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	clientCID := []byte{5, 77, 33, 24, 93, 27, 45, 81}
+	serverCID := []byte{64, 24, 73, 2, 17, 96, 38, 59}
+	cidEcho := func(echo []byte) func() []byte {
+		return func() []byte {
+			return echo
+		}
+	}
+	tests := map[string]struct {
+		clientCfg          *Config
+		serverCfg          *Config
+		clientConnectionID []byte
+		serverConnectionID []byte
+	}{
+		"BidirectionalConnectionIDs": {
+			clientCfg: &Config{
+				ConnectionIDGenerator: cidEcho(clientCID),
+			},
+			serverCfg: &Config{
+				ConnectionIDGenerator: cidEcho(serverCID),
+			},
+			clientConnectionID: clientCID,
+			serverConnectionID: serverCID,
+		},
+		"BothSupportOnlyClientSends": {
+			clientCfg: &Config{
+				ConnectionIDGenerator: cidEcho(nil),
+			},
+			serverCfg: &Config{
+				ConnectionIDGenerator: cidEcho(serverCID),
+			},
+			serverConnectionID: serverCID,
+		},
+		"BothSupportOnlyServerSends": {
+			clientCfg: &Config{
+				ConnectionIDGenerator: cidEcho(clientCID),
+			},
+			serverCfg: &Config{
+				ConnectionIDGenerator: cidEcho(nil),
+			},
+			clientConnectionID: clientCID,
+		},
+		"ClientDoesNotSupport": {
+			clientCfg: &Config{},
+			serverCfg: &Config{
+				ConnectionIDGenerator: cidEcho(serverCID),
+			},
+		},
+		"ServerDoesNotSupport": {
+			clientCfg: &Config{
+				ConnectionIDGenerator: cidEcho(clientCID),
+			},
+			serverCfg: &Config{},
+		},
+		"NeitherSupport": {
+			clientCfg: &Config{},
+			serverCfg: &Config{},
+		},
+	}
+	for name, tt := range tests {
+		tt := tt
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			ca, cb := dpipe.Pipe()
+			type result struct {
+				c   *Conn
+				err error
+			}
+			c := make(chan result)
+
+			go func() {
+				client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), tt.clientCfg, true)
+				c <- result{client, err}
+			}()
+
+			server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), tt.serverCfg, true)
+			if err != nil {
+				t.Fatalf("Unexpected server error: %v", err)
+			}
+			res := <-c
+			if res.err != nil {
+				t.Fatalf("Unexpected client error: %v", res.err)
+			}
+			defer func() {
+				if err == nil {
+					_ = server.Close()
+				}
+				if res.err == nil {
+					_ = res.c.Close()
+				}
+			}()
+
+			if !bytes.Equal(res.c.state.localConnectionID, tt.clientConnectionID) {
+				t.Errorf("Unexpected client local connection ID\nwant: %v\ngot:%v", tt.clientConnectionID, res.c.state.localConnectionID)
+			}
+			if !bytes.Equal(res.c.state.remoteConnectionID, tt.serverConnectionID) {
+				t.Errorf("Unexpected client remote connection ID\nwant: %v\ngot:%v", tt.serverConnectionID, res.c.state.remoteConnectionID)
+			}
+			if !bytes.Equal(server.state.localConnectionID, tt.serverConnectionID) {
+				t.Errorf("Unexpected server local connection ID\nwant: %v\ngot:%v", tt.serverConnectionID, server.state.localConnectionID)
+			}
+			if !bytes.Equal(server.state.remoteConnectionID, tt.clientConnectionID) {
+				t.Errorf("Unexpected server remote connection ID\nwant: %v\ngot:%v", tt.clientConnectionID, server.state.remoteConnectionID)
+			}
+		})
+	}
 }
 
 func TestExtendedMasterSecret(t *testing.T) {
@@ -1157,11 +1272,11 @@ func TestExtendedMasterSecret(t *testing.T) {
 			c := make(chan result)
 
 			go func() {
-				client, err := testClient(ctx, ca, tt.clientCfg, true)
+				client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), tt.clientCfg, true)
 				c <- result{client, err}
 			}()
 
-			server, err := testServer(ctx, cb, tt.serverCfg, true)
+			server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), tt.serverCfg, true)
 			res := <-c
 			defer func() {
 				if err == nil {
@@ -1267,11 +1382,11 @@ func TestServerCertificate(t *testing.T) {
 				}
 				srvCh := make(chan result)
 				go func() {
-					s, err := Server(cb, tt.serverCfg)
+					s, err := Server(util.FromConn(cb), cb.RemoteAddr(), tt.serverCfg)
 					srvCh <- result{s, err}
 				}()
 
-				cli, err := Client(ca, tt.clientCfg)
+				cli, err := Client(util.FromConn(ca), ca.RemoteAddr(), tt.clientCfg)
 				if err == nil {
 					_ = cli.Close()
 				}
@@ -1371,11 +1486,11 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			c := make(chan result)
 
 			go func() {
-				client, err := testClient(ctx, ca, &Config{CipherSuites: test.ClientCipherSuites}, true)
+				client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{CipherSuites: test.ClientCipherSuites}, true)
 				c <- result{client, err}
 			}()
 
-			server, err := testServer(ctx, cb, &Config{CipherSuites: test.ServerCipherSuites}, true)
+			server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{CipherSuites: test.ServerCipherSuites}, true)
 			if err == nil {
 				defer func() {
 					_ = server.Close()
@@ -1440,7 +1555,7 @@ func TestCertificateAndPSKServer(t *testing.T) {
 					config.CipherSuites = []CipherSuiteID{TLS_PSK_WITH_AES_128_GCM_SHA256}
 				}
 
-				client, err := testClient(ctx, ca, config, false)
+				client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), config, false)
 				c <- result{client, err}
 			}()
 
@@ -1451,7 +1566,7 @@ func TestCertificateAndPSKServer(t *testing.T) {
 				},
 			}
 
-			server, err := testServer(ctx, cb, config, true)
+			server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), config, true)
 			if err == nil {
 				defer func() {
 					_ = server.Close()
@@ -1543,11 +1658,11 @@ func TestPSKConfiguration(t *testing.T) {
 		c := make(chan result)
 
 		go func() {
-			client, err := testClient(ctx, ca, &Config{PSK: test.ClientPSK, PSKIdentityHint: test.ClientPSKIdentity}, test.ClientHasCertificate)
+			client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{PSK: test.ClientPSK, PSKIdentityHint: test.ClientPSKIdentity}, test.ClientHasCertificate)
 			c <- result{client, err}
 		}()
 
-		_, err := testServer(ctx, cb, &Config{PSK: test.ServerPSK, PSKIdentityHint: test.ServerPSKIdentity}, test.ServerHasCertificate)
+		_, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{PSK: test.ServerPSK, PSKIdentityHint: test.ServerPSKIdentity}, test.ServerHasCertificate)
 		if err != nil || test.WantServerError != nil {
 			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
 				t.Fatalf("TestPSKConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
@@ -1677,7 +1792,7 @@ func TestServerTimeout(t *testing.T) {
 		FlightInterval: 100 * time.Millisecond,
 	}
 
-	_, serverErr := testServer(ctx, cb, config, true)
+	_, serverErr := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), config, true)
 	var netErr net.Error
 	if !errors.As(serverErr, &netErr) || !netErr.Timeout() {
 		t.Fatalf("Client error exp(Temporary network error) failed(%v)", serverErr)
@@ -1792,7 +1907,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 				defer wg.Wait()
 				go func() {
 					defer wg.Done()
-					if _, err := testServer(ctx, cb, config, true); !errors.Is(err, errUnsupportedProtocolVersion) {
+					if _, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), config, true); !errors.Is(err, errUnsupportedProtocolVersion) {
 						t.Errorf("Client error exp(%v) failed(%v)", errUnsupportedProtocolVersion, err)
 					}
 				}()
@@ -1882,7 +1997,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 				defer wg.Wait()
 				go func() {
 					defer wg.Done()
-					if _, err := testClient(ctx, cb, config, true); !errors.Is(err, errUnsupportedProtocolVersion) {
+					if _, err := testClient(ctx, util.FromConn(cb), cb.RemoteAddr(), config, true); !errors.Is(err, errUnsupportedProtocolVersion) {
 						t.Errorf("Server error exp(%v) failed(%v)", errUnsupportedProtocolVersion, err)
 					}
 				}()
@@ -1980,7 +2095,7 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 	defer wg.Wait()
 	go func() {
 		defer wg.Done()
-		_, _ = testClient(ctx, ca, &Config{}, false)
+		_, _ = testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{}, false)
 	}()
 
 	for i, cookie := range cookies {
@@ -2052,7 +2167,7 @@ func TestRenegotationInfo(t *testing.T) {
 			defer cancel()
 
 			go func() {
-				if _, err := testServer(ctx, cb, &Config{}, true); !errors.Is(err, context.Canceled) {
+				if _, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{}, true); !errors.Is(err, context.Canceled) {
 					t.Error(err)
 				}
 			}()
@@ -2164,7 +2279,7 @@ func TestServerNameIndicationExtension(t *testing.T) {
 					ServerName: test.ServerName,
 				}
 
-				_, _ = testClient(ctx, ca, conf, false)
+				_, _ = testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), conf, false)
 			}()
 
 			// Receive ClientHello
@@ -2282,7 +2397,7 @@ func TestALPNExtension(t *testing.T) {
 				conf := &Config{
 					SupportedProtocols: test.ClientProtocolNameList,
 				}
-				_, _ = testClient(ctx, ca, conf, false)
+				_, _ = testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), conf, false)
 			}()
 
 			// Receive ClientHello
@@ -2300,7 +2415,7 @@ func TestALPNExtension(t *testing.T) {
 				conf := &Config{
 					SupportedProtocols: test.ServerProtocolNameList,
 				}
-				if _, err2 := testServer(ctx2, cb2, conf, true); !errors.Is(err2, context.Canceled) {
+				if _, err2 := testServer(ctx2, util.FromConn(cb2), cb2.RemoteAddr(), conf, true); !errors.Is(err2, context.Canceled) {
 					if test.ExpectAlertFromServer { //nolint
 						// Assert the error type?
 					} else {
@@ -2447,7 +2562,7 @@ func TestSupportedGroupsExtension(t *testing.T) {
 
 		ca, cb := dpipe.Pipe()
 		go func() {
-			if _, err := testServer(ctx, cb, &Config{}, true); !errors.Is(err, context.Canceled) {
+			if _, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{}, true); !errors.Is(err, context.Canceled) {
 				t.Error(err)
 			}
 		}()
@@ -2556,7 +2671,7 @@ func TestSessionResume(t *testing.T) {
 				SessionStore: ss,
 				MTU:          100,
 			}
-			c, err := testClient(ctx, ca, config, false)
+			c, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), config, false)
 			clientRes <- result{c, err}
 		}()
 
@@ -2566,7 +2681,7 @@ func TestSessionResume(t *testing.T) {
 			SessionStore: ss,
 			MTU:          100,
 		}
-		server, err := testServer(ctx, cb, config, true)
+		server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), config, true)
 		if err != nil {
 			t.Fatalf("TestSessionResume: Server failed(%v)", err)
 		}
@@ -2610,14 +2725,14 @@ func TestSessionResume(t *testing.T) {
 				ServerName:   "example.com",
 				SessionStore: s1,
 			}
-			c, err := testClient(ctx, ca, config, false)
+			c, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), config, false)
 			clientRes <- result{c, err}
 		}()
 
 		config := &Config{
 			SessionStore: s2,
 		}
-		server, err := testServer(ctx, cb, config, true)
+		server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), config, true)
 		if err != nil {
 			t.Fatalf("TestSessionResumetion: Server failed(%v)", err)
 		}
@@ -2715,7 +2830,7 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) {
 
 			ca, cb := dpipe.Pipe()
 			go func() {
-				c, err := testClient(context.TODO(), ca, &Config{CipherSuites: test.cipherList}, false)
+				c, err := testClient(context.TODO(), util.FromConn(ca), ca.RemoteAddr(), &Config{CipherSuites: test.cipherList}, false)
 				clientErr <- err
 				client <- c
 			}()
@@ -2740,7 +2855,7 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if s, err := testServer(context.TODO(), cb, &Config{
+			if s, err := testServer(context.TODO(), util.FromConn(cb), cb.RemoteAddr(), &Config{
 				CipherSuites: test.cipherList,
 				Certificates: []tls.Certificate{serverCert},
 			}, false); err != nil {
@@ -2805,7 +2920,7 @@ func TestMultipleServerCertificates(t *testing.T) {
 
 			ca, cb := dpipe.Pipe()
 			go func() {
-				c, err := testClient(context.TODO(), ca, &Config{
+				c, err := testClient(context.TODO(), util.FromConn(ca), ca.RemoteAddr(), &Config{
 					RootCAs:    caPool,
 					ServerName: test.RequestServerName,
 					VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
@@ -2825,7 +2940,7 @@ func TestMultipleServerCertificates(t *testing.T) {
 				client <- c
 			}()
 
-			if s, err := testServer(context.TODO(), cb, &Config{Certificates: []tls.Certificate{fooCert, barCert}}, false); err != nil {
+			if s, err := testServer(context.TODO(), util.FromConn(cb), cb.RemoteAddr(), &Config{Certificates: []tls.Certificate{fooCert, barCert}}, false); err != nil {
 				t.Fatal(err)
 			} else if err = s.Close(); err != nil {
 				t.Fatal(err)
@@ -2877,11 +2992,11 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 		c := make(chan result)
 
 		go func() {
-			client, err := testClient(ctx, ca, &Config{CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}, EllipticCurves: test.ConfigCurves}, true)
+			client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}, EllipticCurves: test.ConfigCurves}, true)
 			c <- result{client, err}
 		}()
 
-		server, err := testServer(ctx, cb, &Config{CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}, EllipticCurves: test.ConfigCurves}, true)
+		server, err := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}, EllipticCurves: test.ConfigCurves}, true)
 		if err != nil {
 			t.Fatalf("Server error: %v", err)
 		}
@@ -2933,7 +3048,7 @@ func TestSkipHelloVerify(t *testing.T) {
 	gotHello := make(chan struct{})
 
 	go func() {
-		server, sErr := testServer(ctx, cb, &Config{
+		server, sErr := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{
 			Certificates:            []tls.Certificate{certificate},
 			LoggerFactory:           logging.NewDefaultLoggerFactory(),
 			InsecureSkipVerifyHello: true,
@@ -2952,7 +3067,7 @@ func TestSkipHelloVerify(t *testing.T) {
 		}
 	}()
 
-	client, err := testClient(ctx, ca, &Config{
+	client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{
 		LoggerFactory:      logging.NewDefaultLoggerFactory(),
 		InsecureSkipVerify: true,
 	}, false)
