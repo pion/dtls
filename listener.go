@@ -6,6 +6,7 @@ package dtls
 import (
 	"net"
 
+	"github.com/pion/dtls/v2/internal/util"
 	"github.com/pion/dtls/v2/pkg/protocol"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 	"github.com/pion/transport/v2/udp"
@@ -67,7 +68,7 @@ func (l *listener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Server(c, l.config)
+	return Server(util.FromConn(c), c.RemoteAddr(), l.config)
 }
 
 // Close closes the listener.
