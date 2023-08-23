@@ -953,6 +953,7 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 					Description: desc,
 				},
 			},
+			shouldWrapCID: len(c.state.remoteConnectionID) > 0,
 			shouldEncrypt: c.isHandshakeCompletedSuccessfully(),
 		},
 	})
