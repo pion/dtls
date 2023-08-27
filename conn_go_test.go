@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls/v2/internal/util"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	dtlsnet "github.com/pion/dtls/v2/pkg/net"
 	"github.com/pion/transport/v2/dpipe"
 	"github.com/pion/transport/v2/test"
 )
@@ -86,7 +86,7 @@ func TestContextConfig(t *testing.T) {
 			f: func() (func() (net.Conn, error), func()) {
 				ca, _ := dpipe.Pipe()
 				return func() (net.Conn, error) {
-						return Client(util.FromConn(ca), ca.RemoteAddr(), config)
+						return Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config)
 					}, func() {
 						_ = ca.Close()
 					}
@@ -98,7 +98,7 @@ func TestContextConfig(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 				ca, _ := dpipe.Pipe()
 				return func() (net.Conn, error) {
-						return ClientWithContext(ctx, util.FromConn(ca), ca.RemoteAddr(), config)
+						return ClientWithContext(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config)
 					}, func() {
 						cancel()
 						_ = ca.Close()
@@ -110,7 +110,7 @@ func TestContextConfig(t *testing.T) {
 			f: func() (func() (net.Conn, error), func()) {
 				ca, _ := dpipe.Pipe()
 				return func() (net.Conn, error) {
-						return Server(util.FromConn(ca), ca.RemoteAddr(), config)
+						return Server(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config)
 					}, func() {
 						_ = ca.Close()
 					}
@@ -122,7 +122,7 @@ func TestContextConfig(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 				ca, _ := dpipe.Pipe()
 				return func() (net.Conn, error) {
-						return ServerWithContext(ctx, util.FromConn(ca), ca.RemoteAddr(), config)
+						return ServerWithContext(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config)
 					}, func() {
 						cancel()
 						_ = ca.Close()
