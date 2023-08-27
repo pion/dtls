@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls/v2/internal/util"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	dtlsnet "github.com/pion/dtls/v2/pkg/net"
 	"github.com/pion/transport/v2/test"
 )
 
@@ -68,7 +68,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.PacketConn, net.Add
 	go func() {
 		var remote *Conn
 		var errR error
-		remote, errR = newRemote(util.FromConn(remoteConn), remoteConn.RemoteAddr(), config)
+		remote, errR = newRemote(dtlsnet.PacketConnFromConn(remoteConn), remoteConn.RemoteAddr(), config)
 		if errR != nil {
 			errChan <- errR
 		}
@@ -90,7 +90,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.PacketConn, net.Add
 	}()
 
 	var local *Conn
-	local, err = newLocal(util.FromConn(localConn1), localConn1.RemoteAddr(), config)
+	local, err = newLocal(dtlsnet.PacketConnFromConn(localConn1), localConn1.RemoteAddr(), config)
 	if err != nil {
 		fatal(t, errChan, err)
 	}
@@ -133,7 +133,7 @@ func DoTestResume(t *testing.T, newLocal, newRemote func(net.PacketConn, net.Add
 
 	// Resume dtls connection
 	var resumed net.Conn
-	resumed, err = Resume(deserialized, util.FromConn(localConn2), localConn2.RemoteAddr(), config)
+	resumed, err = Resume(deserialized, dtlsnet.PacketConnFromConn(localConn2), localConn2.RemoteAddr(), config)
 	if err != nil {
 		fatal(t, errChan, err)
 	}
