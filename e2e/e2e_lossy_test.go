@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2"
-	"github.com/pion/dtls/v2/internal/util"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	dtlsnet "github.com/pion/dtls/v2/pkg/net"
 	transportTest "github.com/pion/transport/v2/test"
 )
 
@@ -145,7 +145,7 @@ func TestPionE2ELossy(t *testing.T) {
 					cfg.Certificates = []tls.Certificate{clientCert}
 				}
 
-				client, startupErr := dtls.Client(util.FromConn(br.GetConn0()), br.GetConn0().RemoteAddr(), cfg)
+				client, startupErr := dtls.Client(dtlsnet.PacketConnFromConn(br.GetConn0()), br.GetConn0().RemoteAddr(), cfg)
 				clientDone <- runResult{client, startupErr}
 			}()
 
@@ -160,7 +160,7 @@ func TestPionE2ELossy(t *testing.T) {
 					cfg.ClientAuth = dtls.RequireAnyClientCert
 				}
 
-				server, startupErr := dtls.Server(util.FromConn(br.GetConn1()), br.GetConn1().RemoteAddr(), cfg)
+				server, startupErr := dtls.Server(dtlsnet.PacketConnFromConn(br.GetConn1()), br.GetConn1().RemoteAddr(), cfg)
 				serverDone <- runResult{server, startupErr}
 			}()
 

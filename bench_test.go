@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls/v2/internal/util"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	dtlsnet "github.com/pion/dtls/v2/pkg/net"
 	"github.com/pion/logging"
 	"github.com/pion/transport/v2/dpipe"
 	"github.com/pion/transport/v2/test"
@@ -31,7 +31,7 @@ func TestSimpleReadWrite(t *testing.T) {
 	gotHello := make(chan struct{})
 
 	go func() {
-		server, sErr := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{
+		server, sErr := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 			Certificates:  []tls.Certificate{certificate},
 			LoggerFactory: logging.NewDefaultLoggerFactory(),
 		}, false)
@@ -49,7 +49,7 @@ func TestSimpleReadWrite(t *testing.T) {
 		}
 	}()
 
-	client, err := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{
+	client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 		LoggerFactory:      logging.NewDefaultLoggerFactory(),
 		InsecureSkipVerify: true,
 	}, false)
@@ -79,7 +79,7 @@ func benchmarkConn(b *testing.B, n int64) {
 		certificate, err := selfsign.GenerateSelfSigned()
 		server := make(chan *Conn)
 		go func() {
-			s, sErr := testServer(ctx, util.FromConn(cb), cb.RemoteAddr(), &Config{
+			s, sErr := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 				Certificates: []tls.Certificate{certificate},
 			}, false)
 			if err != nil {
@@ -95,7 +95,7 @@ func benchmarkConn(b *testing.B, n int64) {
 		b.ReportAllocs()
 		b.SetBytes(int64(len(hw)))
 		go func() {
-			client, cErr := testClient(ctx, util.FromConn(ca), ca.RemoteAddr(), &Config{InsecureSkipVerify: true}, false)
+			client, cErr := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{InsecureSkipVerify: true}, false)
 			if cErr != nil {
 				b.Error(err)
 			}
