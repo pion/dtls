@@ -76,6 +76,8 @@ type serializedState struct {
 	PeerCertificates      [][]byte
 	IdentityHint          []byte
 	SessionID             []byte
+	LocalConnectionID     []byte
+	RemoteConnectionID    []byte
 	IsClient              bool
 }
 
@@ -105,6 +107,8 @@ func (s *State) serialize() *serializedState {
 		PeerCertificates:      s.PeerCertificates,
 		IdentityHint:          s.IdentityHint,
 		SessionID:             s.SessionID,
+		LocalConnectionID:     s.localConnectionID,
+		RemoteConnectionID:    s.remoteConnectionID,
 		IsClient:              s.isClient,
 	}
 }
@@ -141,7 +145,13 @@ func (s *State) deserialize(serialized serializedState) {
 
 	// Set remote certificate
 	s.PeerCertificates = serialized.PeerCertificates
+
 	s.IdentityHint = serialized.IdentityHint
+
+	// Set local and remote connection IDs
+	s.localConnectionID = serialized.LocalConnectionID
+	s.remoteConnectionID = serialized.RemoteConnectionID
+
 	s.SessionID = serialized.SessionID
 }
 
