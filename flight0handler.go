@@ -22,6 +22,12 @@ func flight0Parse(_ context.Context, _ flightConn, state *State, cache *handshak
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
+
+	// Connection Identifiers must be negotiated afresh on session resumption.
+	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
+	state.localConnectionID = nil
+	state.remoteConnectionID = nil
+
 	state.handshakeRecvSequence = seq
 
 	var clientHello *handshake.MessageClientHello
