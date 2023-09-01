@@ -38,8 +38,9 @@ Lukas Lihotzki <lukas@lihotzki.de>
 ManuelBk <26275612+ManuelBk@users.noreply.github.com>
 Michael Zabka <zabka.michael@gmail.com>
 Michiel De Backker <mail@backkem.me>
+mschexnaydre <michael.schexnaydre@viasat.com>
+mschexnaydre <mschex@viasat.com>
 Rachel Chen <rachel@chens.email>
-Michael Schexnaydre <michael.schexnaydre@viasat.com>
 Robert Eperjesi <eperjesi@uber.com>
 Ryan Gordon <ryan.gordon@getcruise.com>
 Sam Lancia <sam.lancia@motorolasolutions.com>
