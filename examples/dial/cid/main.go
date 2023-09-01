@@ -28,7 +28,7 @@ func main() {
 			fmt.Printf("Server's hint: %s \n", hint)
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},
-		PSKIdentityHint:       []byte("Pion DTLS Server"),
+		PSKIdentityHint:       []byte("Pion DTLS Client"),
 		CipherSuites:          []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM_8},
 		ExtendedMasterSecret:  dtls.RequireExtendedMasterSecret,
 		ConnectionIDGenerator: dtls.OnlySendCIDGenerator(),
