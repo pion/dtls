@@ -26,7 +26,7 @@ import (
 
 	idtlsnet "github.com/pion/dtls/v2/internal/net"
 	dtlsnet "github.com/pion/dtls/v2/pkg/net"
-	"github.com/pion/transport/v2/deadline"
+	"github.com/pion/transport/v3/deadline"
 )
 
 const (

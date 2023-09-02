@@ -15,7 +15,7 @@ import (
 
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v2/pkg/net"
-	"github.com/pion/transport/v2/test"
+	"github.com/pion/transport/v3/test"
 )
 
 var errMessageMissmatch = errors.New("messages missmatch")
