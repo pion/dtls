@@ -13,8 +13,8 @@ import (
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v2/pkg/net"
 	"github.com/pion/logging"
-	"github.com/pion/transport/v2/dpipe"
-	"github.com/pion/transport/v2/test"
+	"github.com/pion/transport/v3/dpipe"
+	"github.com/pion/transport/v3/test"
 )
 
 func TestSimpleReadWrite(t *testing.T) {

@@ -22,9 +22,9 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
-	"github.com/pion/transport/v2/deadline"
-	"github.com/pion/transport/v2/netctx"
-	"github.com/pion/transport/v2/replaydetector"
+	"github.com/pion/transport/v3/deadline"
+	"github.com/pion/transport/v3/netctx"
+	"github.com/pion/transport/v3/replaydetector"
 )
 
 const (

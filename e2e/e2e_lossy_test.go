@@ -13,7 +13,7 @@ import (
 	"github.com/pion/dtls/v2"
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v2/pkg/net"
-	transportTest "github.com/pion/transport/v2/test"
+	transportTest "github.com/pion/transport/v3/test"
 )
 
 const (
