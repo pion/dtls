@@ -19,7 +19,7 @@ import (
 	"time"
 
 	dtlsnet "github.com/pion/dtls/v2/pkg/net"
-	"github.com/pion/transport/v2/test"
+	"github.com/pion/transport/v3/test"
 )
 
 var errHandshakeFailed = errors.New("handshake failed")

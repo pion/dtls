@@ -18,7 +18,7 @@ import (
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
-	"github.com/pion/transport/v2/test"
+	"github.com/pion/transport/v3/test"
 )
 
 const nonZeroRetransmitInterval = 100 * time.Millisecond
