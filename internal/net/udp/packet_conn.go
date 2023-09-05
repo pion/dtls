@@ -269,7 +269,7 @@ type PacketConn struct {
 
 	raddr   net.Addr
 	rmraddr atomic.Value // bool
-	id      atomic.Value
+	id      atomic.Value // string
 
 	buffer *idtlsnet.PacketBuffer
 
