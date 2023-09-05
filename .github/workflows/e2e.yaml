@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: test
         run: |
           docker build -t pion-dtls-e2e -f e2e/Dockerfile .
