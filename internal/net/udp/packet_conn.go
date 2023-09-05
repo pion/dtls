@@ -101,7 +101,7 @@ func (l *listener) Close() error {
 				}
 				// If we haven't already removed the remote address, remove it
 				// from the connection map.
-				if !c.rmraddr.Load() {
+				if c.rmraddr.Load() == nil {
 					delete(l.conns, c.raddr.String())
 					c.rmraddr.Store(true)
 				}
@@ -268,7 +268,7 @@ type PacketConn struct {
 	listener *listener
 
 	raddr   net.Addr
-	rmraddr atomic.Bool
+	rmraddr atomic.Value // bool
 	id      atomic.Value
 
 	buffer *idtlsnet.PacketBuffer
@@ -327,7 +327,7 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		// resulting in the remote address entry being dropped prior to the
 		// "real" client transitioning to sending using the alternate
 		// identifier.
-		if id != nil && !c.rmraddr.Load() && addr.String() != c.raddr.String() {
+		if id != nil && c.rmraddr.Load() == nil && addr.String() != c.raddr.String() {
 			c.listener.connLock.Lock()
 			delete(c.listener.conns, c.raddr.String())
 			c.rmraddr.Store(true)
@@ -357,7 +357,7 @@ func (c *PacketConn) Close() error {
 		}
 		// If we haven't already removed the remote address, remove it from the
 		// connection map.
-		if !c.rmraddr.Load() {
+		if c.rmraddr.Load() == nil {
 			delete(c.listener.conns, c.raddr.String())
 			c.rmraddr.Store(true)
 		}
