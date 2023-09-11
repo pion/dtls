@@ -9,6 +9,8 @@ import (
 	"crypto/x509"
 	"fmt"
 	"strings"
+
+	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 )
 
 // ClientHelloInfo contains information from a ClientHello message in order to
@@ -22,6 +24,9 @@ type ClientHelloInfo struct {
 	// CipherSuites lists the CipherSuites supported by the client (e.g.
 	// TLS_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256).
 	CipherSuites []CipherSuiteID
+
+	// RandomBytes stores the client hello random bytes
+	RandomBytes [handshake.RandomBytesLength]byte
 }
 
 // CertificateRequestInfo contains information from a server's

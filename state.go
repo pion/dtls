@@ -258,3 +258,8 @@ func (s *State) getSRTPProtectionProfile() SRTPProtectionProfile {
 
 	return 0
 }
+
+// RemoteRandomBytes returns the remote client hello random bytes
+func (s *State) RemoteRandomBytes() [handshake.RandomBytesLength]byte {
+	return s.remoteRandom.RandomBytes
+}
