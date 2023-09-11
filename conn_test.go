@@ -3363,3 +3363,76 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 	ca.Close() // nolint
 	<-done
 }
+
+func TestHelloRandom(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ca, cb := dpipe.Pipe()
+	certificate, err := selfsign.GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotHello := make(chan struct{})
+
+	chRandom := [handshake.RandomBytesLength]byte{}
+	_, err = rand.Read(chRandom[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go func() {
+		server, sErr := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+			GetCertificate: func(chi *ClientHelloInfo) (*tls.Certificate, error) {
+				if len(chi.CipherSuites) == 0 {
+					return &certificate, nil
+				}
+
+				if !bytes.Equal(chi.RandomBytes[:], chRandom[:]) {
+					t.Error("client hello random differs")
+				}
+
+				return &certificate, nil
+			},
+			LoggerFactory: logging.NewDefaultLoggerFactory(),
+		}, false)
+		if sErr != nil {
+			t.Error(sErr)
+			return
+		}
+		buf := make([]byte, 1024)
+		if _, sErr = server.Read(buf); sErr != nil {
+			t.Error(sErr)
+		}
+		gotHello <- struct{}{}
+		if sErr = server.Close(); sErr != nil { //nolint:contextcheck
+			t.Error(sErr)
+		}
+	}()
+
+	client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+		LoggerFactory: logging.NewDefaultLoggerFactory(),
+		HelloRandomBytesGenerator: func() [handshake.RandomBytesLength]byte {
+			return chRandom
+		},
+		InsecureSkipVerify: true,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Write([]byte("hello")); err != nil {
+		t.Error(err)
+	}
+	select {
+	case <-gotHello:
+		// OK
+	case <-time.After(time.Second * 5):
+		t.Error("timeout")
+	}
+
+	if err = client.Close(); err != nil {
+		t.Error(err)
+	}
+}

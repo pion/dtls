@@ -198,6 +198,9 @@ type Config struct {
 	// https://datatracker.ietf.org/doc/html/rfc9146#section-4
 	PaddingLengthGenerator func(uint) uint
 
+	// HelloRandomBytesGenerator generates custom client hello random bytes.
+	HelloRandomBytesGenerator func() [handshake.RandomBytesLength]byte
+
 	// Handshake hooks: hooks can be used for testing invalid messages,
 	// mimicking other implementations or randomizing fields, which is valuable
 	// for applications that need censorship-resistance by making
