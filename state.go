@@ -238,3 +238,8 @@ func (s *State) getLocalEpoch() uint16 {
 	}
 	return 0
 }
+
+// RemoteRandomBytes returns the remote client hellow random bytes
+func (s *State) RemoteRandomBytes() [handshake.RandomBytesLength]byte {
+	return s.remoteRandom.RandomBytes
+}
