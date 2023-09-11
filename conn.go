@@ -212,6 +212,7 @@ func handshakeConn(ctx context.Context, conn *Conn, config *Config, isClient boo
 		localGetClientCertificate:     config.GetClientCertificate,
 		insecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
 		connectionIDGenerator:         config.ConnectionIDGenerator,
+		helloRandomBytesGenerator:     config.HelloRandomBytesGenerator,
 		clientHelloMessageHook:        config.ClientHelloMessageHook,
 		serverHelloMessageHook:        config.ServerHelloMessageHook,
 		certificateRequestMessageHook: config.CertificateRequestMessageHook,
