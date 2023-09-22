@@ -22,6 +22,7 @@ type State struct {
 	localRandom, remoteRandom handshake.Random
 	masterSecret              []byte
 	cipherSuite               CipherSuite // nil if a cipherSuite hasn't been chosen
+	CipherSuiteID             CipherSuiteID
 
 	srtpProtectionProfile SRTPProtectionProfile // Negotiated SRTPProtectionProfile
 	PeerCertificates      [][]byte
@@ -140,7 +141,8 @@ func (s *State) deserialize(serialized serializedState) {
 	s.masterSecret = serialized.MasterSecret
 
 	// Set cipher suite
-	s.cipherSuite = cipherSuiteForID(CipherSuiteID(serialized.CipherSuiteID), nil)
+	s.CipherSuiteID = CipherSuiteID(serialized.CipherSuiteID)
+	s.cipherSuite = cipherSuiteForID(s.CipherSuiteID, nil)
 
 	atomic.StoreUint64(&s.localSequenceNumber[epoch], serialized.SequenceNumber)
 	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
