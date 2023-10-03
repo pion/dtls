@@ -5,7 +5,7 @@ require (
 	github.com/pion/transport/v3 v3.0.1
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/crypto v0.13.0
-	golang.org/x/net v0.14.0
+	golang.org/x/net v0.15.0
 )
 
 go 1.13
