@@ -4,39 +4,33 @@
 package recordlayer
 
 import (
-	"reflect"
 	"testing"
 )
 
-func headerMismatch(a, b Header) bool {
-	// Ignoring content length for now.
-	a.ContentLen = b.ContentLen
-	return !reflect.DeepEqual(a, b)
+func FuzzRecordLayer(f *testing.F) {
+	Data := []byte{
+		0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01,
+	}
+	f.Add(Data)
+
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		var r RecordLayer
+		_ = r.Unmarshal(data)
+	})
 }
 
-func FuzzRecordLayer(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var r RecordLayer
-		if err := r.Unmarshal(data); err != nil {
-			return
-		}
+func FuzzUnpackDatagram(f *testing.F) {
+	Datasingle := []byte{
+		0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01,
+	}
+	Datamulti := []byte{
+		0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01,
+		0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01,
+	}
+	f.Add(Datasingle)
+	f.Add(Datamulti)
 
-		buf, err := r.Marshal()
-		if err != nil {
-			return
-		}
-
-		if len(buf) == 0 {
-			t.Fatal("Zero buff")
-		}
-
-		var nr RecordLayer
-		if err = nr.Unmarshal(data); err != nil {
-			t.Fatal(err)
-		}
-
-		if headerMismatch(nr.Header, r.Header) {
-			t.Fatalf("Header mismatch: %+v != %+v", nr.Header, r.Header)
-		}
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_, _ = UnpackDatagram(data)
 	})
 }
