@@ -40,7 +40,6 @@ Michael Zabka <zabka.michael@gmail.com>
 Michiel De Backker <mail@backkem.me>
 mschexnaydre <mschex@viasat.com>
 Rachel Chen <rachel@chens.email>
-Michael Schexnaydre <michael.schexnaydre@viasat.com>
 Robert Eperjesi <eperjesi@uber.com>
 Ryan Gordon <ryan.gordon@getcruise.com>
 Sam Lancia <sam.lancia@motorolasolutions.com>
@@ -55,6 +54,7 @@ Steffen Vogel <post@steffenvogel.de>
 Vadim <fffilimonov@yandex.ru>
 Vadim Filimonov <fffilimonov@yandex.ru>
 wmiao <wu.miao@viasat.com>
+Xinjun Ma <xinjun.ma@qq.com>
 ZHENK <chengzhenyang@gmail.com>
 吕海涛 <hi@taoshu.in>
 
