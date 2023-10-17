@@ -864,6 +864,14 @@ func TestClientCertificate(t *testing.T) {
 					ClientAuth:   RequireAnyClientCert,
 				},
 			},
+			"RequestClientCert_cert_sigscheme": { // specify signature algorithm
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{
+					SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP521AndSHA512},
+					Certificates:     []tls.Certificate{srvCert},
+					ClientAuth:       RequestClientCert,
+				},
+			},
 			"RequestClientCert_cert": {
 				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
 				serverCfg: &Config{

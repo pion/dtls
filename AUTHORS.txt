@@ -38,6 +38,7 @@ Lukas Lihotzki <lukas@lihotzki.de>
 ManuelBk <26275612+ManuelBk@users.noreply.github.com>
 Michael Zabka <zabka.michael@gmail.com>
 Michiel De Backker <mail@backkem.me>
+mschexnaydre <mschex@viasat.com>
 Rachel Chen <rachel@chens.email>
 Robert Eperjesi <eperjesi@uber.com>
 Ryan Gordon <ryan.gordon@getcruise.com>
@@ -53,6 +54,7 @@ Steffen Vogel <post@steffenvogel.de>
 Vadim <fffilimonov@yandex.ru>
 Vadim Filimonov <fffilimonov@yandex.ru>
 wmiao <wu.miao@viasat.com>
+Xinjun Ma <xinjun.ma@qq.com>
 ZHENK <chengzhenyang@gmail.com>
 吕海涛 <hi@taoshu.in>
 
