@@ -867,6 +867,7 @@ func TestClientCertificate(t *testing.T) {
 			"RequestClientCert_cert": {
 				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
 				serverCfg: &Config{
+                                        SignatureSchemes:[]tls.SignatureScheme{tls.ECDSAWithP521AndSHA512},
 					Certificates: []tls.Certificate{srvCert},
 					ClientAuth:   RequestClientCert,
 				},
@@ -1352,7 +1353,7 @@ func TestServerCertificate(t *testing.T) {
 				}},
 			},
 			"good_ca_custom_verify_peer": {
-				clientCfg: &Config{
+				clientCfg: &Config{                                        
 					RootCAs: caPool,
 					VerifyPeerCertificate: func([][]byte, [][]*x509.Certificate) error {
 						return errWrongCert
