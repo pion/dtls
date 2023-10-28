@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/logging"
 )
 
@@ -196,6 +197,9 @@ type Config struct {
 	// If no PaddingLengthGenerator is specified, padding will not be applied.
 	// https://datatracker.ietf.org/doc/html/rfc9146#section-4
 	PaddingLengthGenerator func(uint) uint
+
+	// HelloRandomBytesGenerator generates custom client hello random bytes.
+	HelloRandomBytesGenerator func() [handshake.RandomBytesLength]byte
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {

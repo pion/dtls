@@ -114,6 +114,7 @@ type handshakeConfig struct {
 	ellipticCurves              []elliptic.Curve
 	insecureSkipHelloVerify     bool
 	connectionIDGenerator       func() []byte
+	helloRandomBytesGenerator   func() [handshake.RandomBytesLength]byte
 
 	onFlightState func(flightVal, handshakeState)
 	log           logging.LeveledLogger
