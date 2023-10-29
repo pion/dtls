@@ -216,10 +216,10 @@ func TestHandshaker(t *testing.T) {
 			}
 
 			report := func(t *testing.T) {
-				// with one second server delay and 100 ms retransmit, there should be close to 10 `Finished` from client
-				// using a range of 9 - 11 for checking
-				if cntClientFinished < 8 || cntClientFinished > 11 {
-					t.Errorf("Number of client finished is wrong, expected: %d - %d times, got: %d times", 9, 11, cntClientFinished)
+				// with one second server delay and 100 ms retransmit (+ exponential backoff), there should be close to 4 `Finished` from client
+				// using a range of 3 - 5 for checking
+				if cntClientFinished < 3 || cntClientFinished > 5 {
+					t.Errorf("Number of client finished is wrong, expected: %d - %d times, got: %d times", 3, 5, cntClientFinished)
 				}
 				if !isClientFinished {
 					t.Errorf("Client is not finished")
@@ -281,7 +281,7 @@ func TestHandshaker(t *testing.T) {
 							})
 						}
 					},
-					retransmitInterval: nonZeroRetransmitInterval,
+					initialRetransmitInterval: nonZeroRetransmitInterval,
 				}
 
 				fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, flight1)
@@ -314,7 +314,7 @@ func TestHandshaker(t *testing.T) {
 							})
 						}
 					},
-					retransmitInterval: nonZeroRetransmitInterval,
+					initialRetransmitInterval: nonZeroRetransmitInterval,
 				}
 
 				fsm := newHandshakeFSM(&cb.state, cb.handshakeCache, cfg, flight0)
