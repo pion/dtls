@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"io"
+	"net"
 	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
@@ -219,7 +220,7 @@ var defaultCurves = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P3
 
 // PSKCallback is called once we have the remote's PSKIdentityHint.
 // If the remote provided none it will be nil
-type PSKCallback func([]byte) ([]byte, error)
+type PSKCallback func([]byte, net.Addr) ([]byte, error)
 
 // ClientAuthType declares the policy the server will follow for
 // TLS Client Authentication.

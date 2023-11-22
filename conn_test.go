@@ -540,7 +540,7 @@ func TestPSK(t *testing.T) {
 			ca, cb := dpipe.Pipe()
 			go func() {
 				conf := &Config{
-					PSK: func(hint []byte) ([]byte, error) {
+					PSK: func(hint []byte, addr net.Addr) ([]byte, error) {
 						if !bytes.Equal(test.ServerIdentity, hint) {
 							return nil, fmt.Errorf("TestPSK: Client got invalid identity expected(% 02x) actual(% 02x)", test.ServerIdentity, hint) //nolint:goerr113
 						}
@@ -557,7 +557,7 @@ func TestPSK(t *testing.T) {
 			}()
 
 			config := &Config{
-				PSK: func(hint []byte) ([]byte, error) {
+				PSK: func(hint []byte, addr net.Addr) ([]byte, error) {
 					if !bytes.Equal(clientIdentity, hint) {
 						return nil, fmt.Errorf("%w: expected(% 02x) actual(% 02x)", errTestPSKInvalidIdentity, clientIdentity, hint)
 					}
@@ -620,7 +620,7 @@ func TestPSKHintFail(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 	go func() {
 		conf := &Config{
-			PSK: func(hint []byte) ([]byte, error) {
+			PSK: func(hint []byte, addr net.Addr) ([]byte, error) {
 				return nil, pskRejected
 			},
 			PSKIdentityHint: []byte{},
@@ -632,7 +632,7 @@ func TestPSKHintFail(t *testing.T) {
 	}()
 
 	config := &Config{
-		PSK: func(hint []byte) ([]byte, error) {
+		PSK: func(hint []byte, addr net.Addr) ([]byte, error) {
 			return nil, pskRejected
 		},
 		PSKIdentityHint: []byte{},
@@ -1556,7 +1556,7 @@ func TestCertificateAndPSKServer(t *testing.T) {
 			go func() {
 				config := &Config{CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}}
 				if test.ClientPSK {
-					config.PSK = func([]byte) ([]byte, error) {
+					config.PSK = func([]byte, net.Addr) ([]byte, error) {
 						return []byte{0x00, 0x01, 0x02}, nil
 					}
 					config.PSKIdentityHint = []byte{0x00}
@@ -1569,7 +1569,7 @@ func TestCertificateAndPSKServer(t *testing.T) {
 
 			config := &Config{
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_PSK_WITH_AES_128_GCM_SHA256},
-				PSK: func([]byte) ([]byte, error) {
+				PSK: func([]byte, net.Addr) ([]byte, error) {
 					return []byte{0x00, 0x01, 0x02}, nil
 				},
 			}
@@ -1614,8 +1614,8 @@ func TestPSKConfiguration(t *testing.T) {
 			Name:                 "PSK and no certificate specified",
 			ClientHasCertificate: false,
 			ServerHasCertificate: false,
-			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
+			ClientPSK:            func([]byte, net.Addr) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
+			ServerPSK:            func([]byte, net.Addr) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			ClientPSKIdentity:    []byte{0x00},
 			ServerPSKIdentity:    []byte{0x00},
 			WantClientError:      errNoAvailablePSKCipherSuite,
@@ -1625,8 +1625,8 @@ func TestPSKConfiguration(t *testing.T) {
 			Name:                 "PSK and certificate specified",
 			ClientHasCertificate: true,
 			ServerHasCertificate: true,
-			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
+			ClientPSK:            func([]byte, net.Addr) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
+			ServerPSK:            func([]byte, net.Addr) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			ClientPSKIdentity:    []byte{0x00},
 			ServerPSKIdentity:    []byte{0x00},
 			WantClientError:      errNoAvailablePSKCipherSuite,
@@ -1636,8 +1636,8 @@ func TestPSKConfiguration(t *testing.T) {
 			Name:                 "PSK and no identity specified",
 			ClientHasCertificate: false,
 			ServerHasCertificate: false,
-			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
+			ClientPSK:            func([]byte, net.Addr) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
+			ServerPSK:            func([]byte, net.Addr) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			ClientPSKIdentity:    nil,
 			ServerPSKIdentity:    nil,
 			WantClientError:      errPSKAndIdentityMustBeSetForClient,

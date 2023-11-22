@@ -107,7 +107,7 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		var preMasterSecret []byte
 		if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypePreSharedKey {
 			var psk []byte
-			if psk, err = cfg.localPSKCallback(clientKeyExchange.IdentityHint); err != nil {
+			if psk, err = cfg.localPSKCallback(clientKeyExchange.IdentityHint, c.(*Conn).rAddr); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 			state.IdentityHint = clientKeyExchange.IdentityHint
