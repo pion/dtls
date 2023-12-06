@@ -97,6 +97,7 @@ func (h *handshakeCache) fullPullMap(startSeq int, cipherSuite CipherSuite, rule
 	}
 	out := make(map[handshake.Type]handshake.Message)
 	seq := startSeq
+	ok := false
 	for _, r := range rules {
 		t := r.typ
 		i := ci[t]
@@ -118,9 +119,10 @@ func (h *handshakeCache) fullPullMap(startSeq int, cipherSuite CipherSuite, rule
 			return startSeq, nil, false
 		}
 		seq++
+		ok = true
 		out[t] = rawHandshake.Message
 	}
-	return seq, out, true
+	return seq, out, ok
 }
 
 // pullAndMerge calls pull and then merges the results, ignoring any null entries
