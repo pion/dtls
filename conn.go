@@ -881,7 +881,11 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 					}
 				} else {
 					switch {
-					case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled), errors.Is(err, io.EOF):
+					case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled), errors.Is(err, io.EOF), errors.Is(err, net.ErrClosed):
+					case errors.Is(err, recordlayer.ErrInvalidPacketLength):
+						// Decode error must be silently discarded
+						// [RFC6347 Section-4.1.2.7]
+						continue
 					default:
 						if c.isHandshakeCompletedSuccessfully() {
 							// Keep read loop and pass the read error to Read()
