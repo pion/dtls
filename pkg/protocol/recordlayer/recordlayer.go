@@ -100,12 +100,12 @@ func UnpackDatagram(buf []byte) ([][]byte, error) {
 
 	for offset := 0; len(buf) != offset; {
 		if len(buf)-offset <= FixedHeaderSize {
-			return nil, errInvalidPacketLength
+			return nil, ErrInvalidPacketLength
 		}
 
 		pktLen := (FixedHeaderSize + int(binary.BigEndian.Uint16(buf[offset+11:])))
 		if offset+pktLen > len(buf) {
-			return nil, errInvalidPacketLength
+			return nil, ErrInvalidPacketLength
 		}
 
 		out = append(out, buf[offset:offset+pktLen])
@@ -129,12 +129,12 @@ func ContentAwareUnpackDatagram(buf []byte, cidLength int) ([][]byte, error) {
 			lenIdx += cidLength
 		}
 		if len(buf)-offset <= headerSize {
-			return nil, errInvalidPacketLength
+			return nil, ErrInvalidPacketLength
 		}
 
 		pktLen := (headerSize + int(binary.BigEndian.Uint16(buf[offset+lenIdx:])))
 		if offset+pktLen > len(buf) {
-			return nil, errInvalidPacketLength
+			return nil, ErrInvalidPacketLength
 		}
 
 		out = append(out, buf[offset:offset+pktLen])
