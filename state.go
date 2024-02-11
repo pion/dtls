@@ -10,6 +10,7 @@ import (
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/prf"
+	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/transport/v3/replaydetector"
 )
@@ -23,7 +24,7 @@ type State struct {
 	cipherSuite               CipherSuite // nil if a cipherSuite hasn't been chosen
 	CipherSuiteID             CipherSuiteID
 
-	srtpProtectionProfile SRTPProtectionProfile // Negotiated SRTPProtectionProfile
+	srtpProtectionProfile atomic.Value // Negotiated SRTPProtectionProfile
 	PeerCertificates      [][]byte
 	IdentityHint          []byte
 	SessionID             []byte
@@ -53,6 +54,7 @@ type State struct {
 	handshakeSendSequence      int
 	handshakeRecvSequence      int
 	serverName                 string
+	remoteCertRequestAlgs      []signaturehash.Algorithm
 	remoteRequestedCertificate bool   // Did we get a CertificateRequest
 	localCertificatesVerify    []byte // cache CertificateVerify
 	localVerifyData            []byte // cached VerifyData
@@ -104,7 +106,7 @@ func (s *State) serialize() *serializedState {
 		SequenceNumber:        atomic.LoadUint64(&s.localSequenceNumber[epoch]),
 		LocalRandom:           localRnd,
 		RemoteRandom:          remoteRnd,
-		SRTPProtectionProfile: uint16(s.srtpProtectionProfile),
+		SRTPProtectionProfile: uint16(s.getSRTPProtectionProfile()),
 		PeerCertificates:      s.PeerCertificates,
 		IdentityHint:          s.IdentityHint,
 		SessionID:             s.SessionID,
@@ -143,7 +145,7 @@ func (s *State) deserialize(serialized serializedState) {
 	s.cipherSuite = cipherSuiteForID(s.CipherSuiteID, nil)
 
 	atomic.StoreUint64(&s.localSequenceNumber[epoch], serialized.SequenceNumber)
-	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
+	s.setSRTPProtectionProfile(SRTPProtectionProfile(serialized.SRTPProtectionProfile))
 
 	// Set remote certificate
 	s.PeerCertificates = serialized.PeerCertificates
@@ -238,5 +240,17 @@ func (s *State) getLocalEpoch() uint16 {
 	if localEpoch, ok := s.localEpoch.Load().(uint16); ok {
 		return localEpoch
 	}
+	return 0
+}
+
+func (s *State) setSRTPProtectionProfile(profile SRTPProtectionProfile) {
+	s.srtpProtectionProfile.Store(profile)
+}
+
+func (s *State) getSRTPProtectionProfile() SRTPProtectionProfile {
+	if val, ok := s.srtpProtectionProfile.Load().(SRTPProtectionProfile); ok {
+		return val
+	}
+
 	return 0
 }

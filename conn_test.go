@@ -389,7 +389,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 				clientErr <- err
 			}()
 
-			_, errServer := testServer(ctx, dtlsnet.PacketConnFromConn(cb), ca.RemoteAddr(), testCase.configServer, true)
+			_, errServer := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), testCase.configServer, true)
 			if !errors.Is(errServer, testCase.errServer) {
 				t.Fatalf("Server error exp(%v) failed(%v)", testCase.errServer, errServer)
 			}
@@ -399,6 +399,71 @@ func TestHandshakeWithAlert(t *testing.T) {
 				t.Fatalf("Client error exp(%v) failed(%v)", testCase.errClient, errClient)
 			}
 		})
+	}
+}
+
+func TestHandshakeWithInvalidRecord(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type result struct {
+		c   *Conn
+		err error
+	}
+	clientErr := make(chan result, 1)
+	ca, cb := dpipe.Pipe()
+	caWithInvalidRecord := &connWithCallback{Conn: ca}
+
+	var msgSeq atomic.Int32
+	// Send invalid record after first message
+	caWithInvalidRecord.onWrite = func(b []byte) {
+		if msgSeq.Add(1) == 2 {
+			if _, err := ca.Write([]byte{0x01, 0x02}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	go func() {
+		client, err := testClient(ctx, dtlsnet.PacketConnFromConn(caWithInvalidRecord), caWithInvalidRecord.RemoteAddr(), &Config{
+			CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		}, true)
+		clientErr <- result{client, err}
+	}()
+
+	server, errServer := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+	}, true)
+
+	errClient := <-clientErr
+
+	defer func() {
+		if server != nil {
+			if err := server.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		if errClient.c != nil {
+			if err := errClient.c.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}()
+
+	if errServer != nil {
+		t.Fatalf("Server failed(%v)", errServer)
+	}
+
+	if errClient.err != nil {
+		t.Fatalf("Client failed(%v)", errClient.err)
 	}
 }
 
@@ -862,6 +927,14 @@ func TestClientCertificate(t *testing.T) {
 				serverCfg: &Config{
 					Certificates: []tls.Certificate{srvCert},
 					ClientAuth:   RequireAnyClientCert,
+				},
+			},
+			"RequestClientCert_cert_sigscheme": { // specify signature algorithm
+				clientCfg: &Config{RootCAs: srvCAPool, Certificates: []tls.Certificate{cert}},
+				serverCfg: &Config{
+					SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP521AndSHA512},
+					Certificates:     []tls.Certificate{srvCert},
+					ClientAuth:       RequestClientCert,
 				},
 			},
 			"RequestClientCert_cert": {
@@ -3087,4 +3160,16 @@ func TestSkipHelloVerify(t *testing.T) {
 	if err = client.Close(); err != nil {
 		t.Error(err)
 	}
+}
+
+type connWithCallback struct {
+	net.Conn
+	onWrite func([]byte)
+}
+
+func (c *connWithCallback) Write(b []byte) (int, error) {
+	if c.onWrite != nil {
+		c.onWrite(b)
+	}
+	return c.Conn.Write(b)
 }
