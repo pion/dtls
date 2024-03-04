@@ -3050,3 +3050,53 @@ func (c *connWithCallback) Write(b []byte) (int, error) {
 	}
 	return c.Conn.Write(b)
 }
+
+func TestApplicationDataWithClientHelloRejected(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ca, cb := dpipe.Pipe()
+	defer ca.Close()
+	defer cb.Close()
+
+	done := make(chan struct{})
+	go func() {
+		if _, err := testServer(ctx, cb, &Config{}, true); err == nil {
+			t.Error("expected handshake to fail")
+		}
+		close(done)
+	}()
+	extensions := []extension.Extension{}
+
+	time.Sleep(50 * time.Millisecond)
+
+	err := sendClientHello([]byte{}, ca, 0, extensions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Send an application data packet
+	packet, err := (&recordlayer.RecordLayer{
+		Header: recordlayer.Header{
+			Version:        protocol.Version1_2,
+			SequenceNumber: uint64(3),
+			Epoch:          0,
+		},
+		Content: &protocol.ApplicationData{
+			Data: []byte{1, 2, 3, 4},
+		},
+	}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca.Write(packet)
+	<-done
+}
