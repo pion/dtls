@@ -13,7 +13,11 @@ func Resume(state *State, conn net.PacketConn, rAddr net.Addr, config *Config) (
 	if err := state.initCipherSuite(); err != nil {
 		return nil, err
 	}
-	c, err := createConn(context.Background(), conn, rAddr, config, state.isClient, state)
+	dconn, err := createConn(conn, rAddr, config, state.isClient)
+	if err != nil {
+		return nil, err
+	}
+	c, err := handshakeConn(context.Background(), dconn, config, state.isClient, state)
 	if err != nil {
 		return nil, err
 	}

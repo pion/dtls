@@ -3279,3 +3279,87 @@ func (c *connWithCallback) Write(b []byte) (int, error) {
 	}
 	return c.Conn.Write(b)
 }
+
+func TestApplicationDataQueueLimited(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ca, cb := dpipe.Pipe()
+	defer ca.Close() //nolint:errcheck
+	defer cb.Close() //nolint:errcheck
+
+	done := make(chan struct{})
+	go func() {
+		serverCert, err := selfsign.GenerateSelfSigned()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		cfg := &Config{}
+		cfg.Certificates = []tls.Certificate{serverCert}
+
+		dconn, err := createConn(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), cfg, false)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		go func() {
+			for i := 0; i < 5; i++ {
+				dconn.lock.RLock()
+				qlen := len(dconn.encryptedPackets)
+				dconn.lock.RUnlock()
+				if qlen > maxAppDataPacketQueueSize {
+					t.Error("too many encrypted packets enqueued", len(dconn.encryptedPackets))
+				}
+				t.Log(qlen)
+				time.Sleep(1 * time.Second)
+			}
+		}()
+		if _, err := handshakeConn(ctx, dconn, cfg, false, nil); err == nil {
+			t.Error("expected handshake to fail")
+		}
+		close(done)
+	}()
+	extensions := []extension.Extension{}
+
+	time.Sleep(50 * time.Millisecond)
+
+	err := sendClientHello([]byte{}, ca, 0, extensions)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	for i := 0; i < 1000; i++ {
+		// Send an application data packet
+		packet, err := (&recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version:        protocol.Version1_2,
+				SequenceNumber: uint64(3),
+				Epoch:          1, // use an epoch greater than 0
+			},
+			Content: &protocol.ApplicationData{
+				Data: []byte{1, 2, 3, 4},
+			},
+		}).Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ca.Write(packet) // nolint
+		if i%100 == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	time.Sleep(1 * time.Second)
+	ca.Close() // nolint
+	<-done
+}
