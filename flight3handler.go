@@ -202,14 +202,14 @@ func handleResumption(ctx context.Context, c flightConn, state *State, cache *ha
 	return flight5b, nil, nil
 }
 
-func handleServerKeyExchange(_ flightConn, state *State, cfg *handshakeConfig, h *handshake.MessageServerKeyExchange) (*alert.Alert, error) {
+func handleServerKeyExchange(c flightConn, state *State, cfg *handshakeConfig, h *handshake.MessageServerKeyExchange) (*alert.Alert, error) {
 	var err error
 	if state.cipherSuite == nil {
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
 	}
 	if cfg.localPSKCallback != nil {
 		var psk []byte
-		if psk, err = cfg.localPSKCallback(h.IdentityHint); err != nil {
+		if psk, err = cfg.localPSKCallback(h.IdentityHint, c.(*Conn).rAddr); err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		state.IdentityHint = h.IdentityHint

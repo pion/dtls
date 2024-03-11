@@ -28,7 +28,7 @@ func main() {
 
 	// Prepare the configuration of the DTLS connection
 	config := &dtls.Config{
-		PSK: func(hint []byte) ([]byte, error) {
+		PSK: func(hint []byte, addr net.Addr) ([]byte, error) {
 			fmt.Printf("Client's hint: %s \n", hint)
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},

@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"errors"
+	"net"
 	"testing"
 
 	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
@@ -47,7 +48,7 @@ func TestValidateConfig(t *testing.T) {
 		"PSK and Certificate, valid cipher suites": {
 			config: &Config{
 				CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-				PSK: func(hint []byte) ([]byte, error) {
+				PSK: func(hint []byte, addr net.Addr) ([]byte, error) {
 					return nil, nil
 				},
 				Certificates: []tls.Certificate{cert},
@@ -56,7 +57,7 @@ func TestValidateConfig(t *testing.T) {
 		"PSK and Certificate, no PSK cipher suite": {
 			config: &Config{
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-				PSK: func(hint []byte) ([]byte, error) {
+				PSK: func(hint []byte, addr net.Addr) ([]byte, error) {
 					return nil, nil
 				},
 				Certificates: []tls.Certificate{cert},
@@ -66,7 +67,7 @@ func TestValidateConfig(t *testing.T) {
 		"PSK and Certificate, no non-PSK cipher suite": {
 			config: &Config{
 				CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
-				PSK: func(hint []byte) ([]byte, error) {
+				PSK: func(hint []byte, addr net.Addr) ([]byte, error) {
 					return nil, nil
 				},
 				Certificates: []tls.Certificate{cert},
