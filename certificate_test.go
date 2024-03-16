@@ -77,7 +77,7 @@ func TestGetCertificate(t *testing.T) {
 		},
 		{
 			desc: "Get certificate from callback",
-			getCertificate: func(info *ClientHelloInfo) (*tls.Certificate, error) {
+			getCertificate: func(*ClientHelloInfo) (*tls.Certificate, error) {
 				return &certificateTest, nil
 			},
 			expectedCertificate: certificateTest,

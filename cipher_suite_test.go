@@ -98,13 +98,13 @@ func TestCustomCipherSuite(t *testing.T) {
 		}
 	}
 
-	t.Run("Custom ID", func(t *testing.T) {
+	t.Run("Custom ID", func(*testing.T) {
 		runTest(func() []CipherSuite {
 			return []CipherSuite{&testCustomCipherSuite{authenticationType: CipherSuiteAuthenticationTypeCertificate}}
 		})
 	})
 
-	t.Run("Anonymous Cipher", func(t *testing.T) {
+	t.Run("Anonymous Cipher", func(*testing.T) {
 		runTest(func() []CipherSuite {
 			return []CipherSuite{&testCustomCipherSuite{authenticationType: CipherSuiteAuthenticationTypeAnonymous}}
 		})

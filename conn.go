@@ -972,7 +972,7 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 	done := make(chan struct{})
 	ctxRead, cancelRead := context.WithCancel(context.Background())
 	c.cancelHandshakeReader = cancelRead
-	cfg.onFlightState = func(f flightVal, s handshakeState) {
+	cfg.onFlightState = func(_ flightVal, s handshakeState) {
 		if s == handshakeFinished && !c.isHandshakeCompletedSuccessfully() {
 			c.setHandshakeCompletedSuccessfully()
 			close(done)
