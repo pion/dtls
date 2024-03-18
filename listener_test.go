@@ -65,7 +65,7 @@ func TestParallelHandshakes(t *testing.T) {
 			t.Error(err)
 		}
 	case <-time.After(time.Millisecond*100):
-		t.Errorf("Expected second connection to be bypass first")
+		t.Errorf("Expected second connection to handshake quickly")
 	}
 }
 
