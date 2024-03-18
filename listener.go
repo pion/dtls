@@ -65,6 +65,34 @@ type listener struct {
 	parent dtlsnet.PacketListener
 }
 
+// Handshaker performs handshakes and returns a connection, on success.
+// It is only valid for 1 connection.
+type Handshaker interface {
+	Handshake() (net.Conn, error)
+}
+
+// handshaker implements Handshaker for a dtls connection.
+type handshaker struct {
+	parent net.PacketConn
+	addr net.Addr
+	config *Config
+}
+
+// Handshake performs a dtls handshake according to the bound config.
+func (h handshaker) Handshake() (net.Conn, error) {
+	return Server(h.parent, h.addr, h.config)
+}
+
+// AcceptHandshake accepts a connection and returns a Handshaker.
+// This allows multiple handshakes to be performed in parallel.
+func (l *listener) AcceptHandshake() (Handshaker, error) {
+	c, raddr, err := l.parent.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return handshaker{c, raddr, l.config}, err
+}
+
 // Accept waits for and returns the next connection to the listener.
 // You have to either close or read on all connection that are created.
 // Connection handshake will timeout using ConnectContextMaker in the Config.
