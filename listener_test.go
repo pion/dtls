@@ -10,7 +10,7 @@ import (
 // TestParallelHandshakes tests that handshakes can be performed in parallel
 // using the AcceptHandshake method.
 // We create 2 connections to a listener.
-// The first is "sleepy", it takes a while to read or write.
+// The first is "sleepy", it takes a while to read.
 // The second is normal.
 // We should quickly complete a handshake with the second and start reading.
 func TestParallelHandshakes(t *testing.T) {
