@@ -14,7 +14,7 @@ import (
 // The second is normal.
 // We should quickly complete a handshake with the second and start reading.
 func TestParallelHandshakes(t *testing.T) {
-	ln, done := setupHandshakingTest(t)
+	ln, done := setupHandshakingTest(t, 5284)
 	defer ln.Close()
 
 	type AcceptHandshaker interface {
@@ -42,7 +42,7 @@ func TestParallelHandshakes(t *testing.T) {
 // TestSerialHandshakes tests that Accept uses serial handshakes.
 // This ensures that the parallel handshake test actually proves changed behavior.
 func TestSerialHandshakes(t *testing.T) {
-	ln, _ := setupHandshakingTest(t)
+	ln, _ := setupHandshakingTest(t, 5285)
 	defer ln.Close()
 	for idx := 0; idx < 2; idx++ {
 		_, err := ln.Accept()
@@ -53,10 +53,10 @@ func TestSerialHandshakes(t *testing.T) {
 }
 
 // setupHandshakingTest creates the setup for a handshaking test.
-func setupHandshakingTest(t *testing.T) (ln net.Listener, done chan error) {
+func setupHandshakingTest(t *testing.T, port int) (ln net.Listener, done chan error) {
 	lnAddr := &net.UDPAddr{
 		IP: net.IPv4(127, 0, 0, 1),
-		Port: 5284,
+		Port: port,
 	}
 	config := &Config{
 		PSK: func(b []byte) ([]byte, error) {
