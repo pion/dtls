@@ -63,7 +63,7 @@ func setupHandshakingTest(t *testing.T, port int) (ln net.Listener, done chan er
 			return []byte("testpsk"), nil
 		},
 		ConnectContextMaker: func() (context.Context, func()) {
-			return context.WithTimeout(context.Background(), time.Second*2)
+			return context.WithTimeout(context.Background(), time.Millisecond*200)
 		},
 		PSKIdentityHint: []byte("testhint"),
 		CipherSuites:         []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
@@ -88,7 +88,7 @@ func setupHandshakingTest(t *testing.T, port int) (ln net.Listener, done chan er
 
 	done = make(chan error)
 	go doTestConn(sleepyConn, lnAddr, config, func(error){})
-	time.Sleep(time.Second)
+	time.Sleep(time.Millisecond * 100)
 	go doTestConn(conn, lnAddr, config, func(err error) {
 		done <- err
 	})
