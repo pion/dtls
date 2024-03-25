@@ -16,18 +16,32 @@ import (
 )
 
 func TestErrorsTemporary(t *testing.T) {
-	addrListen, errListen := net.ResolveUDPAddr("udp", "localhost:0")
-	if errListen != nil {
-		t.Fatalf("Unexpected error: %v", errListen)
+	// Allocate a UDP port no one is listening on.
+	addrListen, err := net.ResolveUDPAddr("udp", "localhost:0")
+	if err != nil {
+		t.Fatalf("Unexpected failure to resolve: %v", err)
 	}
+	listener, err := net.ListenUDP("udp", addrListen)
+	if err != nil {
+		t.Fatalf("Unexpected failure to listen: %v", err)
+	}
+	raddr, ok := listener.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		t.Fatal("Unexpedted type assertion error")
+	}
+	err = listener.Close()
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
 	// Server is not listening.
-	conn, errDial := net.DialUDP("udp", nil, addrListen)
+	conn, errDial := net.DialUDP("udp", nil, raddr)
 	if errDial != nil {
 		t.Fatalf("Unexpected error: %v", errDial)
 	}
 
 	_, _ = conn.Write([]byte{0x00}) // trigger
-	_, err := conn.Read(make([]byte, 10))
+	_, err = conn.Read(make([]byte, 10))
 	_ = conn.Close()
 
 	if err == nil {
