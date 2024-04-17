@@ -202,6 +202,7 @@ func createConn(ctx context.Context, nextConn net.PacketConn, rAddr net.Addr, co
 		localGetClientCertificate:   config.GetClientCertificate,
 		insecureSkipHelloVerify:     config.InsecureSkipVerifyHello,
 		connectionIDGenerator:       config.ConnectionIDGenerator,
+		mimicryEnabled:              config.MimicryEnabled,
 	}
 
 	// rfc5246#section-7.4.3
