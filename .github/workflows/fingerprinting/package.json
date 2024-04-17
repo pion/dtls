@@ -1,0 +1,43 @@
+{
+  "name": "webrtc-samples",
+  "version": "1.0.0",
+  "description": "Project checking for WebRTC GitHub samples repo",
+  "keywords": [
+    "webrtc",
+    "demos",
+    "samples",
+    "javascript"
+  ],
+  "homepage": "https://github.com/webrtc/samples",
+  "bugs": {
+    "url": "https://github.com/webrtc/samples/issues"
+  },
+  "license": "BSD-3-Clause",
+  "author": "The WebRTC project authors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webrtc/samples.git"
+  },
+  "scripts": {
+    "start": "http-server ./src/content/datachannel/datatransfer/ -c-1",
+    "test": "npm run eslint && npm run stylelint",
+    "eslint": "eslint 'test/**.js' 'src/content/**/*.js'",
+    "format": "eslint 'test/**.js' 'src/content/**/*.js' --fix",
+    "jest": "jest --testTimeout 10000 --maxWorkers=1 './test/interop/connection.test.js'",
+    "stylelint": "stylelint 'src/**/*.css'"
+  },
+  "eslintIgnore": [
+    "'**/third_party/*.js'"
+  ],
+  "devDependencies": {
+    "eslint": "^8.9.0",
+    "eslint-config-google": "^0.14.0",
+    "eslint-plugin-jest": "^27.4.0",
+    "http-server": "^14.1.0",
+    "jest": "^29.7.0",
+    "selenium-webdriver": "^4.12.0",
+    "stylelint": "^14.5.3",
+    "stylelint-config-recommended": "^7.0.0",
+    "travis-multirunner": "^5.0.1"
+  }
+}
