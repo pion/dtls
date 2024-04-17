@@ -18,9 +18,12 @@ func (m MimickedClientHello) Type() handshake.Type {
 }
 
 func (m *MimickedClientHello) Marshal() ([]byte, error) {
-	// TODO: check for Cookie and SessionID in mimicked packet
-	fingerprint := fingerprints[len(fingerprints)-1]
+	if len(fingerprints) < 1 {
+		return nil, errors.New("No fingerprints available")
+	}
+	fingerprint := fingerprints[0]
 
+	// TODO: check for Cookie and SessionID in mimicked packet
 	randomOffset := 2
 
 	rb := m.Random.MarshalFixed()
