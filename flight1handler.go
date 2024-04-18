@@ -58,23 +58,6 @@ func flight1Generate(c flightConn, state *State, _ *handshakeCache, cfg *handsha
 		return nil, nil, err
 	}
 
-	if cfg.mimicryEnabled {
-		return []*packet{
-			{
-				record: &recordlayer.RecordLayer{
-					Header: recordlayer.Header{
-						Version: protocol.Version1_2,
-					},
-					Content: &handshake.Handshake{
-						Message: &mimicry.MimickedClientHello{
-							Random: state.localRandom,
-						},
-					},
-				},
-			},
-		}, nil, nil
-	}
-
 	extensions := []extension.Extension{
 		&extension.SupportedSignatureAlgorithms{
 			SignatureHashAlgorithms: cfg.localSignatureSchemes,
@@ -149,6 +132,25 @@ func flight1Generate(c flightConn, state *State, _ *handshakeCache, cfg *handsha
 			state.localConnectionID = []byte{}
 		}
 		extensions = append(extensions, &extension.ConnectionID{CID: state.localConnectionID})
+	}
+
+	if cfg.mimicryEnabled {
+		return []*packet{
+			{
+				record: &recordlayer.RecordLayer{
+					Header: recordlayer.Header{
+						Version: protocol.Version1_2,
+					},
+					Content: &handshake.Handshake{
+						Message: &mimicry.MimickedClientHello{
+							Random:    state.localRandom,
+							SessionID: state.SessionID,
+							Cookie:    state.cookie,
+						},
+					},
+				},
+			},
+		}, nil, nil
 	}
 
 	return []*packet{

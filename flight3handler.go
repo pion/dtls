@@ -10,6 +10,7 @@ import (
 	"github.com/pion/dtls/v2/internal/ciphersuite/types"
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v2/pkg/crypto/prf"
+	"github.com/pion/dtls/v2/pkg/mimicry"
 	"github.com/pion/dtls/v2/pkg/protocol"
 	"github.com/pion/dtls/v2/pkg/protocol/alert"
 	"github.com/pion/dtls/v2/pkg/protocol/extension"
@@ -285,6 +286,25 @@ func flight3Generate(_ flightConn, state *State, _ *handshakeCache, cfg *handsha
 	// second.
 	if state.localConnectionID != nil {
 		extensions = append(extensions, &extension.ConnectionID{CID: state.localConnectionID})
+	}
+
+	if cfg.mimicryEnabled {
+		return []*packet{
+			{
+				record: &recordlayer.RecordLayer{
+					Header: recordlayer.Header{
+						Version: protocol.Version1_2,
+					},
+					Content: &handshake.Handshake{
+						Message: &mimicry.MimickedClientHello{
+							Random:    state.localRandom,
+							SessionID: state.SessionID,
+							Cookie:    state.cookie,
+						},
+					},
+				},
+			},
+		}, nil, nil
 	}
 
 	return []*packet{
