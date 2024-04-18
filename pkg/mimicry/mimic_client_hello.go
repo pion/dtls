@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+// Package mimicry provides replay capabilities of captured handshakes for anti-fingerprinting purposes.
 package mimicry
 
 import (
@@ -19,18 +23,17 @@ func (m MimickedClientHello) Type() handshake.Type {
 
 func (m *MimickedClientHello) Marshal() ([]byte, error) {
 	if len(fingerprints) < 1 {
-		return nil, errors.New("No fingerprints available")
+		return nil, errors.New("no fingerprints available") //nolint:goerr113
 	}
 	fingerprint := fingerprints[0]
 
-	// TODO: check for Cookie and SessionID in mimicked packet
 	randomOffset := 2
 
 	rb := m.Random.MarshalFixed()
 
 	data, err := hex.DecodeString(fingerprint)
 	if err != nil {
-		err = errors.New(fmt.Sprintf("Mimicry: failed to decode mimicry hexstring: %x", fingerprint))
+		err = errors.New(fmt.Sprintf("mimicry: failed to decode mimicry hexstring: %x", fingerprint))
 	}
 
 	return bytes.Replace(data, data[randomOffset:randomOffset+32], rb[:], 32), err

@@ -1,5 +1,14 @@
+## SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+## SPDX-License-Identifier: MIT
+
 name: Fingerprinting
-on: [pull_request]
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
 # on:
 #   schedule:
 #     - cron: "30 5 * * *"
