@@ -27,11 +27,13 @@ func (m MimickedClientHello) Type() handshake.Type {
 func (m *MimickedClientHello) Marshal() ([]byte, error) {
 	var out []byte
 
+	fingerprints := getClientHelloFingerprints()
+
 	if len(fingerprints) < 1 {
 		return out, errors.New("no fingerprints available") //nolint:goerr113
 	}
 	fingerprint := fingerprints[0]
-	data, err := hex.DecodeString(fingerprint)
+	data, err := hex.DecodeString(string(fingerprint))
 	if err != nil {
 		err = errors.New(fmt.Sprintf("mimicry: failed to decode mimicry hexstring: %x", fingerprint))
 	}

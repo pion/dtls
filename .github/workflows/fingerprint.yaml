@@ -13,15 +13,16 @@ on:
 #   schedule:
 #     - cron: "30 5 * * *"
 #
+
 jobs:
-  interop:
+  handshake-capture:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
         browser: [chrome, firefox]
-        bver: ['unstable']
+        bver: ['stable']
     steps:
     - uses: actions/checkout@v3
     - name: Install tshark
@@ -29,11 +30,7 @@ jobs:
     - uses: actions/setup-node@v3
     - run: npm install
       working-directory: .github/workflows/fingerprinting
-    - run: BROWSER=${{matrix.browser}} BVER=${{matrix.bver}} ./node_modules/travis-multirunner/setup.sh
-      working-directory: .github/workflows/fingerprinting
     - run: sudo rm /usr/bin/chromedriver /usr/bin/geckodriver # remove preinstalled github chromedriver/geckodriver from $PATH
-    # TODO: REMOVE for headless
-    - run: Xvfb :99 &
     - name: Get browser version
       id: "browser"
       run: |
@@ -42,13 +39,15 @@ jobs:
         else
           echo "version=$(${{matrix.browser}} --version | sed 's/ /_/g')" >> $GITHUB_OUTPUT
         fi
-    - run: |
+    - name: Create directory for pcaps
+      run: |
         mkdir ./captures/
         touch ./captures/full-capture-${{matrix.browser}}-${{steps.browser.outputs.version}}.pcap
         sudo chown -R root:root ./captures
         ls -lga ./captures
     - name: Start tshark capture
       run: sudo tshark -i any -w ./captures/full-capture-${{matrix.browser}}-${{steps.browser.outputs.version}}.pcap -f "udp" &
+    - name: Run webrtc applications with jest/selenium
     - run: BROWSER_A=${{matrix.browser}} BROWSER_B=${{matrix.browser}} BVER=${{matrix.bver}} DISPLAY=:99.0 node_modules/.bin/jest --retries=3 test/interop
       working-directory: .github/workflows/fingerprinting
     - name: Kill tshark capture
@@ -63,7 +62,7 @@ jobs:
         path: ./captures/capture-${{matrix.browser}}-${{steps.browser.outputs.version}}.pcap
 
   commit-fingerprints:
-    needs: interop
+    needs: handshake-capture
     runs-on: ubuntu-latest
 
     steps:
@@ -71,8 +70,9 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref }}
-      - run: mkdir -p ./fingerprints
-      - run: mkdir -p ${{ runner.temp }}/fingerprints
+      - run: |
+          mkdir -p ./fingerprints
+          mkdir -p ${{ runner.temp }}/fingerprints
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -97,6 +97,3 @@ jobs:
           git add ./pkg/mimicry/fingerprints.go
           git commit -m "Add fresh fingerprints"
           git push
-
-
-
