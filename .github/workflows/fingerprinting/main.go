@@ -3,8 +3,8 @@ package main
 import (
 	"bufio"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,28 +13,25 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-const OffsetContentType = 0x0
-const OffsetHandshakeType = 0xd
-const OffsetLength = 0xe
-const OffsetFragmentOffset = 0x13
-const OffsetMajorVersion = 0x19
-const OffsetMinorVersion = 0x1a
-const OffsetSessionLength = 0x3b
+const OffsetContentType = 0
+const OffsetHandshakeType = 13
+const OffsetMajorVersion = 25
 
-const ClientHelloType = 0x1
-const ServerHelloType = 0x2
-const HelloVerifyRequest = 0x3
+const ClientHelloType = 1
+const ServerHelloType = 2
+const HelloVerifyRequest = 3
+const HandshakeType = 22
 
 var fingerprintType string
 
-func appendFingerprint(fingerprint string, version string) {
+func appendFingerprint(fingerprint string, version string) error {
 	var fileStrings []string
 
 	file := "../../../pkg/mimicry/fingerprints.go"
 	readFile, err := os.Open(file)
 
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
 	fileScanner := bufio.NewScanner(readFile)
 
@@ -58,26 +55,22 @@ func appendFingerprint(fingerprint string, version string) {
 
 	f, err := os.OpenFile(file, os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Println(err)
 		f.Close()
-		return
+		return err
 	}
 
 	for _, v := range fileStrings {
 		fmt.Fprintln(f, v)
 		if err != nil {
-			fmt.Println(err)
-			return
+			f.Close()
+			return err
 		}
 	}
 	err = f.Close()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	return err
 }
 
-func parsePcap(path string, filename string) {
+func parsePcap(path string, filename string) error {
 	fmt.Printf("Parsing %s\n", filename)
 
 	var parsedClientHello bool
@@ -90,7 +83,7 @@ func parsePcap(path string, filename string) {
 
 	handle, err := pcap.OpenOffline(path)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer handle.Close()
 
@@ -99,16 +92,30 @@ func parsePcap(path string, filename string) {
 
 		dtls := packet.ApplicationLayer().LayerContents()
 
-		if dtls[OffsetContentType] == 22 {
+		if len(dtls) < OffsetContentType {
+			return errors.New("parsed packet is empty")
+		}
+		if dtls[OffsetContentType] == HandshakeType {
 
+			if len(dtls) < OffsetHandshakeType {
+				return errors.New("parsed packet does not contain a handshake")
+			}
 			handshakeType := uint(dtls[OffsetHandshakeType])
 
 			switch handshakeType {
 			case ClientHelloType:
+				if len(dtls) < OffsetMajorVersion {
+					return errors.New("parsed client hello does not have any fields")
+				}
 				fingerprintRaw := dtls[OffsetMajorVersion:]
 				fingerprintString := hex.EncodeToString(fingerprintRaw)
+
+				// Only parse one client hello per handshake
 				if !parsedClientHello {
-					appendFingerprint(fingerprintString, version)
+					err = appendFingerprint(fingerprintString, version)
+					if err != nil {
+						return err
+					}
 					parsedClientHello = true
 				}
 			default:
@@ -116,10 +123,10 @@ func parsePcap(path string, filename string) {
 
 		}
 	}
+	return nil
 }
 
 func main() {
-
 	if len(os.Args) < 1 {
 		fmt.Println("Please provide pcaps")
 		os.Exit(1)
@@ -127,15 +134,18 @@ func main() {
 
 	err := filepath.Walk(os.Args[1], func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			fmt.Println(err)
 			return err
 		}
 		if !info.IsDir() && strings.Contains(info.Name(), ".pcap") {
-			parsePcap(path, info.Name())
+			err = parsePcap(path, info.Name())
+			if err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintf(os.Stderr, "failed during parsing of pcap: %v\n", err)
+		os.Exit(1)
 	}
 }
