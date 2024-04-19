@@ -1,0 +1,102 @@
+## SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+## SPDX-License-Identifier: MIT
+
+name: Fingerprinting
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+# on:
+#   schedule:
+#     - cron: "30 5 * * *"
+#
+jobs:
+  interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, firefox]
+        bver: ['unstable']
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install tshark
+      run: sudo apt install -y tshark
+    - uses: actions/setup-node@v3
+    - run: npm install
+      working-directory: .github/workflows/fingerprinting
+    - run: BROWSER=${{matrix.browser}} BVER=${{matrix.bver}} ./node_modules/travis-multirunner/setup.sh
+      working-directory: .github/workflows/fingerprinting
+    - run: sudo rm /usr/bin/chromedriver /usr/bin/geckodriver # remove preinstalled github chromedriver/geckodriver from $PATH
+    # TODO: REMOVE for headless
+    - run: Xvfb :99 &
+    - name: Get browser version
+      id: "browser"
+      run: |
+        if [ ${{matrix.browser}} == 'chrome' ]; then
+          echo "version=$(chromium --version | sed 's/ /_/g')" >> $GITHUB_OUTPUT
+        else
+          echo "version=$(${{matrix.browser}} --version | sed 's/ /_/g')" >> $GITHUB_OUTPUT
+        fi
+    - run: |
+        mkdir ./captures/
+        touch ./captures/full-capture-${{matrix.browser}}-${{steps.browser.outputs.version}}.pcap
+        sudo chown -R root:root ./captures
+        ls -lga ./captures
+    - name: Start tshark capture
+      run: sudo tshark -i any -w ./captures/full-capture-${{matrix.browser}}-${{steps.browser.outputs.version}}.pcap -f "udp" &
+    - run: BROWSER_A=${{matrix.browser}} BROWSER_B=${{matrix.browser}} BVER=${{matrix.bver}} DISPLAY=:99.0 node_modules/.bin/jest --retries=3 test/interop
+      working-directory: .github/workflows/fingerprinting
+    - name: Kill tshark capture
+      run: sudo killall tshark 1> /dev/null 2> /dev/null
+      continue-on-error: true
+    - name: Filter DTLS handshake in pcap
+      run: sudo tshark -r ./captures/full-capture-${{matrix.browser}}-${{steps.browser.outputs.version}}.pcap -Y "dtls.handshake" -w ./captures/capture-${{matrix.browser}}-${{steps.browser.outputs.version}}.pcap
+    - name: Archive pcap
+      uses: actions/upload-artifact@v4
+      with:
+        name: fingerprint-pcap-${{matrix.browser}}-${{steps.browser.outputs.version}}
+        path: ./captures/capture-${{matrix.browser}}-${{steps.browser.outputs.version}}.pcap
+
+  commit-fingerprints:
+    needs: interop
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+      - run: mkdir -p ./fingerprints
+      - run: mkdir -p ${{ runner.temp }}/fingerprints
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/fingerprints
+          pattern: fingerprint-pcap-*
+          merge-multiple: true
+      - run: sudo apt install libpcap-dev
+      - name: Setup go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22.x'
+      - run: go get .
+        working-directory: .github/workflows/fingerprinting
+      - run: go run main.go ${{ runner.temp }}/fingerprints
+        working-directory: .github/workflows/fingerprinting
+      - run: mv ${{ runner.temp }}/fingerprints/* ./fingerprints/
+      - run: ls -R fingerprints
+      - run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add ./fingerprints
+          git add ./pkg/mimicry/fingerprints.go
+          git commit -m "Add fresh fingerprints"
+          git push
+
+
+

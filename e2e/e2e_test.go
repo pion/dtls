@@ -569,6 +569,38 @@ func testPionE2ESimpleRSAClientCert(t *testing.T, server, client func(*comm), op
 	comm.assert(t)
 }
 
+func testPionE2ESimpleMimicry(t *testing.T, server, client func(*comm), opts ...dtlsConfOpts) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	t.Run("Mimicry ClientHello", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &dtls.Config{
+			Certificates:           []tls.Certificate{cert},
+			SRTPProtectionProfiles: []dtls.SRTPProtectionProfile{dtls.SRTP_AES128_CM_HMAC_SHA1_80, dtls.SRTP_AES128_CM_HMAC_SHA1_32, dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AEAD_AES_256_GCM},
+			MimicryEnabled:         true,
+			InsecureSkipVerify:     true,
+		}
+		for _, o := range opts {
+			o(cfg)
+		}
+		serverPort := randomPort(t)
+		comm := newComm(ctx, cfg, cfg, serverPort, server, client)
+		defer comm.cleanup(t)
+		comm.assert(t)
+	})
+}
+
 func TestPionE2ESimple(t *testing.T) {
 	testPionE2ESimple(t, serverPion, clientPion)
 }
@@ -623,4 +655,8 @@ func TestPionE2ESimpleECDSAClientCertCID(t *testing.T) {
 
 func TestPionE2ESimpleRSAClientCertCID(t *testing.T) {
 	testPionE2ESimpleRSAClientCert(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2ESimpleMimicry(t *testing.T) {
+	testPionE2ESimpleMimicry(t, serverPion, clientPion)
 }

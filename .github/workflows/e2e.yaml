@@ -3,12 +3,10 @@
 
 name: E2E
 on:
-  pull_request:
-    branches:
-      - master
-  push:
-    branches:
-      - master
+  workflow_run:
+    workflows: ["Fingerprinting"]
+    types:
+      - completed
 
 jobs:
   e2e-test:

@@ -125,6 +125,8 @@ type handshakeConfig struct {
 	initialEpoch uint16
 
 	mu sync.Mutex
+
+	mimicryEnabled bool
 }
 
 type flightConn interface {

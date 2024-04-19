@@ -196,6 +196,8 @@ type Config struct {
 	// If no PaddingLengthGenerator is specified, padding will not be applied.
 	// https://datatracker.ietf.org/doc/html/rfc9146#section-4
 	PaddingLengthGenerator func(uint) uint
+
+	MimicryEnabled bool
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {

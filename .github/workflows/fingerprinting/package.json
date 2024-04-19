@@ -1,0 +1,10 @@
+{
+  "name": "webrtc-fingerprinting",
+  "version": "1.0.0",
+  "devDependencies": {
+    "http-server": "^14.1.0",
+    "jest": "^29.7.0",
+    "selenium-webdriver": "^4.12.0",
+    "travis-multirunner": "^5.0.1"
+  }
+}
