@@ -160,16 +160,6 @@ func handshakeConn(ctx context.Context, conn *Conn, config *Config, isClient boo
 		workerInterval = config.FlightInterval
 	}
 
-	mtu := config.MTU
-	if mtu <= 0 {
-		mtu = defaultMTU
-	}
-
-	replayProtectionWindow := config.ReplayProtectionWindow
-	if replayProtectionWindow <= 0 {
-		replayProtectionWindow = defaultReplayProtectionWindow
-	}
-
 	serverName := config.ServerName
 	// Do not allow the use of an IP address literal as an SNI value.
 	// See RFC 6066, Section 3.
@@ -682,6 +672,14 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	return nil
 }
 
+func (c *Conn) enqueueEncryptedPackets(packet []byte) bool {
+	if len(c.encryptedPackets) < maxAppDataPacketQueueSize {
+		c.encryptedPackets = append(c.encryptedPackets, packet)
+		return true
+	}
+	return false
+}
+
 func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, enqueue bool) (bool, *alert.Alert, error) { //nolint:gocognit
 	h := &recordlayer.Header{}
 	if err := h.Unmarshal(buf); err != nil {
@@ -700,11 +698,8 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, enqueue boo
 			return false, nil, nil
 		}
 		if enqueue {
-			if len(c.encryptedPackets) < maxAppDataPacketQueueSize {
+			if ok := c.enqueueEncryptedPackets(buf); ok {
 				c.log.Debug("received packet of next epoch, queuing packet")
-				c.encryptedPackets = append(c.encryptedPackets, buf)
-			} else {
-				c.log.Debug("app data packet queue full, dropping packet")
 			}
 		}
 		return false, nil, nil
@@ -728,11 +723,8 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, enqueue boo
 	if h.Epoch != 0 {
 		if c.state.cipherSuite == nil || !c.state.cipherSuite.IsInitialized() {
 			if enqueue {
-				if len(c.encryptedPackets) < maxAppDataPacketQueueSize {
-					c.encryptedPackets = append(c.encryptedPackets, buf)
+				if ok := c.enqueueEncryptedPackets(buf); ok {
 					c.log.Debug("handshake not finished, queuing packet")
-				} else {
-					c.log.Debug("app data packet queue full, dropping packet")
 				}
 			}
 			return false, nil, nil
@@ -784,11 +776,8 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, enqueue boo
 	case *protocol.ChangeCipherSpec:
 		if c.state.cipherSuite == nil || !c.state.cipherSuite.IsInitialized() {
 			if enqueue {
-				if len(c.encryptedPackets) < maxAppDataPacketQueueSize {
-					c.encryptedPackets = append(c.encryptedPackets, buf)
+				if ok := c.enqueueEncryptedPackets(buf); ok {
 					c.log.Debugf("CipherSuite not initialized, queuing packet")
-				} else {
-					c.log.Debug("app data packet queue full. dropping packet")
 				}
 			}
 			return false, nil, nil
