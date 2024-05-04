@@ -82,6 +82,7 @@ type serializedState struct {
 	LocalConnectionID     []byte
 	RemoteConnectionID    []byte
 	IsClient              bool
+	NegotiatedProtocol    string
 }
 
 func (s *State) clone() *State {
@@ -113,6 +114,7 @@ func (s *State) serialize() *serializedState {
 		LocalConnectionID:     s.localConnectionID,
 		RemoteConnectionID:    s.remoteConnectionID,
 		IsClient:              s.isClient,
+		NegotiatedProtocol:    s.NegotiatedProtocol,
 	}
 }
 
@@ -157,6 +159,8 @@ func (s *State) deserialize(serialized serializedState) {
 	s.remoteConnectionID = serialized.RemoteConnectionID
 
 	s.SessionID = serialized.SessionID
+
+	s.NegotiatedProtocol = serialized.NegotiatedProtocol
 }
 
 func (s *State) initCipherSuite() error {

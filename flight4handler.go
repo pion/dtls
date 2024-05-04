@@ -269,21 +269,29 @@ func flight4Generate(_ flightConn, state *State, _ *handshakeCache, cfg *handsha
 		}
 	}
 
+	serverHello := &handshake.MessageServerHello{
+		Version:           protocol.Version1_2,
+		Random:            state.localRandom,
+		SessionID:         state.SessionID,
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: defaultCompressionMethods()[0],
+		Extensions:        extensions,
+	}
+
+	var content handshake.Handshake
+
+	if cfg.serverHelloMessageHook != nil {
+		content = handshake.Handshake{Message: cfg.serverHelloMessageHook(*serverHello)}
+	} else {
+		content = handshake.Handshake{Message: serverHello}
+	}
+
 	pkts = append(pkts, &packet{
 		record: &recordlayer.RecordLayer{
 			Header: recordlayer.Header{
 				Version: protocol.Version1_2,
 			},
-			Content: &handshake.Handshake{
-				Message: &handshake.MessageServerHello{
-					Version:           protocol.Version1_2,
-					Random:            state.localRandom,
-					SessionID:         state.SessionID,
-					CipherSuiteID:     &cipherSuiteID,
-					CompressionMethod: defaultCompressionMethods()[0],
-					Extensions:        extensions,
-				},
-			},
+			Content: &content,
 		},
 	})
 
@@ -354,18 +362,27 @@ func flight4Generate(_ flightConn, state *State, _ *handshakeCache, cfg *handsha
 				// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR because cert does not come from SystemCertPool and it's ok if certificate authorities is empty.
 				certificateAuthorities = cfg.clientCAs.Subjects()
 			}
+
+			certReq := &handshake.MessageCertificateRequest{
+				CertificateTypes:            []clientcertificate.Type{clientcertificate.RSASign, clientcertificate.ECDSASign},
+				SignatureHashAlgorithms:     cfg.localSignatureSchemes,
+				CertificateAuthoritiesNames: certificateAuthorities,
+			}
+
+			var content handshake.Handshake
+
+			if cfg.certificateRequestMessageHook != nil {
+				content = handshake.Handshake{Message: cfg.certificateRequestMessageHook(*certReq)}
+			} else {
+				content = handshake.Handshake{Message: certReq}
+			}
+
 			pkts = append(pkts, &packet{
 				record: &recordlayer.RecordLayer{
 					Header: recordlayer.Header{
 						Version: protocol.Version1_2,
 					},
-					Content: &handshake.Handshake{
-						Message: &handshake.MessageCertificateRequest{
-							CertificateTypes:            []clientcertificate.Type{clientcertificate.RSASign, clientcertificate.ECDSASign},
-							SignatureHashAlgorithms:     cfg.localSignatureSchemes,
-							CertificateAuthoritiesNames: certificateAuthorities,
-						},
-					},
+					Content: &content,
 				},
 			})
 		}
