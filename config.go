@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/logging"
 )
 
@@ -196,6 +197,23 @@ type Config struct {
 	// If no PaddingLengthGenerator is specified, padding will not be applied.
 	// https://datatracker.ietf.org/doc/html/rfc9146#section-4
 	PaddingLengthGenerator func(uint) uint
+
+	// Handshake hooks: hooks can be used for testing invalid messages,
+	// mimicking other implementations or randomizing fields, which is valuable
+	// for applications that need censorship-resistance by making
+	// fingerprinting more difficult.
+
+	// ClientHelloMessageHook, if not nil, is called when a Client Hello message is sent
+	// from a client. The returned handshake message replaces the original message.
+	ClientHelloMessageHook func(handshake.MessageClientHello) handshake.Message
+
+	// ServerHelloMessageHook, if not nil, is called when a Server Hello message is sent
+	// from a server. The returned handshake message replaces the original message.
+	ServerHelloMessageHook func(handshake.MessageServerHello) handshake.Message
+
+	// CertificateRequestMessageHook, if not nil, is called when a Certificate Request
+	// message is sent from a server. The returned handshake message replaces the original message.
+	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {

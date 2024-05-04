@@ -5,16 +5,23 @@ package dtls
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/pion/dtls/v2/internal/ciphersuite"
+	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v2/pkg/protocol/alert"
 	"github.com/pion/dtls/v2/pkg/protocol/handshake"
 	"github.com/pion/transport/v3/test"
 )
 
 type flight4TestMockFlightConn struct{}
+
+var errHookCertReqFailed = errors.New("hook failed to modify SignatureHashAlgorithms")
 
 func (f *flight4TestMockFlightConn) notify(context.Context, alert.Level, alert.Description) error {
 	return nil
@@ -116,4 +123,65 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 	if _, _, err := flight4Parse(context.TODO(), mockConn, state, cache, cfg); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestFlight4_CertificateRequestHook(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(5 * time.Second)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	localKeypair, err := elliptic.GenerateKeypair(elliptic.P256)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockConn := &flight4TestMockFlightConn{}
+	state := &State{
+		cipherSuite:  &flight4TestMockCipherSuite{t: t},
+		localKeypair: localKeypair,
+	}
+
+	cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &handshakeConfig{
+		localCertificates:     []tls.Certificate{cert},
+		localSignatureSchemes: signaturehash.Algorithms(),
+		clientAuth:            1,
+		certificateRequestMessageHook: func(mcr handshake.MessageCertificateRequest) handshake.Message {
+			mcr.SignatureHashAlgorithms = []signaturehash.Algorithm{}
+			return &mcr
+		},
+	}
+
+	pkts, _, err := flight4Generate(mockConn, state, nil, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, p := range pkts {
+		if h, ok := p.record.Content.(*handshake.Handshake); ok {
+			if h.Message.Type() == handshake.TypeCertificateRequest {
+				mcr := &handshake.MessageCertificateRequest{}
+				msg, err := h.Message.Marshal()
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = mcr.Unmarshal(msg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(mcr.SignatureHashAlgorithms) == 0 {
+					return
+				}
+			}
+		}
+	}
+	t.Fatal(errHookCertReqFailed)
 }
