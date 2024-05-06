@@ -424,7 +424,7 @@ func TestHandshakeWithInvalidRecord(t *testing.T) {
 
 	var msgSeq atomic.Int32
 	// Send invalid record after first message
-	caWithInvalidRecord.onWrite = func(b []byte) {
+	caWithInvalidRecord.onWrite = func([]byte) {
 		if msgSeq.Add(1) == 2 {
 			if _, err := ca.Write([]byte{0x01, 0x02}); err != nil {
 				t.Fatal(err)
@@ -556,7 +556,7 @@ func TestPSK(t *testing.T) {
 			Name:           "Server identity specified - Server verify connection fails",
 			ServerIdentity: []byte("Test Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
-			ServerVerifyConnection: func(s *State) error {
+			ServerVerifyConnection: func(*State) error {
 				return errExample
 			},
 			WantFail:          true,
@@ -567,7 +567,7 @@ func TestPSK(t *testing.T) {
 			Name:           "Server identity specified - Client verify connection fails",
 			ServerIdentity: []byte("Test Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
-			ClientVerifyConnection: func(s *State) error {
+			ClientVerifyConnection: func(*State) error {
 				return errExample
 			},
 			WantFail:          true,
@@ -905,14 +905,14 @@ func TestClientCertificate(t *testing.T) {
 					Certificates: []tls.Certificate{srvCert},
 					ClientAuth:   NoClientCert,
 					ClientCAs:    caPool,
-					VerifyConnection: func(s *State) error {
+					VerifyConnection: func(*State) error {
 						return errExample
 					},
 				},
 				wantErr: true,
 			},
 			"NoClientCert_ClientVerifyConnectionFails": {
-				clientCfg: &Config{RootCAs: srvCAPool, VerifyConnection: func(s *State) error {
+				clientCfg: &Config{RootCAs: srvCAPool, VerifyConnection: func(*State) error {
 					return errExample
 				}},
 				serverCfg: &Config{
@@ -1014,10 +1014,10 @@ func TestClientCertificate(t *testing.T) {
 				clientCfg: &Config{
 					RootCAs: srvCAPool,
 					// Certificates:   []tls.Certificate{cert},
-					GetClientCertificate: func(cri *CertificateRequestInfo) (*tls.Certificate, error) { return &cert, nil },
+					GetClientCertificate: func(*CertificateRequestInfo) (*tls.Certificate, error) { return &cert, nil },
 				},
 				serverCfg: &Config{
-					GetCertificate: func(chi *ClientHelloInfo) (*tls.Certificate, error) { return &srvCert, nil },
+					GetCertificate: func(*ClientHelloInfo) (*tls.Certificate, error) { return &srvCert, nil },
 					// Certificates:   []tls.Certificate{srvCert},
 					ClientAuth: RequireAndVerifyClientCert,
 					ClientCAs:  caPool,
@@ -1408,7 +1408,7 @@ func TestServerCertificate(t *testing.T) {
 			},
 			"good_ca_skip_verify_custom_verify_peer": {
 				clientCfg: &Config{RootCAs: caPool, Certificates: []tls.Certificate{cert}},
-				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: RequireAnyClientCert, VerifyPeerCertificate: func(cert [][]byte, chain [][]*x509.Certificate) error {
+				serverCfg: &Config{Certificates: []tls.Certificate{cert}, ClientAuth: RequireAnyClientCert, VerifyPeerCertificate: func(_ [][]byte, chain [][]*x509.Certificate) error {
 					if len(chain) != 0 {
 						return errNotExpectedChain
 					}
@@ -1417,7 +1417,7 @@ func TestServerCertificate(t *testing.T) {
 			},
 			"good_ca_verify_custom_verify_peer": {
 				clientCfg: &Config{RootCAs: caPool, Certificates: []tls.Certificate{cert}},
-				serverCfg: &Config{ClientCAs: caPool, Certificates: []tls.Certificate{cert}, ClientAuth: RequireAndVerifyClientCert, VerifyPeerCertificate: func(cert [][]byte, chain [][]*x509.Certificate) error {
+				serverCfg: &Config{ClientCAs: caPool, Certificates: []tls.Certificate{cert}, ClientAuth: RequireAndVerifyClientCert, VerifyPeerCertificate: func(_ [][]byte, chain [][]*x509.Certificate) error {
 					if len(chain) == 0 {
 						return errExpecedChain
 					}
@@ -2996,7 +2996,7 @@ func TestMultipleServerCertificates(t *testing.T) {
 				c, err := testClient(context.TODO(), dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 					RootCAs:    caPool,
 					ServerName: test.RequestServerName,
-					VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+					VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 						certificate, err := x509.ParseCertificate(rawCerts[0])
 						if err != nil {
 							return err

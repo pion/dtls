@@ -271,7 +271,7 @@ func TestHandshaker(t *testing.T) {
 					localSignatureSchemes: signaturehash.Algorithms(),
 					insecureSkipVerify:    true,
 					log:                   logger,
-					onFlightState: func(f flightVal, s handshakeState) {
+					onFlightState: func(_ flightVal, s handshakeState) {
 						if s == handshakeFinished {
 							if clientEndpoint.OnFinished != nil {
 								clientEndpoint.OnFinished()
@@ -304,7 +304,7 @@ func TestHandshaker(t *testing.T) {
 					localSignatureSchemes: signaturehash.Algorithms(),
 					insecureSkipVerify:    true,
 					log:                   logger,
-					onFlightState: func(f flightVal, s handshakeState) {
+					onFlightState: func(_ flightVal, s handshakeState) {
 						if s == handshakeFinished {
 							if serverEndpoint.OnFinished != nil {
 								serverEndpoint.OnFinished()

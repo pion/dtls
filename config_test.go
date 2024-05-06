@@ -109,7 +109,7 @@ func TestValidateConfig(t *testing.T) {
 		"Valid config with get certificate": {
 			config: &Config{
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-				GetCertificate: func(chi *ClientHelloInfo) (*tls.Certificate, error) {
+				GetCertificate: func(*ClientHelloInfo) (*tls.Certificate, error) {
 					return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
 				},
 			},
@@ -117,7 +117,7 @@ func TestValidateConfig(t *testing.T) {
 		"Valid config with get client certificate": {
 			config: &Config{
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-				GetClientCertificate: func(cri *CertificateRequestInfo) (*tls.Certificate, error) {
+				GetClientCertificate: func(*CertificateRequestInfo) (*tls.Certificate, error) {
 					return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
 				},
 			},
