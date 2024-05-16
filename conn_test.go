@@ -235,7 +235,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 					},
 				},
 			},
-		}); !errors.Is(werr, errSequenceNumberOverflow) {
+		}, nil); !errors.Is(werr, errSequenceNumberOverflow) {
 			t.Errorf("Connection must fail on handshake packet reaches maximum sequence number")
 		}
 

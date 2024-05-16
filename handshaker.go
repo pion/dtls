@@ -133,7 +133,7 @@ type handshakeConfig struct {
 
 type flightConn interface {
 	notify(ctx context.Context, level alert.Level, desc alert.Description) error
-	writePackets(context.Context, []*packet) error
+	writePackets(context.Context, []*packet, []byte) error
 	recvHandshake() <-chan chan struct{}
 	setLocalEpoch(epoch uint16)
 	handleQueuedPackets(context.Context) error
@@ -254,7 +254,7 @@ func (s *handshakeFSM) prepare(ctx context.Context, c flightConn) (handshakeStat
 
 func (s *handshakeFSM) send(ctx context.Context, c flightConn) (handshakeState, error) {
 	// Send flights
-	if err := c.writePackets(ctx, s.flights); err != nil {
+	if err := c.writePackets(ctx, s.flights, nil); err != nil {
 		return handshakeErrored, err
 	}
 

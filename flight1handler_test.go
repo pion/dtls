@@ -20,11 +20,13 @@ type flight1TestMockFlightConn struct{}
 func (f *flight1TestMockFlightConn) notify(context.Context, alert.Level, alert.Description) error {
 	return nil
 }
-func (f *flight1TestMockFlightConn) writePackets(context.Context, []*packet) error { return nil }
-func (f *flight1TestMockFlightConn) recvHandshake() <-chan chan struct{}           { return nil }
-func (f *flight1TestMockFlightConn) setLocalEpoch(uint16)                          {}
-func (f *flight1TestMockFlightConn) handleQueuedPackets(context.Context) error     { return nil }
-func (f *flight1TestMockFlightConn) sessionKey() []byte                            { return nil }
+func (f *flight1TestMockFlightConn) writePackets(context.Context, []*packet, []byte) error {
+	return nil
+}
+func (f *flight1TestMockFlightConn) recvHandshake() <-chan chan struct{}       { return nil }
+func (f *flight1TestMockFlightConn) setLocalEpoch(uint16)                      {}
+func (f *flight1TestMockFlightConn) handleQueuedPackets(context.Context) error { return nil }
+func (f *flight1TestMockFlightConn) sessionKey() []byte                        { return nil }
 
 type flight1TestMockCipherSuite struct {
 	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256

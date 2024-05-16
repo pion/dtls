@@ -349,6 +349,10 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (c *Conn) Write(p []byte) (int, error) {
+	return c.WriteExtended(p, nil)
+}
+
+func (c *Conn) WriteExtended(p []byte, oob []byte) (int, error) {
 	if c.isConnectionClosed() {
 		return 0, ErrConnClosed
 	}
@@ -377,7 +381,7 @@ func (c *Conn) Write(p []byte) (int, error) {
 			shouldWrapCID: len(c.state.remoteConnectionID) > 0,
 			shouldEncrypt: true,
 		},
-	})
+	}, oob)
 }
 
 // Close closes the connection.
@@ -405,7 +409,7 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 	return profile, true
 }
 
-func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
+func (c *Conn) writePackets(ctx context.Context, pkts []*packet, oob []byte) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -443,7 +447,7 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 	compactedRawPackets := c.compactRawPackets(rawPackets)
 
 	for _, compactedRawPackets := range compactedRawPackets {
-		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPackets, c.rAddr); err != nil {
+		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPackets, oob, c.rAddr); err != nil {
 			return netError(err)
 		}
 	}
@@ -957,7 +961,7 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 			shouldWrapCID: len(c.state.remoteConnectionID) > 0,
 			shouldEncrypt: c.isHandshakeCompletedSuccessfully(),
 		},
-	})
+	}, nil)
 }
 
 func (c *Conn) setHandshakeCompletedSuccessfully() {

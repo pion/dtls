@@ -298,6 +298,12 @@ func (c *PacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 
 // WriteTo writes len(p) bytes from p to the specified address.
 func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+	n, _, err = c.WriteMsgUDP(p, nil, addr)
+
+	return n, err
+}
+
+func (c *PacketConn) WriteMsgUDP(p []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
 	// If we have a connection identifier, check to see if the outgoing packet
 	// sets it.
 	if c.listener.connIdentifier != nil {
@@ -337,10 +343,10 @@ func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 
 	select {
 	case <-c.writeDeadline.Done():
-		return 0, context.DeadlineExceeded
+		return 0, 0, context.DeadlineExceeded
 	default:
 	}
-	return c.listener.pConn.WriteTo(p, addr)
+	return c.listener.pConn.WriteMsgUDP(p, oob, addr.(*net.UDPAddr))
 }
 
 // Close closes the conn and releases any Read calls
