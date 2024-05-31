@@ -539,6 +539,7 @@ func TestPSK(t *testing.T) {
 
 	for _, test := range []struct {
 		Name                   string
+		ClientIdentity         []byte
 		ServerIdentity         []byte
 		CipherSuites           []CipherSuiteID
 		ClientVerifyConnection func(*State) error
@@ -550,11 +551,13 @@ func TestPSK(t *testing.T) {
 		{
 			Name:           "Server identity specified",
 			ServerIdentity: []byte("Test Identity"),
+			ClientIdentity: []byte("Client Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		},
 		{
 			Name:           "Server identity specified - Server verify connection fails",
 			ServerIdentity: []byte("Test Identity"),
+			ClientIdentity: []byte("Client Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 			ServerVerifyConnection: func(*State) error {
 				return errExample
@@ -566,6 +569,7 @@ func TestPSK(t *testing.T) {
 		{
 			Name:           "Server identity specified - Client verify connection fails",
 			ServerIdentity: []byte("Test Identity"),
+			ClientIdentity: []byte("Client Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 			ClientVerifyConnection: func(*State) error {
 				return errExample
@@ -577,17 +581,26 @@ func TestPSK(t *testing.T) {
 		{
 			Name:           "Server identity nil",
 			ServerIdentity: nil,
+			ClientIdentity: []byte("Client Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		},
 		{
 			Name:           "TLS_PSK_WITH_AES_128_CBC_SHA256",
 			ServerIdentity: nil,
+			ClientIdentity: []byte("Client Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CBC_SHA256},
 		},
 		{
 			Name:           "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256",
 			ServerIdentity: nil,
+			ClientIdentity: []byte("Client Identity"),
 			CipherSuites:   []CipherSuiteID{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256},
+		},
+		{
+			Name:           "Client identity empty",
+			ServerIdentity: nil,
+			ClientIdentity: []byte{},
+			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		},
 	} {
 		test := test
@@ -595,7 +608,6 @@ func TestPSK(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			clientIdentity := []byte("Client Identity")
 			type result struct {
 				c   *Conn
 				err error
@@ -612,7 +624,7 @@ func TestPSK(t *testing.T) {
 
 						return []byte{0xAB, 0xC1, 0x23}, nil
 					},
-					PSKIdentityHint:  clientIdentity,
+					PSKIdentityHint:  test.ClientIdentity,
 					CipherSuites:     test.CipherSuites,
 					VerifyConnection: test.ClientVerifyConnection,
 				}
@@ -623,8 +635,9 @@ func TestPSK(t *testing.T) {
 
 			config := &Config{
 				PSK: func(hint []byte) ([]byte, error) {
-					if !bytes.Equal(clientIdentity, hint) {
-						return nil, fmt.Errorf("%w: expected(% 02x) actual(% 02x)", errTestPSKInvalidIdentity, clientIdentity, hint)
+					fmt.Println(hint)
+					if !bytes.Equal(test.ClientIdentity, hint) {
+						return nil, fmt.Errorf("%w: expected(% 02x) actual(% 02x)", errTestPSKInvalidIdentity, test.ClientIdentity, hint)
 					}
 					return []byte{0xAB, 0xC1, 0x23}, nil
 				},
@@ -649,8 +662,8 @@ func TestPSK(t *testing.T) {
 			}
 
 			actualPSKIdentityHint := server.ConnectionState().IdentityHint
-			if !bytes.Equal(actualPSKIdentityHint, clientIdentity) {
-				t.Errorf("TestPSK: Server ClientPSKIdentity Mismatch '%s': expected(%v) actual(%v)", test.Name, clientIdentity, actualPSKIdentityHint)
+			if !bytes.Equal(actualPSKIdentityHint, test.ClientIdentity) {
+				t.Errorf("TestPSK: Server ClientPSKIdentity Mismatch '%s': expected(%v) actual(%v)", test.Name, test.ClientIdentity, actualPSKIdentityHint)
 			}
 
 			defer func() {
@@ -710,6 +723,99 @@ func TestPSKHintFail(t *testing.T) {
 
 	if err := <-clientErr; !errors.Is(err, pskRejected) {
 		t.Fatalf("TestPSK: Client error exp(%v) failed(%v)", pskRejected, err)
+	}
+}
+
+// Assert that ServerKeyExchange is only sent if Identity is set on server side
+func TestPSKServerKeyExchange(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, test := range []struct {
+		Name        string
+		SetIdentity bool
+	}{
+		{
+			Name:        "Server Identity Set",
+			SetIdentity: true,
+		},
+		{
+			Name:        "Server Not Identity Set",
+			SetIdentity: false,
+		},
+	} {
+		test := test
+		t.Run(test.Name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			gotServerKeyExchange := false
+
+			clientErr := make(chan error, 1)
+			ca, cb := dpipe.Pipe()
+			cbAnalyzer := &connWithCallback{Conn: cb}
+			cbAnalyzer.onWrite = func(in []byte) {
+				messages, err := recordlayer.UnpackDatagram(in)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				for i := range messages {
+					h := &handshake.Handshake{}
+					_ = h.Unmarshal(messages[i][recordlayer.FixedHeaderSize:])
+
+					if h.Header.Type == handshake.TypeServerKeyExchange {
+						gotServerKeyExchange = true
+					}
+				}
+			}
+
+			go func() {
+				conf := &Config{
+					PSK: func([]byte) ([]byte, error) {
+						return []byte{0xAB, 0xC1, 0x23}, nil
+					},
+					PSKIdentityHint: []byte{0xAB, 0xC1, 0x23},
+					CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+				}
+
+				if client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), conf, false); err != nil {
+					clientErr <- err
+				} else {
+					clientErr <- client.Close() //nolint
+				}
+			}()
+
+			config := &Config{
+				PSK: func([]byte) ([]byte, error) {
+					return []byte{0xAB, 0xC1, 0x23}, nil
+				},
+				CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+			}
+			if test.SetIdentity {
+				config.PSKIdentityHint = []byte{0xAB, 0xC1, 0x23}
+			}
+
+			if server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cbAnalyzer), cbAnalyzer.RemoteAddr(), config, false); err != nil {
+				t.Fatalf("TestPSK: Server error %v", err)
+			} else {
+				if err = server.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if err := <-clientErr; err != nil {
+				t.Fatalf("TestPSK: Client error %v", err)
+			}
+
+			if gotServerKeyExchange != test.SetIdentity {
+				t.Fatalf("Mismatch between setting Identity and getting a ServerKeyExchange exp(%t) actual(%t)", test.SetIdentity, gotServerKeyExchange)
+			}
+		})
 	}
 }
 
