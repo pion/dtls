@@ -3036,22 +3036,22 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 	for _, test := range []struct {
 		Name            string
 		ConfigCurves    []elliptic.Curve
-		HadnshakeCurves []elliptic.Curve
+		HandshakeCurves []elliptic.Curve
 	}{
 		{
 			Name:            "Curve defaulting",
 			ConfigCurves:    nil,
-			HadnshakeCurves: defaultCurves,
+			HandshakeCurves: defaultCurves,
 		},
 		{
 			Name:            "Single curve",
 			ConfigCurves:    []elliptic.Curve{elliptic.X25519},
-			HadnshakeCurves: []elliptic.Curve{elliptic.X25519},
+			HandshakeCurves: []elliptic.Curve{elliptic.X25519},
 		},
 		{
 			Name:            "Multiple curves",
 			ConfigCurves:    []elliptic.Curve{elliptic.P384, elliptic.X25519},
-			HadnshakeCurves: []elliptic.Curve{elliptic.P384, elliptic.X25519},
+			HandshakeCurves: []elliptic.Curve{elliptic.P384, elliptic.X25519},
 		},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -3074,13 +3074,13 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 			t.Fatalf("Server error: %v", err)
 		}
 
-		if len(test.ConfigCurves) == 0 && len(test.HadnshakeCurves) != len(server.fsm.cfg.ellipticCurves) {
-			t.Fatalf("Failed to default Elliptic curves, expected %d, got: %d", len(test.HadnshakeCurves), len(server.fsm.cfg.ellipticCurves))
+		if len(test.ConfigCurves) == 0 && len(test.HandshakeCurves) != len(server.fsm.cfg.ellipticCurves) {
+			t.Fatalf("Failed to default Elliptic curves, expected %d, got: %d", len(test.HandshakeCurves), len(server.fsm.cfg.ellipticCurves))
 		}
 
 		if len(test.ConfigCurves) != 0 {
-			if len(test.HadnshakeCurves) != len(server.fsm.cfg.ellipticCurves) {
-				t.Fatalf("Failed to configure Elliptic curves, expect %d, got %d", len(test.HadnshakeCurves), len(server.fsm.cfg.ellipticCurves))
+			if len(test.HandshakeCurves) != len(server.fsm.cfg.ellipticCurves) {
+				t.Fatalf("Failed to configure Elliptic curves, expect %d, got %d", len(test.HandshakeCurves), len(server.fsm.cfg.ellipticCurves))
 			}
 			for i, c := range test.ConfigCurves {
 				if c != server.fsm.cfg.ellipticCurves[i] {
