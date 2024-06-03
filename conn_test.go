@@ -376,6 +376,17 @@ func TestHandshakeWithAlert(t *testing.T) {
 			errServer: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
 			errClient: errNoAvailableSignatureSchemes,
 		},
+		// Servers have agreement on Ciphersuite, but attempted to use RSA CipherSuite with ECDSA certificate
+		"RSACipherWithECDSACertificate": {
+			configServer: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+			},
+			configClient: &Config{
+				CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+			},
+			errServer: errCipherSuiteNoIntersection,
+			errClient: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
+		},
 	}
 
 	for name, testCase := range cases {
