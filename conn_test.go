@@ -3435,3 +3435,50 @@ func TestHelloRandom(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestOnConnectionAttempt(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*20)
+	defer cancel()
+
+	var clientOnConnectionAttempt, serverOnConnectionAttempt atomic.Int32
+
+	ca, cb := dpipe.Pipe()
+	clientErr := make(chan error, 1)
+	go func() {
+		_, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+			OnConnectionAttempt: func(in net.Addr) error {
+				clientOnConnectionAttempt.Store(1)
+				if in == nil {
+					t.Fatal("net.Addr is nil") //nolint: govet
+				}
+				return nil
+			},
+		}, true)
+		clientErr <- err
+	}()
+
+	expectedErr := &FatalError{}
+	if _, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+		OnConnectionAttempt: func(in net.Addr) error {
+			serverOnConnectionAttempt.Store(1)
+			if in == nil {
+				t.Fatal("net.Addr is nil") //nolint: govet
+			}
+			return expectedErr
+		},
+	}, true); !errors.Is(err, expectedErr) {
+		t.Fatal(err)
+	}
+
+	if err := <-clientErr; err == nil {
+		t.Fatal(err)
+	}
+
+	if v := serverOnConnectionAttempt.Load(); v != 1 {
+		t.Fatal("OnConnectionAttempt did not fire for server")
+	}
+
+	if v := clientOnConnectionAttempt.Load(); v != 0 {
+		t.Fatal("OnConnectionAttempt fired for client")
+	}
+}
