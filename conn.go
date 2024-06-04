@@ -325,6 +325,11 @@ func ServerWithContext(ctx context.Context, conn net.PacketConn, rAddr net.Addr,
 	if config == nil {
 		return nil, errNoConfigProvided
 	}
+	if config.OnConnectionAttempt != nil {
+		if err := config.OnConnectionAttempt(rAddr); err != nil {
+			return nil, err
+		}
+	}
 	dconn, err := createConn(conn, rAddr, config, false)
 	if err != nil {
 		return nil, err
