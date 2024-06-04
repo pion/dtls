@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"io"
+	"net"
 	"time"
 
 	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
@@ -221,6 +222,12 @@ type Config struct {
 	// CertificateRequestMessageHook, if not nil, is called when a Certificate Request
 	// message is sent from a server. The returned handshake message replaces the original message.
 	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
+
+	// OnConnectionAttempt is fired Whenever a connection attempt is made, the server or application can call this callback function.
+	// The callback function can then implement logic to handle the connection attempt, such as logging the attempt,
+	// checking against a list of blocked IPs, or counting the attempts to prevent brute force attacks.
+	// If the callback function returns an error, the connection attempt will be aborted.
+	OnConnectionAttempt func(net.Addr) error
 }
 
 func defaultConnectContextMaker() (context.Context, func()) {
