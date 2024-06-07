@@ -27,6 +27,12 @@ import (
 	"github.com/pion/transport/v3/replaydetector"
 )
 
+type OOBCapableConn interface {
+	net.Conn
+
+	OOBEnabledWrite(b, oob []byte) (n int, err error)
+}
+
 const (
 	initialTickerInterval = time.Second
 	cookieLength          = 20
