@@ -349,10 +349,14 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 
 // Write writes len(p) bytes from p to the DTLS connection
 func (c *Conn) Write(p []byte) (int, error) {
-	return c.WriteExtended(p, nil)
+	return c.write(p, nil)
 }
 
-func (c *Conn) WriteExtended(p []byte, oob []byte) (int, error) {
+func (c *Conn) OOBEnabledWrite(p []byte, oob []byte) (int, error) {
+	return c.write(p, oob)
+}
+
+func (c *Conn) write(p []byte, oob []byte) (int, error) {
 	if c.isConnectionClosed() {
 		return 0, ErrConnClosed
 	}
@@ -446,8 +450,12 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet, oob []byte) err
 	}
 	compactedRawPackets := c.compactRawPackets(rawPackets)
 
-	for _, compactedRawPackets := range compactedRawPackets {
-		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPackets, oob, c.rAddr); err != nil {
+	if oob != nil {
+		ctx = context.WithValue(ctx, netctx.OOBCtxKey, oob)
+	}
+
+	for _, compactedRawPacket := range compactedRawPackets {
+		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPacket, c.rAddr); err != nil {
 			return netError(err)
 		}
 	}
