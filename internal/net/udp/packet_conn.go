@@ -298,12 +298,22 @@ func (c *PacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 
 // WriteTo writes len(p) bytes from p to the specified address.
 func (c *PacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	n, _, err = c.WriteMsgUDP(p, nil, addr)
+	if err := c.preWrite(p, addr); err != nil {
+		return 0, err
+	}
 
-	return n, err
+	return c.listener.pConn.WriteTo(p, addr)
 }
 
-func (c *PacketConn) WriteMsgUDP(p []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
+func (c *PacketConn) WriteMsgUDP(p []byte, oob []byte, addr *net.UDPAddr) (n int, oobn int, err error) {
+	if err := c.preWrite(p, addr); err != nil {
+		return 0, 0, err
+	}
+
+	return c.listener.pConn.WriteMsgUDP(p, oob, addr)
+}
+
+func (c *PacketConn) preWrite(p []byte, addr net.Addr) error {
 	// If we have a connection identifier, check to see if the outgoing packet
 	// sets it.
 	if c.listener.connIdentifier != nil {
@@ -343,10 +353,11 @@ func (c *PacketConn) WriteMsgUDP(p []byte, oob []byte, addr net.Addr) (n int, oo
 
 	select {
 	case <-c.writeDeadline.Done():
-		return 0, 0, context.DeadlineExceeded
+		return context.DeadlineExceeded
 	default:
 	}
-	return c.listener.pConn.WriteMsgUDP(p, oob, addr.(*net.UDPAddr))
+
+	return nil
 }
 
 // Close closes the conn and releases any Read calls
