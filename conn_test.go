@@ -3482,3 +3482,24 @@ func TestOnConnectionAttempt(t *testing.T) {
 		t.Fatal("OnConnectionAttempt fired for client")
 	}
 }
+
+func TestFragmentBuffer_Retransmission(t *testing.T) {
+	fragmentBuffer := newFragmentBuffer()
+	frag := []byte{0x16, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x30, 0x03, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xfe, 0xff, 0x01, 0x01}
+
+	if _, isRetransmission, err := fragmentBuffer.push(frag); err != nil {
+		t.Fatal(err)
+	} else if isRetransmission {
+		t.Fatal("fragment should not be retransmission")
+	}
+
+	if v, _ := fragmentBuffer.pop(); v == nil {
+		t.Fatal("Failed to pop fragment")
+	}
+
+	if _, isRetransmission, err := fragmentBuffer.push(frag); err != nil {
+		t.Fatal(err)
+	} else if !isRetransmission {
+		t.Fatal("fragment should be retransmission")
+	}
+}
