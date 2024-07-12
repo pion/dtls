@@ -77,7 +77,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		// If the server doesn't support connection IDs, the client should not
 		// expect one to be sent.
 		if state.remoteConnectionID == nil {
-			state.localConnectionID = nil
+			state.setLocalConnectionID(nil)
 		}
 
 		if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {
@@ -284,8 +284,8 @@ func flight3Generate(_ flightConn, state *State, _ *handshakeCache, cfg *handsha
 
 	// If we sent a connection ID on the first ClientHello, send it on the
 	// second.
-	if state.localConnectionID != nil {
-		extensions = append(extensions, &extension.ConnectionID{CID: state.localConnectionID})
+	if state.getLocalConnectionID() != nil {
+		extensions = append(extensions, &extension.ConnectionID{CID: state.getLocalConnectionID()})
 	}
 
 	clientHello := &handshake.MessageClientHello{
