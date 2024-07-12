@@ -126,15 +126,15 @@ func flight1Generate(c flightConn, state *State, _ *handshakeCache, cfg *handsha
 	// in which case we are just requesting that the server send us a CID to
 	// use.
 	if cfg.connectionIDGenerator != nil {
-		state.localConnectionID = cfg.connectionIDGenerator()
+		state.setLocalConnectionID(cfg.connectionIDGenerator())
 		// The presence of a generator indicates support for connection IDs. We
 		// use the presence of a non-nil local CID in flight 3 to determine
 		// whether we send a CID in the second ClientHello, so we convert any
 		// nil CID returned by a generator to []byte{}.
-		if state.localConnectionID == nil {
-			state.localConnectionID = []byte{}
+		if state.getLocalConnectionID() == nil {
+			state.setLocalConnectionID([]byte{})
 		}
-		extensions = append(extensions, &extension.ConnectionID{CID: state.localConnectionID})
+		extensions = append(extensions, &extension.ConnectionID{CID: state.getLocalConnectionID()})
 	}
 
 	clientHello := &handshake.MessageClientHello{

@@ -1319,13 +1319,13 @@ func TestConnectionID(t *testing.T) {
 				}
 			}()
 
-			if !bytes.Equal(res.c.state.localConnectionID, tt.clientConnectionID) {
+			if !bytes.Equal(res.c.state.getLocalConnectionID(), tt.clientConnectionID) {
 				t.Errorf("Unexpected client local connection ID\nwant: %v\ngot:%v", tt.clientConnectionID, res.c.state.localConnectionID)
 			}
 			if !bytes.Equal(res.c.state.remoteConnectionID, tt.serverConnectionID) {
 				t.Errorf("Unexpected client remote connection ID\nwant: %v\ngot:%v", tt.serverConnectionID, res.c.state.remoteConnectionID)
 			}
-			if !bytes.Equal(server.state.localConnectionID, tt.serverConnectionID) {
+			if !bytes.Equal(server.state.getLocalConnectionID(), tt.serverConnectionID) {
 				t.Errorf("Unexpected server local connection ID\nwant: %v\ngot:%v", tt.serverConnectionID, server.state.localConnectionID)
 			}
 			if !bytes.Equal(server.state.remoteConnectionID, tt.clientConnectionID) {

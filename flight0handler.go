@@ -25,7 +25,7 @@ func flight0Parse(_ context.Context, _ flightConn, state *State, cache *handshak
 
 	// Connection Identifiers must be negotiated afresh on session resumption.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
-	state.localConnectionID = nil
+	state.setLocalConnectionID(nil)
 	state.remoteConnectionID = nil
 
 	state.handshakeRecvSequence = seq
@@ -87,7 +87,7 @@ func flight0Parse(_ context.Context, _ flightConn, state *State, cache *handshak
 	// If the client doesn't support connection IDs, the server should not
 	// expect one to be sent.
 	if state.remoteConnectionID == nil {
-		state.localConnectionID = nil
+		state.setLocalConnectionID(nil)
 	}
 
 	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {

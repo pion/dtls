@@ -36,7 +36,7 @@ type State struct {
 	// to be received from the remote endpoint.
 	// For a server, this is the connection ID sent in ServerHello.
 	// For a client, this is the connection ID sent in the ClientHello.
-	localConnectionID []byte
+	localConnectionID atomic.Value
 	// remoteConnectionID is the connection ID that the remote endpoint
 	// specifies should be sent.
 	// For a server, this is the connection ID received in the ClientHello.
@@ -111,7 +111,7 @@ func (s *State) serialize() *serializedState {
 		PeerCertificates:      s.PeerCertificates,
 		IdentityHint:          s.IdentityHint,
 		SessionID:             s.SessionID,
-		LocalConnectionID:     s.localConnectionID,
+		LocalConnectionID:     s.getLocalConnectionID(),
 		RemoteConnectionID:    s.remoteConnectionID,
 		IsClient:              s.isClient,
 		NegotiatedProtocol:    s.NegotiatedProtocol,
@@ -155,7 +155,7 @@ func (s *State) deserialize(serialized serializedState) {
 	s.IdentityHint = serialized.IdentityHint
 
 	// Set local and remote connection IDs
-	s.localConnectionID = serialized.LocalConnectionID
+	s.setLocalConnectionID(serialized.LocalConnectionID)
 	s.remoteConnectionID = serialized.RemoteConnectionID
 
 	s.SessionID = serialized.SessionID
@@ -257,6 +257,18 @@ func (s *State) getSRTPProtectionProfile() SRTPProtectionProfile {
 	}
 
 	return 0
+}
+
+func (s *State) getLocalConnectionID() []byte {
+	if val, ok := s.localConnectionID.Load().([]byte); ok {
+		return val
+	}
+
+	return nil
+}
+
+func (s *State) setLocalConnectionID(v []byte) {
+	s.localConnectionID.Store(v)
 }
 
 // RemoteRandomBytes returns the remote client hello random bytes

@@ -699,7 +699,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 		return netError(err)
 	}
 
-	pkts, err := recordlayer.ContentAwareUnpackDatagram(b[:i], len(c.state.localConnectionID))
+	pkts, err := recordlayer.ContentAwareUnpackDatagram(b[:i], len(c.state.getLocalConnectionID()))
 	if err != nil {
 		return err
 	}
@@ -775,8 +775,8 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 	h := &recordlayer.Header{}
 	// Set connection ID size so that records of content type tls12_cid will
 	// be parsed correctly.
-	if len(c.state.localConnectionID) > 0 {
-		h.ConnectionID = make([]byte, len(c.state.localConnectionID))
+	if len(c.state.getLocalConnectionID()) > 0 {
+		h.ConnectionID = make([]byte, len(c.state.getLocalConnectionID()))
 	}
 	if err := h.Unmarshal(buf); err != nil {
 		// Decode error must be silently discarded
@@ -832,7 +832,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 
 		// If a connection identifier had been negotiated and encryption is
 		// enabled, the connection identifier MUST be sent.
-		if len(c.state.localConnectionID) > 0 && h.ContentType != protocol.ContentTypeConnectionID {
+		if len(c.state.getLocalConnectionID()) > 0 && h.ContentType != protocol.ContentTypeConnectionID {
 			c.log.Debug("discarded packet missing connection ID after value negotiated")
 			return false, nil, nil
 		}
@@ -840,7 +840,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		var err error
 		var hdr recordlayer.Header
 		if h.ContentType == protocol.ContentTypeConnectionID {
-			hdr.ConnectionID = make([]byte, len(c.state.localConnectionID))
+			hdr.ConnectionID = make([]byte, len(c.state.getLocalConnectionID()))
 		}
 		buf, err = c.state.cipherSuite.Decrypt(hdr, buf)
 		if err != nil {
@@ -872,7 +872,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		}
 
 		// If connection ID does not match discard the packet.
-		if !bytes.Equal(c.state.localConnectionID, h.ConnectionID) {
+		if !bytes.Equal(c.state.getLocalConnectionID(), h.ConnectionID) {
 			c.log.Debug("unexpected connection ID")
 			return false, nil, nil
 		}
