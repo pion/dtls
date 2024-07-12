@@ -358,8 +358,11 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 			return handshakeFinished, nil
 		}
 		<-retransmitTimer.C
+
 		// RFC 4347 4.2.4.1
-		s.retransmitInterval *= 2
+		if !s.cfg.disableRetransmitBackoff {
+			s.retransmitInterval *= 2
+		}
 		if s.retransmitInterval > time.Second*60 {
 			s.retransmitInterval = time.Second * 60
 		}
