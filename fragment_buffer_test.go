@@ -94,7 +94,7 @@ func TestFragmentBuffer(t *testing.T) {
 	} {
 		fragmentBuffer := newFragmentBuffer()
 		for _, frag := range test.In {
-			status, err := fragmentBuffer.push(frag)
+			status, _, err := fragmentBuffer.push(frag)
 			if err != nil {
 				t.Error(err)
 			} else if !status {
@@ -122,13 +122,13 @@ func TestFragmentBuffer_Overflow(t *testing.T) {
 	fragmentBuffer := newFragmentBuffer()
 
 	// Push a buffer that doesn't exceed size limits
-	if _, err := fragmentBuffer.push([]byte{0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xfe, 0xff, 0x00}); err != nil {
+	if _, _, err := fragmentBuffer.push([]byte{0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xfe, 0xff, 0x00}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Allocate a buffer that exceeds cache size
 	largeBuffer := make([]byte, fragmentBufferMaxSize)
-	if _, err := fragmentBuffer.push(largeBuffer); !errors.Is(err, errFragmentBufferOverflow) {
+	if _, _, err := fragmentBuffer.push(largeBuffer); !errors.Is(err, errFragmentBufferOverflow) {
 		t.Fatalf("Pushing a large buffer returned (%s) expected(%s)", err, errFragmentBufferOverflow)
 	}
 }

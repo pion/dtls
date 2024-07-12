@@ -349,8 +349,8 @@ type TestEndpoint struct {
 func flightTestPipe(ctx context.Context, clientEndpoint TestEndpoint, serverEndpoint TestEndpoint) (*flightTestConn, *flightTestConn) {
 	ca := newHandshakeCache()
 	cb := newHandshakeCache()
-	chA := make(chan chan struct{})
-	chB := make(chan chan struct{})
+	chA := make(chan recvHandshakeState)
+	chB := make(chan recvHandshakeState)
 	return &flightTestConn{
 			handshakeCache: ca,
 			otherEndCache:  cb,
@@ -373,7 +373,7 @@ func flightTestPipe(ctx context.Context, clientEndpoint TestEndpoint, serverEndp
 type flightTestConn struct {
 	state          State
 	handshakeCache *handshakeCache
-	recv           chan chan struct{}
+	recv           chan recvHandshakeState
 	done           <-chan struct{}
 	epoch          uint16
 
@@ -382,10 +382,10 @@ type flightTestConn struct {
 	delay time.Duration
 
 	otherEndCache *handshakeCache
-	otherEndRecv  chan chan struct{}
+	otherEndRecv  chan recvHandshakeState
 }
 
-func (c *flightTestConn) recvHandshake() <-chan chan struct{} {
+func (c *flightTestConn) recvHandshake() <-chan recvHandshakeState {
 	return c.recv
 }
 
@@ -427,7 +427,7 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 	}
 	go func() {
 		select {
-		case c.otherEndRecv <- make(chan struct{}):
+		case c.otherEndRecv <- recvHandshakeState{done: make(chan struct{})}:
 		case <-c.done:
 		}
 	}()

@@ -54,6 +54,11 @@ type addrPkt struct {
 	data  []byte
 }
 
+type recvHandshakeState struct {
+	done         chan struct{}
+	isRetransmit bool
+}
+
 // Conn represents a DTLS connection
 type Conn struct {
 	lock           sync.RWMutex      // Internal lock (must not be public)
@@ -82,7 +87,7 @@ type Conn struct {
 	log logging.LeveledLogger
 
 	reading               chan struct{}
-	handshakeRecv         chan chan struct{}
+	handshakeRecv         chan recvHandshakeState
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
@@ -137,7 +142,7 @@ func createConn(nextConn net.PacketConn, rAddr net.Addr, config *Config, isClien
 		writeDeadline: deadline.New(),
 
 		reading:          make(chan struct{}, 1),
-		handshakeRecv:    make(chan chan struct{}),
+		handshakeRecv:    make(chan recvHandshakeState),
 		closed:           closer.NewCloser(),
 		cancelHandshaker: func() {},
 
@@ -704,9 +709,9 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 		return err
 	}
 
-	var hasHandshake bool
+	var hasHandshake, isRetransmit bool
 	for _, p := range pkts {
-		hs, alert, err := c.handleIncomingPacket(ctx, p, rAddr, true)
+		hs, rtx, alert, err := c.handleIncomingPacket(ctx, p, rAddr, true)
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 				if err == nil {
@@ -725,14 +730,20 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 		if hs {
 			hasHandshake = true
 		}
+		if rtx {
+			isRetransmit = true
+		}
 	}
 	if hasHandshake {
-		done := make(chan struct{})
+		s := recvHandshakeState{
+			done:         make(chan struct{}),
+			isRetransmit: isRetransmit,
+		}
 		select {
-		case c.handshakeRecv <- done:
+		case c.handshakeRecv <- s:
 			// If the other party may retransmit the flight,
 			// we should respond even if it not a new message.
-			<-done
+			<-s.done
 		case <-c.fsm.Done():
 		}
 	}
@@ -744,7 +755,7 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.encryptedPackets = nil
 
 	for _, p := range pkts {
-		_, alert, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, false) // don't re-enqueue
+		_, _, alert, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, false) // don't re-enqueue
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 				if err == nil {
@@ -771,7 +782,7 @@ func (c *Conn) enqueueEncryptedPackets(packet addrPkt) bool {
 	return false
 }
 
-func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.Addr, enqueue bool) (bool, *alert.Alert, error) { //nolint:gocognit
+func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.Addr, enqueue bool) (bool, bool, *alert.Alert, error) { //nolint:gocognit
 	h := &recordlayer.Header{}
 	// Set connection ID size so that records of content type tls12_cid will
 	// be parsed correctly.
@@ -782,7 +793,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		// Decode error must be silently discarded
 		// [RFC6347 Section-4.1.2.7]
 		c.log.Debugf("discarded broken packet: %v", err)
-		return false, nil, nil
+		return false, false, nil, nil
 	}
 	// Validate epoch
 	remoteEpoch := c.state.getRemoteEpoch()
@@ -791,14 +802,14 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 			c.log.Debugf("discarded future packet (epoch: %d, seq: %d)",
 				h.Epoch, h.SequenceNumber,
 			)
-			return false, nil, nil
+			return false, false, nil, nil
 		}
 		if enqueue {
 			if ok := c.enqueueEncryptedPackets(addrPkt{rAddr, buf}); ok {
 				c.log.Debug("received packet of next epoch, queuing packet")
 			}
 		}
-		return false, nil, nil
+		return false, false, nil, nil
 	}
 
 	// Anti-replay protection
@@ -812,7 +823,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		c.log.Debugf("discarded duplicated packet (epoch: %d, seq: %d)",
 			h.Epoch, h.SequenceNumber,
 		)
-		return false, nil, nil
+		return false, false, nil, nil
 	}
 
 	// originalCID indicates whether the original record had content type
@@ -827,14 +838,14 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 					c.log.Debug("handshake not finished, queuing packet")
 				}
 			}
-			return false, nil, nil
+			return false, false, nil, nil
 		}
 
 		// If a connection identifier had been negotiated and encryption is
 		// enabled, the connection identifier MUST be sent.
 		if len(c.state.getLocalConnectionID()) > 0 && h.ContentType != protocol.ContentTypeConnectionID {
 			c.log.Debug("discarded packet missing connection ID after value negotiated")
-			return false, nil, nil
+			return false, false, nil, nil
 		}
 
 		var err error
@@ -845,7 +856,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		buf, err = c.state.cipherSuite.Decrypt(hdr, buf)
 		if err != nil {
 			c.log.Debugf("%s: decrypt failed: %s", srvCliStr(c.state.isClient), err)
-			return false, nil, nil
+			return false, false, nil, nil
 		}
 		// If this is a connection ID record, make it look like a normal record for
 		// further processing.
@@ -854,7 +865,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 			ip := &recordlayer.InnerPlaintext{}
 			if err := ip.Unmarshal(buf[h.Size():]); err != nil { //nolint:govet
 				c.log.Debugf("unpacking inner plaintext failed: %s", err)
-				return false, nil, nil
+				return false, false, nil, nil
 			}
 			unpacked := &recordlayer.Header{
 				ContentType:    ip.RealType,
@@ -866,7 +877,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 			buf, err = unpacked.Marshal()
 			if err != nil {
 				c.log.Debugf("converting CID record to inner plaintext failed: %s", err)
-				return false, nil, nil
+				return false, false, nil, nil
 			}
 			buf = append(buf, ip.Content...)
 		}
@@ -874,18 +885,19 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		// If connection ID does not match discard the packet.
 		if !bytes.Equal(c.state.getLocalConnectionID(), h.ConnectionID) {
 			c.log.Debug("unexpected connection ID")
-			return false, nil, nil
+			return false, false, nil, nil
 		}
 	}
 
-	isHandshake, err := c.fragmentBuffer.push(append([]byte{}, buf...))
+	isHandshake, isRetransmit, err := c.fragmentBuffer.push(append([]byte{}, buf...))
 	if err != nil {
 		// Decode error must be silently discarded
 		// [RFC6347 Section-4.1.2.7]
 		c.log.Debugf("defragment failed: %s", err)
-		return false, nil, nil
+		return false, false, nil, nil
 	} else if isHandshake {
 		markPacketAsValid()
+
 		for out, epoch := c.fragmentBuffer.pop(); out != nil; out, epoch = c.fragmentBuffer.pop() {
 			header := &handshake.Header{}
 			if err := header.Unmarshal(out); err != nil {
@@ -895,12 +907,12 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 			c.handshakeCache.push(out, epoch, header.MessageSequence, header.Type, !c.state.isClient)
 		}
 
-		return true, nil, nil
+		return true, isRetransmit, nil, nil
 	}
 
 	r := &recordlayer.RecordLayer{}
 	if err := r.Unmarshal(buf); err != nil {
-		return false, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError}, err
+		return false, false, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError}, err
 	}
 
 	isLatestSeqNum := false
@@ -913,7 +925,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 			a = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
 		}
 		_ = markPacketAsValid()
-		return false, a, &alertError{content}
+		return false, false, a, &alertError{content}
 	case *protocol.ChangeCipherSpec:
 		if c.state.cipherSuite == nil || !c.state.cipherSuite.IsInitialized() {
 			if enqueue {
@@ -921,7 +933,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 					c.log.Debugf("CipherSuite not initialized, queuing packet")
 				}
 			}
-			return false, nil, nil
+			return false, false, nil, nil
 		}
 
 		newRemoteEpoch := h.Epoch + 1
@@ -933,7 +945,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		}
 	case *protocol.ApplicationData:
 		if h.Epoch == 0 {
-			return false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, errApplicationDataEpochZero
+			return false, false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, errApplicationDataEpochZero
 		}
 
 		isLatestSeqNum = markPacketAsValid()
@@ -945,7 +957,7 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		}
 
 	default:
-		return false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, fmt.Errorf("%w: %d", errUnhandledContextType, content.ContentType())
+		return false, false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, fmt.Errorf("%w: %d", errUnhandledContextType, content.ContentType())
 	}
 
 	// Any valid connection ID record is a candidate for updating the remote
@@ -959,10 +971,10 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 		}
 	}
 
-	return false, nil, nil
+	return false, false, nil, nil
 }
 
-func (c *Conn) recvHandshake() <-chan chan struct{} {
+func (c *Conn) recvHandshake() <-chan recvHandshakeState {
 	return c.handshakeRecv
 }
 

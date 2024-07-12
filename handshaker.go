@@ -137,7 +137,7 @@ type handshakeConfig struct {
 type flightConn interface {
 	notify(ctx context.Context, level alert.Level, desc alert.Description) error
 	writePackets(context.Context, []*packet) error
-	recvHandshake() <-chan chan struct{}
+	recvHandshake() <-chan recvHandshakeState
 	setLocalEpoch(epoch uint16)
 	handleQueuedPackets(context.Context) error
 	sessionKey() []byte
@@ -280,10 +280,15 @@ func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, 
 	retransmitTimer := time.NewTimer(s.retransmitInterval)
 	for {
 		select {
-		case done := <-c.recvHandshake():
+		case state := <-c.recvHandshake():
+			if state.isRetransmit {
+				close(state.done)
+				return handshakeSending, nil
+			}
+
 			nextFlight, alert, err := parse(ctx, c, s.state, s.cache, s.cfg)
 			s.retransmitInterval = s.cfg.initialRetransmitInterval
-			close(done)
+			close(state.done)
 			if alert != nil {
 				if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 					if err != nil {
@@ -328,8 +333,8 @@ func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, 
 
 func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState, error) {
 	select {
-	case done := <-c.recvHandshake():
-		close(done)
+	case state := <-c.recvHandshake():
+		close(state.done)
 		return handshakeSending, nil
 	case <-ctx.Done():
 		return handshakeErrored, ctx.Err()
