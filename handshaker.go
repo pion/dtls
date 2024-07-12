@@ -327,51 +327,11 @@ func (s *handshakeFSM) wait(ctx context.Context, c flightConn) (handshakeState, 
 }
 
 func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState, error) {
-	parse, errFlight := s.currentFlight.getFlightParser()
-	if errFlight != nil {
-		if alertErr := c.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
-			return handshakeErrored, alertErr
-		}
-		return handshakeErrored, errFlight
-	}
-
-	retransmitTimer := time.NewTimer(s.retransmitInterval)
 	select {
 	case done := <-c.recvHandshake():
-		nextFlight, alert, err := parse(ctx, c, s.state, s.cache, s.cfg)
 		close(done)
-		s.retransmitInterval = s.cfg.initialRetransmitInterval
-		if alert != nil {
-			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
-				if err != nil {
-					err = alertErr
-				}
-			}
-		}
-		if err != nil {
-			return handshakeErrored, err
-		}
-		if nextFlight == 0 {
-			break
-		}
-		if nextFlight.isLastRecvFlight() && s.currentFlight == nextFlight {
-			return handshakeFinished, nil
-		}
-		<-retransmitTimer.C
-
-		// RFC 4347 4.2.4.1
-		if !s.cfg.disableRetransmitBackoff {
-			s.retransmitInterval *= 2
-		}
-		if s.retransmitInterval > time.Second*60 {
-			s.retransmitInterval = time.Second * 60
-		}
-		// Retransmit last flight
 		return handshakeSending, nil
-
 	case <-ctx.Done():
-		s.retransmitInterval = s.cfg.initialRetransmitInterval
 		return handshakeErrored, ctx.Err()
 	}
-	return handshakeFinished, nil
 }
