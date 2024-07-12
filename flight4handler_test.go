@@ -27,7 +27,7 @@ func (f *flight4TestMockFlightConn) notify(context.Context, alert.Level, alert.D
 	return nil
 }
 func (f *flight4TestMockFlightConn) writePackets(context.Context, []*packet) error { return nil }
-func (f *flight4TestMockFlightConn) recvHandshake() <-chan chan struct{}           { return nil }
+func (f *flight4TestMockFlightConn) recvHandshake() <-chan recvHandshakeState      { return nil }
 func (f *flight4TestMockFlightConn) setLocalEpoch(uint16)                          {}
 func (f *flight4TestMockFlightConn) handleQueuedPackets(context.Context) error     { return nil }
 func (f *flight4TestMockFlightConn) sessionKey() []byte                            { return nil }
