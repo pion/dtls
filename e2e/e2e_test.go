@@ -219,8 +219,7 @@ func clientPion(c *comm) {
 	c.clientMutex.Lock()
 	defer c.clientMutex.Unlock()
 
-	var err error
-	c.clientConn, err = dtls.DialWithContext(c.ctx, "udp",
+	conn, err := dtls.Dial("udp",
 		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: c.serverPort},
 		c.clientConfig,
 	)
@@ -228,6 +227,13 @@ func clientPion(c *comm) {
 		c.errChan <- err
 		return
 	}
+
+	if err := conn.HandshakeContext(c.ctx); err != nil {
+		c.errChan <- err
+		return
+	}
+
+	c.clientConn = conn
 
 	simpleReadWrite(c.errChan, c.clientChan, c.clientConn, c.messageRecvCount)
 	c.clientDone <- nil
@@ -252,6 +258,14 @@ func serverPion(c *comm) {
 	if err != nil {
 		c.errChan <- err
 		return
+	}
+
+	dtlsConn, ok := c.serverConn.(*dtls.Conn)
+	if ok {
+		if err := dtlsConn.HandshakeContext(c.ctx); err != nil {
+			c.errChan <- err
+			return
+		}
 	}
 
 	simpleReadWrite(c.errChan, c.serverChan, c.serverConn, c.messageRecvCount)

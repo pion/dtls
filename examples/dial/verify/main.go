@@ -45,11 +45,16 @@ func main() {
 	// Connect to a DTLS server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	dtlsConn, err := dtls.DialWithContext(ctx, "udp", addr, config)
+	dtlsConn, err := dtls.Dial("udp", addr, config)
 	util.Check(err)
 	defer func() {
 		util.Check(dtlsConn.Close())
 	}()
+
+	if err := dtlsConn.HandshakeContext(ctx); err != nil {
+		fmt.Printf("Failed to handshake with server: %v\n", err)
+		return
+	}
 
 	fmt.Println("Connected; type 'exit' to shutdown gracefully")
 

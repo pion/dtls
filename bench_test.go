@@ -40,7 +40,7 @@ func TestSimpleReadWrite(t *testing.T) {
 			return
 		}
 		buf := make([]byte, 1024)
-		if _, sErr = server.Read(buf); sErr != nil {
+		if _, sErr = server.Read(buf); sErr != nil { //nolint:contextcheck
 			t.Error(sErr)
 		}
 		gotHello <- struct{}{}

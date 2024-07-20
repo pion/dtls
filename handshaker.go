@@ -132,6 +132,8 @@ type handshakeConfig struct {
 	clientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
 	serverHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	certificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
+
+	resumeState *State
 }
 
 type flightConn interface {

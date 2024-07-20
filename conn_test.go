@@ -295,7 +295,11 @@ func testClient(ctx context.Context, c net.PacketConn, rAddr net.Addr, cfg *Conf
 		cfg.Certificates = []tls.Certificate{clientCert}
 	}
 	cfg.InsecureSkipVerify = true
-	return ClientWithContext(ctx, c, rAddr, cfg)
+	conn, err := Client(c, rAddr, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return conn, conn.HandshakeContext(ctx)
 }
 
 func testServer(ctx context.Context, c net.PacketConn, rAddr net.Addr, cfg *Config, generateCertificate bool) (*Conn, error) {
@@ -306,7 +310,11 @@ func testServer(ctx context.Context, c net.PacketConn, rAddr net.Addr, cfg *Conf
 		}
 		cfg.Certificates = []tls.Certificate{serverCert}
 	}
-	return ServerWithContext(ctx, c, rAddr, cfg)
+	conn, err := Server(c, rAddr, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return conn, conn.HandshakeContext(ctx)
 }
 
 func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensions []extension.Extension) error {
@@ -1135,17 +1143,18 @@ func TestClientCertificate(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				ca, cb := dpipe.Pipe()
 				type result struct {
-					c   *Conn
-					err error
+					c          *Conn
+					err, hserr error
 				}
 				c := make(chan result)
 
 				go func() {
 					client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), tt.clientCfg)
-					c <- result{client, err}
+					c <- result{client, err, client.Handshake()}
 				}()
 
 				server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), tt.serverCfg)
+				hserr := server.Handshake()
 				res := <-c
 				defer func() {
 					if err == nil {
@@ -1157,7 +1166,7 @@ func TestClientCertificate(t *testing.T) {
 				}()
 
 				if tt.wantErr {
-					if err != nil {
+					if err != nil || hserr != nil {
 						// Error expected, test succeeded
 						return
 					}
@@ -1556,23 +1565,24 @@ func TestServerCertificate(t *testing.T) {
 				ca, cb := dpipe.Pipe()
 
 				type result struct {
-					c   *Conn
-					err error
+					c          *Conn
+					err, hserr error
 				}
 				srvCh := make(chan result)
 				go func() {
 					s, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), tt.serverCfg)
-					srvCh <- result{s, err}
+					srvCh <- result{s, err, s.Handshake()}
 				}()
 
 				cli, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), tt.clientCfg)
+				hserr := cli.Handshake()
 				if err == nil {
 					_ = cli.Close()
 				}
-				if !tt.wantErr && err != nil {
-					t.Errorf("Client failed(%v)", err)
+				if !tt.wantErr && (err != nil || hserr != nil) {
+					t.Errorf("Client failed(%v, %v)", err, hserr)
 				}
-				if tt.wantErr && err == nil {
+				if tt.wantErr && err == nil && hserr == nil {
 					t.Fatal("Error expected")
 				}
 
@@ -3237,7 +3247,7 @@ func TestSkipHelloVerify(t *testing.T) {
 			return
 		}
 		buf := make([]byte, 1024)
-		if _, sErr = server.Read(buf); sErr != nil {
+		if _, sErr = server.Read(buf); sErr != nil { //nolint:contextcheck
 			t.Error(sErr)
 		}
 		gotHello <- struct{}{}
@@ -3306,7 +3316,7 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 		cfg := &Config{}
 		cfg.Certificates = []tls.Certificate{serverCert}
 
-		dconn, err := createConn(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), cfg, false)
+		dconn, err := createConn(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), cfg, false, nil)
 		if err != nil {
 			t.Error(err)
 			return
@@ -3322,7 +3332,7 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 				time.Sleep(1 * time.Second)
 			}
 		}()
-		if _, err := handshakeConn(ctx, dconn, cfg, false, nil); err == nil {
+		if err := dconn.HandshakeContext(ctx); err == nil {
 			t.Error("expected handshake to fail")
 		}
 		close(done)
@@ -3402,7 +3412,7 @@ func TestHelloRandom(t *testing.T) {
 			return
 		}
 		buf := make([]byte, 1024)
-		if _, sErr = server.Read(buf); sErr != nil {
+		if _, sErr = server.Read(buf); sErr != nil { //nolint:contextcheck
 			t.Error(sErr)
 		}
 		gotHello <- struct{}{}
