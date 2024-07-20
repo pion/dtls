@@ -4,7 +4,6 @@
 package dtls
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
@@ -118,15 +117,6 @@ type Config struct {
 
 	LoggerFactory logging.LoggerFactory
 
-	// ConnectContextMaker is a function to make a context used in Dial(),
-	// Client(), Server(), and Accept(). If nil, the default ConnectContextMaker
-	// is used. It can be implemented as following.
-	//
-	// 	func ConnectContextMaker() (context.Context, func()) {
-	// 		return context.WithTimeout(context.Background(), 30*time.Second)
-	// 	}
-	ConnectContextMaker func() (context.Context, func())
-
 	// MTU is the length at which handshake messages will be fragmented to
 	// fit within the maximum transmission unit (default is 1200 bytes)
 	MTU int
@@ -228,17 +218,6 @@ type Config struct {
 	// checking against a list of blocked IPs, or counting the attempts to prevent brute force attacks.
 	// If the callback function returns an error, the connection attempt will be aborted.
 	OnConnectionAttempt func(net.Addr) error
-}
-
-func defaultConnectContextMaker() (context.Context, func()) {
-	return context.WithTimeout(context.Background(), 30*time.Second)
-}
-
-func (c *Config) connectContextMaker() (context.Context, func()) {
-	if c.ConnectContextMaker == nil {
-		return defaultConnectContextMaker()
-	}
-	return c.ConnectContextMaker()
 }
 
 func (c *Config) includeCertificateSuites() bool {

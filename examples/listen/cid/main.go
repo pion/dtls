@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/pion/dtls/v2"
 	"github.com/pion/dtls/v2/examples/util"
@@ -17,10 +16,6 @@ import (
 func main() {
 	// Prepare the IP to connect to
 	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4444}
-
-	// Create parent context to cleanup handshaking connections on exit.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	//
 	// Everything below is the pion-DTLS API! Thanks for using it ❤️.
@@ -32,13 +27,9 @@ func main() {
 			fmt.Printf("Client's hint: %s \n", hint)
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},
-		PSKIdentityHint:      []byte("Pion DTLS Server"),
-		CipherSuites:         []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM_8},
-		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
-		// Create timeout context for accepted connection.
-		ConnectContextMaker: func() (context.Context, func()) {
-			return context.WithTimeout(ctx, 30*time.Second)
-		},
+		PSKIdentityHint:       []byte("Pion DTLS Server"),
+		CipherSuites:          []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM_8},
+		ExtendedMasterSecret:  dtls.RequireExtendedMasterSecret,
 		ConnectionIDGenerator: dtls.RandomCIDGenerator(8),
 	}
 
@@ -64,6 +55,14 @@ func main() {
 			// `conn` is of type `net.Conn` but may be casted to `dtls.Conn`
 			// using `dtlsConn := conn.(*dtls.Conn)` in order to to expose
 			// functions like `ConnectionState` etc.
+
+			// Perform the handshake with a 30-second timeout
+			ctx, cancel := context.WithTimeout(context.Background(), 30)
+			dtlsConn, ok := conn.(*dtls.Conn)
+			if ok {
+				util.Check(dtlsConn.HandshakeContext(ctx))
+			}
+			cancel()
 
 			// Register the connection with the chat hub
 			if err == nil {
