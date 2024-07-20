@@ -67,8 +67,6 @@ type listener struct {
 
 // Accept waits for and returns the next connection to the listener.
 // You have to either close or read on all connection that are created.
-// Connection handshake will timeout using ConnectContextMaker in the Config.
-// If you want to specify the timeout duration, set ConnectContextMaker.
 func (l *listener) Accept() (net.Conn, error) {
 	c, raddr, err := l.parent.Accept()
 	if err != nil {
