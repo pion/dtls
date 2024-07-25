@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/pion/dtls/v2"
-	"github.com/pion/dtls/v2/examples/util"
+	"github.com/pion/dtls/v3"
+	"github.com/pion/dtls/v3/examples/util"
 )
 
 func main() {

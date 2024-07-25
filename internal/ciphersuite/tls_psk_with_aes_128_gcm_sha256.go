@@ -3,7 +3,7 @@
 
 package ciphersuite
 
-import "github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
+import "github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 
 // TLSPskWithAes128GcmSha256 implements the TLS_PSK_WITH_AES_128_GCM_SHA256 CipherSuite
 type TLSPskWithAes128GcmSha256 struct {

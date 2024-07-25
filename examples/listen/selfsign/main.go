@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/pion/dtls/v2"
-	"github.com/pion/dtls/v2/examples/util"
-	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
+	"github.com/pion/dtls/v3"
+	"github.com/pion/dtls/v3/examples/util"
+	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 )
 
 func main() {
