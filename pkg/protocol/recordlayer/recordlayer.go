@@ -6,9 +6,9 @@ package recordlayer
 import (
 	"encoding/binary"
 
-	"github.com/pion/dtls/v2/pkg/protocol"
-	"github.com/pion/dtls/v2/pkg/protocol/alert"
-	"github.com/pion/dtls/v2/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
 // DTLS fixed size record layer header when Connection IDs are not in-use.

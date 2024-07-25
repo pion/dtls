@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls/v2"
-	"github.com/pion/dtls/v2/pkg/crypto/selfsign"
-	dtlsnet "github.com/pion/dtls/v2/pkg/net"
+	"github.com/pion/dtls/v3"
+	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	transportTest "github.com/pion/transport/v3/test"
 )
 

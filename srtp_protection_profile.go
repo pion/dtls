@@ -3,7 +3,7 @@
 
 package dtls
 
-import "github.com/pion/dtls/v2/pkg/protocol/extension"
+import "github.com/pion/dtls/v3/pkg/protocol/extension"
 
 // SRTPProtectionProfile defines the parameters and options that are in effect for the SRTP processing
 // https://tools.ietf.org/html/rfc5764#section-4.1.2

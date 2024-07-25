@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/pion/dtls/v2/internal/ciphersuite/types"
+	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 )
 
 func TestHandshakeMessageClientKeyExchange(t *testing.T) {

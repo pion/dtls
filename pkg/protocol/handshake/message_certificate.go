@@ -4,7 +4,7 @@
 package handshake
 
 import (
-	"github.com/pion/dtls/v2/internal/util"
+	"github.com/pion/dtls/v3/internal/util"
 )
 
 // MessageCertificate is a DTLS Handshake Message

@@ -6,10 +6,10 @@ package handshake
 import (
 	"encoding/binary"
 
-	"github.com/pion/dtls/v2/pkg/crypto/clientcertificate"
-	"github.com/pion/dtls/v2/pkg/crypto/hash"
-	"github.com/pion/dtls/v2/pkg/crypto/signature"
-	"github.com/pion/dtls/v2/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v3/pkg/crypto/hash"
+	"github.com/pion/dtls/v3/pkg/crypto/signature"
+	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 )
 
 /*

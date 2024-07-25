@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls/v2/pkg/crypto/elliptic"
-	dtlsnet "github.com/pion/dtls/v2/pkg/net"
-	"github.com/pion/dtls/v2/pkg/protocol/extension"
-	"github.com/pion/dtls/v2/pkg/protocol/handshake"
-	"github.com/pion/dtls/v2/pkg/protocol/recordlayer"
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	dtlsnet "github.com/pion/dtls/v3/pkg/net"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/transport/v3/dpipe"
 	"github.com/pion/transport/v3/test"
 )
