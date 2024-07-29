@@ -115,7 +115,7 @@ func main() {
 			// *************** END Brute Force Attack protection END ***************
 
 			// Perform the handshake with a 30-second timeout
-			ctx, cancel := context.WithTimeout(context.Background(), 30)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			dtlsConn, ok := conn.(*dtls.Conn)
 			if ok {
 				util.Check(dtlsConn.HandshakeContext(ctx))
