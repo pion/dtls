@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/pion/dtls/v3"
 	"github.com/pion/dtls/v3/examples/util"
@@ -66,7 +67,7 @@ func main() {
 			// functions like `ConnectionState` etc.
 
 			// Perform the handshake with a 30-second timeout
-			ctx, cancel := context.WithTimeout(context.Background(), 30)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			dtlsConn, ok := conn.(*dtls.Conn)
 			if ok {
 				util.Check(dtlsConn.HandshakeContext(ctx))
