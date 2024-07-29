@@ -57,6 +57,7 @@ func flight3Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errClientNoMatchingSRTPProfile
 				}
 				state.setSRTPProtectionProfile(profile)
+				state.remoteSRTPMasterKeyIdentifier = e.MasterKeyIdentifier
 			case *extension.UseExtendedMasterSecret:
 				if cfg.extendedMasterSecret != DisableExtendedMasterSecret {
 					state.extendedMasterSecret = true

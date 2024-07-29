@@ -164,6 +164,7 @@ func createConn(nextConn net.PacketConn, rAddr net.Addr, config *Config, isClien
 		localSignatureSchemes:         signatureSchemes,
 		extendedMasterSecret:          config.ExtendedMasterSecret,
 		localSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
+		localSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
 		serverName:                    serverName,
 		supportedProtocols:            config.SupportedProtocols,
 		clientAuth:                    config.ClientAuth,
@@ -424,6 +425,15 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 	}
 
 	return profile, true
+}
+
+// RemoteSRTPMasterKeyIdentifier returns the MasterKeyIdentifier value from the use_srtp
+func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
+	if profile := c.state.getSRTPProtectionProfile(); profile == 0 {
+		return nil, false
+	}
+
+	return c.state.remoteSRTPMasterKeyIdentifier, true
 }
 
 func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {

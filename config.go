@@ -45,6 +45,10 @@ type Config struct {
 	// Servers will assert that clients send one of these profiles and will respond as needed
 	SRTPProtectionProfiles []SRTPProtectionProfile
 
+	// SRTPMasterKeyIdentifier value (if any) is sent via the use_srtp
+	// extension for Clients and Servers
+	SRTPMasterKeyIdentifier []byte
+
 	// ClientAuth determines the server's policy for
 	// TLS Client Authentication. The default is NoClientCert.
 	ClientAuth ClientAuthType
