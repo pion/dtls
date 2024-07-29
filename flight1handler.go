@@ -91,7 +91,8 @@ func flight1Generate(c flightConn, state *State, _ *handshakeCache, cfg *handsha
 
 	if len(cfg.localSRTPProtectionProfiles) > 0 {
 		extensions = append(extensions, &extension.UseSRTP{
-			ProtectionProfiles: cfg.localSRTPProtectionProfiles,
+			ProtectionProfiles:  cfg.localSRTPProtectionProfiles,
+			MasterKeyIdentifier: cfg.localSRTPMasterKeyIdentifier,
 		})
 	}
 

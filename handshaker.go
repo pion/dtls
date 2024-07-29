@@ -93,30 +93,31 @@ type handshakeFSM struct {
 }
 
 type handshakeConfig struct {
-	localPSKCallback            PSKCallback
-	localPSKIdentityHint        []byte
-	localCipherSuites           []CipherSuite             // Available CipherSuites
-	localSignatureSchemes       []signaturehash.Algorithm // Available signature schemes
-	extendedMasterSecret        ExtendedMasterSecretType  // Policy for the Extended Master Support extension
-	localSRTPProtectionProfiles []SRTPProtectionProfile   // Available SRTPProtectionProfiles, if empty no SRTP support
-	serverName                  string
-	supportedProtocols          []string
-	clientAuth                  ClientAuthType // If we are a client should we request a client certificate
-	localCertificates           []tls.Certificate
-	nameToCertificate           map[string]*tls.Certificate
-	insecureSkipVerify          bool
-	verifyPeerCertificate       func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
-	verifyConnection            func(*State) error
-	sessionStore                SessionStore
-	rootCAs                     *x509.CertPool
-	clientCAs                   *x509.CertPool
-	initialRetransmitInterval   time.Duration
-	disableRetransmitBackoff    bool
-	customCipherSuites          func() []CipherSuite
-	ellipticCurves              []elliptic.Curve
-	insecureSkipHelloVerify     bool
-	connectionIDGenerator       func() []byte
-	helloRandomBytesGenerator   func() [handshake.RandomBytesLength]byte
+	localPSKCallback             PSKCallback
+	localPSKIdentityHint         []byte
+	localCipherSuites            []CipherSuite             // Available CipherSuites
+	localSignatureSchemes        []signaturehash.Algorithm // Available signature schemes
+	extendedMasterSecret         ExtendedMasterSecretType  // Policy for the Extended Master Support extension
+	localSRTPProtectionProfiles  []SRTPProtectionProfile   // Available SRTPProtectionProfiles, if empty no SRTP support
+	localSRTPMasterKeyIdentifier []byte
+	serverName                   string
+	supportedProtocols           []string
+	clientAuth                   ClientAuthType // If we are a client should we request a client certificate
+	localCertificates            []tls.Certificate
+	nameToCertificate            map[string]*tls.Certificate
+	insecureSkipVerify           bool
+	verifyPeerCertificate        func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	verifyConnection             func(*State) error
+	sessionStore                 SessionStore
+	rootCAs                      *x509.CertPool
+	clientCAs                    *x509.CertPool
+	initialRetransmitInterval    time.Duration
+	disableRetransmitBackoff     bool
+	customCipherSuites           func() []CipherSuite
+	ellipticCurves               []elliptic.Curve
+	insecureSkipHelloVerify      bool
+	connectionIDGenerator        func() []byte
+	helloRandomBytesGenerator    func() [handshake.RandomBytesLength]byte
 
 	onFlightState func(flightVal, handshakeState)
 	log           logging.LeveledLogger

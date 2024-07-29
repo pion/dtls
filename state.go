@@ -24,10 +24,12 @@ type State struct {
 	cipherSuite               CipherSuite // nil if a cipherSuite hasn't been chosen
 	CipherSuiteID             CipherSuiteID
 
-	srtpProtectionProfile atomic.Value // Negotiated SRTPProtectionProfile
-	PeerCertificates      [][]byte
-	IdentityHint          []byte
-	SessionID             []byte
+	srtpProtectionProfile         atomic.Value // Negotiated SRTPProtectionProfile
+	remoteSRTPMasterKeyIdentifier []byte
+
+	PeerCertificates [][]byte
+	IdentityHint     []byte
+	SessionID        []byte
 
 	// Connection Identifiers must be negotiated afresh on session resumption.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
