@@ -866,12 +866,14 @@ func TestSRTPConfiguration(t *testing.T) {
 	defer report()
 
 	for _, test := range []struct {
-		Name            string
-		ClientSRTP      []SRTPProtectionProfile
-		ServerSRTP      []SRTPProtectionProfile
-		ExpectedProfile SRTPProtectionProfile
-		WantClientError error
-		WantServerError error
+		Name                          string
+		ClientSRTP                    []SRTPProtectionProfile
+		ServerSRTP                    []SRTPProtectionProfile
+		ClientSRTPMasterKeyIdentifier []byte
+		ServerSRTPMasterKeyIdentifier []byte
+		ExpectedProfile               SRTPProtectionProfile
+		WantClientError               error
+		WantServerError               error
 	}{
 		{
 			Name:            "No SRTP in use",
@@ -882,12 +884,14 @@ func TestSRTPConfiguration(t *testing.T) {
 			WantServerError: nil,
 		},
 		{
-			Name:            "SRTP both ends",
-			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
-			ServerSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
-			ExpectedProfile: SRTP_AES128_CM_HMAC_SHA1_80,
-			WantClientError: nil,
-			WantServerError: nil,
+			Name:                          "SRTP both ends",
+			ClientSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ServerSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ExpectedProfile:               SRTP_AES128_CM_HMAC_SHA1_80,
+			ClientSRTPMasterKeyIdentifier: []byte("ClientSRTPMKI"),
+			ServerSRTPMasterKeyIdentifier: []byte("ServerSRTPMKI"),
+			WantClientError:               nil,
+			WantServerError:               nil,
 		},
 		{
 			Name:            "SRTP client only",
@@ -933,11 +937,11 @@ func TestSRTPConfiguration(t *testing.T) {
 		c := make(chan result)
 
 		go func() {
-			client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{SRTPProtectionProfiles: test.ClientSRTP}, true)
+			client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{SRTPProtectionProfiles: test.ClientSRTP, SRTPMasterKeyIdentifier: test.ServerSRTPMasterKeyIdentifier}, true)
 			c <- result{client, err}
 		}()
 
-		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{SRTPProtectionProfiles: test.ServerSRTP}, true)
+		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{SRTPProtectionProfiles: test.ServerSRTP, SRTPMasterKeyIdentifier: test.ClientSRTPMasterKeyIdentifier}, true)
 		if !errors.Is(err, test.WantServerError) {
 			t.Errorf("TestSRTPConfiguration: Server Error Mismatch '%s': expected(%v) actual(%v)", test.Name, test.WantServerError, err)
 		}
@@ -968,6 +972,16 @@ func TestSRTPConfiguration(t *testing.T) {
 		actualServerSRTP, _ := server.SelectedSRTPProtectionProfile()
 		if actualServerSRTP != test.ExpectedProfile {
 			t.Errorf("TestSRTPConfiguration: Server SRTPProtectionProfile Mismatch '%s': expected(%v) actual(%v)", test.Name, test.ExpectedProfile, actualServerSRTP)
+		}
+
+		actualServerMKI, _ := server.RemoteSRTPMasterKeyIdentifier()
+		if !bytes.Equal(actualServerMKI, test.ServerSRTPMasterKeyIdentifier) {
+			t.Errorf("TestSRTPConfiguration: Server SRTPMKI Mismatch '%s': expected(%v) actual(%v)", test.Name, test.ServerSRTPMasterKeyIdentifier, actualServerMKI)
+		}
+
+		actualClientMKI, _ := res.c.RemoteSRTPMasterKeyIdentifier()
+		if !bytes.Equal(actualClientMKI, test.ClientSRTPMasterKeyIdentifier) {
+			t.Errorf("TestSRTPConfiguration: Client SRTPMKI Mismatch '%s': expected(%v) actual(%v)", test.Name, test.ClientSRTPMasterKeyIdentifier, actualClientMKI)
 		}
 	}
 }
