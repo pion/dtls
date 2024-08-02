@@ -183,7 +183,11 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 
 	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous {
 		if cfg.verifyConnection != nil {
-			if err := cfg.verifyConnection(state.clone()); err != nil {
+			stateClone, err := state.clone()
+			if err != nil {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+			if err := cfg.verifyConnection(stateClone); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
 		}
@@ -210,7 +214,11 @@ func flight4Parse(ctx context.Context, c flightConn, state *State, cache *handsh
 		// go to flight6
 	}
 	if cfg.verifyConnection != nil {
-		if err := cfg.verifyConnection(state.clone()); err != nil {
+		stateClone, err := state.clone()
+		if err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+		if err := cfg.verifyConnection(stateClone); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 		}
 	}
