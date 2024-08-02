@@ -344,8 +344,12 @@ func initializeCipherSuite(state *State, cache *handshakeCache, cfg *handshakeCo
 		}
 	}
 	if cfg.verifyConnection != nil {
-		if err = cfg.verifyConnection(state.clone()); err != nil {
-			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+		stateClone, errC := state.clone()
+		if errC != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errC
+		}
+		if errC = cfg.verifyConnection(stateClone); errC != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, errC
 		}
 	}
 
