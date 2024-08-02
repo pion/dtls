@@ -411,10 +411,14 @@ func (c *Conn) Close() error {
 
 // ConnectionState returns basic DTLS details about the connection.
 // Note that this replaced the `Export` function of v1.
-func (c *Conn) ConnectionState() State {
+func (c *Conn) ConnectionState() (State, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return *c.state.clone()
+	stateClone, err := c.state.clone()
+	if err != nil {
+		return State{}, false
+	}
+	return *stateClone, true
 }
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile
