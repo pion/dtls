@@ -3614,3 +3614,51 @@ func TestConnectionState(t *testing.T) {
 		t.Fatal("ConnectionState should not be nil")
 	}
 }
+
+func TestMultiHandshake(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	ca, cb := dpipe.Pipe()
+	serverCert, err := selfsign.GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+		Certificates: []tls.Certificate{serverCert},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go func() {
+		_ = server.Handshake()
+	}()
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+		Certificates: []tls.Certificate{clientCert},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = client.Handshake(); err == nil {
+		t.Fatal(err)
+	}
+
+	if err = client.Handshake(); err == nil {
+		t.Fatal(err)
+	}
+
+	if err = server.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = client.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
