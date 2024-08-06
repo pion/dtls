@@ -27,9 +27,11 @@ func main() {
 	//
 
 	// ************ Variables used to implement a basic Brute Force Attack protection *************
-	var attempts = make(map[string]int) // Map of attempts for each IP address.
-	var attemptsMutex sync.Mutex        // Mutex for the map of attempts.
-	var attemptsCleaner = time.Now()    // Time to be able to clean the map of attempts every X minutes.
+	var (
+		attempts        = make(map[string]int) // Map of attempts for each IP address.
+		attemptsMutex   sync.Mutex             // Mutex for the map of attempts.
+		attemptsCleaner = time.Now()           // Time to be able to clean the map of attempts every X minutes.
+	)
 
 	certificate, err := util.LoadKeyAndCertificate("examples/certificates/server.pem",
 		"examples/certificates/server.pub.pem")
@@ -68,9 +70,9 @@ func main() {
 				}
 			}
 			// Check if the IP address is in the map, and the IP address has exceeded the limit (Brute Force Attack protection)
-			attemptIP := addr.(*net.UDPAddr).IP.String()
+			attemptIP := addr.(*net.UDPAddr).IP.String() //nolint
 			if attempts[attemptIP] > 10 {
-				return fmt.Errorf("too many attempts from this IP address")
+				return fmt.Errorf("too many attempts from this IP address") //nolint
 			}
 			// Here I increment the number of attempts for this IP address (Brute Force Attack protection)
 			attempts[attemptIP]++
@@ -105,7 +107,7 @@ func main() {
 			// *************** Brute Force Attack protection ***************
 			// Here I decrease the number of attempts for this IP address
 			attemptsMutex.Lock()
-			attemptIP := conn.(*dtls.Conn).RemoteAddr().(*net.UDPAddr).IP.String()
+			attemptIP := conn.(*dtls.Conn).RemoteAddr().(*net.UDPAddr).IP.String() //nolint
 			attempts[attemptIP]--
 			// If the number of attempts for this IP address is 0, I delete the IP address from the map
 			if attempts[attemptIP] == 0 {

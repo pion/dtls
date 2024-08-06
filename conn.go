@@ -1055,9 +1055,11 @@ func (c *Conn) handshake(ctx context.Context, cfg *handshakeConfig, initialFligh
 	}()
 	go func() {
 		defer func() {
-			// Escaping read loop.
-			// It's safe to close decrypted channnel now.
-			close(c.decrypted)
+			if c.isHandshakeCompletedSuccessfully() {
+				// Escaping read loop.
+				// It's safe to close decrypted channnel now.
+				close(c.decrypted)
+			}
 
 			// Force stop handshaker when the underlying connection is closed.
 			cancel()
