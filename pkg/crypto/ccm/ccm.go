@@ -74,14 +74,14 @@ func (c *ccm) Overhead() int  { return int(c.M) }
 func (c *ccm) MaxLength() int { return maxlen(c.L, c.Overhead()) }
 
 func maxlen(l uint8, tagsize int) int {
-	max := (uint64(1) << (8 * l)) - 1
-	if m64 := uint64(math.MaxInt64) - uint64(tagsize); l > 8 || max > m64 {
-		max = m64 // The maximum lentgh on a 64bit arch
+	mLen := (uint64(1) << (8 * l)) - 1
+	if m64 := uint64(math.MaxInt64) - uint64(tagsize); l > 8 || mLen > m64 {
+		mLen = m64 // The maximum lentgh on a 64bit arch
 	}
-	if max != uint64(int(max)) {
+	if mLen != uint64(int(mLen)) {
 		return math.MaxInt32 - tagsize // We have only 32bit int's
 	}
-	return int(max)
+	return int(mLen)
 }
 
 // MaxNonceLength returns the maximum nonce length for a given plaintext length.
