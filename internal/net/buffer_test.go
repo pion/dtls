@@ -125,7 +125,7 @@ func TestBuffer(t *testing.T) {
 	equalUDPAddr(t, addr, raddr)
 
 	// Until EOF.
-	if _, _, err = buffer.ReadFrom(packet); !errors.Is(io.EOF, err) {
+	if _, _, err = buffer.ReadFrom(packet); !errors.Is(err, io.EOF) {
 		t.Fatalf("Unexpected err %v wanted io.EOF", err)
 	}
 }
@@ -148,7 +148,7 @@ func TestShortBuffer(t *testing.T) {
 	packet := make([]byte, 3)
 	var raddr net.Addr
 	n, raddr, err = buffer.ReadFrom(packet)
-	if !errors.Is(io.ErrShortBuffer, err) {
+	if !errors.Is(err, io.ErrShortBuffer) {
 		t.Fatalf("Unexpected err %v wanted io.ErrShortBuffer", err)
 	}
 	equalUDPAddr(t, nil, raddr)
@@ -251,7 +251,7 @@ func TestBufferAsync(t *testing.T) {
 		equalUDPAddr(t, addr, raddr)
 
 		_, _, readErr := buffer.ReadFrom(packet)
-		if !errors.Is(io.EOF, readErr) {
+		if !errors.Is(readErr, io.EOF) {
 			done <- fmt.Sprintf("Unexpected err %v wanted io.EOF", readErr)
 		} else {
 			close(done)
