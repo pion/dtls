@@ -3662,3 +3662,54 @@ func TestMultiHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCloseDuringHandshake(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	serverCert, err := selfsign.GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 100; i++ {
+		_, cb := dpipe.Pipe()
+		server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+			Certificates: []tls.Certificate{serverCert},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		waitChan := make(chan struct{})
+		go func() {
+			close(waitChan)
+			_ = server.Handshake()
+		}()
+
+		<-waitChan
+		if err = server.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestCloseWithoutHandshake(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	serverCert, err := selfsign.GenerateSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cb := dpipe.Pipe()
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+		Certificates: []tls.Certificate{serverCert},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = server.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
