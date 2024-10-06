@@ -225,8 +225,8 @@ func TestHandshaker(t *testing.T) {
 					t.Errorf("Client is not finished")
 				}
 				// there should be no `Finished` last retransmit from client
-				if cntClientFinishedLastRetransmit != 4 {
-					t.Errorf("Number of client finished last retransmit is wrong, expected: %d times, got: %d times", 4, cntClientFinishedLastRetransmit)
+				if cntClientFinishedLastRetransmit != 0 {
+					t.Errorf("Number of client finished last retransmit is wrong, expected: %d times, got: %d times", 0, cntClientFinishedLastRetransmit)
 				}
 				if cntServerFinished < 1 {
 					t.Errorf("Number of server finished is wrong, expected: at least %d times, got: %d times", 1, cntServerFinished)
