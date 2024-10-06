@@ -338,7 +338,11 @@ func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState
 	select {
 	case state := <-c.recvHandshake():
 		close(state.done)
-		return handshakeSending, nil
+		if s.state.isClient {
+			return handshakeFinished, nil
+		} else {
+			return handshakeSending, nil
+		}
 	case <-ctx.Done():
 		return handshakeErrored, ctx.Err()
 	}
