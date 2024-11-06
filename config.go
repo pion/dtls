@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
@@ -274,10 +275,14 @@ func validateConfig(config *Config) error { //nolint:cyclop
 			return errInvalidCertificate
 		}
 		if cert.PrivateKey != nil {
-			switch cert.PrivateKey.(type) {
-			case ed25519.PrivateKey:
-			case *ecdsa.PrivateKey:
-			case *rsa.PrivateKey:
+			signer, ok := cert.PrivateKey.(crypto.Signer)
+			if !ok {
+				return errInvalidPrivateKey
+			}
+			switch signer.Public().(type) {
+			case ed25519.PublicKey:
+			case *ecdsa.PublicKey:
+			case *rsa.PublicKey:
 			default:
 				return errInvalidPrivateKey
 			}
