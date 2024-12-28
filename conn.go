@@ -33,6 +33,7 @@ const (
 	sessionLength         = 32
 	defaultNamedCurve     = elliptic.X25519
 	inboundBufferSize     = 8192
+	decryptedBufferSize   = 8192
 	// Default replay protection window is specified by RFC 6347 Section 4.1.2.6
 	defaultReplayProtectionWindow = 64
 	// maxAppDataPacketQueueSize is the maximum number of app data packets we will
@@ -68,6 +69,8 @@ type Conn struct {
 	decrypted      chan interface{}  // Decrypted Application Data or error, pull by calling `Read`
 	rAddr          net.Addr
 	state          State // Internal state
+
+	decryptedBuf []byte
 
 	maximumTransmissionUnit int
 	paddingLengthGenerator  func(uint) uint
@@ -219,6 +222,8 @@ func createConn(nextConn net.PacketConn, rAddr net.Addr, config *Config, isClien
 		state: State{
 			isClient: isClient,
 		},
+
+		decryptedBuf: make([]byte, 0, decryptedBufferSize),
 	}
 
 	c.setRemoteEpoch(0)
@@ -353,23 +358,40 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 	default:
 	}
 
+	n = 0
+
+	// try to fulfill the Read with buffered decrypted data.
+	if len(c.decryptedBuf) >= len(p) {
+		n = copy(p, c.decryptedBuf[:len(p)])
+		c.decryptedBuf = c.decryptedBuf[len(p):]
+		return n, nil
+	} else {
+		n = copy(p, c.decryptedBuf)
+		c.decryptedBuf = c.decryptedBuf[:0]
+	}
+
 	for {
 		select {
 		case <-c.readDeadline.Done():
-			return 0, errDeadlineExceeded
+			return n, errDeadlineExceeded
 		case out, ok := <-c.decrypted:
 			if !ok {
-				return 0, io.EOF
+				return n, io.EOF
 			}
 			switch val := out.(type) {
-			case ([]byte):
-				if len(p) < len(val) {
-					return 0, errBufferTooSmall
+			case []byte:
+				spaceAvailable := len(p) - n
+				if spaceAvailable < len(val) {
+					n += copy(p[n:], val[:spaceAvailable])
+					// buffer left-over data for later
+					c.decryptedBuf = append(c.decryptedBuf, val[spaceAvailable:]...)
+					return n, nil
+				} else {
+					n += copy(p[n:], val)
+					return n, nil
 				}
-				copy(p, val)
-				return len(val), nil
-			case (error):
-				return 0, val
+			case error:
+				return n, val
 			}
 		}
 	}
