@@ -40,13 +40,14 @@ type flight4TestMockCipherSuite struct {
 
 func (f *flight4TestMockCipherSuite) IsInitialized() bool {
 	f.t.Fatal("IsInitialized called with Certificate but not CertificateVerify")
+
 	return true
 }
 
 // Assert that if a Client sends a certificate they
 // must also send a CertificateVerify message.
 // The flight4handler must not interact with the CipherSuite
-// if the CertificateVerify is missing
+// if the CertificateVerify is missing.
 func TestFlight4_Process_CertificateVerify(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(5 * time.Second)
@@ -156,6 +157,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 		clientAuth:            1,
 		certificateRequestMessageHook: func(mcr handshake.MessageCertificateRequest) handshake.Message {
 			mcr.SignatureHashAlgorithms = []signaturehash.Algorithm{}
+
 			return &mcr
 		},
 	}
@@ -166,7 +168,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 	}
 
 	for _, p := range pkts {
-		if h, ok := p.record.Content.(*handshake.Handshake); ok {
+		if h, ok := p.record.Content.(*handshake.Handshake); ok { //nolint:nestif
 			if h.Message.Type() == handshake.TypeCertificateRequest {
 				mcr := &handshake.MessageCertificateRequest{}
 				msg, err := h.Message.Marshal()

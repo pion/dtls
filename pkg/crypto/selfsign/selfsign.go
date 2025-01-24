@@ -21,7 +21,7 @@ import (
 
 var errInvalidPrivateKey = errors.New("selfsign: invalid private key type")
 
-// GenerateSelfSigned creates a self-signed certificate
+// GenerateSelfSigned creates a self-signed certificate.
 func GenerateSelfSigned() (tls.Certificate, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -31,7 +31,7 @@ func GenerateSelfSigned() (tls.Certificate, error) {
 	return SelfSign(priv)
 }
 
-// GenerateSelfSignedWithDNS creates a self-signed certificate
+// GenerateSelfSignedWithDNS creates a self-signed certificate.
 func GenerateSelfSignedWithDNS(cn string, sans ...string) (tls.Certificate, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -41,12 +41,12 @@ func GenerateSelfSignedWithDNS(cn string, sans ...string) (tls.Certificate, erro
 	return WithDNS(priv, cn, sans...)
 }
 
-// SelfSign creates a self-signed certificate from a elliptic curve key
+// SelfSign creates a self-signed certificate from a elliptic curve key.
 func SelfSign(key crypto.PrivateKey) (tls.Certificate, error) {
 	return WithDNS(key, "self-signed cert")
 }
 
-// WithDNS creates a self-signed certificate from a elliptic curve key
+// WithDNS creates a self-signed certificate from a elliptic curve key.
 func WithDNS(key crypto.PrivateKey, cn string, sans ...string) (tls.Certificate, error) {
 	var (
 		pubKey    crypto.PublicKey

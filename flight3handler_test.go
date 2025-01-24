@@ -18,8 +18,8 @@ import (
 	"github.com/pion/transport/v3/test"
 )
 
-// Assert that SupportedEllipticCurves is only sent when a ECC CipherSuite is available
-func TestSupportedEllipticCurves(t *testing.T) {
+// Assert that SupportedEllipticCurves is only sent when a ECC CipherSuite is available.
+func TestSupportedEllipticCurves(t *testing.T) { //nolint:cyclop
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -51,7 +51,7 @@ func TestSupportedEllipticCurves(t *testing.T) {
 			h := &handshake.Handshake{}
 			_ = h.Unmarshal(messages[i][recordlayer.FixedHeaderSize:])
 
-			if h.Header.Type == handshake.TypeClientHello {
+			if h.Header.Type == handshake.TypeClientHello { //nolint:nestif
 				clientHello := &handshake.MessageClientHello{}
 				msg, err := h.Message.Marshal()
 
@@ -78,7 +78,13 @@ func TestSupportedEllipticCurves(t *testing.T) {
 			EllipticCurves: expectedCurves,
 		}
 
-		if client, err := testClient(ctx, dtlsnet.PacketConnFromConn(caAnalyzer), caAnalyzer.RemoteAddr(), conf, false); err != nil {
+		if client, err := testClient(
+			ctx,
+			dtlsnet.PacketConnFromConn(caAnalyzer),
+			caAnalyzer.RemoteAddr(),
+			conf,
+			false,
+		); err != nil {
 			clientErr <- err
 		} else {
 			clientErr <- client.Close() //nolint

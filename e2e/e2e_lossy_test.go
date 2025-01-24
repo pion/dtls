@@ -21,10 +21,9 @@ const (
 	lossyTestTimeout = 30 * time.Second
 )
 
-/*
-DTLS Client/Server over a lossy transport, just asserts it can handle at increasing increments
-*/
-func TestPionE2ELossy(t *testing.T) {
+// DTLS Client/Server over a lossy transport, just asserts it can handle at increasing increments
+
+func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 	// Check for leaking routines
 	report := transportTest.CheckRoutines(t)
 	defer report()
@@ -213,20 +212,32 @@ func TestPionE2ELossy(t *testing.T) {
 				select {
 				case serverResult := <-serverDone:
 					if serverResult.err != nil {
-						t.Errorf("Fail, serverError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientConn != nil, serverConn != nil, chosenLoss, serverResult.err)
+						t.Errorf(
+							"Fail, serverError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)",
+							clientConn != nil, serverConn != nil, chosenLoss, serverResult.err,
+						)
+
 						return
 					}
 
 					serverConn = serverResult.dtlsConn
 				case clientResult := <-clientDone:
 					if clientResult.err != nil {
-						t.Errorf("Fail, clientError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientConn != nil, serverConn != nil, chosenLoss, clientResult.err)
+						t.Errorf(
+							"Fail, clientError: clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)",
+							clientConn != nil, serverConn != nil, chosenLoss, clientResult.err,
+						)
+
 						return
 					}
 
 					clientConn = clientResult.dtlsConn
 				case <-testTimer.C:
-					t.Errorf("Test expired: clientComplete(%t) serverComplete(%t) LossChance(%d)", clientConn != nil, serverConn != nil, chosenLoss)
+					t.Errorf(
+						"Test expired: clientComplete(%t) serverComplete(%t) LossChance(%d)",
+						clientConn != nil, serverConn != nil, chosenLoss,
+					)
+
 					return
 				case <-time.After(10 * time.Millisecond):
 				}

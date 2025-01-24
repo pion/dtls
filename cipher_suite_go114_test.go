@@ -30,25 +30,25 @@ func TestCipherSuites(t *testing.T) {
 		i := i
 		s := s
 		t.Run(s.String(), func(t *testing.T) {
-			c := theirs[i]
-			if c.ID != uint16(s.ID()) {
-				t.Fatalf("Expected ID: 0x%04X, got 0x%04X", s.ID(), c.ID)
+			cipher := theirs[i]
+			if cipher.ID != uint16(s.ID()) {
+				t.Fatalf("Expected ID: 0x%04X, got 0x%04X", s.ID(), cipher.ID)
 			}
 
-			if c.Name != s.String() {
-				t.Fatalf("Expected Name: %s, got %s", s.String(), c.Name)
+			if cipher.Name != s.String() {
+				t.Fatalf("Expected Name: %s, got %s", s.String(), cipher.Name)
 			}
 
-			if len(c.SupportedVersions) != 1 {
-				t.Fatalf("Expected %d SupportedVersion, got %d", 1, len(c.SupportedVersions))
+			if len(cipher.SupportedVersions) != 1 {
+				t.Fatalf("Expected %d SupportedVersion, got %d", 1, len(cipher.SupportedVersions))
 			}
 
-			if c.SupportedVersions[0] != VersionDTLS12 {
-				t.Fatalf("Expected SupportedVersions 0x%04X, got 0x%04X", VersionDTLS12, c.SupportedVersions[0])
+			if cipher.SupportedVersions[0] != VersionDTLS12 {
+				t.Fatalf("Expected SupportedVersions 0x%04X, got 0x%04X", VersionDTLS12, cipher.SupportedVersions[0])
 			}
 
-			if c.Insecure {
-				t.Fatalf("Expected Insecure %t, got %t", false, c.Insecure)
+			if cipher.Insecure {
+				t.Fatalf("Expected Insecure %t, got %t", false, cipher.Insecure)
 			}
 		})
 	}

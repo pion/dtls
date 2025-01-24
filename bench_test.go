@@ -37,6 +37,7 @@ func TestSimpleReadWrite(t *testing.T) {
 		}, false)
 		if sErr != nil {
 			t.Error(sErr)
+
 			return
 		}
 		buf := make([]byte, 1024)
@@ -71,8 +72,10 @@ func TestSimpleReadWrite(t *testing.T) {
 	}
 }
 
-func benchmarkConn(b *testing.B, n int64) {
-	b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+func benchmarkConn(b *testing.B, payloadSize int64) {
+	b.Helper()
+
+	b.Run(fmt.Sprintf("%d", payloadSize), func(b *testing.B) {
 		ctx := context.Background()
 
 		ca, cb := dpipe.Pipe()
@@ -84,6 +87,7 @@ func benchmarkConn(b *testing.B, n int64) {
 			}, false)
 			if err != nil {
 				b.Error(sErr)
+
 				return
 			}
 			server <- s
@@ -91,11 +95,13 @@ func benchmarkConn(b *testing.B, n int64) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		hw := make([]byte, n)
+		hw := make([]byte, payloadSize)
 		b.ReportAllocs()
 		b.SetBytes(int64(len(hw)))
 		go func() {
-			client, cErr := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{InsecureSkipVerify: true}, false)
+			client, cErr := testClient(
+				ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{InsecureSkipVerify: true}, false,
+			)
 			if cErr != nil {
 				b.Error(err)
 			}

@@ -31,22 +31,22 @@ func TestALPN(t *testing.T) {
 }
 
 func TestALPNProtocolSelection(t *testing.T) {
-	s, err := ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{"spd/1"})
+	selectedProtocol, err := ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{"spd/1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s != "spd/1" {
-		t.Errorf("expected: spd/1, got: %v", s)
+	if selectedProtocol != "spd/1" {
+		t.Errorf("expected: spd/1, got: %v", selectedProtocol)
 	}
 	_, err = ALPNProtocolSelection([]string{"http/1.1"}, []string{"spd/1"})
 	if !errors.Is(err, errALPNNoAppProto) {
 		t.Fatal("expected to fail negotiating an application protocol")
 	}
-	s, err = ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{})
+	selectedProtocol, err = ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s != "" {
-		t.Errorf("expected not to negotiate a protocol, got: %v", s)
+	if selectedProtocol != "" {
+		t.Errorf("expected not to negotiate a protocol, got: %v", selectedProtocol)
 	}
 }

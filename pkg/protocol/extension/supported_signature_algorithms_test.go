@@ -33,13 +33,19 @@ func TestExtensionSupportedSignatureAlgorithms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	} else if !reflect.DeepEqual(raw, rawExtensionSupportedSignatureAlgorithms) {
-		t.Fatalf("extensionSupportedSignatureAlgorithms marshal: got %#v, want %#v", raw, rawExtensionSupportedSignatureAlgorithms)
+		t.Fatalf(
+			"extensionSupportedSignatureAlgorithms marshal: got %#v, want %#v",
+			raw, rawExtensionSupportedSignatureAlgorithms,
+		)
 	}
 
 	roundtrip := &SupportedSignatureAlgorithms{}
 	if err := roundtrip.Unmarshal(raw); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(roundtrip, parsedExtensionSupportedSignatureAlgorithms) {
-		t.Errorf("extensionSupportedSignatureAlgorithms unmarshal: got %#v, want %#v", roundtrip, parsedExtensionSupportedSignatureAlgorithms)
+		t.Errorf(
+			"extensionSupportedSignatureAlgorithms unmarshal: got %#v, want %#v",
+			roundtrip, parsedExtensionSupportedSignatureAlgorithms,
+		)
 	}
 }

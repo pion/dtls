@@ -29,7 +29,10 @@ func TestGenerateAEADAdditionalDataCID(t *testing.T) {
 				SequenceNumber: 277,
 			},
 			payloadLen: 1784,
-			expected:   []byte{255, 255, 255, 255, 255, 255, 255, 255, 25, 8, 25, 254, 253, 0, 2, 0, 0, 0, 0, 1, 21, 1, 2, 3, 4, 5, 6, 7, 8, 6, 248},
+			expected: []byte{
+				255, 255, 255, 255, 255, 255, 255, 255, 25, 8, 25, 254, 253,
+				0, 2, 0, 0, 0, 0, 1, 21, 1, 2, 3, 4, 5, 6, 7, 8, 6, 248,
+			},
 		},
 		"IgnoreContentType": {
 			reason: "Should use Connection ID content type regardless of header content type.",
@@ -41,7 +44,10 @@ func TestGenerateAEADAdditionalDataCID(t *testing.T) {
 				SequenceNumber: 277,
 			},
 			payloadLen: 1784,
-			expected:   []byte{255, 255, 255, 255, 255, 255, 255, 255, 25, 8, 25, 254, 253, 0, 2, 0, 0, 0, 0, 1, 21, 1, 2, 3, 4, 5, 6, 7, 8, 6, 248},
+			expected: []byte{
+				255, 255, 255, 255, 255, 255, 255, 255, 25, 8, 25, 254, 253,
+				0, 2, 0, 0, 0, 0, 1, 21, 1, 2, 3, 4, 5, 6, 7, 8, 6, 248,
+			},
 		},
 	}
 	for name, tc := range cases {

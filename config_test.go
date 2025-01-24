@@ -14,26 +14,30 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 )
 
-func TestValidateConfig(t *testing.T) {
+func TestValidateConfig(t *testing.T) { //nolint:cyclop
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), self signed certificate not generated", err)
+
 		return
 	}
 	dsaPrivateKey := &dsa.PrivateKey{}
 	err = dsa.GenerateParameters(&dsaPrivateKey.Parameters, rand.Reader, dsa.L1024N160)
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), DSA parameters not generated", err)
+
 		return
 	}
 	err = dsa.GenerateKey(dsaPrivateKey, rand.Reader)
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), DSA private key not generated", err)
+
 		return
 	}
 	rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("TestValidateConfig: Config validation error(%v), RSA private key not generated", err)
+
 		return
 	}
 	cases := map[string]struct {

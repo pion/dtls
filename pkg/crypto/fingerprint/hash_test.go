@@ -22,7 +22,7 @@ func TestHashFromString(t *testing.T) {
 			t.Fatalf("Unexpected error for valid hash name, got '%v'", err)
 		}
 		if h != crypto.SHA512 {
-			t.Errorf("Expected hash ID of %d, got %d", int(crypto.SHA512), int(h))
+			t.Errorf("Expected hash ID of %d, got %d", int(crypto.SHA512), int(h)) //nolint:gosec //G115
 		}
 	})
 	t.Run("ValidCaseInsensitiveHashAlgorithm", func(t *testing.T) {
@@ -31,6 +31,7 @@ func TestHashFromString(t *testing.T) {
 			t.Fatalf("Unexpected error for valid hash name, got '%v'", err)
 		}
 		if h != crypto.SHA512 {
+			//nolint:gosec // G115
 			t.Errorf("Expected hash ID of %d, got %d", int(crypto.SHA512), int(h))
 		}
 	})

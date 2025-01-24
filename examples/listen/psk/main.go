@@ -26,6 +26,7 @@ func main() {
 	config := &dtls.Config{
 		PSK: func(hint []byte) ([]byte, error) {
 			fmt.Printf("Client's hint: %s \n", hint)
+
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},
 		PSKIdentityHint:      []byte("Pion DTLS Server"),

@@ -34,13 +34,14 @@ type flight1TestMockCipherSuite struct {
 
 func (f *flight1TestMockCipherSuite) IsInitialized() bool {
 	f.t.Fatal("IsInitialized called with Certificate but not CertificateVerify")
+
 	return true
 }
 
 // When "server hello" arrives later than "certificate",
 // "server key exchange", "certificate request", "server hello done",
-// is it normal for the flight1Parse method to handle it
-func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) {
+// is it normal for the flight1Parse method to handle it.
+func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) { //nolint:maintidx
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(5 * time.Second)
 	defer lim.Stop()

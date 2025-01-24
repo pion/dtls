@@ -38,7 +38,7 @@ func TestAllCipherSuites(t *testing.T) {
 	}
 }
 
-// CustomCipher that is just used to assert Custom IDs work
+// CustomCipher that is just used to assert Custom IDs work.
 type testCustomCipherSuite struct {
 	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
 	authenticationType CipherSuiteAuthenticationType
@@ -52,7 +52,7 @@ func (t *testCustomCipherSuite) AuthenticationType() CipherSuiteAuthenticationTy
 	return t.authenticationType
 }
 
-// Assert that two connections that pass in a CipherSuite with a CustomID works
+// Assert that two connections that pass in a CipherSuite with a CustomID works.
 func TestCustomCipherSuite(t *testing.T) {
 	type result struct {
 		c   *Conn
@@ -68,14 +68,14 @@ func TestCustomCipherSuite(t *testing.T) {
 		defer cancel()
 
 		ca, cb := dpipe.Pipe()
-		c := make(chan result)
+		resultCh := make(chan result)
 
 		go func() {
 			client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 				CipherSuites:       []CipherSuiteID{},
 				CustomCipherSuites: cipherFactory,
 			}, true)
-			c <- result{client, err}
+			resultCh <- result{client, err}
 		}()
 
 		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
@@ -83,7 +83,7 @@ func TestCustomCipherSuite(t *testing.T) {
 			CustomCipherSuites: cipherFactory,
 		}, true)
 
-		clientResult := <-c
+		clientResult := <-resultCh
 
 		if err != nil {
 			t.Error(err)

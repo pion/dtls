@@ -26,6 +26,7 @@ func main() {
 	config := &dtls.Config{
 		PSK: func(hint []byte) ([]byte, error) {
 			fmt.Printf("Server's hint: %s \n", hint)
+
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		},
 		PSKIdentityHint:       []byte("Pion DTLS Client"),
@@ -45,6 +46,7 @@ func main() {
 
 	if err := dtlsConn.HandshakeContext(ctx); err != nil {
 		fmt.Printf("Failed to handshake with server: %v\n", err)
+
 		return
 	}
 

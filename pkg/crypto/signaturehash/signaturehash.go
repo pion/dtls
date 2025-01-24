@@ -25,7 +25,7 @@ type Algorithm struct {
 	Signature signature.Algorithm
 }
 
-// Algorithms are all the know SignatureHash Algorithms
+// Algorithms are all the know SignatureHash Algorithms.
 func Algorithms() []Algorithm {
 	return []Algorithm{
 		{hash.SHA256, signature.ECDSA},
@@ -45,6 +45,7 @@ func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey) (Algo
 			return ss, nil
 		}
 	}
+
 	return Algorithm{}, errNoAvailableSignatureSchemes
 }
 

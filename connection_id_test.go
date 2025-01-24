@@ -85,7 +85,7 @@ func TestCIDDatagramRouter(t *testing.T) {
 		Epoch:          1,
 		Version:        protocol.Version1_2,
 		ContentType:    protocol.ContentTypeConnectionID,
-		ContentLen:     uint16(len(inner)),
+		ContentLen:     uint16(len(inner)), //nolint:gosec // G115
 		ConnectionID:   cid,
 		SequenceNumber: 1,
 	}).Marshal()
@@ -128,6 +128,7 @@ func TestCIDDatagramRouter(t *testing.T) {
 			want:     string(cid),
 		},
 		"OneRecordConnectionIDAltLength": {
+			//nolint:lll
 			reason: "If datagram contains one Connection ID record, but it has the wrong length we should not be able to extract it.",
 			size:   cidLen,
 			datagram: func() []byte {
@@ -135,19 +136,21 @@ func TestCIDDatagramRouter(t *testing.T) {
 					Epoch:          1,
 					Version:        protocol.Version1_2,
 					ContentType:    protocol.ContentTypeConnectionID,
-					ContentLen:     uint16(len(inner)),
+					ContentLen:     uint16(len(inner)), //nolint:gosec // G115
 					ConnectionID:   []byte("abcd"),
 					SequenceNumber: 1,
 				}).Marshal()
 				if err != nil {
 					t.Fatal(err)
 				}
+
 				return append(altCIDHeader, inner...)
 			}(),
 			ok:   false,
 			want: "",
 		},
 		"MultipleRecordOneConnectionID": {
+			//nolint:lll
 			reason:   "If datagram contains multiple records and one is a Connection ID record, we should be able to extract it.",
 			size:     8,
 			datagram: append(append(appRecord, cidHeader...), inner...),
@@ -155,6 +158,7 @@ func TestCIDDatagramRouter(t *testing.T) {
 			want:     string(cid),
 		},
 		"MultipleRecordMultipleConnectionID": {
+			//nolint:lll
 			reason: "If datagram contains multiple records and multiple are Connection ID records, we should extract the first one.",
 			size:   8,
 			datagram: append(append(append(appRecord, func() []byte {
@@ -162,13 +166,14 @@ func TestCIDDatagramRouter(t *testing.T) {
 					Epoch:          1,
 					Version:        protocol.Version1_2,
 					ContentType:    protocol.ContentTypeConnectionID,
-					ContentLen:     uint16(len(inner)),
+					ContentLen:     uint16(len(inner)), //nolint:gosec // G115
 					ConnectionID:   []byte("1234abcd"),
 					SequenceNumber: 1,
 				}).Marshal()
 				if err != nil {
 					t.Fatal(err)
 				}
+
 				return append(altCIDHeader, inner...)
 			}()...), cidHeader...), inner...),
 			ok:   true,
@@ -257,12 +262,14 @@ func TestCIDConnIdentifier(t *testing.T) {
 			want:     string(cid),
 		},
 		"MultipleRecordFirstServerHello": {
+			//nolint:lll
 			reason:   "If datagram contains multiple records and the first is a ServerHello record, we should be able to extract an identifier.",
 			datagram: append(sh, appRecord...),
 			ok:       true,
 			want:     string(cid),
 		},
 		"MultipleRecordNotFirstServerHello": {
+			//nolint:lll
 			reason:   "If datagram contains multiple records and the first is not a ServerHello record, we should not be able to extract an identifier.",
 			datagram: append(appRecord, sh...),
 			ok:       false,

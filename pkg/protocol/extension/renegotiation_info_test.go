@@ -20,6 +20,9 @@ func TestRenegotiationInfo(t *testing.T) {
 	}
 
 	if newExtension.RenegotiatedConnection != extension.RenegotiatedConnection {
-		t.Errorf("extensionRenegotiationInfo marshal: got %d expected %d", newExtension.RenegotiatedConnection, extension.RenegotiatedConnection)
+		t.Errorf(
+			"extensionRenegotiationInfo marshal: got %d expected %d",
+			newExtension.RenegotiatedConnection, extension.RenegotiatedConnection,
+		)
 	}
 }

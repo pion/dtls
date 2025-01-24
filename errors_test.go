@@ -65,21 +65,21 @@ func TestErrorNetError(t *testing.T) {
 		{&HandshakeError{Err: errExample}, "handshake error: an example error", false, false},
 		{&HandshakeError{Err: &TimeoutError{Err: errExample}}, "handshake error: dtls timeout: an example error", true, true},
 	}
-	for _, c := range cases {
-		c := c
-		t.Run(fmt.Sprintf("%T", c.err), func(t *testing.T) {
+	for _, testCase := range cases {
+		testCase := testCase
+		t.Run(fmt.Sprintf("%T", testCase.err), func(t *testing.T) {
 			var ne net.Error
-			if !errors.As(c.err, &ne) {
-				t.Fatalf("%T doesn't implement net.Error", c.err)
+			if !errors.As(testCase.err, &ne) {
+				t.Fatalf("%T doesn't implement net.Error", testCase.err)
 			}
-			if ne.Timeout() != c.timeout {
-				t.Errorf("%T.Timeout() should be %v", c.err, c.timeout)
+			if ne.Timeout() != testCase.timeout {
+				t.Errorf("%T.Timeout() should be %v", testCase.err, testCase.timeout)
 			}
-			if ne.Temporary() != c.temporary { //nolint:staticcheck
-				t.Errorf("%T.Temporary() should be %v", c.err, c.temporary)
+			if ne.Temporary() != testCase.temporary { //nolint:staticcheck
+				t.Errorf("%T.Temporary() should be %v", testCase.err, testCase.temporary)
 			}
-			if ne.Error() != c.str {
-				t.Errorf("%T.Error() should be %v", c.err, c.str)
+			if ne.Error() != testCase.str {
+				t.Errorf("%T.Error() should be %v", testCase.err, testCase.str)
 			}
 		})
 	}
