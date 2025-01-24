@@ -22,7 +22,10 @@ func TestHashAlgorithm_StringRoundtrip(t *testing.T) {
 			t.Fatalf("fingerprint.HashFromString failed: %v", err)
 		}
 		if hash1 != hash2 {
-			t.Errorf("Hash algorithm mismatch, input: %d, after roundtrip: %d", int(hash1), int(hash2))
+			t.Errorf(
+				"Hash algorithm mismatch, input: %d, after roundtrip: %d",
+				int(hash1), int(hash2), //nolint:gosec // G115
+			)
 		}
 	}
 }

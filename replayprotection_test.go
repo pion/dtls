@@ -16,7 +16,7 @@ import (
 	"github.com/pion/transport/v3/test"
 )
 
-func TestReplayProtection(t *testing.T) {
+func TestReplayProtection(t *testing.T) { //nolint:cyclop
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(5 * time.Second)
 	defer lim.Stop()
@@ -52,6 +52,7 @@ func TestReplayProtection(t *testing.T) {
 			}
 			if _, werr := cb.Write(b[:n]); werr != nil {
 				t.Error(werr)
+
 				return
 			}
 
@@ -109,10 +110,12 @@ func TestReplayProtection(t *testing.T) {
 		sent = append(sent, data)
 		if _, werr := ca.Write(data); werr != nil {
 			t.Error(werr)
+
 			return
 		}
 		if _, werr := cb.Write(data); werr != nil {
 			t.Error(werr)
+
 			return
 		}
 	}

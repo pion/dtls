@@ -53,6 +53,7 @@ func main() {
 
 	if err := dtlsConn.HandshakeContext(ctx); err != nil {
 		fmt.Printf("Failed to handshake with server: %v\n", err)
+
 		return
 	}
 

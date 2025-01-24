@@ -21,7 +21,7 @@ import (
 	"github.com/pion/transport/v3/test"
 )
 
-func TestContextConfig(t *testing.T) {
+func TestContextConfig(t *testing.T) { //nolint:cyclop
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -62,11 +62,13 @@ func TestContextConfig(t *testing.T) {
 		"Dial": {
 			f: func() (func() (net.Conn, error), func()) {
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+
 				return func() (net.Conn, error) {
 						conn, err := Dial("udp", addr, config)
 						if err != nil {
 							return nil, err
 						}
+
 						return conn, conn.HandshakeContext(ctx)
 					}, func() {
 						cancel()
@@ -78,11 +80,13 @@ func TestContextConfig(t *testing.T) {
 			f: func() (func() (net.Conn, error), func()) {
 				ca, _ := dpipe.Pipe()
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+
 				return func() (net.Conn, error) {
 						conn, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config)
 						if err != nil {
 							return nil, err
 						}
+
 						return conn, conn.HandshakeContext(ctx)
 					}, func() {
 						_ = ca.Close()
@@ -95,11 +99,13 @@ func TestContextConfig(t *testing.T) {
 			f: func() (func() (net.Conn, error), func()) {
 				ca, _ := dpipe.Pipe()
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+
 				return func() (net.Conn, error) {
 						conn, err := Server(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config)
 						if err != nil {
 							return nil, err
 						}
+
 						return conn, conn.HandshakeContext(ctx)
 					}, func() {
 						_ = ca.Close()
@@ -123,6 +129,7 @@ func TestContextConfig(t *testing.T) {
 				if !errors.As(err, &netError) || !netError.Temporary() { //nolint:staticcheck
 					t.Errorf("Client error exp(Temporary network error) failed(%v)", err)
 					close(done)
+
 					return
 				}
 				done <- struct{}{}

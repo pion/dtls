@@ -32,11 +32,20 @@ func TestResumeServer(t *testing.T) {
 }
 
 func fatal(t *testing.T, errChan chan error, err error) {
+	t.Helper()
+
 	close(errChan)
 	t.Fatal(err)
 }
 
-func DoTestResume(t *testing.T, newLocal, newRemote func(net.PacketConn, net.Addr, *Config) (*Conn, error)) {
+//nolint:cyclop
+func DoTestResume(
+	t *testing.T,
+	newLocal,
+	newRemote func(net.PacketConn, net.Addr, *Config) (*Conn, error),
+) {
+	t.Helper()
+
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -176,8 +185,10 @@ func (b *backupConn) Read(data []byte) (n int, err error) {
 		b.curr = b.next
 		b.next = nil
 		b.mux.Unlock()
+
 		return b.Read(data)
 	}
+
 	return n, err
 }
 
@@ -188,8 +199,10 @@ func (b *backupConn) Write(data []byte) (n int, err error) {
 		b.curr = b.next
 		b.next = nil
 		b.mux.Unlock()
+
 		return b.Write(data)
 	}
+
 	return n, err
 }
 

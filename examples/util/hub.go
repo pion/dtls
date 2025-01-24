@@ -12,18 +12,18 @@ import (
 	"sync"
 )
 
-// Hub is a helper to handle one to many chat
+// Hub is a helper to handle one to many chat.
 type Hub struct {
 	conns map[string]net.Conn
 	lock  sync.RWMutex
 }
 
-// NewHub builds a new hub
+// NewHub builds a new hub.
 func NewHub() *Hub {
 	return &Hub{conns: make(map[string]net.Conn)}
 }
 
-// Register adds a new conn to the Hub
+// Register adds a new conn to the Hub.
 func (h *Hub) Register(conn net.Conn) {
 	fmt.Printf("Connected to %s\n", conn.RemoteAddr())
 	h.lock.Lock()
@@ -40,6 +40,7 @@ func (h *Hub) readLoop(conn net.Conn) {
 		n, err := conn.Read(b)
 		if err != nil {
 			h.unregister(conn)
+
 			return
 		}
 		fmt.Printf("Got message: %s\n", string(b[:n]))
@@ -69,7 +70,7 @@ func (h *Hub) broadcast(msg []byte) {
 	}
 }
 
-// Chat starts the stdin readloop to dispatch messages to the hub
+// Chat starts the stdin readloop to dispatch messages to the hub.
 func (h *Hub) Chat() {
 	reader := bufio.NewReader(os.Stdin)
 	for {

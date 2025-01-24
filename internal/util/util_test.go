@@ -29,16 +29,19 @@ func TestAddUint48(t *testing.T) {
 			builder: func() *cryptobyte.Builder {
 				var b cryptobyte.Builder
 				b.AddUint64(0xffffffffffffffff)
+
 				return &b
 			}(),
 			in:   0xfefcff3cfdfc,
 			want: []byte{255, 255, 255, 255, 255, 255, 255, 255, 254, 252, 255, 60, 253, 252},
 		},
 		"ExistingAddUint48AndMore": {
+			//nolint:lll
 			reason: "Adding a 48-bit unsigned integer to a builder with existing bytes, then adding more bytes, should yield expected result.",
 			builder: func() *cryptobyte.Builder {
 				var b cryptobyte.Builder
 				b.AddUint64(0xffffffffffffffff)
+
 				return &b
 			}(),
 			postAdd: func(b *cryptobyte.Builder) {
