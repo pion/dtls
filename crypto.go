@@ -46,22 +46,22 @@ func valueKeyMessage(clientRandom, serverRandom, publicKey []byte, namedCurve el
 func generateKeySignature(
 	clientRandom, serverRandom, publicKey []byte,
 	namedCurve elliptic.Curve,
-	privateKey crypto.PrivateKey,
+	signer crypto.Signer,
 	hashAlgorithm hash.Algorithm,
 ) ([]byte, error) {
 	msg := valueKeyMessage(clientRandom, serverRandom, publicKey, namedCurve)
-	switch p := privateKey.(type) {
-	case ed25519.PrivateKey:
+	switch signer.Public().(type) {
+	case ed25519.PublicKey:
 		// https://crypto.stackexchange.com/a/55483
-		return p.Sign(rand.Reader, msg, crypto.Hash(0))
-	case *ecdsa.PrivateKey:
+		return signer.Sign(rand.Reader, msg, crypto.Hash(0))
+	case *ecdsa.PublicKey:
 		hashed := hashAlgorithm.Digest(msg)
 
-		return p.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
-	case *rsa.PrivateKey:
+		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
+	case *rsa.PublicKey:
 		hashed := hashAlgorithm.Digest(msg)
 
-		return p.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
+		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
 	}
 
 	return nil, errKeySignatureGenerateUnimplemented
@@ -124,23 +124,23 @@ func verifyKeySignature(
 // https://tools.ietf.org/html/rfc5246#section-7.3
 func generateCertificateVerify(
 	handshakeBodies []byte,
-	privateKey crypto.PrivateKey,
+	signer crypto.Signer,
 	hashAlgorithm hash.Algorithm,
 ) ([]byte, error) {
-	if p, ok := privateKey.(ed25519.PrivateKey); ok {
+	if _, ok := signer.Public().(ed25519.PublicKey); ok {
 		// https://pkg.go.dev/crypto/ed25519#PrivateKey.Sign
 		// Sign signs the given message with priv. Ed25519 performs two passes over
 		// messages to be signed and therefore cannot handle pre-hashed messages.
-		return p.Sign(rand.Reader, handshakeBodies, crypto.Hash(0))
+		return signer.Sign(rand.Reader, handshakeBodies, crypto.Hash(0))
 	}
 
 	hashed := hashAlgorithm.Digest(handshakeBodies)
 
-	switch p := privateKey.(type) {
-	case *ecdsa.PrivateKey:
-		return p.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
-	case *rsa.PrivateKey:
-		return p.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
+	switch signer.Public().(type) {
+	case *ecdsa.PublicKey:
+		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
+	case *rsa.PublicKey:
+		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
 	}
 
 	return nil, errInvalidSignatureAlgorithm

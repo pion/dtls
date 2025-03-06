@@ -3234,21 +3234,21 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) { //nolint:cyclop
 			}()
 
 			var (
-				priv crypto.PrivateKey
-				err  error
+				signer crypto.Signer
+				err    error
 			)
 
 			if test.generateRSA {
-				if priv, err = rsa.GenerateKey(rand.Reader, 2048); err != nil {
+				if signer, err = rsa.GenerateKey(rand.Reader, 2048); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				if priv, err = ecdsa.GenerateKey(cryptoElliptic.P256(), rand.Reader); err != nil {
+				if signer, err = ecdsa.GenerateKey(cryptoElliptic.P256(), rand.Reader); err != nil {
 					t.Fatal(err)
 				}
 			}
 
-			serverCert, err := selfsign.SelfSign(priv)
+			serverCert, err := selfsign.SelfSign(signer)
 			if err != nil {
 				t.Fatal(err)
 			}

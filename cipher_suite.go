@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
@@ -280,11 +281,16 @@ func filterCipherSuitesForCertificate(cert *tls.Certificate, cipherSuites []Ciph
 	if cert == nil || cert.PrivateKey == nil {
 		return cipherSuites
 	}
+	signer, ok := cert.PrivateKey.(crypto.Signer)
+	if !ok {
+		return cipherSuites
+	}
+
 	var certType clientcertificate.Type
-	switch cert.PrivateKey.(type) {
-	case ed25519.PrivateKey, *ecdsa.PrivateKey:
+	switch signer.Public().(type) {
+	case ed25519.PublicKey, *ecdsa.PublicKey:
 		certType = clientcertificate.ECDSASign
-	case *rsa.PrivateKey:
+	case *rsa.PublicKey:
 		certType = clientcertificate.RSASign
 	}
 
