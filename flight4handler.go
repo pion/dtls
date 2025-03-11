@@ -5,6 +5,7 @@ package dtls
 
 import (
 	"context"
+	"crypto"
 	"crypto/rand"
 	"crypto/x509"
 
@@ -366,8 +367,13 @@ func flight4Generate(
 		serverRandom := state.localRandom.MarshalFixed()
 		clientRandom := state.remoteRandom.MarshalFixed()
 
+		signer, ok := certificate.PrivateKey.(crypto.Signer)
+		if !ok {
+			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidPrivateKey
+		}
+
 		// Find compatible signature scheme
-		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(cfg.localSignatureSchemes, certificate.PrivateKey)
+		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(cfg.localSignatureSchemes, signer)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}
@@ -377,7 +383,7 @@ func flight4Generate(
 			serverRandom[:],
 			state.localKeypair.PublicKey,
 			state.namedCurve,
-			certificate.PrivateKey,
+			signer,
 			signatureHashAlgo.Hash,
 		)
 		if err != nil {

@@ -141,7 +141,6 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 			lim := transportTest.TimeOut(lossyTestTimeout + time.Second)
 			defer lim.Stop()
 
-			rand.Seed(time.Now().UTC().UnixNano())
 			chosenLoss := rand.Intn(9) + test.LossChanceRange //nolint:gosec
 			serverDone := make(chan runResult)
 			clientDone := make(chan runResult)

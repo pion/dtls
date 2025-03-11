@@ -78,7 +78,7 @@ func flight5Generate(
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) {
-	var privateKey crypto.PrivateKey
+	var signer crypto.Signer
 	var pkts []*packet
 	if state.remoteRequestedCertificate { //nolint:nestif
 		_, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence-2, state.cipherSuite,
@@ -87,7 +87,7 @@ func flight5Generate(
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errClientCertificateRequired
 		}
 		reqInfo := CertificateRequestInfo{}
-		if r, ok := msgs[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok {
+		if r, ok2 := msgs[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
 			reqInfo.AcceptableCAs = r.CertificateAuthoritiesNames
 		} else {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errClientCertificateRequired
@@ -100,7 +100,10 @@ func flight5Generate(
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errNotAcceptableCertificateChain
 		}
 		if certificate.Certificate != nil {
-			privateKey = certificate.PrivateKey
+			signer, ok = certificate.PrivateKey.(crypto.Signer)
+			if !ok {
+				return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errInvalidPrivateKey
+			}
 		}
 		pkts = append(pkts,
 			&packet{
@@ -192,7 +195,7 @@ func flight5Generate(
 	// If the client has sent a certificate with signing ability, a digitally-signed
 	// CertificateVerify message is sent to explicitly verify possession of the
 	// private key in the certificate.
-	if state.remoteRequestedCertificate && privateKey != nil {
+	if state.remoteRequestedCertificate && signer != nil {
 		plainText := append(cache.pullAndMerge(
 			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
@@ -206,12 +209,12 @@ func flight5Generate(
 
 		// Find compatible signature scheme
 
-		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(state.remoteCertRequestAlgs, privateKey)
+		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(state.remoteCertRequestAlgs, signer)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}
 
-		certVerify, err := generateCertificateVerify(plainText, privateKey, signatureHashAlgo.Hash)
+		certVerify, err := generateCertificateVerify(plainText, signer, signatureHashAlgo.Hash)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
