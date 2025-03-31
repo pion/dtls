@@ -6,7 +6,6 @@ package dtls
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"testing"
 	"time"
 
@@ -17,11 +16,10 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/transport/v3/test"
+	"github.com/stretchr/testify/assert"
 )
 
 type flight4TestMockFlightConn struct{}
-
-var errHookCertReqFailed = errors.New("hook failed to modify SignatureHashAlgorithms")
 
 func (f *flight4TestMockFlightConn) notify(context.Context, alert.Level, alert.Description) error {
 	return nil
@@ -39,7 +37,7 @@ type flight4TestMockCipherSuite struct {
 }
 
 func (f *flight4TestMockCipherSuite) IsInitialized() bool {
-	f.t.Fatal("IsInitialized called with Certificate but not CertificateVerify")
+	assert.Fail(f.t, "IsInitialized called with Certificate but not CertificateVerify")
 
 	return true
 }
@@ -121,9 +119,8 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 	cache.push(rawCertificate, 0, 0, handshake.TypeCertificate, true)
 	cache.push(rawClientKeyExchange, 0, 1, handshake.TypeClientKeyExchange, true)
 
-	if _, _, err := flight4Parse(context.TODO(), mockConn, state, cache, cfg); err != nil {
-		t.Fatal(err)
-	}
+	_, _, err := flight4Parse(context.TODO(), mockConn, state, cache, cfg)
+	assert.NoError(t, err)
 }
 
 func TestFlight4_CertificateRequestHook(t *testing.T) {
@@ -136,9 +133,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 	defer report()
 
 	localKeypair, err := elliptic.GenerateKeypair(elliptic.P256)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	mockConn := &flight4TestMockFlightConn{}
 	state := &State{
@@ -147,9 +142,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 	}
 
 	cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	cfg := &handshakeConfig{
 		localCertificates:     []tls.Certificate{cert},
@@ -163,27 +156,20 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 	}
 
 	pkts, _, err := flight4Generate(mockConn, state, nil, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	for _, p := range pkts {
 		if h, ok := p.record.Content.(*handshake.Handshake); ok { //nolint:nestif
 			if h.Message.Type() == handshake.TypeCertificateRequest {
 				mcr := &handshake.MessageCertificateRequest{}
 				msg, err := h.Message.Marshal()
-				if err != nil {
-					t.Fatal(err)
-				}
-				err = mcr.Unmarshal(msg)
-				if err != nil {
-					t.Fatal(err)
-				}
+				assert.NoError(t, err)
+				assert.NoError(t, mcr.Unmarshal(msg))
 				if len(mcr.SignatureHashAlgorithms) == 0 {
 					return
 				}
 			}
 		}
 	}
-	t.Fatal(errHookCertReqFailed)
+	assert.Fail(t, "hook failed to modify SignatureHashAlgorithms")
 }

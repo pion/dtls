@@ -4,14 +4,13 @@
 package handshake
 
 import (
-	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageCertificateRequest(t *testing.T) {
@@ -75,21 +74,17 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			c := &MessageCertificateRequest{}
-			if err := c.Unmarshal(testCase.rawCertificateRequest); err != nil {
-				if testCase.expErr != nil {
-					if errors.Is(err, testCase.expErr) {
-						return
-					}
-				}
-				t.Error(err)
-			} else if !reflect.DeepEqual(c, testCase.parsedCertificateRequest) {
-				t.Errorf("parsedCertificateRequest unmarshal: got %#v, want %#v", c, testCase.parsedCertificateRequest)
-			}
-			raw, err := c.Marshal()
-			if err != nil {
-				t.Error(err)
-			} else if !reflect.DeepEqual(raw, testCase.rawCertificateRequest) {
-				t.Errorf("parsedCertificateRequest marshal: got %#v, want %#v", raw, testCase.rawCertificateRequest)
+			err := c.Unmarshal(testCase.rawCertificateRequest)
+
+			if testCase.expErr != nil {
+				assert.ErrorIs(t, err, testCase.expErr)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, testCase.parsedCertificateRequest, c)
+
+				raw, err := c.Marshal()
+				assert.NoError(t, err)
+				assert.Equal(t, testCase.rawCertificateRequest, raw)
 			}
 		})
 	}

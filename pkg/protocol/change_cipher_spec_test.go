@@ -4,31 +4,22 @@
 package protocol
 
 import (
-	"errors"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestChangeCipherSpecRoundTrip(t *testing.T) {
 	c := ChangeCipherSpec{}
 	raw, err := c.Marshal()
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, err)
 
 	var cNew ChangeCipherSpec
-	if err := cNew.Unmarshal(raw); err != nil {
-		t.Error(err)
-	}
-
-	if !reflect.DeepEqual(c, cNew) {
-		t.Errorf("ChangeCipherSpec round trip: got %#v, want %#v", cNew, c)
-	}
+	assert.NoError(t, cNew.Unmarshal(raw))
+	assert.Equal(t, c, cNew)
 }
 
 func TestChangeCipherSpecInvalid(t *testing.T) {
 	c := ChangeCipherSpec{}
-	if err := c.Unmarshal([]byte{0x00}); !errors.Is(err, errInvalidCipherSpec) {
-		t.Errorf("ChangeCipherSpec invalid assert: got %#v, want %#v", err, errInvalidCipherSpec)
-	}
+	assert.ErrorIs(t, c.Unmarshal([]byte{0x00}), errInvalidCipherSpec)
 }

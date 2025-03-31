@@ -4,13 +4,13 @@
 package dtls
 
 import (
-	"bytes"
 	"crypto/x509"
 	"encoding/pem"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
+	"github.com/stretchr/testify/assert"
 )
 
 // nolint: gosec
@@ -47,9 +47,7 @@ JPhfPySIPG4UmwE4gW8t79vfOKxnUu2fDD1ZXUYopan6EckACNH/
 func TestGenerateKeySignature(t *testing.T) {
 	block, _ := pem.Decode([]byte(rawPrivateKey))
 	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		t.Error(err)
-	}
+	assert.NoError(t, err)
 
 	clientRandom := []byte{
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -82,9 +80,6 @@ func TestGenerateKeySignature(t *testing.T) {
 	}
 
 	signature, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519, key, hash.SHA256)
-	if err != nil {
-		t.Error(err)
-	} else if !bytes.Equal(expectedSignature, signature) {
-		t.Errorf("Signature generation failed \nexp % 02x \nactual % 02x ", expectedSignature, signature)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, expectedSignature, signature)
 }

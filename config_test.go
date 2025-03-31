@@ -12,31 +12,32 @@ import (
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestValidateConfig(t *testing.T) { //nolint:cyclop
+func TestValidateConfig(t *testing.T) {
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
-		t.Fatalf("TestValidateConfig: Config validation error(%v), self signed certificate not generated", err)
+		assert.NoError(t, err, "TestValidateConfig: Config validation error, self signed certificate not generated")
 
 		return
 	}
 	dsaPrivateKey := &dsa.PrivateKey{}
 	err = dsa.GenerateParameters(&dsaPrivateKey.Parameters, rand.Reader, dsa.L1024N160)
 	if err != nil {
-		t.Fatalf("TestValidateConfig: Config validation error(%v), DSA parameters not generated", err)
+		assert.NoError(t, err, "TestValidateConfig: Config validation error, DSA parameters not generated")
 
 		return
 	}
 	err = dsa.GenerateKey(dsaPrivateKey, rand.Reader)
 	if err != nil {
-		t.Fatalf("TestValidateConfig: Config validation error(%v), DSA private key not generated", err)
+		assert.NoError(t, err, "TestValidateConfig: Config validation error, DSA private key not generated")
 
 		return
 	}
 	rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		t.Fatalf("TestValidateConfig: Config validation error(%v), RSA private key not generated", err)
+		assert.NoError(t, err, "TestValidateConfig: Config validation error, RSA private key not generated")
 
 		return
 	}
@@ -133,11 +134,9 @@ func TestValidateConfig(t *testing.T) { //nolint:cyclop
 			err := validateConfig(testCase.config)
 			if testCase.expErr != nil || testCase.wantAnyErr {
 				if testCase.expErr != nil && !errors.Is(err, testCase.expErr) {
-					t.Fatalf("TestValidateConfig: Config validation error exp(%v) failed(%v)", testCase.expErr, err)
+					assert.ErrorIs(t, err, testCase.expErr, "TestValidateConfig")
 				}
-				if err == nil {
-					t.Fatalf("TestValidateConfig: Config validation expected an error")
-				}
+				assert.Error(t, err, "TestValidateConfig: Config validation expected an error")
 			}
 		})
 	}

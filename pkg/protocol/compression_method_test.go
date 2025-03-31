@@ -4,8 +4,9 @@
 package protocol
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDecodeCompressionMethods(t *testing.T) {
@@ -19,8 +20,6 @@ func TestDecodeCompressionMethods(t *testing.T) {
 
 	for _, testCase := range testCases {
 		_, err := DecodeCompressionMethods(testCase.buf)
-		if !errors.Is(err, testCase.err) {
-			t.Fatal("Unexpected error", err)
-		}
+		assert.ErrorIs(t, err, testCase.err)
 	}
 }

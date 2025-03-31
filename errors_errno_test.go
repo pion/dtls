@@ -10,35 +10,27 @@
 package dtls
 
 import (
-	"errors"
 	"net"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestErrorsTemporary(t *testing.T) {
 	// Allocate a UDP port no one is listening on.
 	addrListen, err := net.ResolveUDPAddr("udp", "localhost:0")
-	if err != nil {
-		t.Fatalf("Unexpected failure to resolve: %v", err)
-	}
+	assert.NoError(t, err)
+
 	listener, err := net.ListenUDP("udp", addrListen)
-	if err != nil {
-		t.Fatalf("Unexpected failure to listen: %v", err)
-	}
+	assert.NoError(t, err)
+
 	raddr, ok := listener.LocalAddr().(*net.UDPAddr)
-	if !ok {
-		t.Fatal("Unexpedted type assertion error")
-	}
-	err = listener.Close()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	assert.True(t, ok)
+	assert.NoError(t, listener.Close())
 
 	// Server is not listening.
 	conn, errDial := net.DialUDP("udp", nil, raddr)
-	if errDial != nil {
-		t.Fatalf("Unexpected error: %v", errDial)
-	}
+	assert.NoError(t, errDial)
 
 	_, _ = conn.Write([]byte{0x00}) // trigger
 	_, err = conn.Read(make([]byte, 10))
@@ -49,14 +41,7 @@ func TestErrorsTemporary(t *testing.T) {
 	}
 
 	var ne net.Error
-	if !errors.As(netError(err), &ne) {
-		t.Fatalf("netError must return net.Error")
-	}
-
-	if ne.Timeout() {
-		t.Errorf("%v must not be timeout error", err)
-	}
-	if !ne.Temporary() { //nolint:staticcheck
-		t.Errorf("%v must be temporary error", err)
-	}
+	assert.ErrorAs(t, netError(err), &ne)
+	assert.False(t, ne.Timeout())
+	assert.True(t, ne.Temporary()) //nolint:staticcheck
 }

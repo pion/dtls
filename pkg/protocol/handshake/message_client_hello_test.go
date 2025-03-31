@@ -4,14 +4,13 @@
 package handshake
 
 import (
-	"bytes"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageClientHello(t *testing.T) {
@@ -49,18 +48,12 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 	}
 
 	c := &MessageClientHello{}
-	if err := c.Unmarshal(rawClientHello); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(c, parsedClientHello) {
-		t.Errorf("handshakeMessageClientHello unmarshal: got %#v, want %#v", c, parsedClientHello)
-	}
+	assert.NoError(t, c.Unmarshal(rawClientHello))
+	assert.Equal(t, parsedClientHello, c)
 
 	raw, err := c.Marshal()
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(raw, rawClientHello) {
-		t.Errorf("handshakeMessageClientHello marshal: got %#v, want %#v", raw, rawClientHello)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, rawClientHello, raw)
 }
 
 func TestHandshakeMessageClientHelloSessionID(t *testing.T) {
@@ -82,16 +75,10 @@ func TestHandshakeMessageClientHelloSessionID(t *testing.T) {
 	}
 
 	c := &MessageClientHello{}
-	if err := c.Unmarshal(rawClientHello); err != nil {
-		t.Error(err)
-	} else if !bytes.Equal(c.SessionID, sessionID) {
-		t.Errorf("handshakeMessageClientHello invalid SessionID: got %#v, want %#v", c.SessionID, sessionID)
-	}
+	assert.NoError(t, c.Unmarshal(rawClientHello))
+	assert.Equal(t, sessionID, c.SessionID)
 
 	raw, err := c.Marshal()
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(raw, rawClientHello) {
-		t.Errorf("handshakeMessageClientHello marshal: got %#v, want %#v", raw, rawClientHello)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, rawClientHello, raw)
 }

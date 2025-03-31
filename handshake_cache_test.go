@@ -4,11 +4,11 @@
 package dtls
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeCacheSinglePush(t *testing.T) {
@@ -121,9 +121,7 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 			h.push(i.data, i.epoch, i.messageSequence, i.typ, i.isClient)
 		}
 		verifyData := h.pullAndMerge(test.Rule...)
-		if !bytes.Equal(verifyData, test.Expected) {
-			t.Errorf("handshakeCache '%s' exp: % 02x actual % 02x", test.Name, test.Expected, verifyData)
-		}
+		assert.Equal(t, test.Expected, verifyData)
 	}
 }
 
@@ -215,11 +213,7 @@ func TestHandshakeCacheSessionHash(t *testing.T) {
 
 		cipherSuite := ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
 		verifyData, err := h.sessionHash(cipherSuite.HashFunc(), 0)
-		if err != nil {
-			t.Error(err)
-		}
-		if !bytes.Equal(verifyData, test.Expected) {
-			t.Errorf("handshakeCacheSesssionHassh '%s' exp: % 02x actual % 02x", test.Name, test.Expected, verifyData)
-		}
+		assert.NoError(t, err)
+		assert.Equal(t, test.Expected, verifyData, "handshakeCacheSessionHash")
 	}
 }
