@@ -108,10 +108,10 @@ func GenerateKeypair(c Curve) (*Keypair, error) {
 }
 
 func ellipticCurveKeypair(nc Curve, c1, c2 elliptic.Curve) (*Keypair, error) {
-	privateKey, x, y, err := elliptic.GenerateKey(c1, rand.Reader)
+	privateKey, x, y, err := elliptic.GenerateKey(c1, rand.Reader) //nolint:staticcheck
 	if err != nil {
 		return nil, err
 	}
 
-	return &Keypair{nc, elliptic.Marshal(c2, x, y), privateKey}, nil
+	return &Keypair{nc, elliptic.Marshal(c2, x, y), privateKey}, nil //nolint:staticcheck
 }

@@ -4,9 +4,9 @@
 package util
 
 import (
-	"bytes"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -58,9 +58,7 @@ func TestAddUint48(t *testing.T) {
 				tc.postAdd(tc.builder)
 			}
 			got := tc.builder.BytesOrPanic()
-			if !bytes.Equal(got, tc.want) {
-				t.Errorf("Bytes() = %v, want %v", got, tc.want)
-			}
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

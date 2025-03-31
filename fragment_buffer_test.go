@@ -4,9 +4,9 @@
 package dtls
 
 import (
-	"errors"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFragmentBuffer(t *testing.T) {
@@ -125,26 +125,18 @@ func TestFragmentBuffer(t *testing.T) {
 		fragmentBuffer := newFragmentBuffer()
 		for _, frag := range test.In {
 			status, _, err := fragmentBuffer.push(frag)
-			if err != nil {
-				t.Error(err)
-			} else if !status {
-				t.Errorf("fragmentBuffer didn't accept fragments for '%s'", test.Name)
-			}
+			assert.NoError(t, err)
+			assert.Truef(t, status, "fragmentBuffer didn't accept fragments for '%s'", test.Name)
 		}
 
 		for _, expected := range test.Expected {
 			out, epoch := fragmentBuffer.pop()
-			if !reflect.DeepEqual(out, expected) {
-				t.Errorf("fragmentBuffer '%s' push/pop: got % 02x, want % 02x", test.Name, out, expected)
-			}
-			if epoch != test.Epoch {
-				t.Errorf("fragmentBuffer returned wrong epoch: got %d, want %d", epoch, test.Epoch)
-			}
+			assert.Equalf(t, expected, out, "fragmentBuffer '%s' pop should return expected output", test.Name)
+			assert.Equalf(t, test.Epoch, epoch, "fragmentBuffer returend wrong epoch")
 		}
 
-		if frag, _ := fragmentBuffer.pop(); frag != nil {
-			t.Errorf("fragmentBuffer popped single buffer multiple times for '%s'", test.Name)
-		}
+		frag, _ := fragmentBuffer.pop()
+		assert.Nilf(t, frag, "fragmentBuffer '%s' pop should return nil when no more fragments are available", test.Name)
 	}
 }
 
@@ -152,16 +144,14 @@ func TestFragmentBuffer_Overflow(t *testing.T) {
 	fragmentBuffer := newFragmentBuffer()
 
 	// Push a buffer that doesn't exceed size limits
-	if _, _, err := fragmentBuffer.push([]byte{
+	_, _, err := fragmentBuffer.push([]byte{
 		0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03,
 		0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xfe, 0xff, 0x00,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
+	assert.NoError(t, err)
 
 	// Allocate a buffer that exceeds cache size
 	largeBuffer := make([]byte, fragmentBufferMaxSize)
-	if _, _, err := fragmentBuffer.push(largeBuffer); !errors.Is(err, errFragmentBufferOverflow) {
-		t.Fatalf("Pushing a large buffer returned (%s) expected(%s)", err, errFragmentBufferOverflow)
-	}
+	_, _, err = fragmentBuffer.push(largeBuffer)
+	assert.ErrorIs(t, err, errFragmentBufferOverflow, "Pushing a large buffer should return an overflow error")
 }

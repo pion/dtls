@@ -3,7 +3,11 @@
 
 package elliptic
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestString(t *testing.T) {
 	tests := []struct {
@@ -19,9 +23,7 @@ func TestString(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.out, func(t *testing.T) {
-			if tt.in.String() != tt.out {
-				t.Fatalf("Expected: %s, got: %s", tt.out, tt.in.String())
-			}
+			assert.Equal(t, tt.in.String(), tt.out)
 		})
 	}
 }

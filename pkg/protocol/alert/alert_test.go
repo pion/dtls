@@ -4,9 +4,9 @@
 package alert
 
 import (
-	"errors"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAlert(t *testing.T) {
@@ -32,21 +32,15 @@ func TestAlert(t *testing.T) {
 		},
 	} {
 		a := &Alert{}
-		if err := a.Unmarshal(test.Data); !errors.Is(err, test.WantUnmarshalError) {
-			t.Errorf("Unexpected Error %v: exp: %v got: %v", test.Name, test.WantUnmarshalError, err)
-		} else if !reflect.DeepEqual(test.Want, a) {
-			t.Errorf("%q alert.unmarshal: got %v, want %v", test.Name, a, test.Want)
-		}
+		assert.ErrorIs(t, a.Unmarshal(test.Data), test.WantUnmarshalError)
+		assert.Equal(t, test.Want, a)
 
 		if test.WantUnmarshalError != nil {
 			return
 		}
 
 		data, marshalErr := a.Marshal()
-		if marshalErr != nil {
-			t.Errorf("Unexpected Error %v: got: %v", test.Name, marshalErr)
-		} else if !reflect.DeepEqual(test.Data, data) {
-			t.Errorf("%q alert.marshal: got % 02x, want % 02x", test.Name, data, test.Data)
-		}
+		assert.NoError(t, marshalErr)
+		assert.Equal(t, test.Data, data)
 	}
 }

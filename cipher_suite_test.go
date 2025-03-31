@@ -12,6 +12,7 @@ import (
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/transport/v3/dpipe"
 	"github.com/pion/transport/v3/test"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCipherSuiteName(t *testing.T) {
@@ -24,18 +25,12 @@ func TestCipherSuiteName(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		res := CipherSuiteName(testCase.suite)
-		if res != testCase.expected {
-			t.Fatalf("Expected: %s, got %s", testCase.expected, res)
-		}
+		assert.Equal(t, testCase.expected, CipherSuiteName(testCase.suite))
 	}
 }
 
 func TestAllCipherSuites(t *testing.T) {
-	actual := len(allCipherSuites())
-	if actual == 0 {
-		t.Fatal()
-	}
+	assert.NotEmpty(t, allCipherSuites())
 }
 
 // CustomCipher that is just used to assert Custom IDs work.
@@ -84,18 +79,10 @@ func TestCustomCipherSuite(t *testing.T) {
 		}, true)
 
 		clientResult := <-resultCh
-
-		if err != nil {
-			t.Error(err)
-		} else {
-			_ = server.Close()
-		}
-
-		if clientResult.err != nil {
-			t.Error(clientResult.err)
-		} else {
-			_ = clientResult.c.Close()
-		}
+		assert.NoError(t, err)
+		assert.NoError(t, server.Close())
+		assert.Nil(t, clientResult.err)
+		assert.NoError(t, clientResult.c.Close())
 	}
 
 	t.Run("Custom ID", func(*testing.T) {
