@@ -19,6 +19,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
 	"github.com/pion/transport/v3/test"
+	"github.com/stretchr/testify/assert"
 )
 
 const nonZeroRetransmitInterval = 100 * time.Millisecond
@@ -35,9 +36,7 @@ func TestWriteKeyLog(t *testing.T) {
 	// Secrets follow the format <Label> <space> <ClientRandom> <space> <Secret>
 	// https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Key_Log_Format
 	want := "LABEL aabbcc ddeeff\n"
-	if buf.String() != want {
-		t.Fatalf("Got %s want %s", buf.String(), want)
-	}
+	assert.Equal(t, want, buf.String())
 
 	// no key log writer = no writes
 	cfg = handshakeConfig{}
@@ -53,13 +52,9 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 	logger := loggerFactory.NewLogger("dtls")
 
 	cipherSuites, err := parseCipherSuites(nil, nil, true, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	clientCert, err := selfsign.GenerateSelfSigned()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	genFilters := map[string]func() (TestEndpoint, TestEndpoint, func(t *testing.T)){
 		"PassThrough": func() (TestEndpoint, TestEndpoint, func(t *testing.T)) {
@@ -108,20 +103,9 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			report := func(t *testing.T) {
 				t.Helper()
 
-				if cntHelloVerifyRequest != helloVerifyDrop+1 {
-					t.Errorf(
-						"Number of HelloVerifyRequest retransmit is wrong, expected: %d times, got: %d times",
-						helloVerifyDrop+1,
-						cntHelloVerifyRequest,
-					)
-				}
-				if cntClientHelloNoCookie != cntHelloVerifyRequest {
-					///nolint:lll
-					t.Errorf(
-						"HelloVerifyRequest must be triggered only by ClientHello, but HelloVerifyRequest was sent %d times and ClientHello was sent %d times",
-						cntHelloVerifyRequest, cntClientHelloNoCookie,
-					)
-				}
+				assert.Equal(t, cntHelloVerifyRequest, helloVerifyDrop+1, "Number of HelloVerifyRequest retransmit is wrong")
+				assert.Equal(t, cntHelloVerifyRequest, cntClientHelloNoCookie,
+					"Number of ClientHello without cookie should match the number of HelloVerifyRequest sent.")
 			}
 
 			return clientEndpoint, serverEndpoint, report
@@ -164,12 +148,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			report := func(t *testing.T) {
 				t.Helper()
 
-				if cntClientFinished != 1 {
-					t.Errorf("Number of client finished is wrong, expected: %d times, got: %d times", 1, cntClientFinished)
-				}
-				if cntServerFinished != 1 {
-					t.Errorf("Number of server finished is wrong, expected: %d times, got: %d times", 1, cntServerFinished)
-				}
+				assert.Equal(t, 1, cntClientFinished)
+				assert.Equal(t, 1, cntServerFinished)
 			}
 
 			return clientEndpoint, serverEndpoint, report
@@ -237,35 +217,16 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 				// with one second server delay and 100 ms retransmit (+ exponential backoff),
 				// there should be close to 4 `Finished` from client
 				// using a range of 3 - 5 for checking.
-				if cntClientFinished < 3 || cntClientFinished > 5 {
-					t.Errorf("Number of client finished is wrong, expected: %d - %d times, got: %d times", 3, 5, cntClientFinished)
-				}
-				if !isClientFinished {
-					t.Errorf("Client is not finished")
-				}
+				assert.LessOrEqual(t, 3, cntClientFinished, "Number of client finished should be greater than 3")
+				assert.GreaterOrEqual(t, 5, cntClientFinished, "Number of client finished should be less than 5")
+				assert.True(t, isClientFinished)
 				// there should be no `Finished` last retransmit from client
-				if cntClientFinishedLastRetransmit != 0 {
-					t.Errorf(
-						"Number of client finished last retransmit is wrong, expected: %d times, got: %d times",
-						0,
-						cntClientFinishedLastRetransmit,
-					)
-				}
-				if cntServerFinished < 1 {
-					t.Errorf("Number of server finished is wrong, expected: at least %d times, got: %d times", 1, cntServerFinished)
-				}
-				if !isServerFinished {
-					t.Errorf("Server is not finished")
-				}
+				assert.Equal(t, 0, cntClientFinishedLastRetransmit, "Number of client finished last retransmit greater than zero")
+				assert.LessOrEqual(t, 1, cntServerFinished, "Number of server finished less than 1")
+				assert.True(t, isServerFinished)
 				// there should be `Finished` last retransmit from server.
 				// Because of slow server, client would have sent several `Finished`.
-				if cntServerFinishedLastRetransmit < 1 {
-					t.Errorf(
-						"Number of server finished last retransmit is wrong, expected: at least %d times, got: %d times",
-						1,
-						cntServerFinishedLastRetransmit,
-					)
-				}
+				assert.LessOrEqual(t, 1, cntServerFinished, "Number of server finished last retransmit is less than 1")
 			}
 
 			return clientEndpoint, serverEndpoint, report
@@ -317,9 +278,9 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 				switch {
 				case errors.Is(err, context.Canceled):
 				case errors.Is(err, context.DeadlineExceeded):
-					t.Error("Timeout")
+					assert.Fail(t, "timeout")
 				default:
-					t.Error(err)
+					assert.Failf(t, "Handshake failed", "Error: %v", err)
 				}
 			}()
 
@@ -350,9 +311,9 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 				switch {
 				case errors.Is(err, context.Canceled):
 				case errors.Is(err, context.DeadlineExceeded):
-					t.Error("Timeout")
+					assert.Fail(t, "timeout")
 				default:
-					t.Error(err)
+					assert.Failf(t, "Handshake failed", "Error: %v", err)
 				}
 			}()
 

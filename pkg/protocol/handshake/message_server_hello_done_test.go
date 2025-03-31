@@ -4,8 +4,9 @@
 package handshake
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageServerHelloDone(t *testing.T) {
@@ -13,16 +14,10 @@ func TestHandshakeMessageServerHelloDone(t *testing.T) {
 	parsedServerHelloDone := &MessageServerHelloDone{}
 
 	c := &MessageServerHelloDone{}
-	if err := c.Unmarshal(rawServerHelloDone); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(c, parsedServerHelloDone) {
-		t.Errorf("handshakeMessageServerHelloDone unmarshal: got %#v, want %#v", c, parsedServerHelloDone)
-	}
+	assert.NoError(t, c.Unmarshal(rawServerHelloDone))
+	assert.Equal(t, parsedServerHelloDone, c)
 
 	raw, err := c.Marshal()
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(raw, rawServerHelloDone) {
-		t.Errorf("handshakeMessageServerHelloDone marshal: got %#v, want %#v", raw, rawServerHelloDone)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, rawServerHelloDone, raw)
 }

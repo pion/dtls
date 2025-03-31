@@ -3,26 +3,19 @@
 
 package extension
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestRenegotiationInfo(t *testing.T) {
 	extension := RenegotiationInfo{RenegotiatedConnection: 0}
 
 	raw, err := extension.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	newExtension := RenegotiationInfo{}
-	err = newExtension.Unmarshal(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if newExtension.RenegotiatedConnection != extension.RenegotiatedConnection {
-		t.Errorf(
-			"extensionRenegotiationInfo marshal: got %d expected %d",
-			newExtension.RenegotiatedConnection, extension.RenegotiatedConnection,
-		)
-	}
+	assert.NoError(t, newExtension.Unmarshal(raw))
+	assert.Equal(t, extension.RenegotiatedConnection, newExtension.RenegotiatedConnection)
 }

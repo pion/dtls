@@ -11,6 +11,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRandomConnectionIDGenerator(t *testing.T) {
@@ -29,9 +30,7 @@ func TestRandomConnectionIDGenerator(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if cidLen := len(RandomCIDGenerator(tc.size)()); cidLen != tc.size {
-				t.Errorf("%s\nRandomCIDGenerator: expected CID length %d, but got %d.", tc.reason, tc.size, cidLen)
-			}
+			assert.Equal(t, tc.size, len(RandomCIDGenerator(tc.size)()), "%s\nRandomCIDGenerator mismatch", tc.reason)
 		})
 	}
 }
@@ -46,9 +45,7 @@ func TestOnlySendCIDGenerator(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if cidLen := len(OnlySendCIDGenerator()()); cidLen != 0 {
-				t.Errorf("%s\nOnlySendCIDGenerator: expected CID length %d, but got %d.", tc.reason, 0, cidLen)
-			}
+			assert.Equalf(t, 0, len(OnlySendCIDGenerator()()), "%s\nOnlySendCIDGenerator mismatch", tc.reason)
 		})
 	}
 }
@@ -65,22 +62,19 @@ func TestCIDDatagramRouter(t *testing.T) {
 			Data: []byte("application data"),
 		},
 	}).Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
+
 	appData, err := (&protocol.ApplicationData{
 		Data: []byte("some data"),
 	}).Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
+
 	inner, err := (&recordlayer.InnerPlaintext{
 		Content:  appData,
 		RealType: protocol.ContentTypeApplicationData,
 	}).Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
+
 	cidHeader, err := (&recordlayer.Header{
 		Epoch:          1,
 		Version:        protocol.Version1_2,
@@ -89,9 +83,8 @@ func TestCIDDatagramRouter(t *testing.T) {
 		ConnectionID:   cid,
 		SequenceNumber: 1,
 	}).Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
+
 	cases := map[string]struct {
 		reason   string
 		size     int
@@ -140,9 +133,7 @@ func TestCIDDatagramRouter(t *testing.T) {
 					ConnectionID:   []byte("abcd"),
 					SequenceNumber: 1,
 				}).Marshal()
-				if err != nil {
-					t.Fatal(err)
-				}
+				assert.NoError(t, err)
 
 				return append(altCIDHeader, inner...)
 			}(),
@@ -170,9 +161,7 @@ func TestCIDDatagramRouter(t *testing.T) {
 					ConnectionID:   []byte("1234abcd"),
 					SequenceNumber: 1,
 				}).Marshal()
-				if err != nil {
-					t.Fatal(err)
-				}
+				assert.NoError(t, err)
 
 				return append(altCIDHeader, inner...)
 			}()...), cidHeader...), inner...),
@@ -183,12 +172,8 @@ func TestCIDDatagramRouter(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cid, ok := cidDatagramRouter(tc.size)(tc.datagram)
-			if ok != tc.ok {
-				t.Errorf("%s\ncidDatagramRouter: expected ok %t, but got %t.", tc.reason, tc.ok, ok)
-			}
-			if cid != tc.want {
-				t.Errorf("%s\ncidDatagramRouter: expected CID %s, but got %s.", tc.reason, tc.want, cid)
-			}
+			assert.Equal(t, tc.ok, ok, "%s\ncidDatagramRouter mismatch", tc.reason)
+			assert.Equal(t, tc.want, cid, "%s\ncidDatagramRouter mismatch", tc.reason)
 		})
 	}
 }
@@ -216,9 +201,8 @@ func TestCIDConnIdentifier(t *testing.T) {
 			},
 		},
 	}).Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
+
 	appRecord, err := (&recordlayer.RecordLayer{
 		Header: recordlayer.Header{
 			Epoch:   1,
@@ -228,9 +212,8 @@ func TestCIDConnIdentifier(t *testing.T) {
 			Data: []byte("application data"),
 		},
 	}).Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
+
 	cases := map[string]struct {
 		reason   string
 		datagram []byte
@@ -279,12 +262,8 @@ func TestCIDConnIdentifier(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cid, ok := cidConnIdentifier()(tc.datagram)
-			if ok != tc.ok {
-				t.Errorf("%s\ncidConnIdentifier: expected ok %t, but got %t.", tc.reason, tc.ok, ok)
-			}
-			if cid != tc.want {
-				t.Errorf("%s\ncidConnIdentifier: expected CID %s, but got %s.", tc.reason, tc.want, cid)
-			}
+			assert.Equalf(t, tc.ok, ok, "%s\ncidConnIdentifier mismatch", tc.reason)
+			assert.Equalf(t, tc.want, cid, "%s\ncidConnIdentifier mismatch", tc.reason)
 		})
 	}
 }

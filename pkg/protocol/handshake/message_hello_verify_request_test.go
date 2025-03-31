@@ -4,10 +4,10 @@
 package handshake
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageHelloVerifyRequest(t *testing.T) {
@@ -24,16 +24,10 @@ func TestHandshakeMessageHelloVerifyRequest(t *testing.T) {
 	}
 
 	h := &MessageHelloVerifyRequest{}
-	if err := h.Unmarshal(rawHelloVerifyRequest); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(h, parsedHelloVerifyRequest) {
-		t.Errorf("handshakeMessageClientHello unmarshal: got %#v, want %#v", h, parsedHelloVerifyRequest)
-	}
+	assert.NoError(t, h.Unmarshal(rawHelloVerifyRequest))
+	assert.Equal(t, parsedHelloVerifyRequest, h)
 
 	raw, err := h.Marshal()
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(raw, rawHelloVerifyRequest) {
-		t.Errorf("handshakeMessageClientHello marshal: got %#v, want %#v", raw, rawHelloVerifyRequest)
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, rawHelloVerifyRequest, raw)
 }

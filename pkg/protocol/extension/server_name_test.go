@@ -3,23 +3,19 @@
 
 package extension
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestServerName(t *testing.T) {
 	extension := ServerName{ServerName: "test.domain"}
 
 	raw, err := extension.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	newExtension := ServerName{}
-	err = newExtension.Unmarshal(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if newExtension.ServerName != extension.ServerName {
-		t.Errorf("extensionServerName marshal: got %s expected %s", newExtension.ServerName, extension.ServerName)
-	}
+	assert.NoError(t, newExtension.Unmarshal(raw))
+	assert.Equal(t, extension.ServerName, newExtension.ServerName)
 }

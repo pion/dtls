@@ -16,10 +16,11 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/transport/v3/dpipe"
 	"github.com/pion/transport/v3/test"
+	"github.com/stretchr/testify/assert"
 )
 
 // Assert that SupportedEllipticCurves is only sent when a ECC CipherSuite is available.
-func TestSupportedEllipticCurves(t *testing.T) { //nolint:cyclop
+func TestSupportedEllipticCurves(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -43,9 +44,7 @@ func TestSupportedEllipticCurves(t *testing.T) { //nolint:cyclop
 	caAnalyzer := &connWithCallback{Conn: ca}
 	caAnalyzer.onWrite = func(in []byte) {
 		messages, err := recordlayer.UnpackDatagram(in)
-		if err != nil {
-			t.Fatal(err)
-		}
+		assert.NoError(t, err)
 
 		for i := range messages {
 			h := &handshake.Handshake{}
@@ -55,11 +54,8 @@ func TestSupportedEllipticCurves(t *testing.T) { //nolint:cyclop
 				clientHello := &handshake.MessageClientHello{}
 				msg, err := h.Message.Marshal()
 
-				if err != nil {
-					t.Fatal(err)
-				} else if err = clientHello.Unmarshal(msg); err != nil {
-					t.Fatal(err)
-				}
+				assert.NoError(t, err)
+				assert.NoError(t, clientHello.Unmarshal(msg))
 
 				for _, e := range clientHello.Extensions {
 					if e.TypeValue() == extension.SupportedEllipticCurvesTypeValue {
@@ -87,7 +83,7 @@ func TestSupportedEllipticCurves(t *testing.T) { //nolint:cyclop
 		); err != nil {
 			clientErr <- err
 		} else {
-			clientErr <- client.Close() //nolint
+			clientErr <- client.Close() // nolint:errcheck,contextcheck
 		}
 	}()
 
@@ -95,21 +91,12 @@ func TestSupportedEllipticCurves(t *testing.T) { //nolint:cyclop
 		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 	}
 
-	if server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), config, true); err != nil {
-		t.Fatalf("Server error %v", err)
-	} else {
-		if err = server.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if err := <-clientErr; err != nil {
-		t.Fatalf("Client error %v", err)
-	}
+	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), config, true)
+	assert.NoError(t, err)
+	assert.NoError(t, server.Close())
+	assert.NoError(t, <-clientErr)
 
 	for i := range expectedCurves {
-		if expectedCurves[i] != actualCurves[i] {
-			t.Fatal("List of curves in SupportedEllipticCurves does not match config")
-		}
+		assert.Equal(t, expectedCurves[i], actualCurves[i], "curves in SupportedEllipticCurves mismatch")
 	}
 }

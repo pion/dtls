@@ -5,8 +5,9 @@ package handshake
 
 import (
 	"crypto/x509"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHandshakeMessageCertificate(t *testing.T) {
@@ -61,25 +62,17 @@ func TestHandshakeMessageCertificate(t *testing.T) {
 	}
 
 	certMessage := &MessageCertificate{}
-	if err := certMessage.Unmarshal(rawCertificate); err != nil {
-		t.Error(err)
-	} else {
-		certificate, err := x509.ParseCertificate(certMessage.Certificate[0])
-		if err != nil {
-			t.Error(err)
-		}
-		copyCertificatePrivateMembers(certificate, parsedCertificate)
-		if !reflect.DeepEqual(certificate, parsedCertificate) {
-			t.Errorf("handshakeMessageCertificate unmarshal: got %#v, want %#v", certMessage, parsedCertificate)
-		}
-	}
+	assert.NoError(t, certMessage.Unmarshal(rawCertificate))
+
+	certificate, err := x509.ParseCertificate(certMessage.Certificate[0])
+	assert.NoError(t, err)
+
+	copyCertificatePrivateMembers(certificate, parsedCertificate)
+	assert.Equal(t, parsedCertificate, certificate)
 
 	raw, err := certMessage.Marshal()
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(raw, rawCertificate) {
-		t.Errorf("handshakeMessageCertificate marshal: got %#v, want %#v", raw, rawCertificate)
-	}
+	assert.Equal(t, rawCertificate, raw)
+	assert.NoError(t, err)
 }
 
 func TestEmptyHandshakeMessageCertificate(t *testing.T) {
@@ -92,11 +85,6 @@ func TestEmptyHandshakeMessageCertificate(t *testing.T) {
 	}
 
 	c := &MessageCertificate{}
-	if err := c.Unmarshal(rawCertificate); err != nil {
-		t.Error(err)
-	}
-
-	if !reflect.DeepEqual(c, expectedCertificate) {
-		t.Errorf("handshakeMessageCertificate unmarshal: got %#v, want %#v", c, expectedCertificate)
-	}
+	assert.NoError(t, c.Unmarshal(rawCertificate))
+	assert.Equal(t, expectedCertificate, c)
 }

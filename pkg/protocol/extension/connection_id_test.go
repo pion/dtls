@@ -4,8 +4,9 @@
 package extension
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestExtensionConnectionID(t *testing.T) {
@@ -15,16 +16,9 @@ func TestExtensionConnectionID(t *testing.T) {
 	}
 
 	raw, err := parsedExtensionConnectionID.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	roundtrip := &ConnectionID{}
-	if err := roundtrip.Unmarshal(raw); err != nil {
-		t.Fatal(err)
-	}
-
-	if !reflect.DeepEqual(roundtrip, parsedExtensionConnectionID) {
-		t.Errorf("parsedExtensionConnectionID unmarshal: got %#v, want %#v", roundtrip, parsedExtensionConnectionID)
-	}
+	assert.NoError(t, roundtrip.Unmarshal(raw))
+	assert.Equal(t, parsedExtensionConnectionID, roundtrip)
 }
