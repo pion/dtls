@@ -4,11 +4,10 @@
 package recordlayer
 
 import (
-	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestUDPDecode(t *testing.T) {
@@ -48,11 +47,8 @@ func TestUDPDecode(t *testing.T) {
 		},
 	} {
 		dtlsPkts, err := UnpackDatagram(test.Data)
-		if !errors.Is(err, test.WantError) {
-			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantError, err)
-		} else if !reflect.DeepEqual(test.Want, dtlsPkts) {
-			t.Errorf("%q UDP decode: got %q, want %q", test.Name, dtlsPkts, test.Want)
-		}
+		assert.ErrorIs(t, err, test.WantError)
+		assert.Equal(t, test.Want, dtlsPkts, "UDP decode: %s", test.Name)
 	}
 }
 
@@ -79,17 +75,11 @@ func TestRecordLayerRoundTrip(t *testing.T) {
 		},
 	} {
 		r := &RecordLayer{}
-		if err := r.Unmarshal(test.Data); !errors.Is(err, test.WantUnmarshalError) {
-			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantUnmarshalError, err)
-		} else if !reflect.DeepEqual(test.Want, r) {
-			t.Errorf("%q recordLayer.unmarshal: got %q, want %q", test.Name, r, test.Want)
-		}
+		assert.ErrorIs(t, r.Unmarshal(test.Data), test.WantUnmarshalError)
+		assert.Equal(t, test.Want, r, "RecordLayer should match expected value after unmarshal")
 
 		data, marshalErr := r.Marshal()
-		if !errors.Is(marshalErr, test.WantMarshalError) {
-			t.Errorf("Unexpected Error %q: exp: %v got: %v", test.Name, test.WantMarshalError, marshalErr)
-		} else if !reflect.DeepEqual(test.Data, data) {
-			t.Errorf("%q recordLayer.marshal: got % 02x, want % 02x", test.Name, data, test.Data)
-		}
+		assert.ErrorIs(t, marshalErr, test.WantMarshalError)
+		assert.Equal(t, test.Data, data, "RecordLayer should match expected value after marshal")
 	}
 }

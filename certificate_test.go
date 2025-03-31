@@ -5,27 +5,21 @@ package dtls
 
 import (
 	"crypto/tls"
-	"reflect"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetCertificate(t *testing.T) {
 	certificateWildcard, err := selfsign.GenerateSelfSignedWithDNS("*.test.test")
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	certificateTest, err := selfsign.GenerateSelfSignedWithDNS("test.test", "www.test.test", "pop.test.test")
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	certificateRandom, err := selfsign.GenerateSelfSigned()
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	testCases := []struct {
 		localCertificates   []tls.Certificate
@@ -92,13 +86,8 @@ func TestGetCertificate(t *testing.T) {
 				localGetCertificate: test.getCertificate,
 			}
 			cert, err := cfg.getCertificate(&ClientHelloInfo{ServerName: test.serverName})
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if !reflect.DeepEqual(cert.Leaf, test.expectedCertificate.Leaf) {
-				t.Fatalf("Certificate does not match: expected(%v) actual(%v)", test.expectedCertificate.Leaf, cert.Leaf)
-			}
+			assert.NoError(t, err)
+			assert.Equal(t, test.expectedCertificate.Leaf, cert.Leaf, "Certificate Leaf should match expected")
 		})
 	}
 }
