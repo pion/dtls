@@ -72,7 +72,7 @@ type Conn struct {
 	maximumTransmissionUnit int
 	paddingLengthGenerator  func(uint) uint
 
-	handshakeCompletedSuccessfully atomic.Value
+	handshakeCompletedSuccessfully atomic.Bool
 	handshakeMutex                 sync.Mutex
 	handshakeDone                  chan struct{}
 
@@ -1077,14 +1077,12 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 	})
 }
 
-func (c *Conn) setHandshakeCompletedSuccessfully() {
-	c.handshakeCompletedSuccessfully.Store(struct{ bool }{true})
+func (c *Conn) setHandshakeCompletedSuccessfully() bool {
+	return c.handshakeCompletedSuccessfully.CompareAndSwap(false, true)
 }
 
 func (c *Conn) isHandshakeCompletedSuccessfully() bool {
-	boolean, _ := c.handshakeCompletedSuccessfully.Load().(struct{ bool })
-
-	return boolean.bool
+	return c.handshakeCompletedSuccessfully.Load()
 }
 
 //nolint:cyclop,gocognit,contextcheck
@@ -1099,8 +1097,7 @@ func (c *Conn) handshake(
 	done := make(chan struct{})
 	ctxRead, cancelRead := context.WithCancel(context.Background())
 	cfg.onFlightState = func(_ flightVal, s handshakeState) {
-		if s == handshakeFinished && !c.isHandshakeCompletedSuccessfully() {
-			c.setHandshakeCompletedSuccessfully()
+		if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
 			close(done)
 		}
 	}
