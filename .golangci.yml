@@ -127,8 +127,6 @@ linters:
     - wsl              # Whitespace Linter - Forces you to use empty lines!
 
 issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
   exclude-use-default: false
   exclude-dirs-use-default: false
   exclude-rules:
