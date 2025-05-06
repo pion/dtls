@@ -81,6 +81,8 @@ func flight0Parse(
 			}
 		case *extension.ServerName:
 			state.serverName = ext.ServerName // remote server name
+		case *extension.RenegotiationInfo:
+			state.remoteSupportsRenegotiation = true
 		case *extension.ALPN:
 			state.peerSupportedProtocols = ext.ProtocolNameList
 		case *extension.ConnectionID:
