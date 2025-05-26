@@ -105,8 +105,8 @@ func (b *PacketBuffer) WriteTo(pkt []byte, addr net.Addr) (int, error) {
 
 		b.packets = newBuf
 
-		// Update write pointer to point to new location and mark buffer as not
-		// full.
+		// Update read/write pointers and mark buffer as not full.
+		b.read = 0
 		b.write = n
 		b.full = false
 	}
