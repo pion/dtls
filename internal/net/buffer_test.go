@@ -137,6 +137,49 @@ func TestShortBuffer(t *testing.T) {
 	assert.NoError(t, buffer.Close())
 }
 
+func TestResizeWraparound(t *testing.T) {
+	buffer := NewPacketBuffer()
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:5684")
+	assert.NoError(t, err)
+
+	n, err := buffer.WriteTo([]byte{1}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 1, n)
+
+	// Trigger resize from 1 -> 2.
+	n, err = buffer.WriteTo([]byte{2}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 1, n)
+
+	// Read once to ensure the read index is non-zero when the next resize
+	// happens.
+	dst := make([]byte, 1)
+	n, _, err = buffer.ReadFrom(dst)
+	assert.NoError(t, err)
+	equalInt(t, 1, n)
+	equalBytes(t, []byte{1}, dst[:n])
+
+	// Trigger resize from 2 -> 4.
+	n, err = buffer.WriteTo([]byte{3}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 1, n)
+
+	// Write another packet after resizing to ensure we retain buffered packets
+	// before and after the resize.
+	n, err = buffer.WriteTo([]byte{4}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 1, n)
+
+	// Read out all buffered packets. They should 1) all be readable from the
+	// buffer and 2) be read in order.
+	for i := 2; i < 5; i++ {
+		n, _, err = buffer.ReadFrom(dst)
+		assert.NoError(t, err)
+		equalInt(t, 1, n)
+		equalBytes(t, []byte{byte(i)}, dst[:n])
+	}
+}
+
 func TestWraparound(t *testing.T) {
 	buffer := NewPacketBuffer()
 	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:5684")
