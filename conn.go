@@ -65,7 +65,7 @@ type Conn struct {
 	nextConn       netctx.PacketConn // Embedded Conn, typically a udpconn we read/write from
 	fragmentBuffer *fragmentBuffer   // out-of-order and missing fragment handling
 	handshakeCache *handshakeCache   // caching of handshake messages for verifyData generation
-	decrypted      chan interface{}  // Decrypted Application Data or error, pull by calling `Read`
+	decrypted      chan any          // Decrypted Application Data or error, pull by calling `Read`
 	rAddr          net.Addr
 	state          State // Internal state
 
@@ -214,7 +214,7 @@ func createConn(
 		maximumTransmissionUnit: mtu,
 		paddingLengthGenerator:  paddingLengthGenerator,
 
-		decrypted: make(chan interface{}, 1),
+		decrypted: make(chan any, 1),
 		log:       logger,
 
 		readDeadline:  deadline.New(),
@@ -725,7 +725,7 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 }
 
 var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
-	New: func() interface{} {
+	New: func() any {
 		b := make([]byte, inboundBufferSize)
 
 		return &b
