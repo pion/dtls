@@ -91,7 +91,7 @@ type serializedState struct {
 	NegotiatedProtocol    string
 }
 
-var errCipherSuiteNotSet = &InternalError{Err: errors.New("cipher suite not set")} //nolint:goerr113
+var errCipherSuiteNotSet = &InternalError{Err: errors.New("cipher suite not set")} //nolint:err113
 
 func (s *State) clone() (*State, error) {
 	serialized, err := s.serialize()

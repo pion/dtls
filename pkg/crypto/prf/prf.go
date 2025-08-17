@@ -40,7 +40,7 @@ type EncryptionKeys struct {
 	ServerWriteIV  []byte
 }
 
-var errInvalidNamedCurve = &protocol.FatalError{Err: errors.New("invalid named curve")} //nolint:goerr113
+var errInvalidNamedCurve = &protocol.FatalError{Err: errors.New("invalid named curve")} //nolint:err113
 
 func (e *EncryptionKeys) String() string {
 	return fmt.Sprintf(`encryptionKeys:
