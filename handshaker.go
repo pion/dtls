@@ -152,7 +152,7 @@ func (c *handshakeConfig) writeKeyLog(label string, clientRandom, secret []byte)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_, err := c.keyLogWriter.Write([]byte(fmt.Sprintf("%s %x %x\n", label, clientRandom, secret)))
+	_, err := fmt.Fprintf(c.keyLogWriter, "%s %x %x\n", label, clientRandom, secret)
 	if err != nil {
 		c.log.Debugf("failed to write key log file: %s", err)
 	}

@@ -17,122 +17,122 @@ import (
 
 // Typed errors.
 var (
-	ErrConnClosed = &FatalError{Err: errors.New("conn is closed")} //nolint:goerr113
+	ErrConnClosed = &FatalError{Err: errors.New("conn is closed")} //nolint:err113
 
 	errDeadlineExceeded   = &TimeoutError{Err: fmt.Errorf("read/write timeout: %w", context.DeadlineExceeded)}
-	errInvalidContentType = &TemporaryError{Err: errors.New("invalid content type")} //nolint:goerr113
+	errInvalidContentType = &TemporaryError{Err: errors.New("invalid content type")} //nolint:err113
 
-	//nolint:goerr113
+	//nolint:err113
 	errBufferTooSmall = &TemporaryError{Err: errors.New("buffer is too small")}
-	//nolint:goerr113
+	//nolint:err113
 	errContextUnsupported = &TemporaryError{Err: errors.New("context is not supported for ExportKeyingMaterial")}
-	//nolint:goerr113
+	//nolint:err113
 	errHandshakeInProgress = &TemporaryError{Err: errors.New("handshake is in progress")}
-	//nolint:goerr113
+	//nolint:err113
 	errReservedExportKeyingMaterial = &TemporaryError{
 		Err: errors.New("ExportKeyingMaterial can not be used with a reserved label"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errApplicationDataEpochZero = &TemporaryError{Err: errors.New("ApplicationData with epoch of 0")}
-	//nolint:goerr113
+	//nolint:err113
 	errUnhandledContextType = &TemporaryError{Err: errors.New("unhandled contentType")}
 
-	//nolint:goerr113
+	//nolint:err113
 	errCertificateVerifyNoCertificate = &FatalError{
 		Err: errors.New("client sent certificate verify but we have no certificate to verify"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errCipherSuiteNoIntersection = &FatalError{Err: errors.New("client+server do not support any shared cipher suites")}
-	//nolint:goerr113
+	//nolint:err113
 	errClientCertificateNotVerified = &FatalError{Err: errors.New("client sent certificate but did not verify it")}
-	//nolint:goerr113
+	//nolint:err113
 	errClientCertificateRequired = &FatalError{Err: errors.New("server required client verification, but got none")}
-	//nolint:goerr113
+	//nolint:err113
 	errClientNoMatchingSRTPProfile = &FatalError{Err: errors.New("server responded with SRTP Profile we do not support")}
-	//nolint:goerr113
+	//nolint:err113
 	errClientRequiredButNoServerEMS = &FatalError{
 		Err: errors.New("client required Extended Master Secret extension, but server does not support it"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errCookieMismatch = &FatalError{Err: errors.New("client+server cookie does not match")}
-	//nolint:goerr113
+	//nolint:err113
 	errIdentityNoPSK = &FatalError{Err: errors.New("PSK Identity Hint provided but PSK is nil")}
-	//nolint:goerr113
+	//nolint:err113
 	errInvalidCertificate = &FatalError{Err: errors.New("no certificate provided")}
-	//nolint:goerr113
+	//nolint:err113
 	errInvalidCipherSuite = &FatalError{Err: errors.New("invalid or unknown cipher suite")}
-	//nolint:goerr113
+	//nolint:err113
 	errInvalidECDSASignature = &FatalError{Err: errors.New("ECDSA signature contained zero or negative values")}
-	//nolint:goerr113
+	//nolint:err113
 	errInvalidPrivateKey = &FatalError{Err: errors.New("invalid private key type")}
-	//nolint:goerr113
+	//nolint:err113
 	errInvalidSignatureAlgorithm = &FatalError{Err: errors.New("invalid signature algorithm")}
-	//nolint:goerr113
+	//nolint:err113
 	errKeySignatureMismatch = &FatalError{Err: errors.New("expected and actual key signature do not match")}
-	//nolint:goerr113
+	//nolint:err113
 	errNilNextConn = &FatalError{Err: errors.New("Conn can not be created with a nil nextConn")}
-	//nolint:goerr113
+	//nolint:err113
 	errNoAvailableCipherSuites = &FatalError{
 		Err: errors.New("connection can not be created, no CipherSuites satisfy this Config"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errNoAvailablePSKCipherSuite = &FatalError{
 		Err: errors.New("connection can not be created, pre-shared key present but no compatible CipherSuite"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errNoAvailableCertificateCipherSuite = &FatalError{
 		Err: errors.New("connection can not be created, certificate present but no compatible CipherSuite"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errNoAvailableSignatureSchemes = &FatalError{
 		Err: errors.New("connection can not be created, no SignatureScheme satisfy this Config"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errNoCertificates = &FatalError{Err: errors.New("no certificates configured")}
-	//nolint:goerr113
+	//nolint:err113
 	errNoConfigProvided = &FatalError{Err: errors.New("no config provided")}
-	//nolint:goerr113
+	//nolint:err113
 	errNoSupportedEllipticCurves = &FatalError{
 		Err: errors.New("client requested zero or more elliptic curves that are not supported by the server"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errUnsupportedProtocolVersion = &FatalError{Err: errors.New("unsupported protocol version")}
-	//nolint:goerr113
+	//nolint:err113
 	errPSKAndIdentityMustBeSetForClient = &FatalError{
 		Err: errors.New("PSK and PSK Identity Hint must both be set for client"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errRequestedButNoSRTPExtension = &FatalError{
 		Err: errors.New("SRTP support was requested but server did not respond with use_srtp extension"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errServerNoMatchingSRTPProfile = &FatalError{Err: errors.New("client requested SRTP but we have no matching profiles")}
-	//nolint:goerr113
+	//nolint:err113
 	errServerRequiredButNoClientEMS = &FatalError{
 		Err: errors.New("server requires the Extended Master Secret extension, but the client does not support it"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errVerifyDataMismatch = &FatalError{Err: errors.New("expected and actual verify data does not match")}
-	//nolint:goerr113
+	//nolint:err113
 	errNotAcceptableCertificateChain = &FatalError{Err: errors.New("certificate chain is not signed by an acceptable CA")}
 
-	//nolint:goerr113
+	//nolint:err113
 	errInvalidFlight = &InternalError{Err: errors.New("invalid flight number")}
-	//nolint:goerr113
+	//nolint:err113
 	errKeySignatureGenerateUnimplemented = &InternalError{
 		Err: errors.New("unable to generate key signature, unimplemented"),
 	}
-	//nolint:goerr113
+	//nolint:err113
 	errKeySignatureVerifyUnimplemented = &InternalError{Err: errors.New("unable to verify key signature, unimplemented")}
-	//nolint:goerr113
+	//nolint:err113
 	errLengthMismatch = &InternalError{Err: errors.New("data length and declared length do not match")}
-	//nolint:goerr113
+	//nolint:err113
 	errSequenceNumberOverflow = &InternalError{Err: errors.New("sequence number overflow")}
-	//nolint:goerr113
+	//nolint:err113
 	errInvalidFSMTransition = &InternalError{Err: errors.New("invalid state machine transition")}
-	//nolint:goerr113
+	//nolint:err113
 	errFailedToAccessPoolReadBuffer = &InternalError{Err: errors.New("failed to access pool read buffer")}
-	//nolint:goerr113
+	//nolint:err113
 	errFragmentBufferOverflow = &InternalError{Err: errors.New("fragment buffer overflow")}
 )
 

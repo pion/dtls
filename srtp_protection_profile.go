@@ -10,12 +10,12 @@ import "github.com/pion/dtls/v3/pkg/protocol/extension"
 type SRTPProtectionProfile = extension.SRTPProtectionProfile
 
 const (
-	SRTP_AES128_CM_HMAC_SHA1_80 SRTPProtectionProfile = extension.SRTP_AES128_CM_HMAC_SHA1_80 // nolint:revive,stylecheck
-	SRTP_AES128_CM_HMAC_SHA1_32 SRTPProtectionProfile = extension.SRTP_AES128_CM_HMAC_SHA1_32 // nolint:revive,stylecheck
-	SRTP_AES256_CM_SHA1_80      SRTPProtectionProfile = extension.SRTP_AES256_CM_SHA1_80      // nolint:revive,stylecheck
-	SRTP_AES256_CM_SHA1_32      SRTPProtectionProfile = extension.SRTP_AES256_CM_SHA1_32      // nolint:revive,stylecheck
-	SRTP_NULL_HMAC_SHA1_80      SRTPProtectionProfile = extension.SRTP_NULL_HMAC_SHA1_80      // nolint:revive,stylecheck
-	SRTP_NULL_HMAC_SHA1_32      SRTPProtectionProfile = extension.SRTP_NULL_HMAC_SHA1_32      // nolint:revive,stylecheck
-	SRTP_AEAD_AES_128_GCM       SRTPProtectionProfile = extension.SRTP_AEAD_AES_128_GCM       // nolint:revive,stylecheck
-	SRTP_AEAD_AES_256_GCM       SRTPProtectionProfile = extension.SRTP_AEAD_AES_256_GCM       // nolint:revive,stylecheck
+	SRTP_AES128_CM_HMAC_SHA1_80 SRTPProtectionProfile = extension.SRTP_AES128_CM_HMAC_SHA1_80 // nolint:staticcheck
+	SRTP_AES128_CM_HMAC_SHA1_32 SRTPProtectionProfile = extension.SRTP_AES128_CM_HMAC_SHA1_32 // nolint:staticcheck
+	SRTP_AES256_CM_SHA1_80      SRTPProtectionProfile = extension.SRTP_AES256_CM_SHA1_80      // nolint:staticcheck
+	SRTP_AES256_CM_SHA1_32      SRTPProtectionProfile = extension.SRTP_AES256_CM_SHA1_32      // nolint:staticcheck
+	SRTP_NULL_HMAC_SHA1_80      SRTPProtectionProfile = extension.SRTP_NULL_HMAC_SHA1_80      // nolint:staticcheck
+	SRTP_NULL_HMAC_SHA1_32      SRTPProtectionProfile = extension.SRTP_NULL_HMAC_SHA1_32      // nolint:staticcheck
+	SRTP_AEAD_AES_128_GCM       SRTPProtectionProfile = extension.SRTP_AEAD_AES_128_GCM       // nolint:staticcheck
+	SRTP_AEAD_AES_256_GCM       SRTPProtectionProfile = extension.SRTP_AEAD_AES_256_GCM       // nolint:staticcheck
 )

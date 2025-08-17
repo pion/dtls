@@ -21,13 +21,13 @@ const (
 )
 
 var (
-	//nolint:goerr113
+	//nolint:err113
 	errNotEnoughRoomForNonce = &protocol.InternalError{Err: errors.New("buffer not long enough to contain nonce")}
-	//nolint:goerr113
+	//nolint:err113
 	errDecryptPacket = &protocol.TemporaryError{Err: errors.New("failed to decrypt packet")}
-	//nolint:goerr113
+	//nolint:err113
 	errInvalidMAC = &protocol.TemporaryError{Err: errors.New("invalid mac")}
-	//nolint:goerr113
+	//nolint:err113
 	errFailedToCast = &protocol.FatalError{Err: errors.New("failed to cast")}
 )
 

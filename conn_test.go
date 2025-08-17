@@ -578,7 +578,7 @@ func TestPSK(t *testing.T) {
 				conf := &Config{
 					PSK: func(hint []byte) ([]byte, error) {
 						if !bytes.Equal(test.ServerIdentity, hint) {
-							return nil, fmt.Errorf( //nolint:goerr113
+							return nil, fmt.Errorf( //nolint:err113
 								"TestPSK: Client got invalid identity expected(% 02x) actual(% 02x)",
 								test.ServerIdentity, hint,
 							)
@@ -1800,14 +1800,14 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 			test.ServerHasCertificate,
 		)
 		if err != nil || test.WantServerError != nil {
-			if !(err != nil && test.WantServerError != nil && err.Error() == test.WantServerError.Error()) {
+			if err == nil || test.WantServerError == nil || err.Error() != test.WantServerError.Error() {
 				assert.Failf(t, "TestPSKConfiguration", "Server Error Mismatch '%s'", test.Name)
 			}
 		}
 
 		res := <-resultCh
 		if res.err != nil || test.WantClientError != nil {
-			if !(res.err != nil && test.WantClientError != nil && res.err.Error() == test.WantClientError.Error()) {
+			if res.err == nil || test.WantClientError == nil && res.err.Error() != test.WantClientError.Error() {
 				assert.Failf(t, "TestPSKConfiguration", "Client Error Mismatch '%s'", test.Name)
 			}
 		}
