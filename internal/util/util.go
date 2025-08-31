@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package util contains small helpers used across the repo
-package util
+package util // nolint:revive
 
 import (
 	"encoding/binary"

@@ -57,26 +57,26 @@ func (i ID) String() string { //nolint:cyclop
 // Supported Cipher Suites.
 const (
 	// AES-128-CCM.
-	TLS_ECDHE_ECDSA_WITH_AES_128_CCM   ID = 0xc0ac //nolint:staticcheck
-	TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 ID = 0xc0ae //nolint:staticcheck
+	TLS_ECDHE_ECDSA_WITH_AES_128_CCM   ID = 0xc0ac // nolint: revive,staticcheck
+	TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 ID = 0xc0ae // nolint: revive,staticcheck
 
 	// AES-128-GCM-SHA256.
-	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ID = 0xc02b //nolint:staticcheck
-	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   ID = 0xc02f //nolint:staticcheck
+	TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 ID = 0xc02b // nolint: revive,staticcheck
+	TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   ID = 0xc02f // nolint: revive,staticcheck
 
-	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 ID = 0xc02c //nolint:staticcheck
-	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384   ID = 0xc030 //nolint:staticcheck
+	TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 ID = 0xc02c // nolint: revive,staticcheck
+	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384   ID = 0xc030 // nolint: revive,staticcheck
 	// AES-256-CBC-SHA.
-	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA ID = 0xc00a //nolint:staticcheck
-	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   ID = 0xc014 //nolint:staticcheck
+	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA ID = 0xc00a // nolint: revive,staticcheck
+	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   ID = 0xc014 // nolint: revive,staticcheck
 
-	TLS_PSK_WITH_AES_128_CCM        ID = 0xc0a4 //nolint:staticcheck
-	TLS_PSK_WITH_AES_128_CCM_8      ID = 0xc0a8 //nolint:staticcheck
-	TLS_PSK_WITH_AES_256_CCM_8      ID = 0xc0a9 //nolint:staticcheck
-	TLS_PSK_WITH_AES_128_GCM_SHA256 ID = 0x00a8 //nolint:staticcheck
-	TLS_PSK_WITH_AES_128_CBC_SHA256 ID = 0x00ae //nolint:staticcheck
+	TLS_PSK_WITH_AES_128_CCM        ID = 0xc0a4 // nolint: revive,staticcheck
+	TLS_PSK_WITH_AES_128_CCM_8      ID = 0xc0a8 // nolint: revive,staticcheck
+	TLS_PSK_WITH_AES_256_CCM_8      ID = 0xc0a9 // nolint: revive,staticcheck
+	TLS_PSK_WITH_AES_128_GCM_SHA256 ID = 0x00a8 // nolint: revive,staticcheck
+	TLS_PSK_WITH_AES_128_CBC_SHA256 ID = 0x00ae // nolint: revive,staticcheck
 
-	TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ID = 0xC037 //nolint:staticcheck
+	TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ID = 0xC037 // nolint: revive,staticcheck
 )
 
 // AuthenticationType controls what authentication method is using during the handshake.
