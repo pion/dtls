@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package util provides auxiliary utilities used in examples
-package util
+package util //nolint: revive
 
 import (
 	"bufio"

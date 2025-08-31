@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package types provides types for TLS Ciphers
-package types
+package types // nolint:revive
 
 // KeyExchangeAlgorithm controls what exchange algorithm was chosen.
 type KeyExchangeAlgorithm int
