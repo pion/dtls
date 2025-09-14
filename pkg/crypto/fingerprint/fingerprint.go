@@ -28,7 +28,7 @@ func Fingerprint(cert *x509.Certificate, algo crypto.Hash) (string, error) {
 		// https://golang.org/pkg/hash/#Hash
 		i += n
 	}
-	digest := []byte(fmt.Sprintf("%x", h.Sum(nil)))
+	digest := fmt.Appendf(nil, "%x", h.Sum(nil))
 
 	digestlen := len(digest)
 	if digestlen == 0 {

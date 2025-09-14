@@ -82,11 +82,9 @@ func examinePadding(payload []byte) (toRemove int, good byte) {
 	good = byte(int32(^t) >> 31) //nolint:gosec //G115
 
 	// The maximum possible padding length plus the actual length field
-	toCheck := 256
-	// The length of the padded data is public, so we can use an if here
-	if toCheck > len(payload) {
-		toCheck = len(payload)
-	}
+	toCheck := min(
+		// The length of the padded data is public, so we can use an if here
+		256, len(payload))
 
 	for i := 0; i < toCheck; i++ {
 		t := uint(paddingLen) - uint(i) //nolint:gosec //G115

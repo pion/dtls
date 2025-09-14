@@ -4,6 +4,8 @@
 package extension
 
 import (
+	"slices"
+
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -72,10 +74,8 @@ func ALPNProtocolSelection(supportedProtocols, peerSupportedProtocols []string) 
 		return "", nil
 	}
 	for _, s := range supportedProtocols {
-		for _, c := range peerSupportedProtocols {
-			if s == c {
-				return s, nil
-			}
+		if slices.Contains(peerSupportedProtocols, s) {
+			return s, nil
 		}
 	}
 
