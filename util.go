@@ -3,12 +3,12 @@
 
 package dtls
 
+import "slices"
+
 func findMatchingSRTPProfile(a, b []SRTPProtectionProfile) (SRTPProtectionProfile, bool) {
 	for _, aProfile := range a {
-		for _, bProfile := range b {
-			if aProfile == bProfile {
-				return aProfile, true
-			}
+		if slices.Contains(b, aProfile) {
+			return aProfile, true
 		}
 	}
 
@@ -31,10 +31,7 @@ func splitBytes(bytes []byte, splitLen int) [][]byte {
 	splitBytes := make([][]byte, 0)
 	numBytes := len(bytes)
 	for i := 0; i < numBytes; i += splitLen {
-		j := i + splitLen
-		if j > numBytes {
-			j = numBytes
-		}
+		j := min(i+splitLen, numBytes)
 
 		splitBytes = append(splitBytes, bytes[i:j])
 	}
