@@ -20,6 +20,7 @@ const (
 	UseSRTPTypeValue                      TypeValue = 14
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
+	SupportedVersionsTypeValue            TypeValue = 43
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
 )
@@ -80,6 +81,8 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(buf[offset:], &RenegotiationInfo{})
 		case ConnectionIDTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &ConnectionID{})
+		case SupportedVersionsTypeValue:
+			err = unmarshalAndAppend(buf[offset:], &SupportedVersions{})
 		default:
 		}
 		if err != nil {
