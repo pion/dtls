@@ -224,10 +224,36 @@ type Config struct {
 	// checking against a list of blocked IPs, or counting the attempts to prevent brute force attacks.
 	// If the callback function returns an error, the connection attempt will be aborted.
 	OnConnectionAttempt func(net.Addr) error
+
+	// version13 controls if DLTS version 1.3 is used or not by the client and server.
+	// https://datatracker.ietf.org/doc/html/rfc9147
+	// WIP experimental feature, see https://github.com/pion/dtls/issues/188
+	version13 bool
+
+	onFlightState13 func(flightVal13, handshakeState13)
 }
 
 func (c *Config) includeCertificateSuites() bool {
 	return c.PSK == nil || len(c.Certificates) > 0 || c.GetCertificate != nil || c.GetClientCertificate != nil
+}
+
+type OptionVersion13 func(*Config) error
+
+func NewConfigVersion13(c *Config, opts ...OptionVersion13) (*Config, error) {
+	c.version13 = true
+	for _, opt := range opts {
+		if err := opt(c); err != nil {
+			return c, err
+		}
+	}
+	return c, nil
+}
+
+func WithOnFlightState13(f func(flightVal13, handshakeState13)) OptionVersion13 {
+	return func(c *Config) error {
+		c.onFlightState13 = f
+		return nil
+	}
 }
 
 const defaultMTU = 1200 // bytes
