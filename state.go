@@ -201,6 +201,10 @@ func (s *State) initCipherSuite() error {
 	return nil
 }
 
+func (s *State) GetCipherSuite() CipherSuite {
+	return s.cipherSuite
+}
+
 // MarshalBinary is a binary.BinaryMarshaler.MarshalBinary implementation.
 func (s *State) MarshalBinary() ([]byte, error) {
 	serialized, err := s.serialize()

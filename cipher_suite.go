@@ -48,6 +48,8 @@ const (
 	TLS_PSK_WITH_AES_128_CBC_SHA256 CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_128_CBC_SHA256 // nolint: revive,staticcheck,lll
 
 	TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 CipherSuiteID = ciphersuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 // nolint: revive,staticcheck,lll
+
+	TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 CipherSuiteID = ciphersuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 // nolint: revive,staticcheck,lll
 )
 
 // CipherSuiteAuthenticationType controls what authentication method is using during the handshake for a CipherSuite.
@@ -150,6 +152,8 @@ func cipherSuiteForID(id CipherSuiteID, customCiphers func() []CipherSuite) Ciph
 		return &ciphersuite.TLSEcdheRsaWithAes256GcmSha384{}
 	case TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256:
 		return ciphersuite.NewTLSEcdhePskWithAes128CbcSha256()
+	case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+		return ciphersuite.NewTLSEcdheRsaWithChaCha20Poly1305Sha256()
 	}
 
 	if customCiphers != nil {
@@ -172,6 +176,7 @@ func defaultCipherSuites() []CipherSuite {
 		&ciphersuite.TLSEcdheRsaWithAes256CbcSha{},
 		&ciphersuite.TLSEcdheEcdsaWithAes256GcmSha384{},
 		&ciphersuite.TLSEcdheRsaWithAes256GcmSha384{},
+		ciphersuite.NewTLSEcdheRsaWithChaCha20Poly1305Sha256(),
 	}
 }
 
@@ -189,6 +194,7 @@ func allCipherSuites() []CipherSuite {
 		&ciphersuite.TLSPskWithAes128GcmSha256{},
 		&ciphersuite.TLSEcdheEcdsaWithAes256GcmSha384{},
 		&ciphersuite.TLSEcdheRsaWithAes256GcmSha384{},
+		ciphersuite.NewTLSEcdheRsaWithChaCha20Poly1305Sha256(),
 	}
 }
 
