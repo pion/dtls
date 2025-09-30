@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"sync"
 	"sync/atomic"
 
 	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
@@ -16,12 +15,6 @@ import (
 
 type TLSEcdheRsaWithChaCha20Poly1305Sha256 struct {
 	chacha atomic.Value
-	// key lengths
-	keyLen int
-	ivLen  int
-
-	mu   sync.RWMutex
-	name string
 }
 
 func (c *TLSEcdheRsaWithChaCha20Poly1305Sha256) CertificateType() clientcertificate.Type {
@@ -57,16 +50,15 @@ func (c *TLSEcdheRsaWithChaCha20Poly1305Sha256) IsInitialized() bool {
 	return c.chacha.Load() != nil
 }
 
-func (c *TLSEcdheRsaWithChaCha20Poly1305Sha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *TLSEcdheRsaWithChaCha20Poly1305Sha256) init(masterSecret, clientRandom, serverRandom []byte, isClient bool,
+	rfMacLen, prfKeyLen, prfIvLen int, hashFunc func() hash.Hash) error {
 
 	if masterSecret == nil {
 		return errors.New("masterSecret is nil")
 	}
 
 	// macLen=0 for AEAD (no separate MAC), keyLen=32 for chacha, ivLen=12
-	keys, err := prf.GenerateEncryptionKeys(masterSecret, clientRandom, serverRandom, 0, c.keyLen, c.ivLen, c.HashFunc())
+	keys, err := prf.GenerateEncryptionKeys(masterSecret, clientRandom, serverRandom, rfMacLen, prfKeyLen, prfIvLen, hashFunc)
 	if err != nil {
 		return err
 	}
@@ -84,6 +76,17 @@ func (c *TLSEcdheRsaWithChaCha20Poly1305Sha256) Init(masterSecret, clientRandom,
 	c.chacha.Store(chacha)
 
 	return nil
+}
+
+// Init initializes the internal Cipher with keying material.
+func (c *TLSEcdheRsaWithChaCha20Poly1305Sha256) Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error {
+	const (
+		prfMacLen = 0
+		prfKeyLen = 32
+		prfIvLen  = 12
+	)
+
+	return c.init(masterSecret, clientRandom, serverRandom, isClient, prfMacLen, prfKeyLen, prfIvLen, c.HashFunc())
 }
 
 // Encrypt encrypts a single TLS RecordLayer.

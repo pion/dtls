@@ -153,7 +153,7 @@ func cipherSuiteForID(id CipherSuiteID, customCiphers func() []CipherSuite) Ciph
 	case TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256:
 		return ciphersuite.NewTLSEcdhePskWithAes128CbcSha256()
 	case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
-		return ciphersuite.NewTLSEcdheRsaWithChaCha20Poly1305Sha256()
+		return &ciphersuite.TLSEcdheRsaWithChaCha20Poly1305Sha256{}
 	}
 
 	if customCiphers != nil {
@@ -170,13 +170,13 @@ func cipherSuiteForID(id CipherSuiteID, customCiphers func() []CipherSuite) Ciph
 // CipherSuites we support in order of preference.
 func defaultCipherSuites() []CipherSuite {
 	return []CipherSuite{
-		&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
-		&ciphersuite.TLSEcdheRsaWithAes128GcmSha256{},
-		&ciphersuite.TLSEcdheEcdsaWithAes256CbcSha{},
-		&ciphersuite.TLSEcdheRsaWithAes256CbcSha{},
-		&ciphersuite.TLSEcdheEcdsaWithAes256GcmSha384{},
-		&ciphersuite.TLSEcdheRsaWithAes256GcmSha384{},
-		ciphersuite.NewTLSEcdheRsaWithChaCha20Poly1305Sha256(),
+		// &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
+		// &ciphersuite.TLSEcdheRsaWithAes128GcmSha256{},
+		// &ciphersuite.TLSEcdheEcdsaWithAes256CbcSha{},
+		// &ciphersuite.TLSEcdheRsaWithAes256CbcSha{},
+		// &ciphersuite.TLSEcdheEcdsaWithAes256GcmSha384{},
+		// &ciphersuite.TLSEcdheRsaWithAes256GcmSha384{},
+		&ciphersuite.TLSEcdheRsaWithChaCha20Poly1305Sha256{},
 	}
 }
 
@@ -194,7 +194,7 @@ func allCipherSuites() []CipherSuite {
 		&ciphersuite.TLSPskWithAes128GcmSha256{},
 		&ciphersuite.TLSEcdheEcdsaWithAes256GcmSha384{},
 		&ciphersuite.TLSEcdheRsaWithAes256GcmSha384{},
-		ciphersuite.NewTLSEcdheRsaWithChaCha20Poly1305Sha256(),
+		&ciphersuite.TLSEcdheRsaWithChaCha20Poly1305Sha256{},
 	}
 }
 
