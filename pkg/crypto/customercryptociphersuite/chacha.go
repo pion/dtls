@@ -1,4 +1,4 @@
-package ciphersuite
+package customercryptociphersuite
 
 import (
 	"crypto/cipher"
@@ -6,9 +6,17 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/cryptobyte"
+)
+
+const (
+	// 8 bytes of 0xff.
+	// https://datatracker.ietf.org/doc/html/rfc9146#name-record-payload-protection
+	seqNumPlaceholder = 0xffffffffffffffff
 )
 
 type ChaCha struct {
@@ -98,4 +106,39 @@ func (c *ChaCha) Decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decrypt failed: %v", err)
 	}
 	return append(in[:header.Size()], plain...), nil
+}
+
+func generateAEADAdditionalData(h *recordlayer.Header, payloadLen int) []byte {
+	var additionalData [13]byte
+
+	// SequenceNumber MUST be set first
+	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
+	binary.BigEndian.PutUint64(additionalData[:], h.SequenceNumber)
+	binary.BigEndian.PutUint16(additionalData[:], h.Epoch)
+	additionalData[8] = byte(h.ContentType)
+	additionalData[9] = h.Version.Major
+	additionalData[10] = h.Version.Minor
+	//nolint:gosec //G115
+	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(payloadLen))
+
+	return additionalData[:]
+}
+
+// generateAEADAdditionalDataCID generates additional data for AEAD ciphers
+// according to https://datatracker.ietf.org/doc/html/rfc9146#name-aead-ciphers
+func generateAEADAdditionalDataCID(h *recordlayer.Header, payloadLen int) []byte {
+	var builder cryptobyte.Builder
+
+	builder.AddUint64(seqNumPlaceholder)
+	builder.AddUint8(uint8(protocol.ContentTypeConnectionID))
+	builder.AddUint8(uint8(len(h.ConnectionID))) //nolint:gosec //G115
+	builder.AddUint8(uint8(protocol.ContentTypeConnectionID))
+	builder.AddUint8(h.Version.Major)
+	builder.AddUint8(h.Version.Minor)
+	builder.AddUint16(h.Epoch)
+	util.AddUint48(&builder, h.SequenceNumber)
+	builder.AddBytes(h.ConnectionID)
+	builder.AddUint16(uint16(payloadLen)) //nolint:gosec //G115
+
+	return builder.BytesOrPanic()
 }

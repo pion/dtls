@@ -1,4 +1,4 @@
-package ciphersuite
+package customercryptociphersuite
 
 import (
 	"crypto/rand"
