@@ -1,16 +1,42 @@
 // SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package keys_schedule_13
+package hkdf13
 
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// RFC 5869 Appendix A.1 (Test Case 1, SHA-256).
+func TestHKDFExtract_SHA256_VectorA1(t *testing.T) {
+	// IKM = 0x0b repeated 22 bytes (RFC 5869 A.1)
+	ikm := bytes.Repeat([]byte{0x0b}, 22)
+
+	// salt = 0x000102030405060708090a0b0c (RFC 5869 A.1)
+	salt, _ := hex.DecodeString("000102030405060708090a0b0c")
+
+	// PRK expected (RFC 5869 A.1)
+	expected, _ := hex.DecodeString("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5")
+
+	actual, err := hkdfExtract(sha256.New, salt, ikm)
+	assert.NoError(t, err)
+	assert.Equal(t, expected, actual)
+}
+
+func TestHKDFExtract_Nil_Hash_Error(t *testing.T) {
+	// valid ikm and salt from the previous test
+	ikm := bytes.Repeat([]byte{0x0b}, 22)
+	salt, _ := hex.DecodeString("000102030405060708090a0b0c")
+
+	_, err := hkdfExtract(nil, salt, ikm)
+	assert.ErrorIs(t, errMissingHashFunction, err)
+}
 
 func TestHKDFExpandLabel_Simple(t *testing.T) {
 	secret := bytes.Repeat([]byte{0x11}, sha256.Size)
