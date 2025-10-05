@@ -146,7 +146,7 @@ func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState 
 	}()
 	for {
 		s.cfg.log.Tracef("[handshake:%s] %s: %s", srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
-		if s.cfg.onFlightState != nil {
+		if s.cfg.onFlightState13 != nil {
 			s.cfg.onFlightState13(s.currentFlight, state)
 		}
 		var err error
