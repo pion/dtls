@@ -3380,3 +3380,49 @@ func TestCloseWithoutHandshake(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NoError(t, server.Close())
 }
+
+// WIP! Tests if DTLS 1.3 handshake flow is enabled and the correct error is returned
+func TestDTLS13Config(t *testing.T) {
+	ca, cb := dpipe.Pipe()
+
+	// Setup client
+	clientCfg := &Config{}
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	clientCfg.Certificates = []tls.Certificate{clientCert}
+	clientCfg.InsecureSkipVerify = true
+
+	cfg13, err := NewConfigVersion13(*clientCfg)
+	assert.NoError(t, err)
+
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), cfg13)
+	assert.NoError(t, err)
+	defer func() {
+		_ = client.Close()
+	}()
+
+	_, ok := client.ConnectionState()
+	assert.False(t, ok)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errorChannel := make(chan error)
+	go func() {
+		errC := client.HandshakeContext(ctx)
+		errorChannel <- errC
+	}()
+
+	// Setup server, ignore error
+	server, _ := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{}, true)
+	assert.NoError(t, err)
+
+	defer func() {
+		_ = server.Close()
+	}()
+
+	err = <-errorChannel
+	if err.Error() == errFlightUnimplemented13.Error() {
+		return
+	}
+}
