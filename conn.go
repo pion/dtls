@@ -1258,10 +1258,17 @@ func (c *Conn) handshake13(
 	done := make(chan struct{})
 	ctxRead, cancelRead := context.WithCancel(context.Background())
 	cfg.onFlightState13 = func(_ flightVal13, s handshakeState13) {
-		if c.fsm13.currentFlight.isLastRecvFlight() {
+		if c.fsm13.currentFlight.isLastSendFlight() {
 			close(done)
 		}
 	}
+	/* TODO: determine when DTLS 1.3 handshake is finished
+	cfg.onFlightState13 = func(_ flightVal, s handshakeState) {
+		if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
+			close(done)
+		}
+	}
+	*/
 
 	ctxHs, cancel := context.WithCancel(context.Background())
 

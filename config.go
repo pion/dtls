@@ -239,22 +239,24 @@ func (c *Config) includeCertificateSuites() bool {
 
 type OptionVersion13 func(*Config) error
 
-func NewConfigVersion13(c *Config, opts ...OptionVersion13) (*Config, error) {
+func NewConfigVersion13(c Config, opts ...OptionVersion13) (*Config, error) {
 	c.version13 = true
 	for _, opt := range opts {
-		if err := opt(c); err != nil {
-			return c, err
+		if err := opt(&c); err != nil {
+			return &c, err
 		}
 	}
-	return c, nil
+	return &c, nil
 }
 
-func WithOnFlightState13(f func(flightVal13, handshakeState13)) OptionVersion13 {
+/* Example of how to implement config/options for DTLS 1.3
+func WithOption13(f func(b bool)) OptionVersion13 {
 	return func(c *Config) error {
-		c.onFlightState13 = f
+		c.comeConfig = b
 		return nil
 	}
 }
+*/
 
 const defaultMTU = 1200 // bytes
 
