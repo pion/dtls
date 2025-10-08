@@ -4,7 +4,11 @@
 package prf
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -210,4 +214,85 @@ func TestVerifyData(t *testing.T) {
 	verifyData, err := VerifyDataClient(masterSecret, finalMsg, sha256.New)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedVerifyData, verifyData)
+}
+
+func TestEncryptionKeys_String(t *testing.T) {
+	ek := &EncryptionKeys{
+		MasterSecret:   []byte{0x01, 0x02},
+		ClientMACKey:   []byte{0x03},
+		ServerMACKey:   []byte{0x04},
+		ClientWriteKey: []byte{0x05, 0x06, 0x07},
+		ServerWriteKey: []byte{0x08},
+		ClientWriteIV:  []byte{0x09, 0x0a},
+		ServerWriteIV:  []byte{0x0b},
+	}
+	s := ek.String()
+
+	assert.True(t, strings.HasPrefix(s, "encryptionKeys:\n"))
+	assert.Contains(t, s, fmt.Sprintf("- masterSecret: %#v", ek.MasterSecret))
+	assert.Contains(t, s, fmt.Sprintf("- clientMACKey: %#v", ek.ClientMACKey))
+	assert.Contains(t, s, fmt.Sprintf("- serverMACKey: %#v", ek.ServerMACKey))
+	assert.Contains(t, s, fmt.Sprintf("- clientWriteKey: %#v", ek.ClientWriteKey))
+	assert.Contains(t, s, fmt.Sprintf("- serverWriteKey: %#v", ek.ServerWriteKey))
+	assert.Contains(t, s, fmt.Sprintf("- clientWriteIV: %#v", ek.ClientWriteIV))
+	assert.Contains(t, s, fmt.Sprintf("- serverWriteIV: %#v", ek.ServerWriteIV))
+}
+
+func TestEcdhePSKPreMasterSecret_InvalidCurve(t *testing.T) {
+	psk := []byte("psk")
+	pub := []byte{0x01}
+	priv := []byte{0x02}
+	invalid := elliptic.Curve(0xFFFF)
+
+	_, err := EcdhePSKPreMasterSecret(psk, pub, priv, invalid)
+	assert.ErrorIs(t, err, errInvalidNamedCurve)
+}
+
+func TestPreMasterSecret_InvalidCurve(t *testing.T) {
+	invalid := elliptic.Curve(0) // not supported
+	_, err := PreMasterSecret(nil, nil, invalid)
+	assert.ErrorIs(t, err, errInvalidNamedCurve)
+}
+
+func TestPreMasterSecret_NewPrivateKeyError(t *testing.T) {
+	// P-256 with invalid private key length -> ec.NewPrivateKey error.
+	curve := elliptic.P256
+	priv := []byte{}    // invalid size for P-256 (needs 32 bytes)
+	pub := []byte{0x04} // won't be reached, set something anyways
+
+	_, err := PreMasterSecret(pub, priv, curve)
+	assert.Error(t, err) // error from ec.NewPrivateKey
+}
+
+func TestPreMasterSecret_NewPublicKeyError(t *testing.T) {
+	// valid P-256 private key with invalid public key encoding -> ec.NewPublicKey error.
+	ec := ecdh.P256()
+	sk, err := ec.GenerateKey(rand.Reader)
+	assert.NoError(t, err)
+
+	priv := sk.Bytes()
+	invalidPub := []byte{0x04, 0x01, 0x02} // invalid but wrong length
+
+	_, err = PreMasterSecret(invalidPub, priv, elliptic.P256)
+	assert.Error(t, err) // error from ec.NewPublicKey
+}
+
+func TestPreMasterSecret_P256_Success_CaseHit(t *testing.T) {
+	// P-256 case branch and confirm success (non-empty shared secret).
+	ec := ecdh.P256()
+	aliceSK, err := ec.GenerateKey(rand.Reader)
+	assert.NoError(t, err)
+
+	bobSK, err := ec.GenerateKey(rand.Reader)
+	assert.NoError(t, err)
+
+	// Expected shared secret using ecdh directly.
+	exp, err := aliceSK.ECDH(bobSK.PublicKey())
+	assert.NoError(t, err)
+	assert.NotEmpty(t, exp)
+
+	secret, err := PreMasterSecret(bobSK.PublicKey().Bytes(), aliceSK.Bytes(), elliptic.P256)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, secret)
+	assert.Equal(t, exp, secret) // exact match
 }
