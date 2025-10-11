@@ -400,3 +400,145 @@ func BenchmarkBuffer140(b *testing.B) {
 func BenchmarkBuffer1400(b *testing.B) {
 	benchmarkBuffer(b, 1400)
 }
+
+func FuzzPacketBuffer_WriteReadRoundTrip(f *testing.F) {
+	// mixed seeds.
+	f.Add([]byte{0, 1, 2}, []byte{3, 4}, uint16(2))
+	f.Add([]byte{}, []byte{9, 9, 9}, uint16(0))
+	f.Add([]byte{7}, []byte{}, uint16(1))
+	f.Add(make([]byte, 64), make([]byte, 5), uint16(4))
+
+	f.Fuzz(func(t *testing.T, p1 []byte, p2 []byte, readCap uint16) {
+		buf := NewPacketBuffer()
+		defer func() { _ = buf.Close() }()
+
+		addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5684}
+
+		n, err := buf.WriteTo(p1, addr)
+		assert.NoError(t, err)
+		assert.Equal(t, len(p1), n)
+
+		n, err = buf.WriteTo(p2, addr)
+		assert.NoError(t, err)
+		assert.Equal(t, len(p2), n)
+
+		readOnce := func(expect []byte) {
+			rb := make([]byte, int(readCap))
+			n, raddr, errRead := buf.ReadFrom(rb)
+
+			if len(expect) == 0 {
+				if len(rb) == 0 {
+					assert.NoError(t, errRead)
+					assert.Equal(t, 0, n)
+					assert.NotNil(t, raddr)
+					assert.Equal(t, addr.String(), raddr.String())
+				} else {
+					assert.ErrorIs(t, errRead, io.EOF)
+					assert.Equal(t, 0, n)
+				}
+
+				return
+			}
+
+			if errors.Is(errRead, io.ErrShortBuffer) {
+				rb = make([]byte, len(expect))
+				n, raddr, errRead = buf.ReadFrom(rb)
+			}
+
+			assert.NoError(t, errRead)
+			assert.Equal(t, len(expect), n)
+			assert.Equal(t, expect, rb[:n])
+			assert.NotNil(t, raddr)
+			assert.Equal(t, addr.String(), raddr.String())
+		}
+
+		readOnce(p1)
+		readOnce(p2)
+
+		assert.NoError(t, buf.Close())
+		_, err = buf.WriteTo([]byte{1}, addr)
+		assert.Error(t, err)
+
+		rb := make([]byte, int(readCap))
+		_, _, err = buf.ReadFrom(rb)
+		assert.ErrorIs(t, err, io.EOF)
+	})
+}
+
+func FuzzPacketBuffer_DeadlineAndShortBuffer(f *testing.F) {
+	// mixed seeds.
+	f.Add([]byte{1, 2, 3, 4}, uint16(2))
+	f.Add([]byte{}, uint16(0))
+	f.Add(make([]byte, 32), uint16(0))
+
+	f.Fuzz(func(t *testing.T, payload []byte, readCap uint16) {
+		buf := NewPacketBuffer()
+		defer func() { _ = buf.Close() }()
+
+		assert.NoError(t, buf.SetReadDeadline(time.Unix(0, 1)))
+		rb := make([]byte, int(readCap))
+		n, addr, err := buf.ReadFrom(rb)
+		assert.ErrorIs(t, err, ErrTimeout)
+		assert.Equal(t, 0, n)
+		assert.Nil(t, addr)
+
+		assert.NoError(t, buf.SetReadDeadline(time.Time{}))
+
+		ua := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 9999}
+		n, err = buf.WriteTo(payload, ua)
+		assert.NoError(t, err)
+		assert.Equal(t, len(payload), n)
+
+		n, addr, err = buf.ReadFrom(rb)
+		if errors.Is(err, io.ErrShortBuffer) {
+			rb = make([]byte, len(payload))
+			n, addr, err = buf.ReadFrom(rb)
+		}
+
+		assert.NoError(t, err)
+		assert.Equal(t, len(payload), n)
+		assert.Equal(t, payload, rb[:n])
+
+		if addr != nil {
+			assert.Equal(t, ua.String(), addr.String())
+		} else {
+			assert.NotNil(t, addr)
+		}
+	})
+}
+
+func FuzzPacketBuffer_CloseSemantics(f *testing.F) {
+	f.Add([]byte{0, 1}, []byte{2, 3, 4})
+	f.Add([]byte{}, []byte{9})
+	f.Add(make([]byte, 8), make([]byte, 0))
+
+	f.Fuzz(func(t *testing.T, first []byte, second []byte) {
+		buf := NewPacketBuffer()
+		addr := &net.UDPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 4242}
+
+		_, err := buf.WriteTo(first, addr)
+		assert.NoError(t, err)
+		_, err = buf.WriteTo(second, addr)
+		assert.NoError(t, err)
+
+		assert.NoError(t, buf.Close())
+
+		readAll := func(expect []byte) {
+			rb := make([]byte, len(expect))
+			n, raddr, errRead := buf.ReadFrom(rb)
+			assert.NoError(t, errRead)
+			assert.Equal(t, len(expect), n)
+			assert.Equal(t, expect, rb[:n])
+			assert.NotNil(t, raddr)
+		}
+
+		readAll(first)
+		readAll(second)
+
+		_, _, err = buf.ReadFrom(make([]byte, 1))
+		assert.ErrorIs(t, err, io.EOF)
+
+		_, err = buf.WriteTo([]byte{1}, addr)
+		assert.Error(t, err)
+	})
+}
