@@ -14,16 +14,21 @@ type TypeValue uint16
 // TypeValue constants.
 const (
 	ServerNameTypeValue                   TypeValue = 0
-	SupportedEllipticCurvesTypeValue      TypeValue = 10
+	SupportedEllipticCurvesTypeValue      TypeValue = 10 // used in d/tls v1.2
+	SupportedGroupsTypeValue              TypeValue = 10 // used in d/tls v1.3
 	SupportedPointFormatsTypeValue        TypeValue = 11
 	SupportedSignatureAlgorithmsTypeValue TypeValue = 13
 	UseSRTPTypeValue                      TypeValue = 14
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
 	SupportedVersionsTypeValue            TypeValue = 43
+	KeyShareTypeValue                     TypeValue = 51
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
 )
+
+// temporary dtls 1.3 flag.
+var is_dtls_13 = true
 
 // Extension represents a single TLS extension.
 type Extension interface {
@@ -61,12 +66,21 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 		if len(buf) < (offset + 2) {
 			return nil, errBufferTooSmall
 		}
+
 		var err error
+
 		switch TypeValue(binary.BigEndian.Uint16(buf[offset:])) {
 		case ServerNameTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &ServerName{})
 		case SupportedEllipticCurvesTypeValue:
-			err = unmarshalAndAppend(buf[offset:], &SupportedEllipticCurves{})
+			// the supp. EC extension in tls 1.2 has the same type value as
+			// the supp. groups extension in tls 1.3.
+			// so in the switch we can just check for one then parse based on if the DTLS 1.3 flag is set.
+			if is_dtls_13 {
+				err = unmarshalAndAppend(buf[offset:], &SupportedGroups{})
+			} else {
+				err = unmarshalAndAppend(buf[offset:], &SupportedEllipticCurves{})
+			}
 		case SupportedPointFormatsTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &SupportedPointFormats{})
 		case SupportedSignatureAlgorithmsTypeValue:
@@ -83,14 +97,19 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(buf[offset:], &ConnectionID{})
 		case SupportedVersionsTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &SupportedVersions{})
+		case KeyShareTypeValue:
+			err = unmarshalAndAppend(buf[offset:], &KeyShare{})
 		default:
 		}
+
 		if err != nil {
 			return nil, err
 		}
+
 		if len(buf) < (offset + 4) {
 			return nil, errBufferTooSmall
 		}
+
 		extensionLength := binary.BigEndian.Uint16(buf[offset+2:])
 		offset += (4 + int(extensionLength))
 	}
