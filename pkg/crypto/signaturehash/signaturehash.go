@@ -10,10 +10,18 @@ import (
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/tls"
+	"errors"
 	"fmt"
 
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
+)
+
+var (
+	errNoAvailableSignatureSchemes = errors.New("connection can not be created, no SignatureScheme satisfy this Config")
+	errInvalidSignatureAlgorithm   = errors.New("invalid signature algorithm")
+	errInvalidHashAlgorithm        = errors.New("invalid hash algorithm")
+	errInvalidPrivateKey           = errors.New("invalid private key type")
 )
 
 // Algorithm is a signature/hash algorithm pairs which may be used in
