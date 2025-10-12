@@ -14,16 +14,21 @@ type TypeValue uint16
 // TypeValue constants.
 const (
 	ServerNameTypeValue                   TypeValue = 0
-	SupportedEllipticCurvesTypeValue      TypeValue = 10
+	SupportedEllipticCurvesTypeValue      TypeValue = 10 // used in d/tls v1.2
+	SupportedGroupsTypeValue              TypeValue = 10 // used in d/tls v1.3
 	SupportedPointFormatsTypeValue        TypeValue = 11
 	SupportedSignatureAlgorithmsTypeValue TypeValue = 13
 	UseSRTPTypeValue                      TypeValue = 14
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
 	SupportedVersionsTypeValue            TypeValue = 43
+	KeyShareTypeValue                     TypeValue = 51
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
 )
+
+// temporary dtls 1.3 flag.
+var is_dtls_13 = true
 
 // Extension represents a single TLS extension.
 type Extension interface {
@@ -62,6 +67,7 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 		if len(bufView) < 2 {
 			return nil, errBufferTooSmall
 		}
+
 		var err error
 		switch TypeValue(binary.BigEndian.Uint16(bufView)) {
 		case ServerNameTypeValue:
@@ -84,8 +90,11 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(bufView, &ConnectionID{})
 		case SupportedVersionsTypeValue:
 			err = unmarshalAndAppend(bufView, &SupportedVersions{})
+		case KeyShareTypeValue:
+			err = unmarshalAndAppend(bufView, &KeyShare{})
 		default:
 		}
+
 		if err != nil {
 			return nil, err
 		}
