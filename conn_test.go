@@ -3393,7 +3393,7 @@ func TestDTLS13Config(t *testing.T) {
 	clientCfg.Certificates = []tls.Certificate{clientCert}
 	clientCfg.InsecureSkipVerify = true
 
-	cfg13, err := NewConfigVersion13(*clientCfg)
+	cfg13, err := newConfigVersion13(*clientCfg)
 	assert.NoError(t, err)
 
 	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), cfg13)

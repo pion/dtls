@@ -287,7 +287,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 	c.closeLock.Unlock()
 
 	if c.handshakeConfig13 != nil {
-		initialFlight := flight0_13
+		initialFlight := flight13_0
 		initialFSMState := handshakePreparing13
 
 		if err := c.handshake13(ctx, c.handshakeConfig13, initialFlight, initialFSMState); err != nil {

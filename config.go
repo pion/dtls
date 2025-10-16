@@ -239,7 +239,7 @@ func (c *Config) includeCertificateSuites() bool {
 
 type OptionVersion13 func(*Config) error
 
-func NewConfigVersion13(c Config, opts ...OptionVersion13) (*Config, error) {
+func newConfigVersion13(c Config, opts ...OptionVersion13) (*Config, error) {
 	c.version13 = true
 	for _, opt := range opts {
 		if err := opt(&c); err != nil {
