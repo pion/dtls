@@ -6,6 +6,7 @@ package dtls
 type flightVal13 uint8
 
 /*
+// [RFC9147 Section-5.7]
 
 Full DTLS Handshake (with Cookie Exchange):
 

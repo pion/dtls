@@ -803,13 +803,22 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 			done:         make(chan struct{}),
 			isRetransmit: isRetransmit,
 		}
-		select {
-		case c.handshakeRecv <- s:
-			// If the other party may retransmit the flight,
-			// we should respond even if it not a new message.
-			<-s.done
-		case <-c.fsm.Done():
-		case <-c.fsm13.Done():
+		if c.fsm13 != nil {
+			select {
+			case c.handshakeRecv <- s:
+				// If the other party may retransmit the flight,
+				// we should respond even if it not a new message.
+				<-s.done
+			case <-c.fsm13.Done():
+			}
+		} else {
+			select {
+			case c.handshakeRecv <- s:
+				// If the other party may retransmit the flight,
+				// we should respond even if it not a new message.
+				<-s.done
+			case <-c.fsm.Done():
+			}
 		}
 	}
 
