@@ -119,6 +119,8 @@ var (
 	//nolint:err113
 	errInvalidFlight = &InternalError{Err: errors.New("invalid flight number")}
 	//nolint:err113
+	errFlightUnimplemented13 = &InternalError{Err: errors.New("unimplemeted DTLS 1.3 flight")}
+	//nolint:err113
 	errKeySignatureGenerateUnimplemented = &InternalError{
 		Err: errors.New("unable to generate key signature, unimplemented"),
 	}
