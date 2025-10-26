@@ -13,9 +13,9 @@ type TypeValue uint16
 
 // TypeValue constants.
 const (
-	ServerNameTypeValue                   TypeValue = 0
-	SupportedEllipticCurvesTypeValue      TypeValue = 10 // used in d/tls v1.2
-	SupportedGroupsTypeValue              TypeValue = 10 // used in d/tls v1.3
+	ServerNameTypeValue TypeValue = 0
+	// In DTLS 1.3, this extension in renamed to "supported_groups".
+	SupportedEllipticCurvesTypeValue      TypeValue = 10
 	SupportedPointFormatsTypeValue        TypeValue = 11
 	SupportedSignatureAlgorithmsTypeValue TypeValue = 13
 	UseSRTPTypeValue                      TypeValue = 14
@@ -26,9 +26,6 @@ const (
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
 )
-
-// temporary dtls 1.3 flag.
-var is_dtls_13 = true
 
 // Extension represents a single TLS extension.
 type Extension interface {
