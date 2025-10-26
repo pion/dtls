@@ -5,34 +5,33 @@ package extension
 
 import (
 	"errors"
+	"slices"
 
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"golang.org/x/crypto/cryptobyte"
 )
 
-// KeyShareEntry implements RFC 8446 section 4.2.8.
 type KeyShareEntry struct {
-	Group       NamedGroup
-	KeyExchange []byte // 1..2^16-1 bytes
+	Group       elliptic.Curve
+	KeyExchange []byte
 }
 
-// KeyShare represents the "key_share" extension. Only one of these may be valid at a time.
-//
-// See RFC 8446 section 4.2.8, 4.2.8.1, and 4.2.8.2.
+// KeyShare represents the "key_share" extension. Only one of the fields can be used at a time.
+// See RFC 8446 section 4.2.8
 type KeyShare struct {
 	ClientShares  []KeyShareEntry // ClientHello
 	ServerShare   *KeyShareEntry  // ServerHello
-	SelectedGroup *NamedGroup     // HelloRetryRequest
+	SelectedGroup *elliptic.Curve // HelloRetryRequest
 }
 
 func (k KeyShare) TypeValue() TypeValue { return KeyShareTypeValue }
 
 var (
 	errInvalidKeyShareFormat = errors.New("invalid key_share format")
-	errInvalidKeyShareGroup  = errors.New("invalid key_share group")
 	errDuplicateKeyShare     = errors.New("duplicate key_share group")
 )
 
-// Marshal encodes the extension for the active context.
+// Marshal encodes the extension
 func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 	hasClientShares := k.ClientShares != nil // vector MAY be empty
 	hasServerShare := k.ServerShare != nil
@@ -43,18 +42,21 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 		return nil, errInvalidKeyShareFormat
 	}
 
-	if hasClientShares {
-		seen := map[NamedGroup]struct{}{}
-		for _, e := range k.ClientShares {
-			if !IsValidNamedGroup(e.Group) {
-				return nil, errInvalidKeyShareGroup
-			}
+	var builder cryptobyte.Builder
 
-			if _, ok := seen[e.Group]; ok {
+	builder.AddUint16(uint16(k.TypeValue()))
+
+	if hasClientShares {
+		seenGroups := []elliptic.Curve{}
+
+		for _, e := range k.ClientShares {
+			group := elliptic.Curve(e.Group)
+
+			if slices.Contains(seenGroups, group) {
 				return nil, errDuplicateKeyShare
 			}
 
-			seen[e.Group] = struct{}{}
+			seenGroups = append(seenGroups, group)
 
 			if l := len(e.KeyExchange); l == 0 || l > 0xffff {
 				return nil, errInvalidKeyShareFormat
@@ -63,22 +65,10 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 	}
 
 	if hasServerShare {
-		if !IsValidNamedGroup(k.ServerShare.Group) {
-			return nil, errInvalidKeyShareGroup
-		}
-
 		if l := len(k.ServerShare.KeyExchange); l == 0 || l > 0xffff {
 			return nil, errInvalidKeyShareFormat
 		}
 	}
-
-	if hasHelloRetryRequest && !IsValidNamedGroup(*k.SelectedGroup) {
-		return nil, errInvalidKeyShareGroup
-	}
-
-	var builder cryptobyte.Builder
-
-	builder.AddUint16(uint16(k.TypeValue()))
 
 	builder.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 		switch {
@@ -103,9 +93,7 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 	return builder.Bytes()
 }
 
-// Unmarshal parses the extension from any of the three legal contexts.
-// Unknown/invalid groups are discarded for ClientHello (as with other TLS lists),
-// but are rejected for ServerHello/HelloRetryRequest where a single group must be negotiated.
+// Unmarshal decodes the extension
 func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 	var extData cryptobyte.String
@@ -121,13 +109,14 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 		return errInvalidKeyShareFormat
 	}
 
-	// Try ClientHello first: client_shares is a uint16-length-prefixed vector.
+	k.ClientShares, k.ServerShare, k.SelectedGroup = nil, nil, nil
+
 	peek := extData
 	var vecLen uint16
+	// ClientHello: client_shares is a uint16-length-prefixed vector.
 	if peek.ReadUint16(&vecLen) && int(vecLen) == len(peek) { //nolint:nestif
-		k.ClientShares, k.ServerShare, k.SelectedGroup = k.ClientShares[:0], nil, nil
 
-		seen := map[NamedGroup]struct{}{}
+		seenGroups := []elliptic.Curve{}
 		for !peek.Empty() {
 			var entry KeyShareEntry
 			var groupU16 uint16
@@ -137,16 +126,16 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 				return errInvalidKeyShareFormat
 			}
 
-			namedGroup := NamedGroup(groupU16)
-			if IsValidNamedGroup(namedGroup) {
-				// Enforce "no duplicates" (client MUST NOT offer same group twice).
-				if _, ok := seen[namedGroup]; ok {
-					return errDuplicateKeyShare
-				}
+			group := elliptic.Curve(groupU16)
 
-				seen[namedGroup] = struct{}{}
+			if slices.Contains(seenGroups, group) {
+				return errDuplicateKeyShare
+			}
 
-				entry.Group = namedGroup
+			seenGroups = append(seenGroups, group)
+
+			if elliptic.Curves()[group] {
+				entry.Group = group
 				entry.KeyExchange = append([]byte(nil), raw...)
 				k.ClientShares = append(k.ClientShares, entry)
 			}
@@ -156,7 +145,6 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 		if !extData.Skip(2 + int(vecLen)) {
 			return errInvalidKeyShareFormat
 		}
-
 		return nil
 	}
 
@@ -167,35 +155,28 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 			return errInvalidKeyShareFormat
 		}
 
-		group := NamedGroup(groupU16)
-		if !IsValidNamedGroup(group) {
-			return errInvalidKeyShareGroup
+		group := elliptic.Curve(groupU16)
+		if elliptic.Curves()[group] {
+			k.SelectedGroup = &group
 		}
-
-		k.ClientShares, k.ServerShare, k.SelectedGroup = nil, nil, &group
-
 		return nil
 	}
 
 	// ServerHello: exactly one KeyShareEntry and no trailing bytes
-	{
-		var groupU16 uint16
-		var raw cryptobyte.String
+	var groupU16 uint16
+	var raw cryptobyte.String
 
-		if !extData.ReadUint16(&groupU16) || !extData.ReadUint16LengthPrefixed(&raw) || !extData.Empty() {
-			return errInvalidKeyShareFormat
-		}
-
-		group := NamedGroup(groupU16)
-		if !IsValidNamedGroup(group) {
-			return errInvalidKeyShareGroup
-		}
-
-		share := KeyShareEntry{Group: group, KeyExchange: append([]byte(nil), raw...)}
-		k.ClientShares, k.ServerShare, k.SelectedGroup = nil, &share, nil
-
-		return nil
+	if !extData.ReadUint16(&groupU16) || !extData.ReadUint16LengthPrefixed(&raw) || !extData.Empty() {
+		return errInvalidKeyShareFormat
 	}
+
+	group := elliptic.Curve(groupU16)
+	if elliptic.Curves()[group] {
+		share := KeyShareEntry{Group: group, KeyExchange: append([]byte(nil), raw...)}
+		k.ServerShare = &share
+	}
+
+	return nil
 }
 
 func addKeyShareEntry(b *cryptobyte.Builder, e KeyShareEntry) {
@@ -207,17 +188,6 @@ func addKeyShareEntry(b *cryptobyte.Builder, e KeyShareEntry) {
 }
 
 // hasTooManyContexts is used in Marshal(). It returns whether the KeyShare struct has more than exactly one context.
-func hasTooManyContexts(b ...bool) bool {
-	oneContext := false
-	for _, v := range b {
-		if v {
-			if oneContext {
-				return true
-			}
-
-			oneContext = true
-		}
-	}
-
-	return false
+func hasTooManyContexts(a bool, b bool, c bool) bool {
+	return (a && b) || (a && c) || (b && c)
 }

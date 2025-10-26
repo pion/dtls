@@ -13,9 +13,9 @@ type TypeValue uint16
 
 // TypeValue constants.
 const (
-	ServerNameTypeValue                   TypeValue = 0
-	SupportedEllipticCurvesTypeValue      TypeValue = 10 // used in d/tls v1.2
-	SupportedGroupsTypeValue              TypeValue = 10 // used in d/tls v1.3
+	ServerNameTypeValue TypeValue = 0
+	// In DTLS 1.3, this extension in renamed to "supported_groups".
+	SupportedEllipticCurvesTypeValue      TypeValue = 10
 	SupportedPointFormatsTypeValue        TypeValue = 11
 	SupportedSignatureAlgorithmsTypeValue TypeValue = 13
 	UseSRTPTypeValue                      TypeValue = 14
@@ -26,9 +26,6 @@ const (
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
 )
-
-// temporary dtls 1.3 flag.
-var is_dtls_13 = true
 
 // Extension represents a single TLS extension.
 type Extension interface {
@@ -73,14 +70,7 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 		case ServerNameTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &ServerName{})
 		case SupportedEllipticCurvesTypeValue:
-			// the supp. EC extension in tls 1.2 has the same type value as
-			// the supp. groups extension in tls 1.3.
-			// so in the switch we can just check for one then parse based on if the DTLS 1.3 flag is set.
-			if is_dtls_13 {
-				err = unmarshalAndAppend(buf[offset:], &SupportedGroups{})
-			} else {
-				err = unmarshalAndAppend(buf[offset:], &SupportedEllipticCurves{})
-			}
+			err = unmarshalAndAppend(buf[offset:], &SupportedEllipticCurves{})
 		case SupportedPointFormatsTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &SupportedPointFormats{})
 		case SupportedSignatureAlgorithmsTypeValue:
