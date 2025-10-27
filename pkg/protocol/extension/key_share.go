@@ -5,7 +5,6 @@ package extension
 
 import (
 	"errors"
-	"slices"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"golang.org/x/crypto/cryptobyte"
@@ -47,14 +46,13 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 	builder.AddUint16(uint16(k.TypeValue()))
 
 	if hasClientShares {
-		seenGroups := []elliptic.Curve{}
-
+		seenGroups := map[elliptic.Curve]struct{}{}
 		for _, e := range k.ClientShares {
-			if slices.Contains(seenGroups, e.Group) {
+			if _, ok := seenGroups[e.Group]; ok {
 				return nil, errDuplicateKeyShare
 			}
 
-			seenGroups = append(seenGroups, e.Group)
+			seenGroups[e.Group] = struct{}{}
 
 			if l := len(e.KeyExchange); l == 0 || l > 0xffff {
 				return nil, errInvalidKeyShareFormat
@@ -113,7 +111,7 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 	var vecLen uint16
 	// ClientHello: client_shares is a uint16-length-prefixed vector.
 	if peek.ReadUint16(&vecLen) && int(vecLen) == len(peek) { //nolint:nestif
-		seenGroups := []elliptic.Curve{}
+		seenGroups := map[elliptic.Curve]struct{}{}
 		for !peek.Empty() {
 			var entry KeyShareEntry
 			var groupU16 uint16
@@ -125,11 +123,11 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 
 			group := elliptic.Curve(groupU16)
 
-			if slices.Contains(seenGroups, group) {
+			if _, ok := seenGroups[group]; ok {
 				return errDuplicateKeyShare
 			}
 
-			seenGroups = append(seenGroups, group)
+			seenGroups[group] = struct{}{}
 
 			if elliptic.Curves()[group] {
 				entry.Group = group

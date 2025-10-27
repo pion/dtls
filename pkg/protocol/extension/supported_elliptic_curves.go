@@ -20,7 +20,6 @@ const (
 //
 // In DTLS 1.3, this extension in renamed to "supported_groups".
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.7
-
 type SupportedEllipticCurves struct {
 	EllipticCurves []elliptic.Curve
 }
