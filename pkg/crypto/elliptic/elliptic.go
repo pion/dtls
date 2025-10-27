@@ -57,7 +57,7 @@ const (
 	P256   Curve = 0x0017
 	P384   Curve = 0x0018
 	X25519 Curve = 0x001d
-	// TODO: Implement X25519MLKEM768
+	// X25519MLKEM768
 	// https://pkg.go.dev/crypto/internal/fips140/mlkem
 	// https://datatracker.ietf.org/doc/draft-ietf-tls-hybrid-design/
 	// https://datatracker.ietf.org/doc/draft-ietf-tls-ecdhe-mlkem/

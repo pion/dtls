@@ -17,7 +17,7 @@ type KeyShareEntry struct {
 }
 
 // KeyShare represents the "key_share" extension. Only one of the fields can be used at a time.
-// See RFC 8446 section 4.2.8
+// See RFC 8446 section 4.2.8.
 type KeyShare struct {
 	ClientShares  []KeyShareEntry // ClientHello
 	ServerShare   *KeyShareEntry  // ServerHello
@@ -31,7 +31,7 @@ var (
 	errDuplicateKeyShare     = errors.New("duplicate key_share group")
 )
 
-// Marshal encodes the extension
+// Marshal encodes the extension.
 func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 	hasClientShares := k.ClientShares != nil // vector MAY be empty
 	hasServerShare := k.ServerShare != nil
@@ -50,13 +50,11 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 		seenGroups := []elliptic.Curve{}
 
 		for _, e := range k.ClientShares {
-			group := elliptic.Curve(e.Group)
-
-			if slices.Contains(seenGroups, group) {
+			if slices.Contains(seenGroups, e.Group) {
 				return nil, errDuplicateKeyShare
 			}
 
-			seenGroups = append(seenGroups, group)
+			seenGroups = append(seenGroups, e.Group)
 
 			if l := len(e.KeyExchange); l == 0 || l > 0xffff {
 				return nil, errInvalidKeyShareFormat
@@ -93,7 +91,7 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 	return builder.Bytes()
 }
 
-// Unmarshal decodes the extension
+// Unmarshal decodes the extension.
 func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 	var extData cryptobyte.String
@@ -115,7 +113,6 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 	var vecLen uint16
 	// ClientHello: client_shares is a uint16-length-prefixed vector.
 	if peek.ReadUint16(&vecLen) && int(vecLen) == len(peek) { //nolint:nestif
-
 		seenGroups := []elliptic.Curve{}
 		for !peek.Empty() {
 			var entry KeyShareEntry
@@ -145,6 +142,7 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 		if !extData.Skip(2 + int(vecLen)) {
 			return errInvalidKeyShareFormat
 		}
+
 		return nil
 	}
 
@@ -159,6 +157,7 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 		if elliptic.Curves()[group] {
 			k.SelectedGroup = &group
 		}
+
 		return nil
 	}
 
