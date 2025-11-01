@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package hkdf13
+package keyschedule
 
 import (
 	"bytes"
@@ -24,17 +24,16 @@ func TestHKDFExtract_SHA256_VectorA1(t *testing.T) {
 	// PRK expected (RFC 5869 A.1)
 	expected, _ := hex.DecodeString("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5")
 
-	actual, err := hkdfExtract(sha256.New, salt, ikm)
+	actual, err := HkdfExtract(sha256.New, salt, ikm)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 }
 
 func TestHKDFExtract_Nil_Hash_Error(t *testing.T) {
-	// valid ikm and salt from the previous test
 	ikm := bytes.Repeat([]byte{0x0b}, 22)
 	salt, _ := hex.DecodeString("000102030405060708090a0b0c")
 
-	_, err := hkdfExtract(nil, salt, ikm)
+	_, err := HkdfExtract(nil, salt, ikm)
 	assert.ErrorIs(t, errMissingHashFunction, err)
 }
 
@@ -42,50 +41,33 @@ func TestHKDFExpandLabel_Simple(t *testing.T) {
 	secret := bytes.Repeat([]byte{0x11}, sha256.Size)
 	ctx := []byte{0xAA, 0xBB}
 
-	out, err := hkdfExpandLabel(secret, "client in", ctx, 16)
+	out, err := HkdfExpandLabel(sha256.New, secret, "client in", ctx, 16)
 	assert.NoError(t, err)
-
-	// Is there a way for us to have a fuzzy test to confirm this?
 	assert.NotNil(t, out)
 }
 
 func TestHKDFLabel_Encoding_Shape(t *testing.T) {
-	// ideally this should also be a fuzzy test, but maybe it would be overkill
 	testStr := "key"
 
 	secret := make([]byte, sha256.Size)
-	_, err := hkdfExpandLabel(secret, testStr, nil, 32)
+	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
 	assert.NoError(t, err)
-
-	full := []byte(DTLS13prefix + testStr)
-
-	assert.True(t, len(full) >= 7 && len(full) <= 255)
 }
 
 func TestHKDFLabel_Encoding_Shape_Label_Small(t *testing.T) {
 	testStr := "" // 0 + 6 < 7, 6 is the length of the prefix
 
 	secret := make([]byte, sha256.Size)
-	_, err := hkdfExpandLabel(secret, testStr, nil, 32)
+	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
 	assert.ErrorIs(t, errLabelTooSmall, err)
-
-	full := []byte(DTLS13prefix + testStr)
-
-	assert.False(t, len(full) >= 7 && len(full) <= 255)
-	assert.Equal(t, 6, len(full))
 }
 
 func TestHKDFLabel_Encoding_Shape_Label_Big(t *testing.T) {
 	testStr := strings.Repeat("a", 250) // 250 + 6 > 255, 6 is the length of the prefix
 
 	secret := make([]byte, sha256.Size)
-	_, err := hkdfExpandLabel(secret, testStr, nil, 32)
+	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
 	assert.ErrorIs(t, errLabelTooBig, err)
-
-	full := []byte(DTLS13prefix + testStr)
-
-	assert.False(t, len(full) >= 7 && len(full) <= 255)
-	assert.Equal(t, 256, len(full))
 }
 
 func TestHKDFLabel_Encoding_Shape_Context_Length_Zero(t *testing.T) {
@@ -93,7 +75,7 @@ func TestHKDFLabel_Encoding_Shape_Context_Length_Zero(t *testing.T) {
 	zeroContext := bytes.NewBufferString("").Bytes()
 
 	secret := make([]byte, sha256.Size)
-	_, err := hkdfExpandLabel(secret, validLabel, zeroContext, 32)
+	_, err := HkdfExpandLabel(sha256.New, secret, validLabel, zeroContext, 32)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 0, len(zeroContext))
@@ -103,42 +85,35 @@ func TestHKDFLabel_Encoding_Shape_Context_Too_Big(t *testing.T) {
 	validLabel := "hi"
 	secret := make([]byte, sha256.Size)
 
-	// from bytes
 	invalidContext := bytes.Repeat([]byte{1}, 256)
 
-	_, err := hkdfExpandLabel(secret, validLabel, invalidContext, 32)
+	_, err := HkdfExpandLabel(sha256.New, secret, validLabel, invalidContext, 32)
 	assert.ErrorIs(t, errContextTooBig, err)
 	assert.Equal(t, 256, len(invalidContext))
 
-	// from string
 	invalidContext = bytes.NewBufferString(strings.Repeat("a", 256)).Bytes()
 
-	_, err = hkdfExpandLabel(secret, validLabel, invalidContext, 32)
+	_, err = HkdfExpandLabel(sha256.New, secret, validLabel, invalidContext, 32)
 	assert.ErrorIs(t, errContextTooBig, err)
 	assert.Equal(t, 256, len(invalidContext))
 }
 
-// note: these these tests are basically a copy of the first two tests
 func TestDeriveSecret(t *testing.T) {
 	secret := bytes.Repeat([]byte{0x11}, sha256.Size)
 	ctx := []byte{0xAA, 0xBB}
 
-	out, err := deriveSecret(secret, "client in", ctx)
-	assert.NoError(t, err)
+	transcript := sha256.New()
+	transcript.Write(ctx)
 
-	// Is there a way for us to have a fuzzy test to confirm this?
+	out, err := DeriveSecret(sha256.New, secret, "client in", transcript)
+	assert.NoError(t, err)
 	assert.NotNil(t, out)
 }
 
-func TestDeriveSecret_Encoding_Shape(t *testing.T) {
-	// ideally this should also be a fuzzy test, but maybe it would be overkill
+func TestDeriveSecret_Empty_Transcript(t *testing.T) {
 	testStr := "key"
 
 	secret := make([]byte, sha256.Size)
-	_, err := deriveSecret(secret, testStr, nil)
+	_, err := DeriveSecret(sha256.New, secret, testStr, nil)
 	assert.NoError(t, err)
-
-	full := []byte(DTLS13prefix + testStr)
-
-	assert.True(t, len(full) >= 7 && len(full) <= 255)
 }
