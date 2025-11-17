@@ -5,11 +5,9 @@ package dtls
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
 // [RFC9147 Section-5.8.1]
@@ -89,8 +87,9 @@ func (s handshakeState13) String() string {
 }
 
 type handshakeFSM13 struct {
-	currentFlight      flightVal13
-	flights            []*packet
+	currentFlight flightVal13
+	// 1.3 uses new record layer! We should replace with new packet struct.
+	// flights            []*packet
 	retransmit         bool
 	retransmitInterval time.Duration
 	state              *State
@@ -108,21 +107,8 @@ type flightConn13 interface {
 	notify(ctx context.Context, level alert.Level, desc alert.Description) error
 	writePackets(context.Context, []*packet) error
 	recvHandshake() <-chan recvHandshakeState
-	setLocalEpoch(epoch uint16)
 	handleQueuedPackets(context.Context) error
 	sessionKey() []byte
-}
-
-func (c *handshakeConfig13) writeKeyLog(label string, clientRandom, secret []byte) {
-	if c.keyLogWriter == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	_, err := fmt.Fprintf(c.keyLogWriter, "%s %x %x\n", label, clientRandom, secret)
-	if err != nil {
-		c.log.Debugf("failed to write key log file: %s", err)
-	}
 }
 
 func newHandshakeFSM13(
@@ -145,7 +131,7 @@ func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState 
 		close(s.closed)
 	}()
 	for {
-		s.cfg.log.Tracef("[handshake:%s] %s: %s", srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
+		s.cfg.log.Tracef("[handshake13:%s] %s: %s", srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
 		if s.cfg.onFlightState13 != nil {
 			s.cfg.onFlightState13(s.currentFlight, state)
 		}
@@ -173,150 +159,17 @@ func (s *handshakeFSM13) Done() <-chan struct{} {
 }
 
 func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshakeState13, error) {
-	s.flights = nil
-	// Prepare flights
-	var (
-		dtlsAlert *alert.Alert
-		err       error
-		pkts      []*packet
-	)
-
-	gen, retransmit, errFlight := s.currentFlight.getFlightGenerator13()
-	if errFlight != nil {
-		err = errFlight
-		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
-	} else {
-		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
-		s.retransmit = retransmit
-	}
-	if dtlsAlert != nil {
-		if alertErr := conn.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
-			if err != nil {
-				err = alertErr
-			}
-		}
-	}
-	if err != nil {
-		return handshakeErrored13, err
-	}
-
-	s.flights = pkts
-	epoch := s.cfg.initialEpoch
-	nextEpoch := epoch
-	for _, p := range s.flights {
-		p.record.Header.Epoch += epoch
-		if p.record.Header.Epoch > nextEpoch {
-			nextEpoch = p.record.Header.Epoch
-		}
-		if h, ok := p.record.Content.(*handshake.Handshake); ok {
-			h.Header.MessageSequence = uint16(s.state.handshakeSendSequence) //nolint:gosec // G115
-			s.state.handshakeSendSequence++
-		}
-	}
-	if epoch != nextEpoch {
-		s.cfg.log.Tracef("[handshake:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.isClient), nextEpoch)
-		conn.setLocalEpoch(nextEpoch)
-	}
-
-	return handshakeSending13, nil
+	return handshakeErrored13, errStateUnimplemented13
 }
 
 func (s *handshakeFSM13) send(ctx context.Context, c flightConn) (handshakeState13, error) {
-	// Send flights
-	if err := c.writePackets(ctx, s.flights); err != nil {
-		return handshakeErrored13, err
-	}
-
-	if s.currentFlight.isLastSendFlight() {
-		return handshakeFinished13, nil
-	}
-
-	return handshakeWaiting13, nil
+	return handshakeErrored13, errStateUnimplemented13
 }
 
-func (s *handshakeFSM13) wait(ctx context.Context, conn flightConn) (handshakeState13, error) { //nolint:gocognit,cyclop
-	parse, errFlight := s.currentFlight.getFlightParser13()
-	if errFlight != nil {
-		if alertErr := conn.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
-			return handshakeErrored13, alertErr
-		}
-
-		return handshakeErrored13, errFlight
-	}
-
-	retransmitTimer := time.NewTimer(s.retransmitInterval)
-	for {
-		select {
-		case state := <-conn.recvHandshake():
-			if state.isRetransmit {
-				close(state.done)
-
-				return handshakeSending13, nil
-			}
-
-			nextFlight, alert, err := parse(ctx, conn, s.state, s.cache, s.cfg)
-			s.retransmitInterval = s.cfg.initialRetransmitInterval
-			close(state.done)
-			if alert != nil {
-				if alertErr := conn.notify(ctx, alert.Level, alert.Description); alertErr != nil {
-					if err != nil {
-						err = alertErr
-					}
-				}
-			}
-			if err != nil {
-				return handshakeErrored13, err
-			}
-			if nextFlight == 0 {
-				break
-			}
-			s.cfg.log.Tracef(
-				"[handshake:%s] %s -> %s",
-				srvCliStr(s.state.isClient),
-				s.currentFlight.String(),
-				nextFlight.String(),
-			)
-			if nextFlight.isLastRecvFlight() && s.currentFlight == nextFlight {
-				return handshakeFinished13, nil
-			}
-			s.currentFlight = nextFlight
-
-			return handshakePreparing13, nil
-
-		case <-retransmitTimer.C:
-			if !s.retransmit {
-				return handshakeWaiting13, nil
-			}
-
-			// RFC 4347 4.2.4.1:
-			// Implementations SHOULD use an initial timer value of 1 second (the minimum defined in RFC 2988 [RFC2988])
-			// and double the value at each retransmission, up to no less than the RFC 2988 maximum of 60 seconds.
-			if !s.cfg.disableRetransmitBackoff {
-				s.retransmitInterval *= 2
-			}
-			if s.retransmitInterval > time.Second*60 {
-				s.retransmitInterval = time.Second * 60
-			}
-
-			return handshakeSending13, nil
-		case <-ctx.Done():
-			s.retransmitInterval = s.cfg.initialRetransmitInterval
-
-			return handshakeErrored13, ctx.Err()
-		}
-	}
+func (s *handshakeFSM13) wait(ctx context.Context, conn flightConn) (handshakeState13, error) {
+	return handshakeErrored13, errStateUnimplemented13
 }
 
 func (s *handshakeFSM13) finish(ctx context.Context, c flightConn) (handshakeState13, error) {
-	select {
-	case state := <-c.recvHandshake():
-		close(state.done)
-		if s.state.isClient {
-			return handshakeFinished13, nil
-		} else {
-			return handshakeSending13, nil
-		}
-	case <-ctx.Done():
-		return handshakeErrored13, ctx.Err()
-	}
+	return handshakeErrored13, errStateUnimplemented13
 }
