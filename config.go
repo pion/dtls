@@ -235,9 +235,9 @@ func (c *Config) includeCertificateSuites() bool {
 	return c.PSK == nil || len(c.Certificates) > 0 || c.GetCertificate != nil || c.GetClientCertificate != nil
 }
 
-type OptionVersion13 func(*Config) error
+type optionVersion13 func(*Config) error
 
-func newConfigVersion13(c Config, opts ...OptionVersion13) (*Config, error) {
+func newConfigVersion13(c Config, opts ...optionVersion13) (*Config, error) {
 	c.version13 = true
 	for _, opt := range opts {
 		if err := opt(&c); err != nil {
