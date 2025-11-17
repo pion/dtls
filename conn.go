@@ -238,7 +238,6 @@ func createConn(
 	if config.version13 {
 		handshakeConfig13 := &handshakeConfig13{
 			handshakeConfig: *handshakeConfig, //nolint:govet
-			onFlightState13: config.onFlightState13,
 		}
 		conn.handshakeConfig13 = handshakeConfig13
 		conn.handshakeConfig = nil
@@ -272,7 +271,7 @@ func (c *Conn) Handshake() error {
 //
 // Most uses of this package need not call HandshakeContext explicitly: the
 // first [Conn.Read] or [Conn.Write] will call it automatically.
-func (c *Conn) HandshakeContext(ctx context.Context) error {
+func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
@@ -429,6 +428,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		return 0, err
 	}
 
+	// Should check for DTLS 1.3
 	return len(payload), c.writePackets(c.writeDeadline, []*packet{
 		{
 			record: &recordlayer.RecordLayer{
@@ -755,7 +755,65 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
-func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
+func (c *Conn) readAndBuffer13(ctx context.Context) error { //nolint:cyclop,
+	bufptr, ok := poolReadBuffer.Get().(*[]byte)
+	if !ok {
+		return errFailedToAccessPoolReadBuffer
+	}
+	defer poolReadBuffer.Put(bufptr)
+
+	b := *bufptr
+	_, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
+	if err != nil {
+		return netError(err)
+	}
+	// DTLS 1.3 has different header
+	pkts, err := recordlayer.UnpackDatagram(b)
+	if err != nil {
+		return err
+	}
+	var hasHandshake, isRetransmit bool
+	for _, p := range pkts {
+		hs, rtx, alert, err := c.handleIncomingPacket13(ctx, p, rAddr, true)
+		if alert != nil {
+			if alertErr := c.notify13(ctx, alert.Level, alert.Description); alertErr != nil {
+				if err == nil {
+					err = alertErr
+				}
+			}
+		}
+
+		var e *alertError
+		if errors.As(err, &e) && e.IsFatalOrCloseNotify() {
+			return e
+		}
+		if err != nil {
+			return err
+		}
+		if hs {
+			hasHandshake = true
+		}
+		if rtx {
+			isRetransmit = true
+		}
+	}
+	s := recvHandshakeState{
+		done:         make(chan struct{}),
+		isRetransmit: isRetransmit,
+	}
+	if hasHandshake {
+		select {
+		case c.handshakeRecv <- s:
+			// If the other party may retransmit the flight,
+			// we should respond even if it not a new message.
+			<-s.done
+		case <-c.fsm13.Done():
+		}
+	}
+	return nil
+}
+
+func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,
 	bufptr, ok := poolReadBuffer.Get().(*[]byte)
 	if !ok {
 		return errFailedToAccessPoolReadBuffer
@@ -858,6 +916,17 @@ func (c *Conn) enqueueEncryptedPackets(packet addrPkt) bool {
 	}
 
 	return false
+}
+
+// nolint:unusedparams
+func (c *Conn) handleIncomingPacket13(
+	ctx context.Context,
+	buf []byte,
+	rAddr net.Addr,
+	enqueue bool,
+) (bool, bool, *alert.Alert, error) {
+	// Placeholder function
+	return false, false, nil, nil
 }
 
 //nolint:gocognit,gocyclo,cyclop,maintidx
@@ -1080,17 +1149,40 @@ func (c *Conn) recvHandshake() <-chan recvHandshakeState {
 	return c.handshakeRecv
 }
 
-func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
+func (c *Conn) notify13(ctx context.Context, level alert.Level, desc alert.Description) error {
 	if level == alert.Fatal && len(c.state.SessionID) > 0 {
-		// According to the RFC, we need to delete the stored session.
-		// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
-		if ss := c.fsm.cfg.sessionStore; ss != nil {
+		if ss := c.fsm13.cfg.sessionStore; ss != nil {
 			c.log.Tracef("clean invalid session: %s", c.state.SessionID)
 			if err := ss.Del(c.sessionKey()); err != nil {
 				return err
 			}
 		}
-		if ss := c.fsm13.cfg.sessionStore; ss != nil {
+	}
+
+	// This should be replaced with DTLS 1.3 record encoding.
+	return c.writePackets(ctx, []*packet{
+		{
+			record: &recordlayer.RecordLayer{
+				Header: recordlayer.Header{
+					Epoch:   c.state.getLocalEpoch(),
+					Version: protocol.Version1_2,
+				},
+				Content: &alert.Alert{
+					Level:       level,
+					Description: desc,
+				},
+			},
+			shouldWrapCID: len(c.state.remoteConnectionID) > 0,
+			shouldEncrypt: c.isHandshakeCompletedSuccessfully(),
+		},
+	})
+}
+
+func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
+	if level == alert.Fatal && len(c.state.SessionID) > 0 {
+		// According to the RFC, we need to delete the stored session.
+		// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
+		if ss := c.fsm.cfg.sessionStore; ss != nil {
 			c.log.Tracef("clean invalid session: %s", c.state.SessionID)
 			if err := ss.Del(c.sessionKey()); err != nil {
 				return err
@@ -1271,13 +1363,11 @@ func (c *Conn) handshake13(
 			close(done)
 		}
 	}
-	/* todo: determine when DTLS 1.3 handshake is finished
-	cfg.onFlightState13 = func(_ flightVal, s handshakeState) {
-		if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
+	cfg.onFlightState13 = func(_ flightVal13, s handshakeState13) {
+		if s == handshakeFinished13 && c.setHandshakeCompletedSuccessfully() {
 			close(done)
 		}
 	}
-	*/
 
 	ctxHs, cancel := context.WithCancel(context.Background())
 
@@ -1316,7 +1406,7 @@ func (c *Conn) handshake13(
 		}()
 		defer handshakeLoopsFinished.Done()
 		for {
-			if err := c.readAndBuffer(ctxRead); err != nil { //nolint:nestif
+			if err := c.readAndBuffer13(ctxRead); err != nil { //nolint:nestif
 				var alertErr *alertError
 				if errors.As(err, &alertErr) {
 					if !alertErr.IsFatalOrCloseNotify() {
@@ -1366,7 +1456,7 @@ func (c *Conn) handshake13(
 					}
 				}
 				if !c.isConnectionClosed() && errors.Is(err, context.Canceled) {
-					c.log.Trace("handshake timeouts - closing underline connection")
+					c.log.Trace("handshake13 timeouts - closing underline connection")
 					_ = c.close(false) //nolint:contextcheck
 				}
 
@@ -1416,7 +1506,11 @@ func (c *Conn) close(byUser bool) error {
 	if c.isHandshakeCompletedSuccessfully() && byUser {
 		// Discard error from notify() to return non-error on the first user call of Close()
 		// even if the underlying connection is already closed.
-		_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
+		if c.handshakeConfig13 != nil {
+			_ = c.notify13(context.Background(), alert.Warning, alert.CloseNotify)
+		} else {
+			_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
+		}
 	}
 
 	c.closeLock.Lock()

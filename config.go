@@ -229,8 +229,6 @@ type Config struct {
 	// https://datatracker.ietf.org/doc/html/rfc9147
 	// WIP experimental feature, see https://github.com/pion/dtls/issues/188
 	version13 bool
-
-	onFlightState13 func(flightVal13, handshakeState13)
 }
 
 func (c *Config) includeCertificateSuites() bool {

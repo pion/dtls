@@ -3381,7 +3381,7 @@ func TestCloseWithoutHandshake(t *testing.T) {
 	assert.NoError(t, server.Close())
 }
 
-// WIP! Tests if DTLS 1.3 handshake flow is enabled and the correct error is returned
+// WIP! Tests if DTLS 1.3 handshake flow is enabled and the correct error is returned.
 func TestDTLS13Config(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 
