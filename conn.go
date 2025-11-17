@@ -1271,7 +1271,7 @@ func (c *Conn) handshake13(
 			close(done)
 		}
 	}
-	/* TODO: determine when DTLS 1.3 handshake is finished
+	/* todo: determine when DTLS 1.3 handshake is finished
 	cfg.onFlightState13 = func(_ flightVal, s handshakeState) {
 		if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
 			close(done)

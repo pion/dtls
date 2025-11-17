@@ -21,10 +21,10 @@ type flightParser13 func(
 // Generate flights.
 type flightGenerator13 func(flightConn13, *State, *handshakeCache, *handshakeConfig13) ([]*packet, *alert.Alert, error)
 
-func (f flightVal13) getFlightParser13() (flightParser13, error) { //nolint:cyclop
+func (f flightVal13) getFlightParser13() (flightParser13, error) {
 	return nil, errFlightUnimplemented13
 }
 
-func (f flightVal13) getFlightGenerator13() (gen flightGenerator13, retransmit bool, err error) { //nolint:cyclop
+func (f flightVal13) getFlightGenerator13() (gen flightGenerator13, retransmit bool, err error) {
 	return nil, false, errFlightUnimplemented13
 }
