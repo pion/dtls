@@ -90,7 +90,7 @@ type handshakeFSM13 struct {
 	currentFlight flightVal13
 	// 1.3 uses new record layer! We should replace with new packet struct.
 	// flights            []*packet
-	retransmit         bool
+	retransmit         bool //nolint:unused
 	retransmitInterval time.Duration
 	state              *State
 	cache              *handshakeCache
@@ -103,7 +103,7 @@ type handshakeConfig13 struct {
 	onFlightState13 func(flightVal13, handshakeState13)
 }
 
-type flightConn13 interface {
+type flightConn13 interface { //nolint:unused
 	notify(ctx context.Context, level alert.Level, desc alert.Description) error
 	writePackets(context.Context, []*packet) error
 	recvHandshake() <-chan recvHandshakeState

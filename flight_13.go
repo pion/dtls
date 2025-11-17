@@ -181,10 +181,10 @@ func (f flightVal13) String() string { //nolint:cyclop
 	}
 }
 
-func (f flightVal13) isLastSendFlight() bool {
+func (f flightVal13) isLastSendFlight() bool { // nolint: unused
 	return f == flight13_6 || f == flight13_6a || f == flight13_6b || f == flight13_5c
 }
 
-func (f flightVal13) isLastRecvFlight() bool {
+func (f flightVal13) isLastRecvFlight() bool { // nolint: unused
 	return f == flight13_5 || f == flight13_5a || f == flight13_5b || f == flight13_4c
 }

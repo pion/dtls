@@ -244,6 +244,7 @@ func newConfigVersion13(c Config, opts ...OptionVersion13) (*Config, error) {
 			return &c, err
 		}
 	}
+
 	return &c, nil
 }
 

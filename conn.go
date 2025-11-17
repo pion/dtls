@@ -810,10 +810,11 @@ func (c *Conn) readAndBuffer13(ctx context.Context) error { //nolint:cyclop,
 		case <-c.fsm13.Done():
 		}
 	}
+
 	return nil
 }
 
-func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,
+func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocognit
 	bufptr, ok := poolReadBuffer.Get().(*[]byte)
 	if !ok {
 		return errFailedToAccessPoolReadBuffer
@@ -861,22 +862,12 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,
 			done:         make(chan struct{}),
 			isRetransmit: isRetransmit,
 		}
-		if c.fsm13 != nil {
-			select {
-			case c.handshakeRecv <- s:
-				// If the other party may retransmit the flight,
-				// we should respond even if it not a new message.
-				<-s.done
-			case <-c.fsm13.Done():
-			}
-		} else {
-			select {
-			case c.handshakeRecv <- s:
-				// If the other party may retransmit the flight,
-				// we should respond even if it not a new message.
-				<-s.done
-			case <-c.fsm.Done():
-			}
+		select {
+		case c.handshakeRecv <- s:
+			// If the other party may retransmit the flight,
+			// we should respond even if it not a new message.
+			<-s.done
+		case <-c.fsm.Done():
 		}
 	}
 
@@ -1572,6 +1563,7 @@ func (c *Conn) sessionKey() []byte {
 		if c.handshakeConfig13 != nil {
 			return []byte(c.rAddr.String() + "_" + c.fsm13.cfg.serverName)
 		}
+
 		return []byte(c.rAddr.String() + "_" + c.fsm.cfg.serverName)
 	}
 
