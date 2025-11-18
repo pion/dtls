@@ -13,7 +13,8 @@ type TypeValue uint16
 
 // TypeValue constants.
 const (
-	ServerNameTypeValue                   TypeValue = 0
+	ServerNameTypeValue TypeValue = 0
+	// In DTLS 1.3, this extension in renamed to "supported_groups".
 	SupportedEllipticCurvesTypeValue      TypeValue = 10
 	SupportedPointFormatsTypeValue        TypeValue = 11
 	SupportedSignatureAlgorithmsTypeValue TypeValue = 13
@@ -21,6 +22,7 @@ const (
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
 	SupportedVersionsTypeValue            TypeValue = 43
+	KeyShareTypeValue                     TypeValue = 51
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
 )
@@ -61,7 +63,9 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 		if len(buf) < (offset + 2) {
 			return nil, errBufferTooSmall
 		}
+
 		var err error
+
 		switch TypeValue(binary.BigEndian.Uint16(buf[offset:])) {
 		case ServerNameTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &ServerName{})
@@ -83,14 +87,19 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(buf[offset:], &ConnectionID{})
 		case SupportedVersionsTypeValue:
 			err = unmarshalAndAppend(buf[offset:], &SupportedVersions{})
+		case KeyShareTypeValue:
+			err = unmarshalAndAppend(buf[offset:], &KeyShare{})
 		default:
 		}
+
 		if err != nil {
 			return nil, err
 		}
+
 		if len(buf) < (offset + 4) {
 			return nil, errBufferTooSmall
 		}
+
 		extensionLength := binary.BigEndian.Uint16(buf[offset+2:])
 		offset += (4 + int(extensionLength))
 	}
