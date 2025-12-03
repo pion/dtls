@@ -682,6 +682,89 @@ func TestPSKHintFail(t *testing.T) {
 	assert.ErrorIs(t, <-clientErr, pskRejected, "TestPSK: Client should fail with pskRejected error")
 }
 
+func TestPSKMismatchNoRetransmitLoop(t *testing.T) {
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var serverWrites atomic.Int32
+	var clientWrites atomic.Int32
+
+	ca, cb := dpipe.Pipe()
+	defer func() {
+		_ = ca.Close()
+	}()
+	defer func() {
+		_ = cb.Close()
+	}()
+
+	caCount := &connWithCallback{Conn: ca}
+	caCount.onWrite = func([]byte) {
+		clientWrites.Add(1)
+	}
+	cbCount := &connWithCallback{Conn: cb}
+	cbCount.onWrite = func([]byte) {
+		serverWrites.Add(1)
+	}
+
+	clientErr := make(chan error, 1)
+	serverErr := make(chan error, 1)
+
+	go func() {
+		conf := &Config{
+			PSK: func([]byte) ([]byte, error) {
+				return []byte("client-psk"), nil
+			},
+			PSKIdentityHint: []byte("Client Identity"),
+			CipherSuites:    []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+		}
+
+		c, err := testClient(ctx, dtlsnet.PacketConnFromConn(caCount), caCount.RemoteAddr(), conf, false)
+		if c != nil {
+			_ = c.Close() //nolint:contextcheck
+		}
+		clientErr <- err
+	}()
+
+	go func() {
+		conf := &Config{
+			PSK: func([]byte) ([]byte, error) {
+				return []byte("server-psk"), nil
+			},
+			CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+		}
+
+		s, err := testServer(ctx, dtlsnet.PacketConnFromConn(cbCount), cbCount.RemoteAddr(), conf, false)
+		if s != nil {
+			_ = s.Close() //nolint:contextcheck
+		}
+		serverErr <- err
+	}()
+
+	serverErrRes := <-serverErr
+	clientErrRes := <-clientErr
+
+	var serverHandshakeErr *HandshakeError
+	var clientHandshakeErr *HandshakeError
+	assert.ErrorAs(t, serverErrRes, &serverHandshakeErr)
+	assert.ErrorAs(t, clientErrRes, &clientHandshakeErr)
+
+	serverCount := serverWrites.Load()
+	clientCount := clientWrites.Load()
+
+	time.Sleep(2 * time.Second)
+
+	assert.Equal(t, serverCount, serverWrites.Load(), "Server should not retransmit after handshake failure")
+	assert.Equal(t, clientCount, clientWrites.Load(), "Client should not retransmit after handshake failure")
+	assert.LessOrEqual(t, serverCount, int32(20), "Server retransmit count too high for backoff")
+	assert.LessOrEqual(t, clientCount, int32(20), "Client retransmit count too high for backoff")
+}
+
 // Assert that ServerKeyExchange is only sent if Identity is set on server side.
 func TestPSKServerKeyExchange(t *testing.T) {
 	// Limit runtime in case of deadlocks

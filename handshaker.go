@@ -290,8 +290,9 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 		case state := <-conn.recvHandshake():
 			if state.isRetransmit {
 				close(state.done)
-
-				return handshakeSending, nil
+				// ignore incoming retransmit hints, only rely on the timer-driven path below
+				// https://github.com/pion/dtls/issues/758
+				continue
 			}
 
 			nextFlight, alert, err := parse(ctx, conn, s.state, s.cache, s.cfg)
