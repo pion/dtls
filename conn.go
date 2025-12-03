@@ -153,7 +153,7 @@ func createConn(
 	}
 
 	workerInterval := initialTickerInterval
-	if config.FlightInterval != 0 {
+	if config.FlightInterval > 0 {
 		workerInterval = config.FlightInterval
 	}
 
