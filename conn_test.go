@@ -281,7 +281,18 @@ func testServer(
 	return conn, conn.HandshakeContext(ctx)
 }
 
-func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensions []extension.Extension) error {
+func sendClientHello(
+	cookie []byte,
+	ca net.Conn,
+	sequenceNumber uint64,
+	extensions []extension.Extension,
+	cipherSuiteIDsOverride ...uint16,
+) error {
+	cipherSuites := cipherSuiteIDsOverride
+	if len(cipherSuites) == 0 {
+		cipherSuites = cipherSuiteIDs(defaultCipherSuites())
+	}
+
 	packet, err := (&recordlayer.RecordLayer{
 		Header: recordlayer.Header{
 			Version:        protocol.Version1_2,
@@ -294,7 +305,7 @@ func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensio
 			Message: &handshake.MessageClientHello{
 				Version:            protocol.Version1_2,
 				Cookie:             cookie,
-				CipherSuiteIDs:     cipherSuiteIDs(defaultCipherSuites()),
+				CipherSuiteIDs:     cipherSuites,
 				CompressionMethods: defaultCompressionMethods(),
 				Extensions:         extensions,
 			},
@@ -2328,16 +2339,24 @@ func TestRenegotationInfo(t *testing.T) { //nolint:cyclop
 	resp := make([]byte, 1024)
 
 	for _, testCase := range []struct {
-		Name                    string
-		ExpectRenegotiationInfo bool
+		Name                     string
+		ExpectRenegotiationInfo  bool
+		SendRenegotiationInfoExt bool
+		IncludeRenegotiationSCSV bool
 	}{
 		{
-			"Include RenegotiationInfo",
-			true,
+			Name:                     "Include RenegotiationInfo",
+			ExpectRenegotiationInfo:  true,
+			SendRenegotiationInfoExt: true,
 		},
 		{
-			"No RenegotiationInfo",
-			false,
+			Name:                     "RenegotiationInfo SCSV",
+			ExpectRenegotiationInfo:  true,
+			IncludeRenegotiationSCSV: true,
+		},
+		{
+			Name:                    "No RenegotiationInfo",
+			ExpectRenegotiationInfo: false,
 		},
 	} {
 		test := testCase
@@ -2364,12 +2383,16 @@ func TestRenegotationInfo(t *testing.T) { //nolint:cyclop
 			time.Sleep(50 * time.Millisecond)
 
 			extensions := []extension.Extension{}
-			if test.ExpectRenegotiationInfo {
+			if test.SendRenegotiationInfoExt {
 				extensions = append(extensions, &extension.RenegotiationInfo{
 					RenegotiatedConnection: 0,
 				})
 			}
-			err := sendClientHello([]byte{}, ca, 0, extensions)
+			cipherSuites := cipherSuiteIDs(defaultCipherSuites())
+			if test.IncludeRenegotiationSCSV {
+				cipherSuites = append(cipherSuites, renegotiationInfoSCSV)
+			}
+			err := sendClientHello([]byte{}, ca, 0, extensions, cipherSuites...)
 			assert.NoError(t, err)
 
 			n, err := ca.Read(resp)
@@ -2381,7 +2404,7 @@ func TestRenegotationInfo(t *testing.T) { //nolint:cyclop
 			helloVerifyRequest, ok := record.Content.(*handshake.Handshake).Message.(*handshake.MessageHelloVerifyRequest)
 			assert.True(t, ok)
 
-			err = sendClientHello(helloVerifyRequest.Cookie, ca, 1, extensions)
+			err = sendClientHello(helloVerifyRequest.Cookie, ca, 1, extensions, cipherSuites...)
 			assert.NoError(t, err)
 
 			n, err = ca.Read(resp)
