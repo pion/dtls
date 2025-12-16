@@ -4,84 +4,320 @@
 package dtls
 
 import (
+	"sort"
+
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
-// 2 megabytes.
-const fragmentBufferMaxSize = 2000000
+const (
+	// 2 megabytes.
+	fragmentBufferMaxSize  = 2000000
+	fragmentBufferMaxCount = 1000
+)
 
 type fragment struct {
-	recordLayerHeader recordlayer.Header
-	handshakeHeader   handshake.Header
-	data              []byte
+	offset uint32
+	data   []byte
+}
+
+type fragments struct {
+	// non-overlapping chunks, sorted by offset.
+	frags []*fragment
+
+	receivedLength  uint32 // union length of covered bytes (no double-counting)
+	handshakeLength uint32
+
+	epoch      uint16
+	baseHeader handshake.Header // used to rebuild header on pop()
 }
 
 type fragmentBuffer struct {
 	// map of MessageSequenceNumbers that hold slices of fragments
-	cache map[uint16][]*fragment
+	cache map[uint16]*fragments
 
 	currentMessageSequenceNumber uint16
+
+	totalBufferSize    int // total stored payload bytes across all messages (no overlaps)
+	totalFragmentCount int // total stored chunks across all messages
 }
 
 func newFragmentBuffer() *fragmentBuffer {
-	return &fragmentBuffer{cache: map[uint16][]*fragment{}}
+	return &fragmentBuffer{cache: map[uint16]*fragments{}}
 }
 
-// current total size of buffer.
-func (f *fragmentBuffer) size() int {
-	size := 0
-	for i := range f.cache {
-		for j := range f.cache[i] {
-			size += len(f.cache[i][j].data)
+// scanUncovered iterates uncovered sub-ranges of [start,end) given existing non-overlapping,
+// sorted fragments. visit is called with [uStart,uEnd) in ascending order.
+func (m *fragments) scanUncovered(start, end uint32, visit func(uStart, uEnd uint32)) {
+	if start >= end {
+		return
+	}
+
+	// find first fragment with end > start.
+	i := sort.Search(len(m.frags), func(i int) bool {
+		ex := m.frags[i]
+		exStart := ex.offset
+		exEnd := exStart + uint32(len(ex.data)) //nolint:gosec // bounded by caps
+
+		return exEnd > start
+	})
+
+	pos := start
+	for ; i < len(m.frags); i++ {
+		ex := m.frags[i]
+		exStart := ex.offset
+		if exStart >= end {
+			break
+		}
+		exEnd := exStart + uint32(len(ex.data)) //nolint:gosec // bounded by caps
+
+		if exStart > pos {
+			uStart := pos
+			uEnd := min(exStart, end)
+			if uEnd > uStart {
+				visit(uStart, uEnd)
+			}
+		}
+
+		if exEnd > pos {
+			pos = exEnd
+			if pos >= end {
+				return
+			}
 		}
 	}
 
-	return size
+	if pos < end {
+		visit(pos, end)
+	}
 }
 
-// Attempts to push a DTLS packet to the fragmentBuffer
-// when it returns true it means the fragmentBuffer has inserted and the buffer shouldn't be handled
-// when an error returns it is fatal, and the DTLS connection should be stopped.
-func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err error) {
-	if f.size()+len(buf) >= fragmentBufferMaxSize {
-		return false, false, errFragmentBufferOverflow
+// insertMany merges a sorted list of new fragments into the existing sorted list.
+func (m *fragments) insertMany(newFrags []*fragment) {
+	if len(newFrags) == 0 {
+		return
 	}
 
-	frag := new(fragment)
-	if err := frag.recordLayerHeader.Unmarshal(buf); err != nil {
+	if len(m.frags) == 0 {
+		m.frags = newFrags
+
+		return
+	}
+
+	merged := make([]*fragment, 0, len(m.frags)+len(newFrags))
+	i := 0 //nolint:varnamelen
+	j := 0 //nolint:varnamelen
+
+	for i < len(m.frags) && j < len(newFrags) {
+		if m.frags[i].offset < newFrags[j].offset {
+			merged = append(merged, m.frags[i])
+			i++
+		} else {
+			merged = append(merged, newFrags[j])
+			j++
+		}
+	}
+
+	if i < len(m.frags) {
+		merged = append(merged, m.frags[i:]...)
+	}
+
+	if j < len(newFrags) {
+		merged = append(merged, newFrags[j:]...)
+	}
+
+	m.frags = merged
+}
+
+// push attempts to push a DTLS packet to the fragmentBuffer
+// when it returns true it means the fragmentBuffer has inserted and the buffer shouldn't be handled
+// when an error returns it is fatal, and the DTLS connection should be stopped.
+func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err error) { //nolint:cyclop,gocognit,gocyclo
+	recordLayerHeader := recordlayer.Header{}
+	if err := recordLayerHeader.Unmarshal(buf); err != nil {
 		return false, false, err
 	}
 
 	// fragment isn't a handshake, we don't need to handle it
-	if frag.recordLayerHeader.ContentType != protocol.ContentTypeHandshake {
+	if recordLayerHeader.ContentType != protocol.ContentTypeHandshake {
 		return false, false, nil
 	}
 
-	for buf = buf[recordlayer.FixedHeaderSize:]; len(buf) != 0; frag = new(fragment) {
-		if err := frag.handshakeHeader.Unmarshal(buf); err != nil {
+	// enforce "same flight" constraint inside a single record by requiring
+	// accepted message_seq values to remain contiguous.
+	var flightMin, flightMax uint16
+	var flightSet bool
+
+	for buf = buf[recordlayer.FixedHeaderSize:]; len(buf) != 0; {
+		var hsHdr handshake.Header
+		if err := hsHdr.Unmarshal(buf); err != nil {
 			return false, false, err
 		}
 
-		// Fragment is a retransmission. We have already assembled it before successfully
-		isRetransmit = frag.handshakeHeader.FragmentOffset == 0 &&
-			frag.handshakeHeader.MessageSequence < f.currentMessageSequenceNumber
+		// accumulate: a record may contain multiple handshake messages.
+		isRetransmit = isRetransmit || (hsHdr.FragmentOffset == 0 && hsHdr.MessageSequence < f.currentMessageSequenceNumber)
 
-		if _, ok := f.cache[frag.handshakeHeader.MessageSequence]; !ok {
-			f.cache[frag.handshakeHeader.MessageSequence] = []*fragment{}
+		fragLen := hsHdr.FragmentLength
+		end := int(handshake.HeaderLength + fragLen)
+		if end > len(buf) {
+			return false, false, errBufferTooSmall
 		}
 
-		// end index should be the length of handshake header but if the handshake
-		// was fragmented, we should keep them all
-		end := int(handshake.HeaderLength + frag.handshakeHeader.Length)
-		if size := len(buf); end > size {
-			end = size
+		seq := hsHdr.MessageSequence
+		if seq >= f.currentMessageSequenceNumber { //nolint:nestif
+			if !flightSet {
+				flightMin, flightMax, flightSet = seq, seq, true
+			} else {
+				switch {
+				case seq < flightMin:
+					if flightMin != 0 && seq == flightMin-1 {
+						flightMin = seq
+					} else {
+						buf = buf[end:]
+
+						continue
+					}
+				case seq > flightMax:
+					if seq == flightMax+1 {
+						flightMax = seq
+					} else {
+						buf = buf[end:]
+
+						continue
+					}
+				}
+			}
 		}
 
-		// Discard all headers, when rebuilding the packet we will re-build
-		frag.data = append([]byte{}, buf[handshake.HeaderLength:end]...)
-		f.cache[frag.handshakeHeader.MessageSequence] = append(f.cache[frag.handshakeHeader.MessageSequence], frag)
+		// ignore anything older than what we're expecting to pop next.
+		if hsHdr.MessageSequence < f.currentMessageSequenceNumber {
+			buf = buf[end:]
+
+			continue
+		}
+
+		// per-message cap.
+		if hsHdr.Length > fragmentBufferMaxSize {
+			return false, false, errFragmentBufferOverflow
+		}
+
+		// validate fragment range safely (avoid uint32 wraparound).
+		fragStart := hsHdr.FragmentOffset
+
+		if fragStart > hsHdr.Length {
+			buf = buf[end:]
+
+			continue
+		}
+
+		if fragLen > hsHdr.Length-fragStart {
+			buf = buf[end:]
+
+			continue
+		}
+
+		fragEnd := fragStart + fragLen
+
+		msgSeq := hsHdr.MessageSequence
+		messageFragments, ok := f.cache[msgSeq]
+		if !ok {
+			messageFragments = &fragments{
+				frags:           nil,
+				handshakeLength: hsHdr.Length,
+				epoch:           recordLayerHeader.Epoch,
+				baseHeader:      hsHdr,
+			}
+			f.cache[msgSeq] = messageFragments
+		} else {
+			// must be consistent across fragments.
+			if messageFragments.handshakeLength != hsHdr.Length ||
+				messageFragments.baseHeader.MessageSequence != hsHdr.MessageSequence ||
+				messageFragments.baseHeader.Type != hsHdr.Type {
+				buf = buf[end:]
+
+				continue
+			}
+
+			// do not mix epochs for a single handshake message.
+			if messageFragments.epoch != recordLayerHeader.Epoch {
+				buf = buf[end:]
+
+				continue
+			}
+
+			// already complete => nothing to store.
+			if messageFragments.receivedLength == messageFragments.handshakeLength {
+				buf = buf[end:]
+
+				continue
+			}
+		}
+
+		payload := buf[handshake.HeaderLength:end]
+
+		// first pass: compute how many unique bytes/chunks to add.
+		var addedBytes uint32
+		var addedChunks int
+
+		if len(messageFragments.frags) == 0 {
+			addedBytes = fragEnd - fragStart
+			if addedBytes > 0 {
+				addedChunks = 1
+			}
+		} else {
+			messageFragments.scanUncovered(fragStart, fragEnd, func(uStart, uEnd uint32) {
+				if uEnd > uStart {
+					addedBytes += (uEnd - uStart)
+					addedChunks++
+				}
+			})
+		}
+
+		if addedBytes > 0 {
+			if f.totalBufferSize+int(addedBytes) > fragmentBufferMaxSize ||
+				f.totalFragmentCount+addedChunks > fragmentBufferMaxCount {
+				return false, false, errFragmentBufferOverflow
+			}
+
+			// one allocation for all bytes to store from this handshake-in-record.
+			dataBlob := make([]byte, addedBytes)
+			blobOff := uint32(0)
+
+			newFrags := make([]*fragment, 0, addedChunks)
+
+			emit := func(uStart, uEnd uint32) {
+				if uEnd <= uStart {
+					return
+				}
+				uLen := uEnd - uStart
+
+				relStart := uStart - fragStart
+				relEnd := uEnd - fragStart
+
+				dst := dataBlob[blobOff : blobOff+uLen]
+				copy(dst, payload[relStart:relEnd])
+				blobOff += uLen
+
+				newFrags = append(newFrags, &fragment{
+					offset: uStart,
+					data:   dst,
+				})
+			}
+
+			if len(messageFragments.frags) == 0 {
+				emit(fragStart, fragEnd)
+			} else {
+				messageFragments.scanUncovered(fragStart, fragEnd, emit)
+			}
+
+			messageFragments.insertMany(newFrags)
+
+			messageFragments.receivedLength += addedBytes
+			f.totalBufferSize += int(addedBytes)
+			f.totalFragmentCount += len(newFrags)
+		}
+
 		buf = buf[end:]
 	}
 
@@ -94,35 +330,17 @@ func (f *fragmentBuffer) pop() (content []byte, epoch uint16) {
 		return nil, 0
 	}
 
-	// Go doesn't support recursive lambdas
-	var appendMessage func(targetOffset uint32) bool
-
-	rawMessage := []byte{}
-	appendMessage = func(targetOffset uint32) bool {
-		for _, f := range frags {
-			if f.handshakeHeader.FragmentOffset == targetOffset {
-				fragmentEnd := (f.handshakeHeader.FragmentOffset + f.handshakeHeader.FragmentLength)
-				if fragmentEnd != f.handshakeHeader.Length && f.handshakeHeader.FragmentLength != 0 {
-					if !appendMessage(fragmentEnd) {
-						return false
-					}
-				}
-
-				rawMessage = append(f.data, rawMessage...)
-
-				return true
-			}
-		}
-
-		return false
-	}
-
-	// Recursively collect up
-	if !appendMessage(0) {
+	if frags.receivedLength != frags.handshakeLength {
 		return nil, 0
 	}
 
-	firstHeader := frags[0].handshakeHeader
+	// reassemble: stored chunks are non-overlapping and cover the whole message.
+	rawMessage := make([]byte, frags.handshakeLength)
+	for _, frag := range frags.frags {
+		copy(rawMessage[frag.offset:], frag.data)
+	}
+
+	firstHeader := frags.baseHeader
 	firstHeader.FragmentOffset = 0
 	firstHeader.FragmentLength = firstHeader.Length
 
@@ -131,7 +349,10 @@ func (f *fragmentBuffer) pop() (content []byte, epoch uint16) {
 		return nil, 0
 	}
 
-	messageEpoch := frags[0].recordLayerHeader.Epoch
+	messageEpoch := frags.epoch
+
+	f.totalBufferSize -= int(frags.receivedLength)
+	f.totalFragmentCount -= len(frags.frags)
 
 	delete(f.cache, f.currentMessageSequenceNumber)
 	f.currentMessageSequenceNumber++

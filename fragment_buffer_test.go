@@ -6,6 +6,9 @@ package dtls
 import (
 	"testing"
 
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -113,11 +116,11 @@ func TestFragmentBuffer(t *testing.T) {
 			In: [][]byte{
 				{
 					0x16, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00,
-					0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				},
 			},
 			Expected: [][]byte{
-				{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00},
+				{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
 			},
 			Epoch: 0,
 		},
@@ -141,17 +144,184 @@ func TestFragmentBuffer(t *testing.T) {
 }
 
 func TestFragmentBuffer_Overflow(t *testing.T) {
+	makeHandshakeRecord := func(epoch uint16, recSeq uint64, hs handshake.Header, payload []byte) []byte {
+		hs.FragmentLength = uint32(len(payload)) //nolint:gosec
+		rl := recordlayer.Header{
+			ContentType:    protocol.ContentTypeHandshake,
+			Version:        protocol.Version1_2,
+			Epoch:          epoch,
+			SequenceNumber: recSeq,
+			ContentLen:     uint16(handshake.HeaderLength + len(payload)), //nolint:gosec
+		}
+
+		rawRL, err := rl.Marshal()
+		assert.NoError(t, err)
+
+		rawHS, err := hs.Marshal()
+		assert.NoError(t, err)
+
+		out := append([]byte{}, rawRL...)
+		out = append(out, rawHS...)
+		out = append(out, payload...)
+
+		return out
+	}
+
+	t.Run("PerMessageLengthOverflow", func(t *testing.T) {
+		buf := newFragmentBuffer()
+
+		// push a small valid handshake fragment (it shouldnt overflow)
+		pak := makeHandshakeRecord(0, 0, handshake.Header{
+			Type:            handshake.TypeClientHello,
+			Length:          1,
+			MessageSequence: 0,
+			FragmentOffset:  0,
+			FragmentLength:  1,
+		}, []byte{0x00})
+
+		_, _, err := buf.push(pak)
+		assert.NoError(t, err)
+
+		// push a handshake with total message length exceeds fragmentBufferMaxSize,
+		// this should overflow even if the fragment payload itself is tiny or empty.
+		pktTooBig := makeHandshakeRecord(0, 1, handshake.Header{
+			Type:            handshake.TypeClientHello,
+			Length:          uint32(fragmentBufferMaxSize + 1), //nolint:gosec
+			MessageSequence: 1,
+			FragmentOffset:  0,
+			FragmentLength:  0,
+		}, nil)
+
+		_, _, err = buf.push(pktTooBig)
+		assert.ErrorIs(t, err, errFragmentBufferOverflow)
+	})
+
+	t.Run("TotalStoredBytesOverflow", func(t *testing.T) {
+		buf := newFragmentBuffer()
+
+		// fill the fragment buffer up to exactly fragmentBufferMaxSize bytes using many fragments
+		// note: each record payload must fit in uint16 ContentLen.
+		const chunkSize = 60000 // <= 65523 (uint16 max record payload - handshake header)
+
+		totalLen := uint32(fragmentBufferMaxSize) //nolint:gosec
+		var off uint32
+		var recSeq uint64
+
+		for off < totalLen {
+			remain := totalLen - off
+			n := chunkSize
+			if uint32(n) > remain {
+				n = int(remain)
+			}
+
+			payload := make([]byte, n)
+			pkt := makeHandshakeRecord(0, recSeq, handshake.Header{
+				Type:            handshake.TypeClientHello,
+				Length:          totalLen,
+				MessageSequence: 0,
+				FragmentOffset:  off,
+				FragmentLength:  uint32(n), //nolint:gosec
+			}, payload)
+
+			_, _, err := buf.push(pkt)
+			assert.NoError(t, err)
+
+			off += uint32(n) //nolint:gosec
+			recSeq++
+		}
+
+		// adding any new unique stored byte should now overflow the total buffer cap
+		pktOneMore := makeHandshakeRecord(0, recSeq, handshake.Header{
+			Type:            handshake.TypeClientHello,
+			Length:          1,
+			MessageSequence: 1,
+			FragmentOffset:  0,
+			FragmentLength:  1,
+		}, []byte{0x00})
+
+		_, _, err := buf.push(pktOneMore)
+		assert.ErrorIs(t, err, errFragmentBufferOverflow, "adding beyond total stored cap should overflow")
+	})
+}
+
+func TestFragmentBuffer_TooSmall(t *testing.T) {
 	fragmentBuffer := newFragmentBuffer()
 
-	// Push a buffer that doesn't exceed size limits
+	// push a buffer that is smaller than fragment length
 	_, _, err := fragmentBuffer.push([]byte{
 		0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03,
-		0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xfe, 0xff, 0x00,
+		0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xfe, 0xff, 0x00,
 	})
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, errBufferTooSmall,
+		"Pushing a buffer that is smaller than fragment length should return an error")
+}
 
-	// Allocate a buffer that exceeds cache size
-	largeBuffer := make([]byte, fragmentBufferMaxSize)
-	_, _, err = fragmentBuffer.push(largeBuffer)
-	assert.ErrorIs(t, err, errFragmentBufferOverflow, "Pushing a large buffer should return an overflow error")
+func TestFragmentBuffer_OverlappingFragments(t *testing.T) {
+	buf := newFragmentBuffer()
+
+	// handshake message, total length = 15 bytes (0x00 thru 0x0e)
+	// 1) receive [0 thru 5)
+	// 2) receive [10 thru 15)
+	// 3) retransmit larger fragment [0 thru 10)
+	in := [][]byte{
+		{
+			// record header (13 bytes): epoch = 0, seq = 0, len = 17 (12 hdr + 5 data)
+			0x16, 0xfe, 0xfd, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // record sequence number = 0
+			0x00, 0x11,
+			// handshake header (12 bytes)
+			0x0b, 0x00, 0x00, 0x0f, // length = 15
+			0x00, 0x00, // message_seq = 0
+			0x00, 0x00, 0x00, // fragment_offset = 0
+			0x00, 0x00, 0x05, // fragment_length = 5
+			// data: 0x00 thru 0x04
+			0x00, 0x01, 0x02, 0x03, 0x04,
+		},
+		{
+			// record header: epoch = 0, seq = 1, len = 17 (12 hdr + 5 data)
+			0x16, 0xfe, 0xfd, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // record sequence number = 1
+			0x00, 0x11,
+			// handshake header
+			0x0b, 0x00, 0x00, 0x0f, // length = 15
+			0x00, 0x00, // message_seq = 0
+			0x00, 0x00, 0x0a, // fragment_offset = 10
+			0x00, 0x00, 0x05, // fragment_length = 5
+			// data: 0x0a thru 0x0e
+			0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+		},
+		{
+			// record header: epoch = 0, seq = 2, len = 22 (12 hdr + 10 data)
+			0x16, 0xfe, 0xfd, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x02, // record sequence number = 2
+			0x00, 0x16,
+			// handshake header
+			0x0b, 0x00, 0x00, 0x0f, // length = 15
+			0x00, 0x00, // message_seq = 0
+			0x00, 0x00, 0x00, // fragment_offset = 0
+			0x00, 0x00, 0x0a, // fragment_length = 10
+			// data: 0x00 thru 0x09
+			0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+		},
+	}
+
+	for _, frag := range in {
+		status, _, err := buf.push(frag)
+		assert.NoError(t, err)
+		assert.True(t, status, "fragmentBuffer didn't accept fragments")
+	}
+
+	out, epoch := buf.pop()
+	assert.Equal(t, uint16(0), epoch)
+
+	expected := []byte{
+		0x0b, 0x00, 0x00, 0x0f, // type, length
+		0x00, 0x00, // message_seq = 0
+		0x00, 0x00, 0x00, // fragment_offset = 0
+		0x00, 0x00, 0x0f, // fragment_length = 15
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+		0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+	}
+
+	assert.Equal(t, expected, out, "overlapping fragments should reassemble into the full handshake")
 }
