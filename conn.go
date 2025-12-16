@@ -955,7 +955,7 @@ func (c *Conn) handleIncomingPacket(
 		}
 	}
 
-	isHandshake, isRetransmit, err := c.fragmentBuffer.push(append([]byte{}, buf...))
+	isHandshake, isRetransmit, err := c.fragmentBuffer.push(buf)
 	if err != nil {
 		// Decode error must be silently discarded
 		// [RFC6347 Section-4.1.2.7]
