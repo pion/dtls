@@ -5446,3 +5446,46 @@ func assertTrafficKeyTestRecord(
 	require.NoError(t, err)
 	assert.Equal(t, want, innerPlaintext.Content)
 }
+
+func TestOutboundInterceptor(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	ca, cb := dpipe.Pipe()
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	var client *Conn
+	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
+		WithCertificates(serverCert),
+		WithHandshakePacketInterceptor(func(packet []byte) bool {
+			client.InjectPacket(packet)
+
+			return true
+		}),
+		WithInsecureSkipVerify(true),
+	)
+	assert.NoError(t, err)
+
+	go func() {
+		_ = server.Handshake()
+	}()
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	client, err = ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
+		WithCertificates(clientCert),
+		WithHandshakePacketInterceptor(func(packet []byte) bool {
+			server.InjectPacket(packet)
+
+			return true
+		}),
+		WithInsecureSkipVerify(true),
+	)
+	assert.NoError(t, err)
+
+	assert.NoError(t, client.Handshake())
+	assert.NoError(t, server.Close())
+	assert.NoError(t, client.Close())
+}
