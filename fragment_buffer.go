@@ -9,9 +9,11 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
-// 2 megabytes.
-const fragmentBufferMaxSize = 2000000
-const fragmentBufferMaxCount = 1000
+const (
+	// 2 megabytes.
+	fragmentBufferMaxSize  = 2000000
+	fragmentBufferMaxCount = 1000
+)
 
 type fragment struct {
 	recordLayerHeader recordlayer.Header
@@ -47,7 +49,7 @@ func (f *fragmentBuffer) size() int {
 // Attempts to push a DTLS packet to the fragmentBuffer
 // when it returns true it means the fragmentBuffer has inserted and the buffer shouldn't be handled
 // when an error returns it is fatal, and the DTLS connection should be stopped.
-func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err error) {
+func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err error) { //nolint:cyclop
 	if f.size()+len(buf) >= fragmentBufferMaxSize || f.totalFragmentCount >= fragmentBufferMaxCount {
 		return false, false, errFragmentBufferOverflow
 	}
@@ -78,6 +80,7 @@ func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err e
 		}
 		if frag.handshakeHeader.MessageSequence < f.currentMessageSequenceNumber {
 			buf = buf[end:]
+
 			continue
 		}
 
