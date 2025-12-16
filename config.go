@@ -218,6 +218,11 @@ type Config struct {
 	// message is sent from a server. The returned handshake message replaces the original message.
 	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 
+	// HandshakePacketInterceptor is a callback that can be set to intercept
+	// outgoing raw handshake packets. It is called with the raw packet bytes
+	// The interceptor can decide to drop the packet by returning true.
+	HandshakePacketInterceptor func(packet []byte) bool
+
 	// OnConnectionAttempt is fired Whenever a connection attempt is made,
 	// the server or application can call this callback function.
 	// The callback function can then implement logic to handle the connection attempt, such as logging the attempt,

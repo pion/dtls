@@ -89,12 +89,15 @@ type Conn struct {
 
 	reading               chan struct{}
 	handshakeRecv         chan recvHandshakeState
+	packetRecv            chan []byte
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
 	fsm *handshakeFSM
 
 	replayProtectionWindow uint
+
+	handshakePacketInterceptor func(packet []byte) bool
 
 	handshakeConfig *handshakeConfig
 }
@@ -222,11 +225,14 @@ func createConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan recvHandshakeState),
+		packetRecv:            make(chan []byte, 1),
 		closed:                closer.NewCloser(),
 		cancelHandshaker:      func() {},
 		cancelHandshakeReader: func() {},
 
 		replayProtectionWindow: uint(replayProtectionWindow), //nolint:gosec // G115
+
+		handshakePacketInterceptor: config.HandshakePacketInterceptor,
 
 		state: State{
 			isClient: isClient,
@@ -474,9 +480,12 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 
 	var rawPackets [][]byte
 
+	// TODO: this is not quite correct.
+	hasHandshake := false
 	for _, pkt := range pkts {
 		if dtlsHandshake, ok := pkt.record.Content.(*handshake.Handshake); ok {
 			handshakeRaw, err := pkt.record.Marshal()
+			hasHandshake = true
 			if err != nil {
 				return err
 			}
@@ -497,6 +506,28 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 			if err != nil {
 				return err
 			}
+
+			/*
+			   if c.handshakePacketInterceptor != nil {
+			       compactedRawHandshakePackets := c.compactRawPackets(rawHandshakePackets)
+
+			       for _, compactedRawHandshakePacket := range compactedRawHandshakePackets {
+			           if c.handshakePacketInterceptor(compactedRawHandshakePacket) {
+
+			               // TODO: this only continues the inner loop but does not take these packets out.
+			               // This is usually one packet but this will no longer be true with PQC.
+			               // Currently this requires the else below and basically makes returning a
+			               // value useless.
+			               // Also this notifies individual flights which causes a delay with Chrome.
+			               // So this needs to be moved out of the loop somehow. Should not be too hard
+			               // since handshake and non-handshake do not mix.
+			               continue
+			           }
+			       }
+			   } else {
+			       rawPackets = append(rawPackets, rawHandshakePackets...)
+			   }
+			*/
 			rawPackets = append(rawPackets, rawHandshakePackets...)
 		} else {
 			rawPacket, err := c.processPacket(pkt)
@@ -512,6 +543,12 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 	compactedRawPackets := c.compactRawPackets(rawPackets)
 
 	for _, compactedRawPackets := range compactedRawPackets {
+		// TODO: this is not quite correct but works.
+		if hasHandshake && c.handshakePacketInterceptor != nil {
+			if c.handshakePacketInterceptor(compactedRawPackets) {
+				continue
+			}
+		}
 		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPackets, c.rAddr); err != nil {
 			return netError(err)
 		}
@@ -732,20 +769,66 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
-func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
-	bufptr, ok := poolReadBuffer.Get().(*[]byte)
-	if !ok {
-		return errFailedToAccessPoolReadBuffer
-	}
-	defer poolReadBuffer.Put(bufptr)
+func (c *Conn) InjectPacket(p []byte) {
+	c.packetRecv <- p
+}
 
-	b := *bufptr
-	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
+func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
+	type readResult struct {
+		data  []byte
+		rAddr net.Addr
+		err   error
+	}
+	readCh := make(chan readResult, 1)
+
+	go func() {
+		bufptr, ok := poolReadBuffer.Get().(*[]byte)
+		if !ok {
+			readCh <- readResult{err: errFailedToAccessPoolReadBuffer}
+
+			return
+		}
+		defer poolReadBuffer.Put(bufptr)
+		b := *bufptr
+
+		i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
+		if err != nil {
+			readCh <- readResult{err: err}
+			poolReadBuffer.Put(bufptr)
+
+			return
+		}
+
+		data := make([]byte, i)
+		copy(data, b[:i])
+
+		readCh <- readResult{
+			data:  data,
+			rAddr: rAddr,
+		}
+	}()
+
+	var data []byte
+	var rAddr net.Addr
+	var err error
+
+	select {
+	case p := <-c.packetRecv:
+		data = p
+		rAddr = c.rAddr // TODO: take from channel too?
+	case p := <-readCh:
+		data = p.data
+		rAddr = p.rAddr
+		err = p.err
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+
 	if err != nil {
 		return netError(err)
 	}
 
-	pkts, err := recordlayer.ContentAwareUnpackDatagram(b[:i], len(c.state.getLocalConnectionID()))
+	pkts, err := recordlayer.ContentAwareUnpackDatagram(data, len(c.state.getLocalConnectionID()))
 	if err != nil {
 		return err
 	}
@@ -783,7 +866,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 		select {
 		case c.handshakeRecv <- s:
 			// If the other party may retransmit the flight,
-			// we should respond even if it not a new message.
+			// we should respond even if it is not a new message.
 			<-s.done
 		case <-c.fsm.Done():
 		}
@@ -963,6 +1046,14 @@ func (c *Conn) handleIncomingPacket(
 
 		return false, false, nil, nil
 	} else if isHandshake {
+		/*
+					if c.handshakePacketInterceptor != nil {
+			            // TODO: this seems to handle individual flights/records, not packets
+			            // which is what this function is called with despite its name.
+			            // We need the full packets for SPED so we can crc32 them (at least the ones
+			            // received in plain!)
+					}
+		*/
 		markPacketAsValid()
 
 		for out, epoch := c.fragmentBuffer.pop(); out != nil; out, epoch = c.fragmentBuffer.pop() {

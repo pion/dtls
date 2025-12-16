@@ -3497,3 +3497,46 @@ func TestCloseWithoutHandshake(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NoError(t, server.Close())
 }
+
+func TestOutboundInterceptor(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	ca, cb := dpipe.Pipe()
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	var client *Conn
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+		Certificates: []tls.Certificate{serverCert},
+		HandshakePacketInterceptor: func(packet []byte) bool {
+			client.InjectPacket(packet)
+
+			return true
+		},
+		InsecureSkipVerify: true,
+	})
+	assert.NoError(t, err)
+
+	go func() {
+		_ = server.Handshake()
+	}()
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	client, err = Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+		Certificates: []tls.Certificate{clientCert},
+		HandshakePacketInterceptor: func(packet []byte) bool {
+			server.InjectPacket(packet)
+
+			return true
+		},
+		InsecureSkipVerify: true,
+	})
+	assert.NoError(t, err)
+
+	assert.NoError(t, client.Handshake())
+	assert.NoError(t, server.Close())
+	assert.NoError(t, client.Close())
+}
