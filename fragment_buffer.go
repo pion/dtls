@@ -137,10 +137,7 @@ func (f *fragmentBuffer) pop() (content []byte, epoch uint16) {
 	firstHeader.FragmentOffset = 0
 	firstHeader.FragmentLength = firstHeader.Length
 
-	rawHeader, err := firstHeader.Marshal()
-	if err != nil {
-		return nil, 0
-	}
+	rawHeader, _ := firstHeader.Marshal()
 
 	messageEpoch := frags.fragmentByOffset[0].recordLayerHeader.Epoch
 
