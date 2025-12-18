@@ -65,7 +65,7 @@ func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err e
 	}
 
 	frag := new(fragment)
-	for buf = buf[recordlayer.FixedHeaderSize:]; len(buf) != 0; frag = new(fragment) {
+	for buf = buf[recordlayer.FixedHeaderSize:]; len(buf) != 0; frag = new(fragment) { //nolint:gosec // G602
 		if err := frag.handshakeHeader.Unmarshal(buf); err != nil {
 			return false, false, err
 		}
