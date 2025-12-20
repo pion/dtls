@@ -167,9 +167,9 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 
 		for i := range all {
 			if len(all[i]) > 1<<14 {
-				all[i] = all[i][:1<<14]
+				all[i] = all[i][:1<<14] //nolint:gosec // i is bounded by range over all slice
 			}
-			if len(all[i]) == 0 {
+			if len(all[i]) == 0 { //nolint:gosec // i is bounded by range over all slice
 				all[i] = []byte{0} // ensure a non-empty record
 			}
 		}
