@@ -43,8 +43,7 @@ func (m *MessageClientHello) Marshal() ([]byte, error) {
 	}
 
 	out := make([]byte, handshakeMessageClientHelloVariableWidthStart)
-	out[0] = m.Version.Major
-	out[1] = m.Version.Minor
+	out[0], out[1] = m.Version.Major, m.Version.Minor //nolint:gosec // out is initialized with length 34
 
 	rand := m.Random.MarshalFixed()
 	copy(out[2:], rand[:])
