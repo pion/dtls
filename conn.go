@@ -229,7 +229,7 @@ type Conn struct {
 
 	reading               chan struct{}
 	handshakeRecv         chan dtlshandshake.RecvHandshakeState
-	packetRecv            chan []byte
+	packetRecv            chan addrPkt
 	pendingRead           chan readResult
 	datagramReadCtx       context.Context //nolint:containedctx // scopes the datagram reader to the Conn lifetime
 	cancelDatagramRead    func()
@@ -304,7 +304,7 @@ func newConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan dtlshandshake.RecvHandshakeState),
-		packetRecv:            make(chan []byte, 1),
+		packetRecv:            make(chan addrPkt),
 		datagramReadCtx:       datagramReadCtx,
 		cancelDatagramRead:    cancelDatagramRead,
 		handshakeEstablished:  dtlshandshake.NewEstablishment(),
@@ -1256,10 +1256,10 @@ func readBufferPoolForSize(size int) *sync.Pool {
 }
 
 // InjectPacket feeds a raw datagram into the connection as if it had been
-// received from the remote peer. It is the counterpart of the handshake packet
+// received from rAddr. It is the counterpart of the handshake packet
 // interceptor, which allows packets to be carried over another transport.
-func (c *Conn) InjectPacket(p []byte) {
-	c.packetRecv <- p
+func (c *Conn) InjectPacket(p []byte, rAddr net.Addr) {
+	c.packetRecv <- addrPkt{rAddr, p}
 }
 
 func (c *Conn) readAndBuffer(ctx context.Context) error {
@@ -1338,7 +1338,7 @@ func (c *Conn) readDatagram(ctx context.Context) ([]byte, net.Addr, readBufferLe
 	select {
 	case injected := <-c.packetRecv:
 		// Injected packets are not backed by a pooled buffer, hence the empty lease.
-		return injected, c.rAddr, readBufferLease{conn: c}, nil
+		return injected.data, injected.rAddr, readBufferLease{conn: c}, nil
 	case res := <-c.pendingRead:
 		c.pendingRead = nil
 		if res.err != nil {
