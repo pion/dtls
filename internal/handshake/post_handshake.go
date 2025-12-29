@@ -533,7 +533,7 @@ func (p *postHandshake) startNewSessionTicket(ctx context.Context, conn Conn, is
 		return err
 	}
 
-	result, err := conn.WritePackets(ctx, flight.Packets)
+	result, err := conn.WriteHandshakePackets(ctx, flight.Packets)
 	if err != nil {
 		return err
 	}
@@ -554,7 +554,7 @@ func (p *postHandshake) startKeyUpdate(
 		return err
 	}
 
-	result, err := conn.WritePackets(ctx, flight.Packets)
+	result, err := conn.WriteHandshakePackets(ctx, flight.Packets)
 	if err != nil {
 		return err
 	}
@@ -806,7 +806,7 @@ func (p *postHandshake) retransmitPostHandshakeFlight(
 		}
 	}
 
-	result, err := conn.WritePackets(ctx, flight.Packets)
+	result, err := conn.WriteHandshakePackets(ctx, flight.Packets)
 	if err != nil {
 		return err
 	}
