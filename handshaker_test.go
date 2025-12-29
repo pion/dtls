@@ -391,7 +391,7 @@ func (c *flightTestConn) notify(context.Context, alert.Level, alert.Description)
 	return nil
 }
 
-func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
+func (c *flightTestConn) writeHandshakePackets(_ context.Context, pkts []*packet) error {
 	time.Sleep(c.delay)
 	for _, pkt := range pkts {
 		if c.filter != nil && !c.filter(pkt) {

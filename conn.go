@@ -474,22 +474,18 @@ func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
 	return c.state.remoteSRTPMasterKeyIdentifier, true
 }
 
-func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
+func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*packet) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	var rawPackets [][]byte
-
-	// TODO: this is not quite correct.
-	hasHandshake := false
 	for _, pkt := range pkts {
-		if dtlsHandshake, ok := pkt.record.Content.(*handshake.Handshake); ok {
+		dtlsHandshake, ok := pkt.record.Content.(*handshake.Handshake)
+		if ok { // Not true for change cipher spec.
 			handshakeRaw, err := pkt.record.Marshal()
-			hasHandshake = true
 			if err != nil {
 				return err
 			}
-
 			c.log.Tracef("[handshake:%v] -> %s (epoch: %d, seq: %d)",
 				srvCliStr(c.state.isClient), dtlsHandshake.Header.Type.String(),
 				pkt.record.Header.Epoch, dtlsHandshake.Header.MessageSequence)
@@ -506,28 +502,6 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 			if err != nil {
 				return err
 			}
-
-			/*
-			   if c.handshakePacketInterceptor != nil {
-			       compactedRawHandshakePackets := c.compactRawPackets(rawHandshakePackets)
-
-			       for _, compactedRawHandshakePacket := range compactedRawHandshakePackets {
-			           if c.handshakePacketInterceptor(compactedRawHandshakePacket) {
-
-			               // TODO: this only continues the inner loop but does not take these packets out.
-			               // This is usually one packet but this will no longer be true with PQC.
-			               // Currently this requires the else below and basically makes returning a
-			               // value useless.
-			               // Also this notifies individual flights which causes a delay with Chrome.
-			               // So this needs to be moved out of the loop somehow. Should not be too hard
-			               // since handshake and non-handshake do not mix.
-			               continue
-			           }
-			       }
-			   } else {
-			       rawPackets = append(rawPackets, rawHandshakePackets...)
-			   }
-			*/
 			rawPackets = append(rawPackets, rawHandshakePackets...)
 		} else {
 			rawPacket, err := c.processPacket(pkt)
@@ -537,18 +511,45 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 			rawPackets = append(rawPackets, rawPacket)
 		}
 	}
+
 	if len(rawPackets) == 0 {
 		return nil
 	}
 	compactedRawPackets := c.compactRawPackets(rawPackets)
 
 	for _, compactedRawPackets := range compactedRawPackets {
-		// TODO: this is not quite correct but works.
-		if hasHandshake && c.handshakePacketInterceptor != nil {
+		if c.handshakePacketInterceptor != nil {
 			if c.handshakePacketInterceptor(compactedRawPackets) {
 				continue
 			}
 		}
+		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPackets, c.rAddr); err != nil {
+			return netError(err)
+		}
+	}
+
+	return nil
+}
+
+func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	var rawPackets [][]byte
+
+	for _, pkt := range pkts {
+		rawPacket, err := c.processPacket(pkt)
+		if err != nil {
+			return err
+		}
+		rawPackets = append(rawPackets, rawPacket)
+	}
+	if len(rawPackets) == 0 {
+		return nil
+	}
+	compactedRawPackets := c.compactRawPackets(rawPackets)
+
+	for _, compactedRawPackets := range compactedRawPackets {
 		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPackets, c.rAddr); err != nil {
 			return netError(err)
 		}
