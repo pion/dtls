@@ -149,6 +149,13 @@ func (c handshakeConn) WritePackets(
 	return c.conn.writePacketsWithResult(ctx, pkts)
 }
 
+func (c handshakeConn) WriteHandshakePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Outbound,
+) (*dtlshandshake.WriteResult, error) {
+	return c.conn.writeHandshakePacketsWithResult(ctx, pkts)
+}
+
 func (c handshakeConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
 	return c.conn.recvHandshake()
 }
@@ -772,6 +779,14 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Outbound) er
 	return err
 }
 
+// writeHandshakePackets writes packets belonging to the handshake. These are the
+// only ones offered to the handshake packet interceptor.
+func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*dtlsflight.Outbound) error {
+	_, err := c.writeHandshakePacketsWithResult(ctx, pkts)
+
+	return err
+}
+
 func (c *Conn) writePacketsWithResult(
 	ctx context.Context,
 	pkts []*dtlsflight.Outbound,
@@ -779,28 +794,34 @@ func (c *Conn) writePacketsWithResult(
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
-	return c.writePacketsWithResultLocked(ctx, pkts)
+	return c.writePacketsWithResultLocked(ctx, pkts, nil)
+}
+
+func (c *Conn) writeHandshakePacketsWithResult(
+	ctx context.Context,
+	pkts []*dtlsflight.Outbound,
+) (*dtlshandshake.WriteResult, error) {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
+
+	return c.writePacketsWithResultLocked(ctx, pkts, c.handshakePacketInterceptor)
 }
 
 func (c *Conn) writePacketsWithResultLocked(
 	ctx context.Context,
 	pkts []*dtlsflight.Outbound,
+	interceptor func(packet []byte) bool,
 ) (*dtlshandshake.WriteResult, error) {
 	datagrams, rAddr, err := c.prepareRawPacketsTracked(pkts)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: this is not quite correct but works. Handshake and non-handshake
-	// records do not mix within a flight, so testing the packets is enough.
-	// nolint:godox
-	intercept := c.handshakePacketInterceptor != nil && containsHandshake(pkts)
-
 	result := &dtlshandshake.WriteResult{}
 	for _, datagram := range datagrams {
 		// The interceptor takes ownership of the datagram when it returns true,
 		// so it counts as sent and its records stay tracked for retransmission.
-		if !intercept || !c.handshakePacketInterceptor(datagram.raw) {
+		if interceptor == nil || !interceptor(datagram.raw) {
 			if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
 				if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
 					return nil, ErrConnClosed
@@ -813,16 +834,6 @@ func (c *Conn) writePacketsWithResultLocked(
 	}
 
 	return result, nil
-}
-
-func containsHandshake(pkts []*dtlsflight.Outbound) bool {
-	for _, pkt := range pkts {
-		if _, ok := pkt.Content.(*handshake.Handshake); ok {
-			return true
-		}
-	}
-
-	return false
 }
 
 type preparedDatagram struct {
@@ -2433,7 +2444,7 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 	if err := dtlshandshake.ValidateClientHelloInitialFlights(pkts); err != nil {
 		return nil, err
 	}
-	if err := c.writePackets(ctx, pkts); err != nil {
+	if err := c.writeHandshakePackets(ctx, pkts); err != nil {
 		return nil, err
 	}
 

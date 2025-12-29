@@ -153,7 +153,7 @@ func (s *fsm12) prepare(ctx context.Context, conn Conn) (State, error) {
 
 func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
 	// Send flights
-	if _, err := c.WritePackets(ctx, s.flights); err != nil {
+	if _, err := c.WriteHandshakePackets(ctx, s.flights); err != nil {
 		return StateErrored, err
 	}
 

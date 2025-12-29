@@ -83,6 +83,10 @@ type Conn interface {
 	dtlsflight.Conn
 	Notify(ctx context.Context, level alert.Level, desc alert.Description) error
 	WritePackets(context.Context, []*dtlsflight.Outbound) (*WriteResult, error)
+	// WriteHandshakePackets writes packets that belong to the handshake. It is
+	// separate from WritePackets so the connection can offer only those to a
+	// handshake packet interceptor.
+	WriteHandshakePackets(context.Context, []*dtlsflight.Outbound) (*WriteResult, error)
 	RecvHandshake() <-chan RecvHandshakeState
 	SetLocalEpoch(epoch uint16)
 }
@@ -100,7 +104,7 @@ func sendACK(ctx context.Context, conn Conn, epoch uint16, records []protocol.Re
 		return nil
 	}
 
-	_, err := conn.WritePackets(ctx, []*dtlsflight.Outbound{{
+	_, err := conn.WriteHandshakePackets(ctx, []*dtlsflight.Outbound{{
 		Epoch:      epoch,
 		Content:    &protocol.ACK{Records: records},
 		Protection: dtlsflight.ProtectionCiphertext,
