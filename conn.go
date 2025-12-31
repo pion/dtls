@@ -229,7 +229,7 @@ type Conn struct {
 
 	reading               chan struct{}
 	handshakeRecv         chan dtlshandshake.RecvHandshakeState
-	packetRecv            chan addrPkt
+	packetInject          chan addrPkt
 	pendingRead           chan readResult
 	datagramReadCtx       context.Context //nolint:containedctx // scopes the datagram reader to the Conn lifetime
 	cancelDatagramRead    func()
@@ -240,7 +240,10 @@ type Conn struct {
 
 	replayProtectionWindow uint
 
-	handshakePacketInterceptor func(packet []byte) bool
+	// Allows intercepting and rerouting outgoing handshake packets.
+	outboundHandshakePacketInterceptor func(packet []byte) bool
+	// Allows getting notified about incoming handshake packets.
+	inboundHandshakePacketNotifier func(packet []byte)
 
 	handshakeConfig *dtlsconfig.HandshakeConfig
 
@@ -268,7 +271,8 @@ func createConn(
 
 	handshakeConfig := newHandshakeConfig(config, configValues, resumeState)
 	conn := newConn(nextConn, rAddr, configValues, handshakeConfig, isClient)
-	conn.handshakePacketInterceptor = config.HandshakePacketInterceptor
+	conn.outboundHandshakePacketInterceptor = config.OutboundHandshakePacketInterceptor
+	conn.inboundHandshakePacketNotifier = config.InboundHandshakePacketNotifier
 
 	conn.setRemoteEpoch(0)
 	conn.setLocalEpoch(0)
@@ -304,7 +308,7 @@ func newConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan dtlshandshake.RecvHandshakeState),
-		packetRecv:            make(chan addrPkt),
+		packetInject:          make(chan addrPkt),
 		datagramReadCtx:       datagramReadCtx,
 		cancelDatagramRead:    cancelDatagramRead,
 		handshakeEstablished:  dtlshandshake.NewEstablishment(),
@@ -804,7 +808,7 @@ func (c *Conn) writeHandshakePacketsWithResult(
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
-	return c.writePacketsWithResultLocked(ctx, pkts, c.handshakePacketInterceptor)
+	return c.writePacketsWithResultLocked(ctx, pkts, c.outboundHandshakePacketInterceptor)
 }
 
 func (c *Conn) writePacketsWithResultLocked(
@@ -1259,7 +1263,7 @@ func readBufferPoolForSize(size int) *sync.Pool {
 // received from rAddr. It is the counterpart of the handshake packet
 // interceptor, which allows packets to be carried over another transport.
 func (c *Conn) InjectPacket(p []byte, rAddr net.Addr) {
-	c.packetRecv <- addrPkt{rAddr, p}
+	c.packetInject <- addrPkt{rAddr: rAddr, data: p}
 }
 
 func (c *Conn) readAndBuffer(ctx context.Context) error {
@@ -1336,7 +1340,7 @@ func (c *Conn) readDatagram(ctx context.Context) ([]byte, net.Addr, readBufferLe
 	}
 
 	select {
-	case injected := <-c.packetRecv:
+	case injected := <-c.packetInject:
 		// Injected packets are not backed by a pooled buffer, hence the empty lease.
 		return injected.data, injected.rAddr, readBufferLease{conn: c}, nil
 	case res := <-c.pendingRead:
@@ -1385,7 +1389,18 @@ func (c *Conn) processDatagram(
 		c.log.Debugf("discarded malformed datagram suffix: %v", err)
 	}
 
-	return c.processDatagramPackets(ctx, pkts, rAddr, bufferLease)
+	summary, err := c.processDatagramPackets(ctx, pkts, rAddr, bufferLease)
+	if err != nil {
+		return summary, err
+	}
+
+	if summary.containsHandshake && c.inboundHandshakePacketNotifier != nil {
+		// Called while the read buffer is still leased, so the datagram is valid
+		// but only for the duration of the callback.
+		c.inboundHandshakePacketNotifier(datagram)
+	}
+
+	return summary, nil
 }
 
 func (c *Conn) processDatagramPackets(
@@ -2132,12 +2147,6 @@ func (c *Conn) bufferHandshakeRecord(
 
 		return packetOutcome{}, false
 	}
-
-	// TODO: this seems to handle individual flights/records, not packets
-	// which is what this function is called with despite its name.
-	// We need the full packets for SPED so we can crc32 them (at least the ones
-	// received in plain!)
-	// nolint:godox
 
 	isLatestSeqNum := markPacketAsValid()
 	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
