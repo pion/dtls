@@ -89,7 +89,7 @@ type Conn struct {
 
 	reading               chan struct{}
 	handshakeRecv         chan recvHandshakeState
-	packetRecv            chan addrPkt
+	packetInject          chan addrPkt
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
@@ -97,7 +97,10 @@ type Conn struct {
 
 	replayProtectionWindow uint
 
-	handshakePacketInterceptor func(packet []byte) bool
+	// Allows intercepting and rerouting outgoing handshake packets.
+	outboundHandshakePacketInterceptor func(packet []byte) bool
+	// Allows getting notified about incoming handshake packets.
+	inboundHandshakePacketNotifier func(packet []byte)
 
 	handshakeConfig *handshakeConfig
 }
@@ -237,14 +240,15 @@ func createConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan recvHandshakeState),
-		packetRecv:            make(chan addrPkt),
+		packetInject:          make(chan addrPkt),
 		closed:                closer.NewCloser(),
 		cancelHandshaker:      func() {},
 		cancelHandshakeReader: func() {},
 
 		replayProtectionWindow: uint(replayProtectionWindow), //nolint:gosec // G115
 
-		handshakePacketInterceptor: config.HandshakePacketInterceptor,
+		outboundHandshakePacketInterceptor: config.OutboundHandshakePacketInterceptor,
+		inboundHandshakePacketNotifier:     config.InboundHandshakePacketNotifier,
 
 		state: State{
 			isClient: isClient,
@@ -539,6 +543,7 @@ func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
 	return c.state.remoteSRTPMasterKeyIdentifier, true
 }
 
+//nolint:cyclop
 func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*packet) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -583,8 +588,8 @@ func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*packet) error 
 	compactedRawPackets := c.compactRawPackets(rawPackets)
 
 	for _, compactedRawPackets := range compactedRawPackets {
-		if c.handshakePacketInterceptor != nil {
-			if c.handshakePacketInterceptor(compactedRawPackets) {
+		if c.outboundHandshakePacketInterceptor != nil {
+			if c.outboundHandshakePacketInterceptor(compactedRawPackets) {
 				continue
 			}
 		}
@@ -836,7 +841,7 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 }
 
 func (c *Conn) InjectPacket(p []byte, rAddr net.Addr) {
-	c.packetRecv <- addrPkt{rAddr, p}
+	c.packetInject <- addrPkt{rAddr, p}
 }
 
 func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
@@ -879,7 +884,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 	var err error
 
 	select {
-	case p := <-c.packetRecv:
+	case p := <-c.packetInject:
 		data = p.data
 		rAddr = p.rAddr
 	case p := <-readCh:
@@ -925,6 +930,11 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 		}
 	}
 	if hasHandshake {
+		if c.inboundHandshakePacketNotifier != nil {
+			// Would it be useful to know this was injected?
+			// Should this work on a copy?
+			c.inboundHandshakePacketNotifier(data)
+		}
 		s := recvHandshakeState{
 			done:         make(chan struct{}),
 			isRetransmit: isRetransmit,
@@ -1112,14 +1122,6 @@ func (c *Conn) handleIncomingPacket(
 
 		return false, false, nil, nil
 	} else if isHandshake {
-		/*
-					if c.handshakePacketInterceptor != nil {
-			            // TODO: this seems to handle individual flights/records, not packets
-			            // which is what this function is called with despite its name.
-			            // We need the full packets for SPED so we can crc32 them (at least the ones
-			            // received in plain!)
-					}
-		*/
 		markPacketAsValid()
 
 		for out, epoch := c.fragmentBuffer.pop(); out != nil; out, epoch = c.fragmentBuffer.pop() {
