@@ -5458,12 +5458,13 @@ func TestOutboundInterceptor(t *testing.T) {
 	var client *Conn
 	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
 		WithCertificates(serverCert),
-		WithHandshakePacketInterceptor(func(packet []byte) bool {
+		WithOutboundHandshakePacketInterceptor(func(packet []byte) bool {
 			client.InjectPacket(packet, ca.RemoteAddr())
 
 			return true
 		}),
 		WithInsecureSkipVerify(true),
+		WithInsecureSkipVerifyHello(true),
 	)
 	assert.NoError(t, err)
 
@@ -5476,7 +5477,7 @@ func TestOutboundInterceptor(t *testing.T) {
 
 	client, err = ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithCertificates(clientCert),
-		WithHandshakePacketInterceptor(func(packet []byte) bool {
+		WithOutboundHandshakePacketInterceptor(func(packet []byte) bool {
 			server.InjectPacket(packet, cb.RemoteAddr())
 
 			return true
@@ -5488,4 +5489,53 @@ func TestOutboundInterceptor(t *testing.T) {
 	assert.NoError(t, client.Handshake())
 	assert.NoError(t, server.Close())
 	assert.NoError(t, client.Close())
+}
+
+func TestInboundNotifier(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	ca, cb := dpipe.Pipe()
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	var inboundHandshakePackets [][]byte
+	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
+		WithCertificates(serverCert),
+		WithInboundHandshakePacketNotifier(func(packet []byte) {
+			inboundHandshakePackets = append(inboundHandshakePackets, bytes.Clone(packet))
+		}),
+		WithInsecureSkipVerify(true),
+		WithInsecureSkipVerifyHello(true),
+	)
+	assert.NoError(t, err)
+
+	go func() {
+		_ = server.Handshake()
+	}()
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	var outboundHandshakePackets [][]byte
+	client, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
+		WithCertificates(clientCert),
+		WithOutboundHandshakePacketInterceptor(func(packet []byte) bool {
+			outboundHandshakePackets = append(outboundHandshakePackets, bytes.Clone(packet))
+
+			return false
+		}),
+		WithInsecureSkipVerify(true),
+	)
+	assert.NoError(t, err)
+
+	assert.NoError(t, client.Handshake())
+	assert.NoError(t, server.Close())
+	assert.NoError(t, client.Close())
+	assert.NotEmpty(t, inboundHandshakePackets)
+	assert.Equal(t, len(inboundHandshakePackets), len(outboundHandshakePackets))
+
+	for i := range inboundHandshakePackets {
+		assert.Equal(t, inboundHandshakePackets[i], outboundHandshakePackets[i])
+	}
 }

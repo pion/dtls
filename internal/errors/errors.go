@@ -173,8 +173,11 @@ var (
 	ErrNilOnConnectionAttempt = stderrors.New(
 		"on connection attempt option requires a non-nil callback",
 	)
-	ErrNilHandshakePacketInterceptor = stderrors.New(
-		"handshake packet interceptor option requires a non-nil callback",
+	ErrNilOutboundHandshakePacketInterceptor = stderrors.New(
+		"outbound handshake packet interceptor option requires a non-nil callback",
+	)
+	ErrNilInboundHandshakePacketNotifier = stderrors.New(
+		"inbound handshake packet notifier option requires a non-nil callback",
 	)
 
 	ErrInvalidHandshakeTranscriptMessage  = stderrors.New("invalid DTLS 1.3 handshake transcript message")
