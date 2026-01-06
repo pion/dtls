@@ -177,7 +177,7 @@ func TestKeyShare_Unmarshal_ClientHello(t *testing.T) {
 		0x0, 0x1d, // X25519
 		0x0, 0x1, // group length
 		0x41,
-		0x0, 0xff, // Non-supported group
+		0x11, 0xff, // Non-supported group
 		0x0, 0x1, // group length
 		0x42,
 		0x0, 0x18, // P-384
@@ -191,12 +191,27 @@ func TestKeyShare_Unmarshal_ClientHello(t *testing.T) {
 	assert.Nil(t, ks.ServerShare)
 	assert.Nil(t, ks.SelectedGroup)
 
-	if assert.Equal(t, 2, len(ks.ClientShares)) {
+	if assert.Equal(t, 3, len(ks.ClientShares)) {
 		assert.Equal(t, elliptic.X25519, ks.ClientShares[0].Group)
 		assert.Equal(t, []byte{0x41}, ks.ClientShares[0].KeyExchange)
-		assert.Equal(t, elliptic.P384, ks.ClientShares[1].Group)
-		assert.Equal(t, []byte{0x43}, ks.ClientShares[1].KeyExchange)
+		assert.Equal(t, elliptic.Curve(0x11ff), ks.ClientShares[1].Group)
+		assert.Equal(t, []byte{0x42}, ks.ClientShares[1].KeyExchange)
+		assert.Equal(t, elliptic.P384, ks.ClientShares[2].Group)
+		assert.Equal(t, []byte{0x43}, ks.ClientShares[2].KeyExchange)
 	}
+
+	// zero length keyshare vector should throw error
+	rawZero := []byte{
+		0x0, 0x33, // extension type
+		0x0, 0x7, // extension length
+		0x0, 0x5, // vec length
+		0x0, 0x1d, // X25519
+		0x0, 0x0, // group length
+		0x42,
+	}
+
+	err = ks.Unmarshal(rawZero)
+	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
 
 	// sending duplicate valid groups should error
 	rawDup := []byte{

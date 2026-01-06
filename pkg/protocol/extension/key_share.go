@@ -117,7 +117,7 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 			var groupU16 uint16
 			var raw cryptobyte.String
 
-			if !peek.ReadUint16(&groupU16) || !peek.ReadUint16LengthPrefixed(&raw) {
+			if !peek.ReadUint16(&groupU16) || !peek.ReadUint16LengthPrefixed(&raw) || len(raw) == 0 {
 				return errInvalidKeyShareFormat
 			}
 
@@ -129,11 +129,9 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 
 			seenGroups[group] = struct{}{}
 
-			if elliptic.Curves()[group] {
-				entry.Group = group
-				entry.KeyExchange = append([]byte(nil), raw...)
-				k.ClientShares = append(k.ClientShares, entry)
-			}
+			entry.Group = group
+			entry.KeyExchange = append([]byte(nil), raw...)
+			k.ClientShares = append(k.ClientShares, entry)
 		}
 
 		// consume vector (2 bytes length + vecLen)
@@ -163,15 +161,13 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 	var groupU16 uint16
 	var raw cryptobyte.String
 
-	if !extData.ReadUint16(&groupU16) || !extData.ReadUint16LengthPrefixed(&raw) || !extData.Empty() {
+	if !extData.ReadUint16(&groupU16) || !extData.ReadUint16LengthPrefixed(&raw) || !extData.Empty() || len(raw) == 0 {
 		return errInvalidKeyShareFormat
 	}
 
 	group := elliptic.Curve(groupU16)
-	if elliptic.Curves()[group] {
-		share := KeyShareEntry{Group: group, KeyExchange: append([]byte(nil), raw...)}
-		k.ServerShare = &share
-	}
+	share := KeyShareEntry{Group: group, KeyExchange: append([]byte(nil), raw...)}
+	k.ServerShare = &share
 
 	return nil
 }
