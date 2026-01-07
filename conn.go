@@ -779,7 +779,7 @@ func (c *Conn) InjectPacket(p []byte, rAddr net.Addr) {
 	c.packetInject <- addrPkt{rAddr, p}
 }
 
-func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
+func (c *Conn) nextPacket(ctx context.Context) ([]byte, net.Addr, error) {
 	type readResult struct {
 		data  []byte
 		rAddr net.Addr
@@ -813,23 +813,18 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 			rAddr: rAddr,
 		}
 	}()
-
-	var data []byte
-	var rAddr net.Addr
-	var err error
-
 	select {
 	case p := <-c.packetInject:
-		data = p.data
-		rAddr = p.rAddr
+		return p.data, p.rAddr, nil
 	case p := <-readCh:
-		data = p.data
-		rAddr = p.rAddr
-		err = p.err
+		return p.data, p.rAddr, p.err
 	case <-ctx.Done():
-		err = ctx.Err()
+		return nil, nil, ctx.Err()
 	}
+}
 
+func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
+	data, rAddr, err := c.nextPacket(ctx)
 	if err != nil {
 		return netError(err)
 	}
