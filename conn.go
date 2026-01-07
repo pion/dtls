@@ -859,7 +859,6 @@ func (c *Conn) nextPacket(ctx context.Context) ([]byte, net.Addr, error) {
 
 			return
 		}
-		defer poolReadBuffer.Put(bufptr)
 		b := *bufptr
 
 		i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
@@ -872,6 +871,7 @@ func (c *Conn) nextPacket(ctx context.Context) ([]byte, net.Addr, error) {
 
 		data := make([]byte, i)
 		copy(data, b[:i])
+		poolReadBuffer.Put(bufptr)
 
 		readCh <- readResult{
 			data:  data,
