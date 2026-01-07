@@ -168,7 +168,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		atomic.StoreUint64(&ca.state.localSequenceNumber[0], recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
-		werr := ca.writePackets(ctx, []*packet{
+		werr := ca.writeHandshakePackets(ctx, []*packet{
 			{
 				record: &recordlayer.RecordLayer{
 					Header: recordlayer.Header{
