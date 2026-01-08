@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/transport/v3/deadline"
+	"github.com/pion/transport/v4/deadline"
 )
 
 // ErrTimeout indicates that deadline was reached before operation could be

@@ -37,8 +37,8 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
-	"github.com/pion/transport/v3/dpipe"
-	"github.com/pion/transport/v3/test"
+	"github.com/pion/transport/v4/dpipe"
+	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
 )
 

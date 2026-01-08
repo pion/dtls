@@ -13,7 +13,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/transport/v3/replaydetector"
+	"github.com/pion/transport/v4/replaydetector"
 )
 
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and
