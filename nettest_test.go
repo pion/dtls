@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/transport/v3/test"
+	"github.com/pion/transport/v4/test"
 	"golang.org/x/net/nettest"
 )
 

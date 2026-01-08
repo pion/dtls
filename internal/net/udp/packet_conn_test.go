@@ -18,7 +18,7 @@ import (
 	"time"
 
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
-	"github.com/pion/transport/v3/test"
+	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
 )
 
