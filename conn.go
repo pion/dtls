@@ -229,7 +229,7 @@ type Conn struct {
 
 	reading               chan struct{}
 	handshakeRecv         chan dtlshandshake.RecvHandshakeState
-	packetInject          chan addrPkt
+	inboundPacketInject   chan addrPkt
 	pendingRead           chan readResult
 	datagramReadCtx       context.Context //nolint:containedctx // scopes the datagram reader to the Conn lifetime
 	cancelDatagramRead    func()
@@ -308,7 +308,7 @@ func newConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan dtlshandshake.RecvHandshakeState),
-		packetInject:          make(chan addrPkt),
+		inboundPacketInject:   make(chan addrPkt),
 		datagramReadCtx:       datagramReadCtx,
 		cancelDatagramRead:    cancelDatagramRead,
 		handshakeEstablished:  dtlshandshake.NewEstablishment(),
@@ -1259,11 +1259,11 @@ func readBufferPoolForSize(size int) *sync.Pool {
 	return pool.(*sync.Pool) //nolint:forcetypeassert // only *sync.Pool values are stored
 }
 
-// InjectPacket feeds a raw datagram into the connection as if it had been
+// InjectInboundPacket feeds a raw datagram into the connection as if it had been
 // received from rAddr. It is the counterpart of the handshake packet
 // interceptor, which allows packets to be carried over another transport.
-func (c *Conn) InjectPacket(p []byte, rAddr net.Addr) {
-	c.packetInject <- addrPkt{rAddr: rAddr, data: p}
+func (c *Conn) InjectInboundPacket(p []byte, rAddr net.Addr) {
+	c.inboundPacketInject <- addrPkt{rAddr: rAddr, data: p}
 }
 
 func (c *Conn) readAndBuffer(ctx context.Context) error {
@@ -1301,7 +1301,7 @@ type readResult struct {
 }
 
 // readDatagram reads the next datagram, either from the underlying connection
-// or from a packet injected via InjectPacket. The returned lease owns the
+// or from a packet injected via InjectInboundPacket. The returned lease owns the
 // recyclable read buffer backing the datagram, if any.
 //
 // The read from the underlying connection outlives this call when an injected
@@ -1340,7 +1340,7 @@ func (c *Conn) readDatagram(ctx context.Context) ([]byte, net.Addr, readBufferLe
 	}
 
 	select {
-	case injected := <-c.packetInject:
+	case injected := <-c.inboundPacketInject:
 		// Injected packets are not backed by a pooled buffer, hence the empty lease.
 		return injected.data, injected.rAddr, readBufferLease{conn: c}, nil
 	case res := <-c.pendingRead:

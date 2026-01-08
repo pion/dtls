@@ -5914,7 +5914,7 @@ func TestOutboundInterceptor(t *testing.T) {
 	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
 		WithCertificates(serverCert),
 		WithOutboundHandshakePacketInterceptor(func(packet []byte) bool {
-			client.InjectPacket(packet, ca.RemoteAddr())
+			client.InjectInboundPacket(packet, ca.RemoteAddr())
 
 			return true
 		}),
@@ -5933,7 +5933,7 @@ func TestOutboundInterceptor(t *testing.T) {
 	client, err = ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithCertificates(clientCert),
 		WithOutboundHandshakePacketInterceptor(func(packet []byte) bool {
-			server.InjectPacket(packet, cb.RemoteAddr())
+			server.InjectInboundPacket(packet, cb.RemoteAddr())
 
 			return true
 		}),
