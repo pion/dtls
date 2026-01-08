@@ -89,7 +89,7 @@ type Conn struct {
 
 	reading               chan struct{}
 	handshakeRecv         chan recvHandshakeState
-	packetInject          chan addrPkt
+	inboundPacketInject   chan addrPkt
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
@@ -228,7 +228,7 @@ func createConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan recvHandshakeState),
-		packetInject:          make(chan addrPkt),
+		inboundPacketInject:   make(chan addrPkt),
 		closed:                closer.NewCloser(),
 		cancelHandshaker:      func() {},
 		cancelHandshakeReader: func() {},
@@ -775,8 +775,8 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
-func (c *Conn) InjectPacket(p []byte, rAddr net.Addr) {
-	c.packetInject <- addrPkt{rAddr, p}
+func (c *Conn) InjectInboundPacket(p []byte, rAddr net.Addr) {
+	c.inboundPacketInject <- addrPkt{rAddr, p}
 }
 
 func (c *Conn) nextPacket(ctx context.Context) ([]byte, net.Addr, error) {
@@ -814,7 +814,7 @@ func (c *Conn) nextPacket(ctx context.Context) ([]byte, net.Addr, error) {
 		}
 	}()
 	select {
-	case p := <-c.packetInject:
+	case p := <-c.inboundPacketInject:
 		return p.data, p.rAddr, nil
 	case p := <-readCh:
 		return p.data, p.rAddr, p.err
