@@ -175,7 +175,7 @@ type Config struct {
 
 	// InsecureSkipVerifyHello, if true and when acting as server, allow client to
 	// skip hello verify phase and receive ServerHello after initial ClientHello.
-	// This have implication on DoS attack resistance.
+	// This has implications on DoS attack resistance.
 	InsecureSkipVerifyHello bool
 
 	// ConnectionIDGenerator generates connection identifiers that should be
@@ -217,6 +217,15 @@ type Config struct {
 	// CertificateRequestMessageHook, if not nil, is called when a Certificate Request
 	// message is sent from a server. The returned handshake message replaces the original message.
 	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
+
+	// OutboundHandshakePacketInterceptor is an optional callback that can be set to
+	// intercept outgoing raw handshake packets. It is called with the raw packet bytes.
+	// The interceptor can decide to drop the packet by returning true.
+	OutboundHandshakePacketInterceptor func(packet []byte) bool
+	// InboundHandshakePacketNotifier is an optional callback that can be set to
+	// receive notifications about incoming raw handshake packets. It is called with
+	// the raw packet bytes after the packet has been processed.
+	InboundHandshakePacketNotifier func(packet []byte)
 
 	// OnConnectionAttempt is fired Whenever a connection attempt is made,
 	// the server or application can call this callback function.
