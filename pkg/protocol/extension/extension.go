@@ -22,6 +22,7 @@ const (
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
 	SupportedVersionsTypeValue            TypeValue = 43
+	CookieTypeValue                       TypeValue = 44
 	KeyShareTypeValue                     TypeValue = 51
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
@@ -89,6 +90,8 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(bufView, &SupportedVersions{})
 		case KeyShareTypeValue:
 			err = unmarshalAndAppend(bufView, &KeyShare{})
+		case CookieTypeValue:
+			err = unmarshalAndAppend(bufView, &CookieExt{})
 		default:
 		}
 
