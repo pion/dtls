@@ -45,8 +45,7 @@ func (c *CookieExt) Marshal() ([]byte, error) {
 func (c *CookieExt) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 	var extension uint16
-	val.ReadUint16(&extension)
-	if TypeValue(extension) != c.TypeValue() {
+	if !val.ReadUint16(&extension) || TypeValue(extension) != c.TypeValue() {
 		return errInvalidExtensionType
 	}
 
