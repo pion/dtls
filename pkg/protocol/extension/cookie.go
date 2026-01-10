@@ -9,6 +9,10 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
+const maxCookieSize = 0xffff - 2
+
+// CookieExt implements the cookie extension in DTLS 1.3.
+// See RFC 8446 section 4.2.2. Cookie.
 type CookieExt struct {
 	Cookie []byte
 }
@@ -18,13 +22,13 @@ func (c CookieExt) TypeValue() TypeValue {
 	return CookieTypeValue
 }
 
-var errCoookieExtFormat = errors.New("invalid cookie format")
+var errCookieExtFormat = errors.New("invalid cookie format")
 
 // Marshal encodes the extension.
 func (c *CookieExt) Marshal() ([]byte, error) {
 	cookieLength := len(c.Cookie)
-	if cookieLength == 0 || cookieLength > 0xfffd {
-		return nil, errCoookieExtFormat
+	if cookieLength == 0 || cookieLength > maxCookieSize {
+		return nil, errCookieExtFormat
 	}
 	var b cryptobyte.Builder
 	b.AddUint16(uint16(c.TypeValue()))
@@ -52,16 +56,11 @@ func (c *CookieExt) Unmarshal(data []byte) error { //nolint:cyclop
 	}
 
 	var cookie cryptobyte.String
-	if !extData.ReadUint16LengthPrefixed(&cookie) {
-		return errCoookieExtFormat
+	if !extData.ReadUint16LengthPrefixed(&cookie) || cookie.Empty() || len(cookie) > maxCookieSize {
+		return errCookieExtFormat
 	}
 
-	cookieLength := len(cookie)
-	if cookieLength == 0 || cookieLength > 0xfffd {
-		return errCoookieExtFormat
-	}
-
-	c.Cookie = cookie
+	c.Cookie = append([]byte(nil), cookie...)
 
 	return nil
 }
