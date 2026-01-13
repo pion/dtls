@@ -21,6 +21,7 @@ const (
 	UseSRTPTypeValue                      TypeValue = 14
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
+	PreSharedKeyValue                     TypeValue = 41
 	SupportedVersionsTypeValue            TypeValue = 43
 	CookieTypeValue                       TypeValue = 44
 	KeyShareTypeValue                     TypeValue = 51
