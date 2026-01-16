@@ -28,7 +28,7 @@ type PskBinderEntry []byte
 
 // TypeValue returns the extension TypeValue.
 func (p PreSharedKey) TypeValue() TypeValue {
-	return CookieTypeValue
+	return PreSharedKeyValue
 }
 
 var errPreSharedKeyFormat = errors.New("invalid Pre-Shared Key extension format")
@@ -40,7 +40,9 @@ func (p *PreSharedKey) Marshal() ([]byte, error) {
 
 	// ServerHello
 	if len(p.Identities) == 0 || len(p.Binders) == 0 {
-		out.AddUint16(p.SelectedIdentity)
+		out.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+			b.AddUint16(p.SelectedIdentity)
+		})
 
 		return out.Bytes()
 	}
@@ -106,7 +108,7 @@ func (p *PreSharedKey) Unmarshal(data []byte) error { //nolint:cyclop
 	for !identities.Empty() {
 		var identity cryptobyte.String
 		var ticket uint32
-		if !extData.ReadUint16LengthPrefixed(&identity) || !extData.ReadUint32(&ticket) || identity.Empty() {
+		if !identities.ReadUint16LengthPrefixed(&identity) || !identities.ReadUint32(&ticket) || identity.Empty() {
 			return errPreSharedKeyFormat
 		}
 		p.Identities = append(p.Identities, PskIdentity{identity, ticket})
@@ -119,7 +121,7 @@ func (p *PreSharedKey) Unmarshal(data []byte) error { //nolint:cyclop
 
 	for !binders.Empty() {
 		var binder cryptobyte.String
-		if !extData.ReadUint8LengthPrefixed(&binder) || len(binder) < 32 {
+		if !binders.ReadUint8LengthPrefixed(&binder) || len(binder) < 32 {
 			return errPreSharedKeyFormat
 		}
 		p.Binders = append(p.Binders, PskBinderEntry(binder))
