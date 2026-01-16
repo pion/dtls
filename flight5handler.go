@@ -376,7 +376,11 @@ func initializeCipherSuite(
 		}
 		var chains [][]*x509.Certificate
 		if !cfg.insecureSkipVerify {
-			if chains, err = verifyServerCert(state.PeerCertificates, cfg.rootCAs, cfg.serverName); err != nil {
+			certAlgs := cfg.localCertSignatureSchemes
+			if len(certAlgs) == 0 {
+				certAlgs = cfg.localSignatureSchemes
+			}
+			if chains, err = verifyServerCert(state.PeerCertificates, cfg.rootCAs, cfg.serverName, certAlgs); err != nil {
 				return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
 		}

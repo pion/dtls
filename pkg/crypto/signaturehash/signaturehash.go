@@ -10,6 +10,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
@@ -96,6 +97,7 @@ func (a *Algorithm) isCompatible(signer crypto.Signer) bool {
 
 // ParseSignatureSchemes translates []tls.SignatureScheme to []signatureHashAlgorithm.
 // It returns default signature scheme list if no SignatureScheme is passed.
+// This function handles both TLS 1.2 byte-split encoding and TLS 1.3 PSS full uint16 schemes.
 func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]Algorithm, error) {
 	if len(sigs) == 0 {
 		return Algorithms(), nil
@@ -122,6 +124,46 @@ func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]A
 	}
 
 	return out, nil
+}
+
+// FromCertificate maps x509.SignatureAlgorithm to the corresponding Algorithm type.
+func FromCertificate(cert *x509.Certificate) (Algorithm, error) { //nolint:cyclop
+	var hashAlg hash.Algorithm
+	var sigAlg signature.Algorithm
+
+	switch cert.SignatureAlgorithm {
+	case x509.SHA256WithRSA, x509.SHA256WithRSAPSS:
+		hashAlg = hash.SHA256
+		sigAlg = signature.RSA
+	case x509.SHA384WithRSA, x509.SHA384WithRSAPSS:
+		hashAlg = hash.SHA384
+		sigAlg = signature.RSA
+	case x509.SHA512WithRSA, x509.SHA512WithRSAPSS:
+		hashAlg = hash.SHA512
+		sigAlg = signature.RSA
+	case x509.ECDSAWithSHA256:
+		hashAlg = hash.SHA256
+		sigAlg = signature.ECDSA
+	case x509.ECDSAWithSHA384:
+		hashAlg = hash.SHA384
+		sigAlg = signature.ECDSA
+	case x509.ECDSAWithSHA512:
+		hashAlg = hash.SHA512
+		sigAlg = signature.ECDSA
+	case x509.PureEd25519:
+		hashAlg = hash.None // Ed25519 doesn't use a separate hash
+		sigAlg = signature.Ed25519
+	case x509.SHA1WithRSA:
+		hashAlg = hash.SHA1
+		sigAlg = signature.RSA
+	case x509.ECDSAWithSHA1:
+		hashAlg = hash.SHA1
+		sigAlg = signature.ECDSA
+	default:
+		return Algorithm{}, errInvalidSignatureAlgorithm
+	}
+
+	return Algorithm{Hash: hashAlg, Signature: sigAlg}, nil
 }
 
 // parseSignatureScheme translates a tls.SignatureScheme to a hash.Algorithm

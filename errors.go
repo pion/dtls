@@ -72,6 +72,10 @@ var (
 	//nolint:err113
 	errInvalidExtendedMasterSecretType = &FatalError{Err: errors.New("invalid extended master secret type")}
 	//nolint:err113
+	errInvalidCertificateSignatureAlgorithm = &FatalError{
+		Err: errors.New("certificate uses a signature algorithm that is not allowed"),
+	}
+	//nolint:err113
 	errKeySignatureMismatch = &FatalError{Err: errors.New("expected and actual key signature do not match")}
 	//nolint:err113
 	errInvalidCertificateOID = &FatalError{Err: errors.New("certificate OID does not match signature algorithm")}
@@ -149,6 +153,10 @@ var (
 	errNilCustomCipherSuites = &FatalError{Err: errors.New("custom cipher suites option requires a non-nil function")}
 	//nolint:err113
 	errEmptySignatureSchemes = &FatalError{Err: errors.New("signature schemes option requires at least one scheme")}
+	//nolint:err113
+	errEmptyCertificateSignatureSchemes = &FatalError{
+		Err: errors.New("certificate signature schemes option requires at least one scheme"),
+	}
 	//nolint:err113
 	errEmptySRTPProtectionProfiles = &FatalError{
 		Err: errors.New("SRTP protection profiles option requires at least one profile"),

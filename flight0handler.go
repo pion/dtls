@@ -100,6 +100,9 @@ func flight0Parse(
 			if cfg.connectionIDGenerator != nil {
 				state.remoteConnectionID = ext.CID
 			}
+		case *extension.SignatureAlgorithmsCert:
+			// Store the client's certificate signature schemes for later validation
+			state.remoteCertSignatureSchemes = ext.SignatureHashAlgorithms
 		}
 	}
 
