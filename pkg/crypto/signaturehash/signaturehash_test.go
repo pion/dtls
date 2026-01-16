@@ -4,12 +4,18 @@
 package signaturehash
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseSignatureSchemes(t *testing.T) {
@@ -89,6 +95,86 @@ func TestParseSignatureSchemes(t *testing.T) {
 			insecureHashes: false,
 			err:            errNoAvailableSignatureSchemes,
 		},
+		"PSSSchemes": {
+			input: []tls.SignatureScheme{
+				tls.PSSWithSHA256, // 0x0804 (RSAE variant)
+				tls.PSSWithSHA384, // 0x0805 (RSAE variant)
+				tls.PSSWithSHA512, // 0x0806 (RSAE variant)
+			},
+			expected: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+				{hash.SHA384, signature.RSA_PSS_RSAE_SHA384},
+				{hash.SHA512, signature.RSA_PSS_RSAE_SHA512},
+			},
+			insecureHashes: false,
+			err:            nil,
+		},
+		"MixedPSSAndNonPSS": {
+			input: []tls.SignatureScheme{
+				tls.PSSWithSHA256,          // PSS (RSAE)
+				tls.PKCS1WithSHA256,        // Non-PSS RSA
+				tls.ECDSAWithP256AndSHA256, // ECDSA
+			},
+			expected: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+				{hash.SHA256, signature.RSA},
+				{hash.SHA256, signature.ECDSA},
+			},
+			insecureHashes: false,
+			err:            nil,
+		},
+		"PSSPSSSchemes": {
+			input: []tls.SignatureScheme{
+				0x0809, // RSA_PSS_PSS_SHA256
+				0x080a, // RSA_PSS_PSS_SHA384
+				0x080b, // RSA_PSS_PSS_SHA512
+			},
+			expected: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_PSS_SHA256},
+				{hash.SHA384, signature.RSA_PSS_PSS_SHA384},
+				{hash.SHA512, signature.RSA_PSS_PSS_SHA512},
+			},
+			insecureHashes: false,
+			err:            nil,
+		},
+		"AllPSSVariants": {
+			input: []tls.SignatureScheme{
+				tls.PSSWithSHA256, // 0x0804 (RSAE)
+				0x0809,            // RSA_PSS_PSS_SHA256
+				tls.PSSWithSHA384, // 0x0805 (RSAE)
+				0x080a,            // RSA_PSS_PSS_SHA384
+				tls.PSSWithSHA512, // 0x0806 (RSAE)
+				0x080b,            // RSA_PSS_PSS_SHA512
+			},
+			expected: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+				{hash.SHA256, signature.RSA_PSS_PSS_SHA256},
+				{hash.SHA384, signature.RSA_PSS_RSAE_SHA384},
+				{hash.SHA384, signature.RSA_PSS_PSS_SHA384},
+				{hash.SHA512, signature.RSA_PSS_RSAE_SHA512},
+				{hash.SHA512, signature.RSA_PSS_PSS_SHA512},
+			},
+			insecureHashes: false,
+			err:            nil,
+		},
+		"Ed25519NotTreatedAsPSS": {
+			input: []tls.SignatureScheme{
+				tls.Ed25519, // 0x0807 - in 0x08xx range but NOT PSS
+			},
+			expected: []Algorithm{
+				{hash.Ed25519, signature.Ed25519},
+			},
+			insecureHashes: false,
+			err:            nil,
+		},
+		"InvalidPSSLikeScheme": {
+			input: []tls.SignatureScheme{
+				0x0808, // In PSS range but not a valid PSS scheme (this is Ed448 in reality)
+			},
+			expected:       nil,
+			insecureHashes: false,
+			err:            errInvalidSignatureAlgorithm,
+		},
 	}
 
 	for name, testCase := range cases {
@@ -99,6 +185,81 @@ func TestParseSignatureSchemes(t *testing.T) {
 				assert.ErrorIs(t, err, testCase.err)
 			}
 			assert.Equal(t, testCase.expected, output)
+		})
+	}
+}
+
+func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
+	// Generate test keys
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	ecdsaKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name           string
+		schemes        []Algorithm
+		privateKey     crypto.PrivateKey
+		is13           bool
+		expectedSigAlg signature.Algorithm
+		expectedError  error
+	}{
+		{
+			name: "DTLS 1.3 with RSA key selects PSS",
+			schemes: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+				{hash.SHA256, signature.RSA},
+			},
+			privateKey:     rsaKey,
+			is13:           true,
+			expectedSigAlg: signature.RSA_PSS_RSAE_SHA256,
+			expectedError:  nil,
+		},
+		{
+			name: "DTLS 1.2 with RSA key skips PSS, selects PKCS#1 v1.5",
+			schemes: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+				{hash.SHA256, signature.RSA},
+			},
+			privateKey:     rsaKey,
+			is13:           false,
+			expectedSigAlg: signature.RSA,
+			expectedError:  nil,
+		},
+		{
+			name: "DTLS 1.2 with RSA key and only PSS schemes fails",
+			schemes: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+				{hash.SHA384, signature.RSA_PSS_RSAE_SHA384},
+			},
+			privateKey:     rsaKey,
+			is13:           false,
+			expectedSigAlg: 0,
+			expectedError:  errNoAvailableSignatureSchemes,
+		},
+		{
+			name: "ECDSA works on both DTLS 1.2 and 1.3",
+			schemes: []Algorithm{
+				{hash.SHA256, signature.ECDSA},
+			},
+			privateKey:     ecdsaKey,
+			is13:           false,
+			expectedSigAlg: signature.ECDSA,
+			expectedError:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := selectSignatureScheme13(tt.schemes, tt.privateKey, tt.is13)
+			if tt.expectedError != nil {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, tt.expectedError)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedSigAlg, result.Signature)
+			}
 		})
 	}
 }

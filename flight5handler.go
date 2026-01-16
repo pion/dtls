@@ -214,7 +214,7 @@ func flight5Generate(
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}
 
-		certVerify, err := generateCertificateVerify(plainText, signer, signatureHashAlgo.Hash)
+		certVerify, err := generateCertificateVerify(plainText, signer, signatureHashAlgo.Hash, signatureHashAlgo.Signature)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
@@ -367,9 +367,9 @@ func initializeCipherSuite(
 		)
 		if err = verifyKeySignature(
 			expectedMsg,
-			handshakeKeyExchange.
-				Signature,
+			handshakeKeyExchange.Signature,
 			handshakeKeyExchange.HashAlgorithm,
+			handshakeKeyExchange.SignatureAlgorithm,
 			state.PeerCertificates,
 		); err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err

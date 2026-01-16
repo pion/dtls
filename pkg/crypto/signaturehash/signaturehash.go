@@ -25,32 +25,48 @@ type Algorithm struct {
 	Signature signature.Algorithm
 }
 
-// Algorithms are all the know SignatureHash Algorithms.
+// Algorithms are all the known SignatureHash Algorithms.
+//
+// IMPORTANT: order in this slice determines priority used
+// by SelectSignatureScheme and SelectSignatureScheme13.
+//
+// Order follows industry standard preference (ECDSA-first) as used
+// by: OpenSSL, BoringSSL, Firefox, Chrome, and other major TLS 1.3
+// implementations. This prioritizes elliptic curve crypto for better
+// performance (smaller keys, faster computations, less bandwidth).
+//
+// Note that this is different than Go's TLS implementation order of
+// preference.
 func Algorithms() []Algorithm {
 	return []Algorithm{
+		// ECDSA schemes (modern, efficient - industry standard preference)
 		{hash.SHA256, signature.ECDSA},
 		{hash.SHA384, signature.ECDSA},
 		{hash.SHA512, signature.ECDSA},
+		// Ed25519
+		{hash.Ed25519, signature.Ed25519},
+		// RSA-PSS schemes (DTLS 1.3 compatible)
+		{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+		{hash.SHA384, signature.RSA_PSS_RSAE_SHA384},
+		{hash.SHA512, signature.RSA_PSS_RSAE_SHA512},
+		{hash.SHA256, signature.RSA_PSS_PSS_SHA256},
+		{hash.SHA384, signature.RSA_PSS_PSS_SHA384},
+		{hash.SHA512, signature.RSA_PSS_PSS_SHA512},
+		// RSA PKCS#1 v1.5 schemes (legacy, DTLS 1.2)
 		{hash.SHA256, signature.RSA},
 		{hash.SHA384, signature.RSA},
 		{hash.SHA512, signature.RSA},
-		{hash.Ed25519, signature.Ed25519},
 	}
 }
 
-// SelectSignatureScheme returns most preferred and compatible scheme.
+// SelectSignatureScheme returns most preferred and compatible scheme for DTLS <= 1.2.
 func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey) (Algorithm, error) {
-	signer, ok := privateKey.(crypto.Signer)
-	if !ok {
-		return Algorithm{}, errInvalidPrivateKey
-	}
-	for _, ss := range sigs {
-		if ss.isCompatible(signer) {
-			return ss, nil
-		}
-	}
+	return selectSignatureScheme13(sigs, privateKey, false)
+}
 
-	return Algorithm{}, errNoAvailableSignatureSchemes
+// SelectSignatureScheme13 returns most preferred and compatible scheme for DTLS 1.3.
+func SelectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey) (Algorithm, error) {
+	return selectSignatureScheme13(sigs, privateKey, true)
 }
 
 // isCompatible checks that given private key is compatible with the signature scheme.
@@ -61,7 +77,8 @@ func (a *Algorithm) isCompatible(signer crypto.Signer) bool {
 	case *ecdsa.PublicKey:
 		return a.Signature == signature.ECDSA
 	case *rsa.PublicKey:
-		return a.Signature == signature.RSA
+		// RSA keys are compatible with both PKCS#1 v1.5 and PSS signatures
+		return a.Signature == signature.RSA || a.Signature.IsPSS()
 	default:
 		return false
 	}
@@ -75,21 +92,18 @@ func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]A
 	}
 	out := []Algorithm{}
 	for _, ss := range sigs {
-		sig := signature.Algorithm(ss & 0xFF)
-		if _, ok := signature.Algorithms()[sig]; !ok {
-			return nil,
-				fmt.Errorf("SignatureScheme %04x: %w", ss, errInvalidSignatureAlgorithm)
+		hashAlg, sigAlg, err := parseSignatureScheme(ss)
+		if err != nil {
+			return nil, err
 		}
-		h := hash.Algorithm(ss >> 8)
-		if _, ok := hash.Algorithms()[h]; !ok || (ok && h == hash.None) {
-			return nil, fmt.Errorf("SignatureScheme %04x: %w", ss, errInvalidHashAlgorithm)
-		}
-		if h.Insecure() && !insecureHashes {
+
+		if hashAlg.Insecure() && !insecureHashes {
 			continue
 		}
+
 		out = append(out, Algorithm{
-			Hash:      h,
-			Signature: sig,
+			Hash:      hashAlg,
+			Signature: sigAlg,
 		})
 	}
 
@@ -98,4 +112,38 @@ func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]A
 	}
 
 	return out, nil
+}
+
+// parseSignatureScheme translates a tls.SignatureScheme to a hash.Algorithm
+// and signature.Algorithm. It returns default signature scheme list if no
+// SignatureScheme is passed. This function handles both TLS 1.2 byte-split
+// encoding and TLS 1.3 PSS full uint16 schemes.
+func parseSignatureScheme(sigScheme tls.SignatureScheme) (hash.Algorithm, signature.Algorithm, error) {
+	var sigAlg signature.Algorithm
+	var hashAlg hash.Algorithm
+
+	if signature.Algorithm(sigScheme).IsPSS() {
+		// TLS 1.3 PSS scheme - full uint16 is the signature algorithm
+		sigAlg = signature.Algorithm(sigScheme)
+		hashAlg = hash.ExtractHashFromPSS(uint16(sigScheme))
+		if hashAlg == hash.None {
+			return 0, 0, fmt.Errorf("SignatureScheme %04x: %w", sigScheme, errInvalidHashAlgorithm)
+		}
+	} else {
+		// TLS 1.2 style - split into hash (high byte) and signature (low byte)
+		sigAlg = signature.Algorithm(sigScheme & 0xFF)
+		hashAlg = hash.Algorithm(sigScheme >> 8)
+	}
+
+	// Validate signature algorithm
+	if _, ok := signature.Algorithms()[sigAlg]; !ok {
+		return 0, 0, fmt.Errorf("SignatureScheme %04x: %w", sigScheme, errInvalidSignatureAlgorithm)
+	}
+
+	// Validate hash algorithm
+	if _, ok := hash.Algorithms()[hashAlg]; !ok || (ok && hashAlg == hash.None) {
+		return 0, 0, fmt.Errorf("SignatureScheme %04x: %w", sigScheme, errInvalidHashAlgorithm)
+	}
+
+	return hashAlg, sigAlg, nil
 }
