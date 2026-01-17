@@ -24,6 +24,7 @@ const (
 	PreSharedKeyValue                     TypeValue = 41
 	SupportedVersionsTypeValue            TypeValue = 43
 	CookieTypeValue                       TypeValue = 44
+	PskKeyExchangeModesTypeValue          TypeValue = 45
 	KeyShareTypeValue                     TypeValue = 51
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
