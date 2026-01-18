@@ -264,6 +264,144 @@ func TestMessageCertificate13_EmptyCertData(t *testing.T) {
 	assert.ErrorIs(t, err, errInvalidCertificateEntry)
 }
 
+func TestMessageCertificate13_CertDataAtMaxBoundary(t *testing.T) {
+	// Test cert_data at exactly 2^24-1 bytes (max allowed per RFC)
+	// This will fail because serialized entry exceeds certificate_list limit
+	certData := make([]byte, 0xffffff) // 2^24-1 bytes
+	for i := range certData {
+		certData[i] = byte(i)
+	}
+
+	msg := &MessageCertificate13{
+		CertificateRequestContext: []byte{},
+		CertificateList: []CertificateEntry13{
+			{
+				CertificateData: certData,
+				Extensions:      []extension.Extension{},
+			},
+		},
+	}
+
+	_, err := msg.Marshal()
+	// Should fail with certificate list too long
+	// Serialized size = 3 (cert_data prefix) + 0xffffff (cert_data) + 2 (ext prefix) = 0x1000004
+	assert.ErrorIs(t, err, errCertificateListTooLong)
+}
+
+func TestMessageCertificate13_CertDataJustBelowMaxBoundary(t *testing.T) {
+	// Test cert_data at 2^24-1-5 bytes (should succeed for single cert with no extensions)
+	// Serialized size = 3 + (0xffffff-5) + 2 = 0xffffff (exactly at limit)
+	certData := make([]byte, 0xffffff-5) // 2^24-1-5 bytes
+	for i := range certData {
+		certData[i] = byte(i)
+	}
+
+	msg := &MessageCertificate13{
+		CertificateRequestContext: []byte{},
+		CertificateList: []CertificateEntry13{
+			{
+				CertificateData: certData,
+				Extensions:      []extension.Extension{},
+			},
+		},
+	}
+
+	data, err := msg.Marshal()
+	assert.NoError(t, err)
+
+	// Verify round-trip
+	out := &MessageCertificate13{}
+	err = out.Unmarshal(data)
+	assert.NoError(t, err)
+	assert.Equal(t, len(msg.CertificateList[0].CertificateData), len(out.CertificateList[0].CertificateData))
+}
+
+func TestMessageCertificate13_CertDataOneByteOverBoundary(t *testing.T) {
+	// Test cert_data at 2^24-1-4 bytes (one byte over the single-cert-no-ext limit)
+	// Serialized size = 3 + (0xffffff-4) + 2 = 0x1000000 (exceeds 2^24-1)
+	certData := make([]byte, 0xffffff-4) // 2^24-1-4 bytes
+	for i := range certData {
+		certData[i] = byte(i)
+	}
+
+	msg := &MessageCertificate13{
+		CertificateRequestContext: []byte{},
+		CertificateList: []CertificateEntry13{
+			{
+				CertificateData: certData,
+				Extensions:      []extension.Extension{},
+			},
+		},
+	}
+
+	_, err := msg.Marshal()
+	assert.ErrorIs(t, err, errCertificateListTooLong)
+}
+
+func TestMessageCertificate13_MultipleCertsExceedingBoundary(t *testing.T) {
+	// Test multiple certs that individually are fine but together exceed the limit
+	// Two certs of ~8MB each should exceed 2^24-1 total
+	certData1 := make([]byte, 0x800000) // 8MB
+	certData2 := make([]byte, 0x800000) // 8MB
+	for i := range certData1 {
+		certData1[i] = byte(i)
+		certData2[i] = byte(i + 1)
+	}
+
+	msg := &MessageCertificate13{
+		CertificateRequestContext: []byte{},
+		CertificateList: []CertificateEntry13{
+			{
+				CertificateData: certData1,
+				Extensions:      []extension.Extension{},
+			},
+			{
+				CertificateData: certData2,
+				Extensions:      []extension.Extension{},
+			},
+		},
+	}
+
+	_, err := msg.Marshal()
+	// Total serialized = 2 * (3 + 0x800000 + 2) = 2 * 0x800005 = 0x100000A (exceeds 0xffffff)
+	assert.ErrorIs(t, err, errCertificateListTooLong)
+}
+
+func TestMessageCertificate13_CertListAtExactBoundary(t *testing.T) {
+	// Test that we can marshal a certificate_list of exactly 2^24-1 bytes
+	// We need to account for all overhead: 3 (cert prefix) + cert_data + 2 (ext prefix)
+	// So cert_data should be 0xffffff - 5
+	certData := make([]byte, 0xffffff-5)
+	for i := range certData {
+		certData[i] = byte(i)
+	}
+
+	msg := &MessageCertificate13{
+		CertificateRequestContext: []byte{},
+		CertificateList: []CertificateEntry13{
+			{
+				CertificateData: certData,
+				Extensions:      []extension.Extension{},
+			},
+		},
+	}
+
+	data, err := msg.Marshal()
+	assert.NoError(t, err)
+
+	// Verify the certificate_list is exactly at the boundary
+	// data format: [1 byte context_len][context][3 bytes cert_list_len][cert_list]
+	// context is empty, so: [0x00][3 bytes][cert_list]
+	certListLen := int(data[1])<<16 | int(data[2])<<8 | int(data[3])
+	assert.Equal(t, 0xffffff, certListLen, "certificate_list should be exactly at 2^24-1")
+
+	// Verify round-trip
+	out := &MessageCertificate13{}
+	err = out.Unmarshal(data)
+	assert.NoError(t, err)
+	assert.Equal(t, len(msg.CertificateList[0].CertificateData), len(out.CertificateList[0].CertificateData))
+}
+
 func TestMessageCertificate13_UnmarshalBufferTooSmall(t *testing.T) {
 	// Define (invalid) serialized messages (data too small)
 	tests := []struct {
