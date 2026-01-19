@@ -4,8 +4,6 @@
 package extension
 
 import (
-	"errors"
-
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -27,11 +25,6 @@ const (
 func (p PskKeyExchangeModes) TypeValue() TypeValue {
 	return PskKeyExchangeModesTypeValue
 }
-
-var (
-	errPskKeyExchangeModesFormat = errors.New("invalid Pre-Shared Key Exchange Modes extension format")
-	errNoPskKeyExchangeMode      = errors.New("no mode set for the Pre-Shared Key Exchange Modes extension")
-)
 
 // Marshal encodes the extension.
 func (p *PskKeyExchangeModes) Marshal() ([]byte, error) {

@@ -4,8 +4,6 @@
 package extension
 
 import (
-	"errors"
-
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -30,8 +28,6 @@ type PskBinderEntry []byte
 func (p PreSharedKey) TypeValue() TypeValue {
 	return PreSharedKeyValue
 }
-
-var errPreSharedKeyFormat = errors.New("invalid Pre-Shared Key extension format")
 
 // Marshal encodes the extension.
 func (p *PreSharedKey) Marshal() ([]byte, error) {
