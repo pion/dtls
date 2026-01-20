@@ -7,9 +7,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/cryptobyte"
 )
 
-func TestPreSharedKeyServerHello(t *testing.T) {
+func TestPreSharedKey_ServerHello(t *testing.T) {
 	raw := []byte{
 		0x00, 0x29, // extension type
 		0x00, 0x02, // extension length
@@ -28,7 +29,7 @@ func TestPreSharedKeyServerHello(t *testing.T) {
 	assert.Equal(t, raw, test)
 }
 
-func TestPreSharedKeyClientHello(t *testing.T) {
+func TestPreSharedKey_ClientHello(t *testing.T) {
 	binder := make([]byte, 32)
 	for i := range binder {
 		binder[i] = byte(i)
@@ -63,4 +64,74 @@ func TestPreSharedKeyClientHello(t *testing.T) {
 	test, err := expect.Marshal()
 	assert.NoError(t, err)
 	assert.Equal(t, raw, test)
+}
+
+func TestPreSharedKey_ClientHello_Empty(t *testing.T) {
+	raw := []byte{
+		0x00, 0x29, // extension type
+		0x00, 0x0a, // extension length
+		0x00, 0x06, // identities length
+		0x00, 0x00, // identity length
+		0xff, 0xff, // ticket_age
+		0xff, 0xff, // ticket_age
+		0x00, 0x00, // binders length
+	}
+
+	extension := PreSharedKey{}
+
+	err := extension.Unmarshal(raw)
+	assert.ErrorIs(t, err, errPreSharedKeyFormat)
+}
+
+func FuzzPreSharedKeyUnmarshal(f *testing.F) {
+	binder := make([]byte, 32)
+	for i := range binder {
+		binder[i] = byte(i)
+	}
+
+	rawCH := []byte{
+		0x00, 0x29, // extension type
+		0x00, 0x2d, // extension length
+		0x00, 0x08, // identities length
+		0x00, 0x02, // identity length
+		0x42, 0x42, // identity
+		0xff, 0xff, // ticket_age
+		0xff, 0xff, // ticket_age
+		0x00, 0x21, // binders length
+		0x20, // binder entry legnth
+	}
+
+	rawCH = append(rawCH, binder...)
+
+	testcases := [][]byte{
+		{
+			0x00, 0x29, // extension type
+			0x00, 0x02, // extension length
+			0x01, 0x42, // selected_identity
+		},
+		rawCH,
+	}
+
+	for _, tc := range testcases {
+		f.Add(tc)
+	}
+	f.Fuzz(func(t *testing.T, a []byte) {
+		psk := PreSharedKey{}
+		err := psk.Unmarshal(a)
+		if err == nil {
+			// ServerHello
+			if len(a) == 6 && len(psk.Identities) != 0 && len(psk.Binders) != 0 {
+				assert.Fail(t, "PreSharedKey was unmarshalled without error both as ServerHello and ClientHello")
+			}
+
+			// ClientHello
+			data := cryptobyte.String(a[2:3])
+			var length uint16
+			data.ReadUint16(&length)
+			if length > 2 {
+				assert.NotZero(t, len(psk.Identities))
+				assert.NotZero(t, len(psk.Binders))
+			}
+		}
+	})
 }

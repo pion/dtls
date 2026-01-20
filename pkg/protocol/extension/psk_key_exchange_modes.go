@@ -35,10 +35,12 @@ func (p *PskKeyExchangeModes) Marshal() ([]byte, error) {
 	var out cryptobyte.Builder
 	out.AddUint16(uint16(p.TypeValue()))
 
-	out.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
-		for _, keM := range p.KeModes {
-			b.AddUint8(uint8(keM))
-		}
+	out.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+		b.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
+			for _, keM := range p.KeModes {
+				b.AddUint8(uint8(keM))
+			}
+		})
 	})
 
 	return out.Bytes()
