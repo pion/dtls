@@ -66,7 +66,12 @@ func TestPreSharedKey_ClientHello(t *testing.T) {
 	assert.Equal(t, raw, test)
 }
 
-func TestPreSharedKey_ClientHello_Empty(t *testing.T) {
+func TestPreSharedKey_ClientHello_EmptyIdentities(t *testing.T) {
+	binder := make([]byte, 32)
+	for i := range binder {
+		binder[i] = byte(i)
+	}
+
 	raw := []byte{
 		0x00, 0x29, // extension type
 		0x00, 0x0a, // extension length
@@ -74,8 +79,35 @@ func TestPreSharedKey_ClientHello_Empty(t *testing.T) {
 		0x00, 0x00, // identity length
 		0xff, 0xff, // ticket_age
 		0xff, 0xff, // ticket_age
-		0x00, 0x00, // binders length
+		0x00, 0x21, // binders length
+		0x20, // binder entry legnth
 	}
+
+	raw = append(raw, binder...)
+
+	extension := PreSharedKey{}
+
+	err := extension.Unmarshal(raw)
+	assert.ErrorIs(t, err, errPreSharedKeyFormat)
+}
+
+func TestPreSharedKey_ClientHello_LowBinders(t *testing.T) {
+	binder := make([]byte, 16)
+	for i := range binder {
+		binder[i] = byte(i)
+	}
+	raw := []byte{
+		0x00, 0x29, // extension type
+		0x00, 0x0a, // extension length
+		0x00, 0x06, // identities length
+		0x00, 0x02, // identity length
+		0x42, 0x42, // identity
+		0xff, 0xff, // ticket_age
+		0xff, 0xff, // ticket_age
+		0x00, 0x11, // binders length
+		0x10, // binder entry legnth
+	}
+	raw = append(raw, binder...)
 
 	extension := PreSharedKey{}
 
