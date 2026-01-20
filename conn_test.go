@@ -3509,7 +3509,7 @@ func TestOutboundInterceptor(t *testing.T) {
 	var client *Conn
 	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{serverCert},
-		OutboundHandshakePacketInterceptor: func(packet []byte) bool {
+		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
 			client.InjectInboundPacket(packet, ca.RemoteAddr())
 
 			return true
@@ -3528,13 +3528,60 @@ func TestOutboundInterceptor(t *testing.T) {
 
 	client, err = Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{clientCert},
-		OutboundHandshakePacketInterceptor: func(packet []byte) bool {
+		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
 			server.InjectInboundPacket(packet, cb.RemoteAddr())
 
 			return true
 		},
 		InsecureSkipVerify:      true,
 		InsecureSkipVerifyHello: true,
+	})
+	assert.NoError(t, err)
+
+	assert.NoError(t, client.Handshake())
+	assert.NoError(t, server.Close())
+	assert.NoError(t, client.Close())
+}
+
+func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	ca, cb := dpipe.Pipe()
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	var client *Conn
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+		Certificates: []tls.Certificate{serverCert},
+		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+			client.InjectInboundPacket(packet, ca.RemoteAddr())
+
+			return true
+		},
+		InsecureSkipVerify:      true,
+		InsecureSkipVerifyHello: true,
+		MTU:                     400,
+	})
+	assert.NoError(t, err)
+
+	go func() {
+		_ = server.Handshake()
+	}()
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	client, err = Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+		Certificates: []tls.Certificate{clientCert},
+		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+			server.InjectInboundPacket(packet, cb.RemoteAddr())
+
+			return true
+		},
+		InsecureSkipVerify:      true,
+		InsecureSkipVerifyHello: true,
+		MTU:                     500,
 	})
 	assert.NoError(t, err)
 
@@ -3574,7 +3621,7 @@ func TestInboundNotifier(t *testing.T) {
 	var outboundHandshakePackets [][]byte
 	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{clientCert},
-		OutboundHandshakePacketInterceptor: func(packet []byte) bool {
+		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
 			data := make([]byte, len(packet))
 			copy(data, packet)
 			outboundHandshakePackets = append(outboundHandshakePackets, data)

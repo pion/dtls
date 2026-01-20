@@ -219,9 +219,10 @@ type Config struct {
 	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 
 	// OutboundHandshakePacketInterceptor is an optional callback that can be set to
-	// intercept outgoing raw handshake packets. It is called with the raw packet bytes.
+	// intercept outgoing raw handshake packets. It is called with the raw packet bytes
+	// and a boolean flag specifying if this is the last packet of a flight.
 	// The interceptor can decide to drop the packet by returning true.
-	OutboundHandshakePacketInterceptor func(packet []byte) bool
+	OutboundHandshakePacketInterceptor func(packet []byte, end bool) bool
 	// InboundHandshakePacketNotifier is an optional callback that can be set to
 	// receive notifications about incoming raw handshake packets. It is called with
 	// the raw packet bytes after the packet has been processed.

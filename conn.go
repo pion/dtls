@@ -98,7 +98,7 @@ type Conn struct {
 	replayProtectionWindow uint
 
 	// Allows intercepting and rerouting outgoing handshake packets.
-	outboundHandshakePacketInterceptor func(packet []byte) bool
+	outboundHandshakePacketInterceptor func(packet []byte, end bool) bool
 	// Allows getting notified about incoming handshake packets.
 	inboundHandshakePacketNotifier func(packet []byte)
 
@@ -522,13 +522,13 @@ func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*packet) error 
 	}
 	compactedRawPackets := c.compactRawPackets(rawPackets)
 
-	for _, compactedRawPackets := range compactedRawPackets {
+	for idx, compactedRawPacket := range compactedRawPackets {
 		if c.outboundHandshakePacketInterceptor != nil {
-			if c.outboundHandshakePacketInterceptor(compactedRawPackets) {
+			if c.outboundHandshakePacketInterceptor(compactedRawPacket, idx == len(compactedRawPackets)) {
 				continue
 			}
 		}
-		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPackets, c.rAddr); err != nil {
+		if _, err := c.nextConn.WriteToContext(ctx, compactedRawPacket, c.rAddr); err != nil {
 			return netError(err)
 		}
 	}
