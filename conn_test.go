@@ -205,7 +205,7 @@ func pipeConn(ca, cb net.Conn) (*Conn, *Conn, error) {
 		err error
 	}
 
-	resultCh := make(chan result)
+	resultCh := make(chan result, 1) // Buffered to prevent goroutine leak
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -222,6 +222,11 @@ func pipeConn(ca, cb net.Conn) (*Conn, *Conn, error) {
 		SRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 	}, true)
 	if err != nil {
+		// Read from resultCh to prevent goroutine leak
+		if res := <-resultCh; res.c != nil {
+			_ = res.c.Close()
+		}
+
 		return nil, nil, err
 	}
 
@@ -799,11 +804,12 @@ func TestPSKServerKeyExchange(t *testing.T) {
 			SetIdentity: false,
 		},
 	} {
-		test := test
-		t.Run(test.Name, func(t *testing.T) {
+		testCase := test
+		t.Run(testCase.Name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			gotServerKeyExchange := false
+			var gotServerKeyExchange atomic.Bool
+			expectedServerKeyExchange := testCase.SetIdentity
 
 			clientErr := make(chan error, 1)
 			ca, cb := dpipe.Pipe()
@@ -817,7 +823,7 @@ func TestPSKServerKeyExchange(t *testing.T) {
 					_ = h.Unmarshal(messages[i][recordlayer.FixedHeaderSize:])
 
 					if h.Header.Type == handshake.TypeServerKeyExchange {
-						gotServerKeyExchange = true
+						gotServerKeyExchange.Store(true)
 					}
 				}
 			}
@@ -844,15 +850,20 @@ func TestPSKServerKeyExchange(t *testing.T) {
 				},
 				CipherSuites: []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 			}
-			if test.SetIdentity {
+			if testCase.SetIdentity {
 				config.PSKIdentityHint = []byte{0xAB, 0xC1, 0x23}
 			}
 
 			server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cbAnalyzer), cbAnalyzer.RemoteAddr(), config, false)
 			assert.NoError(t, err)
+
+			// Read the value immediately after handshake completes, before closing
+			receivedServerKeyExchange := gotServerKeyExchange.Load()
+
 			assert.NoError(t, server.Close())
 			assert.NoError(t, <-clientErr, "TestPSK: Client erro")
-			assert.Equal(t, test.SetIdentity, gotServerKeyExchange)
+
+			assert.Equal(t, expectedServerKeyExchange, receivedServerKeyExchange)
 		})
 	}
 }
