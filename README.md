@@ -37,6 +37,7 @@ A long term goal is a professional security review, and maybe an inclusion in st
 [rfc7301]: https://tools.ietf.org/html/rfc7301
 [rfc7627]: https://tools.ietf.org/html/rfc7627
 [rfc8422]: https://tools.ietf.org/html/rfc8422
+[rfc9147]: https://tools.ietf.org/html/rfc9147
 
 ### Goals/Progress
 This will only be targeting DTLS 1.2, and the most modern/common cipher suites.
@@ -77,6 +78,7 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 * TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5489][rfc5489])
 
 #### Planned Features
+* DTLS 1.3 ([RFC 9147][rfc9147])
 * Chacha20Poly1305
 
 #### Excluded Features
@@ -86,7 +88,7 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 
 ### Using
 
-This library needs at least Go 1.13, and you should have [Go modules
+This library needs at least Go 1.21, and you should have [Go modules
 enabled](https://github.com/golang/go/wiki/Modules).
 
 #### Pion DTLS
@@ -146,6 +148,12 @@ If you need commercial support or don't want to use public methods you can conta
 
 ### Contributing
 Check out the [contributing wiki](https://github.com/pion/webrtc/wiki/Contributing) to join the group of amazing people making this project possible
+
+### Funding
+<a href="https://nlnet.nl/"><img src="https://nlnet.nl/logo/banner.svg" alt="NLnet foundation logo" width="200"></a>
+<a href="https://nlnet.nl/commonsfund/"><img src="https://nlnet.nl/image/logos/NGI0Core_tag.svg" alt="NLnet foundation logo" width="200"></a>
+
+The DTLS 1.3 implementation in this project is funded through the [NGI0 Commons Fund](https://nlnet.nl/commonsfund), a fund established by [NLnet](https://nlnet.nl/) with financial support from the European Commission's [Next Generation Internet](https://ngi.eu/) programme, under the aegis of [DG Communications Networks, Content and Technology](https://commission.europa.eu/about-european-commission/departments-and-executive-agencies/communications-networks-content-and-technology_en) under grant agreement No [101135429](https://cordis.europa.eu/project/id/101135429). Additional funding is made available by the [Swiss State Secretariat for Education, Research and Innovation](https://www.sbfi.admin.ch/sbfi/en/home.html) (SERI). Learn more on the [NLnet project page](https://nlnet.nl/project/PION-DTLS1.3/).
 
 ### License
 MIT License - see [LICENSE](LICENSE) for full text
