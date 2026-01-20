@@ -69,7 +69,7 @@ type dtlsConfig struct {
 	ClientHelloMessageHook             func(handshake.MessageClientHello) handshake.Message
 	ServerHelloMessageHook             func(handshake.MessageServerHello) handshake.Message
 	CertificateRequestMessageHook      func(handshake.MessageCertificateRequest) handshake.Message
-	OutboundHandshakePacketInterceptor func(packet []byte) bool
+	OutboundHandshakePacketInterceptor func(packet []byte, end bool) bool
 	InboundHandshakePacketNotifier     func(packet []byte)
 	OnConnectionAttempt                func(net.Addr) error
 	ListenConfig                       net.ListenConfig
@@ -649,11 +649,12 @@ func WithCertificateRequestMessageHook(fn func(handshake.MessageCertificateReque
 }
 
 // WithOutboundHandshakePacketInterceptor sets a callback that intercepts outgoing
-// raw handshake packets. It is called with the raw packet bytes; returning true
-// drops the packet so that the caller can deliver it by other means, for
-// example by embedding it into STUN.
+// raw handshake packets. It is called with the raw packet bytes and a flag telling
+// whether this is the last packet of a flight; returning true drops the packet so
+// that the caller can deliver it by other means, for example by embedding it into
+// STUN.
 // Returns an error if the callback is nil.
-func WithOutboundHandshakePacketInterceptor(fn func(packet []byte) bool) Option {
+func WithOutboundHandshakePacketInterceptor(fn func(packet []byte, end bool) bool) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
 			return dtlserrors.ErrNilOutboundHandshakePacketInterceptor

@@ -241,7 +241,7 @@ type Conn struct {
 	replayProtectionWindow uint
 
 	// Allows intercepting and rerouting outgoing handshake packets.
-	outboundHandshakePacketInterceptor func(packet []byte) bool
+	outboundHandshakePacketInterceptor func(packet []byte, end bool) bool
 	// Allows getting notified about incoming handshake packets.
 	inboundHandshakePacketNotifier func(packet []byte)
 
@@ -814,7 +814,7 @@ func (c *Conn) writeHandshakePacketsWithResult(
 func (c *Conn) writePacketsWithResultLocked(
 	ctx context.Context,
 	pkts []*dtlsflight.Outbound,
-	interceptor func(packet []byte) bool,
+	interceptor func(packet []byte, end bool) bool,
 ) (*dtlshandshake.WriteResult, error) {
 	datagrams, rAddr, err := c.prepareRawPacketsTracked(pkts)
 	if err != nil {
@@ -822,10 +822,10 @@ func (c *Conn) writePacketsWithResultLocked(
 	}
 
 	result := &dtlshandshake.WriteResult{}
-	for _, datagram := range datagrams {
+	for idx, datagram := range datagrams {
 		// The interceptor takes ownership of the datagram when it returns true,
 		// so it counts as sent and its records stay tracked for retransmission.
-		if interceptor == nil || !interceptor(datagram.raw) {
+		if interceptor == nil || !interceptor(datagram.raw, idx == len(datagrams)) {
 			if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
 				if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
 					return nil, ErrConnClosed
