@@ -819,7 +819,7 @@ func (c *Conn) writePacketsWithResultLocked(
 	for idx, datagram := range datagrams {
 		// The interceptor takes ownership of the datagram when it returns true,
 		// so it counts as sent and its records stay tracked for retransmission.
-		if interceptor == nil || !interceptor(datagram.raw, idx == len(datagrams)) {
+		if interceptor == nil || !interceptor(datagram.raw, idx == len(datagrams)-1) {
 			if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
 				if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
 					return nil, ErrConnClosed
