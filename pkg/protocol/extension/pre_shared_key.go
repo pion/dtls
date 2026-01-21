@@ -7,22 +7,33 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
-// PreSharedKey implements the PreSharedKey extension in DTLS 1.3.
-// See RFC 8446 section 4.2.11. Pre-Shared Key Extension.
+// PreSharedKey represents the "pre_shared_key" extension for DTLS 1.3.
+// This extension is used in both ClientHello and ServerHello messages,
+// but only the relevant fields should be populated for each context.
+// See RFC 8446 section 4.2.11.
+//
+// https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.11
 type PreSharedKey struct {
-	// ClientHello: OfferedPsks
+	// ClientHello only - offered PSK identities
 	Identities []PskIdentity
-	Binders    []PskBinderEntry
-	// ServerHello
+	// ClientHello only - binder values associated with a PSK identity
+	Binders []PskBinderEntry
+	// ServerHello only - index of selected identity
 	SelectedIdentity uint16
 }
 
+// PskIdentity represents the PSK identitiy in the "pre_shared_key" extension
+// for DTLS 1.3.
 type PskIdentity struct {
 	Identity            []byte
 	ObfuscatedTicketAge uint32
 }
 
+// PskBinderEntry represents the binder related to a PSK identity in the
+// "pre_shared_key" extension for DTLS 1.3.
 type PskBinderEntry []byte
+
+const minPSKBinderSize = 32
 
 // TypeValue returns the extension TypeValue.
 func (p PreSharedKey) TypeValue() TypeValue {
@@ -58,7 +69,7 @@ func (p *PreSharedKey) Marshal() ([]byte, error) {
 		})
 		b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 			for _, binder := range p.Binders {
-				if len(binder) < 32 {
+				if len(binder) < minPSKBinderSize {
 					b.SetError(errPreSharedKeyFormat)
 				}
 				b.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
@@ -117,10 +128,14 @@ func (p *PreSharedKey) Unmarshal(data []byte) error { //nolint:cyclop
 
 	for !binders.Empty() {
 		var binder cryptobyte.String
-		if !binders.ReadUint8LengthPrefixed(&binder) || len(binder) < 32 {
+		if !binders.ReadUint8LengthPrefixed(&binder) || len(binder) < minPSKBinderSize {
 			return errPreSharedKeyFormat
 		}
 		p.Binders = append(p.Binders, PskBinderEntry(binder))
+	}
+
+	if len(binders) != len(identities) || !extData.Empty() {
+		return errPreSharedKeyFormat
 	}
 
 	return nil

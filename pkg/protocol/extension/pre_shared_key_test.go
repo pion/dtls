@@ -74,12 +74,104 @@ func TestPreSharedKey_ClientHello_EmptyIdentities(t *testing.T) {
 
 	raw := []byte{
 		0x00, 0x29, // extension type
-		0x00, 0x0a, // extension length
+		0x00, 0x2b, // extension length
 		0x00, 0x06, // identities length
 		0x00, 0x00, // identity length
 		0xff, 0xff, // ticket_age
 		0xff, 0xff, // ticket_age
 		0x00, 0x21, // binders length
+		0x20, // binder entry legnth
+	}
+
+	raw = append(raw, binder...)
+
+	extension := PreSharedKey{}
+
+	err := extension.Unmarshal(raw)
+	assert.ErrorIs(t, err, errPreSharedKeyFormat)
+}
+
+func TestPreSharedKey_ClientHello_MultipleIdentities(t *testing.T) {
+	binder := make([]byte, 32)
+	for i := range binder {
+		binder[i] = byte(i)
+	}
+
+	raw := []byte{
+		0x00, 0x29, // extension type
+		0x00, 0x56, // extension length
+		0x00, 0x10, // identities length
+		0x00, 0x02, // identity length
+		0x41, 0x41, // identity
+		0xaa, 0xaa, // ticket_age
+		0xaa, 0xaa, // ticket_age
+		0x00, 0x02, // identity length
+		0x42, 0x42, // identity
+		0xff, 0xff, // ticket_age
+		0xff, 0xff, // ticket_age
+		0x00, 0x42, // binders length
+		0x20, // binder entry legnth
+	}
+
+	raw = append(raw, binder...)
+	raw = append(raw, []byte{0x20}...)
+	raw = append(raw, binder...)
+
+	extension := PreSharedKey{}
+
+	expectIdentity1 := PskIdentity{
+		Identity:            []byte{0x41, 0x41},
+		ObfuscatedTicketAge: uint32(0xaaaaaaaa),
+	}
+	expectIdentity2 := PskIdentity{
+		Identity:            []byte{0x42, 0x42},
+		ObfuscatedTicketAge: uint32(0xffffffff),
+	}
+
+	expect := PreSharedKey{
+		Identities: []PskIdentity{
+			expectIdentity1,
+			expectIdentity2,
+		},
+		Binders: []PskBinderEntry{
+			binder,
+			binder,
+		},
+	}
+
+	assert.NoError(t, extension.Unmarshal(raw))
+	assert.Equal(t, uint16(0), extension.SelectedIdentity)
+	assert.Equal(t, 2, len(extension.Identities))
+	assert.Equal(t, expect.Identities[0], extension.Identities[0])
+	assert.Equal(t, expect.Identities[1], extension.Identities[1])
+	assert.Equal(t, 2, len(extension.Binders))
+	assert.Equal(t, expect.Binders[0], extension.Binders[0])
+	assert.Equal(t, expect.Binders[1], extension.Binders[1])
+
+	test, err := expect.Marshal()
+	assert.NoError(t, err)
+	assert.Equal(t, raw, test)
+}
+
+func TestPreSharedKey_ClientHello_MultipleIdentities_SingleBinder(t *testing.T) {
+	binder := make([]byte, 32)
+	for i := range binder {
+		binder[i] = byte(i)
+	}
+
+	raw := []byte{
+		0x00, 0x29, // extension type
+		0x00, 0x0a, // extension length
+		0x00, 0x10, // identities length
+		0x00, 0x02, // identity length
+		0x41, 0x41, // identity
+		0xaa, 0xaa, // ticket_age
+		0xaa, 0xaa, // ticket_age
+		0x00, 0x02, // identity length
+		0x42, 0x42, // identity
+		0xff, 0xff, // ticket_age
+		0xff, 0xff, // ticket_age
+		0x00, 0x42, // binders length
 		0x20, // binder entry legnth
 	}
 
@@ -163,6 +255,7 @@ func FuzzPreSharedKeyUnmarshal(f *testing.F) {
 			if length > 2 {
 				assert.NotZero(t, len(psk.Identities))
 				assert.NotZero(t, len(psk.Binders))
+				assert.Equal(t, len(psk.Binders), len(psk.Binders))
 			}
 		}
 	})

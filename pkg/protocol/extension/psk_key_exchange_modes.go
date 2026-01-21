@@ -9,6 +9,8 @@ import (
 
 // PskKeyExchangeModes implements the PskKeyExchangeModes extension in DTLS 1.3.
 // See RFC 8446 section 4.2.9. Pre-Shared Key Exchange Modes.
+//
+// https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.9
 type PskKeyExchangeModes struct {
 	KeModes []PskKeyExchangeMode
 }
