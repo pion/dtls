@@ -563,7 +563,7 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 	// Spawn clients sending to server connections.
 	for i := 1; i <= clientCount; i++ {
 		clientWg.Add(1)
-		go func(connID int) {
+		go func(connID int, clientID string) {
 			defer clientWg.Done()
 			// Ensure that we are using a connection ID for packet
 			// routing prior to sending any messages.
@@ -573,18 +573,17 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			conn, dErr := net.DialUDP(network, nil, addr)
 			assert.NoError(t, dErr)
 
-			// Send a packet with a connection ID and this client's local
-			// address. The latter is used to identify this client as unique.
+			// Send a packet with a connection ID and this client's unique ID.
 			buf, err := json.Marshal(&pkt{
 				ID:      connID,
-				Payload: conn.LocalAddr().String(),
+				Payload: clientID,
 			})
 			assert.NoError(t, err)
 
 			_, wErr := conn.Write(buf)
 			assert.NoError(t, wErr)
 			assert.NoError(t, conn.Close())
-		}(i % serverCount)
+		}(i%serverCount, fmt.Sprintf("client-%d", i))
 	}
 
 	// Wait for clients to exit.
