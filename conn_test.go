@@ -3552,9 +3552,14 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	assert.NoError(t, err)
 
 	var client *Conn
+	serverPackets, serverFlights := 0, 0
 	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{serverCert},
 		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+			serverPackets++
+			if end {
+				serverFlights++
+			}
 			client.InjectInboundPacket(packet, ca.RemoteAddr())
 
 			return true
@@ -3572,9 +3577,14 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	clientCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
+	clientPackets, clientFlights := 0, 0
 	client, err = Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{clientCert},
 		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+			clientPackets++
+			if end {
+				clientFlights++
+			}
 			server.InjectInboundPacket(packet, cb.RemoteAddr())
 
 			return true
@@ -3588,6 +3598,10 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	assert.NoError(t, client.Handshake())
 	assert.NoError(t, server.Close())
 	assert.NoError(t, client.Close())
+	assert.Equal(t, 2, clientPackets)
+	assert.Equal(t, 2, clientFlights)
+	assert.Equal(t, 4, serverPackets)
+	assert.Equal(t, 2, serverFlights)
 }
 
 func TestInboundNotifier(t *testing.T) {

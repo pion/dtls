@@ -491,6 +491,7 @@ func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*packet) error 
 			if err != nil {
 				return err
 			}
+
 			c.log.Tracef("[handshake:%v] -> %s (epoch: %d, seq: %d)",
 				srvCliStr(c.state.isClient), dtlsHandshake.Header.Type.String(),
 				pkt.record.Header.Epoch, dtlsHandshake.Header.MessageSequence)
@@ -524,7 +525,7 @@ func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*packet) error 
 
 	for idx, compactedRawPacket := range compactedRawPackets {
 		if c.outboundHandshakePacketInterceptor != nil {
-			if c.outboundHandshakePacketInterceptor(compactedRawPacket, idx == len(compactedRawPackets)) {
+			if c.outboundHandshakePacketInterceptor(compactedRawPacket, idx == len(compactedRawPackets)-1) {
 				continue
 			}
 		}
