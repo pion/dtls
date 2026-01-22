@@ -23,7 +23,10 @@ const keyLogLabelTLS12 = "CLIENT_RANDOM"
 
 // Config is used to configure a DTLS client or server.
 // After a Config is passed to a DTLS function it must not be modified.
-type Config struct {
+//
+// Deprecated: prefer the options-based APIs (`*WithOptions`) to construct immutable configs,
+// This will be removed in the next major version.
+type Config struct { //nolint:dupl
 	// Certificates contains certificate chain to present to the other side of the connection.
 	// Server MUST set this if PSK is non-nil
 	// client SHOULD sets this so CertificateRequests can be handled if PSK is non-nil

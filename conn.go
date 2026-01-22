@@ -99,6 +99,9 @@ type Conn struct {
 	handshakeConfig *handshakeConfig
 }
 
+// createConn creates a new DTLS connection.
+// Caller is responsible for validating the config before calling this function.
+//
 //nolint:cyclop
 func createConn(
 	nextConn net.PacketConn,
@@ -107,10 +110,6 @@ func createConn(
 	isClient bool,
 	resumeState *State,
 ) (*Conn, error) {
-	if err := validateConfig(config); err != nil {
-		return nil, err
-	}
-
 	if nextConn == nil {
 		return nil, errNilNextConn
 	}
@@ -317,6 +316,8 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 }
 
 // Dial connects to the given network address and establishes a DTLS connection on top.
+//
+// Deprecated: Use DialWithOptions instead.
 func Dial(network string, rAddr *net.UDPAddr, config *Config) (*Conn, error) {
 	// net.ListenUDP is used rather than net.DialUDP as the latter prevents the
 	// use of net.PacketConn.WriteTo.
@@ -329,7 +330,19 @@ func Dial(network string, rAddr *net.UDPAddr, config *Config) (*Conn, error) {
 	return Client(pConn, rAddr, config)
 }
 
+// DialWithOptions connects to the given network address and establishes a DTLS connection on top.
+func DialWithOptions(network string, rAddr *net.UDPAddr, opts ...ClientOption) (*Conn, error) {
+	config, err := buildClientConfig(opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return Dial(network, rAddr, config)
+}
+
 // Client establishes a DTLS connection over an existing connection.
+//
+// Deprecated: Use ClientWithOptions instead.
 func Client(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
 	switch {
 	case config == nil:
@@ -338,11 +351,25 @@ func Client(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) 
 		return nil, errPSKAndIdentityMustBeSetForClient
 	}
 
+	if err := validateConfig(config); err != nil {
+		return nil, err
+	}
+
 	return createConn(conn, rAddr, config, true, nil)
 }
 
-// Server listens for incoming DTLS connections.
-func Server(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
+// ClientWithOptions establishes a DTLS connection over an existing connection.
+func ClientWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ClientOption) (*Conn, error) {
+	config, err := buildClientConfig(opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return Client(conn, rAddr, config)
+}
+
+// serverWithConfig is an internal helper that accepts a *Config.
+func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
 	if config == nil {
 		return nil, errNoConfigProvided
 	}
@@ -353,6 +380,31 @@ func Server(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) 
 	}
 
 	return createConn(conn, rAddr, config, false, nil)
+}
+
+// Server listens for incoming DTLS connections.
+//
+// Deprecated: Use ServerWithOptions instead.
+func Server(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
+	if config == nil {
+		return nil, errNoConfigProvided
+	}
+
+	if err := validateConfig(config); err != nil {
+		return nil, err
+	}
+
+	return serverWithConfig(conn, rAddr, config)
+}
+
+// ServerWithOptions listens for incoming DTLS connections.
+func ServerWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ServerOption) (*Conn, error) {
+	config, err := buildServerConfig(opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return Server(conn, rAddr, config)
 }
 
 // Read reads data from the connection.

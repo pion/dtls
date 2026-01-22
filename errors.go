@@ -62,11 +62,15 @@ var (
 	//nolint:err113
 	errInvalidCipherSuite = &FatalError{Err: errors.New("invalid or unknown cipher suite")}
 	//nolint:err113
+	errInvalidClientAuthType = &FatalError{Err: errors.New("invalid client auth type")}
+	//nolint:err113
 	errInvalidECDSASignature = &FatalError{Err: errors.New("ECDSA signature contained zero or negative values")}
 	//nolint:err113
 	errInvalidPrivateKey = &FatalError{Err: errors.New("invalid private key type")}
 	//nolint:err113
 	errInvalidSignatureAlgorithm = &FatalError{Err: errors.New("invalid signature algorithm")}
+	//nolint:err113
+	errInvalidExtendedMasterSecretType = &FatalError{Err: errors.New("invalid extended master secret type")}
 	//nolint:err113
 	errKeySignatureMismatch = &FatalError{Err: errors.New("expected and actual key signature do not match")}
 	//nolint:err113
@@ -136,6 +140,73 @@ var (
 	errFailedToAccessPoolReadBuffer = &InternalError{Err: errors.New("failed to access pool read buffer")}
 	//nolint:err113
 	errFragmentBufferOverflow = &InternalError{Err: errors.New("fragment buffer overflow")}
+
+	//nolint:err113
+	errEmptyCertificates = &FatalError{Err: errors.New("certificates option requires at least one certificate")}
+	//nolint:err113
+	errEmptyCipherSuites = &FatalError{Err: errors.New("cipher suites option requires at least one cipher suite")}
+	//nolint:err113
+	errNilCustomCipherSuites = &FatalError{Err: errors.New("custom cipher suites option requires a non-nil function")}
+	//nolint:err113
+	errEmptySignatureSchemes = &FatalError{Err: errors.New("signature schemes option requires at least one scheme")}
+	//nolint:err113
+	errEmptySRTPProtectionProfiles = &FatalError{
+		Err: errors.New("SRTP protection profiles option requires at least one profile"),
+	}
+	//nolint:err113
+	errInvalidFlightInterval = &FatalError{Err: errors.New("flight interval must be positive")}
+	//nolint:err113
+	errNilPSKCallback = &FatalError{Err: errors.New("PSK option requires a non-nil callback")}
+	//nolint:err113
+	errNilVerifyPeerCertificate = &FatalError{
+		Err: errors.New("verify peer certificate option requires a non-nil callback"),
+	}
+	//nolint:err113
+	errNilVerifyConnection = &FatalError{Err: errors.New("verify connection option requires a non-nil callback")}
+	//nolint:err113
+	errInvalidMTU = &FatalError{Err: errors.New("MTU must be positive")}
+	//nolint:err113
+	errInvalidReplayProtectionWindow = &FatalError{Err: errors.New("replay protection window must be non-negative")}
+	//nolint:err113
+	errEmptySupportedProtocols = &FatalError{
+		Err: errors.New("supported protocols option requires at least one protocol"),
+	}
+	//nolint:err113
+	errEmptyEllipticCurves = &FatalError{Err: errors.New("elliptic curves option requires at least one curve")}
+	//nolint:err113
+	errNilGetClientCertificate = &FatalError{
+		Err: errors.New("get client certificate option requires a non-nil callback"),
+	}
+	//nolint:err113
+	errNilConnectionIDGenerator = &FatalError{
+		Err: errors.New("connection ID generator option requires a non-nil function"),
+	}
+	//nolint:err113
+	errNilPaddingLengthGenerator = &FatalError{
+		Err: errors.New("padding length generator option requires a non-nil function"),
+	}
+	//nolint:err113
+	errNilHelloRandomBytesGenerator = &FatalError{
+		Err: errors.New("hello random bytes generator option requires a non-nil function"),
+	}
+	//nolint:err113
+	errNilClientHelloMessageHook = &FatalError{
+		Err: errors.New("client hello message hook option requires a non-nil function"),
+	}
+	//nolint:err113
+	errNilGetCertificate = &FatalError{Err: errors.New("get certificate option requires a non-nil callback")}
+	//nolint:err113
+	errNilServerHelloMessageHook = &FatalError{
+		Err: errors.New("server hello message hook option requires a non-nil function"),
+	}
+	//nolint:err113
+	errNilCertificateRequestMessageHook = &FatalError{
+		Err: errors.New("certificate request message hook option requires a non-nil function"),
+	}
+	//nolint:err113
+	errNilOnConnectionAttempt = &FatalError{
+		Err: errors.New("on connection attempt option requires a non-nil callback"),
+	}
 )
 
 // FatalError indicates that the DTLS connection is no longer available.
