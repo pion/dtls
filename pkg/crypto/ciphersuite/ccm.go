@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"sync"
 
 	"github.com/pion/dtls/v3/pkg/crypto/ccm"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -29,6 +30,9 @@ type CCM struct {
 	localCCM, remoteCCM         ccm.CCM
 	localWriteIV, remoteWriteIV []byte
 	tagLen                      CCMTagLen
+
+	// buffer pool for nonces.
+	nonceBufferPool sync.Pool
 }
 
 // NewCCM creates a DTLS GCM Cipher.
@@ -57,6 +61,13 @@ func NewCCM(tagLen CCMTagLen, localKey, localWriteIV, remoteKey, remoteWriteIV [
 		remoteCCM:     remoteCCM,
 		remoteWriteIV: remoteWriteIV,
 		tagLen:        tagLen,
+
+		nonceBufferPool: sync.Pool{
+			New: func() any {
+				b := make([]byte, ccmNonceLength)
+				return &b // nolint:nlreturn
+			},
+		},
 	}, nil
 }
 
@@ -65,7 +76,11 @@ func (c *CCM) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) 
 	payload := raw[pkt.Header.Size():]
 	raw = raw[:pkt.Header.Size()]
 
-	nonce := append(append([]byte{}, c.localWriteIV[:4]...), make([]byte, 8)...)
+	noncePtr := c.nonceBufferPool.Get().(*[]byte) // nolint:forcetypeassert
+	nonce := *noncePtr
+	defer c.nonceBufferPool.Put(noncePtr)
+
+	copy(nonce[:4], c.localWriteIV[:4])
 	if _, err := rand.Read(nonce[4:]); err != nil {
 		return nil, err
 	}
@@ -76,15 +91,18 @@ func (c *CCM) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) 
 	} else {
 		additionalData = generateAEADAdditionalData(&pkt.Header, len(payload))
 	}
-	encryptedPayload := c.localCCM.Seal(nil, nonce, payload, additionalData)
 
-	encryptedPayload = append(nonce[4:], encryptedPayload...)
-	raw = append(raw, encryptedPayload...)
+	finalSize := len(raw) + 8 + len(payload) + int(c.tagLen)
+	result := make([]byte, finalSize)
+	copy(result, raw)
+	copy(result[len(raw):], nonce[4:])
+
+	c.localCCM.Seal(result[len(raw)+8:len(raw)+8], nonce, payload, additionalData)
 
 	// Update recordLayer size to include explicit nonce
-	binary.BigEndian.PutUint16(raw[pkt.Header.Size()-2:], uint16(len(raw)-pkt.Header.Size())) //nolint:gosec //G115
+	binary.BigEndian.PutUint16(result[pkt.Header.Size()-2:], uint16(len(result)-pkt.Header.Size())) //nolint:gosec //G115
 
-	return raw, nil
+	return result, nil
 }
 
 // Decrypt decrypts a DTLS RecordLayer message.
