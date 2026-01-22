@@ -22,22 +22,19 @@ func main() {
 	// Everything below is the pion-DTLS API! Thanks for using it ❤️.
 	//
 
-	// Prepare the configuration of the DTLS connection
-	config := &dtls.Config{
-		PSK: func(hint []byte) ([]byte, error) {
-			fmt.Printf("Server's hint: %s \n", hint)
-
-			return []byte{0xAB, 0xC1, 0x23}, nil
-		},
-		PSKIdentityHint:      []byte{},
-		CipherSuites:         []dtls.CipherSuiteID{dtls.TLS_PSK_WITH_AES_128_CCM_8},
-		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
-	}
-
 	// Connect to a DTLS server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	dtlsConn, err := dtls.Dial("udp", addr, config)
+	dtlsConn, err := dtls.DialWithOptions("udp", addr,
+		dtls.WithPSK(func(hint []byte) ([]byte, error) {
+			fmt.Printf("Server's hint: %s \n", hint)
+
+			return []byte{0xAB, 0xC1, 0x23}, nil
+		}),
+		dtls.WithPSKIdentityHint([]byte{}),
+		dtls.WithCipherSuites(dtls.TLS_PSK_WITH_AES_128_CCM_8),
+		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+	)
 	util.Check(err)
 	defer func() {
 		util.Check(dtlsConn.Close())
