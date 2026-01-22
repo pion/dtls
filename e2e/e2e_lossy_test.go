@@ -4,7 +4,6 @@
 package e2e
 
 import (
-	"crypto/tls"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -146,39 +145,53 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 			assert.NoError(t, br.SetLossChance(chosenLoss))
 
 			go func() {
-				cfg := &dtls.Config{
-					FlightInterval:           flightInterval,
-					CipherSuites:             test.CipherSuites,
-					InsecureSkipVerify:       true,
-					MTU:                      test.MTU,
-					DisableRetransmitBackoff: true,
+				clientOpts := []dtls.ClientOption{
+					dtls.WithFlightInterval(flightInterval),
+					dtls.WithInsecureSkipVerify(true),
+					dtls.WithDisableRetransmitBackoff(true),
+				}
+				if len(test.CipherSuites) > 0 {
+					clientOpts = append(clientOpts, dtls.WithCipherSuites(test.CipherSuites...))
+				}
+				if test.MTU > 0 {
+					clientOpts = append(clientOpts, dtls.WithMTU(test.MTU))
 				}
 
 				if test.DoClientAuth {
-					cfg.Certificates = []tls.Certificate{clientCert}
+					clientOpts = append(clientOpts, dtls.WithCertificates(clientCert))
 				}
 
-				client, startupErr := dtls.Client(dtlsnet.PacketConnFromConn(br.GetConn0()), br.GetConn0().RemoteAddr(), cfg)
+				client, startupErr := dtls.ClientWithOptions(
+					dtlsnet.PacketConnFromConn(br.GetConn0()),
+					br.GetConn0().RemoteAddr(),
+					clientOpts...,
+				)
 				clientDone <- runResult{client, startupErr}
 			}()
 
 			go func() {
-				cfg := &dtls.Config{
-					Certificates:             []tls.Certificate{serverCert},
-					FlightInterval:           flightInterval,
-					MTU:                      test.MTU,
-					DisableRetransmitBackoff: true,
+				serverOpts := []dtls.ServerOption{
+					dtls.WithCertificates(serverCert),
+					dtls.WithFlightInterval(flightInterval),
+					dtls.WithDisableRetransmitBackoff(true),
+				}
+				if test.MTU > 0 {
+					serverOpts = append(serverOpts, dtls.WithMTU(test.MTU))
 				}
 
 				if test.DoClientAuth {
-					cfg.ClientAuth = dtls.RequireAnyClientCert
+					serverOpts = append(serverOpts, dtls.WithClientAuth(dtls.RequireAnyClientCert))
 				}
 
 				if test.DisableServerFlightInterval {
-					cfg.FlightInterval = time.Hour
+					serverOpts = append(serverOpts, dtls.WithFlightInterval(time.Hour))
 				}
 
-				server, startupErr := dtls.Server(dtlsnet.PacketConnFromConn(br.GetConn1()), br.GetConn1().RemoteAddr(), cfg)
+				server, startupErr := dtls.ServerWithOptions(
+					dtlsnet.PacketConnFromConn(br.GetConn1()),
+					br.GetConn1().RemoteAddr(),
+					serverOpts...,
+				)
 				serverDone <- runResult{server, startupErr}
 			}()
 

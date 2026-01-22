@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"time"
@@ -28,17 +27,14 @@ func main() {
 	// Everything below is the pion-DTLS API! Thanks for using it ❤️.
 	//
 
-	// Prepare the configuration of the DTLS connection
-	config := &dtls.Config{
-		Certificates:         []tls.Certificate{certificate},
-		InsecureSkipVerify:   true,
-		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
-	}
-
 	// Connect to a DTLS server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	dtlsConn, err := dtls.Dial("udp", addr, config)
+	dtlsConn, err := dtls.DialWithOptions("udp", addr,
+		dtls.WithCertificates(certificate),
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+	)
 	util.Check(err)
 	defer func() {
 		util.Check(dtlsConn.Close())

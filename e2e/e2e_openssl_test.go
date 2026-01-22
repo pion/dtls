@@ -7,6 +7,7 @@
 package e2e
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -28,7 +29,11 @@ func serverOpenSSL(c *comm) {
 		c.serverMutex.Lock()
 		defer c.serverMutex.Unlock()
 
-		cfg := c.serverConfig
+		// Use information stored in comm struct
+		cipherSuites := c.serverCipherSuites
+		certs := c.serverCertificates
+		psk := c.serverPSK
+		pskHint := c.serverPSKIdentityHint
 
 		// create openssl arguments
 		args := []string{
@@ -39,28 +44,28 @@ func serverOpenSSL(c *comm) {
 			"-verify_return_error",
 			fmt.Sprintf("-accept=%d", c.serverPort),
 		}
-		ciphers := ciphersOpenSSL(cfg)
+		ciphers := ciphersFromSuites(cipherSuites)
 		if ciphers != "" {
 			args = append(args, fmt.Sprintf("-cipher=%s", ciphers))
 		}
 
 		// psk arguments
-		if cfg.PSK != nil {
-			psk, err := cfg.PSK(nil)
+		if psk != nil {
+			pskBytes, err := psk(nil)
 			if err != nil {
 				c.errChan <- err
 				return
 			}
-			args = append(args, fmt.Sprintf("-psk=%X", psk))
-			if len(cfg.PSKIdentityHint) > 0 {
-				args = append(args, fmt.Sprintf("-psk_hint=%s", cfg.PSKIdentityHint))
+			args = append(args, fmt.Sprintf("-psk=%X", pskBytes))
+			if len(pskHint) > 0 {
+				args = append(args, fmt.Sprintf("-psk_hint=%s", pskHint))
 			}
 		}
 
 		// certs arguments
-		if len(cfg.Certificates) > 0 {
+		if len(certs) > 0 {
 			// create temporary cert files
-			certPEM, keyPEM, err := writeTempPEM(cfg)
+			certPEM, keyPEM, err := writeTempPEMFromCerts(certs)
 			if err != nil {
 				c.errChan <- err
 				return
@@ -111,7 +116,11 @@ func clientOpenSSL(c *comm) {
 	c.clientMutex.Lock()
 	defer c.clientMutex.Unlock()
 
-	cfg := c.clientConfig
+	// Use information stored in comm struct
+	cipherSuites := c.clientCipherSuites
+	certs := c.clientCertificates
+	psk := c.clientPSK
+	insecureSkipVerify := c.clientInsecureSkipVerify
 
 	// create openssl arguments
 	args := []string{
@@ -122,25 +131,25 @@ func clientOpenSSL(c *comm) {
 		"-servername=localhost",
 		fmt.Sprintf("-connect=127.0.0.1:%d", c.serverPort),
 	}
-	ciphers := ciphersOpenSSL(cfg)
+	ciphers := ciphersFromSuites(cipherSuites)
 	if ciphers != "" {
 		args = append(args, fmt.Sprintf("-cipher=%s", ciphers))
 	}
 
 	// psk arguments
-	if cfg.PSK != nil {
-		psk, err := cfg.PSK(nil)
+	if psk != nil {
+		pskBytes, err := psk(nil)
 		if err != nil {
 			c.errChan <- err
 			return
 		}
-		args = append(args, fmt.Sprintf("-psk=%X", psk))
+		args = append(args, fmt.Sprintf("-psk=%X", pskBytes))
 	}
 
 	// certificate arguments
-	if len(cfg.Certificates) > 0 {
+	if len(certs) > 0 {
 		// create temporary cert files
-		certPEM, keyPEM, err := writeTempPEM(cfg)
+		certPEM, keyPEM, err := writeTempPEMFromCerts(certs)
 		if err != nil {
 			c.errChan <- err
 			return
@@ -151,7 +160,7 @@ func clientOpenSSL(c *comm) {
 			_ = os.Remove(keyPEM)
 		}()
 	}
-	if !cfg.InsecureSkipVerify {
+	if !insecureSkipVerify {
 		args = append(args, "-verify_return_error")
 	}
 
@@ -174,7 +183,7 @@ func clientOpenSSL(c *comm) {
 	close(c.clientDone)
 }
 
-func ciphersOpenSSL(cfg *dtls.Config) string {
+func ciphersFromSuites(cipherSuites []dtls.CipherSuiteID) string {
 	// See https://tls.mbed.org/supported-ssl-ciphersuites
 	translate := map[dtls.CipherSuiteID]string{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM:   "ECDHE-ECDSA-AES128-CCM",
@@ -199,7 +208,7 @@ func ciphersOpenSSL(cfg *dtls.Config) string {
 	}
 
 	var ciphers []string
-	for _, c := range cfg.CipherSuites {
+	for _, c := range cipherSuites {
 		if text, ok := translate[c]; ok {
 			ciphers = append(ciphers, text)
 		}
@@ -207,7 +216,11 @@ func ciphersOpenSSL(cfg *dtls.Config) string {
 	return strings.Join(ciphers, ";")
 }
 
-func writeTempPEM(cfg *dtls.Config) (string, string, error) {
+func writeTempPEMFromCerts(certs []tls.Certificate) (string, string, error) {
+	if len(certs) == 0 {
+		return "", "", fmt.Errorf("no certificates provided")
+	}
+
 	certOut, err := ioutil.TempFile("", "cert.pem")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create temporary file: %w", err)
@@ -217,7 +230,7 @@ func writeTempPEM(cfg *dtls.Config) (string, string, error) {
 		return "", "", fmt.Errorf("failed to create temporary file: %w", err)
 	}
 
-	cert := cfg.Certificates[0]
+	cert := certs[0]
 	derBytes := cert.Certificate[0]
 	if err = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
 		return "", "", fmt.Errorf("failed to write data to cert.pem: %w", err)
