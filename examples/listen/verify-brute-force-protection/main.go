@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"net"
@@ -44,14 +43,13 @@ func main() {
 	util.Check(err)
 	certPool.AddCert(cert)
 
-	// Prepare the configuration of the DTLS connection
-	config := &dtls.Config{
-		Certificates:         []tls.Certificate{certificate},
-		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
-		ClientAuth:           dtls.RequireAndVerifyClientCert,
-		ClientCAs:            certPool,
+	listener, err := dtls.ListenWithOptions("udp", addr,
+		dtls.WithCertificates(certificate),
+		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+		dtls.WithClientAuth(dtls.RequireAndVerifyClientCert),
+		dtls.WithClientCAs(certPool),
 		// This function will be called on each connection attempt.
-		OnConnectionAttempt: func(addr net.Addr) error {
+		dtls.WithOnConnectionAttempt(func(addr net.Addr) error {
 			// *************** Brute Force Attack protection ***************
 			// Check if the IP address is in the map, and if the IP address has exceeded the limit
 			attemptsMutex.Lock()
@@ -78,11 +76,8 @@ func main() {
 			attempts[attemptIP]++
 			// *************** END Brute Force Attack protection END ***************
 			return nil
-		},
-	}
-
-	// Connect to a DTLS server
-	listener, err := dtls.Listen("udp", addr, config)
+		}),
+	)
 	util.Check(err)
 	defer func() {
 		util.Check(listener.Close())

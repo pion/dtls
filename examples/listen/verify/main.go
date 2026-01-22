@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"net"
@@ -35,16 +34,12 @@ func main() {
 	util.Check(err)
 	certPool.AddCert(cert)
 
-	// Prepare the configuration of the DTLS connection
-	config := &dtls.Config{
-		Certificates:         []tls.Certificate{certificate},
-		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
-		ClientAuth:           dtls.RequireAndVerifyClientCert,
-		ClientCAs:            certPool,
-	}
-
-	// Connect to a DTLS server
-	listener, err := dtls.Listen("udp", addr, config)
+	listener, err := dtls.ListenWithOptions("udp", addr,
+		dtls.WithCertificates(certificate),
+		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+		dtls.WithClientAuth(dtls.RequireAndVerifyClientCert),
+		dtls.WithClientCAs(certPool),
+	)
 	util.Check(err)
 	defer func() {
 		util.Check(listener.Close())
