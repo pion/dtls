@@ -70,11 +70,12 @@ func (g *GCM) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) 
 	} else {
 		additionalData = generateAEADAdditionalData(&pkt.Header, len(payload))
 	}
-	encryptedPayload := g.localGCM.Seal(nil, nonce, payload, additionalData)
-	r := make([]byte, len(raw)+len(nonce[4:])+len(encryptedPayload))
+	finalSize := len(raw) + 8 + len(payload) + gcmTagLength
+	r := make([]byte, finalSize)
 	copy(r, raw)
 	copy(r[len(raw):], nonce[4:])
-	copy(r[len(raw)+len(nonce[4:]):], encryptedPayload)
+
+	g.localGCM.Seal(r[len(raw)+8:len(raw)+8], nonce, payload, additionalData)
 
 	// Update recordLayer size to include explicit nonce
 	binary.BigEndian.PutUint16(r[pkt.Header.Size()-2:], uint16(len(r)-pkt.Header.Size())) //nolint:gosec //G115
@@ -95,8 +96,9 @@ func (g *GCM) Decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 		return nil, errNotEnoughRoomForNonce
 	}
 
-	nonce := make([]byte, 0, gcmNonceLength)
-	nonce = append(append(nonce, g.remoteWriteIV[:4]...), in[header.Size():header.Size()+8]...)
+	nonce := make([]byte, gcmNonceLength)
+	copy(nonce[:4], g.remoteWriteIV[:4])
+	copy(nonce[4:], in[header.Size():header.Size()+8])
 	out := in[header.Size()+8:]
 
 	var additionalData []byte
