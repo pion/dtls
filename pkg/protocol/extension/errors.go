@@ -35,4 +35,13 @@ var (
 	errMasterKeyIdentifierTooLarge = &protocol.FatalError{
 		Err: errors.New("master key identifier is over 255 bytes"), //nolint:err113
 	}
+	errPreSharedKeyFormat = &protocol.FatalError{
+		Err: errors.New("invalid Pre-Shared Key extension format"), //nolint:err113
+	}
+	errPskKeyExchangeModesFormat = &protocol.FatalError{
+		Err: errors.New("invalid Pre-Shared Key Exchange Modes extension format"), //nolint:err113
+	}
+	errNoPskKeyExchangeMode = &protocol.InternalError{
+		Err: errors.New("no mode set for the Pre-Shared Key Exchange Modes extension"), //nolint:err113
+	}
 )
