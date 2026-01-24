@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/binary"
 	"math/big"
@@ -37,6 +38,55 @@ func valueKeyMessage(clientRandom, serverRandom, publicKey []byte, namedCurve el
 	plaintext = append(plaintext, publicKey...)
 
 	return plaintext
+}
+
+// validateSignatureAlgOID validates that the signature scheme matches the
+// certificate's public key algorithm OID. This is required by RFC 8446 Section 4.2.3:
+// - RSA_PSS_RSAE requires rsaEncryption OID
+// - RSA_PSS_PSS requires id-RSASSA-PSS OID
+//
+// Note: returns nil if the given signature.Algorithm is not PSS based.
+//
+// https://www.rfc-editor.org/rfc/rfc8446#section-4.2.3
+func validateSignatureAlgOID(cert *x509.Certificate, sigAlg signature.Algorithm) error {
+	if !sigAlg.IsPSS() {
+		return nil
+	}
+
+	// Get the certificate's public key algorithm OID from the raw certificate
+	// We need to parse the SubjectPublicKeyInfo to get the algorithm OID
+	var spki struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	if _, err := asn1.Unmarshal(cert.RawSubjectPublicKeyInfo, &spki); err != nil {
+		return err
+	}
+
+	certOID := spki.Algorithm.Algorithm
+
+	switch sigAlg {
+	// Check RSAE variants (0x0804-0x0806) require rsaEncryption OID
+	case signature.RSA_PSS_RSAE_SHA256, signature.RSA_PSS_RSAE_SHA384, signature.RSA_PSS_RSAE_SHA512:
+		oidPublicKeyRSA := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1} // OID: rsaEncryption
+		if !certOID.Equal(oidPublicKeyRSA) {
+			return errInvalidCertificateOID
+		}
+
+		return nil
+
+	// Check PSS variants (0x0809-0x080b) require id-RSASSA-PSS OID
+	case signature.RSA_PSS_PSS_SHA256, signature.RSA_PSS_PSS_SHA384, signature.RSA_PSS_PSS_SHA512:
+		oidPublicKeyRSAPSS := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 10} // OID: id-RSASSA-PSS
+		if !certOID.Equal(oidPublicKeyRSAPSS) {
+			return errInvalidCertificateOID
+		}
+
+		return nil
+
+	default:
+		return nil
+	}
 }
 
 // If the client provided a "signature_algorithms" extension, then all
@@ -92,6 +142,11 @@ func verifyKeySignature(
 	}
 	certificate, err := x509.ParseCertificate(rawCertificates[0])
 	if err != nil {
+		return err
+	}
+
+	// Validate that the signature algorithm matches the certificate's OID
+	if err := validateSignatureAlgOID(certificate, signatureAlgorithm); err != nil {
 		return err
 	}
 
@@ -200,6 +255,11 @@ func verifyCertificateVerify(
 	}
 	certificate, err := x509.ParseCertificate(rawCertificates[0])
 	if err != nil {
+		return err
+	}
+
+	// Validate that the signature algorithm matches the certificate's OID
+	if err := validateSignatureAlgOID(certificate, signatureAlgorithm); err != nil {
 		return err
 	}
 

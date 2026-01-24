@@ -70,6 +70,8 @@ var (
 	//nolint:err113
 	errKeySignatureMismatch = &FatalError{Err: errors.New("expected and actual key signature do not match")}
 	//nolint:err113
+	errInvalidCertificateOID = &FatalError{Err: errors.New("certificate OID does not match signature algorithm")}
+	//nolint:err113
 	errNilNextConn = &FatalError{Err: errors.New("Conn can not be created with a nil nextConn")}
 	//nolint:err113
 	errNoAvailableCipherSuites = &FatalError{
