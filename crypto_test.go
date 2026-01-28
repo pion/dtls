@@ -4,14 +4,53 @@
 package dtls
 
 import (
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"math/big"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
+	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/stretchr/testify/assert"
 )
+
+// RSA-PSS certificate with id-RSASSA-PSS OID (1.2.840.113549.1.1.10)
+// Generated with:
+//
+//	openssl genpkey -algorithm RSA-PSS -out rsa_pss_key.pem -pkeyopt rsa_keygen_bits:2048
+//	openssl req -new -x509 -key rsa_pss_key.pem -out rsa_pss_cert.pem -days 365 -subj "/CN=RSA-PSS-Test"
+//
+// Note: Go's x509.CreateCertificate does not support creating RSA-PSS certificates,
+// and x509.ParsePKCS8PrivateKey cannot parse RSA-PSS private keys (fails with
+// "PKCS#8 wrapping contained private key with unknown algorithm: 1.2.840.113549.1.1.10").
+// Therefore we use this cert for OID validation testing only.
+//
+// nolint: gosec
+const rsaPSSCertificate = `
+-----BEGIN CERTIFICATE-----
+MIIDdTCCAimgAwIBAgIUOvVXWgzlj9KVp4TQe+ZATB3PkvswQQYJKoZIhvcNAQEK
+MDSgDzANBglghkgBZQMEAgEFAKEcMBoGCSqGSIb3DQEBCDANBglghkgBZQMEAgEF
+AKIDAgEgMBcxFTATBgNVBAMMDFJTQS1QU1MtVGVzdDAeFw0yNjAxMjQwNDE1MzFa
+Fw0yNzAxMjQwNDE1MzFaMBcxFTATBgNVBAMMDFJTQS1QU1MtVGVzdDCCASAwCwYJ
+KoZIhvcNAQEKA4IBDwAwggEKAoIBAQCpwVkHm2eU336pNtW7VYuu7nWUkSZxr9Oz
+DAQrZbLsdcSeWj/sSe37/EPmtQrH8f8mK7OR7mY1DrodHyAqyGeeHIwTaAMdrrMX
+X0RiPbid7w6MU3QZ1q5Hp8IAf8sLrQofchFRLDw6XkMcI4hbWtVJ9GwZiOO2gpDk
+uS7SBLEiEzKHme+UzPMFUa2xCypYd/bpO0F+h9vtPDFTCRfK6EFf7mb/QAl1UwfO
+Xq5+hMMiKWyhK2OIKhYc98k7eV7nlC4rz5tMY2v1tUJA6/fAZEmAREVE740hxmkN
+qN5Enm5tF/ipROPbmQnyCkwtZxKTLi0tz8RTq7lZXRoQr9fo/6ufAgMBAAGjUzBR
+MB0GA1UdDgQWBBRpdc2ssJhWnWTm4DPJLW3aDy71WTAfBgNVHSMEGDAWgBRpdc2s
+sJhWnWTm4DPJLW3aDy71WTAPBgNVHRMBAf8EBTADAQH/MEEGCSqGSIb3DQEBCjA0
+oA8wDQYJYIZIAWUDBAIBBQChHDAaBgkqhkiG9w0BAQgwDQYJYIZIAWUDBAIBBQCi
+AwIBIAOCAQEATkolVgnlASfTEvMElGmrLTRVPBovk7ZCpER+/H316xswuUDWKn9t
+BUhSCYinj5yywgwgx4sErnB5YkB+SR2kkE8WMAU0SNTh2kLUr4TrdqM1o0S5hGQT
+awGCPIWZjip3V0TeAqC4sWTgdy2EBYPEJ0AZGm50/yJlWiOzsdDbzceKjremCxLF
+Qgkrd/H9mRfIsybvQZ0SbhCWTbNiGpv+O3q4rJ8l3FiaNc9xt+9/FbzeRIipmVb3
+ACeCkdjZt/3rjb/tZRHcURgXYi2109wQOaIE5tAQYFCvaKp3HNdWGU1K5+AO0SIY
+k2mwB2RsEXa29/Xzj1eMyG33CDgo55AtDw==
+-----END CERTIFICATE-----
+`
 
 // nolint: gosec
 const rawPrivateKey = `
@@ -79,7 +118,238 @@ func TestGenerateKeySignature(t *testing.T) {
 		0x5c, 0x36, 0x75, 0x86,
 	}
 
-	signature, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519, key, hash.SHA256)
+	signature, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+		key, hash.SHA256, signature.RSA)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedSignature, signature)
+}
+
+func TestRSAPSSSignatureGeneration(t *testing.T) {
+	clientRandom := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
+	serverRandom := []byte{0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
+	publicKey := []byte{0x10, 0x11, 0x12, 0x13}
+
+	// Parse the private key
+	block, _ := pem.Decode([]byte(rawPrivateKey))
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	assert.NoError(t, err)
+
+	// Generate PSS signature
+	sig, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+		key, hash.SHA256, signature.RSA_PSS_RSAE_SHA256)
+	assert.NoError(t, err)
+	assert.NotNil(t, sig)
+
+	// Verify that PSS signature is different from PKCS#1 v1.5 (PSS is randomized)
+	sig2, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+		key, hash.SHA256, signature.RSA_PSS_RSAE_SHA256)
+	assert.NoError(t, err)
+	// PSS signatures should be different each time due to random salt
+	assert.NotEqual(t, sig, sig2)
+}
+
+func TestRSAPSSSignatureVerification(t *testing.T) {
+	clientRandom := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
+	serverRandom := []byte{0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
+	publicKey := []byte{0x10, 0x11, 0x12, 0x13}
+
+	// Parse the private key
+	block, _ := pem.Decode([]byte(rawPrivateKey))
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	assert.NoError(t, err)
+
+	// Generate certificate with the public key
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		PublicKey:    &key.PublicKey,
+	}
+	rawCert, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
+	assert.NoError(t, err)
+
+	// Generate PSS signature
+	sig, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+		key, hash.SHA256, signature.RSA_PSS_RSAE_SHA256)
+	assert.NoError(t, err)
+
+	// Verify PSS signature
+	expectedMsg := valueKeyMessage(clientRandom, serverRandom, publicKey, elliptic.X25519)
+	err = verifyKeySignature(expectedMsg, sig, hash.SHA256, signature.RSA_PSS_RSAE_SHA256, [][]byte{rawCert})
+	assert.NoError(t, err)
+
+	// Verify that PKCS#1 v1.5 verification fails for PSS signature
+	err = verifyKeySignature(expectedMsg, sig, hash.SHA256, signature.RSA, [][]byte{rawCert})
+	assert.Error(t, err)
+}
+
+func TestRSAPSSVsPKCS1v15(t *testing.T) {
+	clientRandom := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
+	serverRandom := []byte{0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
+	publicKey := []byte{0x10, 0x11, 0x12, 0x13}
+
+	// Parse the private key
+	block, _ := pem.Decode([]byte(rawPrivateKey))
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	assert.NoError(t, err)
+
+	// Generate certificate
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		PublicKey:    &key.PublicKey,
+	}
+	rawCert, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
+	assert.NoError(t, err)
+
+	expectedMsg := valueKeyMessage(clientRandom, serverRandom, publicKey, elliptic.X25519)
+
+	// Generate and verify PKCS#1 v1.5 signature
+	pkcs1Sig, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+		key, hash.SHA256, signature.RSA)
+	assert.NoError(t, err)
+	err = verifyKeySignature(expectedMsg, pkcs1Sig, hash.SHA256, signature.RSA, [][]byte{rawCert})
+	assert.NoError(t, err)
+
+	// Generate and verify PSS signature
+	pssSig, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+		key, hash.SHA256, signature.RSA_PSS_RSAE_SHA256)
+	assert.NoError(t, err)
+	err = verifyKeySignature(expectedMsg, pssSig, hash.SHA256, signature.RSA_PSS_RSAE_SHA256, [][]byte{rawCert})
+	assert.NoError(t, err)
+
+	// Verify cross-verification fails
+	err = verifyKeySignature(expectedMsg, pkcs1Sig, hash.SHA256, signature.RSA_PSS_RSAE_SHA256, [][]byte{rawCert})
+	assert.Error(t, err, "PKCS#1 v1.5 signature should not verify as PSS")
+
+	err = verifyKeySignature(expectedMsg, pssSig, hash.SHA256, signature.RSA, [][]byte{rawCert})
+	assert.Error(t, err, "PSS signature should not verify as PKCS#1 v1.5")
+}
+
+func TestRSAPSSRSAEVariants(t *testing.T) {
+	clientRandom := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
+	serverRandom := []byte{0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
+	publicKey := []byte{0x10, 0x11, 0x12, 0x13}
+
+	// Parse the private key
+	block, _ := pem.Decode([]byte(rawPrivateKey))
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	assert.NoError(t, err)
+
+	// Generate certificate with rsaEncryption OID (standard RSA cert)
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		PublicKey:    &key.PublicKey,
+	}
+	rawCert, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
+	assert.NoError(t, err)
+
+	expectedMsg := valueKeyMessage(clientRandom, serverRandom, publicKey, elliptic.X25519)
+
+	// Test RSA-PSS RSAE variants (work with standard RSA certs)
+	// Note: We don't test RSA_PSS_PSS variants here because they require id-RSASSA-PSS OID certs,
+	// which Go's x509.CreateCertificate doesn't support creating (and can't parse properly either).
+	// OID validation is tested separately in TestCertificateOIDValidation.
+	testCases := []struct {
+		name     string
+		hashAlgo hash.Algorithm
+		sigAlgo  signature.Algorithm
+	}{
+		{"RSA_PSS_RSAE_SHA256", hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+		{"RSA_PSS_RSAE_SHA384", hash.SHA384, signature.RSA_PSS_RSAE_SHA384},
+		{"RSA_PSS_RSAE_SHA512", hash.SHA512, signature.RSA_PSS_RSAE_SHA512},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Generate signature
+			sig, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+				key, tc.hashAlgo, tc.sigAlgo)
+			assert.NoError(t, err)
+			assert.NotNil(t, sig)
+			assert.True(t, len(sig) > 0, "Signature should not be empty")
+
+			// Verify signature
+			err = verifyKeySignature(expectedMsg, sig, tc.hashAlgo, tc.sigAlgo, [][]byte{rawCert})
+			assert.NoError(t, err, "Signature verification should succeed")
+
+			// Verify IsPSS() returns true
+			assert.True(t, tc.sigAlgo.IsPSS(), "Should be identified as PSS algorithm")
+
+			// Verify GetPSSHash() returns correct hash
+			assert.Equal(t, tc.hashAlgo, tc.sigAlgo.GetPSSHash(), "Hash extraction should match")
+		})
+	}
+}
+
+func TestCertificateOIDValidation(t *testing.T) {
+	clientRandom := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
+	serverRandom := []byte{0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
+	publicKey := []byte{0x10, 0x11, 0x12, 0x13}
+
+	// Load standard RSA key and cert (has rsaEncryption OID)
+	block, _ := pem.Decode([]byte(rawPrivateKey))
+	rsaKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	assert.NoError(t, err)
+
+	rsaEncryptionCert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		PublicKey:    &rsaKey.PublicKey,
+	}
+	rsaEncryptionCertBytes, err := x509.CreateCertificate(
+		rand.Reader, rsaEncryptionCert, rsaEncryptionCert, &rsaKey.PublicKey, rsaKey,
+	)
+	assert.NoError(t, err)
+
+	// Load RSA-PSS cert (has id-RSASSA-PSS OID)
+	// We use a locally generated RSA-PSS cert since Go's x509.CreateCertificate doesn't support creating them.
+	// We use the regular RSA key for signing because Go can't parse RSA-PSS private keys either.
+	// For OID validation testing, only the cert's OID matters, not which key was used to sign.
+	pssCertBlock, _ := pem.Decode([]byte(rsaPSSCertificate))
+	pssCertBytes := pssCertBlock.Bytes
+
+	expectedMsg := valueKeyMessage(clientRandom, serverRandom, publicKey, elliptic.X25519)
+
+	t.Run("RSAE_with_rsaEncryption_OID_succeeds", func(t *testing.T) {
+		// Generate signature with RSAE algorithm using rsaEncryption cert
+		sig, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+			rsaKey, hash.SHA256, signature.RSA_PSS_RSAE_SHA256)
+		assert.NoError(t, err)
+
+		// Should succeed: RSAE + rsaEncryption OID is valid per RFC 8446
+		err = verifyKeySignature(
+			expectedMsg, sig, hash.SHA256, signature.RSA_PSS_RSAE_SHA256, [][]byte{rsaEncryptionCertBytes},
+		)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PSS_with_idRSASSAPSS_OID_succeeds", func(t *testing.T) {
+		t.Skip("Go's x509 library cannot extract public key from RSA-PSS certificates (OID 1.2.840.113549.1.1.10)")
+		// This test would verify that PSS + id-RSASSA-PSS OID is valid per RFC 8446,
+		// but Go's crypto/x509 doesn't fully support parsing RSA-PSS certs.
+		// The important validation (that mismatches are rejected) is tested in other cases.
+	})
+
+	t.Run("PSS_with_rsaEncryption_OID_fails", func(t *testing.T) {
+		// Generate signature with PSS algorithm
+		sig, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+			rsaKey, hash.SHA256, signature.RSA_PSS_PSS_SHA256)
+		assert.NoError(t, err)
+
+		// Should fail: PSS algorithm requires id-RSASSA-PSS OID, not rsaEncryption
+		err = verifyKeySignature(
+			expectedMsg, sig, hash.SHA256, signature.RSA_PSS_PSS_SHA256, [][]byte{rsaEncryptionCertBytes},
+		)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, errInvalidCertificateOID)
+	})
+
+	t.Run("RSAE_with_idRSASSAPSS_OID_fails", func(t *testing.T) {
+		// Generate signature with RSAE algorithm
+		sig, err := generateKeySignature(clientRandom, serverRandom, publicKey, elliptic.X25519,
+			rsaKey, hash.SHA256, signature.RSA_PSS_RSAE_SHA256)
+		assert.NoError(t, err)
+
+		// Should fail: RSAE algorithm requires rsaEncryption OID, not id-RSASSA-PSS
+		err = verifyKeySignature(expectedMsg, sig, hash.SHA256, signature.RSA_PSS_RSAE_SHA256, [][]byte{pssCertBytes})
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, errInvalidCertificateOID)
+	})
 }
