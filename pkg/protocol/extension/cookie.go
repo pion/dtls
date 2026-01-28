@@ -4,8 +4,6 @@
 package extension
 
 import (
-	"errors"
-
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -21,8 +19,6 @@ type CookieExt struct {
 func (c CookieExt) TypeValue() TypeValue {
 	return CookieTypeValue
 }
-
-var errCookieExtFormat = errors.New("invalid cookie format")
 
 // Marshal encodes the extension.
 func (c *CookieExt) Marshal() ([]byte, error) {
