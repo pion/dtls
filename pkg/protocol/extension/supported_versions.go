@@ -4,8 +4,6 @@
 package extension
 
 import (
-	"errors"
-
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -19,10 +17,6 @@ type SupportedVersions struct {
 	// ClientHello's preference-ordered list.
 	Versions []protocol.Version
 }
-
-var errInvalidSupportedVersionsFormat = errors.New("invalid supported_versions format")
-
-var errInvalidDTLSVersion = errors.New("invalid dtls version was provided")
 
 func (s SupportedVersions) TypeValue() TypeValue { return SupportedVersionsTypeValue }
 
