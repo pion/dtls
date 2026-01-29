@@ -19,6 +19,10 @@ func selectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey, is1
 		if !is13 && ss.Signature.IsPSS() {
 			continue
 		}
+		// Skip schemes understood but not supported by pion/dtls.
+		if ss.Signature.IsUnsupported() {
+			continue
+		}
 		if ss.isCompatible(signer) {
 			return ss, nil
 		}

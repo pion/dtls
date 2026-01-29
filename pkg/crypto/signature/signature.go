@@ -55,6 +55,18 @@ func (a Algorithm) IsPSS() bool {
 		a == RSA_PSS_PSS_SHA512
 }
 
+// IsUnsupported returns true if the algorithm is a signature scheme that is
+// not supported by pion/dtls.
+func (a Algorithm) IsUnsupported() bool {
+	// Skip RSA_PSS_PSS schemes (0x0809-0x080b). We parse them for interoperability
+	// but don't negotiate them to avoid unnecessary complexity for certificates that
+	// don't exist in practice. This follows the pragmatic approach of Go's crypto/tls
+	// and BoringSSL: target real-world WebPKI use cases rather than RFC completeness.
+	return a == RSA_PSS_PSS_SHA256 ||
+		a == RSA_PSS_PSS_SHA384 ||
+		a == RSA_PSS_PSS_SHA512
+}
+
 // GetPSSHash returns the hash algorithm associated with an RSA-PSS signature scheme.
 // Returns hash.None if the algorithm is not an RSA-PSS scheme.
 func (a Algorithm) GetPSSHash() hash.Algorithm {

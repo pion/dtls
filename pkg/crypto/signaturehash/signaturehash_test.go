@@ -248,6 +248,42 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 			expectedSigAlg: signature.ECDSA,
 			expectedError:  nil,
 		},
+		{
+			name: "DTLS 1.3 with RSA key skips RSA_PSS_PSS, selects RSA_PSS_RSAE",
+			schemes: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_PSS_SHA256},
+				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
+				{hash.SHA256, signature.RSA},
+			},
+			privateKey:     rsaKey,
+			is13:           true,
+			expectedSigAlg: signature.RSA_PSS_RSAE_SHA256,
+			expectedError:  nil,
+		},
+		{
+			name: "DTLS 1.3 with RSA key and only RSA_PSS_PSS schemes falls back to PKCS#1 v1.5",
+			schemes: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_PSS_SHA256},
+				{hash.SHA384, signature.RSA_PSS_PSS_SHA384},
+				{hash.SHA256, signature.RSA},
+			},
+			privateKey:     rsaKey,
+			is13:           true,
+			expectedSigAlg: signature.RSA,
+			expectedError:  nil,
+		},
+		{
+			name: "DTLS 1.3 with RSA key and only RSA_PSS_PSS schemes fails if no fallback",
+			schemes: []Algorithm{
+				{hash.SHA256, signature.RSA_PSS_PSS_SHA256},
+				{hash.SHA384, signature.RSA_PSS_PSS_SHA384},
+				{hash.SHA512, signature.RSA_PSS_PSS_SHA512},
+			},
+			privateKey:     rsaKey,
+			is13:           true,
+			expectedSigAlg: 0,
+			expectedError:  errNoAvailableSignatureSchemes,
+		},
 	}
 
 	for _, tt := range tests {

@@ -40,6 +40,32 @@ func TestIsPSS(t *testing.T) {
 	}
 }
 
+func TestIsUnsupported(t *testing.T) {
+	tests := []struct {
+		name     string
+		alg      Algorithm
+		expected bool
+	}{
+		{"RSA_PSS_RSAE_SHA256", RSA_PSS_RSAE_SHA256, false},
+		{"RSA_PSS_RSAE_SHA384", RSA_PSS_RSAE_SHA384, false},
+		{"RSA_PSS_RSAE_SHA512", RSA_PSS_RSAE_SHA512, false},
+		{"RSA_PSS_PSS_SHA256", RSA_PSS_PSS_SHA256, true},
+		{"RSA_PSS_PSS_SHA384", RSA_PSS_PSS_SHA384, true},
+		{"RSA_PSS_PSS_SHA512", RSA_PSS_PSS_SHA512, true},
+		{"RSA", RSA, false},
+		{"ECDSA", ECDSA, false},
+		{"Ed25519", Ed25519, false},
+		{"Anonymous", Anonymous, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.alg.IsUnsupported()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestGetPSSHash(t *testing.T) {
 	tests := []struct {
 		name     string
