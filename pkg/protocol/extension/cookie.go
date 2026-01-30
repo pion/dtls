@@ -1,11 +1,9 @@
-// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
 package extension
 
 import (
-	"errors"
-
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -21,8 +19,6 @@ type CookieExt struct {
 func (c CookieExt) TypeValue() TypeValue {
 	return CookieTypeValue
 }
-
-var errCookieExtFormat = errors.New("invalid cookie format")
 
 // Marshal encodes the extension.
 func (c *CookieExt) Marshal() ([]byte, error) {

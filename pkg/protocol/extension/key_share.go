@@ -1,11 +1,9 @@
-// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
 package extension
 
 import (
-	"errors"
-
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -24,11 +22,6 @@ type KeyShare struct {
 }
 
 func (k KeyShare) TypeValue() TypeValue { return KeyShareTypeValue }
-
-var (
-	errInvalidKeyShareFormat = errors.New("invalid key_share format")
-	errDuplicateKeyShare     = errors.New("duplicate key_share group")
-)
 
 // Marshal encodes the extension.
 func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop

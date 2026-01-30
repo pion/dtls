@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
 package extension
@@ -34,5 +34,29 @@ var (
 	}
 	errMasterKeyIdentifierTooLarge = &protocol.FatalError{
 		Err: errors.New("master key identifier is over 255 bytes"), //nolint:err113
+	}
+	errPreSharedKeyFormat = &protocol.FatalError{
+		Err: errors.New("invalid Pre-Shared Key extension format"), //nolint:err113
+	}
+	errPskKeyExchangeModesFormat = &protocol.FatalError{
+		Err: errors.New("invalid Pre-Shared Key Exchange Modes extension format"), //nolint:err113
+	}
+	errNoPskKeyExchangeMode = &protocol.InternalError{
+		Err: errors.New("no mode set for the Pre-Shared Key Exchange Modes extension"), //nolint:err113
+	}
+	errCookieExtFormat = &protocol.FatalError{
+		Err: errors.New("invalid cookie format"), //nolint:err113
+	}
+	errInvalidKeyShareFormat = &protocol.FatalError{
+		Err: errors.New("invalid key_share format"), //nolint:err113
+	}
+	errDuplicateKeyShare = &protocol.FatalError{
+		Err: errors.New("duplicate key_share group"), //nolint:err113
+	}
+	errInvalidSupportedVersionsFormat = &protocol.FatalError{
+		Err: errors.New("invalid supported_versions format"), //nolint:err113
+	}
+	errInvalidDTLSVersion = &protocol.InternalError{
+		Err: errors.New("invalid dtls version was provided"), //nolint:err113
 	}
 )

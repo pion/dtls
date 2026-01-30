@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
 // Package extension implements the extension values in the ClientHello/ServerHello
@@ -21,8 +21,10 @@ const (
 	UseSRTPTypeValue                      TypeValue = 14
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
+	PreSharedKeyValue                     TypeValue = 41
 	SupportedVersionsTypeValue            TypeValue = 43
 	CookieTypeValue                       TypeValue = 44
+	PskKeyExchangeModesTypeValue          TypeValue = 45
 	KeyShareTypeValue                     TypeValue = 51
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
