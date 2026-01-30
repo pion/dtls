@@ -88,6 +88,7 @@ func flight4Parse(
 		if err := verifyCertificateVerify(
 			plainText,
 			verify.HashAlgorithm,
+			verify.SignatureAlgorithm,
 			verify.Signature,
 			state.PeerCertificates,
 		); err != nil {
@@ -389,6 +390,7 @@ func flight4Generate(
 			state.namedCurve,
 			signer,
 			signatureHashAlgo.Hash,
+			signatureHashAlgo.Signature,
 		)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
