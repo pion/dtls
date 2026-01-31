@@ -98,7 +98,12 @@ func flight4Parse(
 		var err error
 		var verified bool
 		if cfg.clientAuth >= VerifyClientCertIfGiven {
-			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs); err != nil {
+			// Use cert-specific algorithms if present, otherwise fall back to handshake algorithms
+			certAlgs := state.remoteCertSignatureSchemes
+			if len(certAlgs) == 0 && len(cfg.localCertSignatureSchemes) > 0 {
+				certAlgs = cfg.localCertSignatureSchemes
+			}
+			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs, certAlgs); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
 			verified = true
@@ -265,6 +270,13 @@ func flight4Generate(
 	cfg *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) {
 	extensions := []extension.Extension{}
+
+	// Add signature_algorithms_cert extension if certificate signature schemes are configured
+	if len(cfg.localCertSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
+			SignatureHashAlgorithms: cfg.localCertSignatureSchemes,
+		})
+	}
 
 	if (cfg.extendedMasterSecret == RequestExtendedMasterSecret ||
 		cfg.extendedMasterSecret == RequireExtendedMasterSecret) && state.extendedMasterSecret {

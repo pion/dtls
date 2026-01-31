@@ -68,6 +68,10 @@ var (
 	//nolint:err113
 	errInvalidSignatureAlgorithm = &FatalError{Err: errors.New("invalid signature algorithm")}
 	//nolint:err113
+	errInvalidCertificateSignatureAlgorithm = &FatalError{
+		Err: errors.New("certificate uses a signature algorithm that is not allowed"),
+	}
+	//nolint:err113
 	errKeySignatureMismatch = &FatalError{Err: errors.New("expected and actual key signature do not match")}
 	//nolint:err113
 	errInvalidCertificateOID = &FatalError{Err: errors.New("certificate OID does not match signature algorithm")}

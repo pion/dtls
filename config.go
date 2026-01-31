@@ -41,6 +41,12 @@ type Config struct {
 	// SignatureSchemes contains the signature and hash schemes that the peer requests to verify.
 	SignatureSchemes []tls.SignatureScheme
 
+	// CertificateSignatureSchemes contains the signature and hash schemes that may be used
+	// in digital signatures for X.509 certificates. If not set, SignatureSchemes is used for
+	// both handshake signatures and certificate chain validation.
+	// This corresponds to the signature_algorithms_cert extension in RFC 8446 Section 4.2.3.
+	CertificateSignatureSchemes []tls.SignatureScheme
+
 	// SRTPProtectionProfiles are the supported protection profiles
 	// Clients will send this via use_srtp and assert that the server properly responds
 	// Servers will assert that clients send one of these profiles and will respond as needed

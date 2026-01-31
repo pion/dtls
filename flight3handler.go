@@ -84,6 +84,9 @@ func flight3Parse(
 				if cfg.connectionIDGenerator != nil {
 					state.remoteConnectionID = ext.CID
 				}
+			case *extension.SignatureAlgorithmsCert:
+				// Store the server's certificate signature schemes for later validation
+				state.remoteCertSignatureSchemes = ext.SignatureHashAlgorithms
 			}
 		}
 		// If the server doesn't support connection IDs, the client should not
@@ -286,6 +289,13 @@ func flight3Generate(
 		&extension.RenegotiationInfo{
 			RenegotiatedConnection: 0,
 		},
+	}
+
+	// Add signature_algorithms_cert extension if certificate signature schemes are configured
+	if len(cfg.localCertSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
+			SignatureHashAlgorithms: cfg.localCertSignatureSchemes,
+		})
 	}
 
 	if state.namedCurve != 0 {

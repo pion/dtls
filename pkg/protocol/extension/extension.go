@@ -30,6 +30,7 @@ const (
 	SupportedVersionsTypeValue            TypeValue = 43
 	CookieTypeValue                       TypeValue = 44
 	PskKeyExchangeModesTypeValue          TypeValue = 45
+	SignatureAlgorithmsCertTypeValue      TypeValue = 50
 	KeyShareTypeValue                     TypeValue = 51
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
@@ -83,6 +84,8 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(bufView, &SupportedPointFormats{})
 		case SupportedSignatureAlgorithmsTypeValue:
 			err = unmarshalAndAppend(bufView, &SupportedSignatureAlgorithms{})
+		case SignatureAlgorithmsCertTypeValue:
+			err = unmarshalAndAppend(bufView, &SignatureAlgorithmsCert{})
 		case UseSRTPTypeValue:
 			err = unmarshalAndAppend(bufView, &UseSRTP{})
 		case ALPNTypeValue:

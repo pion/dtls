@@ -19,6 +19,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
+	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 )
 
 type ecdsaSignature struct {
@@ -328,7 +329,11 @@ func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-func verifyClientCert(rawCertificates [][]byte, roots *x509.CertPool) (chains [][]*x509.Certificate, err error) {
+func verifyClientCert(
+	rawCertificates [][]byte,
+	roots *x509.CertPool,
+	certSignatureSchemes []signaturehash.Algorithm,
+) (chains [][]*x509.Certificate, err error) {
 	certificate, err := loadCerts(rawCertificates)
 	if err != nil {
 		return nil, err
@@ -344,13 +349,26 @@ func verifyClientCert(rawCertificates [][]byte, roots *x509.CertPool) (chains []
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 
-	return certificate[0].Verify(opts)
+	chains, err = certificate[0].Verify(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate certificate signature algorithms if specified
+	if len(certSignatureSchemes) > 0 && len(chains) > 0 {
+		if err := validateCertificateSignatureAlgorithms(chains[0], certSignatureSchemes); err != nil {
+			return nil, err
+		}
+	}
+
+	return chains, nil
 }
 
 func verifyServerCert(
 	rawCertificates [][]byte,
 	roots *x509.CertPool,
 	serverName string,
+	certSignatureSchemes []signaturehash.Algorithm,
 ) (chains [][]*x509.Certificate, err error) {
 	certificate, err := loadCerts(rawCertificates)
 	if err != nil {
@@ -367,5 +385,55 @@ func verifyServerCert(
 		Intermediates: intermediateCAPool,
 	}
 
-	return certificate[0].Verify(opts)
+	chains, err = certificate[0].Verify(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate certificate signature algorithms if specified
+	if len(certSignatureSchemes) > 0 && len(chains) > 0 {
+		if err := validateCertificateSignatureAlgorithms(chains[0], certSignatureSchemes); err != nil {
+			return nil, err
+		}
+	}
+
+	return chains, nil
+}
+
+// validateCertificateSignatureAlgorithms validates that all certificates in the chain
+// use signature algorithms that are in the allowed list. This implements the
+// signature_algorithms_cert extension validation per RFC 8446 Section 4.2.3.
+func validateCertificateSignatureAlgorithms(
+	certs []*x509.Certificate,
+	allowedAlgorithms []signaturehash.Algorithm,
+) error {
+	if len(allowedAlgorithms) == 0 {
+		// No restrictions specified
+		return nil
+	}
+
+	// Validate each certificate's signature algorithm (except the root, which we trust)
+	for i := 0; i < len(certs)-1; i++ {
+		cert := certs[i]
+		certAlg, err := signaturehash.FromCertificate(cert)
+		if err != nil {
+			return err
+		}
+
+		// Check if this algorithm is in the allowed list
+		found := false
+		for _, allowed := range allowedAlgorithms {
+			if certAlg.Hash == allowed.Hash && certAlg.Signature == allowed.Signature {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return errInvalidCertificateSignatureAlgorithm
+		}
+	}
+
+	return nil
 }

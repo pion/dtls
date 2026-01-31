@@ -152,6 +152,19 @@ func createConn(
 		return nil, err
 	}
 
+	// Parse certificate signature schemes (if provided)
+	// If not provided, certificate validation will fall back to signatureSchemes
+	var certSignatureSchemes []signaturehash.Algorithm
+	if len(config.CertificateSignatureSchemes) > 0 {
+		certSignatureSchemes, err = signaturehash.ParseSignatureSchemes(
+			config.CertificateSignatureSchemes,
+			config.InsecureHashes,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	workerInterval := initialTickerInterval
 	if config.FlightInterval > 0 {
 		workerInterval = config.FlightInterval
@@ -174,6 +187,7 @@ func createConn(
 		localPSKIdentityHint:          config.PSKIdentityHint,
 		localCipherSuites:             cipherSuites,
 		localSignatureSchemes:         signatureSchemes,
+		localCertSignatureSchemes:     certSignatureSchemes,
 		extendedMasterSecret:          config.ExtendedMasterSecret,
 		localSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
 		localSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
