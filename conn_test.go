@@ -782,7 +782,7 @@ func TestPSKMismatchNoRetransmitLoop(t *testing.T) {
 }
 
 // Assert that ServerKeyExchange is only sent if Identity is set on server side.
-func TestPSKServerKeyExchange(t *testing.T) {
+func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -819,11 +819,29 @@ func TestPSKServerKeyExchange(t *testing.T) {
 				assert.NoError(t, err)
 
 				for i := range messages {
-					h := &handshake.Handshake{}
-					_ = h.Unmarshal(messages[i][recordlayer.FixedHeaderSize:])
+					var header recordlayer.Header
+					if err := header.Unmarshal(messages[i]); err != nil {
+						continue
+					}
+					if header.ContentType != protocol.ContentTypeHandshake || header.Epoch != 0 {
+						continue
+					}
+					payload := messages[i][recordlayer.FixedHeaderSize:]
+					for len(payload) >= handshake.HeaderLength {
+						var h handshake.Header
+						if err := h.Unmarshal(payload); err != nil {
+							break
+						}
+						if h.Type == handshake.TypeServerKeyExchange {
+							gotServerKeyExchange.Store(true)
 
-					if h.Header.Type == handshake.TypeServerKeyExchange {
-						gotServerKeyExchange.Store(true)
+							break
+						}
+						fragLen := int(h.FragmentLength)
+						if fragLen <= 0 || handshake.HeaderLength+fragLen > len(payload) {
+							break
+						}
+						payload = payload[handshake.HeaderLength+fragLen:]
 					}
 				}
 			}
