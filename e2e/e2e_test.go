@@ -8,14 +8,19 @@ package e2e
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -865,4 +870,598 @@ func TestPionE2ESimpleClientHelloHook(t *testing.T) {
 
 func TestPionE2ESimpleServerHelloHook(t *testing.T) {
 	testPionE2ESimpleServerHelloHook(t, serverPion, clientPion)
+}
+
+// TestCertificateSignatureSchemesAllowed tests that connections succeed when
+// certificate chains use only allowed signature algorithms.
+func TestCertificateSignatureSchemesAllowed(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Generate ECDSA certificate (uses ECDSA-SHA256)
+	cert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	// Client allows ECDSA signature schemes for certificates
+	clientOpts := []dtls.ClientOption{
+		dtls.WithCertificates(cert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithCertificateSignatureSchemes(
+			tls.ECDSAWithP256AndSHA256,
+			tls.ECDSAWithP384AndSHA384,
+			tls.ECDSAWithP521AndSHA512,
+		),
+	}
+
+	// Server allows ECDSA signature schemes for certificates
+	serverOpts := []dtls.ServerOption{
+		dtls.WithCertificates(cert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithCertificateSignatureSchemes(
+			tls.ECDSAWithP256AndSHA256,
+			tls.ECDSAWithP384AndSHA384,
+			tls.ECDSAWithP521AndSHA512,
+		),
+	}
+
+	serverPort := randomPort(t)
+	comm := newComm(ctx, clientOpts, serverOpts, serverPort, serverPion, clientPion)
+	comm.setOpenSSLInfo(
+		[]dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		[]dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		[]tls.Certificate{cert}, []tls.Certificate{cert},
+		nil, nil, nil, nil, true)
+	defer comm.cleanup(t)
+	comm.assert(t)
+}
+
+// TestCertificateSignatureSchemesRSA tests RSA certificates with signature schemes.
+func TestCertificateSignatureSchemesRSA(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Generate RSA certificate
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	assert.NoError(t, err)
+	cert, err := selfsign.SelfSign(priv)
+	assert.NoError(t, err)
+
+	// Allow RSA-PSS signature schemes for certificates
+	clientOpts := []dtls.ClientOption{
+		dtls.WithCertificates(cert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithCertificateSignatureSchemes(
+			tls.PSSWithSHA256,
+			tls.PSSWithSHA384,
+			tls.PSSWithSHA512,
+			tls.PKCS1WithSHA256,
+			tls.PKCS1WithSHA384,
+			tls.PKCS1WithSHA512,
+		),
+	}
+
+	serverOpts := []dtls.ServerOption{
+		dtls.WithCertificates(cert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithCertificateSignatureSchemes(
+			tls.PSSWithSHA256,
+			tls.PSSWithSHA384,
+			tls.PSSWithSHA512,
+			tls.PKCS1WithSHA256,
+			tls.PKCS1WithSHA384,
+			tls.PKCS1WithSHA512,
+		),
+	}
+
+	serverPort := randomPort(t)
+	comm := newComm(ctx, clientOpts, serverOpts, serverPort, serverPion, clientPion)
+	comm.setOpenSSLInfo(
+		[]dtls.CipherSuiteID{dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+		[]dtls.CipherSuiteID{dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+		[]tls.Certificate{cert}, []tls.Certificate{cert},
+		nil, nil, nil, nil, true)
+	defer comm.cleanup(t)
+	comm.assert(t)
+}
+
+// TestCertificateSignatureSchemesClientCert tests certificate signature validation
+// with client certificates using different ECDSA curves.
+func TestCertificateSignatureSchemesClientCert(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Server uses P-256 ECDSA
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	// Client uses P-384 ECDSA
+	clientKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	assert.NoError(t, err)
+	clientCert, err := selfsign.SelfSign(clientKey)
+	assert.NoError(t, err)
+
+	clientCAs := x509.NewCertPool()
+	caCert, err := x509.ParseCertificate(clientCert.Certificate[0])
+	assert.NoError(t, err)
+	clientCAs.AddCert(caCert)
+
+	// Both sides accept P-256 and P-384 ECDSA
+	clientOpts := []dtls.ClientOption{
+		dtls.WithCertificates(clientCert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithCertificateSignatureSchemes(
+			tls.ECDSAWithP256AndSHA256,
+			tls.ECDSAWithP384AndSHA384,
+		),
+	}
+
+	serverOpts := []dtls.ServerOption{
+		dtls.WithClientCAs(clientCAs),
+		dtls.WithCertificates(serverCert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithClientAuth(dtls.RequireAnyClientCert),
+		dtls.WithCertificateSignatureSchemes(
+			tls.ECDSAWithP256AndSHA256,
+			tls.ECDSAWithP384AndSHA384,
+		),
+	}
+
+	serverPort := randomPort(t)
+	comm := newComm(ctx, clientOpts, serverOpts, serverPort, serverPion, clientPion)
+	comm.setOpenSSLInfo(
+		[]dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		[]dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		[]tls.Certificate{clientCert}, []tls.Certificate{serverCert},
+		nil, nil, nil, nil, true)
+	defer comm.cleanup(t)
+	comm.assert(t)
+}
+
+// createCertChain creates a certificate chain with a root CA and a leaf certificate
+// signed by the CA. The CA uses the same key type as the leaf to ensure consistent
+// signature algorithms in the chain. This allows testing signature algorithm validation.
+func createCertChain(t *testing.T, leafKeyType string) (tls.Certificate, *x509.CertPool) {
+	t.Helper()
+
+	// Create root CA with matching key type
+	var caKey crypto.Signer
+	var caPubKey crypto.PublicKey
+	var err error
+
+	switch leafKeyType {
+	case "ecdsa-p256":
+		var k *ecdsa.PrivateKey
+		k, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		assert.NoError(t, err)
+		caKey = k
+		caPubKey = &k.PublicKey
+	case "ecdsa-p384":
+		var k *ecdsa.PrivateKey
+		k, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+		assert.NoError(t, err)
+		caKey = k
+		caPubKey = &k.PublicKey
+	case "rsa":
+		var k *rsa.PrivateKey
+		k, err = rsa.GenerateKey(rand.Reader, 2048)
+		assert.NoError(t, err)
+		caKey = k
+		caPubKey = &k.PublicKey
+	default:
+		assert.FailNowf(t, "unknown key type", "unknown key type: %s", leafKeyType)
+	}
+
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	var caCertDER []byte
+	caCertDER, err = x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caPubKey, caKey)
+	assert.NoError(t, err)
+
+	var caCert *x509.Certificate
+	caCert, err = x509.ParseCertificate(caCertDER)
+	assert.NoError(t, err)
+
+	// Create leaf certificate with same key type, signed by CA
+	var leafKey crypto.Signer
+	var leafPubKey crypto.PublicKey
+
+	switch leafKeyType {
+	case "ecdsa-p256":
+		var k *ecdsa.PrivateKey
+		k, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		assert.NoError(t, err)
+		leafKey = k
+		leafPubKey = &k.PublicKey
+	case "ecdsa-p384":
+		var k *ecdsa.PrivateKey
+		k, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+		assert.NoError(t, err)
+		leafKey = k
+		leafPubKey = &k.PublicKey
+	case "rsa":
+		var k *rsa.PrivateKey
+		k, err = rsa.GenerateKey(rand.Reader, 2048)
+		assert.NoError(t, err)
+		leafKey = k
+		leafPubKey = &k.PublicKey
+	default:
+		assert.FailNowf(t, "unknown key type", "unknown key type: %s", leafKeyType)
+	}
+
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "Test Leaf"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+	}
+
+	var leafCertDER []byte
+	leafCertDER, err = x509.CreateCertificate(rand.Reader, leafTemplate, caCert, leafPubKey, caKey)
+	assert.NoError(t, err)
+
+	// Create tls.Certificate with full chain
+	tlsCert := tls.Certificate{
+		Certificate: [][]byte{leafCertDER, caCertDER},
+		PrivateKey:  leafKey,
+	}
+
+	// Create root CA pool
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(caCert)
+
+	return tlsCert, rootCAs
+}
+
+// TestCertificateSignatureSchemesServerCertRejected tests that client rejects
+// server certificate when it uses a disallowed signature algorithm.
+//
+//nolint:dupl
+func TestCertificateSignatureSchemesServerCertRejected(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Server uses P-256 ECDSA certificate chain
+	serverCert, serverRootCAs := createCertChain(t, "ecdsa-p256")
+
+	// Client uses self-signed cert (doesn't matter since server doesn't validate)
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	// Client only allows P-384 and P-521, but server leaf cert is P-256
+	// This should cause the handshake to fail
+	clientOpts := []dtls.ClientOption{
+		dtls.WithCertificates(clientCert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithRootCAs(serverRootCAs),
+		dtls.WithCertificateSignatureSchemes(
+			tls.ECDSAWithP384AndSHA384,
+			tls.ECDSAWithP521AndSHA512,
+		),
+	}
+
+	serverOpts := []dtls.ServerOption{
+		dtls.WithCertificates(serverCert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithInsecureSkipVerify(true),
+	}
+
+	serverPort := randomPort(t)
+
+	// Start server
+	serverReady := make(chan struct{})
+	serverDone := make(chan error, 1)
+	var serverConn net.Conn
+
+	go func() {
+		listener, listenerErr := dtls.ListenWithOptions("udp",
+			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
+			serverOpts...,
+		)
+		if listenerErr != nil {
+			serverDone <- listenerErr
+
+			return
+		}
+		defer func() { _ = listener.Close() }()
+
+		serverReady <- struct{}{}
+		var acceptErr error
+		serverConn, acceptErr = listener.Accept()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+
+			return
+		}
+		defer func() { _ = serverConn.Close() }()
+
+		// Try to do handshake
+		var handshakeErr error
+		if dtlsConn, ok := serverConn.(*dtls.Conn); ok {
+			handshakeErr = dtlsConn.HandshakeContext(ctx)
+		}
+		serverDone <- handshakeErr
+	}()
+
+	// Wait for server to be ready
+	select {
+	case <-serverReady:
+	case <-time.After(time.Second):
+		assert.FailNow(t, "server not ready in time")
+	}
+
+	// Client should fail to connect
+	conn, err := dtls.DialWithOptions("udp",
+		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
+		clientOpts...,
+	)
+
+	if err == nil && conn != nil {
+		err = conn.HandshakeContext(ctx)
+		_ = conn.Close()
+	}
+
+	// We expect the handshake to fail due to invalid certificate signature algorithm
+	assert.Error(t, err, "expected handshake to fail with disallowed signature scheme")
+
+	// Wait for server to complete
+	select {
+	case serverErr := <-serverDone:
+		// Server should also see an error
+		assert.Error(t, serverErr)
+	case <-time.After(2 * time.Second):
+		t.Log("server did not complete in time")
+	}
+}
+
+// TestCertificateSignatureSchemesClientCertRejected tests that server rejects
+// client certificate when it uses a disallowed signature algorithm.
+func TestCertificateSignatureSchemesClientCertRejected(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Server uses self-signed cert (client won't validate)
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	// Client uses P-256 ECDSA certificate chain
+	clientCert, clientRootCAs := createCertChain(t, "ecdsa-p256")
+
+	// Client allows P-256 for server cert (won't validate anyway)
+	clientOpts := []dtls.ClientOption{
+		dtls.WithCertificates(clientCert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithInsecureSkipVerify(true),
+	}
+
+	// Server only allows P-384 and P-521 for client cert, but client uses P-256
+	// This should cause the handshake to fail
+	serverOpts := []dtls.ServerOption{
+		dtls.WithClientCAs(clientRootCAs),
+		dtls.WithCertificates(serverCert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithClientAuth(dtls.RequireAndVerifyClientCert),
+		dtls.WithCertificateSignatureSchemes(
+			tls.ECDSAWithP384AndSHA384,
+			tls.ECDSAWithP521AndSHA512,
+		),
+	}
+
+	serverPort := randomPort(t)
+
+	// Start server
+	serverReady := make(chan struct{})
+	serverDone := make(chan error, 1)
+	var serverConn net.Conn
+
+	go func() {
+		listener, listenerErr := dtls.ListenWithOptions("udp",
+			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
+			serverOpts...,
+		)
+		if listenerErr != nil {
+			serverDone <- listenerErr
+
+			return
+		}
+		defer func() { _ = listener.Close() }()
+
+		serverReady <- struct{}{}
+		var acceptErr error
+		serverConn, acceptErr = listener.Accept()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+
+			return
+		}
+		defer func() { _ = serverConn.Close() }()
+
+		// Try to do handshake
+		var handshakeErr error
+		if dtlsConn, ok := serverConn.(*dtls.Conn); ok {
+			handshakeErr = dtlsConn.HandshakeContext(ctx)
+		}
+		serverDone <- handshakeErr
+	}()
+
+	// Wait for server to be ready
+	select {
+	case <-serverReady:
+	case <-time.After(time.Second):
+		assert.FailNow(t, "server not ready in time")
+	}
+
+	// Client tries to connect
+	conn, err := dtls.DialWithOptions("udp",
+		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
+		clientOpts...,
+	)
+
+	if err == nil && conn != nil {
+		err = conn.HandshakeContext(ctx)
+		_ = conn.Close()
+	}
+
+	// We expect the handshake to fail due to invalid client certificate signature algorithm
+	assert.Error(t, err, "expected handshake to fail with disallowed client cert signature scheme")
+
+	// Wait for server to complete
+	select {
+	case serverErr := <-serverDone:
+		// Server should also see an error (certificate validation failed)
+		assert.Error(t, serverErr)
+	case <-time.After(2 * time.Second):
+		t.Log("server did not complete in time")
+	}
+}
+
+// TestCertificateSignatureSchemesRSAMismatch tests that connections fail when
+// RSA certificate is presented but only ECDSA schemes are allowed.
+//
+//nolint:dupl
+func TestCertificateSignatureSchemesRSAMismatch(t *testing.T) {
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Server uses RSA certificate chain
+	serverCert, serverRootCAs := createCertChain(t, "rsa")
+
+	// Client uses self-signed cert
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	// Client only allows ECDSA, but server uses RSA
+	// This should cause the handshake to fail
+	clientOpts := []dtls.ClientOption{
+		dtls.WithCertificates(clientCert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithRootCAs(serverRootCAs),
+		dtls.WithCertificateSignatureSchemes(
+			tls.ECDSAWithP256AndSHA256,
+			tls.ECDSAWithP384AndSHA384,
+		),
+	}
+
+	serverOpts := []dtls.ServerOption{
+		dtls.WithCertificates(serverCert),
+		dtls.WithCipherSuites(dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
+		dtls.WithInsecureSkipVerify(true),
+	}
+
+	serverPort := randomPort(t)
+
+	// Start server
+	serverReady := make(chan struct{})
+	serverDone := make(chan error, 1)
+	var serverConn net.Conn
+
+	go func() {
+		listener, listenerErr := dtls.ListenWithOptions("udp",
+			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
+			serverOpts...,
+		)
+		if listenerErr != nil {
+			serverDone <- listenerErr
+
+			return
+		}
+		defer func() { _ = listener.Close() }()
+
+		serverReady <- struct{}{}
+		var acceptErr error
+		serverConn, acceptErr = listener.Accept()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+
+			return
+		}
+		defer func() { _ = serverConn.Close() }()
+
+		// Try to do handshake
+		var handshakeErr error
+		if dtlsConn, ok := serverConn.(*dtls.Conn); ok {
+			handshakeErr = dtlsConn.HandshakeContext(ctx)
+		}
+		serverDone <- handshakeErr
+	}()
+
+	// Wait for server to be ready
+	select {
+	case <-serverReady:
+	case <-time.After(time.Second):
+		assert.FailNow(t, "server not ready in time")
+	}
+
+	// Client should fail to connect
+	conn, err := dtls.DialWithOptions("udp",
+		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
+		clientOpts...,
+	)
+
+	if err == nil && conn != nil {
+		err = conn.HandshakeContext(ctx)
+		_ = conn.Close()
+	}
+
+	// We expect the handshake to fail due to RSA cert with ECDSA-only schemes
+	assert.Error(t, err, "expected handshake to fail with RSA cert but ECDSA-only schemes")
+
+	// Wait for server to complete
+	select {
+	case serverErr := <-serverDone:
+		// Server should also see an error
+		assert.Error(t, serverErr)
+	case <-time.After(2 * time.Second):
+		t.Log("server did not complete in time")
+	}
 }
