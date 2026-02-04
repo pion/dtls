@@ -30,6 +30,7 @@ const (
 	SupportedVersionsTypeValue            TypeValue = 43
 	CookieTypeValue                       TypeValue = 44
 	PskKeyExchangeModesTypeValue          TypeValue = 45
+	SignatureAlgorithmsCertTypeValue      TypeValue = 50
 	KeyShareTypeValue                     TypeValue = 51
 	ConnectionIDTypeValue                 TypeValue = 54
 	RenegotiationInfoTypeValue            TypeValue = 65281
@@ -83,6 +84,8 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(bufView, &SupportedPointFormats{})
 		case SupportedSignatureAlgorithmsTypeValue:
 			err = unmarshalAndAppend(bufView, &SupportedSignatureAlgorithms{})
+		case SignatureAlgorithmsCertTypeValue:
+			err = unmarshalAndAppend(bufView, &SignatureAlgorithmsCert{})
 		case UseSRTPTypeValue:
 			err = unmarshalAndAppend(bufView, &UseSRTP{})
 		case ALPNTypeValue:
@@ -131,15 +134,15 @@ func Marshal(e []Extension) ([]byte, error) {
 	return append(out, extensions...), nil
 }
 
-// parseSignatureScheme parses a signature scheme from wire format bytes.
+// parseSignatureScheme parses a signature scheme from a uint16 value.
 // It handles both TLS 1.2 style (hash byte + signature byte) and TLS 1.3 style (full uint16 PSS schemes).
 // Returns the hash algorithm and signature algorithm.
-func parseSignatureScheme(scheme uint16, data []byte, offset int) (hash.Algorithm, signature.Algorithm) {
+func parseSignatureScheme(scheme uint16) (hash.Algorithm, signature.Algorithm) {
 	if signature.Algorithm(scheme).IsPSS() {
 		// TLS 1.3 PSS scheme - full uint16 is the signature algorithm
 		return hash.ExtractHashFromPSS(scheme), signature.Algorithm(scheme)
 	}
 
 	// TLS 1.2 style - split into hash (high byte) and signature (low byte)
-	return hash.Algorithm(data[offset]), signature.Algorithm(data[offset+1])
+	return hash.Algorithm(scheme >> 8), signature.Algorithm(scheme & 0xFF)
 }
