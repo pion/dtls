@@ -98,7 +98,12 @@ func flight4Parse(
 		var err error
 		var verified bool
 		if cfg.clientAuth >= VerifyClientCertIfGiven {
-			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs); err != nil {
+			// Use cert-specific algorithms if present, otherwise fall back to signature_algorithms per RFC 8446
+			certAlgs := state.remoteCertSignatureSchemes
+			if len(certAlgs) == 0 {
+				certAlgs = cfg.localSignatureSchemes
+			}
+			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs, certAlgs); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
 			verified = true

@@ -46,6 +46,7 @@ type dtlsConfig struct { //nolint:dupl
 	cipherSuites                  []CipherSuiteID
 	customCipherSuites            func() []CipherSuite
 	signatureSchemes              []tls.SignatureScheme
+	certificateSignatureSchemes   []tls.SignatureScheme
 	srtpProtectionProfiles        []SRTPProtectionProfile
 	srtpMasterKeyIdentifier       []byte
 	clientAuth                    ClientAuthType
@@ -131,6 +132,9 @@ func (c *dtlsConfig) toConfig() *Config {
 	}
 	if len(c.signatureSchemes) > 0 {
 		config.SignatureSchemes = append([]tls.SignatureScheme(nil), c.signatureSchemes...)
+	}
+	if len(c.certificateSignatureSchemes) > 0 {
+		config.CertificateSignatureSchemes = append([]tls.SignatureScheme(nil), c.certificateSignatureSchemes...)
 	}
 	if len(c.srtpProtectionProfiles) > 0 {
 		config.SRTPProtectionProfiles = append([]SRTPProtectionProfile(nil), c.srtpProtectionProfiles...)
@@ -247,6 +251,22 @@ func WithSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 			return errEmptySignatureSchemes
 		}
 		c.signatureSchemes = defensiveCopy(schemes...)
+
+		return nil
+	})
+}
+
+// WithCertificateSignatureSchemes sets the signature and hash schemes that may be used
+// in digital signatures for X.509 certificates. If not set, the signature_algorithms_cert
+// extension is not sent, and SignatureSchemes is used for both handshake signatures and
+// certificate chain validation, as specified in RFC 8446 Section 4.2.3.
+// For functional options, an explicitly empty slice is not allowed.
+func WithCertificateSignatureSchemes(schemes ...tls.SignatureScheme) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		if len(schemes) == 0 {
+			return errEmptyCertificateSignatureSchemes
+		}
+		c.certificateSignatureSchemes = defensiveCopy(schemes...)
 
 		return nil
 	})
