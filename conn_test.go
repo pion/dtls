@@ -976,10 +976,10 @@ func TestSRTPConfiguration(t *testing.T) {
 			WantServerError: nil,
 		},
 		{
-			Name:            "Multiple Suites, Client Chooses",
+			Name:            "Multiple Suites, Server Chooses",
 			ClientSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AES128_CM_HMAC_SHA1_32},
 			ServerSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_32, SRTP_AES128_CM_HMAC_SHA1_80},
-			ExpectedProfile: SRTP_AES128_CM_HMAC_SHA1_80,
+			ExpectedProfile: SRTP_AES128_CM_HMAC_SHA1_32,
 			WantClientError: nil,
 			WantServerError: nil,
 		},

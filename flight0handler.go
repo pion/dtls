@@ -78,7 +78,7 @@ func flight0Parse(
 			}
 			state.namedCurve = ext.EllipticCurves[0]
 		case *extension.UseSRTP:
-			profile, ok := findMatchingSRTPProfile(ext.ProtectionProfiles, cfg.localSRTPProtectionProfiles)
+			profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
 			if !ok {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerNoMatchingSRTPProfile
 			}
