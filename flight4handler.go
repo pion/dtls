@@ -99,7 +99,7 @@ func flight4Parse(
 		var verified bool
 		if cfg.clientAuth >= VerifyClientCertIfGiven {
 			// Use cert-specific algorithms if present, otherwise fall back to signature_algorithms per RFC 8446
-			certAlgs := state.remoteCertSignatureSchemes
+			certAlgs := cfg.localCertSignatureSchemes
 			if len(certAlgs) == 0 {
 				certAlgs = cfg.localSignatureSchemes
 			}
