@@ -70,13 +70,13 @@ go test -tags=bench -bench=BenchmarkCBCEncrypt -benchmem
 go test -tags=bench -bench=BenchmarkCBCDecrypt -benchmem
 ```
 
-- All cipgers, with 1KB payloads only
+- All ciphers, with 1KB payloads only
 
 ```bash
 go test -tags=bench -bench=/1KB -benchmem
 ```
 
-- All cipgers, with 16B payloads only
+- All ciphers, with 16B payloads only
 
 ```bash
 go test -tags=bench -bench=/16B -benchmem
