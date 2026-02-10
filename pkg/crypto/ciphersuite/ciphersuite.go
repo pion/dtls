@@ -6,7 +6,6 @@ package ciphersuite
 
 import (
 	"crypto/cipher"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -83,12 +82,10 @@ func (a *aead) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
 	nonce := *noncePtr
 
 	copy(nonce, a.localWriteIV[:4])
-	if _, err := rand.Read(nonce[4:]); err != nil {
-		// Return nonce buffer to pool
-		a.nonceBufferPool.Put(noncePtr)
 
-		return nil, err
-	}
+	// https://www.rfc-editor.org/rfc/rfc9325#name-nonce-reuse-in-tls-12
+	seq64 := (uint64(pkt.Header.Epoch) << 48) | (pkt.Header.SequenceNumber & 0x0000ffffffffffff)
+	binary.BigEndian.PutUint64(nonce[4:], seq64)
 
 	var additionalData []byte
 	if pkt.Header.ContentType == protocol.ContentTypeConnectionID {
