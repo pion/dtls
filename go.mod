@@ -15,3 +15,6 @@ require (
 )
 
 go 1.24.0
+
+// Retract version with broken RSA interop with OpenSSL DTLS 1.2.
+retract v3.1.0
