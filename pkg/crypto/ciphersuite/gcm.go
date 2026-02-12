@@ -6,7 +6,6 @@ package ciphersuite
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 
@@ -60,9 +59,8 @@ func (g *GCM) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) 
 
 	nonce := make([]byte, gcmNonceLength)
 	copy(nonce, g.localWriteIV[:4])
-	if _, err := rand.Read(nonce[4:]); err != nil {
-		return nil, err
-	}
+	seq64 := (uint64(pkt.Header.Epoch) << 48) | (pkt.Header.SequenceNumber & 0x0000ffffffffffff)
+	binary.BigEndian.PutUint64(nonce[4:], seq64)
 
 	var additionalData []byte
 	if pkt.Header.ContentType == protocol.ContentTypeConnectionID {
