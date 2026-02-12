@@ -16,7 +16,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -44,9 +43,16 @@ func serverOpenSSL(c *comm) {
 			"-verify_return_error",
 			fmt.Sprintf("-accept=%d", c.serverPort),
 		}
+
+		// set ciphers
+		//
+		// NOTE: as of OpenSSL 3.0, CCM ciphers were moved to the "legacy"
+		// provider and require lowering the security level (SECLEVEL) to 0.
 		ciphers := ciphersFromSuites(cipherSuites)
 		if ciphers != "" {
-			args = append(args, fmt.Sprintf("-cipher=%s", ciphers))
+			args = append(args, fmt.Sprintf("-cipher=%s:@SECLEVEL=0", ciphers))
+		} else {
+			args = append(args, "-cipher=DEFAULT:@SECLEVEL=0")
 		}
 
 		// psk arguments
@@ -131,9 +137,16 @@ func clientOpenSSL(c *comm) {
 		"-servername=localhost",
 		fmt.Sprintf("-connect=127.0.0.1:%d", c.serverPort),
 	}
+
+	// set ciphers
+	//
+	// NOTE: as of OpenSSL 3.0, CCM ciphers were moved to the "legacy"
+	// provider and require lowering the security level (SECLEVEL) to 0.
 	ciphers := ciphersFromSuites(cipherSuites)
 	if ciphers != "" {
-		args = append(args, fmt.Sprintf("-cipher=%s", ciphers))
+		args = append(args, fmt.Sprintf("-cipher=%s:@SECLEVEL=0", ciphers))
+	} else {
+		args = append(args, "-cipher=DEFAULT:@SECLEVEL=0")
 	}
 
 	// psk arguments
@@ -254,38 +267,6 @@ func writeTempPEMFromCerts(certs []tls.Certificate) (string, string, error) {
 	return certOut.Name(), keyOut.Name(), nil
 }
 
-func minimumOpenSSLVersion(t *testing.T) bool {
-	t.Helper()
-
-	cmd := exec.Command("openssl", "version")
-	allOut, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Log("Cannot determine OpenSSL version: ", err)
-		return false
-	}
-	verMatch := regexp.MustCompile(`(?i)^OpenSSL\s(?P<version>(\d+\.)?(\d+\.)?(\*|\d+)(\w)?).+$`)
-	match := verMatch.FindStringSubmatch(strings.TrimSpace(string(allOut)))
-	params := map[string]string{}
-	for i, name := range verMatch.SubexpNames() {
-		if i > 0 && i <= len(match) {
-			params[name] = match[i]
-		}
-	}
-	var ver string
-	if val, ok := params["version"]; !ok {
-		t.Log("Could not extract OpenSSL version")
-		return false
-	} else {
-		ver = val
-	}
-
-	cmp := strings.Compare(ver, "3.0.0")
-	if cmp == -1 {
-		return false
-	}
-	return true
-}
-
 func TestPionOpenSSLE2ESimple(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
 		testPionE2ESimple(t, serverOpenSSL, clientPion)
@@ -315,10 +296,7 @@ func TestPionOpenSSLE2EMTUs(t *testing.T) {
 
 func TestPionOpenSSLE2ESimpleED25519(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
-		if !minimumOpenSSLVersion(t) {
-			t.Skip("Cannot use OpenSSL < 3.0 as a DTLS server with ED25519 keys")
-		}
-		testPionE2ESimpleED25519(t, serverOpenSSL, clientPion)
+		t.Skip("OpenSSL 3.x does not support ED25519 certificates with ECDHE_ECDSA cipher suites as server: https://github.com/openssl/openssl/issues/20122")
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2ESimpleED25519(t, serverPion, clientOpenSSL)
@@ -327,10 +305,7 @@ func TestPionOpenSSLE2ESimpleED25519(t *testing.T) {
 
 func TestPionOpenSSLE2ESimpleED25519ClientCert(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
-		if !minimumOpenSSLVersion(t) {
-			t.Skip("Cannot use OpenSSL < 3.0 as a DTLS server with ED25519 keys")
-		}
-		testPionE2ESimpleED25519ClientCert(t, serverOpenSSL, clientPion)
+		t.Skip("OpenSSL 3.x does not support ED25519 certificates with ECDHE_ECDSA cipher suites as server: https://github.com/openssl/openssl/issues/20122")
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2ESimpleED25519ClientCert(t, serverPion, clientOpenSSL)
