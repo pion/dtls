@@ -345,3 +345,21 @@ func TestPionOpenSSLE2ESimpleECDSAClientCert(t *testing.T) {
 		testPionE2ESimpleECDSAClientCert(t, serverPion, clientOpenSSL)
 	})
 }
+
+func TestPionOpenSSLE2ESimpleRSA(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2ESimpleRSA(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2ESimpleRSA(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2ESimpleRSAClientCert(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2ESimpleRSAClientCert(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2ESimpleRSAClientCert(t, serverPion, clientOpenSSL)
+	})
+}

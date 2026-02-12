@@ -335,6 +335,8 @@ func withConnectionIDGenerator(g func() []byte) dtlsTestOpts {
 //   - Assert that you can send messages both ways
 //   - Assert that Close() on both ends work
 //   - Assert that no Goroutines are leaked
+//
+//nolint:dupl
 func testPionE2ESimple(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
 	lim := test.TimeOut(time.Second * 30)
@@ -354,6 +356,56 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm), opts ...dtlsTes
 			defer cancel()
 
 			cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
+			assert.NoError(t, err)
+
+			clientOpts := []dtls.ClientOption{
+				dtls.WithCertificates(cert),
+				dtls.WithCipherSuites(cipherSuite),
+				dtls.WithInsecureSkipVerify(true),
+			}
+			serverOpts := []dtls.ServerOption{
+				dtls.WithCertificates(cert),
+				dtls.WithCipherSuites(cipherSuite),
+				dtls.WithInsecureSkipVerify(true),
+			}
+			for _, o := range opts {
+				clientOpts = append(clientOpts, o.clientOpts...)
+				serverOpts = append(serverOpts, o.serverOpts...)
+			}
+			serverPort := randomPort(t)
+			comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
+			comm.setOpenSSLInfo(
+				[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
+				[]tls.Certificate{cert}, []tls.Certificate{cert},
+				nil, nil, nil, nil, true)
+			defer comm.cleanup(t)
+			comm.assert(t)
+		})
+	}
+}
+
+//nolint:dupl
+func testPionE2ESimpleRSA(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
+	t.Helper()
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, cipherSuite := range []dtls.CipherSuiteID{
+		dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		dtls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		dtls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+	} {
+		cipherSuite := cipherSuite
+		t.Run(cipherSuite.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			priv, err := rsa.GenerateKey(rand.Reader, 2048)
+			assert.NoError(t, err)
+			cert, err := selfsign.SelfSign(priv)
 			assert.NoError(t, err)
 
 			clientOpts := []dtls.ClientOption{
@@ -810,6 +862,10 @@ func testPionE2ESimpleServerHelloHook(t *testing.T, server, client func(*comm), 
 
 func TestPionE2ESimple(t *testing.T) {
 	testPionE2ESimple(t, serverPion, clientPion)
+}
+
+func TestPionE2ESimpleRSA(t *testing.T) {
+	testPionE2ESimpleRSA(t, serverPion, clientPion)
 }
 
 func TestPionE2ESimplePSK(t *testing.T) {

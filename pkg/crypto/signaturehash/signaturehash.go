@@ -26,18 +26,15 @@ type Algorithm struct {
 	Signature signature.Algorithm
 }
 
-// Algorithms are all the known SignatureHash Algorithms.
+// Algorithms returns signature algorithms compatible with DTLS 1.2 / TLS 1.2.
+// This excludes TLS 1.3-specific schemes like RSA-PSS to ensure compatibility
+// with implementations like OpenSSL that don't recognize TLS 1.3 signature
+// algorithm IDs in DTLS 1.2 handshakes.
 //
-// IMPORTANT: order in this slice determines priority used
-// by SelectSignatureScheme and SelectSignatureScheme13.
+// IMPORTANT: order in this slice determines priority used by SelectSignatureScheme.
 //
-// Order follows industry standard preference (ECDSA-first) as used
-// by: OpenSSL, BoringSSL, Firefox, Chrome, and other major TLS 1.3
-// implementations. This prioritizes elliptic curve crypto for better
-// performance (smaller keys, faster computations, less bandwidth).
-//
-// Note that this is different than Go's TLS implementation order of
-// preference.
+// Order follows industry standard preference (ECDSA-first) as used by OpenSSL,
+// BoringSSL, Firefox, Chrome, and other major TLS implementations.
 func Algorithms() []Algorithm {
 	return []Algorithm{
 		// ECDSA schemes (modern, efficient - industry standard preference)
@@ -47,21 +44,6 @@ func Algorithms() []Algorithm {
 
 		// Ed25519
 		{hash.Ed25519, signature.Ed25519},
-
-		// RSA-PSS RSAE schemes (DTLS 1.3 compatible with standard RSA certs)
-		// Note: We only offer RSA_PSS_RSAE variants (0x0804-0x0806), not RSA_PSS_PSS
-		// (0x0809-0x080b). RSA-PSS certificates with OID id-RSASSA-PSS are virtually
-		// unused in the real world and are not allowed by the CA/Browser Forum Baseline
-		// Requirements for WebPKI. We avoid unnecessary complexity for certificates that
-		// don't exist in practice, following the pragmatic approach of Go's crypto/tls
-		// and BoringSSL: target real-world WebPKI use cases rather than RFC completeness.
-		// RSA_PSS_PSS schemes are parsed for wire-format compatibility but never negotiated.
-		{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
-		{hash.SHA384, signature.RSA_PSS_RSAE_SHA384},
-		{hash.SHA512, signature.RSA_PSS_RSAE_SHA512},
-		// {hash.SHA256, signature.RSA_PSS_PSS_SHA256},
-		// {hash.SHA384, signature.RSA_PSS_PSS_SHA384},
-		// {hash.SHA512, signature.RSA_PSS_PSS_SHA512},
 
 		// RSA PKCS#1 v1.5 schemes (legacy, DTLS 1.2)
 		{hash.SHA256, signature.RSA},
@@ -98,6 +80,10 @@ func (a *Algorithm) isCompatible(signer crypto.Signer) bool {
 // ParseSignatureSchemes translates []tls.SignatureScheme to []signatureHashAlgorithm.
 // It returns default signature scheme list if no SignatureScheme is passed.
 // This function handles both TLS 1.2 byte-split encoding and TLS 1.3 PSS full uint16 schemes.
+//
+// For DTLS 1.2 / TLS 1.2, this returns Algorithms() which excludes TLS 1.3-specific
+// schemes like RSA-PSS for compatibility with implementations like OpenSSL.
+// When DTLS 1.3 is implemented, use Algorithms13() or create ParseSignatureSchemes13().
 func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]Algorithm, error) {
 	if len(sigs) == 0 {
 		return Algorithms(), nil
