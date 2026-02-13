@@ -211,6 +211,10 @@ func ciphersFromSuites(cipherSuites []dtls.CipherSuiteID) string {
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA: "ECDHE-ECDSA-AES256-SHA",
 		dtls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:   "ECDHE-RSA-AES256-SHA",
 
+		dtls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: "ECDHE-ECDSA-CHACHA20-POLY1305",
+		dtls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:   "ECDHE-RSA-CHACHA20-POLY1305",
+		dtls.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:         "PSK-CHACHA20-POLY1305",
+
 		dtls.TLS_PSK_WITH_AES_128_CCM:   "PSK-AES128-CCM",
 		dtls.TLS_PSK_WITH_AES_128_CCM_8: "PSK-AES128-CCM8",
 		dtls.TLS_PSK_WITH_AES_256_CCM_8: "PSK-AES256-CCM8",
@@ -336,5 +340,23 @@ func TestPionOpenSSLE2ESimpleRSAClientCert(t *testing.T) {
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2ESimpleRSAClientCert(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2EChaCha20Poly1305ECDSA(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2EChaCha20Poly1305(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2EChaCha20Poly1305(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2EChaCha20Poly1305RSA(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2EChaCha20Poly1305RSA(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2EChaCha20Poly1305RSA(t, serverPion, clientOpenSSL)
 	})
 }
