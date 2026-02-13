@@ -434,6 +434,100 @@ func testPionE2ESimpleRSA(t *testing.T, server, client func(*comm), opts ...dtls
 	}
 }
 
+//nolint:dupl
+func testPionE2EChaCha20Poly1305(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
+	t.Helper()
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, cipherSuite := range []dtls.CipherSuiteID{
+		dtls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+	} {
+		cipherSuite := cipherSuite
+		t.Run(cipherSuite.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
+			assert.NoError(t, err)
+
+			clientOpts := []dtls.ClientOption{
+				dtls.WithCertificates(cert),
+				dtls.WithCipherSuites(cipherSuite),
+				dtls.WithInsecureSkipVerify(true),
+			}
+			serverOpts := []dtls.ServerOption{
+				dtls.WithCertificates(cert),
+				dtls.WithCipherSuites(cipherSuite),
+				dtls.WithInsecureSkipVerify(true),
+			}
+			for _, o := range opts {
+				clientOpts = append(clientOpts, o.clientOpts...)
+				serverOpts = append(serverOpts, o.serverOpts...)
+			}
+			serverPort := randomPort(t)
+			comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
+			comm.setOpenSSLInfo(
+				[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
+				[]tls.Certificate{cert}, []tls.Certificate{cert},
+				nil, nil, nil, nil, true)
+			defer comm.cleanup(t)
+			comm.assert(t)
+		})
+	}
+}
+
+//nolint:dupl
+func testPionE2EChaCha20Poly1305RSA(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
+	t.Helper()
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, cipherSuite := range []dtls.CipherSuiteID{
+		dtls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+	} {
+		cipherSuite := cipherSuite
+		t.Run(cipherSuite.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			priv, err := rsa.GenerateKey(rand.Reader, 2048)
+			assert.NoError(t, err)
+			cert, err := selfsign.SelfSign(priv)
+			assert.NoError(t, err)
+
+			clientOpts := []dtls.ClientOption{
+				dtls.WithCertificates(cert),
+				dtls.WithCipherSuites(cipherSuite),
+				dtls.WithInsecureSkipVerify(true),
+			}
+			serverOpts := []dtls.ServerOption{
+				dtls.WithCertificates(cert),
+				dtls.WithCipherSuites(cipherSuite),
+				dtls.WithInsecureSkipVerify(true),
+			}
+			for _, o := range opts {
+				clientOpts = append(clientOpts, o.clientOpts...)
+				serverOpts = append(serverOpts, o.serverOpts...)
+			}
+			serverPort := randomPort(t)
+			comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
+			comm.setOpenSSLInfo(
+				[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
+				[]tls.Certificate{cert}, []tls.Certificate{cert},
+				nil, nil, nil, nil, true)
+			defer comm.cleanup(t)
+			comm.assert(t)
+		})
+	}
+}
+
 func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
 
@@ -487,6 +581,49 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtls
 			comm.assert(t)
 		})
 	}
+}
+
+func testPionE2EChaCha20Poly1305PSK(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
+	t.Helper()
+
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	cipherSuite := dtls.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256
+	t.Run(cipherSuite.String(), func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		pskFunc := func([]byte) ([]byte, error) {
+			return []byte{0xAB, 0xC1, 0x23}, nil
+		}
+		pskHint := []byte{0x01, 0x02, 0x03}
+
+		clientOpts := []dtls.ClientOption{
+			dtls.WithPSK(pskFunc),
+			dtls.WithPSKIdentityHint(pskHint),
+			dtls.WithCipherSuites(cipherSuite),
+		}
+		serverOpts := []dtls.ServerOption{
+			dtls.WithPSK(pskFunc),
+			dtls.WithCipherSuites(cipherSuite),
+		}
+		for _, o := range opts {
+			clientOpts = append(clientOpts, o.clientOpts...)
+			serverOpts = append(serverOpts, o.serverOpts...)
+		}
+		serverPort := randomPort(t)
+		comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
+		comm.setOpenSSLInfo(
+			[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
+			nil, nil,
+			pskFunc, pskFunc, pskHint, pskHint, false)
+		defer comm.cleanup(t)
+		comm.assert(t)
+	})
 }
 
 func testPionE2EMTUs(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
@@ -868,8 +1005,20 @@ func TestPionE2ESimpleRSA(t *testing.T) {
 	testPionE2ESimpleRSA(t, serverPion, clientPion)
 }
 
+func TestPionE2EChaCha20Poly1305(t *testing.T) {
+	testPionE2EChaCha20Poly1305(t, serverPion, clientPion)
+}
+
+func TestPionE2EChaCha20Poly1305RSA(t *testing.T) {
+	testPionE2EChaCha20Poly1305RSA(t, serverPion, clientPion)
+}
+
 func TestPionE2ESimplePSK(t *testing.T) {
 	testPionE2ESimplePSK(t, serverPion, clientPion)
+}
+
+func TestPionE2EChaCha20Poly1305PSK(t *testing.T) {
+	testPionE2EChaCha20Poly1305PSK(t, serverPion, clientPion)
 }
 
 func TestPionE2EMTUs(t *testing.T) {
@@ -896,8 +1045,20 @@ func TestPionE2ESimpleCID(t *testing.T) {
 	testPionE2ESimple(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
 }
 
+func TestPionE2EChaCha20Poly1305CID(t *testing.T) {
+	testPionE2EChaCha20Poly1305(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2EChaCha20Poly1305RSACID(t *testing.T) {
+	testPionE2EChaCha20Poly1305RSA(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
 func TestPionE2ESimplePSKCID(t *testing.T) {
 	testPionE2ESimplePSK(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+}
+
+func TestPionE2EChaCha20Poly1305PSKCID(t *testing.T) {
+	testPionE2EChaCha20Poly1305PSK(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2EMTUsCID(t *testing.T) {
