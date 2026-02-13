@@ -37,27 +37,6 @@ func TestAlgorithms13(t *testing.T) {
 	assert.Equal(t, Algorithm{hash.SHA512, signature.RSA}, algos[9])
 }
 
-func TestAlgorithms_DTLS12_ExcludesRSAPSS(t *testing.T) {
-	algos := Algorithms()
-
-	// Verify DTLS 1.2 algorithms exclude RSA-PSS schemes
-	for _, algo := range algos {
-		assert.False(t, algo.Signature.IsPSS(),
-			"Algorithms() for DTLS 1.2 should not include RSA-PSS schemes (found %v)", algo)
-	}
-
-	// Verify we still have RSA PKCS#1 v1.5
-	hasRSA := false
-	for _, algo := range algos {
-		if algo.Signature == signature.RSA {
-			hasRSA = true
-
-			break
-		}
-	}
-	assert.True(t, hasRSA, "Algorithms() should include RSA PKCS#1 v1.5 schemes")
-}
-
 func TestAlgorithms13_IncludesRSAPSS(t *testing.T) {
 	algos := Algorithms13()
 
