@@ -12,10 +12,13 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
-var errMissingHashFunction = errors.New("HKDF-Extract expected a non-nil hash function")
-var errLabelTooSmall = errors.New("HKDF-Expand-Label expected a label with length >= 7")
-var errLabelTooBig = errors.New("HKDF-Expand-Label expected a label with length <= 255")
-var errContextTooBig = errors.New("HKDF-Expand-Label expected a context with length <= 255")
+var (
+	errMissingHashFunction = errors.New("HKDF-Extract expected a non-nil hash function")
+	errLabelTooSmall       = errors.New("HKDF-Expand-Label expected a label with length >= 7")
+	errLabelTooBig         = errors.New("HKDF-Expand-Label expected a label with length <= 255")
+	errContextTooBig       = errors.New("HKDF-Expand-Label expected a context with length <= 255")
+	errLengthTooBig        = errors.New("HKDF-Expand-Label expected a length <= 65535")
+)
 
 const (
 	DTLS13prefix = "dtls13" // RFC 9147 section 5.9
@@ -50,7 +53,14 @@ func HkdfExpandLabel(hash func() hash.Hash, secret []byte, label string, context
 
 	var builder cryptobyte.Builder
 
-	builder.AddUint16(uint16(length))
+	// RFC 5869 section 2.3
+	// L        length of output keying material in octets
+	//          (<= 255*HashLen)
+	// https://datatracker.ietf.org/doc/html/rfc5869#section-2.3
+	if length > hash().Size()*255 {
+		return nil, errLengthTooBig
+	}
+	builder.AddUint16(uint16(length)) //nolint:gosec
 
 	builder.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddBytes(fullLabel)
@@ -78,5 +88,6 @@ func DeriveSecret(hash func() hash.Hash, secret []byte, label string, transcript
 	if transcriptHash == nil {
 		transcriptHash = hash()
 	}
+
 	return HkdfExpandLabel(hash, secret, label, transcriptHash.Sum(nil), transcriptHash.Size())
 }
