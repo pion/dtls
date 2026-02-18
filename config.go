@@ -233,6 +233,9 @@ type Config struct { //nolint:dupl
 	// checking against a list of blocked IPs, or counting the attempts to prevent brute force attacks.
 	// If the callback function returns an error, the connection attempt will be aborted.
 	OnConnectionAttempt func(net.Addr) error
+
+	// ListenConfig used to create the underlying listener socket.
+	listenConfig net.ListenConfig
 }
 
 func (c *Config) includeCertificateSuites() bool {
