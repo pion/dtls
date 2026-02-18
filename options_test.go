@@ -5,6 +5,7 @@ package dtls
 
 import (
 	"crypto/tls"
+	"syscall"
 	"testing"
 	"time"
 
@@ -354,17 +355,23 @@ func TestValidOptionsSucceed(t *testing.T) {
 		require.Equal(t, "example.com", config.ServerName)
 	})
 
+	controlFunc := func(network, address string, c syscall.RawConn) error {
+		return nil
+	}
+
 	t.Run("ServerValidOptions", func(t *testing.T) {
 		config, err := buildServerConfig(
 			WithCertificates(cert),
 			WithClientAuth(RequireAndVerifyClientCert),
 			WithInsecureSkipVerifyHello(true),
+			WithListenConfigControl(controlFunc),
 		)
 		require.NoError(t, err)
 
 		require.Len(t, config.Certificates, 1)
 		require.Equal(t, RequireAndVerifyClientCert, config.ClientAuth)
 		require.True(t, config.InsecureSkipVerifyHello)
+		require.Equal(t, config.listenConfigControl, controlFunc)
 	})
 }
 

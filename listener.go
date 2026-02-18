@@ -33,6 +33,7 @@ func Listen(network string, laddr *net.UDPAddr, config *Config) (net.Listener, e
 
 			return h.ContentType == protocol.ContentTypeHandshake
 		},
+		Control: config.listenConfigControl,
 	}
 	// If connection ID support is enabled, then they must be supported in
 	// routing.

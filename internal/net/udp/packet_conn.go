@@ -22,6 +22,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	idtlsnet "github.com/pion/dtls/v3/internal/net"
@@ -157,6 +158,9 @@ type ListenConfig struct {
 	// the identifier is not already associated with the connection, it will be
 	// added.
 	ConnectionIdentifier func([]byte) (string, bool)
+
+	// See net/dial.go ListenConfig
+	Control func(network, address string, c syscall.RawConn) error
 }
 
 // Listen creates a new listener based on the ListenConfig.
@@ -165,9 +169,16 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 		lc.Backlog = defaultListenBacklog
 	}
 
-	conn, err := net.ListenUDP(network, laddr)
+	netlc := net.ListenConfig{
+		Control: lc.Control,
+	}
+	innerConn, err := netlc.ListenPacket(context.Background(), network, laddr.String())
 	if err != nil {
 		return nil, err
+	}
+	conn, ok := innerConn.(*net.UDPConn)
+	if !ok {
+		return nil, errors.New("listen packet not a *net.UDPConn") //nolint:err113
 	}
 
 	packetListener := &listener{
