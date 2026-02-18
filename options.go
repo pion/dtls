@@ -79,6 +79,7 @@ type dtlsConfig struct { //nolint:dupl
 	serverHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	certificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 	onConnectionAttempt           func(net.Addr) error
+	listenConfig                  net.ListenConfig
 }
 
 // applyDefaults applies default values to the config.
@@ -122,6 +123,7 @@ func (c *dtlsConfig) toConfig() *Config {
 		ServerHelloMessageHook:        c.serverHelloMessageHook,
 		CertificateRequestMessageHook: c.certificateRequestMessageHook,
 		OnConnectionAttempt:           c.onConnectionAttempt,
+		listenConfig:                  c.listenConfig,
 	}
 
 	if len(c.certificates) > 0 {
@@ -650,6 +652,16 @@ func WithOnConnectionAttempt(fn func(net.Addr) error) ServerOption {
 			return errNilOnConnectionAttempt
 		}
 		c.onConnectionAttempt = fn
+
+		return nil
+	})
+}
+
+// WithListenConfig sets the underlying listener config.
+// This option is only applicable to servers.
+func WithListenConfig(listenConfig net.ListenConfig) ServerOption {
+	return serverOnlyOption(func(c *dtlsConfig) error {
+		c.listenConfig = listenConfig
 
 		return nil
 	})
