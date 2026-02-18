@@ -29,7 +29,8 @@ func HkdfExtract(hash func() hash.Hash, salt, ikm []byte) ([]byte, error) {
 	if hash == nil {
 		return nil, errMissingHashFunction
 	}
-	// The order of the ikm and salt arguments are different than the RFC.
+	// Note: Go's hkdf.Extract signature is (hash, ikm, salt),
+	// while RFC 5869 specifies HKDF-Extract(salt, IKM)
 	return hkdf.Extract(hash, ikm, salt)
 }
 
@@ -37,6 +38,12 @@ func HkdfExtract(hash func() hash.Hash, salt, ikm []byte) ([]byte, error) {
 func HkdfExpandLabel(hash func() hash.Hash, secret []byte, label string, context []byte, length int) ([]byte, error) {
 	fullLabel := []byte(DTLS13prefix + label)
 
+	if hash == nil {
+		return nil, errMissingHashFunction
+	}
+
+	// RFC 8446 section 7.1
+	// opaque label<7..255>
 	if len(fullLabel) < 7 {
 		return nil, errLabelTooSmall
 	} else if len(fullLabel) > 255 {
@@ -45,10 +52,6 @@ func HkdfExpandLabel(hash func() hash.Hash, secret []byte, label string, context
 
 	if len(context) > 255 {
 		return nil, errContextTooBig
-	}
-
-	if hash == nil {
-		return nil, errMissingHashFunction
 	}
 
 	var builder cryptobyte.Builder
