@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"io"
 	"net"
+	"syscall"
 	"time"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -233,6 +234,9 @@ type Config struct { //nolint:dupl
 	// checking against a list of blocked IPs, or counting the attempts to prevent brute force attacks.
 	// If the callback function returns an error, the connection attempt will be aborted.
 	OnConnectionAttempt func(net.Addr) error
+
+	// Control function used by net.ListenConfig to create the underlying listener socket.
+	listenConfigControl func(network, address string, c syscall.RawConn) error
 }
 
 func (c *Config) includeCertificateSuites() bool {

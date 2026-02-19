@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"io"
 	"net"
+	"syscall"
 	"time"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -79,6 +80,7 @@ type dtlsConfig struct { //nolint:dupl
 	serverHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	certificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 	onConnectionAttempt           func(net.Addr) error
+	listenConfigControl           func(network, address string, c syscall.RawConn) error
 }
 
 // applyDefaults applies default values to the config.
@@ -122,6 +124,7 @@ func (c *dtlsConfig) toConfig() *Config {
 		ServerHelloMessageHook:        c.serverHelloMessageHook,
 		CertificateRequestMessageHook: c.certificateRequestMessageHook,
 		OnConnectionAttempt:           c.onConnectionAttempt,
+		listenConfigControl:           c.listenConfigControl,
 	}
 
 	if len(c.certificates) > 0 {
@@ -650,6 +653,16 @@ func WithOnConnectionAttempt(fn func(net.Addr) error) ServerOption {
 			return errNilOnConnectionAttempt
 		}
 		c.onConnectionAttempt = fn
+
+		return nil
+	})
+}
+
+// WithListenConfigControl sets the underlying listener socket control.
+// This option is only applicable to servers.
+func WithListenConfigControl(control func(network, address string, c syscall.RawConn) error) ServerOption {
+	return serverOnlyOption(func(c *dtlsConfig) error {
+		c.listenConfigControl = control
 
 		return nil
 	})
