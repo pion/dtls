@@ -233,11 +233,38 @@ type Config struct { //nolint:dupl
 	// checking against a list of blocked IPs, or counting the attempts to prevent brute force attacks.
 	// If the callback function returns an error, the connection attempt will be aborted.
 	OnConnectionAttempt func(net.Addr) error
+
+	// version13 controls if DLTS version 1.3 is used or not by the client and server.
+	// https://datatracker.ietf.org/doc/html/rfc9147
+	// WIP experimental feature, see https://github.com/pion/dtls/issues/188
+	version13 bool
 }
 
 func (c *Config) includeCertificateSuites() bool {
 	return c.PSK == nil || len(c.Certificates) > 0 || c.GetCertificate != nil || c.GetClientCertificate != nil
 }
+
+type optionVersion13 func(*Config) error
+
+func newConfigVersion13(c Config, opts ...optionVersion13) (*Config, error) {
+	c.version13 = true
+	for _, opt := range opts {
+		if err := opt(&c); err != nil {
+			return &c, err
+		}
+	}
+
+	return &c, nil
+}
+
+/* Example of how to implement config/options for DTLS 1.3
+func WithOption13(f func(b bool)) OptionVersion13 {
+	return func(c *Config) error {
+		c.comeConfig = b
+		return nil
+	}
+}
+*/
 
 const defaultMTU = 1200 // bytes
 
