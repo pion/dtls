@@ -8,7 +8,6 @@ package dtls
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"net"
 	"testing"
@@ -44,8 +43,11 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 	cert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
-	config := &Config{
-		Certificates: []tls.Certificate{cert},
+	clientOpts := []ClientOption{
+		WithCertificates(cert),
+	}
+	serverOpts := []ServerOption{
+		WithCertificates(cert),
 	}
 
 	dials := map[string]struct {
@@ -57,7 +59,7 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 
 				return func() (net.Conn, error) {
-						conn, err := Dial("udp", addr, config)
+						conn, err := DialWithOptions("udp", addr, clientOpts...)
 						if err != nil {
 							return nil, err
 						}
@@ -75,7 +77,7 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 
 				return func() (net.Conn, error) {
-						conn, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config)
+						conn, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientOpts...)
 						if err != nil {
 							return nil, err
 						}
@@ -94,7 +96,7 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 
 				return func() (net.Conn, error) {
-						conn, err := Server(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config)
+						conn, err := ServerWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), serverOpts...)
 						if err != nil {
 							return nil, err
 						}

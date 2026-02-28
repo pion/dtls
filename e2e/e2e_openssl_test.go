@@ -7,6 +7,7 @@
 package e2e
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -15,7 +16,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +28,11 @@ func serverOpenSSL(c *comm) {
 		c.serverMutex.Lock()
 		defer c.serverMutex.Unlock()
 
-		cfg := c.serverConfig
+		// Use information stored in comm struct
+		cipherSuites := c.serverCipherSuites
+		certs := c.serverCertificates
+		psk := c.serverPSK
+		pskHint := c.serverPSKIdentityHint
 
 		// create openssl arguments
 		args := []string{
@@ -39,28 +43,35 @@ func serverOpenSSL(c *comm) {
 			"-verify_return_error",
 			fmt.Sprintf("-accept=%d", c.serverPort),
 		}
-		ciphers := ciphersOpenSSL(cfg)
+
+		// set ciphers
+		//
+		// NOTE: as of OpenSSL 3.0, CCM ciphers were moved to the "legacy"
+		// provider and require lowering the security level (SECLEVEL) to 0.
+		ciphers := ciphersFromSuites(cipherSuites)
 		if ciphers != "" {
-			args = append(args, fmt.Sprintf("-cipher=%s", ciphers))
+			args = append(args, fmt.Sprintf("-cipher=%s:@SECLEVEL=0", ciphers))
+		} else {
+			args = append(args, "-cipher=DEFAULT:@SECLEVEL=0")
 		}
 
 		// psk arguments
-		if cfg.PSK != nil {
-			psk, err := cfg.PSK(nil)
+		if psk != nil {
+			pskBytes, err := psk(nil)
 			if err != nil {
 				c.errChan <- err
 				return
 			}
-			args = append(args, fmt.Sprintf("-psk=%X", psk))
-			if len(cfg.PSKIdentityHint) > 0 {
-				args = append(args, fmt.Sprintf("-psk_hint=%s", cfg.PSKIdentityHint))
+			args = append(args, fmt.Sprintf("-psk=%X", pskBytes))
+			if len(pskHint) > 0 {
+				args = append(args, fmt.Sprintf("-psk_hint=%s", pskHint))
 			}
 		}
 
 		// certs arguments
-		if len(cfg.Certificates) > 0 {
+		if len(certs) > 0 {
 			// create temporary cert files
-			certPEM, keyPEM, err := writeTempPEM(cfg)
+			certPEM, keyPEM, err := writeTempPEMFromCerts(certs)
 			if err != nil {
 				c.errChan <- err
 				return
@@ -111,7 +122,11 @@ func clientOpenSSL(c *comm) {
 	c.clientMutex.Lock()
 	defer c.clientMutex.Unlock()
 
-	cfg := c.clientConfig
+	// Use information stored in comm struct
+	cipherSuites := c.clientCipherSuites
+	certs := c.clientCertificates
+	psk := c.clientPSK
+	insecureSkipVerify := c.clientInsecureSkipVerify
 
 	// create openssl arguments
 	args := []string{
@@ -122,25 +137,32 @@ func clientOpenSSL(c *comm) {
 		"-servername=localhost",
 		fmt.Sprintf("-connect=127.0.0.1:%d", c.serverPort),
 	}
-	ciphers := ciphersOpenSSL(cfg)
+
+	// set ciphers
+	//
+	// NOTE: as of OpenSSL 3.0, CCM ciphers were moved to the "legacy"
+	// provider and require lowering the security level (SECLEVEL) to 0.
+	ciphers := ciphersFromSuites(cipherSuites)
 	if ciphers != "" {
-		args = append(args, fmt.Sprintf("-cipher=%s", ciphers))
+		args = append(args, fmt.Sprintf("-cipher=%s:@SECLEVEL=0", ciphers))
+	} else {
+		args = append(args, "-cipher=DEFAULT:@SECLEVEL=0")
 	}
 
 	// psk arguments
-	if cfg.PSK != nil {
-		psk, err := cfg.PSK(nil)
+	if psk != nil {
+		pskBytes, err := psk(nil)
 		if err != nil {
 			c.errChan <- err
 			return
 		}
-		args = append(args, fmt.Sprintf("-psk=%X", psk))
+		args = append(args, fmt.Sprintf("-psk=%X", pskBytes))
 	}
 
 	// certificate arguments
-	if len(cfg.Certificates) > 0 {
+	if len(certs) > 0 {
 		// create temporary cert files
-		certPEM, keyPEM, err := writeTempPEM(cfg)
+		certPEM, keyPEM, err := writeTempPEMFromCerts(certs)
 		if err != nil {
 			c.errChan <- err
 			return
@@ -151,7 +173,7 @@ func clientOpenSSL(c *comm) {
 			_ = os.Remove(keyPEM)
 		}()
 	}
-	if !cfg.InsecureSkipVerify {
+	if !insecureSkipVerify {
 		args = append(args, "-verify_return_error")
 	}
 
@@ -174,7 +196,7 @@ func clientOpenSSL(c *comm) {
 	close(c.clientDone)
 }
 
-func ciphersOpenSSL(cfg *dtls.Config) string {
+func ciphersFromSuites(cipherSuites []dtls.CipherSuiteID) string {
 	// See https://tls.mbed.org/supported-ssl-ciphersuites
 	translate := map[dtls.CipherSuiteID]string{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CCM:   "ECDHE-ECDSA-AES128-CCM",
@@ -189,6 +211,10 @@ func ciphersOpenSSL(cfg *dtls.Config) string {
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA: "ECDHE-ECDSA-AES256-SHA",
 		dtls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:   "ECDHE-RSA-AES256-SHA",
 
+		dtls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: "ECDHE-ECDSA-CHACHA20-POLY1305",
+		dtls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:   "ECDHE-RSA-CHACHA20-POLY1305",
+		dtls.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:         "PSK-CHACHA20-POLY1305",
+
 		dtls.TLS_PSK_WITH_AES_128_CCM:   "PSK-AES128-CCM",
 		dtls.TLS_PSK_WITH_AES_128_CCM_8: "PSK-AES128-CCM8",
 		dtls.TLS_PSK_WITH_AES_256_CCM_8: "PSK-AES256-CCM8",
@@ -199,7 +225,7 @@ func ciphersOpenSSL(cfg *dtls.Config) string {
 	}
 
 	var ciphers []string
-	for _, c := range cfg.CipherSuites {
+	for _, c := range cipherSuites {
 		if text, ok := translate[c]; ok {
 			ciphers = append(ciphers, text)
 		}
@@ -207,7 +233,11 @@ func ciphersOpenSSL(cfg *dtls.Config) string {
 	return strings.Join(ciphers, ";")
 }
 
-func writeTempPEM(cfg *dtls.Config) (string, string, error) {
+func writeTempPEMFromCerts(certs []tls.Certificate) (string, string, error) {
+	if len(certs) == 0 {
+		return "", "", fmt.Errorf("no certificates provided")
+	}
+
 	certOut, err := ioutil.TempFile("", "cert.pem")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create temporary file: %w", err)
@@ -217,7 +247,7 @@ func writeTempPEM(cfg *dtls.Config) (string, string, error) {
 		return "", "", fmt.Errorf("failed to create temporary file: %w", err)
 	}
 
-	cert := cfg.Certificates[0]
+	cert := certs[0]
 	derBytes := cert.Certificate[0]
 	if err = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
 		return "", "", fmt.Errorf("failed to write data to cert.pem: %w", err)
@@ -239,38 +269,6 @@ func writeTempPEM(cfg *dtls.Config) (string, string, error) {
 		return "", "", fmt.Errorf("error closing key.pem: %w", err)
 	}
 	return certOut.Name(), keyOut.Name(), nil
-}
-
-func minimumOpenSSLVersion(t *testing.T) bool {
-	t.Helper()
-
-	cmd := exec.Command("openssl", "version")
-	allOut, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Log("Cannot determine OpenSSL version: ", err)
-		return false
-	}
-	verMatch := regexp.MustCompile(`(?i)^OpenSSL\s(?P<version>(\d+\.)?(\d+\.)?(\*|\d+)(\w)?).+$`)
-	match := verMatch.FindStringSubmatch(strings.TrimSpace(string(allOut)))
-	params := map[string]string{}
-	for i, name := range verMatch.SubexpNames() {
-		if i > 0 && i <= len(match) {
-			params[name] = match[i]
-		}
-	}
-	var ver string
-	if val, ok := params["version"]; !ok {
-		t.Log("Could not extract OpenSSL version")
-		return false
-	} else {
-		ver = val
-	}
-
-	cmp := strings.Compare(ver, "3.0.0")
-	if cmp == -1 {
-		return false
-	}
-	return true
 }
 
 func TestPionOpenSSLE2ESimple(t *testing.T) {
@@ -302,10 +300,7 @@ func TestPionOpenSSLE2EMTUs(t *testing.T) {
 
 func TestPionOpenSSLE2ESimpleED25519(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
-		if !minimumOpenSSLVersion(t) {
-			t.Skip("Cannot use OpenSSL < 3.0 as a DTLS server with ED25519 keys")
-		}
-		testPionE2ESimpleED25519(t, serverOpenSSL, clientPion)
+		t.Skip("OpenSSL 3.x does not support ED25519 certificates with ECDHE_ECDSA cipher suites as server: https://github.com/openssl/openssl/issues/20122")
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2ESimpleED25519(t, serverPion, clientOpenSSL)
@@ -314,10 +309,7 @@ func TestPionOpenSSLE2ESimpleED25519(t *testing.T) {
 
 func TestPionOpenSSLE2ESimpleED25519ClientCert(t *testing.T) {
 	t.Run("OpenSSLServer", func(t *testing.T) {
-		if !minimumOpenSSLVersion(t) {
-			t.Skip("Cannot use OpenSSL < 3.0 as a DTLS server with ED25519 keys")
-		}
-		testPionE2ESimpleED25519ClientCert(t, serverOpenSSL, clientPion)
+		t.Skip("OpenSSL 3.x does not support ED25519 certificates with ECDHE_ECDSA cipher suites as server: https://github.com/openssl/openssl/issues/20122")
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2ESimpleED25519ClientCert(t, serverPion, clientOpenSSL)
@@ -330,5 +322,41 @@ func TestPionOpenSSLE2ESimpleECDSAClientCert(t *testing.T) {
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2ESimpleECDSAClientCert(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2ESimpleRSA(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2ESimpleRSA(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2ESimpleRSA(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2ESimpleRSAClientCert(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2ESimpleRSAClientCert(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2ESimpleRSAClientCert(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2EChaCha20Poly1305ECDSA(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2EChaCha20Poly1305(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2EChaCha20Poly1305(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2EChaCha20Poly1305RSA(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2EChaCha20Poly1305RSA(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2EChaCha20Poly1305RSA(t, serverPion, clientOpenSSL)
 	})
 }

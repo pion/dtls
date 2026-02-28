@@ -83,6 +83,12 @@ func flight1Generate(
 		},
 	}
 
+	if len(cfg.localCertSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
+			SignatureHashAlgorithms: cfg.localCertSignatureSchemes,
+		})
+	}
+
 	var setEllipticCurveCryptographyClientHelloExtensions bool
 	for _, c := range cfg.localCipherSuites {
 		if c.ECC() {

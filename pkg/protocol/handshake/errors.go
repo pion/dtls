@@ -26,11 +26,8 @@ var (
 	errInvalidClientKeyExchange = &protocol.FatalError{
 		Err: errors.New("unable to determine if ClientKeyExchange is a public key or PSK Identity"), //nolint:err113
 	}
-	errInvalidHashAlgorithm = &protocol.FatalError{
-		Err: errors.New("invalid hash algorithm"), //nolint:err113
-	}
-	errInvalidSignatureAlgorithm = &protocol.FatalError{
-		Err: errors.New("invalid signature algorithm"), //nolint:err113
+	errInvalidSignHashAlgorithm = &protocol.FatalError{
+		Err: errors.New("invalid signature/hash algorithm"), //nolint:err113
 	}
 	errCookieTooLong = &protocol.FatalError{
 		Err: errors.New("cookie must not be longer then 255 bytes"), //nolint:err113

@@ -88,6 +88,7 @@ func flight4Parse(
 		if err := verifyCertificateVerify(
 			plainText,
 			verify.HashAlgorithm,
+			verify.SignatureAlgorithm,
 			verify.Signature,
 			state.PeerCertificates,
 		); err != nil {
@@ -97,7 +98,12 @@ func flight4Parse(
 		var err error
 		var verified bool
 		if cfg.clientAuth >= VerifyClientCertIfGiven {
-			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs); err != nil {
+			// Use cert-specific algorithms if present, otherwise fall back to signature_algorithms per RFC 8446
+			certAlgs := cfg.localCertSignatureSchemes
+			if len(certAlgs) == 0 {
+				certAlgs = cfg.localSignatureSchemes
+			}
+			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs, certAlgs); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
 			verified = true
@@ -389,6 +395,7 @@ func flight4Generate(
 			state.namedCurve,
 			signer,
 			signatureHashAlgo.Hash,
+			signatureHashAlgo.Signature,
 		)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err

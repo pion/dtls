@@ -4,10 +4,12 @@
 package handshake
 
 import (
+	"crypto/tls"
 	"encoding/binary"
 
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
+	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 )
 
 // MessageCertificateVerify provide explicit verification of a
@@ -45,15 +47,16 @@ func (m *MessageCertificateVerify) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 
-	m.HashAlgorithm = hash.Algorithm(data[0])
-	if _, ok := hash.Algorithms()[m.HashAlgorithm]; !ok {
-		return errInvalidHashAlgorithm
+	scheme := binary.BigEndian.Uint16(data[0:2])
+
+	var alg signaturehash.Algorithm
+	err := alg.Unmarshal(tls.SignatureScheme(scheme))
+	if err != nil {
+		return errInvalidSignHashAlgorithm
 	}
 
-	m.SignatureAlgorithm = signature.Algorithm(data[1])
-	if _, ok := signature.Algorithms()[m.SignatureAlgorithm]; !ok {
-		return errInvalidSignatureAlgorithm
-	}
+	m.HashAlgorithm = alg.Hash
+	m.SignatureAlgorithm = alg.Signature
 
 	signatureLength := int(binary.BigEndian.Uint16(data[2:]))
 	if (signatureLength + 4) != len(data) {
