@@ -41,7 +41,7 @@ func (p *PostHandshakeAuth) Unmarshal(data []byte) error {
 	switch {
 	case len(data) < postHandshakeAuthHeaderSize:
 		return errBufferTooSmall
-	case len(data) > postHandshakeAuthHeaderSize:
+	case data[2] != 0x00 || data[3] != 0x00:
 		return errInvalidPostHandshakeAuthFormat
 	case TypeValue(binary.BigEndian.Uint16(data)) == p.TypeValue():
 		p.Enabled = true

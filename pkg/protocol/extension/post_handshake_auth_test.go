@@ -27,6 +27,17 @@ func TestPostHandshakeAuth(t *testing.T) {
 	assert.Equal(t, extension.Enabled, newExtension.Enabled)
 }
 
+func TestPostHandshakeAuth_NonEmpty(t *testing.T) {
+	raw := []byte{
+		0x00, 0x31, // extension type
+		0x00, 0x42, // extension length
+	}
+	newExtension := PostHandshakeAuth{}
+	err := newExtension.Unmarshal(raw)
+
+	assert.ErrorIs(t, err, errInvalidPostHandshakeAuthFormat)
+}
+
 func FuzzPostHandshakeAuthUnmarshal(f *testing.F) {
 	testcases := [][]byte{
 		{
