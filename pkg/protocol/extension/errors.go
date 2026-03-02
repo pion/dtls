@@ -59,4 +59,7 @@ var (
 	errInvalidDTLSVersion = &protocol.InternalError{
 		Err: errors.New("invalid dtls version was provided"), //nolint:err113
 	}
+	errEarlyDataIndicationFormat = &protocol.FatalError{
+		Err: errors.New("invalid Early Data Indication extension format"), //nolint:err113
+	}
 )
