@@ -65,4 +65,7 @@ var (
 	errInvalidPostHandshakeAuthFormat = &protocol.FatalError{
 		Err: errors.New("invalid Post-Handshake Client Authentication extension format"), //nolint:err113
 	}
+	errInvalidCertificateAuthFormat = &protocol.FatalError{
+		Err: errors.New("invalid Certificate Authorities extension format"), //nolint:err113
+	}
 )
