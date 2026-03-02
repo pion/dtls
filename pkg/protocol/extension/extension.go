@@ -24,6 +24,7 @@ const (
 	ALPNTypeValue                         TypeValue = 16
 	UseExtendedMasterSecretTypeValue      TypeValue = 23
 	PreSharedKeyValue                     TypeValue = 41
+	EarlyDataIndicationTypeValue          TypeValue = 42
 	SupportedVersionsTypeValue            TypeValue = 43
 	CookieTypeValue                       TypeValue = 44
 	PskKeyExchangeModesTypeValue          TypeValue = 45
