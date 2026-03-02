@@ -28,6 +28,7 @@ const (
 	SupportedVersionsTypeValue            TypeValue = 43
 	CookieTypeValue                       TypeValue = 44
 	PskKeyExchangeModesTypeValue          TypeValue = 45
+	CertificateAuthoritiesTypeValue       TypeValue = 47
 	PostHandshakeAuthTypeValue            TypeValue = 49
 	SignatureAlgorithmsCertTypeValue      TypeValue = 50
 	KeyShareTypeValue                     TypeValue = 51
