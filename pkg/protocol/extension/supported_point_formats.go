@@ -28,10 +28,15 @@ func (s SupportedPointFormats) TypeValue() TypeValue {
 
 // Marshal encodes the extension.
 func (s *SupportedPointFormats) Marshal() ([]byte, error) {
+	if len(s.PointFormats) > 255 {
+		return nil, errPointFormatsTooLarge
+	}
+
 	out := make([]byte, supportedPointFormatsSize)
 
 	binary.BigEndian.PutUint16(out, uint16(s.TypeValue()))
 	binary.BigEndian.PutUint16(out[2:], uint16(1+(len(s.PointFormats)))) //nolint:gosec // G115
+	//nolint:gosec // G115: point format count is validated to be <= 255 above.
 	out[4] = byte(len(s.PointFormats))
 
 	for _, v := range s.PointFormats {
@@ -56,7 +61,7 @@ func (s *SupportedPointFormats) Unmarshal(data []byte) error {
 		return errLengthMismatch
 	}
 
-	for i := 0; i < pointFormatCount; i++ {
+	for i := range pointFormatCount {
 		p := elliptic.CurvePointFormat(data[supportedPointFormatsSize+i])
 		switch p {
 		case elliptic.CurvePointFormatUncompressed:

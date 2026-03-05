@@ -48,6 +48,7 @@ func (m *MessageServerKeyExchange) Marshal() ([]byte, error) { //nolint:cyclop
 	out = append(out, byte(m.EllipticCurveType), 0x00, 0x00)
 	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(m.NamedCurve))
 
+	//nolint:gosec // G115, no risk of overflow, the biggest supported curve is 97 bytes.
 	out = append(out, byte(len(m.PublicKey)))
 	out = append(out, m.PublicKey...)
 	switch {

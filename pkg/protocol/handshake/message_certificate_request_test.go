@@ -71,7 +71,6 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 	}
 
 	for name, testCase := range cases {
-		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			c := &MessageCertificateRequest{}
 			err := c.Unmarshal(testCase.rawCertificateRequest)
@@ -88,4 +87,13 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandshakeMessageCertificateRequest_CertificateTypesTooLong(t *testing.T) {
+	c := &MessageCertificateRequest{
+		CertificateTypes: make([]clientcertificate.Type, 256),
+	}
+
+	_, err := c.Marshal()
+	assert.ErrorIs(t, err, errCertificateTypesTooLong)
 }
