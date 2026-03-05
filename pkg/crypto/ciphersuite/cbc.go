@@ -232,7 +232,7 @@ func (c *CBC) hmacCID(
 	msg.AddUint8(protocolVersion.Major)
 	msg.AddUint8(protocolVersion.Minor)
 	msg.AddUint16(epoch)
-	util.AddUint48(&msg, sequenceNumber)
+	msg.AddUint48(sequenceNumber)
 	msg.AddBytes(cid)
 	msg.AddUint16(uint16(len(payload))) //nolint:gosec //G115
 	msg.AddBytes(ip.Content)
