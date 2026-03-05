@@ -9,6 +9,7 @@ import (
 
 const (
 	useSRTPHeaderSize = 6
+	maxUint16         = (1 << 16) - 1
 )
 
 // UseSRTP allows a Client/Server to negotiate what SRTPProtectionProfiles
@@ -32,6 +33,9 @@ func (u *UseSRTP) Marshal() ([]byte, error) {
 	}
 
 	extensionDataLen := 2 + (len(u.ProtectionProfiles) * 2) + 1 + len(u.MasterKeyIdentifier)
+	if extensionDataLen > maxUint16 {
+		return nil, errUseSRTPDataTooLarge
+	}
 	out := make([]byte, 4+extensionDataLen)
 
 	binary.BigEndian.PutUint16(out, uint16(u.TypeValue()))

@@ -41,6 +41,12 @@ func (m *MessageClientHello) Marshal() ([]byte, error) {
 	if len(m.Cookie) > 255 {
 		return nil, errCookieTooLong
 	}
+	if len(m.SessionID) > 255 {
+		return nil, errSessionIDTooLong
+	}
+	if len(m.CompressionMethods) > 255 {
+		return nil, errCompressionMethodsTooLong
+	}
 
 	extensions, err := extension.Marshal(m.Extensions)
 	if err != nil {
