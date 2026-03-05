@@ -35,6 +35,12 @@ var (
 	errMasterKeyIdentifierTooLarge = &protocol.FatalError{
 		Err: errors.New("master key identifier is over 255 bytes"), //nolint:err113
 	}
+	errUseSRTPDataTooLarge = &protocol.FatalError{
+		Err: errors.New("use_srtp extension data exceeds uint16 length"), //nolint:err113
+	}
+	errPointFormatsTooLarge = &protocol.FatalError{
+		Err: errors.New("point formats must not be longer than 255 "), //nolint:err113
+	}
 	errPreSharedKeyFormat = &protocol.FatalError{
 		Err: errors.New("invalid Pre-Shared Key extension format"), //nolint:err113
 	}

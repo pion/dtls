@@ -37,6 +37,11 @@ func (m MessageCertificateRequest) Type() Type {
 
 // Marshal encodes the Handshake.
 func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
+	if len(m.CertificateTypes) > 255 {
+		return nil, errCertificateTypesTooLong
+	}
+
+	//nolint:gosec // G115: certificate types count is validated to be <= 255 above.
 	out := []byte{byte(len(m.CertificateTypes))}
 	for _, v := range m.CertificateTypes {
 		out = append(out, byte(v))

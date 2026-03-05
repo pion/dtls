@@ -28,6 +28,10 @@ func (s SupportedPointFormats) TypeValue() TypeValue {
 
 // Marshal encodes the extension.
 func (s *SupportedPointFormats) Marshal() ([]byte, error) {
+	if len(s.PointFormats) > 255 {
+		return nil, errPointFormatsTooLarge
+	}
+
 	out := make([]byte, supportedPointFormatsSize)
 
 	binary.BigEndian.PutUint16(out, uint16(s.TypeValue()))

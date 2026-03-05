@@ -31,3 +31,13 @@ func TestHandshakeMessageClientKeyExchange(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, rawClientKeyExchange, raw)
 }
+
+func TestHandshakeMessageClientKeyExchange_PublicKeyTooLong(t *testing.T) {
+	c := &MessageClientKeyExchange{
+		PublicKey:            make([]byte, 256),
+		KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+	}
+
+	_, err := c.Marshal()
+	assert.ErrorIs(t, err, errPublicKeyTooLong)
+}

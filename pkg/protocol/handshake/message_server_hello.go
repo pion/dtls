@@ -36,10 +36,13 @@ func (m MessageServerHello) Type() Type {
 
 // Marshal encodes the Handshake.
 func (m *MessageServerHello) Marshal() ([]byte, error) {
-	if m.CipherSuiteID == nil {
+	switch {
+	case m.CipherSuiteID == nil:
 		return nil, errCipherSuiteUnset
-	} else if m.CompressionMethod == nil {
+	case m.CompressionMethod == nil:
 		return nil, errCompressionMethodUnset
+	case len(m.SessionID) > 255:
+		return nil, errSessionIDTooLong
 	}
 
 	extensions, err := extension.Marshal(m.Extensions)
