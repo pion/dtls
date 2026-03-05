@@ -147,7 +147,6 @@ func TestSignatureAlgorithmsCertRoundTrip(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			raw, err := tc.ext.Marshal()
 			assert.NoError(t, err, "Failed to marshal")
@@ -277,7 +276,7 @@ func TestSignatureAlgorithmsCertDuplicateAlgorithms(t *testing.T) {
 func TestSignatureAlgorithmsCertLargeList(t *testing.T) {
 	// Test with a large number of algorithms
 	algorithms := make([]signaturehash.Algorithm, 0)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		algorithms = append(algorithms, signaturehash.Algorithm{
 			Hash:      hash.SHA256,
 			Signature: signature.ECDSA,

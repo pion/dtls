@@ -176,7 +176,7 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 
 		var dat []byte
 		want := make([][]byte, 0, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			rl := &RecordLayer{
 				Header: Header{
 					ContentType:    protocol.ContentTypeApplicationData,
@@ -184,7 +184,7 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 					Epoch:          uint16(i),                //nolint:gosec // G115: i is bounded (<= 4)
 					SequenceNumber: uint64(1000) + uint64(i), //nolint:gosec // G115: i is bounded (<= 4)
 				},
-				Content: &protocol.ApplicationData{Data: all[i]},
+				Content: &protocol.ApplicationData{Data: all[i]}, //nolint:gosec // no out of range access.
 			}
 			raw, err := rl.Marshal()
 			require.NoError(t, err)
