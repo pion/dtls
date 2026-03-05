@@ -44,6 +44,7 @@ func DecodeCompressionMethods(buf []byte) ([]*CompressionMethod, error) {
 
 // EncodeCompressionMethods the given compression methods.
 func EncodeCompressionMethods(c []*CompressionMethod) []byte {
+	//nolint:gosec // G115: TLS encodes compression_methods vector length as a single byte.
 	out := []byte{byte(len(c))}
 	for i := len(c); i > 0; i-- {
 		out = append(out, byte(c[i-1].ID))

@@ -73,3 +73,17 @@ func TestHandshakeMessageServerHelloSessionID(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, rawServerHello, raw, "handshakeMessageServerHello mismatch")
 }
+
+func TestHandshakeMessageServerHello_SessionIDTooLong(t *testing.T) {
+	cipherSuiteID := uint16(0xc02b)
+	c := &MessageServerHello{
+		Version:           protocol.Version{Major: 0xFE, Minor: 0xFD},
+		SessionID:         make([]byte, 256),
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: &protocol.CompressionMethod{ID: 0},
+		Extensions:        []extension.Extension{},
+	}
+
+	_, err := c.Marshal()
+	assert.ErrorIs(t, err, errSessionIDTooLong)
+}

@@ -56,5 +56,10 @@ func TestExtensionUseSRTP(t *testing.T) {
 			MasterKeyIdentifier: make([]byte, 500),
 		}).Marshal()
 		assert.ErrorIs(t, err, errMasterKeyIdentifierTooLarge)
+
+		_, err = (&UseSRTP{
+			ProtectionProfiles: make([]SRTPProtectionProfile, 32767),
+		}).Marshal()
+		assert.ErrorIs(t, err, errUseSRTPDataTooLarge)
 	})
 }

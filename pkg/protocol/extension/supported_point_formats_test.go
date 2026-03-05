@@ -24,3 +24,9 @@ func TestExtensionSupportedPointFormats(t *testing.T) {
 	assert.NoError(t, roundtrip.Unmarshal(raw))
 	assert.Equal(t, parsedExtensionSupportedPointFormats, roundtrip)
 }
+
+func TestExtensionSupportedPointFormats_TooLong(t *testing.T) {
+	pointFormats := make([]elliptic.CurvePointFormat, 256)
+	_, err := (&SupportedPointFormats{PointFormats: pointFormats}).Marshal()
+	assert.ErrorIs(t, err, errPointFormatsTooLarge)
+}

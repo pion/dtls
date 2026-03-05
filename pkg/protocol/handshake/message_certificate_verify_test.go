@@ -33,3 +33,14 @@ func TestHandshakeMessageCertificateVerify(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, rawCertificateVerify, raw)
 }
+
+func TestHandshakeMessageCertificateVerify_InvalidAlgorithmValue(t *testing.T) {
+	c := &MessageCertificateVerify{
+		HashAlgorithm:      hash.Algorithm(0x100),
+		SignatureAlgorithm: signature.RSA,
+		Signature:          []byte{0x00},
+	}
+
+	_, err := c.Marshal()
+	assert.ErrorIs(t, err, errInvalidSignHashAlgorithm)
+}

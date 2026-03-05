@@ -82,3 +82,29 @@ func TestHandshakeMessageClientHelloSessionID(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, rawClientHello, raw)
 }
+
+func TestHandshakeMessageClientHello_SessionIDTooLong(t *testing.T) {
+	c := &MessageClientHello{
+		Version:            protocol.Version{Major: 0xFE, Minor: 0xFD},
+		SessionID:          make([]byte, 256),
+		CompressionMethods: []*protocol.CompressionMethod{{ID: 0}},
+	}
+
+	_, err := c.Marshal()
+	assert.ErrorIs(t, err, errSessionIDTooLong)
+}
+
+func TestHandshakeMessageClientHello_CompressionMethodsTooLong(t *testing.T) {
+	compressionMethods := make([]*protocol.CompressionMethod, 256)
+	for i := range compressionMethods {
+		compressionMethods[i] = &protocol.CompressionMethod{ID: 0}
+	}
+
+	c := &MessageClientHello{
+		Version:            protocol.Version{Major: 0xFE, Minor: 0xFD},
+		CompressionMethods: compressionMethods,
+	}
+
+	_, err := c.Marshal()
+	assert.ErrorIs(t, err, errCompressionMethodsTooLong)
+}

@@ -556,8 +556,8 @@ func TestParseCertificateEntry_GeneratedCertificateWithExtensions(t *testing.T) 
 	certLen := len(certDER)
 	data = append(data,
 		byte(certLen>>16), //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
-		byte(certLen>>8),
-		byte(certLen),
+		byte(certLen>>8),  //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
+		byte(certLen),     //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
 	)
 	data = append(data, certDER...)        // Add cert_data
 	data = append(data, extensionsData...) // Add extensions (incl. 2-byte prefix)
