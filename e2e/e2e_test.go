@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 //go:build !js
-// +build !js
 
 package e2e
 
@@ -350,7 +349,6 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm), opts ...dtlsTes
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
-		cipherSuite := cipherSuite
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -398,7 +396,6 @@ func testPionE2ESimpleRSA(t *testing.T, server, client func(*comm), opts ...dtls
 		dtls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 		dtls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
 	} {
-		cipherSuite := cipherSuite
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -446,7 +443,6 @@ func testPionE2EChaCha20Poly1305(t *testing.T, server, client func(*comm), opts 
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 	} {
-		cipherSuite := cipherSuite
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -492,7 +488,6 @@ func testPionE2EChaCha20Poly1305RSA(t *testing.T, server, client func(*comm), op
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 	} {
-		cipherSuite := cipherSuite
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -544,7 +539,6 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtls
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
 	} {
-		cipherSuite := cipherSuite
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -642,7 +636,6 @@ func testPionE2EMTUs(t *testing.T, server, client func(*comm), opts ...dtlsTestO
 		1000,
 		100,
 	} {
-		mtu := mtu
 		t.Run(fmt.Sprintf("MTU%d", mtu), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -695,7 +688,6 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm), opts ...
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 	} {
-		cipherSuite := cipherSuite
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

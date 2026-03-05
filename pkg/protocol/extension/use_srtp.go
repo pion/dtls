@@ -27,26 +27,30 @@ func (u UseSRTP) TypeValue() TypeValue {
 
 // Marshal encodes the extension.
 func (u *UseSRTP) Marshal() ([]byte, error) {
-	out := make([]byte, useSRTPHeaderSize)
+	if len(u.MasterKeyIdentifier) > 255 {
+		return nil, errMasterKeyIdentifierTooLarge
+	}
+
+	extensionDataLen := 2 + (len(u.ProtectionProfiles) * 2) + 1 + len(u.MasterKeyIdentifier)
+	out := make([]byte, 4+extensionDataLen)
 
 	binary.BigEndian.PutUint16(out, uint16(u.TypeValue()))
 	//nolint:gosec // G115
 	binary.BigEndian.PutUint16(
 		out[2:],
-		uint16(2+(len(u.ProtectionProfiles)*2)+ /* MKI Length */ 1+len(u.MasterKeyIdentifier)),
+		uint16(extensionDataLen),
 	)
 	binary.BigEndian.PutUint16(out[4:], uint16(len(u.ProtectionProfiles)*2)) //nolint:gosec // G115
 
+	offset := useSRTPHeaderSize
 	for _, v := range u.ProtectionProfiles {
-		out = append(out, []byte{0x00, 0x00}...) //nolint:makezero // todo: fix
-		binary.BigEndian.PutUint16(out[len(out)-2:], uint16(v))
-	}
-	if len(u.MasterKeyIdentifier) > 255 {
-		return nil, errMasterKeyIdentifierTooLarge
+		binary.BigEndian.PutUint16(out[offset:], uint16(v))
+		offset += 2
 	}
 
-	out = append(out, byte(len(u.MasterKeyIdentifier))) //nolint:makezero // todo: fix
-	out = append(out, u.MasterKeyIdentifier...)         //nolint:makezero // todo: fix
+	//nolint:gosec // G115: MKI length is validated to be <= 255 above.
+	out[offset] = byte(len(u.MasterKeyIdentifier))
+	copy(out[offset+1:], u.MasterKeyIdentifier)
 
 	return out, nil
 }
@@ -65,7 +69,7 @@ func (u *UseSRTP) Unmarshal(data []byte) error {
 		return errLengthMismatch
 	}
 
-	for i := 0; i < profileCount; i++ {
+	for i := range profileCount {
 		supportedProfile := SRTPProtectionProfile(binary.BigEndian.Uint16(data[(useSRTPHeaderSize + (i * 2)):]))
 		if _, ok := srtpProtectionProfiles()[supportedProfile]; ok {
 			u.ProtectionProfiles = append(u.ProtectionProfiles, supportedProfile)

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 //go:build !js
-// +build !js
 
 // Package udp implements DTLS specific UDP networking primitives.
 package udp
@@ -117,7 +116,7 @@ func TestListenerCloseUnaccepted(t *testing.T) {
 	}).Listen(network, addr)
 	assert.NoError(t, err)
 
-	for i := 0; i < backlog; i++ {
+	for i := range backlog {
 		aAddr, ok := listener.Addr().(*net.UDPAddr)
 		assert.True(t, ok)
 		conn, dErr := net.DialUDP(network, nil, aAddr)
@@ -161,7 +160,6 @@ func TestListenerAcceptFilter(t *testing.T) {
 	}
 
 	for name, testCase := range testCases {
-		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			network, addr := getConfig()
 			listener, err := (&ListenConfig{
@@ -232,7 +230,7 @@ func TestListenerConcurrent(t *testing.T) { //nolint:gocyclo
 	}).Listen(network, addr)
 	assert.NoError(t, err)
 
-	for i := 0; i < backlog+1; i++ {
+	for i := range backlog + 1 {
 		addr, ok := listener.Addr().(*net.UDPAddr)
 		assert.True(t, ok)
 		conn, dErr := net.DialUDP(network, nil, addr)
@@ -248,7 +246,7 @@ func TestListenerConcurrent(t *testing.T) { //nolint:gocyclo
 
 	time.Sleep(100 * time.Millisecond) // Wait all packets being processed by readLoop
 
-	for i := 0; i < backlog; i++ {
+	for i := range backlog {
 		conn, _, lErr := listener.Accept()
 		if lErr != nil {
 			assert.Fail(t, "Failed to accept connection: %v", lErr)
@@ -456,13 +454,13 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 	var clientWg sync.WaitGroup
 	var phaseOne [5]chan struct{}
 	for i := range phaseOne {
-		phaseOne[i] = make(chan struct{})
+		phaseOne[i] = make(chan struct{}) //nolint:gosec // not out of range access.
 	}
 	var serverWg sync.WaitGroup
 	clientMap := map[string]struct{}{}
 	var clientMapMu sync.Mutex
 	// Start servers.
-	for i := 0; i < serverCount; i++ {
+	for range serverCount {
 		serverWg.Add(1)
 		go func() {
 			defer serverWg.Done()
@@ -498,7 +496,7 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			close(phaseOne[connID])
 			// Receive packets, ensuring that each one came from a different
 			// client remote address and has a unique payload.
-			for j := 0; j < clientCount/serverCount; j++ {
+			for range clientCount / serverCount {
 				buf := make([]byte, 100)
 				n, _, err := conn.ReadFrom(buf)
 				assert.NoError(t, err)
@@ -520,7 +518,7 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 
 	// Start a client per server to send initial "hello" message and receive a
 	// "set" message.
-	for i := 0; i < serverCount; i++ {
+	for i := range serverCount {
 		clientWg.Add(1)
 		go func(connID int) {
 			defer clientWg.Done()

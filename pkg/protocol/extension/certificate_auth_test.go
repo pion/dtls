@@ -29,9 +29,9 @@ func TestCertificateAuth(t *testing.T) {
 
 	expect := []byte{
 		0x00, 0x2f, // extension type
-		0x00, byte(lenSub + 4), // extension length
-		0x00, byte(lenSub + 2), // subjects length
-		0x00, byte(lenSub), // subject length
+		0x00, byte(lenSub + 4), //nolint:gosec // G115: test fixture length is bounded by generated certificate subject size.
+		0x00, byte(lenSub + 2), //nolint:gosec // G115: test fixture length is bounded by generated certificate subject size.
+		0x00, byte(lenSub), //nolint:gosec // G115: test fixture length is bounded by generated certificate subject size.
 
 	}
 	expect = append(expect, subject...)
@@ -61,11 +61,15 @@ func TestCertificateAuth_Multiple(t *testing.T) {
 
 	expect := []byte{
 		0x00, 0x2f, // extension type
-		0x00, byte(lenSub*2 + 6), // extension length
-		0x00, byte(lenSub*2 + 4), // subjects length
-		0x00, byte(lenSub), // subject length
+		//nolint:gosec // G115: test fixture length is bounded by generated certificate subject size.
+		0x00, byte(lenSub*2 + 6),
+		//nolint:gosec // G115: test fixture length is bounded by generated certificate subject size.
+		0x00, byte(lenSub*2 + 4),
+		//nolint:gosec // G115: test fixture length is bounded by generated certificate subject size.
+		0x00, byte(lenSub),
 	}
 	expect = append(expect, subject...)
+	//nolint:gosec // G115: test fixture length is bounded by generated certificate subject size.
 	expect = append(expect, []byte{0x00, byte(lenSub)}...)
 	expect = append(expect, subject...)
 
@@ -102,11 +106,12 @@ func FuzzCertificateAuthUnmarshal(f *testing.F) {
 
 	raw := []byte{
 		0x00, 0x2f, // extension type
-		0x00, byte(lenSub*2 + 6), // extension length
-		0x00, byte(lenSub*2 + 4), // subjects length
-		0x00, byte(lenSub), // subject length
+		0x00, byte(lenSub*2 + 6), //nolint:gosec // G115: fuzz seed uses bounded generated certificate subject size.
+		0x00, byte(lenSub*2 + 4), //nolint:gosec // G115: fuzz seed uses bounded generated certificate subject size.
+		0x00, byte(lenSub), //nolint:gosec // G115: fuzz seed uses bounded generated certificate subject size.
 	}
 	raw = append(raw, subject...)
+	//nolint:gosec // G115: fuzz seed uses bounded generated certificate subject size.
 	raw = append(raw, []byte{0x00, byte(lenSub)}...)
 	raw = append(raw, subject...)
 

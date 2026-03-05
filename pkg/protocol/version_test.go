@@ -25,7 +25,6 @@ func TestVersionEqual(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got := tc.a.Equal(tc.b)
 			assert.Equal(t, tc.want, got, "Equal(%v,%v)", tc.a, tc.b)

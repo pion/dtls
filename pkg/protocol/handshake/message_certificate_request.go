@@ -80,7 +80,7 @@ func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cycl
 		return errBufferTooSmall
 	}
 
-	for i := 0; i < certificateTypesLength; i++ {
+	for i := range certificateTypesLength {
 		certType := clientcertificate.Type(data[offset+i])
 		if _, ok := clientcertificate.Types()[certType]; ok {
 			m.CertificateTypes = append(m.CertificateTypes, certType)

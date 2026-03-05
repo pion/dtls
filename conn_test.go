@@ -368,7 +368,6 @@ func TestHandshakeWithAlert(t *testing.T) {
 	}
 
 	for name, testCase := range cases {
-		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			clientErr := make(chan error, 1)
 
@@ -578,7 +577,6 @@ func TestPSK(t *testing.T) {
 			CipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
 		},
 	} {
-		test := test
 		t.Run(test.Name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -1210,7 +1208,6 @@ func TestClientCertificate(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			},
 		}
 		for name, tt := range tests {
-			tt := tt
 			t.Run(name, func(t *testing.T) {
 				ca, cb := dpipe.Pipe()
 				type result struct {
@@ -1357,7 +1354,6 @@ func TestConnectionID(t *testing.T) {
 		},
 	}
 	for name, tt := range tests {
-		tt := tt
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -1503,7 +1499,6 @@ func TestExtendedMasterSecret(t *testing.T) {
 		},
 	}
 	for name, tt := range tests {
-		tt := tt
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -1619,7 +1614,6 @@ func TestServerCertificate(t *testing.T) { //nolint:cyclop
 			},
 		}
 		for name, tt := range tests {
-			tt := tt
 			t.Run(name, func(t *testing.T) {
 				ca, cb := dpipe.Pipe()
 
@@ -1723,7 +1717,6 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 		},
 	} {
-		test := test
 		t.Run(test.Name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -1784,7 +1777,6 @@ func TestCertificateAndPSKServer(t *testing.T) {
 			ClientPSK: true,
 		},
 	} {
-		test := test
 		t.Run(test.Name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -2139,7 +2131,6 @@ func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
 			},
 		}
 		for name, serverCase := range serverCases {
-			serverCase := serverCase
 			t.Run(name, func(t *testing.T) {
 				ca, cb := dpipe.Pipe()
 				defer func() {
@@ -2229,7 +2220,6 @@ func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
 			},
 		}
 		for name, clientCase := range clientCases {
-			clientCase := clientCase
 			t.Run(name, func(t *testing.T) {
 				ca, cb := dpipe.Pipe()
 				defer func() {
@@ -2288,7 +2278,7 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 		{},
 	}
 	var packets [][]byte
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		cookie := make([]byte, 20)
 		_, err := rand.Read(cookie)
 		assert.NoError(t, err)
@@ -2395,8 +2385,7 @@ func TestRenegotationInfo(t *testing.T) { //nolint:cyclop
 				assert.NoError(t, ca.Close())
 			}()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			go func() {
 				_, err := testServer(
@@ -2494,7 +2483,6 @@ func TestServerNameIndicationExtension(t *testing.T) {
 			IncludeSNI: false,
 		},
 	} {
-		test := test
 		t.Run(test.Name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -2601,7 +2589,6 @@ func TestALPNExtension(t *testing.T) { //nolint:maintidx
 			Alert:                  alert.InternalError,
 		},
 	} {
-		test := test
 		t.Run(test.Name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -2970,7 +2957,6 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) { //nolint:cyclop
 			generateRSA:    true,
 		},
 	} {
-		test := test
 		t.Run(test.Name, func(t *testing.T) {
 			clientErr := make(chan error, 1)
 			client := make(chan *Conn, 1)
@@ -3050,7 +3036,6 @@ func TestMultipleServerCertificates(t *testing.T) {
 			"foo",
 		},
 	} {
-		test := test
 		t.Run(test.RequestServerName, func(t *testing.T) {
 			clientErr := make(chan error, 2)
 			client := make(chan *Conn, 1)
@@ -3248,7 +3233,7 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 		assert.NoError(t, err)
 
 		go func() {
-			for i := 0; i < 5; i++ {
+			for range 5 {
 				dconn.lock.RLock()
 				qlen := len(dconn.encryptedPackets)
 				dconn.lock.RUnlock()
@@ -3267,7 +3252,7 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		// Send an application data packet
 		packet, err := (&recordlayer.RecordLayer{
 			Header: recordlayer.Header{
@@ -3483,7 +3468,7 @@ func TestCloseDuringHandshake(t *testing.T) {
 	serverCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		_, cb := dpipe.Pipe()
 		server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 			Certificates: []tls.Certificate{serverCert},

@@ -290,7 +290,6 @@ func TestRFC3610Vectors(t *testing.T) { //nolint:maintidx
 	assert.Equal(t, 24, len(cases))
 
 	for idx, testCase := range cases {
-		testCase := testCase
 		t.Run(fmt.Sprintf("packet vector #%d", idx+1), func(t *testing.T) {
 			blk, err := aes.NewCipher(testCase.AESKey)
 			assert.NoError(t, err, "could not initialize AES block cipher from key")
@@ -360,7 +359,6 @@ func TestNewCCMError(t *testing.T) {
 	}
 
 	for name, c := range cases {
-		c := c
 		t.Run(name, func(t *testing.T) {
 			blk, err := aes.NewCipher(c.AESKey)
 			assert.NoError(t, err, "could not initialize AES block cipher from key")
@@ -399,7 +397,6 @@ func TestSealError(t *testing.T) {
 	assert.NoError(t, err)
 
 	for name, testCase := range cases {
-		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			defer func() {
 				err, ok := recover().(error)
@@ -445,7 +442,6 @@ func TestOpenError(t *testing.T) {
 	assert.NoError(t, err, "could not create CCM")
 
 	for name, c := range cases {
-		c := c
 		t.Run(name, func(t *testing.T) {
 			var dst []byte
 			_, err = lccm.Open(dst, c.Nonce, c.CipherText[c.ClearHeaderOctets:], c.CipherText[:c.ClearHeaderOctets])

@@ -204,8 +204,8 @@ func (a *Algorithm) Marshal() []byte {
 		out[1] = byte(scheme & 0xFF)
 	} else {
 		// TLS 1.2 style: hash byte + signature byte
-		out[0] = byte(a.Hash)
-		out[1] = byte(a.Signature)
+		out[0] = byte(a.Hash)      //nolint:gosec // G115: TLS 1.2 hash algorithm field is defined as 1 byte.
+		out[1] = byte(a.Signature) //nolint:gosec // G115: TLS 1.2 signature algorithm field is defined as 1 byte.
 	}
 
 	return out

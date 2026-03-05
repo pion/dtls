@@ -129,7 +129,6 @@ func TestValidateConfig(t *testing.T) {
 	}
 
 	for name, testCase := range cases {
-		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			err := validateConfig(testCase.config)
 			if testCase.expErr != nil || testCase.wantAnyErr {

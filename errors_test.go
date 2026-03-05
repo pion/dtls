@@ -41,7 +41,6 @@ func TestErrorUnwrap(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(fmt.Sprintf("%T", c.err), func(t *testing.T) {
 			err := c.err
 			for _, unwrapped := range c.errUnwrapped {
@@ -65,7 +64,6 @@ func TestErrorNetError(t *testing.T) {
 		{&HandshakeError{Err: &TimeoutError{Err: errExample}}, "handshake error: dtls timeout: an example error", true, true},
 	}
 	for _, testCase := range cases {
-		testCase := testCase
 		t.Run(fmt.Sprintf("%T", testCase.err), func(t *testing.T) {
 			var ne net.Error
 			assert.ErrorAs(t, testCase.err, &ne)

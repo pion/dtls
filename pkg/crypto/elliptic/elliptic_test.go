@@ -23,7 +23,6 @@ func TestString(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.out, func(t *testing.T) {
 			assert.Equal(t, tt.in.String(), tt.out)
 		})

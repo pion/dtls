@@ -83,7 +83,7 @@ func DoTestResume(
 		}
 
 		// Loop of read write
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			recv := make([]byte, 1024)
 			var n int
 			n, errR = remote.Read(recv)

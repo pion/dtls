@@ -79,7 +79,6 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 	}
 
 	for name, testCase := range cases {
-		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			c := &MessageCertificateRequest13{}
 			err := c.Unmarshal(testCase.rawCertificateRequest)
