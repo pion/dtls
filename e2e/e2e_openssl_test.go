@@ -220,8 +220,17 @@ func ciphersFromSuites(cipherSuites []dtls.CipherSuiteID) string {
 		dtls.TLS_PSK_WITH_AES_256_CCM_8: "PSK-AES256-CCM8",
 
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256: "PSK-AES128-GCM-SHA256",
+		dtls.TLS_PSK_WITH_AES_256_GCM_SHA384: "PSK-AES256-GCM-SHA384",
 
-		dtls.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256: "ECDHE-PSK-AES128-CBC-SHA256",
+		dtls.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256:    "ECDHE-PSK-AES128-CBC-SHA256",
+		dtls.TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384:    "ECDHE-PSK-AES256-CBC-SHA384",
+		dtls.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256: "ECDHE-PSK-CHACHA20-POLY1305",
+
+		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA: "ECDHE-ECDSA-AES128-SHA",
+		dtls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:   "ECDHE-RSA-AES128-SHA",
+
+		// NOTE: PSK-AES256-CCM requires OpenSSL legacy provider (handled by @SECLEVEL=0).
+		dtls.TLS_PSK_WITH_AES_256_CCM: "PSK-AES256-CCM",
 	}
 
 	var ciphers []string
@@ -358,5 +367,23 @@ func TestPionOpenSSLE2EChaCha20Poly1305RSA(t *testing.T) {
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
 		testPionE2EChaCha20Poly1305RSA(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2EAes128CbcShaECDSA(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2EAes128CbcSha(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2EAes128CbcSha(t, serverPion, clientOpenSSL)
+	})
+}
+
+func TestPionOpenSSLE2EAes128CbcShaRSA(t *testing.T) {
+	t.Run("OpenSSLServer", func(t *testing.T) {
+		testPionE2EAes128CbcShaRSA(t, serverOpenSSL, clientPion)
+	})
+	t.Run("OpenSSLClient", func(t *testing.T) {
+		testPionE2EAes128CbcShaRSA(t, serverPion, clientOpenSSL)
 	})
 }

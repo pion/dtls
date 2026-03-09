@@ -528,6 +528,90 @@ func testPionE2EChaCha20Poly1305RSA(t *testing.T, server, client func(*comm), op
 	}
 }
 
+func testPionE2EAes128CbcSha(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
+	t.Helper()
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	cipherSuite := dtls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+	t.Run(cipherSuite.String(), func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
+		assert.NoError(t, err)
+
+		clientOpts := []dtls.ClientOption{
+			dtls.WithCertificates(cert),
+			dtls.WithCipherSuites(cipherSuite),
+			dtls.WithInsecureSkipVerify(true),
+		}
+		serverOpts := []dtls.ServerOption{
+			dtls.WithCertificates(cert),
+			dtls.WithCipherSuites(cipherSuite),
+			dtls.WithInsecureSkipVerify(true),
+		}
+		for _, o := range opts {
+			clientOpts = append(clientOpts, o.clientOpts...)
+			serverOpts = append(serverOpts, o.serverOpts...)
+		}
+		serverPort := randomPort(t)
+		comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
+		comm.setOpenSSLInfo(
+			[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
+			[]tls.Certificate{cert}, []tls.Certificate{cert},
+			nil, nil, nil, nil, true)
+		defer comm.cleanup(t)
+		comm.assert(t)
+	})
+}
+
+func testPionE2EAes128CbcShaRSA(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
+	t.Helper()
+	lim := test.TimeOut(time.Second * 30)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	cipherSuite := dtls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+	t.Run(cipherSuite.String(), func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		priv, err := rsa.GenerateKey(rand.Reader, 2048)
+		assert.NoError(t, err)
+		cert, err := selfsign.SelfSign(priv)
+		assert.NoError(t, err)
+
+		clientOpts := []dtls.ClientOption{
+			dtls.WithCertificates(cert),
+			dtls.WithCipherSuites(cipherSuite),
+			dtls.WithInsecureSkipVerify(true),
+		}
+		serverOpts := []dtls.ServerOption{
+			dtls.WithCertificates(cert),
+			dtls.WithCipherSuites(cipherSuite),
+			dtls.WithInsecureSkipVerify(true),
+		}
+		for _, o := range opts {
+			clientOpts = append(clientOpts, o.clientOpts...)
+			serverOpts = append(serverOpts, o.serverOpts...)
+		}
+		serverPort := randomPort(t)
+		comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
+		comm.setOpenSSLInfo(
+			[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
+			[]tls.Certificate{cert}, []tls.Certificate{cert},
+			nil, nil, nil, nil, true)
+		defer comm.cleanup(t)
+		comm.assert(t)
+	})
+}
+
 func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
 
@@ -540,9 +624,13 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtls
 	for _, cipherSuite := range []dtls.CipherSuiteID{
 		dtls.TLS_PSK_WITH_AES_128_CCM,
 		dtls.TLS_PSK_WITH_AES_128_CCM_8,
+		dtls.TLS_PSK_WITH_AES_256_CCM,
 		dtls.TLS_PSK_WITH_AES_256_CCM_8,
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
+		dtls.TLS_PSK_WITH_AES_256_GCM_SHA384,
 		dtls.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
+		dtls.TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384,
+		dtls.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256,
 	} {
 		cipherSuite := cipherSuite
 		t.Run(cipherSuite.String(), func(t *testing.T) {
