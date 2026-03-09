@@ -56,6 +56,7 @@ type Curve uint16
 const (
 	P256   Curve = 0x0017
 	P384   Curve = 0x0018
+	P521   Curve = 0x0019
 	X25519 Curve = 0x001d
 	// X25519MLKEM768
 	// https://pkg.go.dev/crypto/internal/fips140/mlkem
@@ -69,6 +70,8 @@ func (c Curve) String() string {
 		return "P-256"
 	case P384:
 		return "P-384"
+	case P521:
+		return "P-521"
 	case X25519:
 		return "X25519"
 	}
@@ -82,6 +85,7 @@ func Curves() map[Curve]bool {
 		X25519: true,
 		P256:   true,
 		P384:   true,
+		P521:   true,
 	}
 }
 
@@ -115,6 +119,8 @@ func (c Curve) toECDH() (ecdh.Curve, error) {
 		return ecdh.P256(), nil
 	case P384:
 		return ecdh.P384(), nil
+	case P521:
+		return ecdh.P521(), nil
 	default:
 		return nil, errInvalidNamedCurve
 	}
