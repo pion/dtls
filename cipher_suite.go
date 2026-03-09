@@ -37,23 +37,32 @@ const (
 	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384   CipherSuiteID = ciphersuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384   // nolint: revive,staticcheck,lll
 
 	// nolint: godot
+	// AES-128-CBC-SHA
+	TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA CipherSuiteID = ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA // nolint: revive,staticcheck,lll
+	TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA   CipherSuiteID = ciphersuite.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA   // nolint: revive,staticcheck,lll
+
+	// nolint: godot
 	// AES-256-CBC-SHA
 	TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA CipherSuiteID = ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA // nolint: revive,staticcheck,lll
 	TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   CipherSuiteID = ciphersuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA   // nolint: revive,staticcheck,lll
 
 	TLS_PSK_WITH_AES_128_CCM        CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_128_CCM        // nolint: revive,staticcheck,lll
 	TLS_PSK_WITH_AES_128_CCM_8      CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_128_CCM_8      // nolint: revive,staticcheck,lll
+	TLS_PSK_WITH_AES_256_CCM        CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_256_CCM        // nolint: revive,staticcheck,lll
 	TLS_PSK_WITH_AES_256_CCM_8      CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_256_CCM_8      // nolint: revive,staticcheck,lll
 	TLS_PSK_WITH_AES_128_GCM_SHA256 CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_128_GCM_SHA256 // nolint: revive,staticcheck,lll
+	TLS_PSK_WITH_AES_256_GCM_SHA384 CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_256_GCM_SHA384 // nolint: revive,staticcheck,lll
 	TLS_PSK_WITH_AES_128_CBC_SHA256 CipherSuiteID = ciphersuite.TLS_PSK_WITH_AES_128_CBC_SHA256 // nolint: revive,staticcheck,lll
 
 	TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 CipherSuiteID = ciphersuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 // nolint: revive,staticcheck,lll
+	TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384 CipherSuiteID = ciphersuite.TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384 // nolint: revive,staticcheck,lll
 
 	// nolint: godot
 	// ChaCha20-Poly1305-SHA256
 	TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 CipherSuiteID = ciphersuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 // nolint: revive,staticcheck,lll
 	TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   CipherSuiteID = ciphersuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   // nolint: revive,staticcheck,lll
 	TLS_PSK_WITH_CHACHA20_POLY1305_SHA256         CipherSuiteID = ciphersuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256         // nolint: revive,staticcheck,lll
+	TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256   CipherSuiteID = ciphersuite.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256   // nolint: revive,staticcheck,lll
 )
 
 // CipherSuiteAuthenticationType controls what authentication method is using during the handshake for a CipherSuite.
@@ -136,6 +145,10 @@ func cipherSuiteForID(id CipherSuiteID, customCiphers func() []CipherSuite) Ciph
 		return &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
 	case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
 		return &ciphersuite.TLSEcdheRsaWithAes128GcmSha256{}
+	case TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA:
+		return &ciphersuite.TLSEcdheEcdsaWithAes128CbcSha{}
+	case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
+		return &ciphersuite.TLSEcdheRsaWithAes128CbcSha{}
 	case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
 		return &ciphersuite.TLSEcdheEcdsaWithAes256CbcSha{}
 	case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
@@ -144,10 +157,14 @@ func cipherSuiteForID(id CipherSuiteID, customCiphers func() []CipherSuite) Ciph
 		return ciphersuite.NewTLSPskWithAes128Ccm()
 	case TLS_PSK_WITH_AES_128_CCM_8:
 		return ciphersuite.NewTLSPskWithAes128Ccm8()
+	case TLS_PSK_WITH_AES_256_CCM:
+		return ciphersuite.NewTLSPskWithAes256Ccm()
 	case TLS_PSK_WITH_AES_256_CCM_8:
 		return ciphersuite.NewTLSPskWithAes256Ccm8()
 	case TLS_PSK_WITH_AES_128_GCM_SHA256:
 		return &ciphersuite.TLSPskWithAes128GcmSha256{}
+	case TLS_PSK_WITH_AES_256_GCM_SHA384:
+		return &ciphersuite.TLSPskWithAes256GcmSha384{}
 	case TLS_PSK_WITH_AES_128_CBC_SHA256:
 		return &ciphersuite.TLSPskWithAes128CbcSha256{}
 	case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
@@ -156,12 +173,16 @@ func cipherSuiteForID(id CipherSuiteID, customCiphers func() []CipherSuite) Ciph
 		return &ciphersuite.TLSEcdheRsaWithAes256GcmSha384{}
 	case TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256:
 		return ciphersuite.NewTLSEcdhePskWithAes128CbcSha256()
+	case TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384:
+		return ciphersuite.NewTLSEcdhePskWithAes256CbcSha384()
 	case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
 		return &ciphersuite.TLSEcdheEcdsaWithChacha20Poly1305Sha256{}
 	case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
 		return &ciphersuite.TLSEcdheRsaWithChacha20Poly1305Sha256{}
 	case TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:
 		return &ciphersuite.TLSPskWithChacha20Poly1305Sha256{}
+	case TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256:
+		return &ciphersuite.TLSEcdhePskWithChacha20Poly1305Sha256{}
 	}
 
 	if customCiphers != nil {
@@ -195,17 +216,24 @@ func allCipherSuites() []CipherSuite {
 		ciphersuite.NewTLSEcdheEcdsaWithAes128Ccm8(),
 		&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
 		&ciphersuite.TLSEcdheRsaWithAes128GcmSha256{},
+		&ciphersuite.TLSEcdheEcdsaWithAes128CbcSha{},
+		&ciphersuite.TLSEcdheRsaWithAes128CbcSha{},
 		&ciphersuite.TLSEcdheEcdsaWithAes256CbcSha{},
 		&ciphersuite.TLSEcdheRsaWithAes256CbcSha{},
 		ciphersuite.NewTLSPskWithAes128Ccm(),
 		ciphersuite.NewTLSPskWithAes128Ccm8(),
+		ciphersuite.NewTLSPskWithAes256Ccm(),
 		ciphersuite.NewTLSPskWithAes256Ccm8(),
 		&ciphersuite.TLSPskWithAes128GcmSha256{},
+		&ciphersuite.TLSPskWithAes256GcmSha384{},
 		&ciphersuite.TLSEcdheEcdsaWithAes256GcmSha384{},
 		&ciphersuite.TLSEcdheRsaWithAes256GcmSha384{},
 		&ciphersuite.TLSEcdheEcdsaWithChacha20Poly1305Sha256{},
 		&ciphersuite.TLSEcdheRsaWithChacha20Poly1305Sha256{},
 		&ciphersuite.TLSPskWithChacha20Poly1305Sha256{},
+		&ciphersuite.TLSEcdhePskWithChacha20Poly1305Sha256{},
+		ciphersuite.NewTLSEcdhePskWithAes128CbcSha256(),
+		ciphersuite.NewTLSEcdhePskWithAes256CbcSha384(),
 	}
 }
 
