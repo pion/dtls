@@ -73,6 +73,36 @@ func TestOIDFilters_MultipleFilters(t *testing.T) {
 	assert.Equal(t, values2, newExtension.Filters[1].Values)
 }
 
+func TestOIDFilters_DuplicateFilters(t *testing.T) {
+	oid := []byte{0x55, 0x04}
+	values1 := []byte{0xaa, 0xbb}
+	values2 := []byte{0xcc, 0xdd}
+	extension := OIDFilters{Filters: []OIDFilter{
+		{OID: oid, Values: values1},
+		{OID: oid, Values: values2},
+	}}
+
+	_, err := extension.Marshal()
+	assert.ErrorIs(t, err, errDuplicateOID)
+
+	raw := []byte{
+		0x00, 0x30, // extension type
+		0x00, 0x10, // extension data length
+		0x00, 0x0e, // filter list length
+		0x02,       // OID length
+		0x55, 0x04, // OID bytes
+		0x00, 0x02, // values length
+		0xaa, 0xbb, // values bytes
+		0x02,       // OID length
+		0x55, 0x04, // OID bytes
+		0x00, 0x02, // values length
+		0xcc, 0xdd, // values bytes
+	}
+
+	newExtension := OIDFilters{}
+	assert.ErrorIs(t, newExtension.Unmarshal(raw), errDuplicateOID)
+}
+
 func TestOIDFilters_EmptyValues(t *testing.T) {
 	oid := []byte{0x55, 0x04, 0x03}
 	extension := OIDFilters{Filters: []OIDFilter{
@@ -163,8 +193,12 @@ func FuzzOIDFiltersUnmarshal(f *testing.F) {
 		ext := OIDFilters{}
 		err := ext.Unmarshal(a)
 		if err == nil {
+			seen := map[string]struct{}{}
 			for _, filter := range ext.Filters {
 				assert.NotEmpty(t, filter.OID)
+				_, dup := seen[string(filter.OID)]
+				assert.False(t, dup)
+				seen[string(filter.OID)] = struct{}{}
 			}
 			// Check if extension is stable after parsing
 			marshaled, marshalErr := ext.Marshal()

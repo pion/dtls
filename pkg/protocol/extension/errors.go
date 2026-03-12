@@ -80,4 +80,7 @@ var (
 	errOIDFiltersFormat = &protocol.FatalError{
 		Err: errors.New("invalid OID filters extension format"), //nolint:err113
 	}
+	errDuplicateOID = &protocol.FatalError{
+		Err: errors.New("duplicate OID filters"), //nolint:err113
+	}
 )

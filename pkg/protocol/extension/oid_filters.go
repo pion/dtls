@@ -30,15 +30,20 @@ func (o *OIDFilters) Marshal() ([]byte, error) {
 	out.AddUint16(uint16(o.TypeValue()))
 
 	out.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
-		b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+		b.AddUint16LengthPrefixed(func(builder *cryptobyte.Builder) {
+			seen := map[string]struct{}{}
 			for _, filter := range o.Filters {
 				if len(filter.OID) < 1 {
-					b.SetError(errEmptyOIDFilter)
+					builder.SetError(errEmptyOIDFilter)
 				}
-				b.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
+				if _, ok := seen[string(filter.OID)]; ok {
+					builder.SetError(errDuplicateOID)
+				}
+				seen[string(filter.OID)] = struct{}{}
+				builder.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
 					b.AddBytes(filter.OID)
 				})
-				b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+				builder.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 					if filter.Values != nil {
 						b.AddBytes(filter.Values)
 					}
@@ -51,7 +56,7 @@ func (o *OIDFilters) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the extension from encoded data.
-func (o *OIDFilters) Unmarshal(data []byte) error {
+func (o *OIDFilters) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 
 	var extension uint16
@@ -69,6 +74,8 @@ func (o *OIDFilters) Unmarshal(data []byte) error {
 		return errLengthMismatch
 	}
 
+	seen := map[string]struct{}{}
+
 	for !filterList.Empty() {
 		var filter OIDFilter
 
@@ -76,6 +83,11 @@ func (o *OIDFilters) Unmarshal(data []byte) error {
 		if !filterList.ReadUint8LengthPrefixed(&oid) || oid.Empty() {
 			return errOIDFiltersFormat
 		}
+		if _, ok := seen[string(oid)]; ok {
+			return errDuplicateOID
+		}
+		seen[string(oid)] = struct{}{}
+
 		filter.OID = make([]byte, len(oid))
 		copy(filter.OID, oid)
 
