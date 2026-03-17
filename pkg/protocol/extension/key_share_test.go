@@ -374,6 +374,19 @@ func TestKeyShare_Unmarshal_Errors(t *testing.T) {
 	rawEmpty, _ := empty.Bytes()
 	err = ks.Unmarshal(rawEmpty)
 	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+
+	rawTrailing := []byte{
+		0x0, 0x33, // extension type
+		0x0, 0x8, // extension length
+		0x0, 0x5, // vec length
+		0x0, 0x1d, // X25519
+		0x0, 0x01, // length
+		0x42,
+		0x43, // trailing byte
+	}
+
+	err = ks.Unmarshal(rawTrailing)
+	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
 }
 
 func Test_hasTooManyContexts(t *testing.T) {
