@@ -57,6 +57,10 @@ func (s *ServerName) Unmarshal(data []byte) error { //nolint:cyclop
 	if !extData.ReadUint16LengthPrefixed(&nameList) || nameList.Empty() {
 		return errInvalidSNIFormat
 	}
+	if !extData.Empty() {
+		return errLengthMismatch
+	}
+
 	for !nameList.Empty() {
 		var nameType uint8
 		var serverName cryptobyte.String
