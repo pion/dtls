@@ -51,6 +51,7 @@ func FuzzCIDUnmarshal(f *testing.F) {
 		if err == nil {
 			length := len(cid.CID)
 			assert.Less(t, length, 0xff)
+			testExtDataLength(t, &cid, data)
 		}
 	})
 }
