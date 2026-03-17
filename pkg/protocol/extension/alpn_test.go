@@ -79,7 +79,7 @@ func FuzzALPNUnmarshal(f *testing.F) {
 			for _, s := range alpn.ProtocolNameList {
 				assert.NotZero(t, len(s))
 			}
-			testExtDataLength(t, &alpn, data)
+			testExtDataLength(t, &alpn, data, true)
 		}
 	})
 }

@@ -239,17 +239,18 @@ func FuzzPreSharedKeyUnmarshal(f *testing.F) {
 	for _, tc := range testcases {
 		f.Add(tc)
 	}
-	f.Fuzz(func(t *testing.T, a []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
 		psk := PreSharedKey{}
-		err := psk.Unmarshal(a)
+		err := psk.Unmarshal(data)
 		if err == nil {
+			testExtDataLength(t, &psk, data, true)
 			// ServerHello
-			if len(a) == 6 && len(psk.Identities) != 0 && len(psk.Binders) != 0 {
+			if len(data) == 6 && len(psk.Identities) != 0 && len(psk.Binders) != 0 {
 				assert.Fail(t, "PreSharedKey was unmarshalled without error both as ServerHello and ClientHello")
 			}
 
 			// ClientHello
-			data := cryptobyte.String(a[2:3])
+			data := cryptobyte.String(data[2:3])
 			var length uint16
 			data.ReadUint16(&length)
 			if length > 2 {

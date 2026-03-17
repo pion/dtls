@@ -25,8 +25,8 @@ func TestExtensions(t *testing.T) {
 }
 
 // testExtDataLength is used to check the declared length in an extension and
-// should only be called after a succesfull unmarshal.
-func testExtDataLength(t *testing.T, ext Extension, data []byte) {
+// trailing bytes. It should only be called after a succesfull unmarshal.
+func testExtDataLength(t *testing.T, ext Extension, data []byte, trailing bool) {
 	t.Helper()
 	// [2 type][2 length][...value...]
 	if len(data) < 4 {
@@ -35,19 +35,21 @@ func testExtDataLength(t *testing.T, ext Extension, data []byte) {
 	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
 	extensionEnd := 4 + declaredLength
 
-	// The extension data window must not overflow the buffer.
+	// The extension data window must not overflow the data buffer.
 	if extensionEnd > len(data) {
 		assert.Failf(t, "Overflow",
-			"Unmarshal succeeded but declared length %d overflows buffer of size %d. Data: %x",
+			"Unmarshal succeeded but declared length %d overflows actual data length %d. Data: %x",
 			declaredLength, len(data), data)
 
 		return
 	}
 
-	// If the round-trip produces different bytes, Unmarshal consumed
-	// something it shouldn't have (or ignored bytes within the window).
-	enc, err := ext.Marshal()
-	assert.NoError(t, err)
-	assert.Equal(t, data[:extensionEnd], enc,
-		"Round-trip mismatch: Unmarshal consumed bytes outside declared extension window")
+	if trailing {
+		// If the round-trip produces different bytes, Unmarshal consumed
+		// something it shouldn't have or there are trailing bytes in the extension.
+		enc, err := ext.Marshal()
+		assert.NoError(t, err)
+		assert.Equal(t, data[:extensionEnd], enc,
+			"Round-trip mismatch: Unmarshal consumed extra bytes or there are trailing bytes")
+	}
 }
