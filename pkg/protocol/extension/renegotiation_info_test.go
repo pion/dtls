@@ -52,6 +52,6 @@ func FuzzRenegotiationInfoUnmarshal(f *testing.F) {
 		if err != nil {
 			return
 		}
-		testExtDataLength(t, &ri, data)
+		testExtDataLength(t, &ri, data, true)
 	})
 }

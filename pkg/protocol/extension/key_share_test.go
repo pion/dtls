@@ -425,6 +425,8 @@ func FuzzKeyShareUnmarshal(f *testing.F) {
 			hasServerShare := ks.ServerShare != nil
 			hasHelloRetryRequest := ks.SelectedGroup != nil
 			assert.Equal(t, false, hasTooManyContexts(hasClientShares, hasServerShare, hasHelloRetryRequest))
+			// We do not check trailing bytes as non-supported groups are removed.
+			testExtDataLength(t, &ks, data, false)
 		}
 	})
 }
