@@ -35,7 +35,7 @@ func FuzzExtensionSupportedGroupsUnmarshal(f *testing.F) {
 		if err != nil {
 			return
 		}
-		// Un-supported curves are filtered out
+		// Invalid curves are filtered out
 		testExtDataLength(t, &curves, data, false)
 	})
 }

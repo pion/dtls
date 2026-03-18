@@ -51,12 +51,15 @@ func (s *ServerName) Unmarshal(data []byte) error { //nolint:cyclop
 	}
 
 	var extData cryptobyte.String
-	val.ReadUint16LengthPrefixed(&extData)
+	if !val.ReadUint16LengthPrefixed(&extData) {
+		return errBufferTooSmall
+	}
 
 	var nameList cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&nameList) || nameList.Empty() {
 		return errInvalidSNIFormat
 	}
+
 	if !extData.Empty() {
 		return errLengthMismatch
 	}
