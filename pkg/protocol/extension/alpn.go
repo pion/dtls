@@ -56,9 +56,14 @@ func (a *ALPN) Unmarshal(data []byte) error {
 	}
 
 	var protoList cryptobyte.String
-	if !extData.ReadUint16LengthPrefixed(&protoList) || protoList.Empty() || !extData.Empty() {
+	if !extData.ReadUint16LengthPrefixed(&protoList) || protoList.Empty() {
 		return ErrALPNInvalidFormat
 	}
+
+	if !extData.Empty() {
+		return errLengthMismatch
+	}
+
 	for !protoList.Empty() {
 		var proto cryptobyte.String
 		if !protoList.ReadUint8LengthPrefixed(&proto) || proto.Empty() {

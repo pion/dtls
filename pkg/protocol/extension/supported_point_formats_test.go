@@ -41,7 +41,7 @@ func FuzzExtensionSupportedPointFormatsUnmarshal(f *testing.F) {
 		if err != nil {
 			return
 		}
-		// Un-supported point formats are filtered out
+		// Invalid point formats are filtered out
 		testExtDataLength(t, &points, data, false)
 	})
 }
