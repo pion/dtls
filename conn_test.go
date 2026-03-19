@@ -3506,17 +3506,18 @@ func TestDTLS13Config(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 
 	// Setup client
-	clientCfg := &Config{}
 	clientCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
-	clientCfg.Certificates = []tls.Certificate{clientCert}
-	clientCfg.InsecureSkipVerify = true
+	clientcfg, err := buildClientConfig(
+		WithCertificates(clientCert),
+		WithInsecureSkipVerify(true),
+		withVersion13(true),
+	)
 
-	cfg13, err := newConfigVersion13(*clientCfg)
 	assert.NoError(t, err)
 
-	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), cfg13)
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientcfg)
 	assert.NoError(t, err)
 	defer func() {
 		_ = client.Close()

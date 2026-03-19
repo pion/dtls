@@ -80,6 +80,7 @@ type dtlsConfig struct { //nolint:dupl
 	certificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 	onConnectionAttempt           func(net.Addr) error
 	listenConfig                  net.ListenConfig
+	version13                     bool
 }
 
 // applyDefaults applies default values to the config.
@@ -124,6 +125,7 @@ func (c *dtlsConfig) toConfig() *Config {
 		CertificateRequestMessageHook: c.certificateRequestMessageHook,
 		OnConnectionAttempt:           c.onConnectionAttempt,
 		listenConfig:                  c.listenConfig,
+		version13:                     c.version13,
 	}
 
 	if len(c.certificates) > 0 {
@@ -556,6 +558,17 @@ func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.
 			return errNilClientHelloMessageHook
 		}
 		c.clientHelloMessageHook = fn
+
+		return nil
+	})
+}
+
+// WithVersion13 enables version 1.3.
+// WIP experimental feature, see https://github.com/pion/dtls/issues/188
+// https://datatracker.ietf.org/doc/html/rfc9147
+func withVersion13(b bool) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		c.version13 = b
 
 		return nil
 	})
