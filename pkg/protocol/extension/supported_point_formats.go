@@ -48,16 +48,21 @@ func (s *SupportedPointFormats) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (s *SupportedPointFormats) Unmarshal(data []byte) error {
-	if len(data) <= supportedPointFormatsSize {
+	if len(data) < supportedPointFormatsSize {
 		return errBufferTooSmall
 	}
 
-	if TypeValue(binary.BigEndian.Uint16(data)) != s.TypeValue() {
-		return errInvalidExtensionType
-	}
-
+	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
 	pointFormatCount := int(data[4])
-	if supportedPointFormatsSize+pointFormatCount > len(data) {
+
+	switch {
+	case TypeValue(binary.BigEndian.Uint16(data)) != s.TypeValue():
+		return errInvalidExtensionType
+	case declaredLength > len(data)-4: // type + declared length = 4
+		return errLengthMismatch
+	case supportedPointFormatsSize+pointFormatCount > len(data):
+		return errLengthMismatch
+	case pointFormatCount+1 != declaredLength:
 		return errLengthMismatch
 	}
 

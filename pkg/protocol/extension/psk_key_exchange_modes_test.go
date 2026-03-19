@@ -74,10 +74,11 @@ func FuzzPskKeyExchangeModesUnmarshal(f *testing.F) {
 	for _, tc := range testcases {
 		f.Add(tc)
 	}
-	f.Fuzz(func(t *testing.T, a []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
 		pskModes := PskKeyExchangeModes{}
-		err := pskModes.Unmarshal(a)
+		err := pskModes.Unmarshal(data)
 		if err == nil {
+			testExtDataLength(t, &pskModes, data, true)
 			length := len(pskModes.KeModes)
 			assert.NotZero(t, length)
 			assert.LessOrEqual(t, length, 255)

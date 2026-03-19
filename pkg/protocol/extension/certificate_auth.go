@@ -47,7 +47,7 @@ func (c *CertificateAuthorities) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the extension from encoded data.
-func (c *CertificateAuthorities) Unmarshal(data []byte) error {
+func (c *CertificateAuthorities) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 	var extension uint16
 	if !val.ReadUint16(&extension) || TypeValue(extension) != c.TypeValue() {
@@ -55,13 +55,17 @@ func (c *CertificateAuthorities) Unmarshal(data []byte) error {
 	}
 
 	var extData cryptobyte.String
-	if !val.ReadUint16LengthPrefixed(&extData) || extData.Empty() {
-		return errInvalidCertificateAuthFormat
+	if !val.ReadUint16LengthPrefixed(&extData) {
+		return errBufferTooSmall
 	}
 
 	var auths cryptobyte.String
-	if !extData.ReadUint16LengthPrefixed(&auths) || auths.Empty() {
+	if extData.Empty() || !extData.ReadUint16LengthPrefixed(&auths) || auths.Empty() {
 		return errInvalidCertificateAuthFormat
+	}
+
+	if !extData.Empty() {
+		return errLengthMismatch
 	}
 
 	var cauths [][]byte
