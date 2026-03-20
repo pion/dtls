@@ -236,6 +236,10 @@ type Config struct { //nolint:dupl
 
 	// ListenConfig used to create the underlying listener socket.
 	listenConfig net.ListenConfig
+
+	// version13
+	// WIP experimental feature, see https://github.com/pion/dtls/issues/188
+	version13 bool
 }
 
 func (c *Config) includeCertificateSuites() bool {

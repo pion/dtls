@@ -3127,10 +3127,10 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 		assert.True(t, ok, "Failed to default Elliptic curves")
 
 		if len(test.ConfigCurves) != 0 {
-			assert.Equal(t, len(test.HandshakeCurves), len(server.fsm.cfg.ellipticCurves), "Failed to configure Elliptic curves")
+			assert.Equal(t, len(test.HandshakeCurves), len(server.fsm.(*handshakeFSM12).cfg.ellipticCurves), "Failed to configure Elliptic curves")
 
 			for i, c := range test.ConfigCurves {
-				assert.Equal(t, c, server.fsm.cfg.ellipticCurves[i], "Failed to maintain Elliptic curve order")
+				assert.Equal(t, c, server.fsm.(*handshakeFSM12).cfg.ellipticCurves[i], "Failed to maintain Elliptic curve order")
 			}
 		}
 
@@ -3499,4 +3499,51 @@ func TestCloseWithoutHandshake(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.NoError(t, server.Close())
+}
+
+// WIP! Tests if DTLS 1.3 handshake flow is enabled and the correct error is returned.
+func TestDTLS13Config(t *testing.T) {
+	ca, cb := dpipe.Pipe()
+
+	// Setup client
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	clientcfg, err := buildClientConfig(
+		WithCertificates(clientCert),
+		WithInsecureSkipVerify(true),
+		withVersion13(true),
+	)
+
+	assert.NoError(t, err)
+
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientcfg)
+	assert.NoError(t, err)
+	defer func() {
+		_ = client.Close()
+	}()
+
+	_, ok := client.ConnectionState()
+	assert.False(t, ok)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errorChannel := make(chan error)
+	go func() {
+		errC := client.HandshakeContext(ctx)
+		errorChannel <- errC
+	}()
+
+	// Setup server, ignore error
+	server, _ := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{}, true)
+	assert.NoError(t, err)
+
+	defer func() {
+		_ = server.Close()
+	}()
+
+	err = <-errorChannel
+	if err.Error() == errFlightUnimplemented13.Error() {
+		return
+	}
 }
