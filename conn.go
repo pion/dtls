@@ -92,8 +92,7 @@ type Conn struct {
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
-	fsm   *handshakeFSM
-	fsm13 *handshakeFSM13
+	fsm handshakeFSM
 
 	replayProtectionWindow uint
 
@@ -249,7 +248,7 @@ func createConn(
 
 	if config.version13 {
 		handshakeConfig13 := &handshakeConfig13{
-			handshakeConfig: *handshakeConfig, //nolint:govet
+			handshakeConfig: handshakeConfig,
 		}
 		conn.handshakeConfig13 = handshakeConfig13
 		conn.handshakeConfig = nil
@@ -297,11 +296,11 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 	c.handshakeDone = handshakeDone
 	c.closeLock.Unlock()
 
-	if c.handshakeConfig13 != nil {
+	if c.isVersion13Enabled() {
 		initialFlight := flight13_0
-		initialFSMState := handshakePreparing13
+		initialFSMState := handshakePreparing
 
-		if err := c.handshake13(ctx, c.handshakeConfig13, initialFlight, initialFSMState); err != nil {
+		if err := c.handshake(ctx, flightVal(initialFlight), initialFSMState); err != nil {
 			return err
 		}
 		c.log.Trace("Handshake DTLS 1.3 Completed")
@@ -341,7 +340,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 		initialFSMState = handshakePreparing
 	}
 	// Do handshake
-	if err := c.handshake(ctx, c.handshakeConfig, initialFlight, initialFSMState); err != nil {
+	if err := c.handshake(ctx, initialFlight, initialFSMState); err != nil {
 		return err
 	}
 
@@ -493,7 +492,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		return 0, err
 	}
 
-	// Should check for DTLS 1.3
+	// todo: check for version
 	return len(payload), c.writePackets(c.writeDeadline, []*packet{
 		{
 			record: &recordlayer.RecordLayer{
@@ -820,65 +819,6 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
-func (c *Conn) readAndBuffer13(ctx context.Context) error { //nolint:cyclop,
-	bufptr, ok := poolReadBuffer.Get().(*[]byte)
-	if !ok {
-		return errFailedToAccessPoolReadBuffer
-	}
-	defer poolReadBuffer.Put(bufptr)
-
-	b := *bufptr
-	_, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
-	if err != nil {
-		return netError(err)
-	}
-	// DTLS 1.3 has different header
-	pkts, err := recordlayer.UnpackDatagram(b)
-	if err != nil {
-		return err
-	}
-	var hasHandshake, isRetransmit bool
-	for _, p := range pkts {
-		hs, rtx, alert, err := c.handleIncomingPacket13(ctx, p, rAddr, true)
-		if alert != nil {
-			if alertErr := c.notify13(ctx, alert.Level, alert.Description); alertErr != nil {
-				if err == nil {
-					err = alertErr
-				}
-			}
-		}
-
-		var e *alertError
-		if errors.As(err, &e) && e.IsFatalOrCloseNotify() {
-			return e
-		}
-		if err != nil {
-			return err
-		}
-		if hs {
-			hasHandshake = true
-		}
-		if rtx {
-			isRetransmit = true
-		}
-	}
-	s := recvHandshakeState{
-		done:         make(chan struct{}),
-		isRetransmit: isRetransmit,
-	}
-	if hasHandshake {
-		select {
-		case c.handshakeRecv <- s:
-			// If the other party may retransmit the flight,
-			// we should respond even if it not a new message.
-			<-s.done
-		case <-c.fsm13.Done():
-		}
-	}
-
-	return nil
-}
-
 func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocognit
 	bufptr, ok := poolReadBuffer.Get().(*[]byte)
 	if !ok {
@@ -899,6 +839,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 
 	var hasHandshake, isRetransmit bool
 	for _, p := range pkts {
+		// todo: check version
 		hs, rtx, alert, err := c.handleIncomingPacket(ctx, p, rAddr, true)
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
@@ -946,6 +887,7 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.lock.Unlock()
 
 	for _, p := range pkts {
+		// todo: check version
 		_, _, alert, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, false) // don't re-enqueue
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
@@ -1210,47 +1152,30 @@ func (c *Conn) recvHandshake() <-chan recvHandshakeState {
 	return c.handshakeRecv
 }
 
-func (c *Conn) notify13(ctx context.Context, level alert.Level, desc alert.Description) error {
-	if level == alert.Fatal && len(c.state.SessionID) > 0 {
-		if ss := c.fsm13.cfg.sessionStore; ss != nil {
-			c.log.Tracef("clean invalid session: %s", c.state.SessionID)
-			if err := ss.Del(c.sessionKey()); err != nil {
-				return err
-			}
-		}
-	}
-
-	// This should be replaced with DTLS 1.3 record encoding.
-	return c.writePackets(ctx, []*packet{
-		{
-			record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Epoch:   c.state.getLocalEpoch(),
-					Version: protocol.Version1_2,
-				},
-				Content: &alert.Alert{
-					Level:       level,
-					Description: desc,
-				},
-			},
-			shouldWrapCID: len(c.state.remoteConnectionID) > 0,
-			shouldEncrypt: c.isHandshakeCompletedSuccessfully(),
-		},
-	})
-}
-
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
 	if level == alert.Fatal && len(c.state.SessionID) > 0 {
-		// According to the RFC, we need to delete the stored session.
-		// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
-		if ss := c.fsm.cfg.sessionStore; ss != nil {
-			c.log.Tracef("clean invalid session: %s", c.state.SessionID)
-			if err := ss.Del(c.sessionKey()); err != nil {
-				return err
+		if c.isVersion13Enabled() {
+			// With compability mode for 1.3, CH uses a non-empty session_id
+			// https://datatracker.ietf.org/doc/html/rfc8446#appendix-D.4
+			if ss := c.fsm.(*handshakeFSM13).cfg.sessionStore; ss != nil {
+				c.log.Tracef("clean invalid session: %s", c.state.SessionID)
+				if err := ss.Del(c.sessionKey()); err != nil {
+					return err
+				}
+			}
+		} else {
+			// According to the RFC, we need to delete the stored session.
+			// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
+			if ss := c.fsm.(*handshakeFSM12).cfg.sessionStore; ss != nil {
+				c.log.Tracef("clean invalid session: %s", c.state.SessionID)
+				if err := ss.Del(c.sessionKey()); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
+	// This should be updated with DTLS 1.3 record encoding.
 	return c.writePackets(ctx, []*packet{
 		{
 			record: &recordlayer.RecordLayer{
@@ -1280,20 +1205,41 @@ func (c *Conn) isHandshakeCompletedSuccessfully() bool {
 //nolint:cyclop,gocognit,contextcheck
 func (c *Conn) handshake(
 	ctx context.Context,
-	cfg *handshakeConfig,
 	initialFlight flightVal,
 	initialState handshakeState,
 ) error {
-	c.fsm = newHandshakeFSM(&c.state, c.handshakeCache, cfg, initialFlight)
-
 	done := make(chan struct{})
-	ctxRead, cancelRead := context.WithCancel(context.Background())
-	cfg.onFlightState = func(_ flightVal, s handshakeState) {
-		if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
-			close(done)
+	if c.isVersion13Enabled() {
+		c.fsm = &handshakeFSM13{
+			currentFlight:      flightVal13(initialFlight),
+			state:              &c.state,
+			cache:              c.handshakeCache,
+			cfg:                c.handshakeConfig13,
+			retransmitInterval: c.handshakeConfig13.initialRetransmitInterval,
+			closed:             make(chan struct{}),
+		}
+		c.handshakeConfig13.onFlightState13 = func(_ flightVal13, s handshakeState) {
+			if c.fsm.(*handshakeFSM13).currentFlight.isLastSendFlight() {
+				close(done)
+			}
+		}
+	} else {
+		c.fsm = &handshakeFSM12{
+			currentFlight:      initialFlight,
+			state:              &c.state,
+			cache:              c.handshakeCache,
+			cfg:                c.handshakeConfig,
+			retransmitInterval: c.handshakeConfig.initialRetransmitInterval,
+			closed:             make(chan struct{}),
+		}
+		c.handshakeConfig.onFlightState = func(_ flightVal, s handshakeState) {
+			if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
+				close(done)
+			}
 		}
 	}
 
+	ctxRead, cancelRead := context.WithCancel(context.Background())
 	ctxHs, cancel := context.WithCancel(context.Background())
 
 	c.closeLock.Lock()
@@ -1408,142 +1354,6 @@ func (c *Conn) handshake(
 	}
 }
 
-//nolint:cyclop,gocognit,contextcheck
-func (c *Conn) handshake13(
-	ctx context.Context,
-	cfg *handshakeConfig13,
-	initialFlight flightVal13,
-	initialState handshakeState13,
-) error {
-	c.fsm13 = newHandshakeFSM13(&c.state, c.handshakeCache, cfg, initialFlight)
-
-	done := make(chan struct{})
-	ctxRead, cancelRead := context.WithCancel(context.Background())
-	cfg.onFlightState13 = func(_ flightVal13, s handshakeState13) {
-		if c.fsm13.currentFlight.isLastSendFlight() {
-			close(done)
-		}
-	}
-	cfg.onFlightState13 = func(_ flightVal13, s handshakeState13) {
-		if s == handshakeFinished13 && c.setHandshakeCompletedSuccessfully() {
-			close(done)
-		}
-	}
-
-	ctxHs, cancel := context.WithCancel(context.Background())
-
-	c.closeLock.Lock()
-	c.cancelHandshaker = cancel
-	c.cancelHandshakeReader = cancelRead
-	c.closeLock.Unlock()
-
-	firstErr := make(chan error, 1)
-
-	var handshakeLoopsFinished sync.WaitGroup
-	handshakeLoopsFinished.Add(2)
-
-	// Handshake routine should be live until close.
-	// The other party may request retransmission of the last flight to cope with packet drop.
-	go func() {
-		defer handshakeLoopsFinished.Done()
-		err := c.fsm13.Run(ctxHs, c, initialState)
-		if !errors.Is(err, context.Canceled) {
-			select {
-			case firstErr <- err:
-			default:
-			}
-		}
-	}()
-	go func() {
-		defer func() {
-			if c.isHandshakeCompletedSuccessfully() {
-				// Escaping read loop.
-				// It's safe to close decrypted channnel now.
-				close(c.decrypted)
-			}
-
-			// Force stop handshaker when the underlying connection is closed.
-			cancel()
-		}()
-		defer handshakeLoopsFinished.Done()
-		for {
-			if err := c.readAndBuffer13(ctxRead); err != nil { //nolint:nestif
-				var alertErr *alertError
-				if errors.As(err, &alertErr) {
-					if !alertErr.IsFatalOrCloseNotify() {
-						if c.isHandshakeCompletedSuccessfully() {
-							// Pass the error to Read()
-							select {
-							case c.decrypted <- err:
-							case <-c.closed.Done():
-							case <-ctxRead.Done():
-							}
-						}
-
-						continue // non-fatal alert must not stop read loop
-					}
-				} else {
-					switch {
-					case errors.Is(err, context.DeadlineExceeded),
-						errors.Is(err, context.Canceled),
-						errors.Is(err, io.EOF),
-						errors.Is(err, net.ErrClosed):
-					case errors.Is(err, recordlayer.ErrInvalidPacketLength):
-						// Decode error must be silently discarded
-						// [RFC6347 Section-4.1.2.7]
-						continue
-					default:
-						if c.isHandshakeCompletedSuccessfully() {
-							// Keep read loop and pass the read error to Read()
-							select {
-							case c.decrypted <- err:
-							case <-c.closed.Done():
-							case <-ctxRead.Done():
-							}
-
-							continue // non-fatal alert must not stop read loop
-						}
-					}
-				}
-
-				select {
-				case firstErr <- err:
-				default:
-				}
-
-				if alertErr != nil {
-					if alertErr.IsFatalOrCloseNotify() {
-						_ = c.close(false) //nolint:contextcheck
-					}
-				}
-				if !c.isConnectionClosed() && errors.Is(err, context.Canceled) {
-					c.log.Trace("handshake13 timeouts - closing underline connection")
-					_ = c.close(false) //nolint:contextcheck
-				}
-
-				return
-			}
-		}
-	}()
-
-	select {
-	case err := <-firstErr:
-		cancelRead()
-		cancel()
-		handshakeLoopsFinished.Wait()
-
-		return c.translateHandshakeCtxError(err)
-	case <-ctx.Done():
-		cancelRead()
-		cancel()
-		handshakeLoopsFinished.Wait()
-
-		return c.translateHandshakeCtxError(ctx.Err())
-	case <-done:
-		return nil
-	}
-}
-
 func (c *Conn) translateHandshakeCtxError(err error) error {
 	if err == nil {
 		return nil
@@ -1567,11 +1377,7 @@ func (c *Conn) close(byUser bool) error {
 	if c.isHandshakeCompletedSuccessfully() && byUser {
 		// Discard error from notify() to return non-error on the first user call of Close()
 		// even if the underlying connection is already closed.
-		if c.handshakeConfig13 != nil {
-			_ = c.notify13(context.Background(), alert.Warning, alert.CloseNotify)
-		} else {
-			_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
-		}
+		_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
 	}
 
 	c.closeLock.Lock()
@@ -1630,11 +1436,11 @@ func (c *Conn) sessionKey() []byte {
 		// As ServerName can be like 0.example.com, it's better to add
 		// delimiter character which is not allowed to be in
 		// neither address or domain name.
-		if c.handshakeConfig13 != nil {
-			return []byte(c.rAddr.String() + "_" + c.fsm13.cfg.serverName)
+		if c.isVersion13Enabled() {
+			return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM13).cfg.serverName)
 		}
 
-		return []byte(c.rAddr.String() + "_" + c.fsm.cfg.serverName)
+		return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM12).cfg.serverName)
 	}
 
 	return c.state.SessionID
@@ -1660,4 +1466,8 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	c.writeDeadline.Set(t)
 	// Write deadline is also fully managed by this layer.
 	return nil
+}
+
+func (c *Conn) isVersion13Enabled() bool {
+	return c.handshakeConfig13 != nil
 }

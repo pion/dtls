@@ -59,33 +59,6 @@ import (
 //         Server read retransmit
 //             Retransmit ACK
 
-type handshakeState13 uint8
-
-const (
-	handshakeErrored13 handshakeState13 = iota
-	handshakePreparing13
-	handshakeSending13
-	handshakeWaiting13
-	handshakeFinished13
-)
-
-func (s handshakeState13) String() string {
-	switch s {
-	case handshakeErrored13:
-		return "Errored"
-	case handshakePreparing13:
-		return "Preparing"
-	case handshakeSending13:
-		return "Sending"
-	case handshakeWaiting13:
-		return "Waiting"
-	case handshakeFinished13:
-		return "Finished"
-	default:
-		return "Unknown"
-	}
-}
-
 type handshakeFSM13 struct {
 	currentFlight flightVal13
 	// 1.3 uses new record layer! We should replace with new packet struct.
@@ -99,8 +72,8 @@ type handshakeFSM13 struct {
 }
 
 type handshakeConfig13 struct {
-	handshakeConfig
-	onFlightState13 func(flightVal13, handshakeState13)
+	*handshakeConfig
+	onFlightState13 func(flightVal13, handshakeState)
 }
 
 type flightConn13 interface { //nolint:unused
@@ -111,21 +84,7 @@ type flightConn13 interface { //nolint:unused
 	sessionKey() []byte
 }
 
-func newHandshakeFSM13(
-	s *State, cache *handshakeCache, cfg *handshakeConfig13,
-	initialFlight flightVal13,
-) *handshakeFSM13 {
-	return &handshakeFSM13{
-		currentFlight:      initialFlight,
-		state:              s,
-		cache:              cache,
-		cfg:                cfg,
-		retransmitInterval: cfg.initialRetransmitInterval,
-		closed:             make(chan struct{}),
-	}
-}
-
-func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState handshakeState13) error {
+func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState handshakeState) error {
 	state := initialState
 	defer func() {
 		close(s.closed)
@@ -137,13 +96,13 @@ func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState 
 		}
 		var err error
 		switch state {
-		case handshakePreparing13:
+		case handshakePreparing:
 			state, err = s.prepare(ctx, conn)
-		case handshakeSending13:
+		case handshakeSending:
 			state, err = s.send(ctx, conn)
-		case handshakeWaiting13:
+		case handshakeWaiting:
 			state, err = s.wait(ctx, conn)
-		case handshakeFinished13:
+		case handshakeFinished:
 			state, err = s.finish(ctx, conn)
 		default:
 			return errInvalidFSMTransition
@@ -158,18 +117,18 @@ func (s *handshakeFSM13) Done() <-chan struct{} {
 	return s.closed
 }
 
-func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshakeState13, error) {
-	return handshakeErrored13, errStateUnimplemented13
+func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshakeState, error) {
+	return handshakeErrored, errStateUnimplemented13
 }
 
-func (s *handshakeFSM13) send(ctx context.Context, c flightConn) (handshakeState13, error) {
-	return handshakeErrored13, errStateUnimplemented13
+func (s *handshakeFSM13) send(ctx context.Context, c flightConn) (handshakeState, error) {
+	return handshakeErrored, errStateUnimplemented13
 }
 
-func (s *handshakeFSM13) wait(ctx context.Context, conn flightConn) (handshakeState13, error) {
-	return handshakeErrored13, errStateUnimplemented13
+func (s *handshakeFSM13) wait(ctx context.Context, conn flightConn) (handshakeState, error) {
+	return handshakeErrored, errStateUnimplemented13
 }
 
-func (s *handshakeFSM13) finish(ctx context.Context, c flightConn) (handshakeState13, error) {
-	return handshakeErrored13, errStateUnimplemented13
+func (s *handshakeFSM13) finish(ctx context.Context, c flightConn) (handshakeState, error) {
+	return handshakeErrored, errStateUnimplemented13
 }

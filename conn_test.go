@@ -3127,10 +3127,10 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 		assert.True(t, ok, "Failed to default Elliptic curves")
 
 		if len(test.ConfigCurves) != 0 {
-			assert.Equal(t, len(test.HandshakeCurves), len(server.fsm.cfg.ellipticCurves), "Failed to configure Elliptic curves")
+			assert.Equal(t, len(test.HandshakeCurves), len(server.fsm.(*handshakeFSM12).cfg.ellipticCurves), "Failed to configure Elliptic curves")
 
 			for i, c := range test.ConfigCurves {
-				assert.Equal(t, c, server.fsm.cfg.ellipticCurves[i], "Failed to maintain Elliptic curve order")
+				assert.Equal(t, c, server.fsm.(*handshakeFSM12).cfg.ellipticCurves[i], "Failed to maintain Elliptic curve order")
 			}
 		}
 
