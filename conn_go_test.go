@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 //go:build !js
-// +build !js
 
 package dtls
 
@@ -112,7 +111,6 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 	}
 
 	for name, dial := range dials {
-		dial := dial
 		t.Run(name, func(t *testing.T) {
 			done := make(chan struct{})
 

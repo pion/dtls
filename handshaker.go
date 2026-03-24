@@ -289,15 +289,13 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 	for {
 		select {
 		case state := <-conn.recvHandshake():
-			if state.isRetransmit {
-				close(state.done)
-				// ignore incoming retransmit hints, only rely on the timer-driven path below
+			if !state.isRetransmit {
+				// only reset retransmit interval on non-retransmit state
 				// https://github.com/pion/dtls/issues/758
-				continue
+				s.retransmitInterval = s.cfg.initialRetransmitInterval
 			}
 
 			nextFlight, alert, err := parse(ctx, conn, s.state, s.cache, s.cfg)
-			s.retransmitInterval = s.cfg.initialRetransmitInterval
 			close(state.done)
 			if alert != nil {
 				if alertErr := conn.notify(ctx, alert.Level, alert.Description); alertErr != nil {

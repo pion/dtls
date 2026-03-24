@@ -74,8 +74,6 @@ func TestReplayProtection(t *testing.T) { //nolint:cyclop
 
 	var received [2][][]byte
 	for i, c := range []net.Conn{ca, cb} {
-		i := i
-		c := c
 		wgRoutines.Add(1)
 		atomic.AddInt32(&cntReplays, 1) // Keep locked until the final message
 		var lastMsgDone sync.Once
@@ -99,7 +97,7 @@ func TestReplayProtection(t *testing.T) { //nolint:cyclop
 	}
 
 	var sent [][]byte
-	for i := 0; i < numMsgs; i++ {
+	for i := range numMsgs {
 		data := []byte{byte(i)}
 		sent = append(sent, data)
 		_, werr := ca.Write(data)
@@ -112,7 +110,7 @@ func TestReplayProtection(t *testing.T) { //nolint:cyclop
 	<-ctxReplayDone.Done()
 	time.Sleep(10 * time.Millisecond) // Ensure all replayed packets are sent
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		assert.NoError(t, conn[i].Close())
 	}
 	assert.NoError(t, ca.Close())

@@ -19,7 +19,11 @@ func TestKeyShare_Marshal_ClientHello_EmptyVector_RoundTrip(t *testing.T) {
 
 	// Expect: type, ext_len=2, vector_len=0
 	typeValue := ks.TypeValue()
-	expect := []byte{byte(uint16(typeValue) >> 8), byte(uint16(typeValue)), 0x00, 0x02, 0x00, 0x00}
+	expect := []byte{
+		byte(uint16(typeValue) >> 8), //nolint:gosec // G115: high byte extraction from uint16 extension type in test fixture.
+		byte(uint16(typeValue)),      //nolint:gosec // G115: low byte extraction from uint16 extension type in test fixture.
+		0x00, 0x02, 0x00, 0x00,
+	}
 	assert.Equal(t, expect, raw)
 
 	var parsed KeyShare
@@ -237,8 +241,9 @@ func TestKeyShare_Unmarshal_ClientHello_TruncatedEntries(t *testing.T) {
 	// bad ext: vecLen=1, then a single byte to force group uint16 read error.
 	typeValue := KeyShare{}.TypeValue()
 	raw := []byte{
-		byte(uint16(typeValue) >> 8), byte(uint16(typeValue)), // type
-		0x00, 0x03, // ext len = 3
+		byte(uint16(typeValue) >> 8), //nolint:gosec // G115: high byte extraction from uint16 extension type in test fixture.
+		byte(uint16(typeValue)),      //nolint:gosec // G115: low byte extraction from uint16 extension type in test fixture.
+		0x00, 0x03,                   // ext len = 3
 		0x00, 0x01, // vecLen = 1
 		0xFF, // only 1 byte, not enough for group uint16
 	}
@@ -249,8 +254,9 @@ func TestKeyShare_Unmarshal_ClientHello_TruncatedEntries(t *testing.T) {
 
 	// bad ext 2: one full group but key_exchange length=1 with no bytes
 	raw2 := []byte{
-		byte(uint16(typeValue) >> 8), byte(uint16(typeValue)),
-		0x00, 0x06, // ext len = 6 (2 vecLen + 4 bytes below)
+		byte(uint16(typeValue) >> 8), //nolint:gosec // G115: high byte extraction from uint16 extension type in test fixture.
+		byte(uint16(typeValue)),      //nolint:gosec // G115: low byte extraction from uint16 extension type in test fixture.
+		0x00, 0x06,                   // ext len = 6 (2 vecLen + 4 bytes below)
 		0x00, 0x04, // vecLen = 4
 		0x00, 0x1D, // group x25519
 		0x00, 0x01, // key len = 1 (but 0 bytes present) -> read fails
@@ -288,7 +294,11 @@ func TestKeyShare_Unmarshal_HelloRetryRequest(t *testing.T) {
 	assert.Nil(t, ks.SelectedGroup)
 
 	ks.TypeValue()
-	rawTrunc := []byte{byte(uint16(typeValue) >> 8), byte(uint16(typeValue)), 0x00, 0x01, 0x00}
+	rawTrunc := []byte{
+		byte(uint16(typeValue) >> 8), //nolint:gosec // G115: high byte extraction from uint16 extension type in test fixture.
+		byte(uint16(typeValue)),      //nolint:gosec // G115: low byte extraction from uint16 extension type in test fixture.
+		0x00, 0x01, 0x00,
+	}
 	err = ks.Unmarshal(rawTrunc)
 	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
 }
@@ -328,8 +338,9 @@ func TestKeyShare_Unmarshal_ServerHello(t *testing.T) {
 
 	// bad key length (claims 1, provides 0)
 	rawBadLen := []byte{
-		byte(uint16(typeValue) >> 8), byte(uint16(typeValue)),
-		0x00, 0x04, // ext len matches the 4 bytes below
+		byte(uint16(typeValue) >> 8), //nolint:gosec // G115: high byte extraction from uint16 extension type in test fixture.
+		byte(uint16(typeValue)),      //nolint:gosec // G115: low byte extraction from uint16 extension type in test fixture.
+		0x00, 0x04,                   // ext len matches the 4 bytes below
 		0x00, 0x1D, // group x25519
 		0x00, 0x01, // key len = 1, but 0 bytes provided -> format error
 	}

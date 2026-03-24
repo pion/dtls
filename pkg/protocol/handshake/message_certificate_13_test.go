@@ -105,7 +105,6 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 	}
 
 	for name, test := range tests {
-		test := test
 		t.Run(name, func(t *testing.T) {
 			cert := &MessageCertificate13{}
 			err := cert.Unmarshal(test.rawCertificate)
@@ -500,7 +499,11 @@ func TestParseCertificateEntry_GeneratedCertificate(t *testing.T) {
 
 	// Add cert_data length (3 bytes, big-endian)
 	certLen := len(certDER)
-	data = append(data, byte(certLen>>16), byte(certLen>>8), byte(certLen))
+	data = append(data,
+		byte(certLen>>16), //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
+		byte(certLen>>8),  //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
+		byte(certLen),     //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
+	)
 	data = append(data, certDER...) // Add cert_data
 	data = append(data, 0x00, 0x00) // Add extensions length = 0
 
@@ -551,7 +554,11 @@ func TestParseCertificateEntry_GeneratedCertificateWithExtensions(t *testing.T) 
 
 	// Add cert_data length (3 bytes)
 	certLen := len(certDER)
-	data = append(data, byte(certLen>>16), byte(certLen>>8), byte(certLen))
+	data = append(data,
+		byte(certLen>>16), //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
+		byte(certLen>>8),  //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
+		byte(certLen),     //nolint:gosec // G115: test builds TLS uint24 length bytes from bounded cert length.
+	)
 	data = append(data, certDER...)        // Add cert_data
 	data = append(data, extensionsData...) // Add extensions (incl. 2-byte prefix)
 

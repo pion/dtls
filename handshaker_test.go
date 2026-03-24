@@ -231,6 +231,22 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 
 			return clientEndpoint, serverEndpoint, report
 		},
+
+		"RetransmitFinishedMessageLost": func() (TestEndpoint, TestEndpoint, func(t *testing.T)) { //nolint:unparam
+			serverEndpoint := TestEndpoint{
+				Retransmit: func(p *packet) bool {
+					h, ok := p.record.Content.(*handshake.Handshake)
+					if !ok {
+						return false
+					}
+					_, isFinished := h.Message.(*handshake.MessageFinished)
+
+					return isFinished
+				},
+			}
+			// If retransmit causes Finished to be lost, this will hang until timeout.
+			return TestEndpoint{}, serverEndpoint, nil
+		},
 	}
 
 	for name, filters := range genFilters {
@@ -330,6 +346,7 @@ type packetFilter func(p *packet) bool
 
 type TestEndpoint struct {
 	Filter     packetFilter
+	Retransmit packetFilter // force isRetransmit=true when matched
 	Delay      time.Duration
 	OnFinished func()
 	FinishWait time.Duration
@@ -352,6 +369,7 @@ func flightTestPipe(
 			otherEndRecv:   chB,
 			done:           ctx.Done(),
 			filter:         clientEndpoint.Filter,
+			retransmit:     clientEndpoint.Retransmit,
 			delay:          clientEndpoint.Delay,
 		}, &flightTestConn{
 			handshakeCache: cb,
@@ -360,6 +378,7 @@ func flightTestPipe(
 			otherEndRecv:   chA,
 			done:           ctx.Done(),
 			filter:         serverEndpoint.Filter,
+			retransmit:     serverEndpoint.Retransmit,
 			delay:          serverEndpoint.Delay,
 		}
 }
@@ -371,7 +390,8 @@ type flightTestConn struct {
 	done           <-chan struct{}
 	epoch          uint16
 
-	filter packetFilter
+	filter     packetFilter
+	retransmit packetFilter
 
 	delay time.Duration
 
@@ -391,11 +411,15 @@ func (c *flightTestConn) notify(context.Context, alert.Level, alert.Description)
 	return nil
 }
 
-func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
+func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error { //nolint:cyclop
 	time.Sleep(c.delay)
+	isRetransmit := false
 	for _, pkt := range pkts {
 		if c.filter != nil && !c.filter(pkt) {
 			continue
+		}
+		if c.retransmit != nil && c.retransmit(pkt) {
+			isRetransmit = true
 		}
 		if handshake, ok := pkt.record.Content.(*handshake.Handshake); ok {
 			handshakeRaw, err := pkt.record.Marshal()
@@ -432,7 +456,7 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 	}
 	go func() {
 		select {
-		case c.otherEndRecv <- recvHandshakeState{done: make(chan struct{})}:
+		case c.otherEndRecv <- recvHandshakeState{done: make(chan struct{}), isRetransmit: isRetransmit}:
 		case <-c.done:
 		}
 	}()

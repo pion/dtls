@@ -6,6 +6,7 @@ package e2e
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,19 +121,20 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 			DisableServerFlightInterval: true,
 		},
 	} {
-		name := fmt.Sprintf("Loss%d_MTU%d", test.LossChanceRange, test.MTU)
+		var name strings.Builder
+		fmt.Fprintf(&name, "Loss%d_MTU%d", test.LossChanceRange, test.MTU)
 		if test.DoClientAuth {
-			name += "_WithCliAuth"
+			name.WriteString("_WithCliAuth")
 		}
 		for _, ciph := range test.CipherSuites {
-			name += "_With" + ciph.String()
+			name.WriteString("_With" + ciph.String())
 		}
 		if test.DisableServerFlightInterval {
-			name += "_WithNoServerFlightInterval"
+			name.WriteString("_WithNoServerFlightInterval")
 		}
 
 		test := test
-		t.Run(name, func(t *testing.T) {
+		t.Run(name.String(), func(t *testing.T) {
 			// Limit runtime in case of deadlocks
 			lim := transportTest.TimeOut(lossyTestTimeout + time.Second)
 			defer lim.Stop()

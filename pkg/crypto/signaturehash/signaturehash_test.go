@@ -179,7 +179,6 @@ func TestParseSignatureSchemes(t *testing.T) {
 	}
 
 	for name, testCase := range cases {
-		testCase := testCase
 		t.Run(name, func(t *testing.T) {
 			output, err := ParseSignatureSchemes(testCase.input, testCase.insecureHashes)
 			if testCase.err != nil {

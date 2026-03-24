@@ -11,7 +11,6 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"fmt"
 
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
@@ -26,18 +25,12 @@ type Algorithm struct {
 	Signature signature.Algorithm
 }
 
-// Algorithms are all the known SignatureHash Algorithms.
+// Algorithms returns signature algorithms compatible with DTLS 1.2 / TLS 1.2.
 //
-// IMPORTANT: order in this slice determines priority used
-// by SelectSignatureScheme and SelectSignatureScheme13.
+// IMPORTANT: order in this slice determines priority used by SelectSignatureScheme.
 //
-// Order follows industry standard preference (ECDSA-first) as used
-// by: OpenSSL, BoringSSL, Firefox, Chrome, and other major TLS 1.3
-// implementations. This prioritizes elliptic curve crypto for better
-// performance (smaller keys, faster computations, less bandwidth).
-//
-// Note that this is different than Go's TLS implementation order of
-// preference.
+// Order follows industry standard preference (ECDSA-first) as used by OpenSSL,
+// BoringSSL, Firefox, Chrome, and other major TLS implementations.
 func Algorithms() []Algorithm {
 	return []Algorithm{
 		// ECDSA schemes (modern, efficient - industry standard preference)
@@ -98,25 +91,27 @@ func (a *Algorithm) isCompatible(signer crypto.Signer) bool {
 // ParseSignatureSchemes translates []tls.SignatureScheme to []signatureHashAlgorithm.
 // It returns default signature scheme list if no SignatureScheme is passed.
 // This function handles both TLS 1.2 byte-split encoding and TLS 1.3 PSS full uint16 schemes.
+//
+// For DTLS 1.2 / TLS 1.2, this returns Algorithms() which excludes TLS 1.3-specific
+// schemes like RSA-PSS for compatibility with implementations like OpenSSL.
+// When DTLS 1.3 is implemented, use Algorithms13() or create ParseSignatureSchemes13().
 func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]Algorithm, error) {
 	if len(sigs) == 0 {
 		return Algorithms(), nil
 	}
 	out := []Algorithm{}
 	for _, ss := range sigs {
-		hashAlg, sigAlg, err := parseSignatureScheme(ss)
+		var alg Algorithm
+		err := alg.Unmarshal(ss)
 		if err != nil {
 			return nil, err
 		}
 
-		if hashAlg.Insecure() && !insecureHashes {
+		if alg.Hash.Insecure() && !insecureHashes {
 			continue
 		}
 
-		out = append(out, Algorithm{
-			Hash:      hashAlg,
-			Signature: sigAlg,
-		})
+		out = append(out, alg)
 	}
 
 	if len(out) == 0 {
@@ -166,36 +161,52 @@ func FromCertificate(cert *x509.Certificate) (Algorithm, error) { //nolint:cyclo
 	return Algorithm{Hash: hashAlg, Signature: sigAlg}, nil
 }
 
-// parseSignatureScheme translates a tls.SignatureScheme to a hash.Algorithm
-// and signature.Algorithm. It returns default signature scheme list if no
-// SignatureScheme is passed. This function handles both TLS 1.2 byte-split
-// encoding and TLS 1.3 PSS full uint16 schemes.
-func parseSignatureScheme(sigScheme tls.SignatureScheme) (hash.Algorithm, signature.Algorithm, error) {
-	var sigAlg signature.Algorithm
-	var hashAlg hash.Algorithm
-
+// Unmarshal translates a tls.SignatureScheme to a Algorithm.
+// This function handles both TLS 1.2 byte-split encoding and
+// TLS 1.3 PSS full uint16 schemes.
+func (a *Algorithm) Unmarshal(sigScheme tls.SignatureScheme) error {
 	if signature.Algorithm(sigScheme).IsPSS() {
 		// TLS 1.3 PSS scheme - full uint16 is the signature algorithm
-		sigAlg = signature.Algorithm(sigScheme)
-		hashAlg = hash.ExtractHashFromPSS(uint16(sigScheme))
-		if hashAlg == hash.None {
-			return 0, 0, fmt.Errorf("SignatureScheme %04x: %w", sigScheme, errInvalidHashAlgorithm)
+		a.Signature = signature.Algorithm(sigScheme)
+		a.Hash = hash.ExtractHashFromPSS(uint16(sigScheme))
+		if a.Hash == hash.None {
+			return errInvalidHashAlgorithm
 		}
 	} else {
 		// TLS 1.2 style - split into hash (high byte) and signature (low byte)
-		sigAlg = signature.Algorithm(sigScheme & 0xFF)
-		hashAlg = hash.Algorithm(sigScheme >> 8)
+		a.Signature = signature.Algorithm(sigScheme & 0xFF)
+		a.Hash = hash.Algorithm(sigScheme >> 8)
 	}
 
 	// Validate signature algorithm
-	if _, ok := signature.Algorithms()[sigAlg]; !ok {
-		return 0, 0, fmt.Errorf("SignatureScheme %04x: %w", sigScheme, errInvalidSignatureAlgorithm)
+	if _, ok := signature.Algorithms()[a.Signature]; !ok {
+		return errInvalidSignatureAlgorithm
 	}
 
 	// Validate hash algorithm
-	if _, ok := hash.Algorithms()[hashAlg]; !ok || (ok && hashAlg == hash.None) {
-		return 0, 0, fmt.Errorf("SignatureScheme %04x: %w", sigScheme, errInvalidHashAlgorithm)
+	if _, ok := hash.Algorithms()[a.Hash]; !ok || (ok && a.Hash == hash.None) {
+		return errInvalidHashAlgorithm
 	}
 
-	return hashAlg, sigAlg, nil
+	return nil
+}
+
+// Marshal encodes the Algorithm to the correct TLS 1.2 byte-split or
+// the TLS 1.3 PSS full uint16 schemes.
+func (a *Algorithm) Marshal() []byte {
+	out := make([]byte, 2)
+	// For PSS schemes, write the full uint16 SignatureScheme value.
+	// For other schemes, write hash (high byte) + signature (low byte) in TLS 1.2 style.
+	if a.Signature.IsPSS() {
+		// TLS 1.3 PSS: full uint16 is the signature scheme
+		scheme := uint16(a.Signature)
+		out[0] = byte(scheme >> 8)
+		out[1] = byte(scheme & 0xFF)
+	} else {
+		// TLS 1.2 style: hash byte + signature byte
+		out[0] = byte(a.Hash)      //nolint:gosec // G115: TLS 1.2 hash algorithm field is defined as 1 byte.
+		out[1] = byte(a.Signature) //nolint:gosec // G115: TLS 1.2 signature algorithm field is defined as 1 byte.
+	}
+
+	return out
 }
