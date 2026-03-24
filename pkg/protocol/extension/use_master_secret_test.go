@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package extension
+package extension // nolint:dupl
 
 import (
 	"testing"
@@ -57,8 +57,9 @@ func FuzzUseMasterSecretUnmarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		m := UseExtendedMasterSecret{}
 		err := m.Unmarshal(data)
-		if err == nil {
-			testExtDataLength(t, &m, data, true)
+		if err != nil {
+			return
 		}
+		testExtDataLength(t, &m, data, true)
 	})
 }

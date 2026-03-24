@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package extension
+package extension // nolint:dupl
 
 import (
 	"testing"
@@ -54,8 +54,12 @@ func FuzzPostHandshakeAuthUnmarshal(f *testing.F) {
 	for _, tc := range testcases {
 		f.Add(tc)
 	}
-	f.Fuzz(func(t *testing.T, a []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
 		p := PostHandshakeAuth{}
-		_ = p.Unmarshal(a)
+		err := p.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		testExtDataLength(t, &p, data, true)
 	})
 }

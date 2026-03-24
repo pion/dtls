@@ -72,14 +72,15 @@ func FuzzALPNUnmarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		alpn := ALPN{}
 		err := alpn.Unmarshal(data)
-		if err == nil {
-			length := len(alpn.ProtocolNameList)
-			assert.NotZero(t, length)
-
-			for _, s := range alpn.ProtocolNameList {
-				assert.NotZero(t, len(s))
-			}
-			testExtDataLength(t, &alpn, data, true)
+		if err != nil {
+			return
 		}
+		length := len(alpn.ProtocolNameList)
+		assert.NotZero(t, length)
+
+		for _, s := range alpn.ProtocolNameList {
+			assert.NotZero(t, len(s))
+		}
+		testExtDataLength(t, &alpn, data, true)
 	})
 }

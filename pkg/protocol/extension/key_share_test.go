@@ -433,13 +433,14 @@ func FuzzKeyShareUnmarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		ks := KeyShare{}
 		err := ks.Unmarshal(data)
-		if err == nil {
-			hasClientShares := ks.ClientShares != nil
-			hasServerShare := ks.ServerShare != nil
-			hasHelloRetryRequest := ks.SelectedGroup != nil
-			assert.Equal(t, false, hasTooManyContexts(hasClientShares, hasServerShare, hasHelloRetryRequest))
-			// We do not check trailing bytes as non-supported groups are removed.
-			testExtDataLength(t, &ks, data, false)
+		if err != nil {
+			return
 		}
+		hasClientShares := ks.ClientShares != nil
+		hasServerShare := ks.ServerShare != nil
+		hasHelloRetryRequest := ks.SelectedGroup != nil
+		assert.Equal(t, false, hasTooManyContexts(hasClientShares, hasServerShare, hasHelloRetryRequest))
+		// We do not check trailing bytes as non-supported groups are removed.
+		testExtDataLength(t, &ks, data, false)
 	})
 }

@@ -80,9 +80,10 @@ func FuzzExtensionUseSRTPUnmarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		u := UseSRTP{}
 		err := u.Unmarshal(data)
-		if err == nil {
-			// Invalid profiles are filtered out
-			testExtDataLength(t, &u, data, false)
+		if err != nil {
+			return
 		}
+		// Invalid profiles are filtered out
+		testExtDataLength(t, &u, data, false)
 	})
 }

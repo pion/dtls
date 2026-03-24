@@ -48,10 +48,11 @@ func FuzzCIDUnmarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		cid := ConnectionID{}
 		err := cid.Unmarshal(data)
-		if err == nil {
-			length := len(cid.CID)
-			assert.Less(t, length, 0xff)
-			testExtDataLength(t, &cid, data, true)
+		if err != nil {
+			return
 		}
+		length := len(cid.CID)
+		assert.Less(t, length, 0xff)
+		testExtDataLength(t, &cid, data, true)
 	})
 }

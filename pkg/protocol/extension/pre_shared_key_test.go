@@ -242,22 +242,24 @@ func FuzzPreSharedKeyUnmarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		psk := PreSharedKey{}
 		err := psk.Unmarshal(data)
-		if err == nil {
-			testExtDataLength(t, &psk, data, true)
-			// ServerHello
-			if len(data) == 6 && len(psk.Identities) != 0 && len(psk.Binders) != 0 {
-				assert.Fail(t, "PreSharedKey was unmarshalled without error both as ServerHello and ClientHello")
-			}
+		if err != nil {
+			return
+		}
+		testExtDataLength(t, &psk, data, true)
 
-			// ClientHello
-			data := cryptobyte.String(data[2:3])
-			var length uint16
-			data.ReadUint16(&length)
-			if length > 2 {
-				assert.NotZero(t, len(psk.Identities))
-				assert.NotZero(t, len(psk.Binders))
-				assert.Equal(t, len(psk.Binders), len(psk.Binders))
-			}
+		// ServerHello
+		if len(data) == 6 && len(psk.Identities) != 0 && len(psk.Binders) != 0 {
+			assert.Fail(t, "PreSharedKey was unmarshalled without error both as ServerHello and ClientHello")
+		}
+
+		// ClientHello
+		b := cryptobyte.String(data[2:3])
+		var length uint16
+		b.ReadUint16(&length)
+		if length > 2 {
+			assert.NotZero(t, len(psk.Identities))
+			assert.NotZero(t, len(psk.Binders))
+			assert.Equal(t, len(psk.Binders), len(psk.Binders))
 		}
 	})
 }

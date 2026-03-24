@@ -130,11 +130,12 @@ func FuzzCertificateAuthUnmarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		certAuth := CertificateAuthorities{}
 		err := certAuth.Unmarshal(data)
-		if err == nil {
-			length := len(certAuth.Authorities)
-			assert.NotZero(t, length)
-			assert.LessOrEqual(t, length, math.MaxUint16)
-			testExtDataLength(t, &certAuth, data, true)
+		if err != nil {
+			return
 		}
+		length := len(certAuth.Authorities)
+		assert.NotZero(t, length)
+		assert.LessOrEqual(t, length, math.MaxUint16)
+		testExtDataLength(t, &certAuth, data, true)
 	})
 }
