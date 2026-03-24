@@ -74,4 +74,13 @@ var (
 	errInvalidCertificateAuthFormat = &protocol.FatalError{
 		Err: errors.New("invalid Certificate Authorities extension format"), //nolint:err113
 	}
+	errEmptyOIDFilter = &protocol.InternalError{
+		Err: errors.New("no oid set for a OID filter"), //nolint:err113
+	}
+	errOIDFiltersFormat = &protocol.FatalError{
+		Err: errors.New("invalid OID filters extension format"), //nolint:err113
+	}
+	errDuplicateOID = &protocol.FatalError{
+		Err: errors.New("duplicate OID filters"), //nolint:err113
+	}
 )
