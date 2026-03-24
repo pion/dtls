@@ -74,6 +74,8 @@ func (o *OIDFilters) Unmarshal(data []byte) error { //nolint:cyclop
 		return errLengthMismatch
 	}
 
+	o.Filters = make([]OIDFilter, 0)
+
 	seen := map[string]struct{}{}
 
 	for !filterList.Empty() {
