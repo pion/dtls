@@ -15,6 +15,7 @@ const (
 	ContentTypeHandshake        ContentType = 22
 	ContentTypeApplicationData  ContentType = 23
 	ContentTypeConnectionID     ContentType = 25
+	ContentTypeACK              ContentType = 26
 )
 
 // Content is the top level distinguisher for a DTLS Datagram.
