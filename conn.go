@@ -6,6 +6,7 @@ package dtls
 import (
 	"bytes"
 	"context"
+	"crypto/fips140"
 	"errors"
 	"fmt"
 	"io"
@@ -31,7 +32,6 @@ const (
 	initialTickerInterval = time.Second
 	cookieLength          = 20
 	sessionLength         = 32
-	defaultNamedCurve     = elliptic.P256
 	inboundBufferSize     = 8192
 	// Default replay protection window is specified by RFC 6347 Section 4.1.2.6.
 	defaultReplayProtectionWindow = 64
@@ -1348,6 +1348,18 @@ func (c *Conn) setLocalEpoch(epoch uint16) {
 
 func (c *Conn) setRemoteEpoch(epoch uint16) {
 	c.state.remoteEpoch.Store(epoch)
+}
+
+func defaultCurve(curves []elliptic.Curve) elliptic.Curve {
+	if fips140.Enabled() {
+		// On FIPS systems, skip non-approved curves
+		for _, c := range curves {
+			if c != elliptic.X25519 {
+				return c
+			}
+		}
+	}
+	return curves[0]
 }
 
 // LocalAddr implements net.Conn.LocalAddr.
