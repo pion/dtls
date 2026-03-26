@@ -247,8 +247,8 @@ func createConn(
 
 		replayProtectionWindow: uint(replayProtectionWindow), //nolint:gosec // G115
 
-		outboundHandshakePacketInterceptor: config.OutboundHandshakePacketInterceptor,
-		inboundHandshakePacketNotifier:     config.InboundHandshakePacketNotifier,
+		outboundHandshakePacketInterceptor: config.outboundHandshakePacketInterceptor,
+		inboundHandshakePacketNotifier:     config.inboundHandshakePacketNotifier,
 
 		state: State{
 			isClient: isClient,

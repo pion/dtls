@@ -227,15 +227,15 @@ type Config struct { //nolint:dupl
 	// message is sent from a server. The returned handshake message replaces the original message.
 	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 
-	// OutboundHandshakePacketInterceptor is an optional callback that can be set to
+	// outboundHandshakePacketInterceptor is an optional callback that can be set to
 	// intercept outgoing raw handshake packets. It is called with the raw packet bytes
 	// and a boolean flag specifying if this is the last packet of a flight.
 	// The interceptor can decide to drop the packet by returning true.
-	OutboundHandshakePacketInterceptor func(packet []byte, end bool) bool
-	// InboundHandshakePacketNotifier is an optional callback that can be set to
+	outboundHandshakePacketInterceptor func(packet []byte, end bool) bool
+	// inboundHandshakePacketNotifier is an optional callback that can be set to
 	// receive notifications about incoming raw handshake packets. It is called with
 	// the raw packet bytes after the packet has been processed.
-	InboundHandshakePacketNotifier func(packet []byte)
+	inboundHandshakePacketNotifier func(packet []byte)
 
 	// OnConnectionAttempt is fired Whenever a connection attempt is made,
 	// the server or application can call this callback function.

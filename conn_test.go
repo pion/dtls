@@ -3512,7 +3512,7 @@ func TestOutboundInterceptor(t *testing.T) {
 	var client *Conn
 	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{serverCert},
-		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+		outboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
 			client.InjectInboundPacket(packet, ca.RemoteAddr())
 
 			return true
@@ -3531,7 +3531,7 @@ func TestOutboundInterceptor(t *testing.T) {
 
 	client, err = Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{clientCert},
-		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+		outboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
 			server.InjectInboundPacket(packet, cb.RemoteAddr())
 
 			return true
@@ -3558,7 +3558,7 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	serverPackets, serverFlights := 0, 0
 	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{serverCert},
-		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+		outboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
 			serverPackets++
 			if end {
 				serverFlights++
@@ -3583,7 +3583,7 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	clientPackets, clientFlights := 0, 0
 	client, err = Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{clientCert},
-		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+		outboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
 			clientPackets++
 			if end {
 				clientFlights++
@@ -3618,7 +3618,7 @@ func TestInboundNotifier(t *testing.T) {
 	var inboundHandshakePackets [][]byte
 	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{serverCert},
-		InboundHandshakePacketNotifier: func(packet []byte) {
+		inboundHandshakePacketNotifier: func(packet []byte) {
 			data := make([]byte, len(packet))
 			copy(data, packet)
 			inboundHandshakePackets = append(inboundHandshakePackets, data)
@@ -3638,7 +3638,7 @@ func TestInboundNotifier(t *testing.T) {
 	var outboundHandshakePackets [][]byte
 	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
 		Certificates: []tls.Certificate{clientCert},
-		OutboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
+		outboundHandshakePacketInterceptor: func(packet []byte, end bool) bool {
 			data := make([]byte, len(packet))
 			copy(data, packet)
 			outboundHandshakePackets = append(outboundHandshakePackets, data)
