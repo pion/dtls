@@ -12,6 +12,10 @@ import (
 var (
 	errBufferTooSmall    = &TemporaryError{Err: errors.New("buffer is too small")} //nolint:err113
 	errInvalidCipherSpec = &FatalError{Err: errors.New("cipher spec invalid")}     //nolint:err113
+	errInvalidACK        = &FatalError{Err: errors.New("ack invalid")}             //nolint:err113
+	errLengthMismatch    = &InternalError{
+		Err: errors.New("data length and declared length do not match"), //nolint:err113
+	}
 )
 
 // FatalError indicates that the DTLS connection is no longer available.
