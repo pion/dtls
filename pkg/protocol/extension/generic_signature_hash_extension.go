@@ -44,7 +44,7 @@ func unmarshalGenericSignatureHashAlgorithm(typeValue TypeValue, data []byte, ds
 	}
 
 	var algData cryptobyte.String
-	if !extData.ReadUint16LengthPrefixed(&algData) {
+	if !extData.ReadUint16LengthPrefixed(&algData) || !extData.Empty() {
 		return errLengthMismatch
 	}
 

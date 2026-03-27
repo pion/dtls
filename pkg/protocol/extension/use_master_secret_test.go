@@ -9,43 +9,43 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPostHandshakeAuth(t *testing.T) {
-	extension := PostHandshakeAuth{Enabled: true}
+func TestUseMasterSecret(t *testing.T) {
+	extension := UseExtendedMasterSecret{Supported: true}
 
 	raw, err := extension.Marshal()
 	assert.NoError(t, err)
 
 	expect := []byte{
-		0x00, 0x31, // extension type
+		0x00, 0x17, // extension type
 		0x00, 0x00, // extension length
 	}
 	assert.Equal(t, expect, raw)
 
-	newExtension := PostHandshakeAuth{}
+	newExtension := UseExtendedMasterSecret{}
 
 	assert.NoError(t, newExtension.Unmarshal(expect))
-	assert.Equal(t, extension.Enabled, newExtension.Enabled)
+	assert.Equal(t, extension.Supported, newExtension.Supported)
 }
 
-func TestPostHandshakeAuth_NonEmpty(t *testing.T) {
+func TestUseMasterSecret_NonEmpty(t *testing.T) {
 	raw := []byte{
-		0x00, 0x31, // extension type
+		0x00, 0x17, // extension type
 		0x00, 0x42, // extension length
 	}
-	newExtension := PostHandshakeAuth{}
+	newExtension := UseExtendedMasterSecret{}
 	err := newExtension.Unmarshal(raw)
 
 	assert.ErrorIs(t, err, errLengthMismatch)
 }
 
-func FuzzPostHandshakeAuthUnmarshal(f *testing.F) {
+func FuzzUseMasterSecretUnmarshal(f *testing.F) {
 	testcases := [][]byte{
 		{
-			0x00, 0x31, // extension type
+			0x00, 0x17, // extension type
 			0x00, 0x00, // extension length
 		},
 		{
-			0x00, 0x31, // extension type
+			0x00, 0x17, // extension type
 			0x00, 0x02, // extension length
 			0x42, 0x42,
 		},
@@ -55,11 +55,11 @@ func FuzzPostHandshakeAuthUnmarshal(f *testing.F) {
 		f.Add(tc)
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		p := PostHandshakeAuth{}
-		err := p.Unmarshal(data)
+		m := UseExtendedMasterSecret{}
+		err := m.Unmarshal(data)
 		if err != nil {
 			return
 		}
-		testExtDataLength(t, &p, data, true)
+		testExtDataLength(t, &m, data, true)
 	})
 }

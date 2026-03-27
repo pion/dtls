@@ -97,3 +97,39 @@ func TestExtensionSupportedSignatureAlgorithms_MixedPSSAndNonPSS(t *testing.T) {
 	assert.NoError(t, roundtrip.Unmarshal(raw))
 	assert.Equal(t, parsedExtensionMixed, roundtrip)
 }
+
+func FuzzExtensionSupportedSignatureAlgorithmsUnmarshal(f *testing.F) {
+	tcs := [][]byte{
+		{
+			0x00, 0x0d,
+			0x00, 0x08,
+			0x00, 0x06,
+			0x04, 0x03,
+			0x05, 0x03,
+			0x06, 0x03,
+		},
+		{
+			0x00, 0x0d,
+			0x00, 0x0a,
+			0x00, 0x08,
+			0x08, 0x04,
+			0x04, 0x01,
+			0x04, 0x03,
+			0x08, 0x07,
+		},
+	}
+
+	for _, tc := range tcs {
+		f.Add(tc)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		signAlgs := SupportedSignatureAlgorithms{}
+		err := signAlgs.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		// Invalid algorithms are filtered out
+		testExtDataLength(t, &signAlgs, data, false)
+	})
+}

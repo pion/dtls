@@ -24,3 +24,18 @@ func TestExtensionSupportedGroups(t *testing.T) {
 	assert.NoError(t, roundtrip.Unmarshal(raw))
 	assert.Equal(t, parsedSupportedGroups, roundtrip)
 }
+
+func FuzzExtensionSupportedGroupsUnmarshal(f *testing.F) {
+	tc := []byte{0x0, 0xa, 0x0, 0x4, 0x0, 0x2, 0x0, 0x1d}
+	f.Add(tc)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		curves := SupportedEllipticCurves{}
+		err := curves.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		// Invalid curves are filtered out
+		testExtDataLength(t, &curves, data, false)
+	})
+}
