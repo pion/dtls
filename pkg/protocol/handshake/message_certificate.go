@@ -13,6 +13,7 @@ import (
 // https://tools.ietf.org/html/rfc5246#section-7.4.2
 type MessageCertificate struct {
 	Certificate [][]byte
+	cache       []byte
 }
 
 // Type returns the Handshake Type.
@@ -26,6 +27,9 @@ const (
 
 // Marshal encodes the Handshake.
 func (m *MessageCertificate) Marshal() ([]byte, error) {
+	if m.cache != nil {
+		return m.cache, nil
+	}
 	total := handshakeMessageCertificateLengthFieldSize
 
 	for _, cert := range m.Certificate {
@@ -49,6 +53,8 @@ func (m *MessageCertificate) Marshal() ([]byte, error) {
 		copy(out[offset:], cert)
 		offset += len(cert)
 	}
+
+	m.cache = out
 
 	return out, nil
 }

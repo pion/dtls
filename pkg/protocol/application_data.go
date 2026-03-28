@@ -19,7 +19,7 @@ func (a ApplicationData) ContentType() ContentType {
 
 // Marshal encodes the ApplicationData to binary.
 func (a *ApplicationData) Marshal() ([]byte, error) {
-	return append([]byte{}, a.Data...), nil
+	return a.Data, nil
 }
 
 // Unmarshal populates the ApplicationData from binary.

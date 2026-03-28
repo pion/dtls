@@ -58,12 +58,16 @@ func (r *RecordLayer) Marshal() ([]byte, error) {
 	r.Header.ContentLen = uint16(len(contentRaw)) //nolint:gosec // G115
 	r.Header.ContentType = r.Content.ContentType()
 
-	headerRaw, err := r.Header.Marshal()
+	out := make([]byte, len(contentRaw)+r.Header.Size())
+
+	err = r.Header.MarshalInto(out)
 	if err != nil {
 		return nil, err
 	}
 
-	return append(headerRaw, contentRaw...), nil
+	copy(out[r.Header.Size():], contentRaw)
+
+	return out, nil
 }
 
 // Unmarshal populates the RecordLayer from binary.
