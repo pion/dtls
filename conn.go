@@ -618,7 +618,12 @@ func (c *Conn) compactRawPackets(rawPackets [][]byte) [][]byte {
 	currentCombinedRawPacket := make([]byte, 0)
 
 	for _, rawPacket := range rawPackets {
-		if len(currentCombinedRawPacket) > 0 && len(currentCombinedRawPacket)+len(rawPacket) >= c.maximumTransmissionUnit {
+		if len(currentCombinedRawPacket) == 0 && len(rawPacket) >= c.maximumTransmissionUnit {
+			combinedRawPackets = append(combinedRawPackets, rawPacket)
+
+			continue
+		} else if len(currentCombinedRawPacket) > 0 &&
+			len(currentCombinedRawPacket)+len(rawPacket) >= c.maximumTransmissionUnit {
 			combinedRawPackets = append(combinedRawPackets, currentCombinedRawPacket)
 			currentCombinedRawPacket = []byte{}
 		}
@@ -697,7 +702,7 @@ func (c *Conn) processPacket(pkt *packet) ([]byte, error) { //nolint:cyclop
 
 //nolint:cyclop
 func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Handshake) ([][]byte, error) {
-	rawPackets := make([][]byte, 0)
+	var rawPackets [][]byte
 
 	handshakeFragments, err := c.fragmentHandshake(dtlsHandshake)
 	if err != nil {
@@ -733,12 +738,15 @@ func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Hand
 				ConnectionID:   c.state.remoteConnectionID,
 				SequenceNumber: pkt.record.Header.SequenceNumber,
 			}
-			rawPacket, err = cidHeader.Marshal()
+
+			hs := recordlayer.FixedHeaderSize + len(cidHeader.ConnectionID)
+			rawPacket = make([]byte, hs+len(rawInner))
+			err = cidHeader.MarshalInto(rawPacket)
 			if err != nil {
 				return nil, err
 			}
 			pkt.record.Header = *cidHeader
-			rawPacket = append(rawPacket, rawInner...)
+			copy(rawPacket[hs:], rawInner)
 		} else {
 			recordlayerHeader := &recordlayer.Header{
 				Version:        pkt.record.Header.Version,
@@ -748,13 +756,15 @@ func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Hand
 				SequenceNumber: seq,
 			}
 
-			rawPacket, err = recordlayerHeader.Marshal()
+			hs := recordlayer.FixedHeaderSize + len(recordlayerHeader.ConnectionID)
+			rawPacket = make([]byte, hs+len(handshakeFragment))
+			err = recordlayerHeader.MarshalInto(rawPacket)
 			if err != nil {
 				return nil, err
 			}
 
 			pkt.record.Header = *recordlayerHeader
-			rawPacket = append(rawPacket, handshakeFragment...)
+			copy(rawPacket[hs:], handshakeFragment)
 		}
 
 		if pkt.shouldEncrypt {
@@ -777,14 +787,9 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 		return nil, err
 	}
 
-	fragmentedHandshakes := make([][]byte, 0)
+	var fragmentedHandshakes [][]byte
 
 	contentFragments := splitBytes(content, c.maximumTransmissionUnit)
-	if len(contentFragments) == 0 {
-		contentFragments = [][]byte{
-			{},
-		}
-	}
 
 	offset := 0
 	for _, contentFragment := range contentFragments {
@@ -800,12 +805,13 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 
 		offset += contentFragmentLen
 
-		fragmentedHandshake, err := headerFragment.Marshal()
+		fragmentedHandshake := make([]byte, handshake.HeaderLength+len(contentFragment))
+		err := headerFragment.MarshalInto(fragmentedHandshake)
 		if err != nil {
 			return nil, err
 		}
 
-		fragmentedHandshake = append(fragmentedHandshake, contentFragment...)
+		copy(fragmentedHandshake[handshake.HeaderLength:], contentFragment)
 		fragmentedHandshakes = append(fragmentedHandshakes, fragmentedHandshake)
 	}
 

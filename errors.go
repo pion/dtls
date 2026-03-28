@@ -143,6 +143,8 @@ var (
 	//nolint:err113
 	errFailedToAccessPoolReadBuffer = &InternalError{Err: errors.New("failed to access pool read buffer")}
 	//nolint:err113
+	errFailedToAccessPoolTimer = &InternalError{Err: errors.New("failed to access pool timer")}
+	//nolint:err113
 	errFragmentBufferOverflow = &InternalError{Err: errors.New("fragment buffer overflow")}
 
 	//nolint:err113
