@@ -81,7 +81,7 @@ func (s handshakeState) String() string {
 	}
 }
 
-type handshakeFSM struct {
+type handshakeFSM12 struct {
 	currentFlight      flightVal
 	flights            []*packet
 	retransmit         bool
@@ -167,11 +167,11 @@ func srvCliStr(isClient bool) string {
 	return "server"
 }
 
-func newHandshakeFSM(
+func newHandshakeFSM12(
 	s *State, cache *handshakeCache, cfg *handshakeConfig,
 	initialFlight flightVal,
-) *handshakeFSM {
-	return &handshakeFSM{
+) *handshakeFSM12 {
+	return &handshakeFSM12{
 		currentFlight:      initialFlight,
 		state:              s,
 		cache:              cache,
@@ -181,7 +181,16 @@ func newHandshakeFSM(
 	}
 }
 
-func (s *handshakeFSM) Run(ctx context.Context, conn flightConn, initialState handshakeState) error {
+type handshakeFSM interface {
+	Done() <-chan struct{}
+	Run(ctx context.Context, conn flightConn, initialState handshakeState) error
+	finish(ctx context.Context, c flightConn) (handshakeState, error)
+	prepare(ctx context.Context, conn flightConn) (handshakeState, error)
+	send(ctx context.Context, c flightConn) (handshakeState, error)
+	wait(ctx context.Context, conn flightConn) (handshakeState, error)
+}
+
+func (s *handshakeFSM12) Run(ctx context.Context, conn flightConn, initialState handshakeState) error {
 	state := initialState
 	defer func() {
 		close(s.closed)
@@ -210,11 +219,11 @@ func (s *handshakeFSM) Run(ctx context.Context, conn flightConn, initialState ha
 	}
 }
 
-func (s *handshakeFSM) Done() <-chan struct{} {
+func (s *handshakeFSM12) Done() <-chan struct{} {
 	return s.closed
 }
 
-func (s *handshakeFSM) prepare(ctx context.Context, conn flightConn) (handshakeState, error) {
+func (s *handshakeFSM12) prepare(ctx context.Context, conn flightConn) (handshakeState, error) {
 	s.flights = nil
 	// Prepare flights
 	var (
@@ -262,7 +271,7 @@ func (s *handshakeFSM) prepare(ctx context.Context, conn flightConn) (handshakeS
 	return handshakeSending, nil
 }
 
-func (s *handshakeFSM) send(ctx context.Context, c flightConn) (handshakeState, error) {
+func (s *handshakeFSM12) send(ctx context.Context, c flightConn) (handshakeState, error) {
 	// Send flights
 	if err := c.writePackets(ctx, s.flights); err != nil {
 		return handshakeErrored, err
@@ -275,7 +284,7 @@ func (s *handshakeFSM) send(ctx context.Context, c flightConn) (handshakeState, 
 	return handshakeWaiting, nil
 }
 
-func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeState, error) { //nolint:gocognit,cyclop
+func (s *handshakeFSM12) wait(ctx context.Context, conn flightConn) (handshakeState, error) { //nolint:gocognit,cyclop
 	parse, errFlight := s.currentFlight.getFlightParser()
 	if errFlight != nil {
 		if alertErr := conn.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
@@ -347,7 +356,7 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 	}
 }
 
-func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState, error) {
+func (s *handshakeFSM12) finish(ctx context.Context, c flightConn) (handshakeState, error) {
 	select {
 	case state := <-c.recvHandshake():
 		close(state.done)

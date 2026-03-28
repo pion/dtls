@@ -92,11 +92,12 @@ type Conn struct {
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
-	fsm *handshakeFSM
+	fsm handshakeFSM
 
 	replayProtectionWindow uint
 
-	handshakeConfig *handshakeConfig
+	handshakeConfig   *handshakeConfig
+	handshakeConfig13 *handshakeConfig13
 }
 
 // createConn creates a new DTLS connection.
@@ -245,6 +246,14 @@ func createConn(
 		},
 	}
 
+	if config.version13 {
+		handshakeConfig13 := &handshakeConfig13{
+			handshakeConfig: handshakeConfig,
+		}
+		conn.handshakeConfig13 = handshakeConfig13
+		conn.handshakeConfig = nil
+	}
+
 	conn.setRemoteEpoch(0)
 	conn.setLocalEpoch(0)
 
@@ -273,7 +282,7 @@ func (c *Conn) Handshake() error {
 //
 // Most uses of this package need not call HandshakeContext explicitly: the
 // first [Conn.Read] or [Conn.Write] will call it automatically.
-func (c *Conn) HandshakeContext(ctx context.Context) error {
+func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
@@ -286,6 +295,18 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 	c.closeLock.Lock()
 	c.handshakeDone = handshakeDone
 	c.closeLock.Unlock()
+
+	if c.isVersion13Enabled() {
+		initialFlight := flight13_0
+		initialFSMState := handshakePreparing
+
+		if err := c.handshake(ctx, flightVal(initialFlight), initialFSMState); err != nil {
+			return err
+		}
+		c.log.Trace("Handshake DTLS 1.3 Completed")
+
+		return nil
+	}
 
 	// rfc5246#section-7.4.3
 	// In addition, the hash and signature algorithms MUST be compatible
@@ -319,7 +340,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 		initialFSMState = handshakePreparing
 	}
 	// Do handshake
-	if err := c.handshake(ctx, c.handshakeConfig, initialFlight, initialFSMState); err != nil {
+	if err := c.handshake(ctx, initialFlight, initialFSMState); err != nil {
 		return err
 	}
 
@@ -471,6 +492,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		return 0, err
 	}
 
+	// todo: check for version
 	return len(payload), c.writePackets(c.writeDeadline, []*packet{
 		{
 			record: &recordlayer.RecordLayer{
@@ -797,7 +819,7 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
-func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
+func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocognit
 	bufptr, ok := poolReadBuffer.Get().(*[]byte)
 	if !ok {
 		return errFailedToAccessPoolReadBuffer
@@ -817,6 +839,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 
 	var hasHandshake, isRetransmit bool
 	for _, p := range pkts {
+		// todo: check version
 		hs, rtx, alert, err := c.handleIncomingPacket(ctx, p, rAddr, true)
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
@@ -864,6 +887,7 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.lock.Unlock()
 
 	for _, p := range pkts {
+		// todo: check version
 		_, _, alert, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, false) // don't re-enqueue
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
@@ -895,6 +919,17 @@ func (c *Conn) enqueueEncryptedPackets(packet addrPkt) bool {
 	}
 
 	return false
+}
+
+// nolint:unusedparams
+func (c *Conn) handleIncomingPacket13(
+	ctx context.Context,
+	buf []byte,
+	rAddr net.Addr,
+	enqueue bool,
+) (bool, bool, *alert.Alert, error) {
+	// Placeholder function
+	return false, false, nil, nil
 }
 
 //nolint:gocognit,gocyclo,cyclop,maintidx
@@ -1119,16 +1154,28 @@ func (c *Conn) recvHandshake() <-chan recvHandshakeState {
 
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
 	if level == alert.Fatal && len(c.state.SessionID) > 0 {
-		// According to the RFC, we need to delete the stored session.
-		// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
-		if ss := c.fsm.cfg.sessionStore; ss != nil {
-			c.log.Tracef("clean invalid session: %s", c.state.SessionID)
-			if err := ss.Del(c.sessionKey()); err != nil {
-				return err
+		if c.isVersion13Enabled() {
+			// With compability mode for 1.3, CH uses a non-empty session_id
+			// https://datatracker.ietf.org/doc/html/rfc8446#appendix-D.4
+			if ss := c.fsm.(*handshakeFSM13).cfg.sessionStore; ss != nil {
+				c.log.Tracef("clean invalid session: %s", c.state.SessionID)
+				if err := ss.Del(c.sessionKey()); err != nil {
+					return err
+				}
+			}
+		} else {
+			// According to the RFC, we need to delete the stored session.
+			// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
+			if ss := c.fsm.(*handshakeFSM12).cfg.sessionStore; ss != nil {
+				c.log.Tracef("clean invalid session: %s", c.state.SessionID)
+				if err := ss.Del(c.sessionKey()); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
+	// This should be updated with DTLS 1.3 record encoding.
 	return c.writePackets(ctx, []*packet{
 		{
 			record: &recordlayer.RecordLayer{
@@ -1158,20 +1205,41 @@ func (c *Conn) isHandshakeCompletedSuccessfully() bool {
 //nolint:cyclop,gocognit,contextcheck
 func (c *Conn) handshake(
 	ctx context.Context,
-	cfg *handshakeConfig,
 	initialFlight flightVal,
 	initialState handshakeState,
 ) error {
-	c.fsm = newHandshakeFSM(&c.state, c.handshakeCache, cfg, initialFlight)
-
 	done := make(chan struct{})
-	ctxRead, cancelRead := context.WithCancel(context.Background())
-	cfg.onFlightState = func(_ flightVal, s handshakeState) {
-		if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
-			close(done)
+	if c.isVersion13Enabled() {
+		c.fsm = &handshakeFSM13{
+			currentFlight:      flightVal13(initialFlight),
+			state:              &c.state,
+			cache:              c.handshakeCache,
+			cfg:                c.handshakeConfig13,
+			retransmitInterval: c.handshakeConfig13.initialRetransmitInterval,
+			closed:             make(chan struct{}),
+		}
+		c.handshakeConfig13.onFlightState13 = func(_ flightVal13, s handshakeState) {
+			if c.fsm.(*handshakeFSM13).currentFlight.isLastSendFlight() {
+				close(done)
+			}
+		}
+	} else {
+		c.fsm = &handshakeFSM12{
+			currentFlight:      initialFlight,
+			state:              &c.state,
+			cache:              c.handshakeCache,
+			cfg:                c.handshakeConfig,
+			retransmitInterval: c.handshakeConfig.initialRetransmitInterval,
+			closed:             make(chan struct{}),
+		}
+		c.handshakeConfig.onFlightState = func(_ flightVal, s handshakeState) {
+			if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
+				close(done)
+			}
 		}
 	}
 
+	ctxRead, cancelRead := context.WithCancel(context.Background())
 	ctxHs, cancel := context.WithCancel(context.Background())
 
 	c.closeLock.Lock()
@@ -1368,7 +1436,11 @@ func (c *Conn) sessionKey() []byte {
 		// As ServerName can be like 0.example.com, it's better to add
 		// delimiter character which is not allowed to be in
 		// neither address or domain name.
-		return []byte(c.rAddr.String() + "_" + c.fsm.cfg.serverName)
+		if c.isVersion13Enabled() {
+			return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM13).cfg.serverName)
+		}
+
+		return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM12).cfg.serverName)
 	}
 
 	return c.state.SessionID
@@ -1394,4 +1466,8 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	c.writeDeadline.Set(t)
 	// Write deadline is also fully managed by this layer.
 	return nil
+}
+
+func (c *Conn) isVersion13Enabled() bool {
+	return c.handshakeConfig13 != nil
 }
