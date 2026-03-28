@@ -42,44 +42,46 @@ func defensiveCopy[T any](t ...T) []T {
 // dtlsConfig is the internal configuration structure.
 // This will eventually replace the exported Config struct.
 type dtlsConfig struct { //nolint:dupl
-	certificates                  []tls.Certificate
-	cipherSuites                  []CipherSuiteID
-	customCipherSuites            func() []CipherSuite
-	signatureSchemes              []tls.SignatureScheme
-	certificateSignatureSchemes   []tls.SignatureScheme
-	srtpProtectionProfiles        []SRTPProtectionProfile
-	srtpMasterKeyIdentifier       []byte
-	clientAuth                    ClientAuthType
-	extendedMasterSecret          ExtendedMasterSecretType
-	flightInterval                time.Duration
-	disableRetransmitBackoff      bool
-	psk                           PSKCallback
-	pskIdentityHint               []byte
-	insecureSkipVerify            bool
-	insecureHashes                bool
-	verifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
-	verifyConnection              func(*State) error
-	rootCAs                       *x509.CertPool
-	clientCAs                     *x509.CertPool
-	serverName                    string
-	loggerFactory                 logging.LoggerFactory
-	mtu                           int
-	replayProtectionWindow        int
-	keyLogWriter                  io.Writer
-	sessionStore                  SessionStore
-	supportedProtocols            []string
-	ellipticCurves                []elliptic.Curve
-	getCertificate                func(*ClientHelloInfo) (*tls.Certificate, error)
-	getClientCertificate          func(*CertificateRequestInfo) (*tls.Certificate, error)
-	insecureSkipVerifyHello       bool
-	connectionIDGenerator         func() []byte
-	paddingLengthGenerator        func(uint) uint
-	helloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
-	clientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
-	serverHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
-	certificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
-	onConnectionAttempt           func(net.Addr) error
-	listenConfig                  net.ListenConfig
+	certificates                       []tls.Certificate
+	cipherSuites                       []CipherSuiteID
+	customCipherSuites                 func() []CipherSuite
+	signatureSchemes                   []tls.SignatureScheme
+	certificateSignatureSchemes        []tls.SignatureScheme
+	srtpProtectionProfiles             []SRTPProtectionProfile
+	srtpMasterKeyIdentifier            []byte
+	clientAuth                         ClientAuthType
+	extendedMasterSecret               ExtendedMasterSecretType
+	flightInterval                     time.Duration
+	disableRetransmitBackoff           bool
+	psk                                PSKCallback
+	pskIdentityHint                    []byte
+	insecureSkipVerify                 bool
+	insecureHashes                     bool
+	verifyPeerCertificate              func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	verifyConnection                   func(*State) error
+	rootCAs                            *x509.CertPool
+	clientCAs                          *x509.CertPool
+	serverName                         string
+	loggerFactory                      logging.LoggerFactory
+	mtu                                int
+	replayProtectionWindow             int
+	keyLogWriter                       io.Writer
+	sessionStore                       SessionStore
+	supportedProtocols                 []string
+	ellipticCurves                     []elliptic.Curve
+	getCertificate                     func(*ClientHelloInfo) (*tls.Certificate, error)
+	getClientCertificate               func(*CertificateRequestInfo) (*tls.Certificate, error)
+	insecureSkipVerifyHello            bool
+	connectionIDGenerator              func() []byte
+	paddingLengthGenerator             func(uint) uint
+	helloRandomBytesGenerator          func() [handshake.RandomBytesLength]byte
+	clientHelloMessageHook             func(handshake.MessageClientHello) handshake.Message
+	serverHelloMessageHook             func(handshake.MessageServerHello) handshake.Message
+	certificateRequestMessageHook      func(handshake.MessageCertificateRequest) handshake.Message
+	onConnectionAttempt                func(net.Addr) error
+	listenConfig                       net.ListenConfig
+	outboundHandshakePacketInterceptor func(packet []byte, end bool) bool
+	inboundHandshakePacketNotifier     func(packet []byte)
 }
 
 // applyDefaults applies default values to the config.
@@ -95,35 +97,37 @@ func (c *dtlsConfig) applyDefaults() {
 // All slice fields are copied to ensure immutability.
 func (c *dtlsConfig) toConfig() *Config {
 	config := &Config{
-		CustomCipherSuites:            c.customCipherSuites,
-		ClientAuth:                    c.clientAuth,
-		ExtendedMasterSecret:          c.extendedMasterSecret,
-		FlightInterval:                c.flightInterval,
-		DisableRetransmitBackoff:      c.disableRetransmitBackoff,
-		PSK:                           c.psk,
-		InsecureSkipVerify:            c.insecureSkipVerify,
-		InsecureHashes:                c.insecureHashes,
-		VerifyPeerCertificate:         c.verifyPeerCertificate,
-		VerifyConnection:              c.verifyConnection,
-		RootCAs:                       c.rootCAs,
-		ClientCAs:                     c.clientCAs,
-		ServerName:                    c.serverName,
-		LoggerFactory:                 c.loggerFactory,
-		MTU:                           c.mtu,
-		ReplayProtectionWindow:        c.replayProtectionWindow,
-		KeyLogWriter:                  c.keyLogWriter,
-		SessionStore:                  c.sessionStore,
-		GetCertificate:                c.getCertificate,
-		GetClientCertificate:          c.getClientCertificate,
-		InsecureSkipVerifyHello:       c.insecureSkipVerifyHello,
-		ConnectionIDGenerator:         c.connectionIDGenerator,
-		PaddingLengthGenerator:        c.paddingLengthGenerator,
-		HelloRandomBytesGenerator:     c.helloRandomBytesGenerator,
-		ClientHelloMessageHook:        c.clientHelloMessageHook,
-		ServerHelloMessageHook:        c.serverHelloMessageHook,
-		CertificateRequestMessageHook: c.certificateRequestMessageHook,
-		OnConnectionAttempt:           c.onConnectionAttempt,
-		listenConfig:                  c.listenConfig,
+		CustomCipherSuites:                 c.customCipherSuites,
+		ClientAuth:                         c.clientAuth,
+		ExtendedMasterSecret:               c.extendedMasterSecret,
+		FlightInterval:                     c.flightInterval,
+		DisableRetransmitBackoff:           c.disableRetransmitBackoff,
+		PSK:                                c.psk,
+		InsecureSkipVerify:                 c.insecureSkipVerify,
+		InsecureHashes:                     c.insecureHashes,
+		VerifyPeerCertificate:              c.verifyPeerCertificate,
+		VerifyConnection:                   c.verifyConnection,
+		RootCAs:                            c.rootCAs,
+		ClientCAs:                          c.clientCAs,
+		ServerName:                         c.serverName,
+		LoggerFactory:                      c.loggerFactory,
+		MTU:                                c.mtu,
+		ReplayProtectionWindow:             c.replayProtectionWindow,
+		KeyLogWriter:                       c.keyLogWriter,
+		SessionStore:                       c.sessionStore,
+		GetCertificate:                     c.getCertificate,
+		GetClientCertificate:               c.getClientCertificate,
+		InsecureSkipVerifyHello:            c.insecureSkipVerifyHello,
+		ConnectionIDGenerator:              c.connectionIDGenerator,
+		PaddingLengthGenerator:             c.paddingLengthGenerator,
+		HelloRandomBytesGenerator:          c.helloRandomBytesGenerator,
+		ClientHelloMessageHook:             c.clientHelloMessageHook,
+		ServerHelloMessageHook:             c.serverHelloMessageHook,
+		CertificateRequestMessageHook:      c.certificateRequestMessageHook,
+		OnConnectionAttempt:                c.onConnectionAttempt,
+		listenConfig:                       c.listenConfig,
+		outboundHandshakePacketInterceptor: c.outboundHandshakePacketInterceptor,
+		inboundHandshakePacketNotifier:     c.inboundHandshakePacketNotifier,
 	}
 
 	if len(c.certificates) > 0 {
@@ -556,6 +560,32 @@ func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.
 			return errNilClientHelloMessageHook
 		}
 		c.clientHelloMessageHook = fn
+
+		return nil
+	})
+}
+
+// WithOutboundHandshakePacketInterceptor allows installing an outbound handshake
+// packet interceptor.
+func WithOutboundHandshakePacketInterceptor(fn func(packet []byte, end bool) bool) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		if fn == nil {
+			return errNilOutboundHandshakePacketInterceptor
+		}
+		c.outboundHandshakePacketInterceptor = fn
+
+		return nil
+	})
+}
+
+// WithInboundHandshakePacketNotifier allows installing an inbound handshake
+// packet notifier.
+func WithInboundHandshakePacketNotifier(fn func(packet []byte)) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		if fn == nil {
+			return errNilInboundHandshakePacketNotifier
+		}
+		c.inboundHandshakePacketNotifier = fn
 
 		return nil
 	})
