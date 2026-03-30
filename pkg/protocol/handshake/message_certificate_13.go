@@ -37,7 +37,9 @@ type MessageCertificate13 struct {
 
 	// CertificateList contains the certificate chain with each entry having
 	// optional per-certificate extensions.
-	CertificateList []CertificateEntry13
+	CertificateList         []CertificateEntry13
+	marchalledExtensions    [][]byte
+	marchalledExtensionsErr error
 }
 
 // Type returns the handshake message type.
@@ -81,12 +83,32 @@ func (m *MessageCertificate13) Size() int {
 	return 1 + len(m.CertificateRequestContext) + cert13CertLengthFieldSize + m.certsSize()
 }
 
+func (m *MessageCertificate13) cacheMarshalExtensions() error {
+	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
+		for _, entry := range m.CertificateList {
+			for _, ext := range entry.Extensions {
+				var c []byte
+				c, m.marchalledExtensionsErr = ext.Marshal()
+				if m.marchalledExtensionsErr != nil {
+					return m.marchalledExtensionsErr
+				}
+				m.marchalledExtensions = append(m.marchalledExtensions, c)
+			}
+		}
+	}
+	return m.marchalledExtensionsErr
+}
+
 func (m *MessageCertificate13) certsSize() int {
+	err := m.cacheMarshalExtensions()
+	if err != nil {
+		return 0
+	}
 	certificateListSize := 0
-	for _, entry := range m.CertificateList {
+	for i, entry := range m.CertificateList {
 		certificateListSize += cert13CertLengthFieldSize
 		certificateListSize += len(entry.CertificateData)
-		certificateListSize += extension.Size(entry.Extensions)
+		certificateListSize += len(m.marchalledExtensions[i])
 	}
 
 	return certificateListSize
@@ -101,6 +123,11 @@ func (m *MessageCertificate13) MarshalInto(out []byte) error {
 
 	if len(out) < m.Size() {
 		return errBufferTooSmall
+	}
+
+	err := m.cacheMarshalExtensions()
+	if err != nil {
+		return err
 	}
 
 	// Check size of certificate_list is still within bounds
