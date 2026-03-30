@@ -22,6 +22,10 @@ type MessageCertificateRequest13 struct {
 	// Extensions contains the list of extensions.
 	// The signature_algorithms extension is REQUIRED per RFC 8446.
 	Extensions []extension.Extension
+
+	// Cache the marshal result
+	marshalCache    []byte
+	marshalCacheErr error
 }
 
 // Type returns the handshake message type.
@@ -44,11 +48,9 @@ const (
 //	[2 bytes] extensions length (from extension.Marshal)
 //	[variable] extensions data
 func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
-	// Validate certificate_request_context length
 	if len(m.CertificateRequestContext) > certReq13ContextMaxLength {
 		return nil, errCertificateRequestContextTooLong
 	}
-
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
 	hasSignatureAlgorithms := false
 	for _, ext := range m.Extensions {
@@ -61,26 +63,84 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 	if !hasSignatureAlgorithms {
 		return nil, errMissingSignatureAlgorithmsExtension
 	}
+	out := make([]byte, m.Size())
+	err := m.MarshalInto(out)
 
-	var builder cryptobyte.Builder
+	return out, err
+}
 
-	// Add certificate_request_context (1-byte length prefix)
-	builder.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
-		b.AddBytes(m.CertificateRequestContext)
-	})
-
-	// Marshal extensions (includes 2-byte length prefix, like in TLS 1.2)
-	extensionsData, err := extension.Marshal(m.Extensions)
+// Size returns the size needed for MarshalInto.
+func (m *MessageCertificateRequest13) Size() int {
+	cache, err := m.innerMarshal()
 	if err != nil {
-		return nil, err
+		return 0
 	}
-	// Validate extensions length is in valid range <2..2^16-1>
-	if len(extensionsData) < 2 || len(extensionsData) > maxUint16 {
-		return nil, errInvalidExtensionsLength
-	}
-	builder.AddBytes(extensionsData)
 
-	return builder.Bytes()
+	return len(cache)
+}
+
+func (m *MessageCertificateRequest13) innerMarshal() ([]byte, error) {
+	if m.marshalCache == nil && m.marshalCacheErr == nil {
+		var builder cryptobyte.Builder
+
+		// Add certificate_request_context (1-byte length prefix)
+		builder.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
+			b.AddBytes(m.CertificateRequestContext)
+		})
+
+		// Marshal extensions (includes 2-byte length prefix, like in TLS 1.2)
+		extensionsData, err := extension.Marshal(m.Extensions)
+		if err != nil {
+			m.marshalCacheErr = err
+
+			return nil, err
+		}
+		// Validate extensions length is in valid range <2..2^16-1>
+		if len(extensionsData) < 2 || len(extensionsData) > maxUint16 {
+			m.marshalCacheErr = err
+
+			return nil, errInvalidExtensionsLength
+		}
+		builder.AddBytes(extensionsData)
+
+		m.marshalCache, m.marshalCacheErr = builder.Bytes()
+	}
+
+	return m.marshalCache, m.marshalCacheErr
+}
+
+// MarshalInto encodes like Marshal but in a pre-allocate buffer.
+func (m *MessageCertificateRequest13) MarshalInto(out []byte) error {
+	// Validate certificate_request_context length
+	if len(m.CertificateRequestContext) > certReq13ContextMaxLength {
+		return errCertificateRequestContextTooLong
+	}
+
+	// Validate that signature_algorithms extension is present (required by RFC 8446)
+	hasSignatureAlgorithms := false
+	for _, ext := range m.Extensions {
+		if ext.TypeValue() == extension.SupportedSignatureAlgorithmsTypeValue {
+			hasSignatureAlgorithms = true
+
+			break
+		}
+	}
+	if !hasSignatureAlgorithms {
+		return errMissingSignatureAlgorithmsExtension
+	}
+
+	if len(out) < m.Size() {
+		return errBufferTooSmall
+	}
+
+	cache, err := m.innerMarshal()
+	if err != nil {
+		return err
+	}
+
+	copy(out, cache)
+
+	return nil
 }
 
 // Unmarshal decodes the MessageCertificateRequest13 from its wire format.

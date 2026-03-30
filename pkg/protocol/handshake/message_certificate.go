@@ -13,7 +13,6 @@ import (
 // https://tools.ietf.org/html/rfc5246#section-7.4.2
 type MessageCertificate struct {
 	Certificate [][]byte
-	cache       []byte
 }
 
 // Type returns the Handshake Type.
@@ -25,22 +24,30 @@ const (
 	handshakeMessageCertificateLengthFieldSize = 3
 )
 
-// Marshal encodes the Handshake.
-func (m *MessageCertificate) Marshal() ([]byte, error) {
-	if m.cache != nil {
-		return m.cache, nil
-	}
+// Size returns the minimal size required for MarshalInto.
+func (m *MessageCertificate) Size() int {
 	total := handshakeMessageCertificateLengthFieldSize
 
 	for _, cert := range m.Certificate {
 		total += handshakeMessageCertificateLengthFieldSize + len(cert)
 	}
 
-	out := make([]byte, total)
+	return total
+}
 
+// Marshal encodes the Handshake.
+func (m *MessageCertificate) Marshal() ([]byte, error) {
+	out := make([]byte, m.Size())
+	err := m.MarshalInto(out)
+
+	return out, err
+}
+
+// MarshalInto encodes the Handshake into a pre-allocated buffer.
+func (m *MessageCertificate) MarshalInto(out []byte) error {
 	// Total Payload Size
 	//nolint:gosec // G115
-	util.PutBigEndianUint24(out, uint32(total-handshakeMessageCertificateLengthFieldSize))
+	util.PutBigEndianUint24(out, uint32(m.Size()-handshakeMessageCertificateLengthFieldSize))
 	offset := handshakeMessageCertificateLengthFieldSize
 
 	for _, cert := range m.Certificate {
@@ -54,9 +61,7 @@ func (m *MessageCertificate) Marshal() ([]byte, error) {
 		offset += len(cert)
 	}
 
-	m.cache = out
-
-	return out, nil
+	return nil
 }
 
 // Unmarshal populates the message from encoded data.

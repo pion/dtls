@@ -15,9 +15,27 @@ func (c ChangeCipherSpec) ContentType() ContentType {
 	return ContentTypeChangeCipherSpec
 }
 
+// Size returns the minimal buffer size required for MarshalInto.
+func (c ChangeCipherSpec) Size() int {
+	return 1
+}
+
 // Marshal encodes the ChangeCipherSpec to binary.
 func (c *ChangeCipherSpec) Marshal() ([]byte, error) {
-	return []byte{0x01}, nil
+	out := make([]byte, 1)
+	err := c.MarshalInto(out)
+
+	return out, err
+}
+
+// MarshalInto encodes the ChangeCipherSpec to binary into a pre-allocated buffer.
+func (c *ChangeCipherSpec) MarshalInto(out []byte) error {
+	if len(out) < c.Size() {
+		return errBufferTooSmall
+	}
+	out[0] = 0x01
+
+	return nil
 }
 
 // Unmarshal populates the ChangeCipherSpec from binary.

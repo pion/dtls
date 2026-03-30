@@ -37,14 +37,33 @@ func (m *MessageHelloVerifyRequest) Marshal() ([]byte, error) {
 	if len(m.Cookie) > 255 {
 		return nil, errCookieTooLong
 	}
+	out := make([]byte, m.Size())
+	err := m.MarshalInto(out)
 
-	out := make([]byte, 3+len(m.Cookie))
+	return out, err
+}
+
+// Size returns the size required for MarshalInto.
+func (m *MessageHelloVerifyRequest) Size() int {
+	return 3 + len(m.Cookie)
+}
+
+// MarshalInto encodes the Handshake into a pre-allocated buffer.
+func (m *MessageHelloVerifyRequest) MarshalInto(out []byte) error {
+	if len(m.Cookie) > 255 {
+		return errCookieTooLong
+	}
+
+	if len(out) < m.Size() {
+		return errBufferTooSmall
+	}
+
 	out[0] = m.Version.Major
 	out[1] = m.Version.Minor
 	out[2] = byte(len(m.Cookie)) //nolint:gosec // G115: cookie length is validated to be <= 255 above.
 	copy(out[3:], m.Cookie)
 
-	return out, nil
+	return nil
 }
 
 // Unmarshal populates the message from encoded data.

@@ -34,6 +34,51 @@ func (m MessageServerHello) Type() Type {
 	return TypeServerHello
 }
 
+// Size returns the size required by MarshalInto.
+func (m *MessageServerHello) Size() int {
+	total := 0
+	total += extension.Size(m.Extensions)
+	total += messageServerHelloVariableWidthStart + 1 + len(m.SessionID) + 2 + 1
+
+	return total
+}
+
+// MarshalInto encodes the Handshake into a pre-allocated buffer.
+func (m *MessageServerHello) MarshalInto(out []byte) error {
+	extensions, err := extension.Marshal(m.Extensions)
+	if err != nil {
+		return err
+	}
+
+	if len(out) < m.Size() {
+		return errBufferTooSmall
+	}
+
+	offset := 0
+	out[0] = m.Version.Major
+	out[1] = m.Version.Minor
+	offset += 2
+
+	rand := m.Random.MarshalFixed()
+	n := copy(out[offset:], rand[:])
+	offset += n
+
+	out[offset] = byte(len(m.SessionID)) //nolint:gosec // G115
+	offset += 1
+	n = copy(out[offset:], m.SessionID)
+	offset += n
+
+	binary.BigEndian.PutUint16(out[offset:], *m.CipherSuiteID)
+	offset += 2
+
+	out[offset] = byte(m.CompressionMethod.ID)
+	offset += 1
+
+	copy(out[offset:], extensions)
+
+	return nil
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageServerHello) Marshal() ([]byte, error) {
 	switch {
@@ -45,26 +90,10 @@ func (m *MessageServerHello) Marshal() ([]byte, error) {
 		return nil, errSessionIDTooLong
 	}
 
-	extensions, err := extension.Marshal(m.Extensions)
-	if err != nil {
-		return nil, err
-	}
+	out := make([]byte, m.Size())
+	err := m.MarshalInto(out)
 
-	out := make([]byte, 0, messageServerHelloVariableWidthStart+1+len(m.SessionID)+2+1+len(extensions))
-	out = append(out, m.Version.Major, m.Version.Minor)
-
-	rand := m.Random.MarshalFixed()
-	out = append(out, rand[:]...)
-
-	out = append(out, byte(len(m.SessionID))) //nolint:gosec // G115: session ID length is validated to be <= 255 above.
-	out = append(out, m.SessionID...)
-
-	out = append(out, 0x00, 0x00)
-	binary.BigEndian.PutUint16(out[len(out)-2:], *m.CipherSuiteID)
-
-	out = append(out, byte(m.CompressionMethod.ID))
-
-	return append(out, extensions...), nil
+	return out, err
 }
 
 // Unmarshal populates the message from encoded data.

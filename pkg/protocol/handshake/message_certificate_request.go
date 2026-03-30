@@ -35,40 +35,74 @@ func (m MessageCertificateRequest) Type() Type {
 	return TypeCertificateRequest
 }
 
+// Size returns the minimal size required for MarshalInto.
+func (m *MessageCertificateRequest) Size() int {
+	return 1 +
+		len(m.CertificateTypes) +
+		2 + // number of SignatureHashAlgorithms
+		2*len(m.SignatureHashAlgorithms) + // SignatureHashAlgorithms size
+		2 + // casLength
+		m.casLength()
+}
+
+func (m *MessageCertificateRequest) casLength() int {
+	casLength := 0
+	for _, ca := range m.CertificateAuthoritiesNames {
+		casLength += 2 + len(ca)
+	}
+
+	return casLength
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
+	out := make([]byte, m.Size())
+	err := m.MarshalInto(out)
+
+	return out, err
+}
+
+// MarshalInto encodes the Handshake into a pre-allocated buffer.
+func (m *MessageCertificateRequest) MarshalInto(out []byte) error {
 	if len(m.CertificateTypes) > 255 {
-		return nil, errCertificateTypesTooLong
+		return errCertificateTypesTooLong
+	}
+
+	if len(out) < m.Size() {
+		return errBufferTooSmall
 	}
 
 	//nolint:gosec // G115: certificate types count is validated to be <= 255 above.
-	out := []byte{byte(len(m.CertificateTypes))}
+	offset := 0
+	out[offset] = byte(len(m.CertificateTypes)) //nolint:gosec // G115
+	offset += 1
 	for _, v := range m.CertificateTypes {
-		out = append(out, byte(v))
+		out[offset] = byte(v)
+		offset += 1
 	}
 
-	out = append(out, []byte{0x00, 0x00}...)
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(m.SignatureHashAlgorithms)*2)) //nolint:gosec //G115
+	binary.BigEndian.PutUint16(out[offset:], uint16(len(m.SignatureHashAlgorithms)*2)) //nolint:gosec //G115
+	offset += 2
+
 	for _, v := range m.SignatureHashAlgorithms {
-		out = append(out, v.Marshal()...)
+		tmp := v.Marshal()
+		n := copy(out[offset:], tmp)
+		offset += n
 	}
 
 	// Distinguished Names
-	casLength := 0
-	for _, ca := range m.CertificateAuthoritiesNames {
-		casLength += len(ca) + 2
-	}
-	out = append(out, []byte{0x00, 0x00}...)
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(casLength)) //nolint:gosec //G115
-	if casLength > 0 {
+	binary.BigEndian.PutUint16(out[offset:], uint16(m.casLength())) //nolint:gosec //G115
+	offset += 2
+	if m.casLength() > 0 {
 		for _, ca := range m.CertificateAuthoritiesNames {
-			out = append(out, []byte{0x00, 0x00}...)
-			binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(ca))) //nolint:gosec //G115
-			out = append(out, ca...)
+			binary.BigEndian.PutUint16(out[offset:], uint16(len(ca))) //nolint:gosec //G115
+			offset += 2
+			n := copy(out[offset:], ca)
+			offset += n
 		}
 	}
 
-	return out, nil
+	return nil
 }
 
 // Unmarshal populates the message from encoded data.

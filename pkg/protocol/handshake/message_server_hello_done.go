@@ -15,7 +15,20 @@ func (m MessageServerHelloDone) Type() Type {
 
 // Marshal encodes the Handshake.
 func (m *MessageServerHelloDone) Marshal() ([]byte, error) {
-	return []byte{}, nil
+	out := []byte{}
+	err := m.MarshalInto(out)
+
+	return out, err
+}
+
+// Size returns the size for MarshalInto.
+func (m *MessageServerHelloDone) Size() int {
+	return 0
+}
+
+// MarshalInto encodes the Handshake.
+func (m *MessageServerHelloDone) MarshalInto(out []byte) error {
+	return nil
 }
 
 // Unmarshal populates the message from encoded data.
