@@ -560,7 +560,7 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	var rawPackets [][]byte
+	rawPackets := make([][]byte, 0, len(pkts))
 
 	for _, pkt := range pkts {
 		if dtlsHandshake, ok := pkt.record.Content.(*handshake.Handshake); ok {
@@ -614,8 +614,8 @@ func (c *Conn) compactRawPackets(rawPackets [][]byte) [][]byte {
 		return rawPackets
 	}
 
-	combinedRawPackets := make([][]byte, 0)
-	currentCombinedRawPacket := make([]byte, 0)
+	combinedRawPackets := make([][]byte, 0, len(rawPackets))
+	var currentCombinedRawPacket []byte
 
 	for _, rawPacket := range rawPackets {
 		if len(currentCombinedRawPacket) == 0 && len(rawPacket) >= c.maximumTransmissionUnit {
@@ -702,8 +702,6 @@ func (c *Conn) processPacket(pkt *packet) ([]byte, error) { //nolint:cyclop
 
 //nolint:cyclop
 func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Handshake) ([][]byte, error) {
-	var rawPackets [][]byte
-
 	handshakeFragments, err := c.fragmentHandshake(dtlsHandshake)
 	if err != nil {
 		return nil, err
@@ -713,6 +711,7 @@ func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Hand
 		c.state.localSequenceNumber = append(c.state.localSequenceNumber, uint64(0))
 	}
 
+	rawPackets := make([][]byte, 0, len(handshakeFragments))
 	for _, handshakeFragment := range handshakeFragments {
 		seq := atomic.AddUint64(&c.state.localSequenceNumber[epoch], 1) - 1
 		if seq > recordlayer.MaxSequenceNumber {
@@ -787,11 +786,10 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 		return nil, err
 	}
 
-	var fragmentedHandshakes [][]byte
-
 	contentFragments := splitBytes(content, c.maximumTransmissionUnit)
 
 	offset := 0
+	fragmentedHandshakes := make([][]byte, 0, len(contentFragments))
 	for _, contentFragment := range contentFragments {
 		contentFragmentLen := len(contentFragment)
 

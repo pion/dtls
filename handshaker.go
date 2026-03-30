@@ -191,7 +191,8 @@ func (s *handshakeFSM) Run(ctx context.Context, conn flightConn, initialState ha
 		close(s.closed)
 	}()
 	for {
-		s.cfg.log.Tracef("[handshake:%s] %s: %s", srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
+		s.cfg.log.Tracef("[handshake:%s] %s: %s",
+			srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
 		if s.cfg.onFlightState != nil {
 			s.cfg.onFlightState(s.currentFlight, state)
 		}

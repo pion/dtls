@@ -134,3 +134,17 @@ func Marshal(e []Extension) ([]byte, error) {
 
 	return append(out, extensions...), nil
 }
+
+// Size returns the length of extensions marshal.
+func Size(e []Extension) int {
+	total := 2
+	for _, e := range e {
+		raw, err := e.Marshal()
+		if err != nil {
+			return 0
+		}
+		total += len(raw)
+	}
+
+	return total
+}

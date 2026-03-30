@@ -50,22 +50,20 @@ type RecordLayer struct {
 
 // Marshal encodes the RecordLayer to binary.
 func (r *RecordLayer) Marshal() ([]byte, error) {
-	contentRaw, err := r.Content.Marshal()
-	if err != nil {
-		return nil, err
-	}
+	out := make([]byte, r.Content.Size()+r.Header.Size())
 
-	r.Header.ContentLen = uint16(len(contentRaw)) //nolint:gosec // G115
+	r.Header.ContentLen = uint16(r.Content.Size()) //nolint:gosec // G115
 	r.Header.ContentType = r.Content.ContentType()
 
-	out := make([]byte, len(contentRaw)+r.Header.Size())
-
-	err = r.Header.MarshalInto(out)
+	err := r.Header.MarshalInto(out)
 	if err != nil {
 		return nil, err
 	}
 
-	copy(out[r.Header.Size():], contentRaw)
+	err = r.Content.MarshalInto(out[r.Header.Size():])
+	if err != nil {
+		return nil, err
+	}
 
 	return out, nil
 }

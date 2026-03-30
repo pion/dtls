@@ -62,6 +62,8 @@ func (t Type) String() string { //nolint:cyclop
 // Message is the body of a Handshake datagram.
 type Message interface {
 	Marshal() ([]byte, error)
+	MarshalInto([]byte) error
+	Size() int
 	Unmarshal(data []byte) error
 	Type() Type
 }
@@ -84,6 +86,11 @@ func (h Handshake) ContentType() protocol.ContentType {
 	return protocol.ContentTypeHandshake
 }
 
+// Size returns the minimal buffer size required for MarshalInto.
+func (h *Handshake) Size() int {
+	return HeaderLength + h.Message.Size()
+}
+
 // Marshal encodes a handshake into a binary message.
 func (h *Handshake) Marshal() ([]byte, error) {
 	if h.Message == nil {
@@ -91,21 +98,38 @@ func (h *Handshake) Marshal() ([]byte, error) {
 	} else if h.Header.FragmentOffset != 0 {
 		return nil, errUnableToMarshalFragmented
 	}
+	out := make([]byte, h.Size())
+	err := h.MarshalInto(out)
 
-	msg, err := h.Message.Marshal()
-	if err != nil {
-		return nil, err
+	return out, err
+}
+
+// MarshalInto encodes a handshake into a binary message into a pre-allocated buffer.
+func (h *Handshake) MarshalInto(out []byte) error {
+	if h.Message == nil {
+		return errHandshakeMessageUnset
+	} else if h.Header.FragmentOffset != 0 {
+		return errUnableToMarshalFragmented
 	}
 
-	h.Header.Length = uint32(len(msg)) //nolint:gosec // G115
+	if len(out) < h.Size() {
+		return errBufferTooSmall
+	}
+
+	h.Header.Length = uint32(h.Message.Size()) //nolint:gosec // G115
 	h.Header.FragmentLength = h.Header.Length
 	h.Header.Type = h.Message.Type()
-	header, err := h.Header.Marshal()
+	err := h.Header.MarshalInto(out)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return append(header, msg...), nil
+	err = h.Message.MarshalInto(out[HeaderLength:])
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Unmarshal decodes a handshake from a binary message.
