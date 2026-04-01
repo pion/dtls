@@ -885,6 +885,11 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 	}
 
 	contentFragments := splitBytes(content, c.maximumTransmissionUnit)
+	if len(contentFragments) == 0 {
+		contentFragments = [][]byte{
+			{},
+		}
+	}
 
 	offset := 0
 	fragmentedHandshakes := make([][]byte, 0, len(contentFragments))

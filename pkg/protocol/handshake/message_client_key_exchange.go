@@ -52,6 +52,7 @@ func (m *MessageClientKeyExchange) Size() int {
 	total := 0
 	if m.IdentityHint != nil {
 		total += 2
+		total += len(m.IdentityHint)
 	}
 
 	if m.PublicKey != nil {

@@ -85,17 +85,15 @@ func (m *MessageCertificate13) Size() int {
 
 func (m *MessageCertificate13) cacheMarshalExtensions() error {
 	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
-		for _, entry := range m.CertificateList {
-			for _, ext := range entry.Extensions {
-				var c []byte
-				c, m.marchalledExtensionsErr = ext.Marshal()
-				if m.marchalledExtensionsErr != nil {
-					return m.marchalledExtensionsErr
-				}
-				m.marchalledExtensions = append(m.marchalledExtensions, c)
+		m.marchalledExtensions = make([][]byte, len(m.CertificateList))
+		for i, entry := range m.CertificateList {
+			m.marchalledExtensions[i], m.marchalledExtensionsErr = extension.Marshal(entry.Extensions)
+			if m.marchalledExtensionsErr != nil {
+				return m.marchalledExtensionsErr
 			}
 		}
 	}
+
 	return m.marchalledExtensionsErr
 }
 

@@ -42,6 +42,7 @@ func (m *MessageClientHello) cacheMarshalExtensions() error {
 	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
 		m.marchalledExtensions, m.marchalledExtensionsErr = extension.Marshal(m.Extensions)
 	}
+
 	return m.marchalledExtensionsErr
 }
 

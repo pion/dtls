@@ -40,12 +40,12 @@ func (m *MessageServerHello) cacheMarshalExtensions() error {
 	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
 		m.marchalledExtensions, m.marchalledExtensionsErr = extension.Marshal(m.Extensions)
 	}
+
 	return m.marchalledExtensionsErr
 }
 
 // Size returns the size required by MarshalInto.
 func (m *MessageServerHello) Size() int {
-
 	err := m.cacheMarshalExtensions()
 	if err != nil {
 		return 0
@@ -60,7 +60,6 @@ func (m *MessageServerHello) Size() int {
 
 // MarshalInto encodes the Handshake into a pre-allocated buffer.
 func (m *MessageServerHello) MarshalInto(out []byte) error {
-
 	err := m.cacheMarshalExtensions()
 	if err != nil {
 		return err
