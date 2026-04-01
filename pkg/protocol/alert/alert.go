@@ -145,28 +145,28 @@ func (a Alert) ContentType() protocol.ContentType {
 	return protocol.ContentTypeAlert
 }
 
-// Size returns the minimal buffer size required for MarshalInto.
-func (a Alert) Size() int {
+// MarshalSize returns the minimal buffer size required for MarshalTo.
+func (a Alert) MarshalSize() int {
 	return 2
 }
 
 // Marshal returns the encoded alert.
 func (a *Alert) Marshal() ([]byte, error) {
-	out := make([]byte, a.Size())
-	err := a.MarshalInto(out)
+	out := make([]byte, a.MarshalSize())
+	_, err := a.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalInto returns the encoded alert.
-func (a *Alert) MarshalInto(out []byte) error {
-	if len(out) < a.Size() {
-		return errBufferTooSmall
+// MarshalTo returns the encoded alert.
+func (a *Alert) MarshalTo(out []byte) (int, error) {
+	if len(out) < a.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 	out[0] = byte(a.Level)
 	out[1] = byte(a.Description)
 
-	return nil
+	return 2, nil
 }
 
 // Unmarshal populates the alert from binary data.

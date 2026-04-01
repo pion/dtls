@@ -20,20 +20,20 @@ func (a ApplicationData) ContentType() ContentType {
 // Marshal encodes the ApplicationData to binary.
 func (a *ApplicationData) Marshal() ([]byte, error) {
 	out := make([]byte, len(a.Data))
-	err := a.MarshalInto(out)
+	_, err := a.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalInto encodes the ApplicationData to binary into a pre-allocated buffer.
-func (a *ApplicationData) MarshalInto(out []byte) error {
+// MarshalTo encodes the ApplicationData to binary into a pre-allocated buffer.
+func (a *ApplicationData) MarshalTo(out []byte) (int, error) {
 	copy(out, a.Data)
 
-	return nil
+	return len(a.Data), nil
 }
 
-// Size returns the size required for MarshalInto.
-func (a ApplicationData) Size() int {
+// MarshalSize returns the size required for MarshalTo.
+func (a ApplicationData) MarshalSize() int {
 	return len(a.Data)
 }
 

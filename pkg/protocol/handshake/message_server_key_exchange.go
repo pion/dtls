@@ -34,8 +34,8 @@ func (m MessageServerKeyExchange) Type() Type {
 	return TypeServerKeyExchange
 }
 
-// Size returns the size required for MarshalInto.
-func (m *MessageServerKeyExchange) Size() int { //nolint:cyclop
+// MarshalSize returns the size required for MarshalTo.
+func (m *MessageServerKeyExchange) MarshalSize() int { //nolint:cyclop
 	total := 0
 	if m.IdentityHint != nil {
 		total += 2 + len(m.IdentityHint)
@@ -67,10 +67,10 @@ func (m *MessageServerKeyExchange) Size() int { //nolint:cyclop
 	return total
 }
 
-// MarshalInto encodes the Handshake into a pre-allocated buffer.
-func (m *MessageServerKeyExchange) MarshalInto(out []byte) error { //nolint:cyclop
-	if len(out) < m.Size() {
-		return errBufferTooSmall
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) { //nolint:cyclop
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 
 	offset := 0
@@ -82,7 +82,7 @@ func (m *MessageServerKeyExchange) MarshalInto(out []byte) error { //nolint:cycl
 	}
 
 	if m.EllipticCurveType == 0 || len(m.PublicKey) == 0 {
-		return nil
+		return 0, nil
 	}
 	out[offset] = byte(m.EllipticCurveType)
 	offset += 1
@@ -96,13 +96,13 @@ func (m *MessageServerKeyExchange) MarshalInto(out []byte) error { //nolint:cycl
 	offset += n
 	switch {
 	case m.HashAlgorithm != hash.None && len(m.Signature) == 0:
-		return errInvalidSignHashAlgorithm
+		return 0, errInvalidSignHashAlgorithm
 	case m.HashAlgorithm == hash.None && len(m.Signature) > 0:
-		return errInvalidSignHashAlgorithm
+		return 0, errInvalidSignHashAlgorithm
 	case m.SignatureAlgorithm == signature.Anonymous && (m.HashAlgorithm != hash.None || len(m.Signature) > 0):
-		return errInvalidSignHashAlgorithm
+		return 0, errInvalidSignHashAlgorithm
 	case m.SignatureAlgorithm == signature.Anonymous:
-		return nil
+		return 0, nil
 	}
 
 	alg := signaturehash.Algorithm{Hash: m.HashAlgorithm, Signature: m.SignatureAlgorithm}
@@ -113,13 +113,13 @@ func (m *MessageServerKeyExchange) MarshalInto(out []byte) error { //nolint:cycl
 	offset += 2
 	copy(out[offset:], m.Signature)
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // Marshal encodes the Handshake.
 func (m *MessageServerKeyExchange) Marshal() ([]byte, error) {
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }

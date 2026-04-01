@@ -143,7 +143,7 @@ func FuzzRecordLayer_MarshalUnmarshal_RoundTrip(f *testing.F) {
 		require.Equal(t, recordLayer.Header.Epoch, back.Header.Epoch)
 		require.Equal(t, recordLayer.Header.SequenceNumber, back.Header.SequenceNumber)
 
-		bodyLen := len(raw) - back.Header.Size()
+		bodyLen := len(raw) - back.Header.MarshalSize()
 		appData, ok := back.Content.(*protocol.ApplicationData)
 		require.True(t, ok)
 		require.Equal(t, bodyLen, len(appData.Data))

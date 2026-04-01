@@ -35,8 +35,8 @@ func (m MessageCertificateRequest) Type() Type {
 	return TypeCertificateRequest
 }
 
-// Size returns the minimal size required for MarshalInto.
-func (m *MessageCertificateRequest) Size() int {
+// MarshalSize returns the minimal size required for MarshalTo.
+func (m *MessageCertificateRequest) MarshalSize() int {
 	return 1 +
 		len(m.CertificateTypes) +
 		2 + // number of SignatureHashAlgorithms
@@ -56,20 +56,20 @@ func (m *MessageCertificateRequest) casLength() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalInto encodes the Handshake into a pre-allocated buffer.
-func (m *MessageCertificateRequest) MarshalInto(out []byte) error {
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageCertificateRequest) MarshalTo(out []byte) (int, error) {
 	if len(m.CertificateTypes) > 255 {
-		return errCertificateTypesTooLong
+		return 0, errCertificateTypesTooLong
 	}
 
-	if len(out) < m.Size() {
-		return errBufferTooSmall
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 
 	//nolint:gosec // G115: certificate types count is validated to be <= 255 above.
@@ -102,7 +102,7 @@ func (m *MessageCertificateRequest) MarshalInto(out []byte) error {
 		}
 	}
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal populates the message from encoded data.

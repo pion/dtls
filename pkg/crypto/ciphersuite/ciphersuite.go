@@ -73,8 +73,8 @@ func newAEAD(
 
 // encrypt encrypts a DTLS RecordLayer message.
 func (a *aead) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
-	payload := raw[pkt.Header.Size():]
-	raw = raw[:pkt.Header.Size()]
+	payload := raw[pkt.Header.MarshalSize():]
+	raw = raw[:pkt.Header.MarshalSize()]
 
 	// Get nonce buffer from pool
 	noncePtr := a.nonceBufferPool.Get().(*[]byte) // nolint:forcetypeassert
@@ -93,19 +93,20 @@ func (a *aead) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
 		additionalData = generateAEADAdditionalData(&pkt.Header, len(payload))
 	}
 	finalSize := len(raw) + 8 + len(payload) + a.tagLength
-	r := make([]byte, finalSize)
-	copy(r, raw)
-	copy(r[len(raw):], nonce[4:])
+	out := make([]byte, finalSize)
+	copy(out, raw)
+	copy(out[len(raw):], nonce[4:])
 
-	a.localAEAD.Seal(r[len(raw)+8:len(raw)+8], nonce, payload, additionalData)
+	a.localAEAD.Seal(out[len(raw)+8:len(raw)+8], nonce, payload, additionalData)
 
 	// Update recordLayer size to include explicit nonce
-	binary.BigEndian.PutUint16(r[pkt.Header.Size()-2:], uint16(len(r)-pkt.Header.Size())) //nolint:gosec //G115
+	binary.BigEndian.PutUint16(out[pkt.Header.MarshalSize()-2:],
+		uint16(len(out)-pkt.Header.MarshalSize())) //nolint:gosec //G115
 
 	// Return nonce buffer to pool
 	a.nonceBufferPool.Put(noncePtr)
 
-	return r, nil
+	return out, nil
 }
 
 // decrypt decrypts a DTLS RecordLayer message.
@@ -117,7 +118,7 @@ func (a *aead) decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 	case header.ContentType == protocol.ContentTypeChangeCipherSpec:
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
-	case len(in) <= (8 + header.Size()):
+	case len(in) <= (8 + header.MarshalSize()):
 		return nil, errNotEnoughRoomForNonce
 	}
 
@@ -126,8 +127,8 @@ func (a *aead) decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 	nonce := *noncePtr
 
 	copy(nonce[:4], a.remoteWriteIV[:4])
-	copy(nonce[4:], in[header.Size():header.Size()+8])
-	out := in[header.Size()+8:]
+	copy(nonce[4:], in[header.MarshalSize():header.MarshalSize()+8])
+	out := in[header.MarshalSize()+8:]
 
 	var additionalData []byte
 	if header.ContentType == protocol.ContentTypeConnectionID {
@@ -146,7 +147,7 @@ func (a *aead) decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 	// Return nonce buffer to pool
 	a.nonceBufferPool.Put(noncePtr)
 
-	return append(in[:header.Size()], out...), nil
+	return append(in[:header.MarshalSize()], out...), nil
 }
 
 func generateAEADAdditionalData(h *recordlayer.Header, payloadLen int) []byte {

@@ -63,14 +63,14 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 	if !hasSignatureAlgorithms {
 		return nil, errMissingSignatureAlgorithmsExtension
 	}
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }
 
-// Size returns the size needed for MarshalInto.
-func (m *MessageCertificateRequest13) Size() int {
+// MarshalSize returns the size needed for MarshalTo.
+func (m *MessageCertificateRequest13) MarshalSize() int {
 	cache, err := m.innerMarshal()
 	if err != nil {
 		return 0
@@ -109,11 +109,11 @@ func (m *MessageCertificateRequest13) innerMarshal() ([]byte, error) {
 	return m.marshalCache, m.marshalCacheErr
 }
 
-// MarshalInto encodes like Marshal but in a pre-allocate buffer.
-func (m *MessageCertificateRequest13) MarshalInto(out []byte) error {
+// MarshalTo encodes like Marshal but in a pre-allocate buffer.
+func (m *MessageCertificateRequest13) MarshalTo(out []byte) (int, error) {
 	// Validate certificate_request_context length
 	if len(m.CertificateRequestContext) > certReq13ContextMaxLength {
-		return errCertificateRequestContextTooLong
+		return 0, errCertificateRequestContextTooLong
 	}
 
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
@@ -126,21 +126,21 @@ func (m *MessageCertificateRequest13) MarshalInto(out []byte) error {
 		}
 	}
 	if !hasSignatureAlgorithms {
-		return errMissingSignatureAlgorithmsExtension
+		return 0, errMissingSignatureAlgorithmsExtension
 	}
 
-	if len(out) < m.Size() {
-		return errBufferTooSmall
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 
 	cache, err := m.innerMarshal()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	copy(out, cache)
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal decodes the MessageCertificateRequest13 from its wire format.

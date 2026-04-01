@@ -16,19 +16,19 @@ func (m MessageServerHelloDone) Type() Type {
 // Marshal encodes the Handshake.
 func (m *MessageServerHelloDone) Marshal() ([]byte, error) {
 	out := []byte{}
-	err := m.MarshalInto(out)
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }
 
-// Size returns the size for MarshalInto.
-func (m *MessageServerHelloDone) Size() int {
+// MarshalSize returns the size for MarshalTo.
+func (m *MessageServerHelloDone) MarshalSize() int {
 	return 0
 }
 
-// MarshalInto encodes the Handshake.
-func (m *MessageServerHelloDone) MarshalInto(out []byte) error {
-	return nil
+// MarshalTo encodes the Handshake.
+func (m *MessageServerHelloDone) MarshalTo(out []byte) (int, error) {
+	return 0, nil
 }
 
 // Unmarshal populates the message from encoded data.

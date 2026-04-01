@@ -51,7 +51,7 @@ func FuzzChaCha20Poly1305_RoundTrip(f *testing.F) {
 
 		var parsedHdr recordlayer.Header
 		require.NoError(t, parsedHdr.Unmarshal(dec))
-		got := dec[parsedHdr.Size():]
+		got := dec[parsedHdr.MarshalSize():]
 
 		require.Equal(t, plain, got)
 	})
@@ -117,7 +117,7 @@ func FuzzChaCha20Poly1305_Bidirectional_RoundTrip(f *testing.F) {
 		var parsedHdrA recordlayer.Header
 		require.NoError(t, parsedHdrA.Unmarshal(decAonB))
 
-		gotA := decAonB[parsedHdrA.Size():]
+		gotA := decAonB[parsedHdrA.MarshalSize():]
 		require.Equal(t, pA, gotA)
 
 		// B -> A
@@ -144,7 +144,7 @@ func FuzzChaCha20Poly1305_Bidirectional_RoundTrip(f *testing.F) {
 		var parsedHdrB recordlayer.Header
 		require.NoError(t, parsedHdrB.Unmarshal(decBonA))
 
-		gotB := decBonA[parsedHdrB.Size():]
+		gotB := decBonA[parsedHdrB.MarshalSize():]
 		require.Equal(t, pB, gotB)
 	})
 }

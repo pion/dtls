@@ -42,11 +42,12 @@ func (m *MessageClientHello) cacheMarshalExtensions() error {
 	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
 		m.marchalledExtensions, m.marchalledExtensionsErr = extension.Marshal(m.Extensions)
 	}
+
 	return m.marchalledExtensionsErr
 }
 
-// Size returns the size needed for MarshalInto.
-func (m *MessageClientHello) Size() int {
+// MarshalSize returns the size needed for MarshalTo.
+func (m *MessageClientHello) MarshalSize() int {
 	encodedCipherSuiteIDs := encodeCipherSuiteIDs(m.CipherSuiteIDs)
 	encodedCompressionMethods := protocol.EncodeCompressionMethods(m.CompressionMethods)
 
@@ -67,31 +68,31 @@ func (m *MessageClientHello) Size() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageClientHello) Marshal() ([]byte, error) {
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalInto encodes the Handshake into a pre-allocated buffer.
-func (m *MessageClientHello) MarshalInto(out []byte) error {
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
 	if len(m.Cookie) > 255 {
-		return errCookieTooLong
+		return 0, errCookieTooLong
 	}
 	if len(m.SessionID) > 255 {
-		return errSessionIDTooLong
+		return 0, errSessionIDTooLong
 	}
 	if len(m.CompressionMethods) > 255 {
-		return errCompressionMethodsTooLong
+		return 0, errCompressionMethodsTooLong
 	}
 
 	err := m.cacheMarshalExtensions()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	if len(out) < m.Size() {
-		return errBufferTooSmall
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 
 	encodedCipherSuiteIDs := encodeCipherSuiteIDs(m.CipherSuiteIDs)
@@ -125,7 +126,7 @@ func (m *MessageClientHello) MarshalInto(out []byte) error {
 
 	copy(out[offset:], m.marchalledExtensions)
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal populates the message from encoded data.
