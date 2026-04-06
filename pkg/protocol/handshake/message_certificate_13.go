@@ -73,13 +73,13 @@ func (m *MessageCertificate13) Marshal() ([]byte, error) {
 		return nil, errCertificateRequestContextTooLong
 	}
 
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }
 
-func (m *MessageCertificate13) Size() int {
+func (m *MessageCertificate13) MarshalSize() int {
 	return 1 + len(m.CertificateRequestContext) + cert13CertLengthFieldSize + m.certsSize()
 }
 
@@ -112,25 +112,25 @@ func (m *MessageCertificate13) certsSize() int {
 	return certificateListSize
 }
 
-// MarshalInto is same as Marshal but uses a pre-allocated buffer.
-func (m *MessageCertificate13) MarshalInto(out []byte) error {
+// MarshalTo is same as Marshal but uses a pre-allocated buffer.
+func (m *MessageCertificate13) MarshalTo(out []byte) (int, error) {
 	// Validate certificate_request_context length
 	if len(m.CertificateRequestContext) > cert13ContextMaxLength {
-		return errCertificateRequestContextTooLong
+		return 0, errCertificateRequestContextTooLong
 	}
 
-	if len(out) < m.Size() {
-		return errBufferTooSmall
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 
 	err := m.cacheMarshalExtensions()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// Check size of certificate_list is still within bounds
 	if m.certsSize() > maxUint24 {
-		return errCertificateListTooLong
+		return 0, errCertificateListTooLong
 	}
 
 	// Start with certificate_request_context (1-byte length prefix)
@@ -150,7 +150,7 @@ func (m *MessageCertificate13) MarshalInto(out []byte) error {
 		// Add cert_data as a 3-byte length prefix
 		certDataLen := len(entry.CertificateData)
 		if certDataLen == 0 || certDataLen > maxUint24 {
-			return errInvalidCertificateEntry
+			return 0, errInvalidCertificateEntry
 		}
 		util.PutBigEndianUint24(out[offset:], uint32(certDataLen)) //nolint:gosec // G115
 		offset += 3
@@ -160,13 +160,13 @@ func (m *MessageCertificate13) MarshalInto(out []byte) error {
 		// Marshal extensions (includes a 2-byte length prefix)
 		extensionsData, err := extension.Marshal(entry.Extensions)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		n = copy(out[offset:], extensionsData)
 		offset += n
 	}
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // parseCertificate13Entry parses a single certificate entry from the cryptobyte string.

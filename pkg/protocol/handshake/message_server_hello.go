@@ -44,8 +44,8 @@ func (m *MessageServerHello) cacheMarshalExtensions() error {
 	return m.marchalledExtensionsErr
 }
 
-// Size returns the size required by MarshalInto.
-func (m *MessageServerHello) Size() int {
+// MarshalSize returns the size required by MarshalTo.
+func (m *MessageServerHello) MarshalSize() int {
 	err := m.cacheMarshalExtensions()
 	if err != nil {
 		return 0
@@ -58,15 +58,15 @@ func (m *MessageServerHello) Size() int {
 	return total
 }
 
-// MarshalInto encodes the Handshake into a pre-allocated buffer.
-func (m *MessageServerHello) MarshalInto(out []byte) error {
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageServerHello) MarshalTo(out []byte) (int, error) {
 	err := m.cacheMarshalExtensions()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	if len(out) < m.Size() {
-		return errBufferTooSmall
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 
 	offset := 0
@@ -91,7 +91,7 @@ func (m *MessageServerHello) MarshalInto(out []byte) error {
 
 	copy(out[offset:], m.marchalledExtensions)
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // Marshal encodes the Handshake.
@@ -105,8 +105,8 @@ func (m *MessageServerHello) Marshal() ([]byte, error) {
 		return nil, errSessionIDTooLong
 	}
 
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }

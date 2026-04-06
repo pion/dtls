@@ -18,27 +18,27 @@ func (m MessageFinished) Type() Type {
 	return TypeFinished
 }
 
-// Size returns the size required for MarshalInto.
-func (m *MessageFinished) Size() int {
+// MarshalSize returns the size required for MarshalTo.
+func (m *MessageFinished) MarshalSize() int {
 	return len(m.VerifyData)
 }
 
 // Marshal encodes the Handshake.
 func (m *MessageFinished) Marshal() ([]byte, error) {
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalInto encodes the Handshake into a pre-allocated buffer.
-func (m *MessageFinished) MarshalInto(out []byte) error {
-	if len(out) < m.Size() {
-		return errBufferTooSmall
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageFinished) MarshalTo(out []byte) (int, error) {
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 	copy(out, m.VerifyData)
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal populates the message from encoded data.

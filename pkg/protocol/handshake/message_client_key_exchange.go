@@ -41,14 +41,14 @@ func (m *MessageClientKeyExchange) Marshal() ([]byte, error) {
 		}
 	}
 
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }
 
-// Size returns the size required for MarshalInto.
-func (m *MessageClientKeyExchange) Size() int {
+// MarshalSize returns the size required for MarshalTo.
+func (m *MessageClientKeyExchange) MarshalSize() int {
 	total := 0
 	if m.IdentityHint != nil {
 		total += 2
@@ -63,14 +63,14 @@ func (m *MessageClientKeyExchange) Size() int {
 	return total
 }
 
-// MarshalInto encodes the Handshake into a pre-allocated buffer.
-func (m *MessageClientKeyExchange) MarshalInto(out []byte) error {
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageClientKeyExchange) MarshalTo(out []byte) (int, error) {
 	if m.IdentityHint == nil && m.PublicKey == nil {
-		return errInvalidClientKeyExchange
+		return 0, errInvalidClientKeyExchange
 	}
 
-	if len(out) < m.Size() {
-		return errBufferTooSmall
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 
 	offset := 0
@@ -83,14 +83,14 @@ func (m *MessageClientKeyExchange) MarshalInto(out []byte) error {
 
 	if m.PublicKey != nil {
 		if len(m.PublicKey) > 255 {
-			return errPublicKeyTooLong
+			return 0, errPublicKeyTooLong
 		}
 		out[offset] = byte(len(m.PublicKey)) //nolint:gosec // G115: public key length is validated to be <= 255 above.
 		offset += 1
 		copy(out[offset:], m.PublicKey)
 	}
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal populates the message from encoded data.

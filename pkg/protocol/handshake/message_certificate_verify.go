@@ -29,8 +29,8 @@ func (m MessageCertificateVerify) Type() Type {
 	return TypeCertificateVerify
 }
 
-// Size returns the minimal required size for Marshalnto.
-func (m MessageCertificateVerify) Size() int {
+// MarshalSize returns the minimal required size for Marshalnto.
+func (m MessageCertificateVerify) MarshalSize() int {
 	return 1 + 1 + 2 + len(m.Signature)
 }
 
@@ -47,23 +47,23 @@ func (m *MessageCertificateVerify) Marshal() ([]byte, error) {
 		return nil, errInvalidSignHashAlgorithm
 	}
 
-	out := make([]byte, m.Size())
-	err := m.MarshalInto(out)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalInto encodes the Handshake into a pre-allocated buffer.
-func (m *MessageCertificateVerify) MarshalInto(out []byte) error {
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageCertificateVerify) MarshalTo(out []byte) (int, error) {
 	if m.HashAlgorithm > 0xFF || m.SignatureAlgorithm > 0xFF {
-		return errInvalidSignHashAlgorithm
+		return 0, errInvalidSignHashAlgorithm
 	}
 
 	// CertificateVerify in DTLS 1.2 encodes hash/signature as 1 byte each.
 	scheme := tls.SignatureScheme(uint16(m.HashAlgorithm)<<8 | uint16(m.SignatureAlgorithm))
 	var alg signaturehash.Algorithm
 	if err := alg.Unmarshal(scheme); err != nil {
-		return errInvalidSignHashAlgorithm
+		return 0, errInvalidSignHashAlgorithm
 	}
 
 	out[0] = byte(m.HashAlgorithm)
@@ -71,7 +71,7 @@ func (m *MessageCertificateVerify) MarshalInto(out []byte) error {
 	binary.BigEndian.PutUint16(out[2:], uint16(len(m.Signature))) //nolint:gosec // G115
 	copy(out[4:], m.Signature)
 
-	return nil
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal populates the message from encoded data.

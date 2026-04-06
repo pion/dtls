@@ -38,21 +38,21 @@ func (h *Header) Marshal() ([]byte, error) {
 
 	hs := FixedHeaderSize + len(h.ConnectionID)
 	out := make([]byte, hs)
-	err := h.MarshalInto(out)
+	_, err := h.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalInto encodes a TLS RecordLayer Header to binary using pre-allocated buffer.
-func (h *Header) MarshalInto(out []byte) error {
+// MarshalTo encodes a TLS RecordLayer Header to binary using pre-allocated buffer.
+func (h *Header) MarshalTo(out []byte) (int, error) {
 	if h.SequenceNumber > MaxSequenceNumber {
-		return errSequenceNumberOverflow
+		return 0, errSequenceNumberOverflow
 	}
 
 	hs := FixedHeaderSize + len(h.ConnectionID)
 
 	if len(out) < hs {
-		return errBufferTooSmall
+		return 0, errBufferTooSmall
 	}
 
 	out[0] = byte(h.ContentType)
@@ -63,7 +63,7 @@ func (h *Header) MarshalInto(out []byte) error {
 	copy(out[11:11+len(h.ConnectionID)], h.ConnectionID)
 	binary.BigEndian.PutUint16(out[hs-2:], h.ContentLen)
 
-	return nil
+	return h.MarshalSize(), nil
 }
 
 // Unmarshal populates a TLS RecordLayer Header from binary.
@@ -96,7 +96,7 @@ func (h *Header) Unmarshal(data []byte) error {
 	return nil
 }
 
-// Size returns the total size of the header.
-func (h *Header) Size() int {
+// MarshalSize returns the total size of the header.
+func (h *Header) MarshalSize() int {
 	return FixedHeaderSize + len(h.ConnectionID)
 }

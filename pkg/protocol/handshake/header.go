@@ -29,15 +29,15 @@ type Header struct {
 // Marshal encodes the Header.
 func (h *Header) Marshal() ([]byte, error) {
 	out := make([]byte, HeaderLength)
-	err := h.MarshalInto(out)
+	_, err := h.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalInto encodes the Header using a pre-allocated buffer.
-func (h *Header) MarshalInto(out []byte) error {
+// MarshalTo encodes the Header using a pre-allocated buffer.
+func (h *Header) MarshalTo(out []byte) (int, error) {
 	if len(out) < HeaderLength {
-		return errBufferTooSmall
+		return 0, errBufferTooSmall
 	}
 
 	out[0] = byte(h.Type)
@@ -46,7 +46,7 @@ func (h *Header) MarshalInto(out []byte) error {
 	util.PutBigEndianUint24(out[6:], h.FragmentOffset)
 	util.PutBigEndianUint24(out[9:], h.FragmentLength)
 
-	return nil
+	return HeaderLength, nil
 }
 
 // Unmarshal populates the header from encoded data.
