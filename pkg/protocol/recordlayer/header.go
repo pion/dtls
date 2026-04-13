@@ -36,6 +36,17 @@ func (h *Header) Marshal() ([]byte, error) {
 		return nil, errSequenceNumberOverflow
 	}
 
+	if h.Version == protocol.Version1_3 {
+		uh := UnifiedHeader{
+			ConnectionID:   h.ConnectionID,
+			SequenceNumber: uint16(h.SequenceNumber & 0xffff), //nolint:gosec
+			Length:         h.ContentLen,
+			EpochLow:       uint8(h.Epoch & 0xff), //nolint:gosec
+		}
+
+		return uh.Marshal()
+	}
+
 	hs := FixedHeaderSize + len(h.ConnectionID)
 
 	out := make([]byte, hs)
@@ -52,10 +63,28 @@ func (h *Header) Marshal() ([]byte, error) {
 
 // Unmarshal populates a TLS RecordLayer Header from binary.
 func (h *Header) Unmarshal(data []byte) error {
+	if len(data) < 1 {
+		return errBufferTooSmall
+	}
+
+	h.ContentType = protocol.ContentType(data[0])
+	if protocol.IsDTLS13Ciphertext(h.ContentType) {
+		var uh UnifiedHeader
+		err := uh.Unmarshal(data)
+		if err != nil {
+			return err
+		}
+		h.Version = protocol.Version1_3
+		h.Epoch = uint16(uh.EpochLow)
+		h.SequenceNumber = uint64(uh.SequenceNumber)
+		h.ConnectionID = uh.ConnectionID
+		h.ContentLen = uh.Length
+
+		return nil
+	}
 	if len(data) < FixedHeaderSize {
 		return errBufferTooSmall
 	}
-	h.ContentType = protocol.ContentType(data[0])
 	if h.ContentType == protocol.ContentTypeConnectionID {
 		// If a CID was expected the ConnectionID should have been initialized.
 		if len(data) < FixedHeaderSize+len(h.ConnectionID) {
