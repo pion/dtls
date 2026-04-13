@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/logging"
 )
@@ -80,6 +81,8 @@ type dtlsConfig struct { //nolint:dupl
 	certificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 	onConnectionAttempt           func(net.Addr) error
 	listenConfig                  net.ListenConfig
+	minVersion                    protocol.Version
+	maxVersion                    protocol.Version
 }
 
 // applyDefaults applies default values to the config.
@@ -124,6 +127,8 @@ func (c *dtlsConfig) toConfig() *Config {
 		CertificateRequestMessageHook: c.certificateRequestMessageHook,
 		OnConnectionAttempt:           c.onConnectionAttempt,
 		listenConfig:                  c.listenConfig,
+		minVersion:                    c.minVersion,
+		maxVersion:                    c.maxVersion,
 	}
 
 	if len(c.certificates) > 0 {
@@ -558,6 +563,34 @@ func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.
 		c.clientHelloMessageHook = fn
 
 		return nil
+	})
+}
+
+// MinVersion sets the minimum TLS version that is acceptable.
+// By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
+func withMinVersion(version protocol.Version) Option { // nolint:unused
+	return sharedOption(func(c *dtlsConfig) error {
+		if protocol.IsSupportedVersion(version) {
+			c.minVersion = version
+
+			return nil
+		}
+
+		return errUnsupportedProtocolVersion
+	})
+}
+
+// MaxVersion sets the maxiumum TLS version that is acceptable.
+// By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
+func withMaxVersion(version protocol.Version) Option { // nolint:unused
+	return sharedOption(func(c *dtlsConfig) error {
+		if protocol.IsSupportedVersion(version) {
+			c.maxVersion = version
+
+			return nil
+		}
+
+		return errUnsupportedProtocolVersion
 	})
 }
 

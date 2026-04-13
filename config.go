@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/logging"
 )
@@ -236,6 +237,10 @@ type Config struct { //nolint:dupl
 
 	// ListenConfig used to create the underlying listener socket.
 	listenConfig net.ListenConfig
+
+	minVersion protocol.Version
+
+	maxVersion protocol.Version
 }
 
 func (c *Config) includeCertificateSuites() bool {

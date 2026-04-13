@@ -191,6 +191,16 @@ func createConn(
 		curves = filtered
 	}
 
+	minVersion := config.minVersion
+	if !minVersion.Equal(protocol.Version1_2) || !minVersion.Equal(protocol.Version1_3) {
+		minVersion = protocol.Version1_2
+	}
+
+	maxVersion := config.minVersion
+	if !maxVersion.Equal(protocol.Version1_2) || !maxVersion.Equal(protocol.Version1_3) {
+		maxVersion = protocol.Version1_2
+	}
+
 	handshakeConfig := &handshakeConfig{
 		localPSKCallback:              config.PSK,
 		localPSKIdentityHint:          config.PSKIdentityHint,
@@ -226,6 +236,8 @@ func createConn(
 		serverHelloMessageHook:        config.ServerHelloMessageHook,
 		certificateRequestMessageHook: config.CertificateRequestMessageHook,
 		resumeState:                   resumeState,
+		minVersion:                    minVersion,
+		maxVersion:                    maxVersion,
 	}
 
 	conn := &Conn{
