@@ -12,6 +12,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/transport/v4/replaydetector"
 )
@@ -72,6 +73,8 @@ type State struct {
 
 	peerSupportedProtocols []string
 	NegotiatedProtocol     string
+
+	version protocol.Version
 }
 
 type serializedState struct {

@@ -311,6 +311,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 	c.closeLock.Unlock()
 
 	if c.isVersion13Enabled() {
+		c.state.version = protocol.Version1_3
 		var initialFlight flightVal
 		if c.state.isClient {
 			initialFlight = flightVal(flight13_1)
@@ -1176,7 +1177,7 @@ func (c *Conn) recvHandshake() <-chan recvHandshakeState {
 
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
 	if level == alert.Fatal && len(c.state.SessionID) > 0 { //nolint:nestif
-		if c.isVersion13Enabled() {
+		if c.state.version == protocol.Version1_3 {
 			// With compatibility mode for 1.3, CH uses a non-empty session_id
 			// https://datatracker.ietf.org/doc/html/rfc8446#appendix-D.4
 			if ss := c.fsm.(*handshakeFSM13).cfg.sessionStore; ss != nil { //nolint:forcetypeassert
@@ -1231,7 +1232,7 @@ func (c *Conn) handshake(
 	initialState handshakeState,
 ) error {
 	done := make(chan struct{})
-	if c.isVersion13Enabled() {
+	if c.state.version == protocol.Version1_3 {
 		c.fsm = &handshakeFSM13{
 			currentFlight:      flightVal13(initialFlight),
 			state:              &c.state,
@@ -1458,7 +1459,7 @@ func (c *Conn) sessionKey() []byte {
 		// As ServerName can be like 0.example.com, it's better to add
 		// delimiter character which is not allowed to be in
 		// neither address or domain name.
-		if c.isVersion13Enabled() {
+		if c.state.version == protocol.Version1_3 {
 			return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM13).cfg.serverName) //nolint:forcetypeassert
 		}
 
