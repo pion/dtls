@@ -194,6 +194,22 @@ func TestNilCallbackOptionsReturnError(t *testing.T) {
 		_, err = buildServerConfig(WithClientHelloMessageHook(nil))
 		require.ErrorIs(t, err, errNilClientHelloMessageHook)
 	})
+
+	t.Run("NilOutboundHandshakePacketInterceptor", func(t *testing.T) {
+		_, err := buildClientConfig(WithOutboundHandshakePacketInterceptor(nil))
+		require.ErrorIs(t, err, errNilOutboundHandshakePacketInterceptor)
+
+		_, err = buildServerConfig(WithOutboundHandshakePacketInterceptor(nil))
+		require.ErrorIs(t, err, errNilOutboundHandshakePacketInterceptor)
+	})
+
+	t.Run("NilInboundHandshakePacketNotifier", func(t *testing.T) {
+		_, err := buildClientConfig(WithInboundHandshakePacketNotifier(nil))
+		require.ErrorIs(t, err, errNilInboundHandshakePacketNotifier)
+
+		_, err = buildServerConfig(WithInboundHandshakePacketNotifier(nil))
+		require.ErrorIs(t, err, errNilInboundHandshakePacketNotifier)
+	})
 }
 
 // TestServerOnlyNilCallbackOptionsReturnError verifies server-only options

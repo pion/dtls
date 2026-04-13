@@ -202,6 +202,14 @@ var (
 		Err: errors.New("client hello message hook option requires a non-nil function"),
 	}
 	//nolint:err113
+	errNilOutboundHandshakePacketInterceptor = &FatalError{
+		Err: errors.New("outbound handshake packet interceptor option requires a non-nil function"),
+	}
+	//nolint:err113
+	errNilInboundHandshakePacketNotifier = &FatalError{
+		Err: errors.New("inbound handshake packet notifier option requires a non-nil function"),
+	}
+	//nolint:err113
 	errNilGetCertificate = &FatalError{Err: errors.New("get certificate option requires a non-nil callback")}
 	//nolint:err113
 	errNilServerHelloMessageHook = &FatalError{
