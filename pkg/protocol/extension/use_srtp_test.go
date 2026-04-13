@@ -63,3 +63,27 @@ func TestExtensionUseSRTP(t *testing.T) {
 		assert.ErrorIs(t, err, errUseSRTPDataTooLarge)
 	})
 }
+
+func FuzzExtensionUseSRTPUnmarshal(f *testing.F) {
+	testcases := [][]byte{
+		{
+			0x00, 0x0e, 0x00, 0x05, 0x00, 0x02, 0x00, 0x01, 0x00,
+		},
+		{
+			0x00, 0x0e, 0x00, 0x0a, 0x00, 0x02, 0x00, 0x01, 0x05, 0xA, 0xB, 0xC, 0xD, 0xE,
+		},
+	}
+
+	for _, tc := range testcases {
+		f.Add(tc)
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		u := UseSRTP{}
+		err := u.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		// Invalid profiles are filtered out
+		testExtDataLength(t, &u, data, false)
+	})
+}

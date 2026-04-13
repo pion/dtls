@@ -374,6 +374,19 @@ func TestKeyShare_Unmarshal_Errors(t *testing.T) {
 	rawEmpty, _ := empty.Bytes()
 	err = ks.Unmarshal(rawEmpty)
 	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+
+	rawTrailing := []byte{
+		0x0, 0x33, // extension type
+		0x0, 0x8, // extension length
+		0x0, 0x5, // vec length
+		0x0, 0x1d, // X25519
+		0x0, 0x01, // length
+		0x42,
+		0x43, // trailing byte
+	}
+
+	err = ks.Unmarshal(rawTrailing)
+	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
 }
 
 func Test_hasTooManyContexts(t *testing.T) {
@@ -385,4 +398,49 @@ func Test_hasTooManyContexts(t *testing.T) {
 	assert.True(t, hasTooManyContexts(true, false, true))
 	assert.True(t, hasTooManyContexts(false, true, true))
 	assert.True(t, hasTooManyContexts(true, true, true)) // three
+}
+
+func FuzzKeyShareUnmarshal(f *testing.F) {
+	testCases := [][]byte{
+		{
+			0x0, 0x33, // extension type
+			0x0, 0x11, // extension length
+			0x0, 0xf, // vec length
+			0x0, 0x1d, // X25519
+			0x0, 0x1, // group length
+			0x41,
+			0x11, 0xff, // Non-supported group
+			0x0, 0x1, // group length
+			0x42,
+			0x0, 0x18, // P-384
+			0x0, 0x1, // group length
+			0x43,
+		},
+		{
+			0x0, 0x33, // extension type
+			0x0, 0x24, // extension length
+			0x0, 0x1d, // X25519
+			0x0, 0x20, // length 32
+			0xa8, 0xf1, 0xb7, 0x2d, 0x70, 0x7e, 0x58, 0xa4, 0x41, 0x73, 0x9e, 0x21,
+			0x7b, 0x62, 0x1e, 0xd1, 0x4d, 0x11, 0x69, 0xa6, 0xbf, 0x72, 0x21, 0xec,
+			0xaf, 0x76, 0xf3, 0x4e, 0xec, 0x48, 0x52, 0x1,
+		},
+	}
+	for _, tc := range testCases {
+		f.Add(tc)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		ks := KeyShare{}
+		err := ks.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		hasClientShares := ks.ClientShares != nil
+		hasServerShare := ks.ServerShare != nil
+		hasHelloRetryRequest := ks.SelectedGroup != nil
+		assert.Equal(t, false, hasTooManyContexts(hasClientShares, hasServerShare, hasHelloRetryRequest))
+		// We do not check trailing bytes as non-supported groups are removed.
+		testExtDataLength(t, &ks, data, false)
+	})
 }

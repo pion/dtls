@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package extension
+package extension //nolint:dupl
 
 import "encoding/binary"
 
@@ -42,10 +42,12 @@ func (p *PostHandshakeAuth) Unmarshal(data []byte) error {
 	case len(data) < postHandshakeAuthHeaderSize:
 		return errBufferTooSmall
 	case data[2] != 0x00 || data[3] != 0x00:
-		return errInvalidPostHandshakeAuthFormat
-	case TypeValue(binary.BigEndian.Uint16(data)) == p.TypeValue():
-		p.Enabled = true
+		return errLengthMismatch
+	case TypeValue(binary.BigEndian.Uint16(data)) != p.TypeValue():
+		return errInvalidExtensionType
 	}
+
+	p.Enabled = true
 
 	return nil
 }

@@ -189,23 +189,19 @@ func FuzzOIDFiltersUnmarshal(f *testing.F) {
 	f.Add([]byte{0x00, 0x30})
 	f.Add([]byte{})
 
-	f.Fuzz(func(t *testing.T, a []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
 		ext := OIDFilters{}
-		err := ext.Unmarshal(a)
-		if err == nil {
-			seen := map[string]struct{}{}
-			for _, filter := range ext.Filters {
-				assert.NotEmpty(t, filter.OID)
-				_, dup := seen[string(filter.OID)]
-				assert.False(t, dup)
-				seen[string(filter.OID)] = struct{}{}
-			}
-			// Check if extension is stable after parsing
-			marshaled, marshalErr := ext.Marshal()
-			assert.NoError(t, marshalErr)
-			ext2 := OIDFilters{}
-			assert.NoError(t, ext2.Unmarshal(marshaled))
-			assert.Equal(t, ext.Filters, ext2.Filters)
+		err := ext.Unmarshal(data)
+		if err != nil {
+			return
 		}
+		seen := map[string]struct{}{}
+		for _, filter := range ext.Filters {
+			assert.NotEmpty(t, filter.OID)
+			_, dup := seen[string(filter.OID)]
+			assert.False(t, dup)
+			seen[string(filter.OID)] = struct{}{}
+		}
+		testExtDataLength(t, &ext, data, true)
 	})
 }

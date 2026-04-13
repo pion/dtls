@@ -57,13 +57,15 @@ func FuzzCookieExtUnmarshal(f *testing.F) {
 	for _, tc := range testcases {
 		f.Add(tc)
 	}
-	f.Fuzz(func(t *testing.T, a []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
 		cookieExt := CookieExt{}
-		err := cookieExt.Unmarshal(a)
-		if err == nil {
-			length := len(cookieExt.Cookie)
-			assert.NotZero(t, length)
-			assert.LessOrEqual(t, length, 0xfffd)
+		err := cookieExt.Unmarshal(data)
+		if err != nil {
+			return
 		}
+		length := len(cookieExt.Cookie)
+		assert.NotZero(t, length)
+		assert.LessOrEqual(t, length, 0xfffd)
+		testExtDataLength(t, &cookieExt, data, true)
 	})
 }
