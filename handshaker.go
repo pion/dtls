@@ -14,6 +14,7 @@ import (
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/logging"
@@ -136,6 +137,9 @@ type handshakeConfig struct {
 	certificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 
 	resumeState *State
+
+	minVersion protocol.Version
+	maxVersion protocol.Version
 }
 
 type flightConn interface {
