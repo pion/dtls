@@ -67,7 +67,12 @@ func FuzzEarlyDataIndicationUnmarshal(f *testing.F) {
 		f.Add(tc)
 	}
 
-	f.Fuzz(func(_ *testing.T, data []byte) {
-		_ = (&EarlyDataIndication{}).Unmarshal(data)
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var e EarlyDataIndication
+		err := e.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		testExtDataLength(t, &e, data, true)
 	})
 }

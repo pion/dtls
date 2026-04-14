@@ -47,14 +47,21 @@ func (s *SupportedEllipticCurves) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (s *SupportedEllipticCurves) Unmarshal(data []byte) error {
-	if len(data) <= supportedGroupsHeaderSize {
+	if len(data) < supportedGroupsHeaderSize {
 		return errBufferTooSmall
-	} else if TypeValue(binary.BigEndian.Uint16(data)) != s.TypeValue() {
-		return errInvalidExtensionType
 	}
 
+	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
 	groupCount := int(binary.BigEndian.Uint16(data[4:]) / 2)
-	if supportedGroupsHeaderSize+(groupCount*2) > len(data) {
+
+	switch {
+	case TypeValue(binary.BigEndian.Uint16(data)) != s.TypeValue():
+		return errInvalidExtensionType
+	case declaredLength > len(data)-4: // type + declared length = 4
+		return errLengthMismatch
+	case supportedGroupsHeaderSize+(groupCount*2) > len(data):
+		return errLengthMismatch
+	case groupCount*2+2 != declaredLength:
 		return errLengthMismatch
 	}
 

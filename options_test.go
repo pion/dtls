@@ -13,6 +13,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/transport/v4/dpipe"
 	"github.com/stretchr/testify/require"
 )
@@ -267,6 +268,14 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 
 		_, err = buildServerConfig(WithExtendedMasterSecret(ExtendedMasterSecretType(100)))
 		require.ErrorIs(t, err, errInvalidExtendedMasterSecretType)
+	})
+
+	t.Run("InvalidVersions", func(t *testing.T) {
+		_, err := buildClientConfig(withMinVersion(protocol.Version{}))
+		require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+
+		_, err = buildClientConfig(withMaxVersion(protocol.Version{}))
+		require.ErrorIs(t, err, errUnsupportedProtocolVersion)
 	})
 }
 

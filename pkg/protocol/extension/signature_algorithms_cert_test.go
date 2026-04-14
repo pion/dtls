@@ -351,7 +351,12 @@ func FuzzSignatureAlgorithmsCertUnmarshal(f *testing.F) {
 		f.Add(tc)
 	}
 
-	f.Fuzz(func(_ *testing.T, data []byte) {
-		_ = (&SignatureAlgorithmsCert{}).Unmarshal(data)
+	f.Fuzz(func(t *testing.T, data []byte) {
+		sa := SignatureAlgorithmsCert{}
+		err := sa.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		testExtDataLength(t, &sa, data, false)
 	})
 }

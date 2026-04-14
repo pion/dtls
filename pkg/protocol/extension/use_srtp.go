@@ -73,6 +73,14 @@ func (u *UseSRTP) Unmarshal(data []byte) error {
 		return errLengthMismatch
 	}
 
+	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
+
+	masterKeyIdentifierLen := int(data[masterKeyIdentifierIndex])
+	end := masterKeyIdentifierIndex + masterKeyIdentifierLen
+	if end >= len(data) || end-4 != declaredLength-1 {
+		return errLengthMismatch
+	}
+
 	for i := range profileCount {
 		supportedProfile := SRTPProtectionProfile(binary.BigEndian.Uint16(data[(useSRTPHeaderSize + (i * 2)):]))
 		if _, ok := srtpProtectionProfiles()[supportedProfile]; ok {
@@ -80,14 +88,9 @@ func (u *UseSRTP) Unmarshal(data []byte) error {
 		}
 	}
 
-	masterKeyIdentifierLen := int(data[masterKeyIdentifierIndex])
-	if masterKeyIdentifierIndex+masterKeyIdentifierLen >= len(data) {
-		return errLengthMismatch
-	}
-
 	u.MasterKeyIdentifier = append(
 		[]byte{},
-		data[masterKeyIdentifierIndex+1:masterKeyIdentifierIndex+1+masterKeyIdentifierLen]...,
+		data[masterKeyIdentifierIndex+1:end+1]...,
 	)
 
 	return nil

@@ -29,6 +29,7 @@ const (
 	CookieTypeValue                       TypeValue = 44
 	PskKeyExchangeModesTypeValue          TypeValue = 45
 	CertificateAuthoritiesTypeValue       TypeValue = 47
+	OIDFiltersTypeValue                   TypeValue = 48
 	PostHandshakeAuthTypeValue            TypeValue = 49
 	SignatureAlgorithmsCertTypeValue      TypeValue = 50
 	KeyShareTypeValue                     TypeValue = 51

@@ -214,3 +214,40 @@ func TestExtensionsUnmarshal_SupportedVersions_ServerHello(t *testing.T) {
 	// Server/HRR form yields a single entry in Versions.
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, sv.Versions)
 }
+
+func FuzzSupportedVersionsUnmarshal(f *testing.F) {
+	tcs := [][]byte{
+		{
+			0x00, 0x2b, // extension type
+			0x00, 0x02, // extension_data length = 2
+			0xfe, 0xfc, // selected_version = DTLS v1.3
+		},
+		{
+			0x00, 0x2b, // extension type
+			0x00, 0x07, // extension_data length
+			0x06,       // versions length (bytes)
+			0xfe, 0xfc, // DTLS v1.3
+			0xfe, 0xfd, // DTLS v1.2
+			0xfe, 0xff, // DTLS v1.0
+		},
+		{
+			0x00, 0x2b, // extension type
+			0x00, 0x02, // extension_data length
+			0xfe, 0xfc, // selected_version
+		},
+	}
+
+	for _, tc := range tcs {
+		f.Add(tc)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		vers := SupportedVersions{}
+		err := vers.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		// Invalid versions are filtered out
+		testExtDataLength(t, &vers, data, false)
+	})
+}

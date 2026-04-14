@@ -30,3 +30,18 @@ func TestExtensionSupportedPointFormats_TooLong(t *testing.T) {
 	_, err := (&SupportedPointFormats{PointFormats: pointFormats}).Marshal()
 	assert.ErrorIs(t, err, errPointFormatsTooLarge)
 }
+
+func FuzzExtensionSupportedPointFormatsUnmarshal(f *testing.F) {
+	tc := []byte{0x00, 0x0b, 0x00, 0x02, 0x01, 0x00}
+	f.Add(tc)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		points := SupportedPointFormats{}
+		err := points.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		// Invalid point formats are filtered out
+		testExtDataLength(t, &points, data, false)
+	})
+}
