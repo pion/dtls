@@ -128,7 +128,7 @@ var (
 
 	//nolint:err113
 	errInvalidFlight = &InternalError{Err: errors.New("invalid flight number")}
-	//nolint:err113
+	//nolint:err113,unused
 	errFlightUnimplemented13 = &InternalError{Err: errors.New("unimplemented DTLS 1.3 flight")}
 	//nolint:err113
 	errStateUnimplemented13 = &InternalError{Err: errors.New("unimplemented DTLS 1.3 handshake state")}

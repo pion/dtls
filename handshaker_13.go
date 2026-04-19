@@ -59,8 +59,8 @@ import (
 
 type handshakeFSM13 struct {
 	currentFlight      flightVal13
-	flights            []*packet
-	retransmit         bool //nolint:unused
+	flights            []*packet //nolint:unused
+	retransmit         bool      //nolint:unused
 	retransmitInterval time.Duration
 	state              *State
 	cache              *handshakeCache
