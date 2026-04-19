@@ -57,9 +57,7 @@ func (u *UnifiedHeader) Marshal() ([]byte, error) {
 		if cidSz > math.MaxUint8 {
 			return []byte{}, errCIDTooBig
 		}
-		head.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
-			b.AddBytes(u.ConnectionID)
-		})
+		head.AddBytes(u.ConnectionID)
 	}
 
 	if u.SequenceNumber > math.MaxUint8 {
@@ -97,11 +95,10 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 	}
 
 	if ct&UnifiedHeaderCIDBit != 0 {
-		var cid cryptobyte.String
-		if !str.ReadUint8LengthPrefixed(&cid) {
+		size := len(u.ConnectionID)
+		if !str.ReadBytes(&u.ConnectionID, size) {
 			return errInvalidUnifiedHeaderFormat
 		}
-		u.ConnectionID = cid
 	}
 
 	if ct&UnifiedHeaderSeqBit != 0 {
@@ -129,4 +126,20 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 	}
 
 	return nil
+}
+
+func (u *UnifiedHeader) Size() int {
+	var size int
+	size += 1
+	size += len(u.ConnectionID)
+	if u.SequenceNumber > math.MaxUint8 {
+		size += 2
+	} else {
+		size += 1
+	}
+	if u.Length > 0 {
+		size += 2
+	}
+
+	return size
 }

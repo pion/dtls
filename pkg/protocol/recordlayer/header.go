@@ -20,6 +20,7 @@ type Header struct {
 
 	// Optional Fields
 	ConnectionID []byte
+	size         int
 }
 
 // RecordLayer enums.
@@ -36,7 +37,8 @@ func (h *Header) Marshal() ([]byte, error) {
 		return nil, errSequenceNumberOverflow
 	}
 
-	if h.Version == protocol.Version1_3 {
+	if protocol.IsDTLS13Ciphertext(h.ContentType) {
+		h.Version = protocol.Version1_3
 		uh := UnifiedHeader{
 			ConnectionID:   h.ConnectionID,
 			SequenceNumber: uint16(h.SequenceNumber & 0xffff), //nolint:gosec
@@ -70,6 +72,7 @@ func (h *Header) Unmarshal(data []byte) error {
 	h.ContentType = protocol.ContentType(data[0])
 	if protocol.IsDTLS13Ciphertext(h.ContentType) {
 		var uh UnifiedHeader
+		uh.ConnectionID = make([]byte, len(h.ConnectionID))
 		err := uh.Unmarshal(data)
 		if err != nil {
 			return err
@@ -79,6 +82,7 @@ func (h *Header) Unmarshal(data []byte) error {
 		h.SequenceNumber = uint64(uh.SequenceNumber)
 		h.ConnectionID = uh.ConnectionID
 		h.ContentLen = uh.Length
+		h.size = h.Size()
 
 		return nil
 	}
@@ -111,5 +115,10 @@ func (h *Header) Unmarshal(data []byte) error {
 
 // Size returns the total size of the header.
 func (h *Header) Size() int {
+	// UnifiedHeader has variable size
+	if h.size > 0 {
+		return h.size
+	}
+
 	return FixedHeaderSize + len(h.ConnectionID)
 }

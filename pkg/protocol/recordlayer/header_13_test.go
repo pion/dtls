@@ -64,14 +64,13 @@ func TestUnifiedHeader_CID(t *testing.T) {
 
 	expect := []byte{
 		0x30,      // 0b00110000
-		0x04,      // CID length
 		0x01, 0x2, // CID
 		0x03, 0x4, // CID
 		0xaa, // Seq no
 	}
 	assert.Equal(t, expect, raw)
 
-	newUh := UnifiedHeader{}
+	newUh := UnifiedHeader{ConnectionID: make([]byte, len(CID))}
 	err = newUh.Unmarshal(expect)
 
 	assert.NoError(t, err)
