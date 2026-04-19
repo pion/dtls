@@ -93,6 +93,7 @@ type serializedState struct {
 	RemoteConnectionID    []byte
 	IsClient              bool
 	NegotiatedProtocol    string
+	version               uint16
 }
 
 var errCipherSuiteNotSet = &InternalError{Err: errors.New("cipher suite not set")} //nolint:err113
@@ -119,6 +120,7 @@ func (s *State) serialize() (*serializedState, error) {
 	remoteRnd := s.remoteRandom.MarshalFixed()
 
 	epoch := s.getLocalEpoch()
+	version := uint16(s.version.Major)<<8 + uint16(s.version.Minor)
 
 	return &serializedState{
 		LocalEpoch:            s.getLocalEpoch(),
@@ -136,6 +138,7 @@ func (s *State) serialize() (*serializedState, error) {
 		RemoteConnectionID:    s.remoteConnectionID,
 		IsClient:              s.isClient,
 		NegotiatedProtocol:    s.NegotiatedProtocol,
+		version:               version,
 	}, nil
 }
 
@@ -182,6 +185,10 @@ func (s *State) deserialize(serialized serializedState) {
 	s.SessionID = serialized.SessionID
 
 	s.NegotiatedProtocol = serialized.NegotiatedProtocol
+
+	major := uint8((serialized.version & 0xff00) >> 8) //nolint:gosec
+	minor := uint8(serialized.version & 0xff)          //nolint:gosec
+	s.version = protocol.Version{Major: major, Minor: minor}
 }
 
 func (s *State) initCipherSuite() error {

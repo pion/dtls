@@ -1225,7 +1225,7 @@ func (c *Conn) isHandshakeCompletedSuccessfully() bool {
 	return c.handshakeCompletedSuccessfully.Load()
 }
 
-//nolint:cyclop,gocognit,contextcheck
+//nolint:gocyclo,cyclop,gocognit,contextcheck
 func (c *Conn) handshake(
 	ctx context.Context,
 	initialFlight flightVal,
@@ -1242,7 +1242,11 @@ func (c *Conn) handshake(
 			closed:             make(chan struct{}),
 		}
 		c.handshakeConfig.onFlightState13 = func(_ flightVal13, s handshakeState) {
-			if c.fsm.(*handshakeFSM13).currentFlight.isLastSendFlight() { //nolint:forcetypeassert
+			currentFlight := c.fsm.(*handshakeFSM13).currentFlight //nolint:forcetypeassert
+			shouldClose := currentFlight.isLastSendFlight() || currentFlight.isLastRecvFlight()
+			//nolint:godox
+			// TODO: should be moved to FSM.
+			if shouldClose && c.setHandshakeCompletedSuccessfully() {
 				close(done)
 			}
 		}

@@ -3512,7 +3512,7 @@ func TestCloseWithoutHandshake(t *testing.T) {
 }
 
 // WIP! Tests if DTLS 1.3 handshake flow is enabled and the correct error is returned.
-func TestDTLS13Config(t *testing.T) {
+func TestDTLS13Enabled(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 
 	// Setup client
@@ -3524,10 +3524,10 @@ func TestDTLS13Config(t *testing.T) {
 		WithInsecureSkipVerify(true),
 	)
 
+	assert.NoError(t, err)
+
 	clientcfg.minVersion = protocol.Version1_3
 	clientcfg.maxVersion = protocol.Version1_3
-
-	assert.NoError(t, err)
 
 	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientcfg)
 	assert.NoError(t, err)
@@ -3538,24 +3538,48 @@ func TestDTLS13Config(t *testing.T) {
 	_, ok := client.ConnectionState()
 	assert.False(t, ok)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctxClient, cancelClient := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelClient()
 	errorChannel := make(chan error)
 	go func() {
-		errC := client.HandshakeContext(ctx)
+		errC := client.HandshakeContext(ctxClient)
 		errorChannel <- errC
 	}()
 
-	// Setup server, ignore error
-	server, _ := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{}, true)
+	err = <-errorChannel
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, errStateUnimplemented13)
+
+	// Setup server
+	serverCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
+	servercfg, err := buildServerConfig(
+		WithCertificates(serverCert),
+		WithInsecureSkipVerify(true),
+	)
+
+	assert.NoError(t, err)
+
+	servercfg.minVersion = protocol.Version1_3
+	servercfg.maxVersion = protocol.Version1_3
+
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), servercfg)
+	assert.NoError(t, err)
 	defer func() {
 		_ = server.Close()
 	}()
 
+	_, ok = server.ConnectionState()
+	assert.False(t, ok)
+
+	ctxServer, cancelServer := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelServer()
+	go func() {
+		errS := server.HandshakeContext(ctxServer)
+		errorChannel <- errS
+	}()
 	err = <-errorChannel
-	if err.Error() == errFlightUnimplemented13.Error() {
-		return
-	}
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, errStateUnimplemented13)
 }
