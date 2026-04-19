@@ -82,7 +82,7 @@ func (h *Header) Unmarshal(data []byte) error {
 		h.SequenceNumber = uint64(uh.SequenceNumber)
 		h.ConnectionID = uh.ConnectionID
 		h.ContentLen = uh.Length
-		h.size = h.Size()
+		h.size = uh.Size()
 
 		return nil
 	}

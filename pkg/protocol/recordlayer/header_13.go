@@ -31,7 +31,7 @@ import (
 //	| (if present)  |
 //	+-+-+-+-+-+-+-+-+
 type UnifiedHeader struct {
-	ConnectionID   []byte
+	ConnectionID   []byte // size of array should be expected CID length
 	SequenceNumber uint16
 	Length         uint16
 	EpochLow       uint8
@@ -99,6 +99,8 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 		if !str.ReadBytes(&u.ConnectionID, size) {
 			return errInvalidUnifiedHeaderFormat
 		}
+	} else {
+		u.ConnectionID = []byte{}
 	}
 
 	if ct&UnifiedHeaderSeqBit != 0 {
@@ -123,6 +125,8 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 			return errInvalidUnifiedHeaderFormat
 		}
 		u.Length = length
+	} else {
+		u.Length = 0
 	}
 
 	return nil

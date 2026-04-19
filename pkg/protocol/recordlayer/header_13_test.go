@@ -27,10 +27,10 @@ func TestUnifiedHeader(t *testing.T) {
 	err = newUh.Unmarshal(expect)
 
 	assert.NoError(t, err)
-	assert.Equal(t, uh.ConnectionID, newUh.ConnectionID)
+	assert.Empty(t, newUh.ConnectionID)
 	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
 	assert.Equal(t, uh.Length, newUh.Length)
-	assert.Equal(t, uint8(0b11), newUh.EpochLow)
+	assert.Equal(t, uh.EpochLow&0b11, newUh.EpochLow)
 }
 
 func TestUnifiedHeader_Minimal(t *testing.T) {
@@ -49,7 +49,7 @@ func TestUnifiedHeader_Minimal(t *testing.T) {
 	err = newUh.Unmarshal(expect)
 
 	assert.NoError(t, err)
-	assert.Equal(t, uh.ConnectionID, newUh.ConnectionID)
+	assert.Empty(t, newUh.ConnectionID)
 	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
 	assert.Equal(t, uh.Length, newUh.Length)
 	assert.Equal(t, uint8(0b00), newUh.EpochLow)
@@ -97,9 +97,10 @@ func TestHeader(t *testing.T) {
 	err = newHeader.Unmarshal(expect)
 
 	assert.NoError(t, err)
-	assert.Equal(t, uh.ConnectionID, newHeader.ConnectionID)
+	assert.Empty(t, newHeader.ConnectionID)
 	assert.Equal(t, uint64(0xaabb), newHeader.SequenceNumber)
 	assert.Equal(t, uint16(42), newHeader.ContentLen)
-	assert.Equal(t, uint16(0b11), newHeader.Epoch)
+	assert.Equal(t, uint16(uh.EpochLow&0b11), newHeader.Epoch)
 	assert.Equal(t, protocol.Version1_3, newHeader.Version)
+	assert.Equal(t, 5, newHeader.Size())
 }
