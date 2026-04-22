@@ -134,6 +134,8 @@ func flight13_1Generate(
 
 	// connection ID
 
+	// Pre_shared_key must be last extension
+
 	clientHello := &handshake.MessageClientHello{
 		Version:   protocol.Version1_2,
 		SessionID: state.SessionID,

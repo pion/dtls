@@ -232,6 +232,7 @@ func (s *handshakeFSM12) Done() <-chan struct{} {
 	return s.closed
 }
 
+//nolint:dupl
 func (s *handshakeFSM12) prepare(ctx context.Context, conn flightConn) (handshakeState, error) {
 	s.flights = nil
 	// Prepare flights
