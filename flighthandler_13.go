@@ -28,14 +28,19 @@ type flightGenerator13 func(flightConn, *handshakeContext13) ([]*packet, *alert.
 
 //nolint:unused
 func (f flightVal13) getFlightParser13() (flightParser13, error) {
-	return nil, errFlightUnimplemented13
+	switch f {
+	case flight13_0:
+		return flight13_0Parse, nil
+	default:
+		return nil, errFlightUnimplemented13
+	}
 }
 
 //nolint:unused
 func (f flightVal13) getFlightGenerator13() (gen flightGenerator13, retransmit bool, err error) {
 	switch f {
 	case flight13_0:
-		return flight13_0Generate, true, nil
+		return flight0Generate, true, nil
 	case flight13_1:
 		return flight13_1Generate, true, nil
 	default:

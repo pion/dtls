@@ -6,6 +6,7 @@ package dtls
 import (
 	"slices"
 
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
@@ -65,6 +66,18 @@ func findMatchingSRTPProfile(a, b []SRTPProtectionProfile) (SRTPProtectionProfil
 	for _, aProfile := range a {
 		if slices.Contains(b, aProfile) {
 			return aProfile, true
+		}
+	}
+
+	return 0, false
+}
+
+func findMatchingGroup(a, b []elliptic.Curve) (elliptic.Curve, bool) {
+	for _, aGroup := range a {
+		for _, bGroup := range b {
+			if aGroup == bGroup {
+				return aGroup, true
+			}
 		}
 	}
 
