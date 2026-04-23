@@ -327,6 +327,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 
 		return nil
 	}
+	c.state.version = protocol.Version1_2
 
 	// rfc5246#section-7.4.3
 	// In addition, the hash and signature algorithms MUST be compatible
@@ -1177,16 +1178,7 @@ func (c *Conn) recvHandshake() <-chan recvHandshakeState {
 
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
 	if level == alert.Fatal && len(c.state.SessionID) > 0 { //nolint:nestif
-		if c.state.version == protocol.Version1_3 {
-			// With compatibility mode for 1.3, CH uses a non-empty session_id
-			// https://datatracker.ietf.org/doc/html/rfc8446#appendix-D.4
-			if ss := c.fsm.(*handshakeFSM13).cfg.sessionStore; ss != nil { //nolint:forcetypeassert
-				c.log.Tracef("clean invalid session: %s", c.state.SessionID)
-				if err := ss.Del(c.sessionKey()); err != nil {
-					return err
-				}
-			}
-		} else {
+		if c.state.version == protocol.Version1_2 {
 			// According to the RFC, we need to delete the stored session.
 			// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
 			if ss := c.fsm.(*handshakeFSM12).cfg.sessionStore; ss != nil { //nolint:forcetypeassert
