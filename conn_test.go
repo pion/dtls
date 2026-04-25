@@ -3583,3 +3583,125 @@ func TestDTLS13Enabled(t *testing.T) {
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, errStateUnimplemented13)
 }
+
+// WIP! Tests if the dual stack mode client managed to negotiate a version successfully.
+func TestDTLSDualStackClient(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	// Setup client
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	clientcfg, err := buildClientConfig(
+		WithCertificates(clientCert),
+		WithInsecureSkipVerify(true),
+	)
+
+	assert.NoError(t, err)
+
+	clientcfg.minVersion = protocol.Version1_2
+	clientcfg.maxVersion = protocol.Version1_3
+
+	// Setup server
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	servercfg, err := buildServerConfig(
+		WithCertificates(serverCert),
+		WithInsecureSkipVerify(true),
+	)
+
+	assert.NoError(t, err)
+
+	servercfg.minVersion = protocol.Version1_2
+	servercfg.maxVersion = protocol.Version1_2
+
+	testDTLSDualStack(t, *clientcfg, *servercfg)
+}
+
+// WIP! Tests if the dual stack mode server managed to negotiate a version successfully.
+func TestDTLSDualStackServer(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	// Setup client
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	clientcfg, err := buildClientConfig(
+		WithCertificates(clientCert),
+		WithInsecureSkipVerify(true),
+	)
+
+	assert.NoError(t, err)
+
+	clientcfg.minVersion = protocol.Version1_2
+	clientcfg.maxVersion = protocol.Version1_2
+
+	// Setup server
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	servercfg, err := buildServerConfig(
+		WithCertificates(serverCert),
+		WithInsecureSkipVerify(true),
+	)
+
+	assert.NoError(t, err)
+
+	servercfg.minVersion = protocol.Version1_2
+	servercfg.maxVersion = protocol.Version1_3
+
+	testDTLSDualStack(t, *clientcfg, *servercfg)
+}
+
+// WIP! Tests if the dual stack mode managed to negotiate a version successfully.
+func testDTLSDualStack(t *testing.T, clientCfg Config, serverCfg Config) {
+	t.Helper()
+	ca, cb := dpipe.Pipe()
+
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &clientCfg)
+	assert.NoError(t, err)
+	defer func() {
+		_ = client.Close()
+	}()
+
+	_, ok := client.ConnectionState()
+	assert.False(t, ok)
+
+	ctxClient, cancelClient := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelClient()
+	errorChannel := make(chan error, 2)
+
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &serverCfg)
+	assert.NoError(t, err)
+	defer func() {
+		_ = server.Close()
+	}()
+
+	_, ok = server.ConnectionState()
+	assert.False(t, ok)
+
+	ctxServer, cancelServer := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelServer()
+
+	go func() {
+		errC := client.HandshakeContext(ctxClient)
+		errorChannel <- errC
+	}()
+
+	go func() {
+		errS := server.HandshakeContext(ctxServer)
+		errorChannel <- errS
+	}()
+
+	err = <-errorChannel
+	assert.NoError(t, err)
+
+	err = <-errorChannel
+	assert.NoError(t, err)
+
+	assert.NoError(t, server.Close())
+	assert.NoError(t, client.Close())
+}
