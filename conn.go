@@ -1286,6 +1286,9 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*packet, error) {
 	}
 
 	for {
+		if err := c.readAndBufferNoFSM(ctx); err != nil {
+			return nil, err
+		}
 		if ok, err := c.pickVersionFromServerResponse(); err != nil {
 			return nil, err
 		} else if ok {
