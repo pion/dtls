@@ -20,6 +20,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
@@ -192,12 +193,12 @@ func createConn(
 	}
 
 	minVersion := config.minVersion
-	if !minVersion.Equal(protocol.Version1_2) && !minVersion.Equal(protocol.Version1_3) {
+	if !minVersion.Equal(protocol.Version1_3) {
 		minVersion = protocol.Version1_2
 	}
 
 	maxVersion := config.maxVersion
-	if !maxVersion.Equal(protocol.Version1_2) && !maxVersion.Equal(protocol.Version1_3) {
+	if !maxVersion.Equal(protocol.Version1_3) {
 		maxVersion = protocol.Version1_2
 	}
 
@@ -310,25 +311,6 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 	c.handshakeDone = handshakeDone
 	c.closeLock.Unlock()
 
-	if c.isVersion13Enabled() {
-		c.state.version = protocol.Version1_3
-		var initialFlight flightVal
-		if c.state.isClient {
-			initialFlight = flightVal(flight13_1)
-		} else {
-			initialFlight = flightVal(flight13_0)
-		}
-		initialFSMState := handshakePreparing
-
-		if err := c.handshake(ctx, initialFlight, initialFSMState); err != nil {
-			return err
-		}
-		c.log.Trace("Handshake DTLS 1.3 Completed")
-
-		return nil
-	}
-	c.state.version = protocol.Version1_2
-
 	// rfc5246#section-7.4.3
 	// In addition, the hash and signature algorithms MUST be compatible
 	// with the key in the server's end-entity certificate.
@@ -340,34 +322,89 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 		c.handshakeConfig.localCipherSuites = filterCipherSuitesForCertificate(cert, c.handshakeConfig.localCipherSuites)
 	}
 
-	var initialFlight flightVal
-	var initialFSMState handshakeState
-
-	if c.handshakeConfig.resumeState != nil { //nolint:nestif
-		if c.state.isClient {
-			initialFlight = flight5
-		} else {
-			initialFlight = flight6
-		}
-		initialFSMState = handshakeFinished
-
-		c.state = *c.handshakeConfig.resumeState
-	} else {
-		if c.state.isClient {
-			initialFlight = flight1
-		} else {
-			initialFlight = flight0
-		}
-		initialFSMState = handshakePreparing
-	}
-	// Do handshake
-	if err := c.handshake(ctx, initialFlight, initialFSMState); err != nil {
+	initialFlight, initialFSMState, initialFlights, postFSMSetup, err := c.prepareHandshakeStart(ctx)
+	if err != nil {
 		return err
 	}
 
-	c.log.Trace("Handshake Completed")
+	if err := c.handshake(ctx, initialFlight, initialFSMState, initialFlights, postFSMSetup); err != nil {
+		return err
+	}
+
+	if c.state.localVersion == protocol.Version1_3 {
+		c.log.Trace("Handshake DTLS 1.3 Completed")
+	} else {
+		c.log.Trace("Handshake Completed")
+	}
 
 	return nil
+}
+
+// prepareHandshakeStart negotiates the DTLS version and decides how the FSM should start.
+//
+// There are three modes for the version:
+// - DTLS 1.2 only
+// - DTLS 1.3 only
+// - Dual-stack (this mode sends or read handshake messages without starting a FSM)
+//
+// []*packet holds the ClientHello already sent by the dual-stack, the caller
+// must seed the FSM with it.
+// nolint:cyclop
+func (c *Conn) prepareHandshakeStart(
+	ctx context.Context,
+) (flightVal, handshakeState, []*packet, func(context.Context), error) {
+	switch {
+	// DTLS 1.2 only
+	case c.state.isClient && c.handshakeConfig.maxVersion == protocol.Version1_2:
+		c.state.localVersion = protocol.Version1_2
+		if c.handshakeConfig.resumeState != nil {
+			c.state = *c.handshakeConfig.resumeState
+
+			return flight5, handshakeFinished, nil, nil, nil
+		}
+
+		return flight1, handshakePreparing, nil, nil, nil
+	case !c.state.isClient && c.handshakeConfig.maxVersion == protocol.Version1_2:
+		c.state.localVersion = protocol.Version1_2
+		if c.handshakeConfig.resumeState != nil {
+			c.state = *c.handshakeConfig.resumeState
+
+			return flight6, handshakeFinished, nil, nil, nil
+		}
+
+		return flight0, handshakePreparing, nil, nil, nil
+
+	// DTLS 1.3 only
+	case c.state.isClient && c.handshakeConfig.minVersion == protocol.Version1_3:
+		c.state.localVersion = protocol.Version1_3
+
+		return flightVal(flight13_1), handshakePreparing, nil, nil, nil
+	case !c.state.isClient && c.handshakeConfig.minVersion == protocol.Version1_3:
+		c.state.localVersion = protocol.Version1_3
+
+		return flightVal(flight13_0), handshakePreparing, nil, nil, nil
+
+	// Dual-stack
+	// This mode sends or read handshake messages to decide version without starting a FSM
+	case c.state.isClient:
+		initialFlights, err := c.negotiateVersionClient(ctx)
+		if err != nil {
+			return 0, 0, nil, nil, err
+		}
+
+		primer := func(ctx context.Context) {
+			go c.primeHandshakeRecv(ctx)
+		}
+
+		return flightVal(flight13_1), handshakeWaiting, initialFlights, primer, nil
+	default:
+		err := c.negotiateVersionServer(ctx)
+		if err != nil {
+			return 0, 0, nil, nil, err
+		}
+
+		return flightVal(flight13_0), handshakePreparing, nil, nil, nil
+	}
 }
 
 // Dial connects to the given network address and establishes a DTLS connection on top.
@@ -1178,7 +1215,7 @@ func (c *Conn) recvHandshake() <-chan recvHandshakeState {
 
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
 	if level == alert.Fatal && len(c.state.SessionID) > 0 { //nolint:nestif
-		if c.state.version == protocol.Version1_2 {
+		if c.state.localVersion == protocol.Version1_2 {
 			// According to the RFC, we need to delete the stored session.
 			// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
 			if ss := c.fsm.(*handshakeFSM12).cfg.sessionStore; ss != nil { //nolint:forcetypeassert
@@ -1217,16 +1254,247 @@ func (c *Conn) isHandshakeCompletedSuccessfully() bool {
 	return c.handshakeCompletedSuccessfully.Load()
 }
 
+func (c *Conn) negotiateVersionServer(ctx context.Context) error {
+	for {
+		if err := c.readAndBufferNoFSM(ctx); err != nil {
+			return err
+		}
+		if ok, err := c.pickVersionFromClientHello(); err != nil {
+			return err
+		} else if ok {
+			return nil
+		}
+		// ClientHello not yet (fully) received; keep reading.
+	}
+}
+
+//nolint:cyclop
+func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*packet, error) {
+	pkts, dtlsAlert, err := flight13_1Generate(c, &c.state, c.handshakeCache, c.handshakeConfig)
+	if dtlsAlert != nil {
+		if alertErr := c.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil && err == nil {
+			err = alertErr
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	c.stampHandshakeSequence(pkts)
+	if err := c.writePackets(ctx, pkts); err != nil {
+		return nil, err
+	}
+
+	for {
+		if ok, err := c.pickVersionFromServerResponse(); err != nil {
+			return nil, err
+		} else if ok {
+			return pkts, nil
+		}
+		// ServerHello or HelloVerifyRequest not yet (fully) received; keep reading.
+	}
+}
+
+// pickVersionFromClientHello inspects the handshake cache for incoming
+// ClientHello and, if found, sets localVersion and remoteVersions.
+// Returns true once the version can be decided.
+func (c *Conn) pickVersionFromClientHello() (bool, error) {
+	_, msgs, ok := c.handshakeCache.fullPullMap(0, c.state.cipherSuite,
+		handshakeCachePullRule{handshake.TypeClientHello, c.handshakeConfig.initialEpoch, true, false},
+	)
+	if !ok {
+		return false, nil
+	}
+	ch, ok := msgs[handshake.TypeClientHello].(*handshake.MessageClientHello)
+	if !ok {
+		return false, nil
+	}
+
+	var remote []protocol.Version
+	seenSupportedVersions := false
+	for _, e := range ch.Extensions {
+		if sv, ok := e.(*extension.SupportedVersions); ok { //nolint:govet
+			seenSupportedVersions = true
+			remote = sv.Versions
+
+			break
+		}
+	}
+	if !seenSupportedVersions {
+		remote = []protocol.Version{ch.Version}
+	}
+
+	chosen, ok := selectVersion(remote, c.handshakeConfig.minVersion, c.handshakeConfig.maxVersion)
+	if !ok {
+		return false, errNoCommonProtocolVersion
+	}
+
+	c.state.remoteVersions = remote
+	c.state.localVersion = chosen
+
+	return true, nil
+}
+
+// pickVersionFromServerResponse inspects the handshake cache for the server's
+// response to our ClientHello and, if found, sets localVersion and
+// remoteVersions. Returns true once the version can be pinned down.
+//
+// Handling:
+//   - ServerHello with supported_versions: finds match (1.2 or 1.3).
+//   - ServerHello without supported_versions: fall back to ServerHello.Version.
+//   - HelloVerifyRequest (1.2 cookie request): version is 1.2.
+func (c *Conn) pickVersionFromServerResponse() (bool, error) {
+	if sh, ok := c.findCachedServerMessage(handshake.TypeServerHello).(*handshake.MessageServerHello); ok {
+		var remote []protocol.Version
+		seenSupportedVersions := false
+		for _, e := range sh.Extensions {
+			if sv, ok := e.(*extension.SupportedVersions); ok {
+				seenSupportedVersions = true
+				remote = sv.Versions
+
+				break
+			}
+		}
+		if !seenSupportedVersions {
+			remote = []protocol.Version{sh.Version}
+		}
+
+		chosen, ok := selectVersion(remote, c.handshakeConfig.minVersion, c.handshakeConfig.maxVersion)
+		if !ok {
+			return false, errNoCommonProtocolVersion
+		}
+		c.state.remoteVersions = remote
+		c.state.localVersion = chosen
+
+		return true, nil
+	}
+
+	if hvr, ok := c.findCachedServerMessage(handshake.TypeHelloVerifyRequest).(*handshake.MessageHelloVerifyRequest); ok {
+		c.state.localVersion = protocol.Version1_2
+		remote := []protocol.Version{hvr.Version}
+		chosen, ok := selectVersion(remote, c.handshakeConfig.minVersion, c.handshakeConfig.maxVersion)
+		if !ok {
+			return false, errNoCommonProtocolVersion
+		}
+		c.state.remoteVersions = remote
+		c.state.localVersion = chosen
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// findCachedServerMessage pulls the most recent handshake message of the
+// given type sent by the peer from the cache, if any.
+func (c *Conn) findCachedServerMessage(t handshake.Type) handshake.Message {
+	_, msgs, ok := c.handshakeCache.fullPullMap(0, c.state.cipherSuite,
+		handshakeCachePullRule{t, c.handshakeConfig.initialEpoch, false, true},
+	)
+	if !ok {
+		return nil
+	}
+
+	return msgs[t]
+}
+
+// stampHandshakeSequence assigns the DTLS message_sequence to each handshake
+// record in pkts, using and advancing state.handshakeSendSequence. This is
+// the subset of handshakeFSM.prepare()'s bookkeeping that generated dual-stack
+// packets need before being passed to writePackets.
+func (c *Conn) stampHandshakeSequence(pkts []*packet) {
+	epoch := c.handshakeConfig.initialEpoch
+	for _, p := range pkts {
+		p.record.Header.Epoch += epoch
+		if h, ok := p.record.Content.(*handshake.Handshake); ok {
+			h.Header.MessageSequence = uint16(c.state.handshakeSendSequence) //nolint:gosec // G115
+			c.state.handshakeSendSequence++
+		}
+	}
+}
+
+// primeHandshakeRecv sends a single recvHandshakeState to the FSM so that its
+// wait state parses messages already pushed into handshakeCache during the
+// dual-stack version negotiation mode. Without this, the FSM would block until
+// its retransmit timer fires, since readAndBufferNoFSM does not signal.
+// The send blocks until the FSM reaches wait() or the handshake is torn down.
+func (c *Conn) primeHandshakeRecv(ctx context.Context) {
+	s := recvHandshakeState{
+		done:         make(chan struct{}),
+		isRetransmit: false,
+	}
+	select {
+	case c.handshakeRecv <- s:
+		select {
+		case <-s.done:
+		case <-ctx.Done():
+		case <-c.fsm.Done():
+		}
+	case <-ctx.Done():
+	case <-c.fsm.Done():
+	}
+}
+
+// readAndBufferNoFSM is a variant of readAndBuffer used during the dual-stack
+// version negotiation phase. It reads a datagram and pushes any handshake
+// fragments into handshakeCache, but does not signal an FSM (there is none
+// yet) or wait for its Done channel.
+func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
+	bufptr, ok := poolReadBuffer.Get().(*[]byte)
+	if !ok {
+		return errFailedToAccessPoolReadBuffer
+	}
+	defer poolReadBuffer.Put(bufptr)
+
+	b := *bufptr
+	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
+	if err != nil {
+		return netError(err)
+	}
+
+	pkts, err := recordlayer.ContentAwareUnpackDatagram(b[:i], len(c.state.getLocalConnectionID()))
+	if err != nil {
+		return err
+	}
+
+	for _, p := range pkts {
+		// nolint:godox
+		// TODO: check version
+		_, _, alert, err := c.handleIncomingPacket(ctx, p, rAddr, true)
+		if alert != nil {
+			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
+				if err == nil {
+					err = alertErr
+				}
+			}
+		}
+
+		var e *alertError
+		if errors.As(err, &e) && e.IsFatalOrCloseNotify() {
+			return e
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 //nolint:gocyclo,cyclop,gocognit,contextcheck
 func (c *Conn) handshake(
 	ctx context.Context,
 	initialFlight flightVal,
 	initialState handshakeState,
+	initialFlights []*packet,
+	postFSMSetup func(context.Context),
 ) error {
 	done := make(chan struct{})
-	if c.state.version == protocol.Version1_3 {
+	if c.state.localVersion == protocol.Version1_3 {
 		c.fsm = &handshakeFSM13{
 			currentFlight:      flightVal13(initialFlight),
+			flights:            initialFlights,
+			retransmit:         initialFlights != nil,
 			state:              &c.state,
 			cache:              c.handshakeCache,
 			cfg:                c.handshakeConfig,
@@ -1245,6 +1513,8 @@ func (c *Conn) handshake(
 	} else {
 		c.fsm = &handshakeFSM12{
 			currentFlight:      initialFlight,
+			flights:            initialFlights,
+			retransmit:         initialFlights != nil,
 			state:              &c.state,
 			cache:              c.handshakeCache,
 			cfg:                c.handshakeConfig,
@@ -1283,6 +1553,11 @@ func (c *Conn) handshake(
 			}
 		}
 	}()
+
+	if postFSMSetup != nil {
+		postFSMSetup(ctxHs)
+	}
+
 	go func() {
 		defer func() {
 			if c.isHandshakeCompletedSuccessfully() {
@@ -1455,7 +1730,7 @@ func (c *Conn) sessionKey() []byte {
 		// As ServerName can be like 0.example.com, it's better to add
 		// delimiter character which is not allowed to be in
 		// neither address or domain name.
-		if c.state.version == protocol.Version1_3 {
+		if c.state.localVersion == protocol.Version1_3 {
 			return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM13).cfg.serverName) //nolint:forcetypeassert
 		}
 
@@ -1485,8 +1760,4 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	c.writeDeadline.Set(t)
 	// Write deadline is also fully managed by this layer.
 	return nil
-}
-
-func (c *Conn) isVersion13Enabled() bool {
-	return c.handshakeConfig.minVersion == protocol.Version1_3 || c.handshakeConfig.maxVersion == protocol.Version1_3
 }

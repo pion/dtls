@@ -13,6 +13,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/transport/v4/replaydetector"
 )
@@ -74,7 +75,13 @@ type State struct {
 	peerSupportedProtocols []string
 	NegotiatedProtocol     string
 
-	version protocol.Version
+	// localVersion is the DTLS version we intend to speak on this connection.
+	localVersion protocol.Version
+	// remoteVersions are the DTLS versions advertised by the peer
+	remoteVersions []protocol.Version
+	// localKeyEntries are the DTLS 1.3 KeyShareEntry values generated locally
+	// and sent in the ClientHello's key_share extension.
+	localKeyEntries []extension.KeyShareEntry
 }
 
 type serializedState struct {
@@ -93,7 +100,6 @@ type serializedState struct {
 	RemoteConnectionID    []byte
 	IsClient              bool
 	NegotiatedProtocol    string
-	version               uint16
 }
 
 var errCipherSuiteNotSet = &InternalError{Err: errors.New("cipher suite not set")} //nolint:err113
@@ -120,7 +126,6 @@ func (s *State) serialize() (*serializedState, error) {
 	remoteRnd := s.remoteRandom.MarshalFixed()
 
 	epoch := s.getLocalEpoch()
-	version := uint16(s.version.Major)<<8 + uint16(s.version.Minor)
 
 	return &serializedState{
 		LocalEpoch:            s.getLocalEpoch(),
@@ -138,7 +143,6 @@ func (s *State) serialize() (*serializedState, error) {
 		RemoteConnectionID:    s.remoteConnectionID,
 		IsClient:              s.isClient,
 		NegotiatedProtocol:    s.NegotiatedProtocol,
-		version:               version,
 	}, nil
 }
 
@@ -185,10 +189,6 @@ func (s *State) deserialize(serialized serializedState) {
 	s.SessionID = serialized.SessionID
 
 	s.NegotiatedProtocol = serialized.NegotiatedProtocol
-
-	major := uint8((serialized.version & 0xff00) >> 8) //nolint:gosec
-	minor := uint8(serialized.version & 0xff)          //nolint:gosec
-	s.version = protocol.Version{Major: major, Minor: minor}
 }
 
 func (s *State) initCipherSuite() error {

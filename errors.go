@@ -108,6 +108,8 @@ var (
 	//nolint:err113
 	errUnsupportedProtocolVersion = &FatalError{Err: errors.New("unsupported protocol version")}
 	//nolint:err113
+	errNoCommonProtocolVersion = &FatalError{Err: errors.New("no common DTLS version between peer and local")}
+	//nolint:err113
 	errPSKAndIdentityMustBeSetForClient = &FatalError{
 		Err: errors.New("PSK and PSK Identity Hint must both be set for client"),
 	}

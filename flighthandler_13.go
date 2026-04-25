@@ -28,5 +28,10 @@ func (f flightVal13) getFlightParser13() (flightParser13, error) {
 
 //nolint:unused
 func (f flightVal13) getFlightGenerator13() (gen flightGenerator13, retransmit bool, err error) {
-	return nil, false, errFlightUnimplemented13
+	switch f {
+	case flight13_1:
+		return flight13_1Generate, true, nil
+	default:
+		return nil, false, errFlightUnimplemented13
+	}
 }
