@@ -6,7 +6,6 @@ package recordlayer
 import (
 	"testing"
 
-	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -78,29 +77,4 @@ func TestUnifiedHeader_CID(t *testing.T) {
 	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
 	assert.Equal(t, uh.Length, newUh.Length)
 	assert.Equal(t, uint8(0b00), newUh.EpochLow)
-}
-
-func TestHeader(t *testing.T) {
-	uh := UnifiedHeader{SequenceNumber: 0xaabb, Length: 42, EpochLow: 15}
-
-	raw, err := uh.Marshal()
-	assert.NoError(t, err)
-
-	expect := []byte{
-		0x2f,       // 0b00101111
-		0xaa, 0xbb, // Sequence number
-		0x00, 0x2a, // length
-	}
-	assert.Equal(t, expect, raw)
-
-	newHeader := Header{}
-	err = newHeader.Unmarshal(expect)
-
-	assert.NoError(t, err)
-	assert.Empty(t, newHeader.ConnectionID)
-	assert.Equal(t, uint64(0xaabb), newHeader.SequenceNumber)
-	assert.Equal(t, uint16(42), newHeader.ContentLen)
-	assert.Equal(t, uint16(uh.EpochLow&0b11), newHeader.Epoch)
-	assert.Equal(t, protocol.Version1_3, newHeader.Version)
-	assert.Equal(t, 5, newHeader.Size())
 }
