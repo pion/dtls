@@ -204,6 +204,8 @@ func (s *handshakeFSM12) Run(ctx context.Context, conn flightConn, initialState 
 	}()
 	for {
 		s.cfg.log.Tracef("[handshake:%s] %s: %s", srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
+		// nolint:godox
+		// TODO:: refactor callback, see discussion in https://github.com/pion/dtls/pull/738#discussion_r3131501159
 		if s.cfg.onFlightState != nil {
 			s.cfg.onFlightState(s.currentFlight, state)
 		}
