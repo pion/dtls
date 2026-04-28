@@ -4,6 +4,9 @@
 package dtls
 
 import (
+	"bytes"
+	"context"
+
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -33,6 +36,74 @@ import (
 // +-----------+
 // | Flight 5c |
 // +-----------+
+
+// nolint:unused
+func flight13_1Parse(
+	ctx context.Context,
+	conn flightConn,
+	state *State,
+	cache *handshakeCache,
+	cfg *handshakeConfig,
+) (flightVal13, *alert.Alert, error) {
+	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
+		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, true},
+	)
+	if !ok {
+		// No valid message received. Keep reading
+		return 0, nil, nil
+	}
+
+	sh, ok := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello)
+	if !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+
+	randomBytes := sh.Random.MarshalFixed()
+	if !bytes.Equal(randomBytes[:], handshake.HelloRetryRequestRandom()) {
+		// Flight1 and flight2 were skipped.
+		// Parse as flight3.
+		return flight13_3Parse(ctx, conn, state, cache, cfg)
+	}
+	// Handle HelloRetryRequest
+
+	if !sh.Version.Equal(protocol.Version1_0) && !sh.Version.Equal(protocol.Version1_2) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+	}
+
+	// nolint:godox
+	// TODO: negotiate minimial set of extensions necessary for the client
+	// to generate a correct CH pair. As with the ServerHello, a
+	// HelloRetryRequest MUST NOT contain any extensions that were not first
+	// offered by the client in its ClientHello, with the exception of
+	// optionally the "cookie" extension
+	for _, val := range sh.Extensions {
+		switch ext := val.(type) {
+		case *extension.SupportedVersions:
+			// nolint:godox
+			// TODO: negotiate version
+			state.remoteVersions = ext.Versions
+		case *extension.CookieExt:
+			state.cookie = ext.Cookie
+		case *extension.KeyShare:
+			state.remoteKeyEntries = ext.ClientShares
+		}
+	}
+
+	state.handshakeRecvSequence = seq
+
+	return flight13_3, nil, nil
+}
+
+//nolint:unused
+func flight13_3Parse(
+	ctx context.Context,
+	conn flightConn,
+	state *State,
+	cache *handshakeCache,
+	cfg *handshakeConfig,
+) (flightVal13, *alert.Alert, error) {
+	return 0, nil, errFlightUnimplemented13
+}
 
 //nolint:cyclop
 func flight13_1Generate(
