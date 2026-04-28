@@ -1505,11 +1505,10 @@ func (c *Conn) handshake(
 			closed:             make(chan struct{}),
 		}
 		c.handshakeConfig.onFlightState13 = func(_ flightVal13, s handshakeState) {
-			currentFlight := c.fsm.(*handshakeFSM13).currentFlight //nolint:forcetypeassert
-			shouldClose := currentFlight.isLastSendFlight() || currentFlight.isLastRecvFlight()
-			//nolint:godox
+			// The ACK for the last flights has been received and we are in a Finished state.
+			// nolint:godox
 			// TODO: should be moved to FSM.
-			if shouldClose && c.setHandshakeCompletedSuccessfully() {
+			if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
 				close(done)
 			}
 		}
