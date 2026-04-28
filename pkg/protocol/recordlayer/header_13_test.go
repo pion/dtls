@@ -78,3 +78,80 @@ func TestUnifiedHeader_CID(t *testing.T) {
 	assert.Equal(t, uh.Length, newUh.Length)
 	assert.Equal(t, uint8(0b00), newUh.EpochLow)
 }
+
+func FuzzUnifiedHeaderUnmarshal(f *testing.F) {
+	testcases := [][]byte{
+		{
+			0x2f,       // 0b00101111
+			0xaa, 0xbb, // Sequence number
+			0x00, 0x2a, // length
+		},
+		{
+			0x20, // 0b00100000
+			0x42, // Sequence number
+		},
+		{
+			0x30,      // 0b00110000
+			0x01, 0x2, // CID
+			0x03, 0x4, // CID
+			0xaa, // Seq no
+		},
+	}
+
+	for _, tc := range testcases {
+		f.Add(tc)
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		uh := UnifiedHeader{}
+		err := uh.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		content := data[0]
+		assert.Less(t, int(content), 64)
+		assert.Greater(t, int(content), 31)
+		parsedLength := len(uh.ConnectionID)
+		assert.Zero(t, parsedLength)
+		assert.LessOrEqual(t, uh.EpochLow, uint8(0b000000011))
+	})
+}
+
+func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
+	testcases := [][]byte{
+		{
+			0x2f,       // 0b00101111
+			0xaa, 0xbb, // Sequence number
+			0x00, 0x2a, // length
+		},
+		{
+			0x20, // 0b00100000
+			0x42, // Sequence number
+		},
+		{
+			0x30,      // 0b00110000
+			0x01, 0x2, // CID
+			0x03, 0x4, // CID
+			0xaa, // Seq no
+		},
+	}
+
+	for _, tc := range testcases {
+		f.Add(tc)
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		cidLength := 32
+		uh := UnifiedHeader{ConnectionID: make([]byte, cidLength)}
+		err := uh.Unmarshal(data)
+		if err != nil {
+			return
+		}
+		content := data[0]
+		assert.Less(t, int(content), 64)
+		assert.Greater(t, int(content), 31)
+		if (content & UnifiedHeaderCIDBit) != 0 {
+			parsedLength := len(uh.ConnectionID)
+			assert.Equal(t, cidLength, parsedLength)
+		}
+		assert.LessOrEqual(t, uh.EpochLow, uint8(0b000000011))
+	})
+}
