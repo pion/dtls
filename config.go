@@ -186,6 +186,7 @@ type Config struct { //nolint:dupl
 	// InsecureSkipVerifyHello, if true and when acting as server, allow client to
 	// skip hello verify phase and receive ServerHello after initial ClientHello.
 	// This have implication on DoS attack resistance.
+	// For DTLS 1.3 this skips the HelloRetryRequest message
 	InsecureSkipVerifyHello bool
 
 	// ConnectionIDGenerator generates connection identifiers that should be

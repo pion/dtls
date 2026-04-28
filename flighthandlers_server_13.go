@@ -5,6 +5,7 @@ package dtls
 
 import (
 	"context"
+	"crypto/rand"
 	"slices"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -38,7 +39,7 @@ import (
 // | Flight 4c |
 // +-----------+
 
-//nolint:cyclop,gocognit
+//nolint:cyclop,gocognit,gocyclo,unused
 func flight13_0Parse(
 	_ context.Context,
 	_ flightConn,
@@ -89,7 +90,8 @@ func flight13_0Parse(
 		}
 	}
 
-	// Check for DTLS 1.3 cipher suites?
+	// nolint:godox
+	// TODO: check for DTLS 1.3 cipher suites
 	if state.cipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 	}
@@ -178,4 +180,32 @@ func flight13_0Parse(
 	}
 
 	return nextFlight, nil, nil
+}
+
+// nolint:unparam
+func flight13_0Generate(
+	_ flightConn,
+	state *State,
+	_ *handshakeCache,
+	cfg *handshakeConfig,
+) ([]*packet, *alert.Alert, error) {
+	if !cfg.insecureSkipHelloVerify {
+		state.cookie = make([]byte, cookieLength)
+		if _, err := rand.Read(state.cookie); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	var zeroEpoch uint16
+	state.localEpoch.Store(zeroEpoch)
+	state.remoteEpoch.Store(zeroEpoch)
+	if len(cfg.ellipticCurves) < 1 {
+		return nil, nil, errEmptyEllipticCurves
+	}
+
+	if err := state.localRandom.Populate(); err != nil {
+		return nil, nil, err
+	}
+
+	return nil, nil, nil
 }
