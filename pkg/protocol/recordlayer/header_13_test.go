@@ -10,7 +10,7 @@ import (
 )
 
 func TestUnifiedHeader(t *testing.T) {
-	uh := UnifiedHeader{SequenceNumber: 0xaabb, Length: 42, EpochLow: 15}
+	uh := UnifiedHeader{SequenceNumber: 0xaabb, SeqBit: true, Length: 42, LengthBit: true, EpochLow: 15}
 
 	raw, err := uh.Marshal()
 	assert.NoError(t, err)
@@ -28,7 +28,9 @@ func TestUnifiedHeader(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, newUh.ConnectionID)
 	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
+	assert.True(t, newUh.SeqBit)
 	assert.Equal(t, uh.Length, newUh.Length)
+	assert.True(t, newUh.LengthBit)
 	assert.Equal(t, uh.EpochLow&0b11, newUh.EpochLow)
 }
 
@@ -50,7 +52,9 @@ func TestUnifiedHeader_Minimal(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, newUh.ConnectionID)
 	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
+	assert.False(t, newUh.SeqBit)
 	assert.Equal(t, uh.Length, newUh.Length)
+	assert.False(t, newUh.LengthBit)
 	assert.Equal(t, uint8(0b00), newUh.EpochLow)
 }
 
@@ -75,7 +79,9 @@ func TestUnifiedHeader_CID(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, uh.ConnectionID, newUh.ConnectionID)
 	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
+	assert.False(t, newUh.SeqBit)
 	assert.Equal(t, uh.Length, newUh.Length)
+	assert.False(t, newUh.LengthBit)
 	assert.Equal(t, uint8(0b00), newUh.EpochLow)
 }
 

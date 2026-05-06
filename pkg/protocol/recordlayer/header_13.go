@@ -33,7 +33,9 @@ import (
 type UnifiedHeader struct {
 	ConnectionID   []byte // size of array should be expected CID length
 	SequenceNumber uint16
+	SeqBit         bool
 	Length         uint16
+	LengthBit      bool
 	EpochLow       uint8
 }
 
@@ -60,14 +62,14 @@ func (u *UnifiedHeader) Marshal() ([]byte, error) {
 		head.AddBytes(u.ConnectionID)
 	}
 
-	if u.SequenceNumber > math.MaxUint8 {
+	if u.SeqBit {
 		contentType |= UnifiedHeaderSeqBit
 		head.AddUint16(u.SequenceNumber)
 	} else {
 		head.AddUint8(uint8(u.SequenceNumber)) //nolint:gosec
 	}
 
-	if u.Length > 0 {
+	if u.LengthBit {
 		contentType |= UnifiedHeaderLengthBit
 		head.AddUint16(u.Length)
 	}
@@ -109,6 +111,7 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 			return errInvalidUnifiedHeaderFormat
 		}
 		u.SequenceNumber = seq
+		u.SeqBit = true
 	} else {
 		var seq uint8
 		if !str.ReadUint8(&seq) {
@@ -125,6 +128,7 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 			return errInvalidUnifiedHeaderFormat
 		}
 		u.Length = length
+		u.LengthBit = true
 	} else {
 		u.Length = 0
 	}
