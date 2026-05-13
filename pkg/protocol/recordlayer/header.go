@@ -56,12 +56,16 @@ func (h *Header) Unmarshal(data []byte) error {
 		return errBufferTooSmall
 	}
 	h.ContentType = protocol.ContentType(data[0])
+	headerSize := FixedHeaderSize
 	if h.ContentType == protocol.ContentTypeConnectionID {
 		// If a CID was expected the ConnectionID should have been initialized.
 		if len(data) < FixedHeaderSize+len(h.ConnectionID) {
 			return errBufferTooSmall
 		}
 		h.ConnectionID = data[11 : 11+len(h.ConnectionID)]
+		headerSize += len(h.ConnectionID)
+	} else {
+		h.ConnectionID = nil
 	}
 
 	h.Version.Major = data[1]
@@ -72,6 +76,7 @@ func (h *Header) Unmarshal(data []byte) error {
 	seqCopy := make([]byte, 8)
 	copy(seqCopy[2:], data[5:11])
 	h.SequenceNumber = binary.BigEndian.Uint64(seqCopy)
+	h.ContentLen = binary.BigEndian.Uint16(data[headerSize-2:])
 
 	if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
 		return errUnsupportedProtocolVersion

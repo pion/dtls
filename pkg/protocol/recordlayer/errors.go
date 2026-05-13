@@ -28,6 +28,12 @@ var (
 	errInvalidContentType = &protocol.TemporaryError{
 		Err: errors.New("invalid content type"), //nolint:err113
 	}
+	errInvalidCiphertextHeader = &protocol.FatalError{
+		Err: errors.New("invalid dtls 1.3 ciphertext header"), //nolint:err113
+	}
+	errInvalidEpoch = &protocol.InternalError{
+		Err: errors.New("invalid epoch"), //nolint:err113
+	}
 	errCIDTooBig = &protocol.InternalError{
 		Err: errors.New("connection ID size is too big"), //nolint:err113
 	}

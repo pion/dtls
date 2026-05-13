@@ -118,6 +118,7 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 			return errInvalidUnifiedHeaderFormat
 		}
 		u.SequenceNumber = uint16(seq)
+		u.SeqBit = false
 	}
 
 	u.EpochLow = ct & TwoLowBitsMask
@@ -131,6 +132,7 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 		u.LengthBit = true
 	} else {
 		u.Length = 0
+		u.LengthBit = false
 	}
 
 	return nil
@@ -140,12 +142,12 @@ func (u *UnifiedHeader) Size() int {
 	var size int
 	size += 1
 	size += len(u.ConnectionID)
-	if u.SequenceNumber > math.MaxUint8 {
+	if u.SeqBit {
 		size += 2
 	} else {
 		size += 1
 	}
-	if u.Length > 0 {
+	if u.LengthBit {
 		size += 2
 	}
 

@@ -85,6 +85,34 @@ func TestUnifiedHeader_CID(t *testing.T) {
 	assert.Equal(t, uint8(0b00), newUh.EpochLow)
 }
 
+func TestUnifiedHeaderSizeUsesEncodedBits(t *testing.T) {
+	uh := UnifiedHeader{
+		SeqBit:    true,
+		LengthBit: true,
+	}
+	assert.Equal(t, 5, uh.Size())
+
+	uh = UnifiedHeader{
+		SequenceNumber: 0x0100,
+		Length:         1,
+	}
+	assert.Equal(t, 2, uh.Size())
+}
+
+func TestUnifiedHeaderUnmarshalClearsBits(t *testing.T) {
+	uh := UnifiedHeader{
+		SeqBit:    true,
+		Length:    5,
+		LengthBit: true,
+	}
+
+	err := uh.Unmarshal([]byte{0x20, 0x42})
+	assert.NoError(t, err)
+	assert.False(t, uh.SeqBit)
+	assert.False(t, uh.LengthBit)
+	assert.Equal(t, 2, uh.Size())
+}
+
 func FuzzUnifiedHeaderUnmarshal(f *testing.F) {
 	testcases := [][]byte{
 		{

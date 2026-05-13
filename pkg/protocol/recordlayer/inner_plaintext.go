@@ -29,6 +29,10 @@ func (p *InnerPlaintext) Marshal() ([]byte, error) {
 
 // Unmarshal populates a DTLS InnerPlaintext from binary.
 func (p *InnerPlaintext) Unmarshal(data []byte) error {
+	if len(data) == 0 {
+		return errBufferTooSmall
+	}
+
 	// Process in reverse
 	i := len(data) - 1
 	for i >= 0 {
@@ -39,7 +43,7 @@ func (p *InnerPlaintext) Unmarshal(data []byte) error {
 		}
 		i--
 	}
-	if i == 0 {
+	if i < 0 {
 		return errBufferTooSmall
 	}
 	p.RealType = protocol.ContentType(data[i])
