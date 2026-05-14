@@ -12,6 +12,8 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/transport/v4/replaydetector"
 )
@@ -72,6 +74,14 @@ type State struct {
 
 	peerSupportedProtocols []string
 	NegotiatedProtocol     string
+
+	// localVersion is the DTLS version we intend to speak on this connection.
+	localVersion protocol.Version
+	// remoteVersions are the DTLS versions advertised by the peer
+	remoteVersions []protocol.Version
+	// localKeyEntries are the DTLS 1.3 KeyShareEntry values generated locally
+	// and sent in the ClientHello's key_share extension.
+	localKeyEntries []extension.KeyShareEntry
 }
 
 type serializedState struct {

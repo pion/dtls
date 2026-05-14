@@ -3,7 +3,51 @@
 
 package dtls
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/pion/dtls/v3/pkg/protocol"
+)
+
+// supportedVersionsRange returns the supported DTLS versions from maxVersion
+// down to minVersion, in preference order (newest first). Only DTLS 1.2 and
+// 1.3 are emitted.
+func supportedVersionsRange(minVersion, maxVersion protocol.Version) []protocol.Version {
+	ordered := []protocol.Version{protocol.Version1_3, protocol.Version1_2}
+	out := make([]protocol.Version, 0, len(ordered))
+	for _, v := range ordered {
+		if versionAtLeast(v, minVersion) && versionAtMost(v, maxVersion) {
+			out = append(out, v)
+		}
+	}
+
+	return out
+}
+
+// selectVersion picks the highest-preference version from remote that is
+// within the local [minVersion, maxVersion] range. Returns false if there
+// is no intersection.
+func selectVersion(
+	remote []protocol.Version,
+	minVersion, maxVersion protocol.Version,
+) (protocol.Version, bool) {
+	for _, v := range remote {
+		if versionAtLeast(v, minVersion) && versionAtMost(v, maxVersion) {
+			return v, true
+		}
+	}
+
+	return protocol.Version{}, false
+}
+
+func versionAtLeast(v, lo protocol.Version) bool {
+	// DTLS encodes newer versions as numerically smaller Minor bytes
+	return v.Minor <= lo.Minor
+}
+
+func versionAtMost(v, hi protocol.Version) bool {
+	return v.Minor >= hi.Minor
+}
 
 func findMatchingSRTPProfile(a, b []SRTPProtectionProfile) (SRTPProtectionProfile, bool) {
 	for _, aProfile := range a {

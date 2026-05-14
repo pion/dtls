@@ -108,6 +108,8 @@ var (
 	//nolint:err113
 	errUnsupportedProtocolVersion = &FatalError{Err: errors.New("unsupported protocol version")}
 	//nolint:err113
+	errNoCommonProtocolVersion = &FatalError{Err: errors.New("no common DTLS version between peer and local")}
+	//nolint:err113
 	errPSKAndIdentityMustBeSetForClient = &FatalError{
 		Err: errors.New("PSK and PSK Identity Hint must both be set for client"),
 	}
@@ -128,6 +130,10 @@ var (
 
 	//nolint:err113
 	errInvalidFlight = &InternalError{Err: errors.New("invalid flight number")}
+	//nolint:err113,unused
+	errFlightUnimplemented13 = &InternalError{Err: errors.New("unimplemented DTLS 1.3 flight")}
+	//nolint:err113
+	errStateUnimplemented13 = &InternalError{Err: errors.New("unimplemented DTLS 1.3 handshake state")}
 	//nolint:err113
 	errKeySignatureGenerateUnimplemented = &InternalError{
 		Err: errors.New("unable to generate key signature, unimplemented"),

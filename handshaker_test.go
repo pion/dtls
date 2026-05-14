@@ -289,7 +289,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 					initialRetransmitInterval: nonZeroRetransmitInterval,
 				}
 
-				fsm := newHandshakeFSM(&ca.state, ca.handshakeCache, cfg, flight1)
+				fsm := newHandshakeFSM12(&ca.state, ca.handshakeCache, cfg, flight1)
 				err := fsm.Run(ctx, ca, handshakePreparing)
 				switch {
 				case errors.Is(err, context.Canceled):
@@ -322,7 +322,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 					initialRetransmitInterval: nonZeroRetransmitInterval,
 				}
 
-				fsm := newHandshakeFSM(&cb.state, cb.handshakeCache, cfg, flight0)
+				fsm := newHandshakeFSM12(&cb.state, cb.handshakeCache, cfg, flight0)
 				err := fsm.Run(ctx, cb, handshakePreparing)
 				switch {
 				case errors.Is(err, context.Canceled):
