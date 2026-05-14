@@ -23,3 +23,7 @@ type Content interface {
 	Marshal() ([]byte, error)
 	Unmarshal(data []byte) error
 }
+
+func IsDTLS13Ciphertext(ct ContentType) bool {
+	return ct > 31 && ct < 64
+}
