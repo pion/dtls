@@ -118,6 +118,16 @@ var (
 	//nolint:err113
 	errInvalidServerHello = &FatalError{Err: errors.New("invalid ServerHello")}
 	//nolint:err113
+	errUnexpectedSecondHelloRetryRequest = &FatalError{
+		Err: errors.New("server sent a second HelloRetryRequest"),
+	}
+	//nolint:err113
+	errServerKeyShareMissing = &FatalError{Err: errors.New("ServerHello did not contain a key_share entry")}
+	//nolint:err113
+	errServerKeyShareUnknownGroup = &FatalError{
+		Err: errors.New("ServerHello key_share selected a group the client did not offer"),
+	}
+	//nolint:err113
 	errPSKAndIdentityMustBeSetForClient = &FatalError{
 		Err: errors.New("PSK and PSK Identity Hint must both be set for client"),
 	}
