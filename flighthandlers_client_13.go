@@ -210,7 +210,7 @@ func flight13_1Generate(
 	clientHello := &handshake.MessageClientHello{
 		Version:   protocol.Version1_2,
 		SessionID: state.SessionID,
-		Cookie:    state.cookie,
+		Cookie:    nil,
 		Random:    state.localRandom,
 		// Add DTLS 1.3 ciphersuites
 		CipherSuiteIDs:     cipherSuiteIDs(cfg.localCipherSuites),
