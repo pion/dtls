@@ -15,7 +15,7 @@ const (
 // UseSRTP allows a Client/Server to negotiate what SRTPProtectionProfiles
 // they both support
 //
-// https://tools.ietf.org/html/rfc8422
+// https://datatracker.ietf.org/doc/html/rfc5764
 type UseSRTP struct {
 	ProtectionProfiles  []SRTPProtectionProfile
 	MasterKeyIdentifier []byte
