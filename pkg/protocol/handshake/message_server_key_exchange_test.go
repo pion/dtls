@@ -71,3 +71,120 @@ func TestHandshakeMessageServerKeyExchange(t *testing.T) {
 		test(rawServerKeyExchange, parsedServerKeyExchange)
 	})
 }
+
+func TestHandshakeMessageServerKeyExchangeUnmarshalErrors(t *testing.T) {
+	for _, test := range []struct {
+		name                 string
+		keyExchangeAlgorithm types.KeyExchangeAlgorithm
+		data                 []byte
+		expectedErr          error
+	}{
+		{
+			name:                 "BufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x00},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			name:                 "CipherSuiteUnset",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmNone,
+			data:                 []byte{0x00, 0x00},
+			expectedErr:          errCipherSuiteUnset,
+		},
+		{
+			// PSK-only: a non-empty body remains after the identity hint.
+			name:                 "PskLengthMismatch",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmPsk,
+			data:                 []byte{0x00, 0x00, 0xAA},
+			expectedErr:          errLengthMismatch,
+		},
+		{
+			// An algorithm that is neither PSK nor ECDHE is unsupported here.
+			name:                 "UnsupportedKeyExchangeAlgorithm",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithm(1),
+			data:                 []byte{0x00, 0x00},
+			expectedErr:          errLengthMismatch,
+		},
+		{
+			// ECDHE_PSK where the (empty) identity hint consumes the whole body,
+			// leaving nothing for the ECDHE parameters. Previously panicked.
+			name:                 "EcdhePskEmptyHintConsumesBody",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmPsk | types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x00, 0x00},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			name:                 "InvalidEllipticCurveType",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x99, 0x00},
+			expectedErr:          errInvalidEllipticCurveType,
+		},
+		{
+			// Valid curve type but not enough bytes for the named curve.
+			name:                 "NamedCurveBufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0x00},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			name:                 "InvalidNamedCurve",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0xFF, 0xFF},
+			expectedErr:          errInvalidNamedCurve,
+		},
+		{
+			// Valid curve type and named curve but missing the public key length.
+			name:                 "PublicKeyLengthBufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0x00, 0x1d},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			// Public key length exceeds the remaining body.
+			name:                 "PublicKeyBufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0x00, 0x1d, 0x05},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			// Valid signature algorithm (0x03 = ECDSA) but invalid hash algorithm (0x07).
+			name:                 "InvalidHashAlgorithm",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0x00, 0x1d, 0x00, 0x07, 0x03},
+			expectedErr:          errInvalidSignHashAlgorithm,
+		},
+		{
+			// Valid hash algorithm but missing the signature algorithm byte.
+			name:                 "SignatureAlgorithmBufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0x00, 0x1d, 0x00, 0x04},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			// Valid hash algorithm (0x04 = SHA256) but invalid signature algorithm (0x02).
+			name:                 "InvalidSignatureAlgorithm",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0x00, 0x1d, 0x00, 0x04, 0x02},
+			expectedErr:          errInvalidSignHashAlgorithm,
+		},
+		{
+			// Valid hash and signature algorithms but missing the signature length.
+			name:                 "SignatureLengthBufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0x00, 0x1d, 0x00, 0x04, 0x03},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			// Signature length exceeds the remaining body.
+			name:                 "SignatureBufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x03, 0x00, 0x1d, 0x00, 0x04, 0x03, 0x00, 0x05},
+			expectedErr:          errBufferTooSmall,
+		},
+	} {
+		c := &MessageServerKeyExchange{
+			KeyExchangeAlgorithm: test.keyExchangeAlgorithm,
+		}
+		assert.ErrorIs(t, c.Unmarshal(test.data), test.expectedErr, test.name)
+	}
+}

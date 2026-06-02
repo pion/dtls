@@ -96,6 +96,10 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 		return errLengthMismatch
 	}
 
+	if len(data) == 0 {
+		return errBufferTooSmall
+	}
+
 	if _, ok := elliptic.CurveTypes()[elliptic.CurveType(data[0])]; ok {
 		m.EllipticCurveType = elliptic.CurveType(data[0])
 	} else {
