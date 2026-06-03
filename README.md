@@ -24,7 +24,7 @@ A long term goal is a professional security review, and maybe an inclusion in st
 > [!WARNING]
 > This branch is currently frozen from tagging while DTLS 1.3 work is underway.
 >
-> DTLS 1.3 and breaking changes should target the `main` branch. Bug fixes and DTLS 1.2 improvments should target the `dtls-1.2` branch, which can be used for tags until DTLS 1.3 is ready.
+> DTLS 1.3 and breaking changes should target the `main` branch. Bug fixes and DTLS 1.2 improvments should target the `v3` branch, which can be used for tags until DTLS 1.3 is ready.
 
 ### RFCs
 #### Implemented
