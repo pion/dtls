@@ -136,6 +136,48 @@ func TestListenerCloseUnaccepted(t *testing.T) {
 	assert.NoError(t, listener.Close())
 }
 
+func TestListenerPacketConn(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	network, addr := getConfig()
+	pConn, err := net.ListenUDP(network, addr)
+	assert.NoError(t, err)
+
+	listener := (&ListenConfig{}).ListenPacketConn(pConn)
+	assert.Equal(t, pConn.LocalAddr(), listener.Addr())
+
+	raddr, ok := listener.Addr().(*net.UDPAddr)
+	assert.True(t, ok)
+	client, err := net.DialUDP(network, nil, raddr)
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, client.Close())
+	}()
+
+	_, err = client.Write([]byte{0xAA})
+	assert.NoError(t, err)
+
+	conn, _, err := listener.Accept()
+	assert.NoError(t, err)
+
+	buf := make([]byte, 16)
+	n, _, err := conn.ReadFrom(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte{0xAA}, buf[:n])
+	assert.NoError(t, conn.Close())
+
+	// Closing the listener must close the supplied connection.
+	assert.NoError(t, listener.Close())
+	_, _, err = pConn.ReadFromUDP(buf)
+	assert.ErrorIs(t, err, net.ErrClosed)
+}
+
 func TestListenerAcceptFilter(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)

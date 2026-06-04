@@ -20,7 +20,59 @@ func Listen(network string, laddr *net.UDPAddr, config *Config) (net.Listener, e
 		return nil, err
 	}
 
-	lc := udp.ListenConfig{
+	parent, err := udpListenConfig(config).Listen(network, laddr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listener{
+		config: config,
+		parent: parent,
+	}, nil
+}
+
+// ListenWithOptions creates a DTLS listener.
+func ListenWithOptions(network string, laddr *net.UDPAddr, opts ...ServerOption) (net.Listener, error) {
+	config, err := buildServerConfig(opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return Listen(network, laddr, config)
+}
+
+// ListenPacketConn creates a DTLS listener that accepts connections on the
+// supplied packet connection, instead of opening a socket. This allows the
+// caller to create and configure the socket itself, e.g. to set socket
+// options that have to be applied before bind, or to use a socket received
+// from another process. The listener takes ownership of the connection and
+// closes it on Close.
+func ListenPacketConn(pconn net.PacketConn, config *Config) (net.Listener, error) {
+	if err := validateConfig(config); err != nil {
+		return nil, err
+	}
+
+	return &listener{
+		config: config,
+		parent: udpListenConfig(config).ListenPacketConn(pconn),
+	}, nil
+}
+
+// ListenPacketConnWithOptions creates a DTLS listener that accepts
+// connections on the supplied packet connection.
+func ListenPacketConnWithOptions(pconn net.PacketConn, opts ...ServerOption) (net.Listener, error) {
+	config, err := buildServerConfig(opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return ListenPacketConn(pconn, config)
+}
+
+// udpListenConfig returns the UDP listen config used to accept connections
+// for the given DTLS config.
+func udpListenConfig(config *Config) *udp.ListenConfig {
+	lc := &udp.ListenConfig{
 		AcceptFilter: func(packet []byte) bool {
 			pkts, err := recordlayer.UnpackDatagram(packet)
 			if err != nil || len(pkts) < 1 {
@@ -41,25 +93,8 @@ func Listen(network string, laddr *net.UDPAddr, config *Config) (net.Listener, e
 		lc.DatagramRouter = cidDatagramRouter(len(config.ConnectionIDGenerator()))
 		lc.ConnectionIdentifier = cidConnIdentifier()
 	}
-	parent, err := lc.Listen(network, laddr)
-	if err != nil {
-		return nil, err
-	}
 
-	return &listener{
-		config: config,
-		parent: parent,
-	}, nil
-}
-
-// ListenWithOptions creates a DTLS listener.
-func ListenWithOptions(network string, laddr *net.UDPAddr, opts ...ServerOption) (net.Listener, error) {
-	config, err := buildServerConfig(opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return Listen(network, laddr, config)
+	return lc
 }
 
 // NewListener creates a DTLS listener which accepts connections from an inner Listener.
