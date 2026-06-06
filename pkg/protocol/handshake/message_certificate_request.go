@@ -109,9 +109,8 @@ func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cycl
 
 		scheme := binary.BigEndian.Uint16(data[offset+i : offset+i+2])
 		var alg signaturehash.Algorithm
-		err := alg.Unmarshal(tls.SignatureScheme(scheme))
-		if err != nil {
-			return errInvalidSignHashAlgorithm
+		if err := alg.Unmarshal(tls.SignatureScheme(scheme)); err != nil {
+			continue // skip unrecognized algorithms rather than failing the handshake
 		}
 		m.SignatureHashAlgorithms = append(m.SignatureHashAlgorithms, alg)
 	}
