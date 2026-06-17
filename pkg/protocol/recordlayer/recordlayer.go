@@ -50,20 +50,22 @@ type RecordLayer struct {
 
 // Marshal encodes the RecordLayer to binary.
 func (r *RecordLayer) Marshal() ([]byte, error) {
-	contentRaw, err := r.Content.Marshal()
-	if err != nil {
-		return nil, err
-	}
+	out := make([]byte, r.Content.MarshalSize()+r.Header.MarshalSize())
 
-	r.Header.ContentLen = uint16(len(contentRaw)) //nolint:gosec // G115
+	r.Header.ContentLen = uint16(r.Content.MarshalSize()) //nolint:gosec // G115
 	r.Header.ContentType = r.Content.ContentType()
 
-	headerRaw, err := r.Header.Marshal()
+	_, err := r.Header.MarshalTo(out)
 	if err != nil {
 		return nil, err
 	}
 
-	return append(headerRaw, contentRaw...), nil
+	_, err = r.Content.MarshalTo(out[r.Header.MarshalSize():])
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
 }
 
 // Unmarshal populates the RecordLayer from binary.
@@ -85,7 +87,7 @@ func (r *RecordLayer) Unmarshal(data []byte) error {
 		return errInvalidContentType
 	}
 
-	return r.Content.Unmarshal(data[r.Header.Size()+len(r.Header.ConnectionID):])
+	return r.Content.Unmarshal(data[r.Header.MarshalSize()+len(r.Header.ConnectionID):])
 }
 
 // UnpackDatagram extracts all RecordLayer messages from a single datagram.

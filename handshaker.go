@@ -191,7 +191,8 @@ func (s *handshakeFSM) Run(ctx context.Context, conn flightConn, initialState ha
 		close(s.closed)
 	}()
 	for {
-		s.cfg.log.Tracef("[handshake:%s] %s: %s", srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
+		s.cfg.log.Tracef("[handshake:%s] %s: %s",
+			srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
 		if s.cfg.onFlightState != nil {
 			s.cfg.onFlightState(s.currentFlight, state)
 		}
@@ -279,6 +280,15 @@ func (s *handshakeFSM) send(ctx context.Context, c flightConn) (handshakeState, 
 	return handshakeWaiting, nil
 }
 
+var timerPool = sync.Pool{ //nolint:gochecknoglobals
+	New: func() any {
+		t := time.NewTimer(time.Millisecond)
+		t.Stop()
+
+		return t
+	},
+}
+
 func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeState, error) { //nolint:gocognit,cyclop
 	parse, errFlight := s.currentFlight.getFlightParser()
 	if errFlight != nil {
@@ -289,7 +299,15 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 		return handshakeErrored, errFlight
 	}
 
-	retransmitTimer := time.NewTimer(s.retransmitInterval)
+	retransmitTimer, ok := timerPool.Get().(*time.Timer)
+	if !ok {
+		return handshakeErrored, errFailedToAccessPoolTimer
+	}
+	defer func() {
+		retransmitTimer.Stop()
+		timerPool.Put(retransmitTimer)
+	}()
+	retransmitTimer.Reset(s.retransmitInterval)
 	for {
 		select {
 		case state := <-conn.recvHandshake():

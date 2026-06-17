@@ -22,7 +22,9 @@ const (
 type Content interface {
 	ContentType() ContentType
 	Marshal() ([]byte, error)
+	MarshalTo([]byte) (int, error)
 	Unmarshal(data []byte) error
+	MarshalSize() int
 }
 
 func IsDTLS13Ciphertext(ct ContentType) bool {

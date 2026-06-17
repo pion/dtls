@@ -37,7 +37,9 @@ type MessageCertificate13 struct {
 
 	// CertificateList contains the certificate chain with each entry having
 	// optional per-certificate extensions.
-	CertificateList []CertificateEntry13
+	CertificateList         []CertificateEntry13
+	marchalledExtensions    [][]byte
+	marchalledExtensionsErr error
 }
 
 // Type returns the handshake message type.
@@ -71,44 +73,100 @@ func (m *MessageCertificate13) Marshal() ([]byte, error) {
 		return nil, errCertificateRequestContextTooLong
 	}
 
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+
+	return out, err
+}
+
+func (m *MessageCertificate13) MarshalSize() int {
+	return 1 + len(m.CertificateRequestContext) + cert13CertLengthFieldSize + m.certsSize()
+}
+
+func (m *MessageCertificate13) cacheMarshalExtensions() error {
+	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
+		m.marchalledExtensions = make([][]byte, len(m.CertificateList))
+		for i, entry := range m.CertificateList {
+			m.marchalledExtensions[i], m.marchalledExtensionsErr = extension.Marshal(entry.Extensions)
+			if m.marchalledExtensionsErr != nil {
+				return m.marchalledExtensionsErr
+			}
+		}
+	}
+
+	return m.marchalledExtensionsErr
+}
+
+func (m *MessageCertificate13) certsSize() int {
+	err := m.cacheMarshalExtensions()
+	if err != nil {
+		return 0
+	}
+	certificateListSize := 0
+	for i, entry := range m.CertificateList {
+		certificateListSize += cert13CertLengthFieldSize
+		certificateListSize += len(entry.CertificateData)
+		certificateListSize += len(m.marchalledExtensions[i])
+	}
+
+	return certificateListSize
+}
+
+// MarshalTo is same as Marshal but uses a pre-allocated buffer.
+func (m *MessageCertificate13) MarshalTo(out []byte) (int, error) {
+	// Validate certificate_request_context length
+	if len(m.CertificateRequestContext) > cert13ContextMaxLength {
+		return 0, errCertificateRequestContextTooLong
+	}
+
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
+	}
+
+	err := m.cacheMarshalExtensions()
+	if err != nil {
+		return 0, err
+	}
+
+	// Check size of certificate_list is still within bounds
+	if m.certsSize() > maxUint24 {
+		return 0, errCertificateListTooLong
+	}
+
 	// Start with certificate_request_context (1-byte length prefix)
 	//nolint:gosec // G115: certificate_request_context length is validated to be <= 255 above.
-	out := []byte{byte(len(m.CertificateRequestContext))}
-	out = append(out, m.CertificateRequestContext...)
+	offset := 0
+	out[0] = byte(len(m.CertificateRequestContext)) //nolint:gosec // G115
+	offset += 1
+	n := copy(out[offset:], m.CertificateRequestContext) //nolint:gosec // G115
+	offset += n
+
+	// Add certificate_list with 3-byte length prefix
+	util.PutBigEndianUint24(out[offset:], uint32(m.certsSize())) //nolint:gosec // G115
+	offset += 3
 
 	// Build certificate_list
-	certificateList := []byte{}
 	for _, entry := range m.CertificateList {
 		// Add cert_data as a 3-byte length prefix
 		certDataLen := len(entry.CertificateData)
 		if certDataLen == 0 || certDataLen > maxUint24 {
-			return nil, errInvalidCertificateEntry
+			return 0, errInvalidCertificateEntry
 		}
-		certDataLenBytes := make([]byte, cert13CertLengthFieldSize)
-		util.PutBigEndianUint24(certDataLenBytes, uint32(certDataLen)) //nolint:gosec // G115
-		certificateList = append(certificateList, certDataLenBytes...)
-		certificateList = append(certificateList, entry.CertificateData...)
+		util.PutBigEndianUint24(out[offset:], uint32(certDataLen)) //nolint:gosec // G115
+		offset += 3
+		n = copy(out[offset:], entry.CertificateData)
+		offset += n
 
 		// Marshal extensions (includes a 2-byte length prefix)
 		extensionsData, err := extension.Marshal(entry.Extensions)
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
-		certificateList = append(certificateList, extensionsData...)
-
-		// Check size of certificate_list is still within bounds
-		if len(certificateList) > maxUint24 {
-			return nil, errCertificateListTooLong
-		}
+		n = copy(out[offset:], extensionsData)
+		offset += n
 	}
 
-	// Add certificate_list with 3-byte length prefix
-	certificateListLenBytes := make([]byte, cert13CertLengthFieldSize)
-	util.PutBigEndianUint24(certificateListLenBytes, uint32(len(certificateList))) //nolint:gosec // G115
-	out = append(out, certificateListLenBytes...)
-	out = append(out, certificateList...)
-
-	return out, nil
+	return m.MarshalSize(), nil
 }
 
 // parseCertificate13Entry parses a single certificate entry from the cryptobyte string.

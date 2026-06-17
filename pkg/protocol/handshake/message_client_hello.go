@@ -24,9 +24,11 @@ type MessageClientHello struct {
 
 	SessionID []byte
 
-	CipherSuiteIDs     []uint16
-	CompressionMethods []*protocol.CompressionMethod
-	Extensions         []extension.Extension
+	CipherSuiteIDs          []uint16
+	CompressionMethods      []*protocol.CompressionMethod
+	Extensions              []extension.Extension
+	marchalledExtensions    []byte
+	marchalledExtensionsErr error
 }
 
 const handshakeMessageClientHelloVariableWidthStart = 34
@@ -36,46 +38,95 @@ func (m MessageClientHello) Type() Type {
 	return TypeClientHello
 }
 
-// Marshal encodes the Handshake.
-func (m *MessageClientHello) Marshal() ([]byte, error) {
-	if len(m.Cookie) > 255 {
-		return nil, errCookieTooLong
-	}
-	if len(m.SessionID) > 255 {
-		return nil, errSessionIDTooLong
-	}
-	if len(m.CompressionMethods) > 255 {
-		return nil, errCompressionMethodsTooLong
+func (m *MessageClientHello) cacheMarshalExtensions() error {
+	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
+		m.marchalledExtensions, m.marchalledExtensionsErr = extension.Marshal(m.Extensions)
 	}
 
-	extensions, err := extension.Marshal(m.Extensions)
+	return m.marchalledExtensionsErr
+}
+
+// MarshalSize returns the size needed for MarshalTo.
+func (m *MessageClientHello) MarshalSize() int {
+	encodedCipherSuiteIDs := encodeCipherSuiteIDs(m.CipherSuiteIDs)
+	encodedCompressionMethods := protocol.EncodeCompressionMethods(m.CompressionMethods)
+
+	err := m.cacheMarshalExtensions()
 	if err != nil {
-		return nil, err
+		return 0
+	}
+
+	return handshakeMessageClientHelloVariableWidthStart +
+		1 +
+		len(m.SessionID) +
+		1 +
+		len(m.Cookie) +
+		len(encodedCipherSuiteIDs) +
+		len(encodedCompressionMethods) +
+		len(m.marchalledExtensions)
+}
+
+// Marshal encodes the Handshake.
+func (m *MessageClientHello) Marshal() ([]byte, error) {
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
+	if len(m.Cookie) > 255 {
+		return 0, errCookieTooLong
+	}
+	if len(m.SessionID) > 255 {
+		return 0, errSessionIDTooLong
+	}
+	if len(m.CompressionMethods) > 255 {
+		return 0, errCompressionMethodsTooLong
+	}
+
+	err := m.cacheMarshalExtensions()
+	if err != nil {
+		return 0, err
+	}
+
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
 	}
 
 	encodedCipherSuiteIDs := encodeCipherSuiteIDs(m.CipherSuiteIDs)
 	encodedCompressionMethods := protocol.EncodeCompressionMethods(m.CompressionMethods)
 
-	out := make(
-		[]byte,
-		0,
-		handshakeMessageClientHelloVariableWidthStart+1+len(m.SessionID)+1+
-			len(m.Cookie)+len(encodedCipherSuiteIDs)+len(encodedCompressionMethods)+len(extensions),
-	)
-	out = append(out, m.Version.Major, m.Version.Minor)
+	offset := 0
+	out[0] = m.Version.Major
+	out[1] = m.Version.Minor
+	offset += 2
 
 	rand := m.Random.MarshalFixed()
-	out = append(out, rand[:]...)
+	n := copy(out[offset:], rand[:])
+	offset += n
+	out[offset] = byte(len(m.SessionID)) //nolint:gosec // G115: session ID length is validated to be <= 255 above.
+	offset += 1
 
-	out = append(out, byte(len(m.SessionID))) //nolint:gosec // G115: session ID length is validated to be <= 255 above.
-	out = append(out, m.SessionID...)
+	n = copy(out[offset:], m.SessionID)
+	offset += n
 
-	out = append(out, byte(len(m.Cookie))) //nolint:gosec // G115: cookie length is validated to be <= 255 above.
-	out = append(out, m.Cookie...)
-	out = append(out, encodedCipherSuiteIDs...)
-	out = append(out, encodedCompressionMethods...)
+	out[offset] = byte(len(m.Cookie)) //nolint:gosec // G115: cookie length is validated to be <= 255 above.
+	offset += 1
 
-	return append(out, extensions...), nil
+	n = copy(out[offset:], m.Cookie)
+	offset += n
+
+	n = copy(out[offset:], encodedCipherSuiteIDs)
+	offset += n
+
+	n = copy(out[offset:], encodedCompressionMethods)
+	offset += n
+
+	copy(out[offset:], m.marchalledExtensions)
+
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal populates the message from encoded data.
