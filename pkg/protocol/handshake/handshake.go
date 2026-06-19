@@ -27,6 +27,9 @@ const (
 	TypeCertificateVerify  Type = 15
 	TypeClientKeyExchange  Type = 16
 	TypeFinished           Type = 20
+
+	// TypeMessageHash is a synthetic TLS 1.3 transcript-only handshake type.
+	TypeMessageHash Type = 254
 )
 
 // String returns the string representation of this type.
@@ -54,6 +57,8 @@ func (t Type) String() string { //nolint:cyclop
 		return "ClientKeyExchange"
 	case TypeFinished:
 		return "Finished"
+	case TypeMessageHash:
+		return "MessageHash"
 	}
 
 	return ""

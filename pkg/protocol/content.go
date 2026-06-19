@@ -15,6 +15,7 @@ const (
 	ContentTypeHandshake        ContentType = 22
 	ContentTypeApplicationData  ContentType = 23
 	ContentTypeConnectionID     ContentType = 25
+	ContentTypeACK              ContentType = 26
 )
 
 // Content is the top level distinguisher for a DTLS Datagram.
@@ -22,4 +23,8 @@ type Content interface {
 	ContentType() ContentType
 	Marshal() ([]byte, error)
 	Unmarshal(data []byte) error
+}
+
+func IsDTLS13Ciphertext(ct ContentType) bool {
+	return ct > 31 && ct < 64
 }
