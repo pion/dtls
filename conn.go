@@ -60,6 +60,14 @@ type recvHandshakeState struct {
 	isRetransmit bool
 }
 
+type handshakeStart struct {
+	flight       flightVal
+	fsmState     handshakeState
+	flights      []*packet
+	transcript13 *handshakeTranscript13
+	postSetup    func(context.Context)
+}
+
 // Conn represents a DTLS connection.
 type Conn struct {
 	lock           sync.RWMutex      // Internal lock (must not be public)
@@ -322,12 +330,12 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 		c.handshakeConfig.localCipherSuites = filterCipherSuitesForCertificate(cert, c.handshakeConfig.localCipherSuites)
 	}
 
-	initialFlight, initialFSMState, initialFlights, postFSMSetup, err := c.prepareHandshakeStart(ctx)
+	start, err := c.prepareHandshakeStart(ctx)
 	if err != nil {
 		return err
 	}
 
-	if err := c.handshake(ctx, initialFlight, initialFSMState, initialFlights, postFSMSetup); err != nil {
+	if err := c.handshake(ctx, start); err != nil {
 		return err
 	}
 
@@ -347,12 +355,10 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 // - DTLS 1.3 only
 // - Dual-stack (this mode sends or read handshake messages without starting a FSM)
 //
-// []*packet holds the ClientHello already sent by the dual-stack, the caller
-// must seed the FSM with it.
+// In dual-stack client mode, flights holds the already-sent ClientHello and
+// transcript13 carries the same ClientHello into the DTLS 1.3 FSM.
 // nolint:cyclop
-func (c *Conn) prepareHandshakeStart(
-	ctx context.Context,
-) (flightVal, handshakeState, []*packet, func(context.Context), error) {
+func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error) {
 	switch {
 	// DTLS 1.2 only
 	case c.state.isClient && c.handshakeConfig.maxVersion == protocol.Version1_2:
@@ -360,50 +366,56 @@ func (c *Conn) prepareHandshakeStart(
 		if c.handshakeConfig.resumeState != nil {
 			c.state = *c.handshakeConfig.resumeState
 
-			return flight5, handshakeFinished, nil, nil, nil
+			return handshakeStart{flight: flight5, fsmState: handshakeFinished}, nil
 		}
 
-		return flight1, handshakePreparing, nil, nil, nil
+		return handshakeStart{flight: flight1, fsmState: handshakePreparing}, nil
 	case !c.state.isClient && c.handshakeConfig.maxVersion == protocol.Version1_2:
 		c.state.localVersion = protocol.Version1_2
 		if c.handshakeConfig.resumeState != nil {
 			c.state = *c.handshakeConfig.resumeState
 
-			return flight6, handshakeFinished, nil, nil, nil
+			return handshakeStart{flight: flight6, fsmState: handshakeFinished}, nil
 		}
 
-		return flight0, handshakePreparing, nil, nil, nil
+		return handshakeStart{flight: flight0, fsmState: handshakePreparing}, nil
 
 	// DTLS 1.3 only
 	case c.state.isClient && c.handshakeConfig.minVersion == protocol.Version1_3:
 		c.state.localVersion = protocol.Version1_3
 
-		return flightVal(flight13_1), handshakePreparing, nil, nil, nil
+		return handshakeStart{flight: flightVal(flight13_1), fsmState: handshakePreparing}, nil
 	case !c.state.isClient && c.handshakeConfig.minVersion == protocol.Version1_3:
 		c.state.localVersion = protocol.Version1_3
 
-		return flightVal(flight13_0), handshakePreparing, nil, nil, nil
+		return handshakeStart{flight: flightVal(flight13_0), fsmState: handshakePreparing}, nil
 
 	// Dual-stack
 	// This mode sends or read handshake messages to decide version without starting a FSM
 	case c.state.isClient:
-		initialFlights, err := c.negotiateVersionClient(ctx)
+		initialFlights, initialTranscript13, err := c.negotiateVersionClient(ctx)
 		if err != nil {
-			return 0, 0, nil, nil, err
+			return handshakeStart{}, err
 		}
 
 		primer := func(ctx context.Context) {
 			go c.primeHandshakeRecv(ctx)
 		}
 
-		return flightVal(flight13_1), handshakeWaiting, initialFlights, primer, nil
+		return handshakeStart{
+			flight:       flightVal(flight13_1),
+			fsmState:     handshakeWaiting,
+			flights:      initialFlights,
+			transcript13: initialTranscript13,
+			postSetup:    primer,
+		}, nil
 	default:
 		err := c.negotiateVersionServer(ctx)
 		if err != nil {
-			return 0, 0, nil, nil, err
+			return handshakeStart{}, err
 		}
 
-		return flightVal(flight13_0), handshakePreparing, nil, nil, nil
+		return handshakeStart{flight: flightVal(flight13_0), fsmState: handshakePreparing}, nil
 	}
 }
 
@@ -1269,30 +1281,41 @@ func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 }
 
 //nolint:cyclop
-func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*packet, error) {
-	pkts, dtlsAlert, err := flight13_1Generate(c, &c.state, c.handshakeCache, c.handshakeConfig)
+func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*packet, *handshakeTranscript13, error) {
+	transcript := newHandshakeTranscript13()
+	pkts, dtlsAlert, err := flight13_1Generate(c, &handshakeContext13{
+		state:      &c.state,
+		cache:      c.handshakeCache,
+		cfg:        c.handshakeConfig,
+		transcript: transcript,
+	})
 	if dtlsAlert != nil {
 		if alertErr := c.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil && err == nil {
 			err = alertErr
 		}
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	c.stampHandshakeSequence(pkts)
+	if appended, err := appendClientHelloInitialFlights13(transcript, pkts); err != nil {
+		return nil, nil, err
+	} else if !appended {
+		return nil, nil, errHandshakeTranscriptMissingClientHello
+	}
 	if err := c.writePackets(ctx, pkts); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for {
 		if err := c.readAndBufferNoFSM(ctx); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if ok, err := c.pickVersionFromServerResponse(); err != nil {
-			return nil, err
+			return nil, nil, err
 		} else if ok {
-			return pkts, nil
+			return pkts, transcript, nil
 		}
 		// ServerHello or HelloVerifyRequest not yet (fully) received; keep reading.
 	}
@@ -1485,25 +1508,21 @@ func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
 }
 
 //nolint:gocyclo,cyclop,gocognit,contextcheck
-func (c *Conn) handshake(
-	ctx context.Context,
-	initialFlight flightVal,
-	initialState handshakeState,
-	initialFlights []*packet,
-	postFSMSetup func(context.Context),
-) error {
+func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 	done := make(chan struct{})
 	if c.state.localVersion == protocol.Version1_3 {
-		c.fsm = &handshakeFSM13{
-			currentFlight:      flightVal13(initialFlight),
-			flights:            initialFlights,
-			retransmit:         initialFlights != nil,
-			state:              &c.state,
-			cache:              c.handshakeCache,
-			cfg:                c.handshakeConfig,
-			retransmitInterval: c.handshakeConfig.initialRetransmitInterval,
-			closed:             make(chan struct{}),
+		fsm, err := newHandshakeFSM13(
+			&c.state,
+			c.handshakeCache,
+			c.handshakeConfig,
+			flightVal13(start.flight),
+			start.flights,
+			start.transcript13,
+		)
+		if err != nil {
+			return err
 		}
+		c.fsm = fsm
 		c.handshakeConfig.onFlightState13 = func(_ flightVal13, s handshakeState) {
 			// The ACK for the last flights has been received and we are in a Finished state.
 			// nolint:godox
@@ -1514,9 +1533,9 @@ func (c *Conn) handshake(
 		}
 	} else {
 		c.fsm = &handshakeFSM12{
-			currentFlight:      initialFlight,
-			flights:            initialFlights,
-			retransmit:         initialFlights != nil,
+			currentFlight:      start.flight,
+			flights:            start.flights,
+			retransmit:         start.flights != nil,
 			state:              &c.state,
 			cache:              c.handshakeCache,
 			cfg:                c.handshakeConfig,
@@ -1547,7 +1566,7 @@ func (c *Conn) handshake(
 	// The other party may request retransmission of the last flight to cope with packet drop.
 	go func() {
 		defer handshakeLoopsFinished.Done()
-		err := c.fsm.Run(ctxHs, c, initialState)
+		err := c.fsm.Run(ctxHs, c, start.fsmState)
 		if !errors.Is(err, context.Canceled) {
 			select {
 			case firstErr <- err:
@@ -1556,8 +1575,8 @@ func (c *Conn) handshake(
 		}
 	}()
 
-	if postFSMSetup != nil {
-		postFSMSetup(ctxHs)
+	if start.postSetup != nil {
+		start.postSetup(ctxHs)
 	}
 
 	go func() {

@@ -37,10 +37,11 @@ import (
 //nolint:cyclop
 func flight13_1Generate(
 	_ flightConn,
-	state *State,
-	_ *handshakeCache,
-	cfg *handshakeConfig,
+	flightCtx *handshakeContext13,
 ) ([]*packet, *alert.Alert, error) {
+	state := flightCtx.state
+	cfg := flightCtx.cfg
+
 	var zeroEpoch uint16
 	state.localEpoch.Store(zeroEpoch)
 	state.remoteEpoch.Store(zeroEpoch)

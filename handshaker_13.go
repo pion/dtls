@@ -6,6 +6,8 @@ package dtls
 import (
 	"context"
 	"time"
+
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
 // [RFC9147 Section-5.8.1]
@@ -65,7 +67,115 @@ type handshakeFSM13 struct {
 	state              *State
 	cache              *handshakeCache
 	cfg                *handshakeConfig
+	transcript         *handshakeTranscript13
 	closed             chan struct{}
+}
+
+func newHandshakeFSM13(
+	state *State,
+	cache *handshakeCache,
+	cfg *handshakeConfig,
+	initialFlight flightVal13,
+	initialFlights []*packet,
+	initialTranscript *handshakeTranscript13,
+) (*handshakeFSM13, error) {
+	if initialTranscript == nil {
+		initialTranscript = newHandshakeTranscript13()
+	}
+
+	fsm := &handshakeFSM13{
+		currentFlight:      initialFlight,
+		flights:            initialFlights,
+		retransmit:         initialFlights != nil,
+		state:              state,
+		cache:              cache,
+		cfg:                cfg,
+		transcript:         initialTranscript,
+		retransmitInterval: cfg.initialRetransmitInterval,
+		closed:             make(chan struct{}),
+	}
+	if err := fsm.seedTranscriptFromInitialFlights(); err != nil {
+		return nil, err
+	}
+
+	return fsm, nil
+}
+
+func (s *handshakeFSM13) flightContext() *handshakeContext13 {
+	return &handshakeContext13{
+		state:      s.state,
+		cache:      s.cache,
+		cfg:        s.cfg,
+		transcript: s.transcript,
+	}
+}
+
+// seedTranscriptFromInitialFlights handles the dual-stack ClientHello generated
+// before the DTLS 1.3 FSM exists.
+func (s *handshakeFSM13) seedTranscriptFromInitialFlights() error {
+	if !s.state.isClient {
+		return nil
+	}
+
+	appended, err := appendClientHelloInitialFlights13(s.transcript, s.flights)
+	if err != nil {
+		return err
+	}
+	if s.retransmit && !appended {
+		return errHandshakeTranscriptMissingClientHello
+	}
+
+	return nil
+}
+
+func appendClientHelloInitialFlights13(transcript *handshakeTranscript13, flights []*packet) (bool, error) {
+	if transcript == nil {
+		return false, errHandshakeTranscriptMissingClientHello
+	}
+
+	appended := false
+	for _, p := range flights {
+		seq, canonical, ok, err := canonicalClientHelloInitialFlight13(p)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			continue
+		}
+		if err := transcript.appendCanonical(transcriptMessageID13{
+			sender: transcriptClient13,
+			seq:    seq,
+		}, canonical); err != nil {
+			return false, err
+		}
+		appended = true
+	}
+
+	return appended, nil
+}
+
+func canonicalClientHelloInitialFlight13(p *packet) (uint16, []byte, bool, error) {
+	if p == nil || p.record == nil {
+		return 0, nil, false, nil
+	}
+	hand, ok := p.record.Content.(*handshake.Handshake)
+	if !ok {
+		return 0, nil, false, nil
+	}
+	if hand.Message == nil || hand.Message.Type() != handshake.TypeClientHello {
+		return 0, nil, false, nil
+	}
+
+	raw, err := hand.Marshal()
+	if err != nil {
+		return 0, nil, false, err
+	}
+	canonical, err := canonicalHandshake13(raw)
+	if err != nil {
+		return 0, nil, false, err
+	}
+
+	return hand.Header.MessageSequence, canonical, true, nil
 }
 
 //nolint:dupl

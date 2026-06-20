@@ -135,6 +135,10 @@ var (
 	//nolint:err113
 	errStateUnimplemented13 = &InternalError{Err: errors.New("unimplemented DTLS 1.3 handshake state")}
 	//nolint:err113
+	errHandshakeTranscriptMissingClientHello = &InternalError{
+		Err: errors.New("DTLS 1.3 client transcript missing initial ClientHello"),
+	}
+	//nolint:err113
 	errKeySignatureGenerateUnimplemented = &InternalError{
 		Err: errors.New("unable to generate key signature, unimplemented"),
 	}

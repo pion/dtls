@@ -9,17 +9,22 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
 
+type handshakeContext13 struct {
+	state      *State
+	cache      *handshakeCache
+	cfg        *handshakeConfig
+	transcript *handshakeTranscript13
+}
+
 // Parse received handshakes and return next flightVal.
 type flightParser13 func( //nolint:unused
 	context.Context,
 	flightConn,
-	*State,
-	*handshakeCache,
-	*handshakeConfig,
+	*handshakeContext13,
 ) (flightVal13, *alert.Alert, error)
 
 //nolint:unused
-type flightGenerator13 func(flightConn, *State, *handshakeCache, *handshakeConfig) ([]*packet, *alert.Alert, error)
+type flightGenerator13 func(flightConn, *handshakeContext13) ([]*packet, *alert.Alert, error)
 
 //nolint:unused
 func (f flightVal13) getFlightParser13() (flightParser13, error) {
