@@ -52,6 +52,8 @@ func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, flight13_3, nextFlight)
 	require.Len(t, state.remoteKeyEntries, 1)
-	assert.Equal(t, selectedGroup, state.remoteKeyEntries[0].Group)
-	assert.Empty(t, state.remoteKeyEntries[0].KeyExchange)
+
+	entries := *state.remoteKeyEntries
+	assert.Equal(t, selectedGroup, entries[0].Group)
+	assert.Empty(t, entries[0].KeyExchange)
 }

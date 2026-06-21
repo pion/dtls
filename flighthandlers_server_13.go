@@ -17,7 +17,9 @@ import (
 
 // we'll add the flight handlers for the DTLS 1.3 server here.
 //
-// Flight0
+// +----------+
+// | Flight0  |
+// +----------+
 //
 // +----------+
 // | Flight 2 |
@@ -134,7 +136,7 @@ func flight13_0Parse(
 		case *extension.SupportedVersions:
 			state.remoteVersions = ext.Versions
 		case *extension.KeyShare:
-			state.remoteKeyEntries = ext.ClientShares
+			state.remoteKeyEntries = &ext.ClientShares
 		}
 	}
 
@@ -156,28 +158,30 @@ func flight13_0Parse(
 
 	nextFlight := flight13_2
 
-	var groups []elliptic.Curve
-	for _, entry := range state.remoteKeyEntries {
-		// Clients MUST NOT offer any KeyShareEntry values
-		// for groups not listed in the client's "supported_groups" extension.
-		// Servers MAY check for violations of these rules and abort the
-		// handshake with an "illegal_parameter" alert if one is violated.
-		if !slices.Contains(state.remoteGroups, entry.Group) {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidGroupInKeyShare
+	if state.remoteKeyEntries != nil && state.remoteGroups != nil {
+		// Overlapping groups between client and server
+		var groups []elliptic.Curve
+		for _, group := range state.remoteGroups {
+			if slices.Contains(cfg.ellipticCurves, group) {
+				groups = append(groups, group)
+			}
 		}
-		groups = append(groups, entry.Group)
-	}
-	var foundGroup bool
-	state.namedCurve, foundGroup = findMatchingGroup(groups, cfg.ellipticCurves)
-	if !foundGroup {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
-	}
-
-	if state.localKeypair == nil || state.localKeypair.Curve != state.namedCurve {
-		var err error
-		state.localKeypair, err = elliptic.GenerateKeypair(state.namedCurve)
-		if err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+		// Find key entry group in supported groups by client and server
+		foundEntry := false
+		for _, entry := range *state.remoteKeyEntries {
+			if slices.Contains(groups, entry.Group) {
+				state.namedCurve = entry.Group
+				foundEntry = true
+				// Ensure that first matching entry is chosen
+				break
+			}
+		}
+		if foundEntry && (state.localKeypair == nil || state.localKeypair.Curve != state.namedCurve) {
+			var err error
+			state.localKeypair, err = elliptic.GenerateKeypair(state.namedCurve)
+			if err != nil {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+			}
 		}
 	}
 
