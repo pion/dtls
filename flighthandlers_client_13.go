@@ -87,7 +87,11 @@ func flight13_1Parse(
 		case *extension.CookieExt:
 			state.cookie = ext.Cookie
 		case *extension.KeyShare:
-			state.remoteKeyEntries = ext.ClientShares
+			if ext.SelectedGroup != nil {
+				state.remoteKeyEntries = []extension.KeyShareEntry{
+					{Group: *ext.SelectedGroup},
+				}
+			}
 		}
 	}
 
