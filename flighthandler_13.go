@@ -31,6 +31,8 @@ func (f flightVal13) getFlightParser13() (flightParser13, error) {
 	switch f {
 	case flight13_0:
 		return flight13_0Parse, nil
+	case flight13_1:
+		return flight13_1Parse, nil
 	default:
 		return nil, errFlightUnimplemented13
 	}
