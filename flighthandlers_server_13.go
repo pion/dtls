@@ -154,14 +154,6 @@ func flight13_0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerRequiredButNoClientEMS
 	}
 
-	if state.localKeypair == nil {
-		var err error
-		state.localKeypair, err = elliptic.GenerateKeypair(state.namedCurve)
-		if err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
-		}
-	}
-
 	nextFlight := flight13_2
 
 	var groups []elliptic.Curve
@@ -175,7 +167,19 @@ func flight13_0Parse(
 		}
 		groups = append(groups, entry.Group)
 	}
-	state.namedCurve, _ = findMatchingGroup(groups, cfg.ellipticCurves)
+	var foundGroup bool
+	state.namedCurve, foundGroup = findMatchingGroup(groups, cfg.ellipticCurves)
+	if !foundGroup {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
+	}
+
+	if state.localKeypair == nil || state.localKeypair.Curve != state.namedCurve {
+		var err error
+		state.localKeypair, err = elliptic.GenerateKeypair(state.namedCurve)
+		if err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+		}
+	}
 
 	if cfg.insecureSkipHelloVerify {
 		nextFlight = flight13_4
