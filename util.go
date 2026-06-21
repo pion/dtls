@@ -74,10 +74,8 @@ func findMatchingSRTPProfile(a, b []SRTPProtectionProfile) (SRTPProtectionProfil
 
 func findMatchingGroup(a, b []elliptic.Curve) (elliptic.Curve, bool) {
 	for _, aGroup := range a {
-		for _, bGroup := range b {
-			if aGroup == bGroup {
-				return aGroup, true
-			}
+		if slices.Contains(b, aGroup) {
+			return aGroup, true
 		}
 	}
 
