@@ -41,10 +41,12 @@ import (
 func flight13_1Parse(
 	ctx context.Context,
 	conn flightConn,
-	state *State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
+	flightCtx *handshakeContext13,
 ) (flightVal13, *alert.Alert, error) {
+	state := flightCtx.state
+	cache := flightCtx.cache
+	cfg := flightCtx.cfg
+
 	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
 		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, true},
 	)
@@ -62,7 +64,7 @@ func flight13_1Parse(
 	if !bytes.Equal(randomBytes[:], handshake.HelloRetryRequestRandom()) {
 		// Flight1 and flight2 were skipped.
 		// Parse as flight3.
-		return flight13_3Parse(ctx, conn, state, cache, cfg)
+		return flight13_3Parse(ctx, conn, flightCtx)
 	}
 	// Handle HelloRetryRequest
 
@@ -98,9 +100,7 @@ func flight13_1Parse(
 func flight13_3Parse(
 	ctx context.Context,
 	conn flightConn,
-	state *State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
+	flightCtx *handshakeContext13,
 ) (flightVal13, *alert.Alert, error) {
 	return 0, nil, errFlightUnimplemented13
 }

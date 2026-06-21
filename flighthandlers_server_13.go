@@ -43,10 +43,12 @@ import (
 func flight13_0Parse(
 	_ context.Context,
 	_ flightConn,
-	state *State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
+	flightCtx *handshakeContext13,
 ) (flightVal13, *alert.Alert, error) {
+	state := flightCtx.state
+	cache := flightCtx.cache
+	cfg := flightCtx.cfg
+
 	if state.localVersion != protocol.Version1_3 {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidProtocolVersionState
 	}
@@ -185,10 +187,11 @@ func flight13_0Parse(
 // nolint:unparam
 func flight13_0Generate(
 	_ flightConn,
-	state *State,
-	_ *handshakeCache,
-	cfg *handshakeConfig,
+	flightCtx *handshakeContext13,
 ) ([]*packet, *alert.Alert, error) {
+	state := flightCtx.state
+	cfg := flightCtx.cfg
+
 	if !cfg.insecureSkipHelloVerify {
 		state.cookie = make([]byte, cookieLength)
 		if _, err := rand.Read(state.cookie); err != nil {

@@ -229,7 +229,7 @@ func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshak
 		err = errFlight
 		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
 	} else {
-		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
+		pkts, dtlsAlert, err = gen(conn, s.flightContext())
 		s.retransmit = retransmit
 	}
 	if dtlsAlert != nil {
