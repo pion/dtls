@@ -108,7 +108,8 @@ var (
 	//nolint:err113
 	errUnsupportedProtocolVersion = &FatalError{Err: errors.New("unsupported protocol version")}
 	//nolint:err113
-	errNoCommonProtocolVersion     = &FatalError{Err: errors.New("no common DTLS version between peer and local")}
+	errNoCommonProtocolVersion = &FatalError{Err: errors.New("no common DTLS version between peer and local")}
+	//nolint:err113
 	errInvalidProtocolVersionState = &FatalError{Err: errors.New("invalid protocol version in state")}
 	//nolint:err113
 	errPSKAndIdentityMustBeSetForClient = &FatalError{
@@ -225,10 +226,6 @@ var (
 	//nolint:err113
 	errNilOnConnectionAttempt = &FatalError{
 		Err: errors.New("on connection attempt option requires a non-nil callback"),
-	}
-	//nolint:err113
-	errInvalidGroupInKeyShare = &FatalError{
-		Err: errors.New("groups offered in the key share extension must be included in the supported groups extension"),
 	}
 )
 

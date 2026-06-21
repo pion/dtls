@@ -158,6 +158,7 @@ func flight13_0Parse(
 
 	nextFlight := flight13_2
 
+	// nolint:nestif
 	if state.remoteKeyEntries != nil && state.remoteGroups != nil {
 		// Overlapping groups between client and server
 		var groups []elliptic.Curve

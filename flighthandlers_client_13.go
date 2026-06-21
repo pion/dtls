@@ -37,7 +37,7 @@ import (
 // | Flight 5c |
 // +-----------+
 
-// nolint:unused
+// nolint:unused,cyclop
 func flight13_1Parse(
 	ctx context.Context,
 	conn flightConn,
