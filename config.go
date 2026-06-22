@@ -306,8 +306,10 @@ func validateConfig(config *Config) error { //nolint:cyclop
 		}
 	}
 
-	_, err := parseCipherSuites(
+	minVersion, maxVersion := normalizeProtocolVersionRange(config.minVersion, config.maxVersion)
+	_, err := parseCipherSuitesForVersions(
 		config.CipherSuites, config.CustomCipherSuites, config.includeCertificateSuites(), config.PSK != nil,
+		minVersion, maxVersion,
 	)
 
 	return err

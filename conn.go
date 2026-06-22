@@ -145,11 +145,15 @@ func createConn(
 		paddingLengthGenerator = func(uint) uint { return 0 }
 	}
 
-	cipherSuites, err := parseCipherSuites(
+	minVersion, maxVersion := normalizeProtocolVersionRange(config.minVersion, config.maxVersion)
+
+	cipherSuites, err := parseCipherSuitesForVersions(
 		config.CipherSuites,
 		config.CustomCipherSuites,
 		config.includeCertificateSuites(),
 		config.PSK != nil,
+		minVersion,
+		maxVersion,
 	)
 	if err != nil {
 		return nil, err
@@ -198,16 +202,6 @@ func createConn(
 			}
 		}
 		curves = filtered
-	}
-
-	minVersion := config.minVersion
-	if !minVersion.Equal(protocol.Version1_3) {
-		minVersion = protocol.Version1_2
-	}
-
-	maxVersion := config.maxVersion
-	if !maxVersion.Equal(protocol.Version1_3) {
-		maxVersion = protocol.Version1_2
 	}
 
 	handshakeConfig := &handshakeConfig{
@@ -335,6 +329,14 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 		return err
 	}
 
+	c.handshakeConfig.localCipherSuites = filterCipherSuitesForVersion(
+		c.handshakeConfig.localCipherSuites,
+		c.state.localVersion,
+	)
+	if len(c.handshakeConfig.localCipherSuites) == 0 {
+		return errNoAvailableCipherSuites
+	}
+
 	if err := c.handshake(ctx, start); err != nil {
 		return err
 	}
@@ -365,6 +367,7 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 		c.state.localVersion = protocol.Version1_2
 		if c.handshakeConfig.resumeState != nil {
 			c.state = *c.handshakeConfig.resumeState
+			c.state.localVersion = protocol.Version1_2
 
 			return handshakeStart{flight: flight5, fsmState: handshakeFinished}, nil
 		}
@@ -374,6 +377,7 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 		c.state.localVersion = protocol.Version1_2
 		if c.handshakeConfig.resumeState != nil {
 			c.state = *c.handshakeConfig.resumeState
+			c.state.localVersion = protocol.Version1_2
 
 			return handshakeStart{flight: flight6, fsmState: handshakeFinished}, nil
 		}

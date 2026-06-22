@@ -139,7 +139,14 @@ func canonicalPacketHandshake13(t *testing.T, p *packet) []byte {
 func testHandshakeConfig13(t *testing.T) *handshakeConfig {
 	t.Helper()
 
-	cipherSuites, err := parseCipherSuites(nil, nil, true, false)
+	cipherSuites, err := parseCipherSuitesForVersions(
+		nil,
+		nil,
+		true,
+		false,
+		protocol.Version1_3,
+		protocol.Version1_3,
+	)
 	require.NoError(t, err)
 
 	loggerFactory := logging.NewDefaultLoggerFactory()

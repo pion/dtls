@@ -103,6 +103,9 @@ func flight3Parse(
 		if remoteCipherSuite == nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 		}
+		if !cipherSuiteIDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_2) {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+		}
 
 		selectedCipherSuite, found := findMatchingCipherSuite([]CipherSuite{remoteCipherSuite}, cfg.localCipherSuites)
 		if !found {
