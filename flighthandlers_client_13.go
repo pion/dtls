@@ -6,6 +6,7 @@ package dtls
 import (
 	"bytes"
 	"context"
+	"errors"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -37,6 +38,42 @@ import (
 // | Flight 5c |
 // +-----------+
 
+func isHelloRetryRequest(sh *handshake.MessageServerHello) bool {
+	randomBytes := sh.Random.MarshalFixed()
+
+	return bytes.Equal(randomBytes[:], handshake.HelloRetryRequestRandom())
+}
+
+func serverHelloSelectedVersions(extensions []extension.Extension) ([]protocol.Version, bool, error) {
+	seenSupportedVersions := false
+	var versions []protocol.Version
+	for _, val := range extensions {
+		supportedVersions, ok := val.(*extension.SupportedVersions)
+		if !ok {
+			continue
+		}
+		if seenSupportedVersions || !supportedVersions.IsSelectedVersion() || len(supportedVersions.Versions) != 1 {
+			return nil, true, errInvalidServerHello
+		}
+		seenSupportedVersions = true
+		versions = supportedVersions.Versions
+	}
+
+	return versions, seenSupportedVersions, nil
+}
+
+func validateHelloRetryRequestSelectedVersion(extensions []extension.Extension) error {
+	versions, seenSupportedVersions, err := serverHelloSelectedVersions(extensions)
+	if err != nil || !seenSupportedVersions {
+		return errInvalidHelloRetryRequest
+	}
+	if !versions[0].Equal(protocol.Version1_3) {
+		return errUnsupportedProtocolVersion
+	}
+
+	return nil
+}
+
 // nolint:unused,cyclop
 func flight13_1Parse(
 	ctx context.Context,
@@ -60,8 +97,7 @@ func flight13_1Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	randomBytes := sh.Random.MarshalFixed()
-	if !bytes.Equal(randomBytes[:], handshake.HelloRetryRequestRandom()) {
+	if !isHelloRetryRequest(sh) {
 		// Flight1 and flight2 were skipped.
 		// Parse as flight3.
 		return flight13_3Parse(ctx, conn, flightCtx)
@@ -70,6 +106,14 @@ func flight13_1Parse(
 
 	if !sh.Version.Equal(protocol.Version1_0) && !sh.Version.Equal(protocol.Version1_2) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+	}
+	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions); err != nil {
+		description := alert.IllegalParameter
+		if errors.Is(err, errUnsupportedProtocolVersion) {
+			description = alert.ProtocolVersion
+		}
+
+		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
 	}
 
 	// nolint:godox

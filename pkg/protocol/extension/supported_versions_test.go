@@ -37,12 +37,14 @@ func TestSupportedVersions_ClientHello_RoundTrip(t *testing.T) {
 	var rt SupportedVersions
 	assert.NoError(t, rt.Unmarshal(raw))
 	assert.Equal(t, ext.Versions, rt.Versions)
+	assert.False(t, rt.IsSelectedVersion())
 }
 
 func TestSupportedVersions_ServerHello_RoundTrip(t *testing.T) {
 	// Server/HRR form: exactly one entry in Versions.
 	ext := &SupportedVersions{
-		Versions: []protocol.Version{protocol.Version1_3},
+		Versions:        []protocol.Version{protocol.Version1_3},
+		SelectedVersion: true,
 	}
 
 	// length=2, selected_version = 0xfe,0xfc
@@ -59,6 +61,30 @@ func TestSupportedVersions_ServerHello_RoundTrip(t *testing.T) {
 	var rt SupportedVersions
 	assert.NoError(t, rt.Unmarshal(raw))
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, rt.Versions)
+	assert.True(t, rt.IsSelectedVersion())
+}
+
+func TestSupportedVersions_ClientHello_SingleVersionRoundTrip(t *testing.T) {
+	ext := &SupportedVersions{
+		Versions: []protocol.Version{protocol.Version1_3},
+	}
+
+	// length=3, listLen=2, DTLS v1.3
+	rawExpected := []byte{
+		0x00, 0x2b, // extension type
+		0x00, 0x03, // extension_data length
+		0x02,       // versions length (bytes)
+		0xfe, 0xfc, // DTLS v1.3
+	}
+
+	raw, err := ext.Marshal()
+	assert.NoError(t, err)
+	assert.Equal(t, rawExpected, raw)
+
+	var rt SupportedVersions
+	assert.NoError(t, rt.Unmarshal(raw))
+	assert.Equal(t, []protocol.Version{protocol.Version1_3}, rt.Versions)
+	assert.False(t, rt.IsSelectedVersion())
 }
 
 func TestSupportedVersions_ClientHello_Marshal_Invalid(t *testing.T) {
@@ -113,6 +139,19 @@ func TestSupportedVersions_Marshal_LengthBounds(t *testing.T) {
 	}
 
 	ext := &SupportedVersions{Versions: tooMany}
+	_, err := ext.Marshal()
+	assert.ErrorIs(t, err, errInvalidSupportedVersionsFormat)
+}
+
+func TestSupportedVersions_Marshal_SelectedVersionRequiresSingleVersion(t *testing.T) {
+	ext := &SupportedVersions{
+		Versions: []protocol.Version{
+			protocol.Version1_3,
+			protocol.Version1_2,
+		},
+		SelectedVersion: true,
+	}
+
 	_, err := ext.Marshal()
 	assert.ErrorIs(t, err, errInvalidSupportedVersionsFormat)
 }
@@ -197,6 +236,7 @@ func TestExtensionsUnmarshal_SupportedVersions_ClientHello(t *testing.T) {
 		protocol.Version1_3,
 		protocol.Version1_2,
 	}, sv.Versions)
+	assert.False(t, sv.IsSelectedVersion())
 }
 
 func TestExtensionsUnmarshal_SupportedVersions_ServerHello(t *testing.T) {
@@ -213,6 +253,23 @@ func TestExtensionsUnmarshal_SupportedVersions_ServerHello(t *testing.T) {
 	assert.NoError(t, ex)
 	// Server/HRR form yields a single entry in Versions.
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, sv.Versions)
+	assert.True(t, sv.IsSelectedVersion())
+}
+
+func TestExtensionsUnmarshal_SupportedVersions_OneItemVector(t *testing.T) {
+	supportedVersionsExt := []byte{
+		0x00, 0x2b, // extension type
+		0x00, 0x03, // extension_data length = 3
+		0x02,       // list length = 2
+		0xfe, 0xfc, // DTLS v1.3
+	}
+
+	var sv SupportedVersions
+
+	ex := sv.Unmarshal(supportedVersionsExt)
+	assert.NoError(t, ex)
+	assert.Equal(t, []protocol.Version{protocol.Version1_3}, sv.Versions)
+	assert.False(t, sv.IsSelectedVersion())
 }
 
 func FuzzSupportedVersionsUnmarshal(f *testing.F) {

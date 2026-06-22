@@ -1375,44 +1375,78 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 //   - HelloVerifyRequest (1.2 cookie request): version is 1.2.
 func (c *Conn) pickVersionFromServerResponse() (bool, error) {
 	if sh, ok := c.findCachedServerMessage(handshake.TypeServerHello).(*handshake.MessageServerHello); ok {
-		var remote []protocol.Version
-		seenSupportedVersions := false
-		for _, e := range sh.Extensions {
-			if sv, ok := e.(*extension.SupportedVersions); ok {
-				seenSupportedVersions = true
-				remote = sv.Versions
-
-				break
-			}
+		if err := c.pickVersionFromServerHello(sh); err != nil {
+			return false, err
 		}
-		if !seenSupportedVersions {
-			remote = []protocol.Version{sh.Version}
-		}
-
-		chosen, ok := selectVersion(remote, c.handshakeConfig.minVersion, c.handshakeConfig.maxVersion)
-		if !ok {
-			return false, errNoCommonProtocolVersion
-		}
-		c.state.remoteVersions = remote
-		c.state.localVersion = chosen
 
 		return true, nil
 	}
 
 	if hvr, ok := c.findCachedServerMessage(handshake.TypeHelloVerifyRequest).(*handshake.MessageHelloVerifyRequest); ok {
-		c.state.localVersion = protocol.Version1_2
-		remote := []protocol.Version{hvr.Version}
-		chosen, ok := selectVersion(remote, c.handshakeConfig.minVersion, c.handshakeConfig.maxVersion)
-		if !ok {
-			return false, errNoCommonProtocolVersion
+		if err := c.pickVersionFromHelloVerifyRequest(hvr); err != nil {
+			return false, err
 		}
-		c.state.remoteVersions = remote
-		c.state.localVersion = chosen
 
 		return true, nil
 	}
 
 	return false, nil
+}
+
+func (c *Conn) pickVersionFromServerHello(sh *handshake.MessageServerHello) error {
+	remote, err := remoteVersionsFromServerHello(sh)
+	if err != nil {
+		return err
+	}
+
+	return c.selectRemoteVersion(remote)
+}
+
+func (c *Conn) pickVersionFromHelloVerifyRequest(hvr *handshake.MessageHelloVerifyRequest) error {
+	c.state.localVersion = protocol.Version1_2
+
+	return c.selectRemoteVersion([]protocol.Version{hvr.Version})
+}
+
+func remoteVersionsFromServerHello(sh *handshake.MessageServerHello) ([]protocol.Version, error) {
+	remote, seenSupportedVersions, err := serverHelloSelectedVersions(sh.Extensions)
+	if isHelloRetryRequest(sh) {
+		return remoteVersionsFromHelloRetryRequest(remote, seenSupportedVersions, err)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !seenSupportedVersions {
+		return []protocol.Version{sh.Version}, nil
+	}
+
+	return remote, nil
+}
+
+func remoteVersionsFromHelloRetryRequest(
+	remote []protocol.Version,
+	seenSupportedVersions bool,
+	err error,
+) ([]protocol.Version, error) {
+	if err != nil || !seenSupportedVersions {
+		return nil, errInvalidHelloRetryRequest
+	}
+	if !remote[0].Equal(protocol.Version1_3) {
+		return nil, errUnsupportedProtocolVersion
+	}
+
+	return remote, nil
+}
+
+func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
+	chosen, ok := selectVersion(remote, c.handshakeConfig.minVersion, c.handshakeConfig.maxVersion)
+	if !ok {
+		return errNoCommonProtocolVersion
+	}
+	c.state.remoteVersions = remote
+	c.state.localVersion = chosen
+
+	return nil
 }
 
 // findCachedServerMessage pulls the most recent handshake message of the
