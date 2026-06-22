@@ -36,6 +36,27 @@ func TestAllCipherSuites(t *testing.T) {
 	assert.NotEmpty(t, allCipherSuites())
 }
 
+func TestInsecureCipherSuites(t *testing.T) {
+	assert.Empty(t, InsecureCipherSuites(), "Expected no insecure ciphersuites")
+}
+
+func TestCipherSuites(t *testing.T) {
+	ours := allCipherSuites()
+	theirs := CipherSuites()
+	assert.Equal(t, len(ours), len(theirs))
+
+	for i, s := range ours {
+		t.Run(s.String(), func(t *testing.T) {
+			cipher := theirs[i]
+			assert.Equal(t, cipher.ID, uint16(s.ID()))
+			assert.Equal(t, cipher.Name, s.String())
+			assert.Equal(t, 1, len(cipher.SupportedVersions), "Expected SupportedVersion to be 1")
+			assert.Equal(t, uint16(VersionDTLS12), cipher.SupportedVersions[0], "Expected SupportedVersion to match")
+			assert.False(t, cipher.Insecure, "Expected Insecure")
+		})
+	}
+}
+
 // CustomCipher that is just used to assert Custom IDs work.
 type testCustomCipherSuite struct {
 	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
