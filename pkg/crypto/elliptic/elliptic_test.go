@@ -19,6 +19,7 @@ func TestString(t *testing.T) {
 		{X25519, "X25519"},
 		{P256, "P-256"},
 		{P384, "P-384"},
+		{X25519MLKEM768, "X25519MLKEM768"},
 		{0, "0x0"},
 	}
 
@@ -32,6 +33,13 @@ func TestString(t *testing.T) {
 func TestGenerateKeypair_InvalidCurve(t *testing.T) {
 	var invalid Curve = 0 // not a supported curve
 	_, err := GenerateKeypair(invalid)
+	assert.ErrorIs(t, err, errInvalidNamedCurve)
+}
+
+func TestX25519MLKEM768MetadataOnly(t *testing.T) {
+	assert.False(t, Curves()[X25519MLKEM768])
+
+	_, err := GenerateKeypair(X25519MLKEM768)
 	assert.ErrorIs(t, err, errInvalidNamedCurve)
 }
 
