@@ -66,6 +66,8 @@ func flight0Parse(
 		}
 	}
 
+	cipherSuites = filterCipherSuitesForVersion(cipherSuites, protocol.Version1_2)
+
 	if state.cipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 	}

@@ -54,13 +54,10 @@ type Curve uint16
 
 // Curve enums.
 const (
-	P256   Curve = 0x0017
-	P384   Curve = 0x0018
-	X25519 Curve = 0x001d
-	// X25519MLKEM768
-	// https://pkg.go.dev/crypto/internal/fips140/mlkem
-	// https://datatracker.ietf.org/doc/draft-ietf-tls-hybrid-design/
-	// https://datatracker.ietf.org/doc/draft-ietf-tls-ecdhe-mlkem/
+	P256           Curve = 0x0017
+	P384           Curve = 0x0018
+	X25519         Curve = 0x001d
+	X25519MLKEM768 Curve = 0x11ec
 )
 
 func (c Curve) String() string {
@@ -71,6 +68,8 @@ func (c Curve) String() string {
 		return "P-384"
 	case X25519:
 		return "X25519"
+	case X25519MLKEM768:
+		return "X25519MLKEM768"
 	}
 
 	return fmt.Sprintf("%#x", uint16(c))

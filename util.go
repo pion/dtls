@@ -9,6 +9,18 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
+func normalizeProtocolVersionRange(minVersion, maxVersion protocol.Version) (protocol.Version, protocol.Version) {
+	if !minVersion.Equal(protocol.Version1_3) {
+		minVersion = protocol.Version1_2
+	}
+
+	if !maxVersion.Equal(protocol.Version1_3) {
+		maxVersion = protocol.Version1_2
+	}
+
+	return minVersion, maxVersion
+}
+
 // supportedVersionsRange returns the supported DTLS versions from maxVersion
 // down to minVersion, in preference order (newest first). Only DTLS 1.2 and
 // 1.3 are emitted.
