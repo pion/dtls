@@ -134,6 +134,9 @@ func flight13_0Parse(
 			// Store the client's certificate signature schemes for later validation
 			state.remoteCertSignatureSchemes = ext.SignatureHashAlgorithms
 		case *extension.SupportedVersions:
+			if ext.IsSelectedVersion() {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidClientHello
+			}
 			state.remoteVersions = ext.Versions
 		case *extension.KeyShare:
 			state.remoteKeyEntries = &ext.ClientShares

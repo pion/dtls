@@ -9,6 +9,7 @@ import (
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
@@ -68,4 +69,42 @@ func TestFlight13_0ParseGeneratesKeypairForNegotiatedGroup(t *testing.T) {
 	require.NotNil(t, state.localKeypair)
 	assert.Equal(t, elliptic.P384, state.namedCurve)
 	assert.Equal(t, elliptic.P384, state.localKeypair.Curve)
+}
+
+func TestFlight13_0ParseRejectsClientHelloWithSelectedSupportedVersion(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+
+	clientHello := &handshake.MessageClientHello{
+		Version: protocol.Version1_2,
+		Random:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
+		CipherSuiteIDs: []uint16{
+			uint16(cfg.localCipherSuites[0].ID()),
+		},
+		CompressionMethods: defaultCompressionMethods(),
+		Extensions: []extension.Extension{
+			&extension.SupportedVersions{
+				Versions:        []protocol.Version{protocol.Version1_3},
+				SelectedVersion: true,
+			},
+		},
+	}
+	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
+	require.NoError(t, err)
+
+	state := &State{localVersion: protocol.Version1_3}
+	cache := newHandshakeCache()
+	cache.push(rawClientHello, cfg.initialEpoch, 0, handshake.TypeClientHello, true)
+
+	nextFlight, dtlsAlert, err := flight13_0Parse(context.Background(), nil, &handshakeContext13{
+		state: state,
+		cache: cache,
+		cfg:   cfg,
+	})
+
+	require.ErrorIs(t, err, errInvalidClientHello)
+	require.NotNil(t, dtlsAlert)
+	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
+	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
+	assert.Zero(t, nextFlight)
+	assert.Empty(t, state.remoteVersions)
 }
