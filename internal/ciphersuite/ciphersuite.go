@@ -55,6 +55,12 @@ func (i ID) String() string { //nolint:cyclop
 		return "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
 	case TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:
 		return "TLS_PSK_WITH_CHACHA20_POLY1305_SHA256"
+	case TLS_AES_128_GCM_SHA256:
+		return "TLS_AES_128_GCM_SHA256"
+	case TLS_AES_256_GCM_SHA384:
+		return "TLS_AES_256_GCM_SHA384"
+	case TLS_CHACHA20_POLY1305_SHA256:
+		return "TLS_CHACHA20_POLY1305_SHA256"
 	default:
 		return fmt.Sprintf("unknown(%v)", uint16(i))
 	}
@@ -88,6 +94,11 @@ const (
 	TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ID = 0xcca9 // nolint: revive,staticcheck
 	TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   ID = 0xcca8 // nolint: revive,staticcheck
 	TLS_PSK_WITH_CHACHA20_POLY1305_SHA256         ID = 0xccab // nolint: revive,staticcheck
+
+	// TLS 1.3 cipher suites.
+	TLS_AES_128_GCM_SHA256       ID = 0x1301 // nolint: revive,staticcheck
+	TLS_AES_256_GCM_SHA384       ID = 0x1302 // nolint: revive,staticcheck
+	TLS_CHACHA20_POLY1305_SHA256 ID = 0x1303 // nolint: revive,staticcheck
 )
 
 // AuthenticationType controls what authentication method is using during the handshake.
