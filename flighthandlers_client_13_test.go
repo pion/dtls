@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -104,6 +105,62 @@ func TestFlight13_1GenerateClientHelloUsesSupportedVersionsVector(t *testing.T) 
 	require.NotNil(t, supportedVersions)
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, supportedVersions.Versions)
 	assert.False(t, supportedVersions.IsSelectedVersion())
+}
+
+func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := &State{}
+
+	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
+		state: state,
+		cfg:   cfg,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, pkts, 1)
+
+	hand, ok := pkts[0].record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	raw, err := hand.Marshal()
+	require.NoError(t, err)
+
+	var parsed handshake.Handshake
+	require.NoError(t, parsed.Unmarshal(raw))
+	clientHello, ok := parsed.Message.(*handshake.MessageClientHello)
+	require.True(t, ok)
+
+	var keyShare *extension.KeyShare
+	for _, ext := range clientHello.Extensions {
+		if ks, ok := ext.(*extension.KeyShare); ok {
+			keyShare = ks
+
+			break
+		}
+	}
+	require.NotNil(t, keyShare)
+	require.Len(t, keyShare.ClientShares, len(cfg.ellipticCurves))
+	require.Len(t, state.localKeyEntries, len(keyShare.ClientShares))
+	require.Len(t, state.localKeypairs, len(keyShare.ClientShares))
+
+	for _, entry := range keyShare.ClientShares {
+		t.Run(entry.Group.String(), func(t *testing.T) {
+			localKeypair, ok := state.localKeypairs[entry.Group]
+			require.True(t, ok)
+			require.Equal(t, entry.KeyExchange, localKeypair.PublicKey)
+
+			peerKeypair, err := elliptic.GenerateKeypair(entry.Group)
+			require.NoError(t, err)
+
+			localSecret, err := prf.PreMasterSecret(peerKeypair.PublicKey, localKeypair.PrivateKey, entry.Group)
+			require.NoError(t, err)
+
+			peerSecret, err := prf.PreMasterSecret(localKeypair.PublicKey, peerKeypair.PrivateKey, entry.Group)
+			require.NoError(t, err)
+
+			assert.Equal(t, peerSecret, localSecret)
+		})
+	}
 }
 
 func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {

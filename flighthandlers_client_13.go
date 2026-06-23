@@ -215,7 +215,8 @@ func flight13_1Generate(
 		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.supportedProtocols})
 	}
 
-	var entries []extension.KeyShareEntry
+	entries := make([]extension.KeyShareEntry, 0, len(cfg.ellipticCurves))
+	keypairs := make(map[elliptic.Curve]*elliptic.Keypair, len(cfg.ellipticCurves))
 	for _, group := range cfg.ellipticCurves {
 		keypair, err := elliptic.GenerateKeypair(group)
 		if err != nil {
@@ -224,8 +225,10 @@ func flight13_1Generate(
 		entries = append(entries, extension.KeyShareEntry{
 			Group: keypair.Curve, KeyExchange: keypair.PublicKey,
 		})
+		keypairs[keypair.Curve] = keypair
 	}
 	state.localKeyEntries = entries
+	state.localKeypairs = keypairs
 	extensions = append(extensions, &extension.KeyShare{
 		ClientShares: entries,
 	})
