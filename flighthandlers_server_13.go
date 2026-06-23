@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 // we'll add the flight handlers for the DTLS 1.3 server here.
@@ -223,4 +225,90 @@ func flight13_0Generate(
 	}
 
 	return nil, nil, nil
+}
+
+func flight13_2Parse(
+	_ context.Context,
+	_ flightConn,
+	flightCtx *handshakeContext13,
+) (flightVal13, *alert.Alert, error) {
+	seq, msgs, ok := flightCtx.cache.fullPullMap(flightCtx.state.handshakeRecvSequence, flightCtx.state.cipherSuite,
+		handshakeCachePullRule{handshake.TypeClientHello, flightCtx.cfg.initialEpoch, true, false},
+	)
+	if !ok {
+		return 0, nil, nil
+	}
+	flightCtx.state.handshakeRecvSequence = seq
+
+	clientHello, ok := msgs[handshake.TypeClientHello].(*handshake.MessageClientHello)
+	if !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+
+	if !clientHello.Version.Equal(protocol.Version1_2) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+	}
+
+	var cookie []byte
+	for _, ext := range clientHello.Extensions {
+		if cookieExt, ok := ext.(*extension.CookieExt); ok {
+			cookie = cookieExt.Cookie
+
+			break
+		}
+	}
+
+	if len(cookie) == 0 {
+		return 0, nil, nil
+	}
+	if !bytes.Equal(flightCtx.state.cookie, cookie) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, errCookieMismatch
+	}
+
+	return flight13_4, nil, nil
+}
+
+func flight13_2Generate(
+	_ flightConn,
+	flightCtx *handshakeContext13,
+) ([]*packet, *alert.Alert, error) {
+	flightCtx.state.handshakeSendSequence = 0
+
+	random := handshake.Random{}
+	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
+
+	exts := []extension.Extension{}
+
+	exts = append(exts, &extension.SupportedVersions{
+		Versions: supportedVersionsRange(flightCtx.cfg.minVersion, flightCtx.cfg.maxVersion),
+	})
+
+	if flightCtx.state.namedCurve != 0 {
+		exts = append(exts, &extension.KeyShare{
+			SelectedGroup: &flightCtx.state.namedCurve,
+		})
+	}
+
+	if len(flightCtx.state.cookie) > 0 {
+		exts = append(exts, &extension.CookieExt{
+			Cookie: flightCtx.state.cookie,
+		})
+	}
+
+	return []*packet{
+		{
+			record: &recordlayer.RecordLayer{
+				Header: recordlayer.Header{
+					Version: protocol.Version1_2,
+				},
+				Content: &handshake.Handshake{
+					Message: &handshake.MessageServerHello{
+						Version:    protocol.Version1_2,
+						Random:     random,
+						Extensions: exts,
+					},
+				},
+			},
+		},
+	}, nil, nil
 }
