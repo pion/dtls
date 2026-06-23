@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -214,8 +215,53 @@ func (s *handshakeFSM13) Done() <-chan struct{} {
 	return s.closed
 }
 
+//nolint:dupl
 func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshakeState, error) {
-	return handshakeErrored, errStateUnimplemented13
+	s.flights = nil
+	// Prepare flights
+	var (
+		dtlsAlert *alert.Alert
+		err       error
+		pkts      []*packet
+	)
+	gen, retransmit, errFlight := s.currentFlight.getFlightGenerator13()
+	if errFlight != nil {
+		err = errFlight
+		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
+	} else {
+		pkts, dtlsAlert, err = gen(conn, s.flightContext())
+		s.retransmit = retransmit
+	}
+	if dtlsAlert != nil {
+		if alertErr := conn.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
+			if err != nil {
+				err = alertErr
+			}
+		}
+	}
+	if err != nil {
+		return handshakeErrored, err
+	}
+
+	s.flights = pkts
+	epoch := s.cfg.initialEpoch
+	nextEpoch := epoch
+	for _, p := range s.flights {
+		p.record.Header.Epoch += epoch
+		if p.record.Header.Epoch > nextEpoch {
+			nextEpoch = p.record.Header.Epoch
+		}
+		if h, ok := p.record.Content.(*handshake.Handshake); ok {
+			h.Header.MessageSequence = uint16(s.state.handshakeSendSequence) //nolint:gosec // G115
+			s.state.handshakeSendSequence++
+		}
+	}
+	if epoch != nextEpoch {
+		s.cfg.log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.isClient), nextEpoch)
+		conn.setLocalEpoch(nextEpoch)
+	}
+
+	return handshakeSending, nil
 }
 
 func (s *handshakeFSM13) send(ctx context.Context, c flightConn) (handshakeState, error) {

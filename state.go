@@ -82,6 +82,11 @@ type State struct {
 	// localKeyEntries are the DTLS 1.3 KeyShareEntry values generated locally
 	// and sent in the ClientHello's key_share extension.
 	localKeyEntries []extension.KeyShareEntry
+	// localKeypairs are the DTLS 1.3 keypairs backing localKeyEntries, indexed
+	// by group so the selected ServerHello key_share can recover its private key.
+	localKeypairs    map[elliptic.Curve]*elliptic.Keypair
+	remoteKeyEntries *[]extension.KeyShareEntry
+	remoteGroups     []elliptic.Curve
 }
 
 type serializedState struct {

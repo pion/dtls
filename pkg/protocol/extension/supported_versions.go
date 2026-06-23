@@ -14,15 +14,26 @@ import (
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1
 type SupportedVersions struct {
-	// ClientHello's preference-ordered list.
+	// ClientHello's preference-ordered list, or the ServerHello/HelloRetryRequest selected_version.
 	Versions []protocol.Version
+
+	// SelectedVersion marks Versions as the ServerHello/HelloRetryRequest selected_version form.
+	// Unmarshal sets it based on the wire form.
+	SelectedVersion bool
 }
 
 func (s SupportedVersions) TypeValue() TypeValue { return SupportedVersionsTypeValue }
 
-// Marshal encodes the extension without carrying negotiation state.
+// IsSelectedVersion reports whether Unmarshal decoded the ServerHello/HelloRetryRequest
+// selected_version form instead of the ClientHello versions vector.
+func (s SupportedVersions) IsSelectedVersion() bool { return s.SelectedVersion }
+
+// Marshal encodes the extension as a ClientHello versions vector unless SelectedVersion is set.
 func (s *SupportedVersions) Marshal() ([]byte, error) {
 	if len(s.Versions) == 0 {
+		return nil, errInvalidSupportedVersionsFormat
+	}
+	if s.SelectedVersion && len(s.Versions) != 1 {
 		return nil, errInvalidSupportedVersionsFormat
 	}
 
@@ -46,8 +57,7 @@ func (s *SupportedVersions) Marshal() ([]byte, error) {
 
 	builder.AddUint16(uint16(s.TypeValue()))
 	builder.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
-		if len(s.Versions) == 1 {
-			// in the case that there's only one version, the do not add the length (uint8).
+		if s.SelectedVersion {
 			b.AddUint8(s.Versions[0].Major)
 			b.AddUint8(s.Versions[0].Minor)
 
@@ -90,6 +100,7 @@ func (s *SupportedVersions) Unmarshal(data []byte) error { //nolint:cyclop
 	var listLen uint8
 	if peek.ReadUint8(&listLen) && int(listLen) == len(peek) && listLen >= 2 && (listLen%2) == 0 {
 		s.Versions = s.Versions[:0]
+		s.SelectedVersion = false
 
 		for !peek.Empty() {
 			var major, minor uint8
@@ -125,8 +136,10 @@ func (s *SupportedVersions) Unmarshal(data []byte) error { //nolint:cyclop
 	}
 
 	// We're only checking for *valid* versions, not to be confused with supported versions.
+	s.Versions = s.Versions[:0]
+	s.SelectedVersion = true
 	if protocol.IsValidBytes(major, minor) {
-		s.Versions = append(s.Versions[:0], protocol.Version{Major: major, Minor: minor})
+		s.Versions = append(s.Versions, protocol.Version{Major: major, Minor: minor})
 	}
 
 	return nil

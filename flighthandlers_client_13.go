@@ -4,6 +4,10 @@
 package dtls
 
 import (
+	"bytes"
+	"context"
+	"errors"
+
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -33,6 +37,121 @@ import (
 // +-----------+
 // | Flight 5c |
 // +-----------+
+
+func isHelloRetryRequest(sh *handshake.MessageServerHello) bool {
+	randomBytes := sh.Random.MarshalFixed()
+
+	return bytes.Equal(randomBytes[:], handshake.HelloRetryRequestRandom())
+}
+
+func serverHelloSelectedVersions(extensions []extension.Extension) ([]protocol.Version, bool, error) {
+	seenSupportedVersions := false
+	var versions []protocol.Version
+	for _, val := range extensions {
+		supportedVersions, ok := val.(*extension.SupportedVersions)
+		if !ok {
+			continue
+		}
+		if seenSupportedVersions || !supportedVersions.IsSelectedVersion() || len(supportedVersions.Versions) != 1 {
+			return nil, true, errInvalidServerHello
+		}
+		seenSupportedVersions = true
+		versions = supportedVersions.Versions
+	}
+
+	return versions, seenSupportedVersions, nil
+}
+
+func validateHelloRetryRequestSelectedVersion(extensions []extension.Extension) error {
+	versions, seenSupportedVersions, err := serverHelloSelectedVersions(extensions)
+	if err != nil || !seenSupportedVersions {
+		return errInvalidHelloRetryRequest
+	}
+	if !versions[0].Equal(protocol.Version1_3) {
+		return errUnsupportedProtocolVersion
+	}
+
+	return nil
+}
+
+// nolint:unused,cyclop
+func flight13_1Parse(
+	ctx context.Context,
+	conn flightConn,
+	flightCtx *handshakeContext13,
+) (flightVal13, *alert.Alert, error) {
+	state := flightCtx.state
+	cache := flightCtx.cache
+	cfg := flightCtx.cfg
+
+	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
+		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, true},
+	)
+	if !ok {
+		// No valid message received. Keep reading
+		return 0, nil, nil
+	}
+
+	sh, ok := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello)
+	if !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+
+	if !isHelloRetryRequest(sh) {
+		// Flight1 and flight2 were skipped.
+		// Parse as flight3.
+		return flight13_3Parse(ctx, conn, flightCtx)
+	}
+	// Handle HelloRetryRequest
+
+	if !sh.Version.Equal(protocol.Version1_0) && !sh.Version.Equal(protocol.Version1_2) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+	}
+	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions); err != nil {
+		description := alert.IllegalParameter
+		if errors.Is(err, errUnsupportedProtocolVersion) {
+			description = alert.ProtocolVersion
+		}
+
+		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
+	}
+
+	// nolint:godox
+	// TODO: negotiate minimial set of extensions necessary for the client
+	// to generate a correct CH pair. As with the ServerHello, a
+	// HelloRetryRequest MUST NOT contain any extensions that were not first
+	// offered by the client in its ClientHello, with the exception of
+	// optionally the "cookie" extension
+	for _, val := range sh.Extensions {
+		switch ext := val.(type) {
+		case *extension.SupportedVersions:
+			// nolint:godox
+			// TODO: negotiate version
+			state.remoteVersions = ext.Versions
+		case *extension.CookieExt:
+			state.cookie = ext.Cookie
+		case *extension.KeyShare:
+			if ext.SelectedGroup != nil {
+				state.remoteKeyEntries = &[]extension.KeyShareEntry{
+					{Group: *ext.SelectedGroup},
+				}
+			}
+		}
+	}
+
+	state.handshakeRecvSequence = seq
+
+	return flight13_3, nil, nil
+}
+
+//nolint:unused
+func flight13_3Parse(
+	ctx context.Context,
+	conn flightConn,
+	flightCtx *handshakeContext13,
+) (flightVal13, *alert.Alert, error) {
+	return 0, nil, errFlightUnimplemented13
+}
 
 //nolint:cyclop
 func flight13_1Generate(
@@ -96,7 +215,8 @@ func flight13_1Generate(
 		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.supportedProtocols})
 	}
 
-	var entries []extension.KeyShareEntry
+	entries := make([]extension.KeyShareEntry, 0, len(cfg.ellipticCurves))
+	keypairs := make(map[elliptic.Curve]*elliptic.Keypair, len(cfg.ellipticCurves))
 	for _, group := range cfg.ellipticCurves {
 		keypair, err := elliptic.GenerateKeypair(group)
 		if err != nil {
@@ -105,8 +225,10 @@ func flight13_1Generate(
 		entries = append(entries, extension.KeyShareEntry{
 			Group: keypair.Curve, KeyExchange: keypair.PublicKey,
 		})
+		keypairs[keypair.Curve] = keypair
 	}
 	state.localKeyEntries = entries
+	state.localKeypairs = keypairs
 	extensions = append(extensions, &extension.KeyShare{
 		ClientShares: entries,
 	})
@@ -134,10 +256,12 @@ func flight13_1Generate(
 
 	// connection ID
 
+	// Pre_shared_key must be last extension
+
 	clientHello := &handshake.MessageClientHello{
 		Version:   protocol.Version1_2,
 		SessionID: state.SessionID,
-		Cookie:    state.cookie,
+		Cookie:    nil,
 		Random:    state.localRandom,
 		// Add DTLS 1.3 ciphersuites
 		CipherSuiteIDs:     cipherSuiteIDs(cfg.localCipherSuites),

@@ -64,6 +64,10 @@ var (
 	//nolint:err113
 	errInvalidClientAuthType = &FatalError{Err: errors.New("invalid client auth type")}
 	//nolint:err113
+	errInvalidClientHello = &FatalError{Err: errors.New("invalid ClientHello")}
+	//nolint:err113
+	errInvalidHelloRetryRequest = &FatalError{Err: errors.New("invalid HelloRetryRequest")}
+	//nolint:err113
 	errInvalidECDSASignature = &FatalError{Err: errors.New("ECDSA signature contained zero or negative values")}
 	//nolint:err113
 	errInvalidPrivateKey = &FatalError{Err: errors.New("invalid private key type")}
@@ -109,6 +113,10 @@ var (
 	errUnsupportedProtocolVersion = &FatalError{Err: errors.New("unsupported protocol version")}
 	//nolint:err113
 	errNoCommonProtocolVersion = &FatalError{Err: errors.New("no common DTLS version between peer and local")}
+	//nolint:err113
+	errInvalidProtocolVersionState = &FatalError{Err: errors.New("invalid protocol version in state")}
+	//nolint:err113
+	errInvalidServerHello = &FatalError{Err: errors.New("invalid ServerHello")}
 	//nolint:err113
 	errPSKAndIdentityMustBeSetForClient = &FatalError{
 		Err: errors.New("PSK and PSK Identity Hint must both be set for client"),
