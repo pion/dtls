@@ -35,6 +35,8 @@ func (f flightVal13) getFlightParser13() (flightParser13, error) {
 		return flight13_1Parse, nil
 	case flight13_2:
 		return flight13_2Parse, nil
+	case flight13_3:
+		return flight13_3Parse, nil
 
 	default:
 		return nil, errFlightUnimplemented13
@@ -49,6 +51,8 @@ func (f flightVal13) getFlightGenerator13() (gen flightGenerator13, retransmit b
 		return flight13_1Generate, true, nil
 	case flight13_2:
 		return flight13_2Generate, false, nil
+	case flight13_3:
+		return flight13_3Generate, true, nil
 	default:
 		return nil, false, errFlightUnimplemented13
 	}

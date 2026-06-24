@@ -7,8 +7,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
+	"slices"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -144,13 +147,92 @@ func flight13_1Parse(
 	return flight13_3, nil, nil
 }
 
-//nolint:unused
+//nolint:cyclop
 func flight13_3Parse(
-	ctx context.Context,
-	conn flightConn,
+	_ context.Context,
+	_ flightConn,
 	flightCtx *handshakeContext13,
 ) (flightVal13, *alert.Alert, error) {
-	return 0, nil, errFlightUnimplemented13
+	seq, msgs, ok := flightCtx.cache.fullPullMap(flightCtx.state.handshakeRecvSequence, flightCtx.state.cipherSuite,
+		handshakeCachePullRule{handshake.TypeServerHello, flightCtx.cfg.initialEpoch, false, false},
+	)
+	if !ok {
+		return 0, nil, nil
+	}
+
+	serverHello, ok := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello)
+	if !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+
+	if isHelloRetryRequest(serverHello) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
+			errUnexpectedSecondHelloRetryRequest
+	}
+
+	if !serverHello.Version.Equal(protocol.Version1_2) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+	}
+
+	versions, seenSupportedVersions, err := serverHelloSelectedVersions(serverHello.Extensions)
+	if err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidServerHello
+	}
+	if !seenSupportedVersions || !versions[0].Equal(protocol.Version1_3) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+	}
+	flightCtx.state.remoteVersions = versions
+	flightCtx.state.localVersion = protocol.Version1_3
+
+	if serverHello.CipherSuiteID == nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidServerHello
+	}
+	remoteCipherSuite := cipherSuiteForID(CipherSuiteID(*serverHello.CipherSuiteID), flightCtx.cfg.customCipherSuites)
+	if remoteCipherSuite == nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
+	}
+	if !cipherSuiteIDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_3) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+	}
+	selectedCipherSuite, found := findMatchingCipherSuite(
+		[]CipherSuite{remoteCipherSuite}, flightCtx.cfg.localCipherSuites,
+	)
+	if !found {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+	}
+	flightCtx.state.cipherSuite = selectedCipherSuite
+	flightCtx.state.remoteRandom = serverHello.Random
+	flightCtx.cfg.log.Tracef("[handshake13] use cipher suite: %s", selectedCipherSuite.String())
+
+	var serverShare *extension.KeyShareEntry
+	for _, ext := range serverHello.Extensions {
+		keyShare, isKeyShare := ext.(*extension.KeyShare)
+		if isKeyShare && keyShare.ServerShare != nil {
+			serverShare = keyShare.ServerShare
+
+			break
+		}
+	}
+	if serverShare == nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errServerKeyShareMissing
+	}
+
+	localKeypair, ok := flightCtx.state.localKeypairs[serverShare.Group]
+	if !ok || localKeypair == nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errServerKeyShareUnknownGroup
+	}
+
+	preMasterSecret, err := prf.PreMasterSecret(serverShare.KeyExchange, localKeypair.PrivateKey, serverShare.Group)
+	if err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	flightCtx.state.preMasterSecret = preMasterSecret
+	flightCtx.state.namedCurve = serverShare.Group
+	flightCtx.state.remoteKeyEntries = &[]extension.KeyShareEntry{*serverShare}
+
+	flightCtx.state.handshakeRecvSequence = seq
+
+	return flight13_5, nil, nil
 }
 
 //nolint:cyclop
@@ -273,6 +355,129 @@ func flight13_1Generate(
 
 	if cfg.clientHelloMessageHook != nil {
 		content = handshake.Handshake{Message: cfg.clientHelloMessageHook(*clientHello)}
+	} else {
+		content = handshake.Handshake{Message: clientHello}
+	}
+
+	return []*packet{
+		{
+			record: &recordlayer.RecordLayer{
+				Header: recordlayer.Header{
+					Version: protocol.Version1_2,
+				},
+				Content: &content,
+			},
+		},
+	}, nil, nil
+}
+
+// nolint:cyclop
+func flight13_3Generate(
+	_ flightConn,
+	flightCtx *handshakeContext13,
+) ([]*packet, *alert.Alert, error) {
+	extensions := []extension.Extension{}
+
+	if flightCtx.cfg.extendedMasterSecret == RequestExtendedMasterSecret ||
+		flightCtx.cfg.extendedMasterSecret == RequireExtendedMasterSecret {
+		extensions = append(extensions, &extension.UseExtendedMasterSecret{
+			Supported: true,
+		})
+	}
+
+	extensions = append(extensions, &extension.RenegotiationInfo{
+		RenegotiatedConnection: 0,
+	})
+
+	if flightCtx.state.namedCurve != 0 {
+		extensions = append(extensions, []extension.Extension{
+			&extension.SupportedEllipticCurves{
+				EllipticCurves: flightCtx.cfg.ellipticCurves,
+			},
+			&extension.SupportedPointFormats{
+				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
+			},
+		}...)
+	}
+
+	if len(flightCtx.cfg.supportedProtocols) > 0 {
+		extensions = append(extensions, &extension.ALPN{ProtocolNameList: flightCtx.cfg.supportedProtocols})
+	}
+
+	var localGroups []elliptic.Curve
+	var newEntries []extension.KeyShareEntry
+	newKeypairs := map[elliptic.Curve]*elliptic.Keypair{}
+	if flightCtx.state.remoteKeyEntries != nil {
+		for _, entry := range flightCtx.state.localKeyEntries {
+			localGroups = append(localGroups, entry.Group)
+		}
+
+		for _, entry := range *flightCtx.state.remoteKeyEntries {
+			if !slices.Contains(localGroups, entry.Group) && slices.Contains(flightCtx.cfg.ellipticCurves, entry.Group) {
+				keypair, err := elliptic.GenerateKeypair(entry.Group)
+				if err != nil {
+					return nil, nil, err
+				}
+				newEntries = append(newEntries, extension.KeyShareEntry{
+					Group: keypair.Curve, KeyExchange: keypair.PublicKey,
+				})
+				newKeypairs[keypair.Curve] = keypair
+			}
+		}
+	}
+	if len(newEntries) > 0 {
+		flightCtx.state.localKeyEntries = append(newEntries, flightCtx.state.localKeyEntries...)
+		if flightCtx.state.localKeypairs == nil {
+			flightCtx.state.localKeypairs = make(map[elliptic.Curve]*elliptic.Keypair, len(newKeypairs))
+		}
+		maps.Copy(flightCtx.state.localKeypairs, newKeypairs)
+	}
+	extensions = append(extensions, &extension.KeyShare{
+		ClientShares: flightCtx.state.localKeyEntries,
+	})
+
+	if !slices.Contains(flightCtx.state.remoteVersions, protocol.Version1_3) {
+		return nil, nil, errNoCommonProtocolVersion
+	}
+	extensions = append(extensions, &extension.SupportedVersions{
+		Versions: supportedVersionsRange(flightCtx.cfg.minVersion, flightCtx.cfg.maxVersion),
+	})
+
+	if len(flightCtx.cfg.localCertSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
+			SignatureHashAlgorithms: flightCtx.cfg.localCertSignatureSchemes,
+		})
+	}
+
+	if len(flightCtx.cfg.serverName) > 0 {
+		extensions = append(extensions, &extension.ServerName{ServerName: flightCtx.cfg.serverName})
+	}
+
+	if len(flightCtx.cfg.localSRTPProtectionProfiles) > 0 {
+		extensions = append(extensions, &extension.UseSRTP{
+			ProtectionProfiles:  flightCtx.cfg.localSRTPProtectionProfiles,
+			MasterKeyIdentifier: flightCtx.cfg.localSRTPMasterKeyIdentifier,
+		})
+	}
+
+	if len(flightCtx.state.cookie) > 0 {
+		extensions = append(extensions, &extension.CookieExt{Cookie: flightCtx.state.cookie})
+	}
+
+	clientHello := &handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		SessionID:          flightCtx.state.SessionID,
+		Cookie:             []byte{},
+		Random:             flightCtx.state.localRandom,
+		CipherSuiteIDs:     cipherSuiteIDs(flightCtx.cfg.localCipherSuites),
+		CompressionMethods: defaultCompressionMethods(),
+		Extensions:         extensions,
+	}
+
+	var content handshake.Handshake
+
+	if flightCtx.cfg.clientHelloMessageHook != nil {
+		content = handshake.Handshake{Message: flightCtx.cfg.clientHelloMessageHook(*clientHello)}
 	} else {
 		content = handshake.Handshake{Message: clientHello}
 	}
