@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"slices"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -429,9 +430,7 @@ func flight13_3Generate(
 		if flightCtx.state.localKeypairs == nil {
 			flightCtx.state.localKeypairs = make(map[elliptic.Curve]*elliptic.Keypair, len(newKeypairs))
 		}
-		for group, keypair := range newKeypairs {
-			flightCtx.state.localKeypairs[group] = keypair
-		}
+		maps.Copy(flightCtx.state.localKeypairs, newKeypairs)
 	}
 	extensions = append(extensions, &extension.KeyShare{
 		ClientShares: flightCtx.state.localKeyEntries,
