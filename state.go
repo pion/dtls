@@ -63,6 +63,7 @@ type State struct {
 	handshakeRecvSequence      int
 	serverName                 string
 	remoteCertRequestAlgs      []signaturehash.Algorithm
+	remoteSignatureSchemes     []signaturehash.Algorithm // signature_algorithms from peer
 	remoteCertSignatureSchemes []signaturehash.Algorithm // signature_algorithms_cert from peer
 	remoteRequestedCertificate bool                      // Did we get a CertificateRequest
 	localCertificatesVerify    []byte                    // cache CertificateVerify

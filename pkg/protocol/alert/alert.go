@@ -62,6 +62,7 @@ const (
 	InternalError          Description = 80
 	UserCanceled           Description = 90
 	NoRenegotiation        Description = 100
+	MissingExtension       Description = 109
 	UnsupportedExtension   Description = 110
 	NoApplicationProtocol  Description = 120
 )
@@ -116,6 +117,8 @@ func (d Description) String() string { //nolint:cyclop
 		return "UserCanceled"
 	case NoRenegotiation:
 		return "NoRenegotiation"
+	case MissingExtension:
+		return "MissingExtension"
 	case UnsupportedExtension:
 		return "UnsupportedExtension"
 	case NoApplicationProtocol:

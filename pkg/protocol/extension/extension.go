@@ -103,6 +103,10 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(bufView, &KeyShare{})
 		case CookieTypeValue:
 			err = unmarshalAndAppend(bufView, &CookieExt{})
+		case PskKeyExchangeModesTypeValue:
+			err = unmarshalAndAppend(bufView, &PskKeyExchangeModes{})
+		case PreSharedKeyValue:
+			err = unmarshalAndAppend(bufView, &PreSharedKey{})
 		default:
 		}
 

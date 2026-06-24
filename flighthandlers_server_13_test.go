@@ -33,6 +33,9 @@ func TestFlight13_0ParseGeneratesKeypairForNegotiatedGroup(t *testing.T) {
 		},
 		CompressionMethods: defaultCompressionMethods(),
 		Extensions: []extension.Extension{
+			&extension.SupportedSignatureAlgorithms{
+				SignatureHashAlgorithms: cfg.localSignatureSchemes,
+			},
 			&extension.SupportedEllipticCurves{
 				EllipticCurves: []elliptic.Curve{elliptic.P384},
 			},
@@ -107,6 +110,165 @@ func TestFlight13_0ParseRejectsClientHelloWithSelectedSupportedVersion(t *testin
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
 	assert.Empty(t, state.remoteVersions)
+}
+
+func pushFlight13_0ClientHello(
+	t *testing.T,
+	cache *handshakeCache,
+	cfg *handshakeConfig,
+	exts []extension.Extension,
+) {
+	t.Helper()
+
+	clientHello := &handshake.MessageClientHello{
+		Version: protocol.Version1_2,
+		Random:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
+		CipherSuiteIDs: []uint16{
+			uint16(cfg.localCipherSuites[0].ID()),
+		},
+		CompressionMethods: defaultCompressionMethods(),
+		Extensions:         exts,
+	}
+	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
+	require.NoError(t, err)
+
+	cache.push(rawClientHello, cfg.initialEpoch, 0, handshake.TypeClientHello, true)
+}
+
+func requiredClientHello13Extensions(t *testing.T, cfg *handshakeConfig) []extension.Extension {
+	t.Helper()
+
+	clientKeypair, err := elliptic.GenerateKeypair(cfg.ellipticCurves[0])
+	require.NoError(t, err)
+
+	return []extension.Extension{
+		&extension.SupportedSignatureAlgorithms{
+			SignatureHashAlgorithms: cfg.localSignatureSchemes,
+		},
+		&extension.SupportedEllipticCurves{
+			EllipticCurves: cfg.ellipticCurves,
+		},
+		&extension.KeyShare{
+			ClientShares: []extension.KeyShareEntry{
+				{Group: clientKeypair.Curve, KeyExchange: clientKeypair.PublicKey},
+			},
+		},
+		&extension.SupportedVersions{
+			Versions: []protocol.Version{protocol.Version1_3},
+		},
+	}
+}
+
+func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.T) {
+	t.Run("AcceptsSignatureAlgorithmsAndSupportedGroups", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		state := &State{localVersion: protocol.Version1_3}
+		cache := newHandshakeCache()
+		pushFlight13_0ClientHello(t, cache, cfg, requiredClientHello13Extensions(t, cfg))
+
+		nextFlight, dtlsAlert, err := flight13_0Parse(context.Background(), nil, &handshakeContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+		require.NoError(t, err)
+		require.Nil(t, dtlsAlert)
+		assert.Equal(t, flight13_2, nextFlight)
+		assert.Equal(t, cfg.localSignatureSchemes, state.remoteSignatureSchemes)
+		assert.Equal(t, cfg.ellipticCurves, state.remoteGroups)
+	})
+
+	t.Run("AllowsPreSharedKeyWithoutCertificateAuthExtensions", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		state := &State{localVersion: protocol.Version1_3}
+		cache := newHandshakeCache()
+		binder := make([]byte, 32)
+		pushFlight13_0ClientHello(t, cache, cfg, []extension.Extension{
+			&extension.SupportedVersions{
+				Versions: []protocol.Version{protocol.Version1_3},
+			},
+			&extension.PreSharedKey{
+				Identities: []extension.PskIdentity{
+					{Identity: []byte("psk"), ObfuscatedTicketAge: 0},
+				},
+				Binders: []extension.PskBinderEntry{binder},
+			},
+		})
+
+		nextFlight, dtlsAlert, err := flight13_0Parse(context.Background(), nil, &handshakeContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+		require.NoError(t, err)
+		require.Nil(t, dtlsAlert)
+		assert.Equal(t, flight13_2, nextFlight)
+	})
+
+	t.Run("RejectsMissingSignatureAlgorithms", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		state := &State{localVersion: protocol.Version1_3}
+		cache := newHandshakeCache()
+		exts := requiredClientHello13Extensions(t, cfg)[1:]
+		pushFlight13_0ClientHello(t, cache, cfg, exts)
+
+		nextFlight, dtlsAlert, err := flight13_0Parse(context.Background(), nil, &handshakeContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+		require.ErrorIs(t, err, errMissingClientHelloExtension)
+		require.NotNil(t, dtlsAlert)
+		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
+		assert.Zero(t, nextFlight)
+	})
+
+	t.Run("RejectsSignatureAlgorithmsCertAsSubstitute", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		state := &State{localVersion: protocol.Version1_3}
+		cache := newHandshakeCache()
+		exts := requiredClientHello13Extensions(t, cfg)[1:]
+		exts = append([]extension.Extension{
+			&extension.SignatureAlgorithmsCert{
+				SignatureHashAlgorithms: cfg.localSignatureSchemes,
+			},
+		}, exts...)
+		pushFlight13_0ClientHello(t, cache, cfg, exts)
+
+		nextFlight, dtlsAlert, err := flight13_0Parse(context.Background(), nil, &handshakeContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+		require.ErrorIs(t, err, errMissingClientHelloExtension)
+		require.NotNil(t, dtlsAlert)
+		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
+		assert.Zero(t, nextFlight)
+	})
+
+	t.Run("RejectsMissingSupportedGroups", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		state := &State{localVersion: protocol.Version1_3}
+		cache := newHandshakeCache()
+		required := requiredClientHello13Extensions(t, cfg)
+		exts := []extension.Extension{required[0], required[2], required[3]}
+		pushFlight13_0ClientHello(t, cache, cfg, exts)
+
+		nextFlight, dtlsAlert, err := flight13_0Parse(context.Background(), nil, &handshakeContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+		require.ErrorIs(t, err, errMissingClientHelloExtension)
+		require.NotNil(t, dtlsAlert)
+		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
+		assert.Zero(t, nextFlight)
+	})
 }
 
 func serverHelloFromFlight13_2(t *testing.T, state *State, cfg *handshakeConfig) *handshake.MessageServerHello {
@@ -304,9 +466,8 @@ func TestFlight13_2Parse(t *testing.T) {
 		cache := newHandshakeCache()
 		cfg := testHandshakeConfig13(t)
 
-		pushClientHello13(t, cache, protocol.Version1_2, []extension.Extension{
-			&extension.CookieExt{Cookie: cookie},
-		})
+		exts := append(requiredClientHello13Extensions(t, cfg), &extension.CookieExt{Cookie: cookie})
+		pushClientHello13(t, cache, protocol.Version1_2, exts)
 
 		next, dtlsAlert, err := flight13_2Parse(context.Background(), nil, flight13_2Context(state, cache, cfg))
 		require.NoError(t, err)
@@ -328,32 +489,41 @@ func TestFlight13_2Parse(t *testing.T) {
 	})
 
 	t.Run("KeepsWaitingWhenCookieNotYetEchoed", func(t *testing.T) {
-		state := &State{localVersion: protocol.Version1_3, cookie: cookie}
+		state := &State{localVersion: protocol.Version1_3, cookie: cookie, serverName: "original.example"}
 		cache := newHandshakeCache()
 		cfg := testHandshakeConfig13(t)
 
-		pushClientHello13(t, cache, protocol.Version1_2, nil)
+		exts := append(requiredClientHello13Extensions(t, cfg), &extension.ServerName{ServerName: "poison.example"})
+		pushClientHello13(t, cache, protocol.Version1_2, exts)
 
 		next, dtlsAlert, err := flight13_2Parse(context.Background(), nil, flight13_2Context(state, cache, cfg))
 		require.NoError(t, err)
 		require.Nil(t, dtlsAlert)
 		assert.Equal(t, flightVal13(0), next)
+		assert.Equal(t, 0, state.handshakeRecvSequence)
+		assert.Equal(t, "original.example", state.serverName)
+		assert.Empty(t, state.remoteSignatureSchemes)
+		assert.Empty(t, state.remoteGroups)
 	})
 
 	t.Run("RejectsCookieMismatch", func(t *testing.T) {
-		state := &State{localVersion: protocol.Version1_3, cookie: cookie}
+		state := &State{localVersion: protocol.Version1_3, cookie: cookie, serverName: "original.example"}
 		cache := newHandshakeCache()
 		cfg := testHandshakeConfig13(t)
 
-		pushClientHello13(t, cache, protocol.Version1_2, []extension.Extension{
-			&extension.CookieExt{Cookie: []byte{0x00, 0x01, 0x02, 0x03}},
-		})
+		exts := append(requiredClientHello13Extensions(t, cfg), &extension.ServerName{ServerName: "poison.example"},
+			&extension.CookieExt{Cookie: []byte{0x00, 0x01, 0x02, 0x03}})
+		pushClientHello13(t, cache, protocol.Version1_2, exts)
 
 		next, dtlsAlert, err := flight13_2Parse(context.Background(), nil, flight13_2Context(state, cache, cfg))
 		require.ErrorIs(t, err, errCookieMismatch)
 		assert.Equal(t, flightVal13(0), next)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlsAlert)
+		assert.Equal(t, 0, state.handshakeRecvSequence)
+		assert.Equal(t, "original.example", state.serverName)
+		assert.Empty(t, state.remoteSignatureSchemes)
+		assert.Empty(t, state.remoteGroups)
 	})
 
 	t.Run("RejectsUnsupportedVersion", func(t *testing.T) {
@@ -370,5 +540,21 @@ func TestFlight13_2Parse(t *testing.T) {
 		assert.Equal(t, flightVal13(0), next)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlsAlert)
+	})
+
+	t.Run("RejectsMissingCertificateAuthExtensions", func(t *testing.T) {
+		state := &State{localVersion: protocol.Version1_3, cookie: cookie}
+		cache := newHandshakeCache()
+		cfg := testHandshakeConfig13(t)
+
+		pushClientHello13(t, cache, protocol.Version1_2, []extension.Extension{
+			&extension.CookieExt{Cookie: cookie},
+		})
+
+		next, dtlsAlert, err := flight13_2Parse(context.Background(), nil, flight13_2Context(state, cache, cfg))
+		require.ErrorIs(t, err, errMissingClientHelloExtension)
+		assert.Equal(t, flightVal13(0), next)
+		require.NotNil(t, dtlsAlert)
+		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/logging"
@@ -159,6 +160,7 @@ func testHandshakeConfig13(t *testing.T) *handshakeConfig {
 		log:                         loggerFactory.NewLogger("dtls"),
 		minVersion:                  protocol.Version1_3,
 		maxVersion:                  protocol.Version1_3,
+		localSignatureSchemes:       signaturehash.Algorithms13(),
 		localCertSignatureSchemes:   nil,
 		localSRTPProtectionProfiles: nil,
 	}

@@ -43,6 +43,112 @@ import (
 // | Flight 4c |
 // +-----------+
 
+type clientHello13ExtensionSet struct {
+	hasPreSharedKey        bool
+	hasSignatureAlgorithms bool
+	hasSupportedGroups     bool
+}
+
+type clientHello13ExtensionFailure struct {
+	alert *alert.Alert
+	err   error
+}
+
+func newClientHello13ExtensionFailure(
+	description alert.Description,
+	err error,
+) *clientHello13ExtensionFailure {
+	return &clientHello13ExtensionFailure{
+		alert: &alert.Alert{Level: alert.Fatal, Description: description},
+		err:   err,
+	}
+}
+
+func processClientHello13Extensions(
+	state *State,
+	cfg *handshakeConfig,
+	clientHello *handshake.MessageClientHello,
+) *clientHello13ExtensionFailure {
+	var seen clientHello13ExtensionSet
+
+	for _, val := range clientHello.Extensions {
+		if failure := processClientHello13SecurityExtension(state, cfg, &seen, val); failure != nil {
+			return failure
+		}
+		processClientHello13StateExtension(state, cfg, val)
+	}
+
+	if !seen.hasPreSharedKey && (!seen.hasSignatureAlgorithms || !seen.hasSupportedGroups) {
+		return newClientHello13ExtensionFailure(alert.MissingExtension, errMissingClientHelloExtension)
+	}
+
+	return nil
+}
+
+func processClientHello13SecurityExtension(
+	state *State,
+	cfg *handshakeConfig,
+	seen *clientHello13ExtensionSet,
+	val extension.Extension,
+) *clientHello13ExtensionFailure {
+	switch ext := val.(type) {
+	case *extension.SupportedEllipticCurves:
+		seen.hasSupportedGroups = true
+		if len(ext.EllipticCurves) == 0 {
+			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, errNoSupportedEllipticCurves)
+		}
+		state.remoteGroups = ext.EllipticCurves
+	case *extension.UseSRTP:
+		profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
+		if !ok {
+			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, errServerNoMatchingSRTPProfile)
+		}
+		state.setSRTPProtectionProfile(profile)
+		state.remoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
+	case *extension.SupportedSignatureAlgorithms:
+		seen.hasSignatureAlgorithms = true
+		state.remoteSignatureSchemes = ext.SignatureHashAlgorithms
+	case *extension.SupportedVersions:
+		if ext.IsSelectedVersion() {
+			return newClientHello13ExtensionFailure(alert.IllegalParameter, errInvalidClientHello)
+		}
+		state.remoteVersions = ext.Versions
+	case *extension.PreSharedKey:
+		seen.hasPreSharedKey = true
+	}
+
+	return nil
+}
+
+func processClientHello13StateExtension(
+	state *State,
+	cfg *handshakeConfig,
+	val extension.Extension,
+) {
+	switch ext := val.(type) {
+	case *extension.UseExtendedMasterSecret:
+		if cfg.extendedMasterSecret != DisableExtendedMasterSecret {
+			state.extendedMasterSecret = true
+		}
+	case *extension.ServerName:
+		state.serverName = ext.ServerName // remote server name
+	case *extension.RenegotiationInfo:
+		state.remoteSupportsRenegotiation = true
+	case *extension.ALPN:
+		state.peerSupportedProtocols = ext.ProtocolNameList
+	case *extension.ConnectionID:
+		// Only set connection ID to be sent if server supports connection IDs.
+		if cfg.connectionIDGenerator != nil {
+			state.remoteConnectionID = ext.CID
+		}
+	case *extension.SignatureAlgorithmsCert:
+		// Store the client's certificate signature schemes for later validation.
+		state.remoteCertSignatureSchemes = ext.SignatureHashAlgorithms
+	case *extension.KeyShare:
+		state.remoteKeyEntries = &ext.ClientShares
+	}
+}
+
 //nolint:cyclop,gocognit,gocyclo,unused
 func flight13_0Parse(
 	_ context.Context,
@@ -102,47 +208,8 @@ func flight13_0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 	}
 
-	for _, val := range clientHello.Extensions {
-		switch ext := val.(type) {
-		case *extension.SupportedEllipticCurves:
-			if len(ext.EllipticCurves) == 0 {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
-			}
-			state.remoteGroups = ext.EllipticCurves
-		case *extension.UseSRTP:
-			profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
-			if !ok {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerNoMatchingSRTPProfile
-			}
-			state.setSRTPProtectionProfile(profile)
-			state.remoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
-		case *extension.UseExtendedMasterSecret:
-			if cfg.extendedMasterSecret != DisableExtendedMasterSecret {
-				state.extendedMasterSecret = true
-			}
-		case *extension.ServerName:
-			state.serverName = ext.ServerName // remote server name
-		case *extension.RenegotiationInfo:
-			state.remoteSupportsRenegotiation = true
-		case *extension.ALPN:
-			state.peerSupportedProtocols = ext.ProtocolNameList
-		case *extension.ConnectionID:
-			// Only set connection ID to be sent if server supports connection
-			// IDs.
-			if cfg.connectionIDGenerator != nil {
-				state.remoteConnectionID = ext.CID
-			}
-		case *extension.SignatureAlgorithmsCert:
-			// Store the client's certificate signature schemes for later validation
-			state.remoteCertSignatureSchemes = ext.SignatureHashAlgorithms
-		case *extension.SupportedVersions:
-			if ext.IsSelectedVersion() {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidClientHello
-			}
-			state.remoteVersions = ext.Versions
-		case *extension.KeyShare:
-			state.remoteKeyEntries = &ext.ClientShares
-		}
+	if failure := processClientHello13Extensions(state, cfg, clientHello); failure != nil {
+		return 0, failure.alert, failure.err
 	}
 
 	if !slices.Contains(state.remoteVersions, protocol.Version1_3) {
@@ -238,7 +305,6 @@ func flight13_2Parse(
 	if !ok {
 		return 0, nil, nil
 	}
-	flightCtx.state.handshakeRecvSequence = seq
 
 	clientHello, ok := msgs[handshake.TypeClientHello].(*handshake.MessageClientHello)
 	if !ok {
@@ -264,6 +330,11 @@ func flight13_2Parse(
 	if !bytes.Equal(flightCtx.state.cookie, cookie) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, errCookieMismatch
 	}
+
+	if failure := processClientHello13Extensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
+		return 0, failure.alert, failure.err
+	}
+	flightCtx.state.handshakeRecvSequence = seq
 
 	return flight13_4, nil, nil
 }

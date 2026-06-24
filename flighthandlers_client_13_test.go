@@ -71,6 +71,33 @@ func marshalServerHello(
 	return rawServerHello
 }
 
+func generateFlight13_1ClientHello(t *testing.T, cfg *handshakeConfig) *handshake.MessageClientHello {
+	t.Helper()
+
+	state := &State{}
+
+	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
+		state: state,
+		cfg:   cfg,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, pkts, 1)
+
+	hand, ok := pkts[0].record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	raw, err := hand.Marshal()
+	require.NoError(t, err)
+
+	var parsed handshake.Handshake
+	require.NoError(t, parsed.Unmarshal(raw))
+	clientHello, ok := parsed.Message.(*handshake.MessageClientHello)
+	require.True(t, ok)
+
+	return clientHello
+}
+
 func TestFlight13_1GenerateClientHelloUsesSupportedVersionsVector(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &State{}
@@ -105,6 +132,47 @@ func TestFlight13_1GenerateClientHelloUsesSupportedVersionsVector(t *testing.T) 
 	require.NotNil(t, supportedVersions)
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, supportedVersions.Versions)
 	assert.False(t, supportedVersions.IsSelectedVersion())
+}
+
+func TestFlight13_1GenerateClientHelloIncludesSignatureAlgorithms(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.localCertSignatureSchemes = cfg.localSignatureSchemes[:1]
+
+	clientHello := generateFlight13_1ClientHello(t, cfg)
+
+	var signatureAlgorithms *extension.SupportedSignatureAlgorithms
+	var signatureAlgorithmsCert *extension.SignatureAlgorithmsCert
+	for _, ext := range clientHello.Extensions {
+		switch typed := ext.(type) {
+		case *extension.SupportedSignatureAlgorithms:
+			signatureAlgorithms = typed
+		case *extension.SignatureAlgorithmsCert:
+			signatureAlgorithmsCert = typed
+		}
+	}
+
+	require.NotNil(t, signatureAlgorithms)
+	assert.Equal(t, cfg.localSignatureSchemes, signatureAlgorithms.SignatureHashAlgorithms)
+	require.NotNil(t, signatureAlgorithmsCert)
+	assert.Equal(t, cfg.localCertSignatureSchemes, signatureAlgorithmsCert.SignatureHashAlgorithms)
+}
+
+func TestFlight13_1GenerateClientHelloIncludesSupportedGroups(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+
+	clientHello := generateFlight13_1ClientHello(t, cfg)
+
+	var supportedGroups *extension.SupportedEllipticCurves
+	for _, ext := range clientHello.Extensions {
+		if typed, ok := ext.(*extension.SupportedEllipticCurves); ok {
+			supportedGroups = typed
+
+			break
+		}
+	}
+
+	require.NotNil(t, supportedGroups)
+	assert.Equal(t, cfg.ellipticCurves, supportedGroups.EllipticCurves)
 }
 
 func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
@@ -417,6 +485,17 @@ func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 	require.NotNil(t, supportedVersions)
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, supportedVersions.Versions)
 	assert.False(t, supportedVersions.IsSelectedVersion())
+
+	var signatureAlgorithms *extension.SupportedSignatureAlgorithms
+	for _, ext := range clientHello.Extensions {
+		if sigAlgs, ok := ext.(*extension.SupportedSignatureAlgorithms); ok {
+			signatureAlgorithms = sigAlgs
+
+			break
+		}
+	}
+	require.NotNil(t, signatureAlgorithms)
+	assert.Equal(t, cfg.localSignatureSchemes, signatureAlgorithms.SignatureHashAlgorithms)
 
 	var cookieExt *extension.CookieExt
 	for _, ext := range clientHello.Extensions {

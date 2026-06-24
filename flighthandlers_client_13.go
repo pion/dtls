@@ -249,6 +249,9 @@ func flight13_1Generate(
 	if len(cfg.ellipticCurves) < 1 {
 		return nil, nil, errEmptyEllipticCurves
 	}
+	if len(cfg.localSignatureSchemes) < 1 {
+		return nil, nil, errNoAvailableSignatureSchemes
+	}
 	state.namedCurve = cfg.ellipticCurves[0]
 	state.cookie = nil
 
@@ -260,7 +263,11 @@ func flight13_1Generate(
 		state.localRandom.RandomBytes = cfg.helloRandomBytesGenerator()
 	}
 
-	extensions := []extension.Extension{}
+	extensions := []extension.Extension{
+		&extension.SupportedSignatureAlgorithms{
+			SignatureHashAlgorithms: cfg.localSignatureSchemes,
+		},
+	}
 
 	if cfg.extendedMasterSecret == RequestExtendedMasterSecret ||
 		cfg.extendedMasterSecret == RequireExtendedMasterSecret {
@@ -376,7 +383,15 @@ func flight13_3Generate(
 	_ flightConn,
 	flightCtx *handshakeContext13,
 ) ([]*packet, *alert.Alert, error) {
-	extensions := []extension.Extension{}
+	if len(flightCtx.cfg.localSignatureSchemes) < 1 {
+		return nil, nil, errNoAvailableSignatureSchemes
+	}
+
+	extensions := []extension.Extension{
+		&extension.SupportedSignatureAlgorithms{
+			SignatureHashAlgorithms: flightCtx.cfg.localSignatureSchemes,
+		},
+	}
 
 	if flightCtx.cfg.extendedMasterSecret == RequestExtendedMasterSecret ||
 		flightCtx.cfg.extendedMasterSecret == RequireExtendedMasterSecret {
