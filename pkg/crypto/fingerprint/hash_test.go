@@ -7,13 +7,14 @@ import (
 	"crypto"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestHashFromString(t *testing.T) {
 	t.Run("InvalidHashAlgorithm", func(t *testing.T) {
 		_, err := HashFromString("invalid-hash-algorithm")
-		assert.ErrorIs(t, err, errInvalidHashAlgorithm)
+		assert.ErrorIs(t, err, dtlserrors.ErrFingerprintInvalidHashAlgorithm)
 	})
 	t.Run("ValidHashAlgorithm", func(t *testing.T) {
 		h, err := HashFromString("sha-512")

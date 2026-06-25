@@ -8,6 +8,7 @@ import (
 	"errors"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -33,14 +34,14 @@ func TestString(t *testing.T) {
 func TestGenerateKeypair_InvalidCurve(t *testing.T) {
 	var invalid Curve = 0 // not a supported curve
 	_, err := GenerateKeypair(invalid)
-	assert.ErrorIs(t, err, errInvalidNamedCurve)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurve)
 }
 
 func TestX25519MLKEM768MetadataOnly(t *testing.T) {
 	assert.False(t, Curves()[X25519MLKEM768])
 
 	_, err := GenerateKeypair(X25519MLKEM768)
-	assert.ErrorIs(t, err, errInvalidNamedCurve)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurve)
 }
 
 // create a fake reader that is guaranteed to fail to trigger a failure in generate keypair.
@@ -63,5 +64,5 @@ func TestGenerateKeypair_RandFailure(t *testing.T) {
 func TestToECDH_InvalidCurve(t *testing.T) {
 	var invalid Curve = 0xFFFF
 	_, err := invalid.toECDH()
-	assert.ErrorIs(t, err, errInvalidNamedCurve)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurve)
 }

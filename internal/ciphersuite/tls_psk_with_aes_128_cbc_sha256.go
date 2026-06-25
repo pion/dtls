@@ -9,6 +9,7 @@ import (
 	"hash"
 	"sync/atomic"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -98,7 +99,7 @@ func (c *TLSPskWithAes128CbcSha256) Init(masterSecret, clientRandom, serverRando
 func (c *TLSPskWithAes128CbcSha256) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	cipherSuite, ok := c.cbc.Load().(*ciphersuite.CBC)
 	if !ok {
-		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
+		return nil, fmt.Errorf("%w, unable to encrypt", dtlserrors.ErrCipherSuiteNotInit)
 	}
 
 	return cipherSuite.Encrypt(pkt, raw)
@@ -108,7 +109,7 @@ func (c *TLSPskWithAes128CbcSha256) Encrypt(pkt *recordlayer.RecordLayer, raw []
 func (c *TLSPskWithAes128CbcSha256) Decrypt(h recordlayer.Header, raw []byte) ([]byte, error) {
 	cipherSuite, ok := c.cbc.Load().(*ciphersuite.CBC)
 	if !ok {
-		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
+		return nil, fmt.Errorf("%w, unable to decrypt", dtlserrors.ErrCipherSuiteNotInit)
 	}
 
 	return cipherSuite.Decrypt(h, raw)

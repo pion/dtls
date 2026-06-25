@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -41,7 +42,7 @@ type PlaintextRecord13 struct {
 // Marshal encodes a DTLS 1.3 DTLSPlaintext record.
 func (r *PlaintextRecord13) Marshal() ([]byte, error) {
 	if r.Header.Epoch != 0 {
-		return nil, errInvalidEpoch
+		return nil, dtlserrors.ErrInvalidEpoch
 	}
 	if r.Header.Version == (protocol.Version{}) {
 		r.Header.Version = protocol.Version1_2
@@ -49,7 +50,7 @@ func (r *PlaintextRecord13) Marshal() ([]byte, error) {
 
 	contentType := r.Content.ContentType()
 	if !isPlaintextRecord13ContentType(contentType) {
-		return nil, errInvalidContentType
+		return nil, dtlserrors.ErrInvalidContentType
 	}
 
 	contentRaw, err := r.Content.Marshal()
@@ -57,7 +58,7 @@ func (r *PlaintextRecord13) Marshal() ([]byte, error) {
 		return nil, err
 	}
 	if !isPlaintextRecord13LegacyVersionForSend(r.Header.Version, contentType, contentRaw) {
-		return nil, errUnsupportedProtocolVersion
+		return nil, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 	if len(contentRaw) > maxDTLSPlaintextRecordLen {
 		return nil, ErrInvalidPacketLength
@@ -80,7 +81,7 @@ func (r *PlaintextRecord13) Unmarshal(data []byte) error {
 		return err
 	}
 	if r.Header.Epoch != 0 {
-		return errInvalidEpoch
+		return dtlserrors.ErrInvalidEpoch
 	}
 	if r.Header.ContentLen > maxDTLSPlaintextRecordLen {
 		return ErrInvalidPacketLength
@@ -101,7 +102,7 @@ func (r *PlaintextRecord13) Unmarshal(data []byte) error {
 	case protocol.ContentTypeACK:
 		r.Content = &protocol.ACK{}
 	default:
-		return errInvalidContentType
+		return dtlserrors.ErrInvalidContentType
 	}
 
 	return r.Content.Unmarshal(contentRaw)
@@ -147,7 +148,7 @@ func (r *CiphertextRecord13) Unmarshal(data []byte) error {
 
 	headerSize := unifiedHeaderWireSize(data[0], len(r.Header.ConnectionID))
 	if len(data) < headerSize {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	recordLen := len(data) - headerSize
@@ -193,7 +194,7 @@ func UnpackDatagram13(buf []byte, cidLength int, ciphertextHeadersEnabled bool) 
 		}
 
 		if !ciphertextHeadersEnabled || !protocol.IsDTLS13Ciphertext(contentType) {
-			return nil, errInvalidContentType
+			return nil, dtlserrors.ErrInvalidContentType
 		}
 
 		record, cid, nextOffset, done, err := unpackCiphertextDatagram13Record(buf, offset, cidLength)
@@ -270,9 +271,9 @@ func unmarshalCiphertextDatagram13Header(data []byte, cidLength int) (UnifiedHea
 func validateCiphertextCIDBit(hasCID bool, cidLength int) error {
 	switch {
 	case cidLength > 0 && !hasCID:
-		return errInvalidCiphertextHeader
+		return dtlserrors.ErrInvalidCiphertextHeader
 	case cidLength == 0 && hasCID:
-		return errInvalidCiphertextHeader
+		return dtlserrors.ErrInvalidCiphertextHeader
 	default:
 		return nil
 	}
@@ -317,7 +318,7 @@ func isPlaintextRecord13ContentType(contentType protocol.ContentType) bool {
 
 func unmarshalPlaintextRecord13Header(header *Header, data []byte) error {
 	if len(data) < FixedHeaderSize {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	// RFC 9147 requires receivers to ignore legacy_record_version, so do not

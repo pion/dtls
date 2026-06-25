@@ -6,6 +6,7 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -46,21 +47,21 @@ func TestExtensionUseSRTP(t *testing.T) {
 		unmarshaled := &UseSRTP{}
 
 		err := unmarshaled.Unmarshal([]byte{0x00, 0x0e, 0x00, 0x05, 0x00, 0x04, 0x00, 0x01, 0x00})
-		assert.ErrorIs(t, err, errLengthMismatch)
+		assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 
 		err = unmarshaled.Unmarshal([]byte{0x00, 0x0e, 0x00, 0x0a, 0x00, 0x02, 0x00, 0x01, 0x01})
-		assert.ErrorIs(t, err, errLengthMismatch)
+		assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 
 		_, err = (&UseSRTP{
 			ProtectionProfiles:  []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			MasterKeyIdentifier: make([]byte, 500),
 		}).Marshal()
-		assert.ErrorIs(t, err, errMasterKeyIdentifierTooLarge)
+		assert.ErrorIs(t, err, dtlserrors.ErrMasterKeyIdentifierTooLarge)
 
 		_, err = (&UseSRTP{
 			ProtectionProfiles: make([]SRTPProtectionProfile, 32767),
 		}).Marshal()
-		assert.ErrorIs(t, err, errUseSRTPDataTooLarge)
+		assert.ErrorIs(t, err, dtlserrors.ErrUseSRTPDataTooLarge)
 	})
 }
 

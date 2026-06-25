@@ -4,6 +4,7 @@
 package extension
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -31,7 +32,7 @@ func (p PskKeyExchangeModes) TypeValue() TypeValue {
 // Marshal encodes the extension.
 func (p *PskKeyExchangeModes) Marshal() ([]byte, error) {
 	if len(p.KeModes) == 0 {
-		return nil, errNoPskKeyExchangeMode
+		return nil, dtlserrors.ErrNoPskKeyExchangeMode
 	}
 
 	var out cryptobyte.Builder
@@ -53,22 +54,22 @@ func (p *PskKeyExchangeModes) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 	var extension uint16
 	if !val.ReadUint16(&extension) || TypeValue(extension) != p.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	var extData cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	var strModes cryptobyte.String
 
 	if !extData.ReadUint8LengthPrefixed(&strModes) || strModes.Empty() {
-		return errPskKeyExchangeModesFormat
+		return dtlserrors.ErrPskKeyExchangeModesFormat
 	}
 
 	if !extData.Empty() {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	p.KeModes = make([]PskKeyExchangeMode, 0)

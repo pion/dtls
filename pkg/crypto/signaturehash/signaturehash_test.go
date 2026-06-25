@@ -13,6 +13,7 @@ import (
 	"crypto/x509"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/stretchr/testify/assert"
@@ -55,7 +56,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 			},
 			expected:       nil,
 			insecureHashes: false,
-			err:            errInvalidSignatureAlgorithm,
+			err:            dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm,
 		},
 		"InvalidHashAlgorithm": {
 			input: []tls.SignatureScheme{
@@ -64,7 +65,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 			},
 			expected:       nil,
 			insecureHashes: false,
-			err:            errInvalidHashAlgorithm,
+			err:            dtlserrors.ErrSignatureHashInvalidHashAlgorithm,
 		},
 		"InsecureHashAlgorithmDenied": {
 			input: []tls.SignatureScheme{
@@ -94,7 +95,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 				tls.ECDSAWithSHA1, // Insecure
 			},
 			insecureHashes: false,
-			err:            errNoAvailableSignatureSchemes,
+			err:            dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes,
 		},
 		"PSSSchemes": {
 			input: []tls.SignatureScheme{
@@ -174,7 +175,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 			},
 			expected:       nil,
 			insecureHashes: false,
-			err:            errInvalidSignatureAlgorithm,
+			err:            dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm,
 		},
 	}
 
@@ -236,7 +237,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 			privateKey:     rsaKey,
 			is13:           false,
 			expectedSigAlg: 0,
-			expectedError:  errNoAvailableSignatureSchemes,
+			expectedError:  dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes,
 		},
 		{
 			name: "ECDSA works on both DTLS 1.2 and 1.3",
@@ -282,7 +283,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 			privateKey:     rsaKey,
 			is13:           true,
 			expectedSigAlg: 0,
-			expectedError:  errNoAvailableSignatureSchemes,
+			expectedError:  dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes,
 		},
 	}
 
@@ -404,7 +405,7 @@ func TestFromCertificate(t *testing.T) {
 			result, err := FromCertificate(&x509.Certificate{SignatureAlgorithm: tt.sigAlg})
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, errInvalidSignatureAlgorithm)
+				assert.ErrorIs(t, err, dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, result)

@@ -4,6 +4,7 @@
 package extension
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -24,7 +25,7 @@ func (c CookieExt) TypeValue() TypeValue {
 func (c *CookieExt) Marshal() ([]byte, error) {
 	cookieLength := len(c.Cookie)
 	if cookieLength == 0 || cookieLength > maxCookieSize {
-		return nil, errCookieExtFormat
+		return nil, dtlserrors.ErrCookieExtFormat
 	}
 	var b cryptobyte.Builder
 	b.AddUint16(uint16(c.TypeValue()))
@@ -42,21 +43,21 @@ func (c *CookieExt) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 	var extension uint16
 	if !val.ReadUint16(&extension) || TypeValue(extension) != c.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	var extData cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	var cookie cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&cookie) || cookie.Empty() || len(cookie) > maxCookieSize {
-		return errCookieExtFormat
+		return dtlserrors.ErrCookieExtFormat
 	}
 
 	if !extData.Empty() {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	c.Cookie = append([]byte(nil), cookie...)

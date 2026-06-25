@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -68,7 +69,7 @@ func (cri *CertificateRequestInfo) SupportsCertificate(c *tls.Certificate) error
 		}
 	}
 
-	return errNotAcceptableCertificateChain
+	return dtlserrors.ErrNotAcceptableCertificateChain
 }
 
 func (c *handshakeConfig) setNameToCertificateLocked() {
@@ -111,7 +112,7 @@ func (c *handshakeConfig) getCertificate(clientHelloInfo *ClientHelloInfo) (*tls
 	}
 
 	if len(c.localCertificates) == 0 {
-		return nil, errNoCertificates
+		return nil, dtlserrors.ErrNoCertificates
 	}
 
 	if len(c.localCertificates) == 1 {

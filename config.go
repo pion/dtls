@@ -14,6 +14,7 @@ import (
 	"net"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -283,26 +284,26 @@ const (
 func validateConfig(config *Config) error { //nolint:cyclop
 	switch {
 	case config == nil:
-		return errNoConfigProvided
+		return dtlserrors.ErrNoConfigProvided
 	case config.PSKIdentityHint != nil && config.PSK == nil:
-		return errIdentityNoPSK
+		return dtlserrors.ErrIdentityNoPSK
 	}
 
 	for _, cert := range config.Certificates {
 		if cert.Certificate == nil {
-			return errInvalidCertificate
+			return dtlserrors.ErrInvalidCertificate
 		}
 		if cert.PrivateKey != nil {
 			signer, ok := cert.PrivateKey.(crypto.Signer)
 			if !ok {
-				return errInvalidPrivateKey
+				return dtlserrors.ErrInvalidPrivateKey
 			}
 			switch signer.Public().(type) {
 			case ed25519.PublicKey:
 			case *ecdsa.PublicKey:
 			case *rsa.PublicKey:
 			default:
-				return errInvalidPrivateKey
+				return dtlserrors.ErrInvalidPrivateKey
 			}
 		}
 	}

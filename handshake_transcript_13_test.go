@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -47,7 +48,7 @@ func TestCanonicalHandshake13RejectsInvalidMessages(t *testing.T) {
 		{
 			name: "too small",
 			raw:  []byte{byte(handshake.TypeClientHello)},
-			err:  errBufferTooSmall,
+			err:  dtlserrors.ErrBufferTooSmall,
 		},
 		{
 			name: "fragment offset",
@@ -58,7 +59,7 @@ func TestCanonicalHandshake13RejectsInvalidMessages(t *testing.T) {
 				FragmentOffset:  1,
 				FragmentLength:  bodyLen,
 			}, body),
-			err: errInvalidHandshakeTranscriptMessage,
+			err: dtlserrors.ErrInvalidHandshakeTranscriptMessage,
 		},
 		{
 			name: "fragment length",
@@ -68,7 +69,7 @@ func TestCanonicalHandshake13RejectsInvalidMessages(t *testing.T) {
 				MessageSequence: 1,
 				FragmentLength:  bodyLen - 1,
 			}, body),
-			err: errInvalidHandshakeTranscriptMessage,
+			err: dtlserrors.ErrInvalidHandshakeTranscriptMessage,
 		},
 		{
 			name: "body length",
@@ -78,7 +79,7 @@ func TestCanonicalHandshake13RejectsInvalidMessages(t *testing.T) {
 				MessageSequence: 1,
 				FragmentLength:  bodyLen + 1,
 			}, body),
-			err: errInvalidHandshakeTranscriptMessage,
+			err: dtlserrors.ErrInvalidHandshakeTranscriptMessage,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -109,7 +110,7 @@ func TestHandshakeTranscript13RejectsSumBeforeHashSelection(t *testing.T) {
 	transcript := newHandshakeTranscript13()
 
 	_, err := transcript.sum()
-	assert.ErrorIs(t, err, errHandshakeTranscriptHashNotSelected)
+	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHashNotSelected)
 }
 
 func TestHandshakeTranscript13RejectsHashReselection(t *testing.T) {
@@ -117,7 +118,7 @@ func TestHandshakeTranscript13RejectsHashReselection(t *testing.T) {
 	assert.NoError(t, transcript.selectHash(sha256.New))
 
 	err := transcript.selectHash(sha256.New)
-	assert.ErrorIs(t, err, errHandshakeTranscriptHashAlreadySelected)
+	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHashAlreadySelected)
 }
 
 func TestHandshakeTranscript13DuplicateHandling(t *testing.T) {
@@ -131,7 +132,7 @@ func TestHandshakeTranscript13DuplicateHandling(t *testing.T) {
 	assert.NoError(t, transcript.appendCanonical(transcriptMessageID13{sender: transcriptClient13}, clientHello))
 
 	err := transcript.appendCanonical(transcriptMessageID13{sender: transcriptClient13}, changedClientHello)
-	assert.ErrorIs(t, err, errHandshakeTranscriptMessageChanged)
+	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMessageChanged)
 
 	assert.NoError(t, transcript.appendCanonical(transcriptMessageID13{sender: transcriptServer13}, serverHello))
 
@@ -146,7 +147,7 @@ func TestHandshakeTranscript13RejectsInvalidCanonicalMessage(t *testing.T) {
 	err := transcript.appendCanonical(transcriptMessageID13{sender: transcriptClient13}, []byte{
 		byte(handshake.TypeClientHello), 0x00, 0x00, 0x02, 0x01,
 	})
-	assert.ErrorIs(t, err, errInvalidHandshakeTranscriptMessage)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 }
 
 func TestHandshakeTranscript13HelloRetryRequest(t *testing.T) {
@@ -187,7 +188,7 @@ func TestHandshakeTranscript13HelloRetryRequestBinderFork(t *testing.T) {
 
 	mainSumBefore, err := transcript.sum()
 	assert.NoError(t, err)
-	assert.ErrorIs(t, validateCanonicalHandshake13(truncatedClientHello2), errInvalidHandshakeTranscriptMessage)
+	assert.ErrorIs(t, validateCanonicalHandshake13(truncatedClientHello2), dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 
 	binderTranscriptHash, err := transcript.sumWithSuffix(truncatedClientHello2)
 	assert.NoError(t, err)
@@ -224,7 +225,7 @@ func TestHandshakeTranscript13HelloRetryRequestErrors(t *testing.T) {
 		assert.NoError(t, transcript.appendCanonical(transcriptMessageID13{sender: transcriptClient13}, clientHello))
 
 		err := transcript.applyHelloRetryRequest()
-		assert.ErrorIs(t, err, errHandshakeTranscriptHashNotSelected)
+		assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHashNotSelected)
 	})
 
 	t.Run("not first client hello only", func(t *testing.T) {
@@ -234,7 +235,7 @@ func TestHandshakeTranscript13HelloRetryRequestErrors(t *testing.T) {
 		assert.NoError(t, transcript.selectHash(sha256.New))
 
 		err := transcript.applyHelloRetryRequest()
-		assert.ErrorIs(t, err, errHandshakeTranscriptHelloRetryRequestInvalid)
+		assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid)
 	})
 
 	t.Run("server message", func(t *testing.T) {
@@ -243,7 +244,7 @@ func TestHandshakeTranscript13HelloRetryRequestErrors(t *testing.T) {
 		assert.NoError(t, transcript.selectHash(sha256.New))
 
 		err := transcript.applyHelloRetryRequest()
-		assert.ErrorIs(t, err, errHandshakeTranscriptHelloRetryRequestInvalid)
+		assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid)
 	})
 
 	t.Run("already applied", func(t *testing.T) {
@@ -253,7 +254,7 @@ func TestHandshakeTranscript13HelloRetryRequestErrors(t *testing.T) {
 		assert.NoError(t, transcript.applyHelloRetryRequest())
 
 		err := transcript.applyHelloRetryRequest()
-		assert.ErrorIs(t, err, errHandshakeTranscriptHelloRetryRequestInvalid)
+		assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid)
 	})
 }
 

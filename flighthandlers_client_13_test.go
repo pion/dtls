@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -288,7 +289,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithoutSupportedVersions(t *test
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errInvalidHelloRetryRequest)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
@@ -322,7 +323,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithWrongSelectedVersion(t *test
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+	require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.ProtocolVersion, dtlsAlert.Description)
@@ -361,7 +362,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersions
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errInvalidHelloRetryRequest)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
@@ -391,7 +392,7 @@ func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVe
 
 	ok, err := conn.pickVersionFromServerResponse()
 
-	require.ErrorIs(t, err, errInvalidHelloRetryRequest)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
 	assert.False(t, ok)
 	assert.Equal(t, protocol.Version{}, conn.state.localVersion)
 }
@@ -427,7 +428,7 @@ func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupported
 
 	ok, err := conn.pickVersionFromServerResponse()
 
-	require.ErrorIs(t, err, errInvalidServerHello)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
 	assert.False(t, ok)
 	assert.Equal(t, protocol.Version{}, conn.state.localVersion)
 }
@@ -442,7 +443,7 @@ func TestFlight13_3GenerateRejectsWithoutCommonVersion(t *testing.T) {
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errNoCommonProtocolVersion)
+	require.ErrorIs(t, err, dtlserrors.ErrNoCommonProtocolVersion)
 	require.Nil(t, dtlsAlert)
 	require.Nil(t, pkts)
 }
@@ -688,7 +689,7 @@ func TestFlight13_3ParseRejectsSecondHelloRetryRequest(t *testing.T) {
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errUnexpectedSecondHelloRetryRequest)
+	require.ErrorIs(t, err, dtlserrors.ErrUnexpectedSecondHelloRetryRequest)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.UnexpectedMessage, dtlsAlert.Description)
@@ -727,7 +728,7 @@ func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+	require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.ProtocolVersion, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
@@ -756,7 +757,7 @@ func TestFlight13_3ParseRejectsMissingSupportedVersions(t *testing.T) {
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+	require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.ProtocolVersion, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
@@ -781,7 +782,7 @@ func TestFlight13_3ParseRejectsMissingKeyShare(t *testing.T) {
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errServerKeyShareMissing)
+	require.ErrorIs(t, err, dtlserrors.ErrServerKeyShareMissing)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
@@ -809,7 +810,7 @@ func TestFlight13_3ParseRejectsUnofferedKeyShareGroup(t *testing.T) {
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errServerKeyShareUnknownGroup)
+	require.ErrorIs(t, err, dtlserrors.ErrServerKeyShareUnknownGroup)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)

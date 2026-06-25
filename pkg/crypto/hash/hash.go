@@ -4,7 +4,7 @@
 // Package hash provides TLS HashAlgorithm as defined in TLS 1.2
 package hash
 
-import ( //nolint:gci
+import (
 	"crypto"
 	"crypto/md5"  //nolint:gosec
 	"crypto/sha1" //nolint:gosec

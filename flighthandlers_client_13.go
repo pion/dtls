@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -56,7 +57,7 @@ func serverHelloSelectedVersions(extensions []extension.Extension) ([]protocol.V
 			continue
 		}
 		if seenSupportedVersions || !supportedVersions.IsSelectedVersion() || len(supportedVersions.Versions) != 1 {
-			return nil, true, errInvalidServerHello
+			return nil, true, dtlserrors.ErrInvalidServerHello
 		}
 		seenSupportedVersions = true
 		versions = supportedVersions.Versions
@@ -68,10 +69,10 @@ func serverHelloSelectedVersions(extensions []extension.Extension) ([]protocol.V
 func validateHelloRetryRequestSelectedVersion(extensions []extension.Extension) error {
 	versions, seenSupportedVersions, err := serverHelloSelectedVersions(extensions)
 	if err != nil || !seenSupportedVersions {
-		return errInvalidHelloRetryRequest
+		return dtlserrors.ErrInvalidHelloRetryRequest
 	}
 	if !versions[0].Equal(protocol.Version1_3) {
-		return errUnsupportedProtocolVersion
+		return dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	return nil
@@ -108,11 +109,12 @@ func flight13_1Parse(
 	// Handle HelloRetryRequest
 
 	if !sh.Version.Equal(protocol.Version1_0) && !sh.Version.Equal(protocol.Version1_2) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions); err != nil {
 		description := alert.IllegalParameter
-		if errors.Is(err, errUnsupportedProtocolVersion) {
+		if errors.Is(err, dtlserrors.ErrUnsupportedProtocolVersion) {
 			description = alert.ProtocolVersion
 		}
 
@@ -167,38 +169,40 @@ func flight13_3Parse(
 
 	if isHelloRetryRequest(serverHello) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
-			errUnexpectedSecondHelloRetryRequest
+			dtlserrors.ErrUnexpectedSecondHelloRetryRequest
 	}
 
 	if !serverHello.Version.Equal(protocol.Version1_2) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	versions, seenSupportedVersions, err := serverHelloSelectedVersions(serverHello.Extensions)
 	if err != nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidServerHello
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrInvalidServerHello
 	}
 	if !seenSupportedVersions || !versions[0].Equal(protocol.Version1_3) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 	flightCtx.state.remoteVersions = versions
 	flightCtx.state.localVersion = protocol.Version1_3
 
 	if serverHello.CipherSuiteID == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidServerHello
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrInvalidServerHello
 	}
 	remoteCipherSuite := cipherSuiteForID(CipherSuiteID(*serverHello.CipherSuiteID), flightCtx.cfg.customCipherSuites)
 	if remoteCipherSuite == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 	if !cipherSuiteIDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_3) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 	}
 	selectedCipherSuite, found := findMatchingCipherSuite(
 		[]CipherSuite{remoteCipherSuite}, flightCtx.cfg.localCipherSuites,
 	)
 	if !found {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 	}
 	flightCtx.state.cipherSuite = selectedCipherSuite
 	flightCtx.state.remoteRandom = serverHello.Random
@@ -214,12 +218,13 @@ func flight13_3Parse(
 		}
 	}
 	if serverShare == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errServerKeyShareMissing
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrServerKeyShareMissing
 	}
 
 	localKeypair, ok := flightCtx.state.localKeypairs[serverShare.Group]
 	if !ok || localKeypair == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errServerKeyShareUnknownGroup
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
+			dtlserrors.ErrServerKeyShareUnknownGroup
 	}
 
 	preMasterSecret, err := prf.PreMasterSecret(serverShare.KeyExchange, localKeypair.PrivateKey, serverShare.Group)
@@ -247,10 +252,10 @@ func flight13_1Generate(
 	state.localEpoch.Store(zeroEpoch)
 	state.remoteEpoch.Store(zeroEpoch)
 	if len(cfg.ellipticCurves) < 1 {
-		return nil, nil, errEmptyEllipticCurves
+		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 	if len(cfg.localSignatureSchemes) < 1 {
-		return nil, nil, errNoAvailableSignatureSchemes
+		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 	state.namedCurve = cfg.ellipticCurves[0]
 	state.cookie = nil
@@ -384,7 +389,7 @@ func flight13_3Generate(
 	flightCtx *handshakeContext13,
 ) ([]*packet, *alert.Alert, error) {
 	if len(flightCtx.cfg.localSignatureSchemes) < 1 {
-		return nil, nil, errNoAvailableSignatureSchemes
+		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 
 	extensions := []extension.Extension{
@@ -452,7 +457,7 @@ func flight13_3Generate(
 	})
 
 	if !slices.Contains(flightCtx.state.remoteVersions, protocol.Version1_3) {
-		return nil, nil, errNoCommonProtocolVersion
+		return nil, nil, dtlserrors.ErrNoCommonProtocolVersion
 	}
 	extensions = append(extensions, &extension.SupportedVersions{
 		Versions: supportedVersionsRange(flightCtx.cfg.minVersion, flightCtx.cfg.maxVersion),

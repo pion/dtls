@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
@@ -43,11 +44,13 @@ import (
 )
 
 var (
-	errTestPSKInvalidIdentity = errors.New("TestPSK: Server got invalid identity")
-	errPSKRejected            = errors.New("PSK Rejected")
-	errNotExpectedChain       = errors.New("not expected chain")
-	errExpecedChain           = errors.New("expected chain")
-	errWrongCert              = errors.New("wrong cert")
+	errTestPSKInvalidIdentity       = errors.New("TestPSK: Server got invalid identity")
+	errTestPSKClientInvalidIdentity = errors.New("TestPSK: Client got invalid identity")
+	errPSKRejected                  = errors.New("PSK Rejected")
+	errNotExpectedChain             = errors.New("not expected chain")
+	errExpecedChain                 = errors.New("expected chain")
+	errWrongCert                    = errors.New("wrong cert")
+	errConnectionAttemptFailed      = errors.New("connection attempt failed")
 )
 
 func TestStressDuplex(t *testing.T) {
@@ -153,7 +156,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		_, werr := ca.Write(make([]byte, 100))
 		assert.NoError(t, werr, "Write must send message with maximum sequence number")
 		_, werr = ca.Write(make([]byte, 100))
-		assert.ErrorIs(t, werr, errSequenceNumberOverflow, "Write must abandonsend message with maximum sequence number")
+		assert.ErrorIs(t, werr, dtlserrors.ErrSequenceNumberOverflow, "Write must abandonsend message with maximum sequence number") //nolint:lll
 
 		assert.NoError(t, ca.Close())
 		assert.NoError(t, cb.Close())
@@ -185,7 +188,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 				},
 			},
 		})
-		assert.ErrorIs(t, werr, errSequenceNumberOverflow,
+		assert.ErrorIs(t, werr, dtlserrors.ErrSequenceNumberOverflow,
 			"Connection must fail when handshake packet reaches maximum sequence num")
 		assert.NoError(t, ca.Close())
 		assert.NoError(t, cb.Close())
@@ -350,7 +353,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 			configClient: &Config{
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
 			},
-			errServer: errCipherSuiteNoIntersection,
+			errServer: dtlserrors.ErrCipherSuiteNoIntersection,
 			errClient: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
 		},
 		"SignatureSchemesNoIntersection": {
@@ -363,7 +366,7 @@ func TestHandshakeWithAlert(t *testing.T) {
 				SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP521AndSHA512},
 			},
 			errServer: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
-			errClient: errNoAvailableSignatureSchemes,
+			errClient: dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
 	}
 
@@ -469,21 +472,21 @@ func TestExportKeyingMaterial(t *testing.T) {
 	assert.True(t, ok)
 
 	_, err := state.ExportKeyingMaterial(exportLabel, nil, 0)
-	assert.ErrorIs(t, err, errHandshakeInProgress, "ExportKeyingMaterial when epoch == 0 error mismatch")
+	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeInProgress, "ExportKeyingMaterial when epoch == 0 error mismatch")
 
 	conn.setLocalEpoch(1)
 	state, ok = conn.ConnectionState()
 	assert.True(t, ok)
 
 	_, err = state.ExportKeyingMaterial(exportLabel, []byte{0x00}, 0)
-	assert.ErrorIs(t, err, errContextUnsupported, "ExportKeyingMaterial with context mismatch")
+	assert.ErrorIs(t, err, dtlserrors.ErrContextUnsupported, "ExportKeyingMaterial with context mismatch")
 
 	for k := range invalidKeyingLabels() {
 		state, ok = conn.ConnectionState()
 		assert.True(t, ok)
 
 		_, err = state.ExportKeyingMaterial(k, nil, 0)
-		assert.ErrorIs(t, err, errReservedExportKeyingMaterial, "ExportKeyingMaterial reserved label mismatch")
+		assert.ErrorIs(t, err, dtlserrors.ErrReservedExportKeyingMaterial, "ExportKeyingMaterial reserved label mismatch")
 	}
 
 	state, ok = conn.ConnectionState()
@@ -592,8 +595,9 @@ func TestPSK(t *testing.T) {
 				conf := &Config{
 					PSK: func(hint []byte) ([]byte, error) {
 						if !bytes.Equal(test.ServerIdentity, hint) {
-							return nil, fmt.Errorf( //nolint:err113
-								"TestPSK: Client got invalid identity expected(% 02x) actual(% 02x)",
+							return nil, fmt.Errorf(
+								"%w expected(% 02x) actual(% 02x)",
+								errTestPSKClientInvalidIdentity,
 								test.ServerIdentity, hint,
 							)
 						}
@@ -763,10 +767,8 @@ func TestPSKMismatchNoRetransmitLoop(t *testing.T) {
 	serverErrRes := <-serverErr
 	clientErrRes := <-clientErr
 
-	var serverHandshakeErr *HandshakeError
-	var clientHandshakeErr *HandshakeError
-	assert.ErrorAs(t, serverErrRes, &serverHandshakeErr)
-	assert.ErrorAs(t, clientErrRes, &clientHandshakeErr)
+	assert.ErrorContains(t, serverErrRes, "handshake failed")
+	assert.ErrorContains(t, clientErrRes, "handshake failed")
 
 	serverCount := serverWrites.Load()
 	clientCount := clientWrites.Load()
@@ -955,7 +957,7 @@ func TestSRTPConfiguration(t *testing.T) {
 			ServerSRTP:      nil,
 			ExpectedProfile: 0,
 			WantClientError: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
-			WantServerError: errServerNoMatchingSRTPProfile,
+			WantServerError: dtlserrors.ErrServerNoMatchingSRTPProfile,
 		},
 		{
 			Name:            "SRTP server only",
@@ -1464,7 +1466,7 @@ func TestExtendedMasterSecret(t *testing.T) {
 			serverCfg: &Config{
 				ExtendedMasterSecret: DisableExtendedMasterSecret,
 			},
-			expectedClientErr: errClientRequiredButNoServerEMS,
+			expectedClientErr: dtlserrors.ErrClientRequiredButNoServerEMS,
 			expectedServerErr: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
 		},
 		"Disable_Request_ExtendedMasterSecret": {
@@ -1485,7 +1487,7 @@ func TestExtendedMasterSecret(t *testing.T) {
 				ExtendedMasterSecret: RequireExtendedMasterSecret,
 			},
 			expectedClientErr: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
-			expectedServerErr: errServerRequiredButNoClientEMS,
+			expectedServerErr: dtlserrors.ErrServerRequiredButNoClientEMS,
 		},
 		"Disable_Disable_ExtendedMasterSecret": {
 			clientCfg: &Config{
@@ -1688,7 +1690,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
 			WantClientError:    &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
-			WantServerError:    errCipherSuiteNoIntersection,
+			WantServerError:    dtlserrors.ErrCipherSuiteNoIntersection,
 		},
 		{
 			Name:                    "Valid CipherSuites CCM specified",
@@ -1849,8 +1851,8 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			ClientPSKIdentity:    []byte{0x00},
 			ServerPSKIdentity:    []byte{0x00},
-			WantClientError:      errNoAvailablePSKCipherSuite,
-			WantServerError:      errNoAvailablePSKCipherSuite,
+			WantClientError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
+			WantServerError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
 		},
 		{
 			Name:                 "PSK and certificate specified",
@@ -1860,8 +1862,8 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			ClientPSKIdentity:    []byte{0x00},
 			ServerPSKIdentity:    []byte{0x00},
-			WantClientError:      errNoAvailablePSKCipherSuite,
-			WantServerError:      errNoAvailablePSKCipherSuite,
+			WantClientError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
+			WantServerError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
 		},
 		{
 			Name:                 "PSK and no identity specified",
@@ -1871,8 +1873,8 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
 			ClientPSKIdentity:    nil,
 			ServerPSKIdentity:    nil,
-			WantClientError:      errPSKAndIdentityMustBeSetForClient,
-			WantServerError:      errNoAvailablePSKCipherSuite,
+			WantClientError:      dtlserrors.ErrPSKAndIdentityMustBeSetForClient,
+			WantServerError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
 		},
 		{
 			Name:                 "No PSK and identity specified",
@@ -1882,8 +1884,8 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 			ServerPSK:            nil,
 			ClientPSKIdentity:    []byte{0x00},
 			ServerPSKIdentity:    []byte{0x00},
-			WantClientError:      errIdentityNoPSK,
-			WantServerError:      errIdentityNoPSK,
+			WantClientError:      dtlserrors.ErrIdentityNoPSK,
+			WantServerError:      dtlserrors.ErrIdentityNoPSK,
 		},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -2152,7 +2154,7 @@ func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
 						config,
 						true,
 					)
-					assert.ErrorIs(t, err, errUnsupportedProtocolVersion)
+					assert.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 				}()
 
 				time.Sleep(50 * time.Millisecond)
@@ -2235,7 +2237,7 @@ func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
 				go func() {
 					defer wg.Done()
 					_, err := testClient(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), config, true)
-					assert.ErrorIs(t, err, errUnsupportedProtocolVersion)
+					assert.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 				}()
 
 				time.Sleep(50 * time.Millisecond)
@@ -2466,7 +2468,7 @@ func TestServerNameIndicationExtension(t *testing.T) {
 	}{
 		{
 			Name:       "Server name is a valid hostname",
-			ServerName: "example.com",
+			ServerName: "example.com", //nolint:goconst
 			Expected:   []byte("example.com"),
 			IncludeSNI: true,
 		},
@@ -2545,9 +2547,9 @@ func TestALPNExtension(t *testing.T) { //nolint:maintidx
 	}{
 		{
 			Name:                   "Negotiate a protocol",
-			ClientProtocolNameList: []string{"http/1.1", "spd/1"},
+			ClientProtocolNameList: []string{"http/1.1", "spd/1"}, //nolint:goconst
 			ServerProtocolNameList: []string{"spd/1"},
-			ExpectedProtocol:       "spd/1",
+			ExpectedProtocol:       "spd/1", //nolint:goconst
 			ExpectAlertFromClient:  false,
 			ExpectAlertFromServer:  false,
 			Alert:                  0,
@@ -2565,7 +2567,7 @@ func TestALPNExtension(t *testing.T) { //nolint:maintidx
 			Name:                   "Negotiate with higher server precedence",
 			ClientProtocolNameList: []string{"http/1.1", "spd/1", "http/3"},
 			ServerProtocolNameList: []string{"ssh/2", "http/3", "spd/1"},
-			ExpectedProtocol:       "http/3",
+			ExpectedProtocol:       "http/3", //nolint:goconst
 			ExpectAlertFromClient:  false,
 			ExpectAlertFromServer:  false,
 			Alert:                  0,
@@ -3024,7 +3026,7 @@ func TestMultipleServerCertificates(t *testing.T) {
 		ExpectedDNSName   string
 	}{
 		{
-			"foo",
+			"foo", //nolint:goconst
 			"foo",
 		},
 		{
@@ -3365,7 +3367,7 @@ func TestOnConnectionAttempt(t *testing.T) {
 		clientErr <- err
 	}()
 
-	expectedErr := &FatalError{}
+	expectedErr := errConnectionAttemptFailed
 	_, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
 		OnConnectionAttempt: func(in net.Addr) error {
 			serverOnConnectionAttempt.Store(1)
@@ -3548,7 +3550,7 @@ func TestDTLS13Enabled(t *testing.T) {
 
 	err = <-errorChannel
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, errStateUnimplemented13)
+	assert.ErrorIs(t, err, dtlserrors.ErrStateUnimplemented13)
 
 	// Setup server
 	serverCert, err := selfsign.GenerateSelfSigned()
@@ -3581,7 +3583,7 @@ func TestDTLS13Enabled(t *testing.T) {
 	}()
 	err = <-errorChannel
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, errStateUnimplemented13)
+	assert.ErrorIs(t, err, dtlserrors.ErrStateUnimplemented13)
 }
 
 // WIP! Tests if the dual stack mode client managed to negotiate a version successfully.

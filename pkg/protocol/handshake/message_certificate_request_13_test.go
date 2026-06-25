@@ -6,6 +6,7 @@ package handshake
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -70,11 +71,11 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 				0x00,       // context length = 0
 				0x00, 0x00, // extensions length = 0
 			},
-			expErr: errMissingSignatureAlgorithmsExtension,
+			expErr: dtlserrors.ErrMissingSignatureAlgorithmsExtension,
 		},
 		"invalid - buffer too small": {
 			rawCertificateRequest: []byte{0x00},
-			expErr:                errBufferTooSmall,
+			expErr:                dtlserrors.ErrBufferTooSmall,
 		},
 	}
 
@@ -187,7 +188,7 @@ func TestMessageCertificateRequest13_ContextTooLong(t *testing.T) {
 	}
 
 	_, err := msg.Marshal()
-	assert.ErrorIs(t, err, errCertificateRequestContextTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrCertificateRequestContextTooLong)
 }
 
 func TestMessageCertificateRequest13_MissingSignatureAlgorithms(t *testing.T) {
@@ -195,7 +196,7 @@ func TestMessageCertificateRequest13_MissingSignatureAlgorithms(t *testing.T) {
 	msg := &MessageCertificateRequest13{}
 
 	_, err := msg.Marshal()
-	assert.ErrorIs(t, err, errMissingSignatureAlgorithmsExtension)
+	assert.ErrorIs(t, err, dtlserrors.ErrMissingSignatureAlgorithmsExtension)
 }
 
 func TestMessageCertificateRequest13_UnmarshalMissingSignatureAlgorithms(t *testing.T) {
@@ -206,7 +207,7 @@ func TestMessageCertificateRequest13_UnmarshalMissingSignatureAlgorithms(t *test
 	}
 
 	err := (&MessageCertificateRequest13{}).Unmarshal(data)
-	assert.ErrorIs(t, err, errMissingSignatureAlgorithmsExtension)
+	assert.ErrorIs(t, err, dtlserrors.ErrMissingSignatureAlgorithmsExtension)
 }
 
 func TestMessageCertificateRequest13_UnmarshalBufferTooSmall(t *testing.T) {
@@ -235,7 +236,7 @@ func TestMessageCertificateRequest13_UnmarshalInvalidContext(t *testing.T) {
 	}
 
 	err := (&MessageCertificateRequest13{}).Unmarshal(data)
-	assert.ErrorIs(t, err, errInvalidCertificateRequestContext)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateRequestContext)
 }
 
 func TestMessageCertificateRequest13_UnmarshalInvalidExtensions(t *testing.T) {
@@ -266,7 +267,7 @@ func TestMessageCertificateRequest13_UnmarshalInvalidExtensions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := (&MessageCertificateRequest13{}).Unmarshal(test.data)
-			assert.ErrorIs(t, err, errInvalidExtensionsLength)
+			assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionsLength)
 		})
 	}
 }

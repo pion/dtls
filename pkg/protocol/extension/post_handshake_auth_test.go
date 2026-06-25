@@ -6,6 +6,7 @@ package extension // nolint:dupl
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,7 +36,7 @@ func TestPostHandshakeAuth_NonEmpty(t *testing.T) {
 	newExtension := PostHandshakeAuth{}
 	err := newExtension.Unmarshal(raw)
 
-	assert.ErrorIs(t, err, errLengthMismatch)
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 }
 
 func FuzzPostHandshakeAuthUnmarshal(f *testing.F) {

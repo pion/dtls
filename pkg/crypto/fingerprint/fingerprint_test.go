@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -50,5 +51,5 @@ func TestFingerprint(t *testing.T) {
 
 func TestFingerprint_UnavailableHash(t *testing.T) {
 	_, err := Fingerprint(&x509.Certificate{}, crypto.Hash(0xFFFFFFFF))
-	assert.ErrorIs(t, err, errHashUnavailable)
+	assert.ErrorIs(t, err, dtlserrors.ErrFingerprintHashUnavailable)
 }

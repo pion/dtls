@@ -6,6 +6,7 @@ package alert
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,7 +29,7 @@ func TestAlert(t *testing.T) {
 			Name:               "Invalid alert length",
 			Data:               []byte{0x00},
 			Want:               &Alert{},
-			WantUnmarshalError: errBufferTooSmall,
+			WantUnmarshalError: dtlserrors.ErrBufferTooSmall,
 		},
 	} {
 		a := &Alert{}

@@ -9,6 +9,7 @@ import (
 	"hash"
 	"sync/atomic"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -99,7 +100,7 @@ func (c *TLSEcdheEcdsaWithAes128GcmSha256) Init(masterSecret, clientRandom, serv
 func (c *TLSEcdheEcdsaWithAes128GcmSha256) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	cipherSuite, ok := c.gcm.Load().(*ciphersuite.GCM)
 	if !ok {
-		return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteNotInit)
+		return nil, fmt.Errorf("%w, unable to encrypt", dtlserrors.ErrCipherSuiteNotInit)
 	}
 
 	return cipherSuite.Encrypt(pkt, raw)
@@ -109,7 +110,7 @@ func (c *TLSEcdheEcdsaWithAes128GcmSha256) Encrypt(pkt *recordlayer.RecordLayer,
 func (c *TLSEcdheEcdsaWithAes128GcmSha256) Decrypt(h recordlayer.Header, raw []byte) ([]byte, error) {
 	cipherSuite, ok := c.gcm.Load().(*ciphersuite.GCM)
 	if !ok {
-		return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteNotInit)
+		return nil, fmt.Errorf("%w, unable to decrypt", dtlserrors.ErrCipherSuiteNotInit)
 	}
 
 	return cipherSuite.Decrypt(h, raw)

@@ -6,6 +6,8 @@ package extension
 
 import (
 	"encoding/binary"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
 // TypeValue is the 2 byte value for a TLS Extension as registered in the IANA
@@ -50,12 +52,12 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 	case len(buf) == 0:
 		return []Extension{}, nil
 	case len(buf) < 2:
-		return nil, errBufferTooSmall
+		return nil, dtlserrors.ErrBufferTooSmall
 	}
 
 	declaredLen := binary.BigEndian.Uint16(buf)
 	if len(buf)-2 != int(declaredLen) {
-		return nil, errLengthMismatch
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
 	extensions := []Extension{}
@@ -72,7 +74,7 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 	for offset := 2; offset < len(buf); {
 		bufView := buf[offset:] //nolint:gosec // offset bounded by loop condition
 		if len(bufView) < 2 {
-			return nil, errBufferTooSmall
+			return nil, dtlserrors.ErrBufferTooSmall
 		}
 
 		var err error
@@ -114,7 +116,7 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			return nil, err
 		}
 		if len(bufView) < 4 {
-			return nil, errBufferTooSmall
+			return nil, dtlserrors.ErrBufferTooSmall
 		}
 		extensionLength := binary.BigEndian.Uint16(bufView[2:])
 		offset += (4 + int(extensionLength))

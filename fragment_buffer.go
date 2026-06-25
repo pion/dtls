@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
@@ -51,7 +52,7 @@ func (f *fragmentBuffer) size() int {
 // when an error returns it is fatal, and the DTLS connection should be stopped.
 func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err error) { //nolint:cyclop
 	if f.size()+len(buf) >= fragmentBufferMaxSize || f.totalFragmentCount >= fragmentBufferMaxCount {
-		return false, false, errFragmentBufferOverflow
+		return false, false, dtlserrors.ErrFragmentBufferOverflow
 	}
 
 	recordLayerHeader := recordlayer.Header{}
@@ -76,7 +77,7 @@ func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err e
 
 		end := int(handshake.HeaderLength + frag.handshakeHeader.FragmentLength)
 		if end > len(buf) {
-			return false, false, errBufferTooSmall
+			return false, false, dtlserrors.ErrBufferTooSmall
 		}
 		if frag.handshakeHeader.MessageSequence < f.currentMessageSequenceNumber {
 			buf = buf[end:]

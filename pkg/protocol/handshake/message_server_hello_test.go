@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
@@ -85,5 +86,5 @@ func TestHandshakeMessageServerHello_SessionIDTooLong(t *testing.T) {
 	}
 
 	_, err := c.Marshal()
-	assert.ErrorIs(t, err, errSessionIDTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrSessionIDTooLong)
 }

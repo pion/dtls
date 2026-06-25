@@ -6,6 +6,7 @@ package protocol
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -21,5 +22,5 @@ func TestChangeCipherSpecRoundTrip(t *testing.T) {
 
 func TestChangeCipherSpecInvalid(t *testing.T) {
 	c := ChangeCipherSpec{}
-	assert.ErrorIs(t, c.Unmarshal([]byte{0x00}), errInvalidCipherSpec)
+	assert.ErrorIs(t, c.Unmarshal([]byte{0x00}), dtlserrors.ErrInvalidCipherSpec)
 }

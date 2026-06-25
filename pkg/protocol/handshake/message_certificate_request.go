@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 )
@@ -38,7 +39,7 @@ func (m MessageCertificateRequest) Type() Type {
 // Marshal encodes the Handshake.
 func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
 	if len(m.CertificateTypes) > 255 {
-		return nil, errCertificateTypesTooLong
+		return nil, dtlserrors.ErrCertificateTypesTooLong
 	}
 
 	//nolint:gosec // G115: certificate types count is validated to be <= 255 above.
@@ -74,7 +75,7 @@ func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
 // Unmarshal populates the message from encoded data.
 func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cyclop
 	if len(data) < messageCertificateRequestMinLength {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	offset := 0
@@ -82,7 +83,7 @@ func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cycl
 	offset++
 
 	if (offset + certificateTypesLength) > len(data) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	for i := range certificateTypesLength {
@@ -93,18 +94,18 @@ func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cycl
 	}
 	offset += certificateTypesLength
 	if len(data) < offset+2 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	signatureHashAlgorithmsLength := int(binary.BigEndian.Uint16(data[offset:]))
 	offset += 2
 
 	if (offset + signatureHashAlgorithmsLength) > len(data) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	for i := 0; i < signatureHashAlgorithmsLength; i += 2 {
 		if len(data) < (offset + i + 2) {
-			return errBufferTooSmall
+			return dtlserrors.ErrBufferTooSmall
 		}
 
 		scheme := binary.BigEndian.Uint16(data[offset+i : offset+i+2])
@@ -117,25 +118,25 @@ func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cycl
 
 	offset += signatureHashAlgorithmsLength
 	if len(data) < offset+2 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	casLength := int(binary.BigEndian.Uint16(data[offset:]))
 	offset += 2
 	if (offset + casLength) > len(data) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	cas := make([]byte, casLength)
 	copy(cas, data[offset:offset+casLength])
 	m.CertificateAuthoritiesNames = nil
 	for len(cas) > 0 {
 		if len(cas) < 2 {
-			return errBufferTooSmall
+			return dtlserrors.ErrBufferTooSmall
 		}
 		caLen := binary.BigEndian.Uint16(cas)
 		cas = cas[2:]
 
 		if len(cas) < int(caLen) {
-			return errBufferTooSmall
+			return dtlserrors.ErrBufferTooSmall
 		}
 
 		m.CertificateAuthoritiesNames = append(m.CertificateAuthoritiesNames, cas[:caLen])

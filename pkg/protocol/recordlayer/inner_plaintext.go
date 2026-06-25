@@ -4,6 +4,7 @@
 package recordlayer
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -30,7 +31,7 @@ func (p *InnerPlaintext) Marshal() ([]byte, error) {
 // Unmarshal populates a DTLS InnerPlaintext from binary.
 func (p *InnerPlaintext) Unmarshal(data []byte) error {
 	if len(data) == 0 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	// Process in reverse
@@ -44,7 +45,7 @@ func (p *InnerPlaintext) Unmarshal(data []byte) error {
 		i--
 	}
 	if i < 0 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	p.RealType = protocol.ContentType(data[i])
 	p.Content = append([]byte{}, data[:i]...)

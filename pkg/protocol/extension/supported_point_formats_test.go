@@ -6,6 +6,7 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/stretchr/testify/assert"
 )
@@ -28,7 +29,7 @@ func TestExtensionSupportedPointFormats(t *testing.T) {
 func TestExtensionSupportedPointFormats_TooLong(t *testing.T) {
 	pointFormats := make([]elliptic.CurvePointFormat, 256)
 	_, err := (&SupportedPointFormats{PointFormats: pointFormats}).Marshal()
-	assert.ErrorIs(t, err, errPointFormatsTooLarge)
+	assert.ErrorIs(t, err, dtlserrors.ErrPointFormatsTooLarge)
 }
 
 func FuzzExtensionSupportedPointFormatsUnmarshal(f *testing.F) {

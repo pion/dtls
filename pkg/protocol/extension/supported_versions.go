@@ -4,6 +4,7 @@
 package extension
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -31,10 +32,10 @@ func (s SupportedVersions) IsSelectedVersion() bool { return s.SelectedVersion }
 // Marshal encodes the extension as a ClientHello versions vector unless SelectedVersion is set.
 func (s *SupportedVersions) Marshal() ([]byte, error) {
 	if len(s.Versions) == 0 {
-		return nil, errInvalidSupportedVersionsFormat
+		return nil, dtlserrors.ErrInvalidSupportedVersionsFormat
 	}
 	if s.SelectedVersion && len(s.Versions) != 1 {
-		return nil, errInvalidSupportedVersionsFormat
+		return nil, dtlserrors.ErrInvalidSupportedVersionsFormat
 	}
 
 	totalBytes := len(s.Versions) * 2
@@ -42,14 +43,14 @@ func (s *SupportedVersions) Marshal() ([]byte, error) {
 	// The 2..254 bound is defined in the following:
 	// https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.1
 	if totalBytes < 2 || totalBytes > 254 {
-		return nil, errInvalidSupportedVersionsFormat
+		return nil, dtlserrors.ErrInvalidSupportedVersionsFormat
 	}
 
 	// We're only checking for *valid* versions, not to be confused with supported versions.
 	// Error on invalid versions to protect against malformed messages/DOS attacks.
 	for _, v := range s.Versions {
 		if !protocol.IsValidVersion(v) {
-			return nil, errInvalidDTLSVersion
+			return nil, dtlserrors.ErrInvalidDTLSVersion
 		}
 	}
 
@@ -84,15 +85,15 @@ func (s *SupportedVersions) Unmarshal(data []byte) error { //nolint:cyclop
 	var extension uint16
 	val.ReadUint16(&extension)
 	if TypeValue(extension) != s.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	if extData.Empty() {
-		return errInvalidSupportedVersionsFormat
+		return dtlserrors.ErrInvalidSupportedVersionsFormat
 	}
 
 	// Try ClientHello list: versions<2..254> (1-byte length, then pairs)
@@ -105,7 +106,7 @@ func (s *SupportedVersions) Unmarshal(data []byte) error { //nolint:cyclop
 		for !peek.Empty() {
 			var major, minor uint8
 			if !peek.ReadUint8(&major) || !peek.ReadUint8(&minor) {
-				return errInvalidSupportedVersionsFormat
+				return dtlserrors.ErrInvalidSupportedVersionsFormat
 			}
 
 			// We're only checking for *valid* versions, not to be confused with supported versions.
@@ -115,11 +116,11 @@ func (s *SupportedVersions) Unmarshal(data []byte) error { //nolint:cyclop
 		}
 
 		if !extData.Skip(1 + int(listLen)) {
-			return errInvalidSupportedVersionsFormat
+			return dtlserrors.ErrInvalidSupportedVersionsFormat
 		}
 
 		if !extData.Empty() {
-			return errLengthMismatch
+			return dtlserrors.ErrLengthMismatch
 		}
 
 		return nil
@@ -127,12 +128,12 @@ func (s *SupportedVersions) Unmarshal(data []byte) error { //nolint:cyclop
 
 	// Otherwise, expect ServerHello/HelloRetryRequest selected_version, which should be exactly 2 bytes.
 	if len(extData) != 2 {
-		return errInvalidSupportedVersionsFormat
+		return dtlserrors.ErrInvalidSupportedVersionsFormat
 	}
 
 	var major, minor uint8
 	if !extData.ReadUint8(&major) || !extData.ReadUint8(&minor) {
-		return errInvalidSupportedVersionsFormat
+		return dtlserrors.ErrInvalidSupportedVersionsFormat
 	}
 
 	// We're only checking for *valid* versions, not to be confused with supported versions.

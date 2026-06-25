@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -36,7 +37,7 @@ func flight3Parse(
 			// DTLS 1.2 clients must not assume that the server will use the protocol version
 			// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
 			if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion //nolint:lll
 			}
 			state.cookie = append([]byte{}, h.Cookie...)
 			state.handshakeRecvSequence = seq
@@ -55,14 +56,15 @@ func flight3Parse(
 
 	if serverHelloMsg, msgOk := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello); msgOk { //nolint:nestif
 		if !serverHelloMsg.Version.Equal(protocol.Version1_2) {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+				dtlserrors.ErrUnsupportedProtocolVersion
 		}
 		for _, v := range serverHelloMsg.Extensions {
 			switch ext := v.(type) {
 			case *extension.UseSRTP:
 				profile, found := findMatchingSRTPProfile(ext.ProtectionProfiles, cfg.localSRTPProtectionProfiles)
 				if !found {
-					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errClientNoMatchingSRTPProfile
+					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrClientNoMatchingSRTPProfile //nolint:lll
 				}
 				state.setSRTPProtectionProfile(profile)
 				state.remoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
@@ -93,23 +95,23 @@ func flight3Parse(
 		}
 
 		if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errClientRequiredButNoServerEMS
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrClientRequiredButNoServerEMS //nolint:lll
 		}
 		if len(cfg.localSRTPProtectionProfiles) > 0 && state.getSRTPProtectionProfile() == 0 {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errRequestedButNoSRTPExtension
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrRequestedButNoSRTPExtension //nolint:lll
 		}
 
 		remoteCipherSuite := cipherSuiteForID(CipherSuiteID(*serverHelloMsg.CipherSuiteID), cfg.customCipherSuites)
 		if remoteCipherSuite == nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 		}
 		if !cipherSuiteIDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_2) {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 		}
 
 		selectedCipherSuite, found := findMatchingCipherSuite([]CipherSuite{remoteCipherSuite}, cfg.localCipherSuites)
 		if !found {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 		}
 
 		state.cipherSuite = selectedCipherSuite
@@ -158,7 +160,7 @@ func flight3Parse(
 	if h, ok := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
 		state.PeerCertificates = h.Certificate
 	} else if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errInvalidCertificate
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrInvalidCertificate
 	}
 
 	if h, ok := msgs[handshake.TypeServerKeyExchange].(*handshake.MessageServerKeyExchange); ok {
@@ -214,7 +216,7 @@ func handleResumption(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	if !bytes.Equal(expectedVerifyData, finished.VerifyData) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errVerifyDataMismatch
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrVerifyDataMismatch
 	}
 
 	clientRandom := state.localRandom.MarshalFixed()
@@ -232,7 +234,7 @@ func handleServerKeyExchange(
 ) (*alert.Alert, error) {
 	var err error
 	if state.cipherSuite == nil {
-		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 	}
 	if cfg.localPSKCallback != nil { //nolint:nestif
 		var psk []byte
@@ -257,7 +259,7 @@ func handleServerKeyExchange(
 				return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 		default:
-			return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errInvalidCipherSuite
+			return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 		}
 	} else {
 		if state.localKeypair, err = elliptic.GenerateKeypair(keyExchangeMessage.NamedCurve); err != nil {

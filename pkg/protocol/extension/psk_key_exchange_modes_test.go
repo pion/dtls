@@ -6,6 +6,7 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,7 +41,7 @@ func TestPskKeyExchangeModes_Empty(t *testing.T) {
 	extension := PskKeyExchangeModes{}
 
 	err := extension.Unmarshal(raw)
-	assert.ErrorIs(t, err, errPskKeyExchangeModesFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrPskKeyExchangeModesFormat)
 }
 
 func FuzzPskKeyExchangeModesUnmarshal(f *testing.F) {

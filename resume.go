@@ -5,6 +5,8 @@ package dtls
 
 import (
 	"net"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
 // Resume imports an already established dtls connection using a specific dtls state.
@@ -16,7 +18,7 @@ func Resume(state *State, conn net.PacketConn, rAddr net.Addr, config *Config) (
 	}
 
 	if config == nil {
-		return nil, errNoConfigProvided
+		return nil, dtlserrors.ErrNoConfigProvided
 	}
 
 	if err := validateConfig(config); err != nil {

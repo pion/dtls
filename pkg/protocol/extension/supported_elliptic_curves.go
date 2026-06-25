@@ -6,6 +6,7 @@ package extension
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 )
 
@@ -48,7 +49,7 @@ func (s *SupportedEllipticCurves) Marshal() ([]byte, error) {
 // Unmarshal populates the extension from encoded data.
 func (s *SupportedEllipticCurves) Unmarshal(data []byte) error {
 	if len(data) < supportedGroupsHeaderSize {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
@@ -56,13 +57,13 @@ func (s *SupportedEllipticCurves) Unmarshal(data []byte) error {
 
 	switch {
 	case TypeValue(binary.BigEndian.Uint16(data)) != s.TypeValue():
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	case declaredLength > len(data)-4: // type + declared length = 4
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	case supportedGroupsHeaderSize+(groupCount*2) > len(data):
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	case groupCount*2+2 != declaredLength:
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	for i := range groupCount {

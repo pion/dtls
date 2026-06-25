@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
 // MessageClientKeyExchange is a DTLS Handshake Message
@@ -32,7 +33,7 @@ func (m MessageClientKeyExchange) Type() Type {
 // Marshal encodes the Handshake.
 func (m *MessageClientKeyExchange) Marshal() (out []byte, err error) {
 	if m.IdentityHint == nil && m.PublicKey == nil {
-		return nil, errInvalidClientKeyExchange
+		return nil, dtlserrors.ErrInvalidClientKeyExchange
 	}
 
 	if m.IdentityHint != nil {
@@ -42,7 +43,7 @@ func (m *MessageClientKeyExchange) Marshal() (out []byte, err error) {
 
 	if m.PublicKey != nil {
 		if len(m.PublicKey) > 255 {
-			return nil, errPublicKeyTooLong
+			return nil, dtlserrors.ErrPublicKeyTooLong
 		}
 		out = append(out, byte(len(m.PublicKey))) //nolint:gosec // G115: public key length is validated to be <= 255 above.
 		out = append(out, m.PublicKey...)
@@ -55,16 +56,16 @@ func (m *MessageClientKeyExchange) Marshal() (out []byte, err error) {
 func (m *MessageClientKeyExchange) Unmarshal(data []byte) error {
 	switch {
 	case len(data) < 2:
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	case m.KeyExchangeAlgorithm == types.KeyExchangeAlgorithmNone:
-		return errCipherSuiteUnset
+		return dtlserrors.ErrCipherSuiteUnset
 	}
 
 	offset := 0
 	if m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmPsk) {
 		pskLength := int(binary.BigEndian.Uint16(data))
 		if pskLength > len(data)-2 {
-			return errBufferTooSmall
+			return dtlserrors.ErrBufferTooSmall
 		}
 
 		m.IdentityHint = append([]byte{}, data[2:pskLength+2]...)
@@ -74,7 +75,7 @@ func (m *MessageClientKeyExchange) Unmarshal(data []byte) error {
 	if m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmEcdhe) {
 		publicKeyLength := int(data[offset])
 		if publicKeyLength > len(data)-1-offset {
-			return errBufferTooSmall
+			return dtlserrors.ErrBufferTooSmall
 		}
 
 		m.PublicKey = append([]byte{}, data[offset+1:]...)

@@ -10,6 +10,7 @@ import (
 	"net"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -216,7 +217,7 @@ func (o sharedOption) applyClient(c *dtlsConfig) error { return o(c) }
 func WithCertificates(certs ...tls.Certificate) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if len(certs) == 0 {
-			return errEmptyCertificates
+			return dtlserrors.ErrEmptyCertificates
 		}
 		c.certificates = defensiveCopy(certs...)
 
@@ -229,7 +230,7 @@ func WithCertificates(certs ...tls.Certificate) Option {
 func WithCipherSuites(suites ...CipherSuiteID) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if len(suites) == 0 {
-			return errEmptyCipherSuites
+			return dtlserrors.ErrEmptyCipherSuites
 		}
 		c.cipherSuites = defensiveCopy(suites...)
 
@@ -242,7 +243,7 @@ func WithCipherSuites(suites ...CipherSuiteID) Option {
 func WithCustomCipherSuites(fn func() []CipherSuite) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilCustomCipherSuites
+			return dtlserrors.ErrNilCustomCipherSuites
 		}
 		c.customCipherSuites = fn
 
@@ -255,7 +256,7 @@ func WithCustomCipherSuites(fn func() []CipherSuite) Option {
 func WithSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if len(schemes) == 0 {
-			return errEmptySignatureSchemes
+			return dtlserrors.ErrEmptySignatureSchemes
 		}
 		c.signatureSchemes = defensiveCopy(schemes...)
 
@@ -271,7 +272,7 @@ func WithSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 func WithCertificateSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if len(schemes) == 0 {
-			return errEmptyCertificateSignatureSchemes
+			return dtlserrors.ErrEmptyCertificateSignatureSchemes
 		}
 		c.certificateSignatureSchemes = defensiveCopy(schemes...)
 
@@ -284,7 +285,7 @@ func WithCertificateSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 func WithSRTPProtectionProfiles(profiles ...SRTPProtectionProfile) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if len(profiles) == 0 {
-			return errEmptySRTPProtectionProfiles
+			return dtlserrors.ErrEmptySRTPProtectionProfiles
 		}
 		c.srtpProtectionProfiles = defensiveCopy(profiles...)
 
@@ -306,7 +307,7 @@ func WithSRTPMasterKeyIdentifier(identifier []byte) Option {
 func WithExtendedMasterSecret(ems ExtendedMasterSecretType) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if ems < RequestExtendedMasterSecret || ems > DisableExtendedMasterSecret {
-			return errInvalidExtendedMasterSecretType
+			return dtlserrors.ErrInvalidExtendedMasterSecretType
 		}
 		c.extendedMasterSecret = ems
 
@@ -319,7 +320,7 @@ func WithExtendedMasterSecret(ems ExtendedMasterSecretType) Option {
 func WithFlightInterval(interval time.Duration) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if interval <= 0 {
-			return errInvalidFlightInterval
+			return dtlserrors.ErrInvalidFlightInterval
 		}
 		c.flightInterval = interval
 
@@ -341,7 +342,7 @@ func WithDisableRetransmitBackoff(disable bool) Option {
 func WithPSK(callback PSKCallback) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if callback == nil {
-			return errNilPSKCallback
+			return dtlserrors.ErrNilPSKCallback
 		}
 		c.psk = callback
 
@@ -382,7 +383,7 @@ func WithInsecureHashes(allow bool) Option {
 func WithVerifyPeerCertificate(fn func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilVerifyPeerCertificate
+			return dtlserrors.ErrNilVerifyPeerCertificate
 		}
 		c.verifyPeerCertificate = fn
 
@@ -395,7 +396,7 @@ func WithVerifyPeerCertificate(fn func(rawCerts [][]byte, verifiedChains [][]*x5
 func WithVerifyConnection(fn func(*State) error) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilVerifyConnection
+			return dtlserrors.ErrNilVerifyConnection
 		}
 		c.verifyConnection = fn
 
@@ -435,7 +436,7 @@ func WithLoggerFactory(factory logging.LoggerFactory) Option {
 func WithMTU(mtu int) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if mtu <= 0 {
-			return errInvalidMTU
+			return dtlserrors.ErrInvalidMTU
 		}
 		c.mtu = mtu
 
@@ -448,7 +449,7 @@ func WithMTU(mtu int) Option {
 func WithReplayProtectionWindow(window int) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if window < 0 {
-			return errInvalidReplayProtectionWindow
+			return dtlserrors.ErrInvalidReplayProtectionWindow
 		}
 		c.replayProtectionWindow = window
 
@@ -480,7 +481,7 @@ func WithSessionStore(store SessionStore) Option {
 func WithSupportedProtocols(protocols ...string) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if len(protocols) == 0 {
-			return errEmptySupportedProtocols
+			return dtlserrors.ErrEmptySupportedProtocols
 		}
 		c.supportedProtocols = defensiveCopy(protocols...)
 
@@ -493,7 +494,7 @@ func WithSupportedProtocols(protocols ...string) Option {
 func WithEllipticCurves(curves ...elliptic.Curve) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if len(curves) == 0 {
-			return errEmptyEllipticCurves
+			return dtlserrors.ErrEmptyEllipticCurves
 		}
 		c.ellipticCurves = defensiveCopy(curves...)
 
@@ -506,7 +507,7 @@ func WithEllipticCurves(curves ...elliptic.Curve) Option {
 func WithGetClientCertificate(fn func(*CertificateRequestInfo) (*tls.Certificate, error)) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilGetClientCertificate
+			return dtlserrors.ErrNilGetClientCertificate
 		}
 		c.getClientCertificate = fn
 
@@ -519,7 +520,7 @@ func WithGetClientCertificate(fn func(*CertificateRequestInfo) (*tls.Certificate
 func WithConnectionIDGenerator(fn func() []byte) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilConnectionIDGenerator
+			return dtlserrors.ErrNilConnectionIDGenerator
 		}
 		c.connectionIDGenerator = fn
 
@@ -532,7 +533,7 @@ func WithConnectionIDGenerator(fn func() []byte) Option {
 func WithPaddingLengthGenerator(fn func(uint) uint) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilPaddingLengthGenerator
+			return dtlserrors.ErrNilPaddingLengthGenerator
 		}
 		c.paddingLengthGenerator = fn
 
@@ -545,7 +546,7 @@ func WithPaddingLengthGenerator(fn func(uint) uint) Option {
 func WithHelloRandomBytesGenerator(fn func() [handshake.RandomBytesLength]byte) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilHelloRandomBytesGenerator
+			return dtlserrors.ErrNilHelloRandomBytesGenerator
 		}
 		c.helloRandomBytesGenerator = fn
 
@@ -558,7 +559,7 @@ func WithHelloRandomBytesGenerator(fn func() [handshake.RandomBytesLength]byte) 
 func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.Message) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilClientHelloMessageHook
+			return dtlserrors.ErrNilClientHelloMessageHook
 		}
 		c.clientHelloMessageHook = fn
 
@@ -576,7 +577,7 @@ func withMinVersion(version protocol.Version) Option { // nolint:unused
 			return nil
 		}
 
-		return errUnsupportedProtocolVersion
+		return dtlserrors.ErrUnsupportedProtocolVersion
 	})
 }
 
@@ -590,7 +591,7 @@ func withMaxVersion(version protocol.Version) Option { // nolint:unused
 			return nil
 		}
 
-		return errUnsupportedProtocolVersion
+		return dtlserrors.ErrUnsupportedProtocolVersion
 	})
 }
 
@@ -605,7 +606,7 @@ func (o serverOnlyOption) applyServer(c *dtlsConfig) error { return o(c) }
 func WithClientAuth(auth ClientAuthType) ServerOption {
 	return serverOnlyOption(func(c *dtlsConfig) error {
 		if auth < NoClientCert || auth > RequireAndVerifyClientCert {
-			return errInvalidClientAuthType
+			return dtlserrors.ErrInvalidClientAuthType
 		}
 		c.clientAuth = auth
 
@@ -629,7 +630,7 @@ func WithClientCAs(pool *x509.CertPool) ServerOption {
 func WithGetCertificate(fn func(*ClientHelloInfo) (*tls.Certificate, error)) ServerOption {
 	return serverOnlyOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilGetCertificate
+			return dtlserrors.ErrNilGetCertificate
 		}
 		c.getCertificate = fn
 
@@ -654,7 +655,7 @@ func WithInsecureSkipVerifyHello(skip bool) ServerOption {
 func WithServerHelloMessageHook(fn func(handshake.MessageServerHello) handshake.Message) ServerOption {
 	return serverOnlyOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilServerHelloMessageHook
+			return dtlserrors.ErrNilServerHelloMessageHook
 		}
 		c.serverHelloMessageHook = fn
 
@@ -668,7 +669,7 @@ func WithServerHelloMessageHook(fn func(handshake.MessageServerHello) handshake.
 func WithCertificateRequestMessageHook(fn func(handshake.MessageCertificateRequest) handshake.Message) ServerOption {
 	return serverOnlyOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilCertificateRequestMessageHook
+			return dtlserrors.ErrNilCertificateRequestMessageHook
 		}
 		c.certificateRequestMessageHook = fn
 
@@ -682,7 +683,7 @@ func WithCertificateRequestMessageHook(fn func(handshake.MessageCertificateReque
 func WithOnConnectionAttempt(fn func(net.Addr) error) ServerOption {
 	return serverOnlyOption(func(c *dtlsConfig) error {
 		if fn == nil {
-			return errNilOnConnectionAttempt
+			return dtlserrors.ErrNilOnConnectionAttempt
 		}
 		c.onConnectionAttempt = fn
 

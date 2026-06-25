@@ -3,7 +3,10 @@
 
 package extension
 
-import "golang.org/x/crypto/cryptobyte"
+import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"golang.org/x/crypto/cryptobyte"
+)
 
 // OIDFilters defines a DTLS 1.3 extension that is used to allow server to
 // provide a set of OID/value pairs which it would like the client's
@@ -34,10 +37,10 @@ func (o *OIDFilters) Marshal() ([]byte, error) {
 			seen := map[string]struct{}{}
 			for _, filter := range o.Filters {
 				if len(filter.OID) < 1 {
-					builder.SetError(errEmptyOIDFilter)
+					builder.SetError(dtlserrors.ErrEmptyOIDFilter)
 				}
 				if _, ok := seen[string(filter.OID)]; ok {
-					builder.SetError(errDuplicateOID)
+					builder.SetError(dtlserrors.ErrDuplicateOID)
 				}
 				seen[string(filter.OID)] = struct{}{}
 				builder.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
@@ -61,17 +64,17 @@ func (o *OIDFilters) Unmarshal(data []byte) error { //nolint:cyclop
 
 	var extension uint16
 	if !val.ReadUint16(&extension) || TypeValue(extension) != o.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	var extData cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	var filterList cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&filterList) || !extData.Empty() {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	o.Filters = make([]OIDFilter, 0)
@@ -83,10 +86,10 @@ func (o *OIDFilters) Unmarshal(data []byte) error { //nolint:cyclop
 
 		var oid cryptobyte.String
 		if !filterList.ReadUint8LengthPrefixed(&oid) || oid.Empty() {
-			return errOIDFiltersFormat
+			return dtlserrors.ErrOIDFiltersFormat
 		}
 		if _, ok := seen[string(oid)]; ok {
-			return errDuplicateOID
+			return dtlserrors.ErrDuplicateOID
 		}
 		seen[string(oid)] = struct{}{}
 
@@ -95,7 +98,7 @@ func (o *OIDFilters) Unmarshal(data []byte) error { //nolint:cyclop
 
 		var values cryptobyte.String
 		if !filterList.ReadUint16LengthPrefixed(&values) {
-			return errOIDFiltersFormat
+			return dtlserrors.ErrOIDFiltersFormat
 		}
 		filter.Values = make([]byte, len(values))
 		copy(filter.Values, values)

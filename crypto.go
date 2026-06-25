@@ -16,6 +16,7 @@ import (
 	"math/big"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
@@ -72,7 +73,7 @@ func validateSignatureAlgOID(cert *x509.Certificate, sigAlg signature.Algorithm)
 	case signature.RSA_PSS_RSAE_SHA256, signature.RSA_PSS_RSAE_SHA384, signature.RSA_PSS_RSAE_SHA512:
 		oidPublicKeyRSA := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1} // OID: rsaEncryption
 		if !certOID.Equal(oidPublicKeyRSA) {
-			return errInvalidCertificateOID
+			return dtlserrors.ErrInvalidCertificateOID
 		}
 
 		return nil
@@ -81,7 +82,7 @@ func validateSignatureAlgOID(cert *x509.Certificate, sigAlg signature.Algorithm)
 	case signature.RSA_PSS_PSS_SHA256, signature.RSA_PSS_PSS_SHA384, signature.RSA_PSS_PSS_SHA512:
 		oidPublicKeyRSAPSS := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 10} // OID: id-RSASSA-PSS
 		if !certOID.Equal(oidPublicKeyRSAPSS) {
-			return errInvalidCertificateOID
+			return dtlserrors.ErrInvalidCertificateOID
 		}
 
 		return nil
@@ -129,7 +130,7 @@ func generateKeySignature(
 		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
 	}
 
-	return nil, errKeySignatureGenerateUnimplemented
+	return nil, dtlserrors.ErrKeySignatureGenerateUnimplemented
 }
 
 //nolint:dupl,cyclop
@@ -140,7 +141,7 @@ func verifyKeySignature(
 	rawCertificates [][]byte,
 ) error {
 	if len(rawCertificates) == 0 {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 	certificate, err := x509.ParseCertificate(rawCertificates[0])
 	if err != nil {
@@ -155,7 +156,7 @@ func verifyKeySignature(
 	switch pubKey := certificate.PublicKey.(type) {
 	case ed25519.PublicKey:
 		if ok := ed25519.Verify(pubKey, message, remoteKeySignature); !ok {
-			return errKeySignatureMismatch
+			return dtlserrors.ErrKeySignatureMismatch
 		}
 
 		return nil
@@ -165,11 +166,11 @@ func verifyKeySignature(
 			return err
 		}
 		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
-			return errInvalidECDSASignature
+			return dtlserrors.ErrInvalidECDSASignature
 		}
 		hashed := hashAlgorithm.Digest(message)
 		if !ecdsa.Verify(pubKey, hashed, ecdsaSig.R, ecdsaSig.S) {
-			return errKeySignatureMismatch
+			return dtlserrors.ErrKeySignatureMismatch
 		}
 
 		return nil
@@ -183,7 +184,7 @@ func verifyKeySignature(
 				Hash:       hashAlgorithm.CryptoHash(),
 			}
 			if err := rsa.VerifyPSS(pubKey, hashAlgorithm.CryptoHash(), hashed, remoteKeySignature, pssOpts); err != nil {
-				return errKeySignatureMismatch
+				return dtlserrors.ErrKeySignatureMismatch
 			}
 
 			return nil
@@ -191,13 +192,13 @@ func verifyKeySignature(
 
 		// Otherwise use PKCS#1 v1.5
 		if rsa.VerifyPKCS1v15(pubKey, hashAlgorithm.CryptoHash(), hashed, remoteKeySignature) != nil {
-			return errKeySignatureMismatch
+			return dtlserrors.ErrKeySignatureMismatch
 		}
 
 		return nil
 	}
 
-	return errKeySignatureVerifyUnimplemented
+	return dtlserrors.ErrKeySignatureVerifyUnimplemented
 }
 
 // If the server has sent a CertificateRequest message, the client MUST send the Certificate
@@ -241,7 +242,7 @@ func generateCertificateVerify(
 		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
 	}
 
-	return nil, errInvalidSignatureAlgorithm
+	return nil, dtlserrors.ErrInvalidSignatureAlgorithm
 }
 
 //nolint:dupl,cyclop
@@ -253,7 +254,7 @@ func verifyCertificateVerify(
 	rawCertificates [][]byte,
 ) error {
 	if len(rawCertificates) == 0 {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 	certificate, err := x509.ParseCertificate(rawCertificates[0])
 	if err != nil {
@@ -268,7 +269,7 @@ func verifyCertificateVerify(
 	switch pubKey := certificate.PublicKey.(type) {
 	case ed25519.PublicKey:
 		if ok := ed25519.Verify(pubKey, handshakeBodies, remoteKeySignature); !ok {
-			return errKeySignatureMismatch
+			return dtlserrors.ErrKeySignatureMismatch
 		}
 
 		return nil
@@ -278,11 +279,11 @@ func verifyCertificateVerify(
 			return err
 		}
 		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
-			return errInvalidECDSASignature
+			return dtlserrors.ErrInvalidECDSASignature
 		}
 		hash := hashAlgorithm.Digest(handshakeBodies)
 		if !ecdsa.Verify(pubKey, hash, ecdsaSig.R, ecdsaSig.S) {
-			return errKeySignatureMismatch
+			return dtlserrors.ErrKeySignatureMismatch
 		}
 
 		return nil
@@ -296,7 +297,7 @@ func verifyCertificateVerify(
 				Hash:       hashAlgorithm.CryptoHash(),
 			}
 			if err := rsa.VerifyPSS(pubKey, hashAlgorithm.CryptoHash(), hash, remoteKeySignature, pssOpts); err != nil {
-				return errKeySignatureMismatch
+				return dtlserrors.ErrKeySignatureMismatch
 			}
 
 			return nil
@@ -304,18 +305,18 @@ func verifyCertificateVerify(
 
 		// Otherwise use PKCS#1 v1.5
 		if rsa.VerifyPKCS1v15(pubKey, hashAlgorithm.CryptoHash(), hash, remoteKeySignature) != nil {
-			return errKeySignatureMismatch
+			return dtlserrors.ErrKeySignatureMismatch
 		}
 
 		return nil
 	}
 
-	return errKeySignatureVerifyUnimplemented
+	return dtlserrors.ErrKeySignatureVerifyUnimplemented
 }
 
 func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
 	if len(rawCertificates) == 0 {
-		return nil, errLengthMismatch
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
 	certs := make([]*x509.Certificate, 0, len(rawCertificates))
@@ -367,7 +368,7 @@ func verifyClientCert(
 			}
 		}
 		if !validChainFound {
-			return nil, errInvalidCertificateSignatureAlgorithm
+			return nil, dtlserrors.ErrInvalidCertificateSignatureAlgorithm
 		}
 	}
 
@@ -412,7 +413,7 @@ func verifyServerCert(
 			}
 		}
 		if !validChainFound {
-			return nil, errInvalidCertificateSignatureAlgorithm
+			return nil, dtlserrors.ErrInvalidCertificateSignatureAlgorithm
 		}
 	}
 
@@ -450,7 +451,7 @@ func validateCertificateSignatureAlgorithms(
 		}
 
 		if !found {
-			return errInvalidCertificateSignatureAlgorithm
+			return dtlserrors.ErrInvalidCertificateSignatureAlgorithm
 		}
 	}
 

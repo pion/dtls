@@ -7,11 +7,10 @@ package elliptic
 import (
 	"crypto/ecdh"
 	"crypto/rand"
-	"errors"
 	"fmt"
-)
 
-var errInvalidNamedCurve = errors.New("invalid named curve")
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+)
 
 // CurvePointFormat is used to represent the IANA registered curve points
 //
@@ -115,6 +114,6 @@ func (c Curve) toECDH() (ecdh.Curve, error) {
 	case P384:
 		return ecdh.P384(), nil
 	default:
-		return nil, errInvalidNamedCurve
+		return nil, dtlserrors.ErrInvalidNamedCurve
 	}
 }

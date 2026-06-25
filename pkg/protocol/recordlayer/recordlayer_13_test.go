@@ -6,6 +6,7 @@ package recordlayer
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -102,7 +103,7 @@ func TestPlaintextRecord13RejectsProtectedEpoch(t *testing.T) {
 	}
 
 	_, err := record.Marshal()
-	require.ErrorIs(t, err, errInvalidEpoch)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidEpoch)
 }
 
 func TestPlaintextRecord13MarshalRejectsUnsupportedDTLS10Version(t *testing.T) {
@@ -114,7 +115,7 @@ func TestPlaintextRecord13MarshalRejectsUnsupportedDTLS10Version(t *testing.T) {
 	}
 
 	_, err := record.Marshal()
-	require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+	require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 }
 
 func TestPlaintextRecord13UnmarshalIgnoresLegacyRecordVersion(t *testing.T) {
@@ -174,7 +175,7 @@ func TestPlaintextRecord13MarshalRejectsDTLS10LegacyVersionForNonInitialClientHe
 	}
 
 	_, err := record.Marshal()
-	require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+	require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 }
 
 func TestPlaintextRecord13UnmarshalAcceptsDTLS10LegacyVersionForNonInitialClientHello(t *testing.T) {
@@ -212,7 +213,7 @@ func TestPlaintextRecord13RejectsLegacyPlaintextContentTypes(t *testing.T) {
 	}
 
 	_, err := record.Marshal()
-	require.ErrorIs(t, err, errInvalidContentType)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidContentType)
 
 	header := Header{
 		ContentType: protocol.ContentTypeApplicationData,
@@ -225,7 +226,7 @@ func TestPlaintextRecord13RejectsLegacyPlaintextContentTypes(t *testing.T) {
 
 	var roundTrip PlaintextRecord13
 	err = roundTrip.Unmarshal(raw)
-	require.ErrorIs(t, err, errInvalidContentType)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidContentType)
 }
 
 func TestPlaintextRecord13RejectsOversizedContent(t *testing.T) {
@@ -445,7 +446,7 @@ func TestUnpackDatagram13RejectsCiphertextMissingNegotiatedCID(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = UnpackDatagram13(raw, 4, true)
-	require.ErrorIs(t, err, errInvalidCiphertextHeader)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 }
 
 func TestUnpackDatagram13RejectsCiphertextWithUnexpectedCID(t *testing.T) {
@@ -460,12 +461,12 @@ func TestUnpackDatagram13RejectsCiphertextWithUnexpectedCID(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = UnpackDatagram13(raw, 0, true)
-	require.ErrorIs(t, err, errInvalidCiphertextHeader)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 }
 
 func TestUnpackDatagram13RejectsTruncatedCID(t *testing.T) {
 	_, err := UnpackDatagram13([]byte{0x30, 0x01, 0x02}, 4, true)
-	require.ErrorIs(t, err, errInvalidUnifiedHeaderFormat)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidUnifiedHeaderFormat)
 }
 
 func TestUnpackDatagram13DiscardsRemainderOnMismatchedCID(t *testing.T) {
@@ -505,7 +506,7 @@ func TestUnpackDatagram13RejectsLegacyPlaintextWhenCiphertextHeadersEnabled(t *t
 	raw = append(raw, 0xaa)
 
 	_, err = UnpackDatagram13(raw, 0, true)
-	require.ErrorIs(t, err, errInvalidContentType)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidContentType)
 }
 
 func TestRecordLayer13Interface(t *testing.T) {

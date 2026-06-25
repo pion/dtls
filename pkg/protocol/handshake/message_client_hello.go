@@ -6,6 +6,7 @@ package handshake
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 )
@@ -39,13 +40,13 @@ func (m MessageClientHello) Type() Type {
 // Marshal encodes the Handshake.
 func (m *MessageClientHello) Marshal() ([]byte, error) {
 	if len(m.Cookie) > 255 {
-		return nil, errCookieTooLong
+		return nil, dtlserrors.ErrCookieTooLong
 	}
 	if len(m.SessionID) > 255 {
-		return nil, errSessionIDTooLong
+		return nil, dtlserrors.ErrSessionIDTooLong
 	}
 	if len(m.CompressionMethods) > 255 {
-		return nil, errCompressionMethodsTooLong
+		return nil, dtlserrors.ErrCompressionMethodsTooLong
 	}
 
 	extensions, err := extension.Marshal(m.Extensions)
@@ -81,7 +82,7 @@ func (m *MessageClientHello) Marshal() ([]byte, error) {
 // Unmarshal populates the message from encoded data.
 func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if len(data) < 2+RandomLength {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	m.Version.Major = data[0]
@@ -96,29 +97,29 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 
 	currOffset++
 	if len(data) <= currOffset {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	n := int(data[currOffset-1])
 	if len(data) <= currOffset+n {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.SessionID = append([]byte{}, data[currOffset:currOffset+n]...)
 	currOffset += len(m.SessionID)
 
 	currOffset++
 	if len(data) <= currOffset {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	n = int(data[currOffset-1])
 	if len(data) <= currOffset+n {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.Cookie = append([]byte{}, data[currOffset:currOffset+n]...)
 	currOffset += len(m.Cookie)
 
 	// Cipher Suites
 	if len(data) < currOffset {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	cipherSuiteIDs, err := decodeCipherSuiteIDs(data[currOffset:])
 	if err != nil {
@@ -126,13 +127,13 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 	}
 	m.CipherSuiteIDs = cipherSuiteIDs
 	if len(data) < currOffset+2 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	currOffset += int(binary.BigEndian.Uint16(data[currOffset:])) + 2
 
 	// Compression Methods
 	if len(data) < currOffset {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	compressionMethods, err := protocol.DecodeCompressionMethods(data[currOffset:])
 	if err != nil {
@@ -140,7 +141,7 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 	}
 	m.CompressionMethods = compressionMethods
 	if len(data) < currOffset {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	currOffset += int(data[currOffset]) + 1
 

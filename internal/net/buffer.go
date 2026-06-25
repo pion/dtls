@@ -14,18 +14,18 @@ package net
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"net"
 	"sync"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/transport/v4/deadline"
 )
 
 // ErrTimeout indicates that deadline was reached before operation could be
 // completed.
-var ErrTimeout = errors.New("buffer: i/o timeout")
+var ErrTimeout = dtlserrors.ErrNetBufferTimeout
 
 // AddrPacket is a packet payload and the associated remote address from which
 // it was received.

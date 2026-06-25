@@ -6,6 +6,7 @@ package handshake
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/stretchr/testify/assert"
@@ -42,5 +43,5 @@ func TestHandshakeMessageCertificateVerify_InvalidAlgorithmValue(t *testing.T) {
 	}
 
 	_, err := c.Marshal()
-	assert.ErrorIs(t, err, errInvalidSignHashAlgorithm)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidSignHashAlgorithm)
 }

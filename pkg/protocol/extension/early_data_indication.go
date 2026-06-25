@@ -4,6 +4,7 @@
 package extension
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -44,19 +45,19 @@ func (e *EarlyDataIndication) Unmarshal(data []byte) error {
 	val := cryptobyte.String(data)
 	var extension uint16
 	if !val.ReadUint16(&extension) || TypeValue(extension) != e.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	var extData cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	// new_session_ticket
 	if !extData.Empty() {
 		var med uint32
 		if !extData.ReadUint32(&med) || !extData.Empty() {
-			return errEarlyDataIndicationFormat
+			return dtlserrors.ErrEarlyDataIndicationFormat
 		}
 		e.MaxEarlyData = &med
 	}

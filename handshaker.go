@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -218,7 +219,7 @@ func (s *handshakeFSM12) Run(ctx context.Context, conn flightConn, initialState 
 		case handshakeFinished:
 			state, err = s.finish(ctx, conn)
 		default:
-			return errInvalidFSMTransition
+			return dtlserrors.ErrInvalidFSMTransition
 		}
 		if err != nil {
 			return err

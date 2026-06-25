@@ -6,6 +6,7 @@ package handshake
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,7 +16,7 @@ func TestDecodeCipherSuiteIDs(t *testing.T) {
 		result []uint16
 		err    error
 	}{
-		{[]byte{}, nil, errBufferTooSmall},
+		{[]byte{}, nil, dtlserrors.ErrBufferTooSmall},
 	}
 
 	for _, testCase := range testCases {

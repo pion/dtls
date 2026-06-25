@@ -6,20 +6,13 @@ package ciphersuite
 import (
 	"crypto/sha256"
 	"crypto/sha512"
-	"errors"
 	"fmt"
 	"hash"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
-	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
-
-var errCipherSuiteRecordProtectionNotImplemented = &protocol.TemporaryError{
-	// todo: implement
-	// nolint:godox
-	Err: errors.New("DTLS 1.3 cipher suite record protection is not implemented"), //nolint:err113
-}
 
 // TLS13CipherSuite is metadata for a TLS 1.3 cipher suite. TLS 1.3 cipher
 // suites only identify the AEAD and hash; authentication and key exchange are
@@ -77,13 +70,13 @@ func (c *TLS13CipherSuite) IsInitialized() bool {
 }
 
 func (c *TLS13CipherSuite) Init(_, _, _ []byte, _ bool) error {
-	return errCipherSuiteRecordProtectionNotImplemented
+	return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 }
 
 func (c *TLS13CipherSuite) Encrypt(_ *recordlayer.RecordLayer, _ []byte) ([]byte, error) {
-	return nil, fmt.Errorf("%w, unable to encrypt", errCipherSuiteRecordProtectionNotImplemented)
+	return nil, fmt.Errorf("%w, unable to encrypt", dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
 }
 
 func (c *TLS13CipherSuite) Decrypt(_ recordlayer.Header, _ []byte) ([]byte, error) {
-	return nil, fmt.Errorf("%w, unable to decrypt", errCipherSuiteRecordProtectionNotImplemented)
+	return nil, fmt.Errorf("%w, unable to decrypt", dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
 }

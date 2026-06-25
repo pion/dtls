@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
@@ -35,7 +36,7 @@ func (m MessageHelloVerifyRequest) Type() Type {
 // Marshal encodes the Handshake.
 func (m *MessageHelloVerifyRequest) Marshal() ([]byte, error) {
 	if len(m.Cookie) > 255 {
-		return nil, errCookieTooLong
+		return nil, dtlserrors.ErrCookieTooLong
 	}
 
 	out := make([]byte, 3+len(m.Cookie))
@@ -50,13 +51,13 @@ func (m *MessageHelloVerifyRequest) Marshal() ([]byte, error) {
 // Unmarshal populates the message from encoded data.
 func (m *MessageHelloVerifyRequest) Unmarshal(data []byte) error {
 	if len(data) < 3 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.Version.Major = data[0]
 	m.Version.Minor = data[1]
 	cookieLength := int(data[2])
 	if len(data) < cookieLength+3 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.Cookie = make([]byte, cookieLength)
 

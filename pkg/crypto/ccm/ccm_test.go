@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -333,28 +334,28 @@ func TestNewCCMError(t *testing.T) {
 				AESKey: aesKey1to12(t),
 				M:      8,
 				Nonce:  mustHexDecode(t, "a0a1a2a3a4a5"),
-			}, errInvalidNonceSize,
+			}, dtlserrors.ErrCCMInvalidNonceSize,
 		},
 		"LongNonceLength": {
 			vector{
 				AESKey: aesKey1to12(t),
 				M:      8,
 				Nonce:  mustHexDecode(t, "0001020304050607080910111213"),
-			}, errInvalidNonceSize,
+			}, dtlserrors.ErrCCMInvalidNonceSize,
 		},
 		"ShortTag": {
 			vector{
 				AESKey: aesKey1to12(t),
 				M:      3,
 				Nonce:  mustHexDecode(t, "00010203040506070809101112"),
-			}, errInvalidTagSize,
+			}, dtlserrors.ErrCCMInvalidTagSize,
 		},
 		"LongTag": {
 			vector{
 				AESKey: aesKey1to12(t),
 				M:      17,
 				Nonce:  mustHexDecode(t, "00010203040506070809101112"),
-			}, errInvalidTagSize,
+			}, dtlserrors.ErrCCMInvalidTagSize,
 		},
 	}
 
@@ -379,14 +380,14 @@ func TestSealError(t *testing.T) {
 				Data:  mustHexDecode(t, "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e"),
 				M:     8,
 				Nonce: mustHexDecode(t, "00000003020100a0a1a2a3a4"), // short
-			}, errInvalidNonceSize,
+			}, dtlserrors.ErrCCMInvalidNonceSize,
 		},
 		"PlaintextTooLong": {
 			vector{
 				Data:  make([]byte, 100000),
 				M:     8,
 				Nonce: mustHexDecode(t, "00000003020100a0a1a2a3a4a5"),
-			}, errPlaintextTooLong,
+			}, dtlserrors.ErrCCMPlaintextTooLong,
 		},
 	}
 
@@ -424,14 +425,14 @@ func TestOpenError(t *testing.T) {
 				CipherText:        make([]byte, 10),
 				ClearHeaderOctets: 8,
 				Nonce:             mustHexDecode(t, "00000003020100a0a1a2a3a4a5"),
-			}, errCiphertextTooShort,
+			}, dtlserrors.ErrCCMCiphertextTooShort,
 		},
 		"CiphertextTooLong": {
 			vector{
 				CipherText:        make([]byte, 100000),
 				ClearHeaderOctets: 8,
 				Nonce:             mustHexDecode(t, "00000003020100a0a1a2a3a4a5"),
-			}, errCiphertextTooLong,
+			}, dtlserrors.ErrCCMCiphertextTooLong,
 		},
 	}
 

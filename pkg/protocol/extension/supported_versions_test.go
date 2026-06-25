@@ -6,6 +6,7 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/stretchr/testify/assert"
 )
@@ -100,7 +101,7 @@ func TestSupportedVersions_ClientHello_Marshal_Invalid(t *testing.T) {
 
 	// in this case we want it to error to protect against malformed messages/DOS attacks.
 	_, err := ext.Marshal()
-	assert.ErrorIs(t, err, errInvalidDTLSVersion)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidDTLSVersion)
 }
 
 func TestSupportedVersions_ClientHello_Unmarshal_Invalid(t *testing.T) {
@@ -140,7 +141,7 @@ func TestSupportedVersions_Marshal_LengthBounds(t *testing.T) {
 
 	ext := &SupportedVersions{Versions: tooMany}
 	_, err := ext.Marshal()
-	assert.ErrorIs(t, err, errInvalidSupportedVersionsFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidSupportedVersionsFormat)
 }
 
 func TestSupportedVersions_Marshal_SelectedVersionRequiresSingleVersion(t *testing.T) {
@@ -153,7 +154,7 @@ func TestSupportedVersions_Marshal_SelectedVersionRequiresSingleVersion(t *testi
 	}
 
 	_, err := ext.Marshal()
-	assert.ErrorIs(t, err, errInvalidSupportedVersionsFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidSupportedVersionsFormat)
 }
 
 func TestSupportedVersions_Unmarshal_Errors(t *testing.T) {
@@ -167,7 +168,7 @@ func TestSupportedVersions_Unmarshal_Errors(t *testing.T) {
 			raw: []byte{
 				0x00, 0x0d, // invalid extension type
 			},
-			err: errInvalidExtensionType,
+			err: dtlserrors.ErrInvalidExtensionType,
 		},
 		{
 			name: "empty extension_data",
@@ -175,7 +176,7 @@ func TestSupportedVersions_Unmarshal_Errors(t *testing.T) {
 				0x00, 0x2b, // extension type
 				0x00, 0x00, // length = 0
 			},
-			err: errInvalidSupportedVersionsFormat,
+			err: dtlserrors.ErrInvalidSupportedVersionsFormat,
 		},
 		{
 			name: "client list odd length",
@@ -186,7 +187,7 @@ func TestSupportedVersions_Unmarshal_Errors(t *testing.T) {
 				0x03,             // listLen = 3
 				0xfe, 0xfd, 0xfe, // extra byte, parsing as list must fail
 			},
-			err: errInvalidSupportedVersionsFormat,
+			err: dtlserrors.ErrInvalidSupportedVersionsFormat,
 		},
 		{
 			name: "client list length mismatch",
@@ -197,7 +198,7 @@ func TestSupportedVersions_Unmarshal_Errors(t *testing.T) {
 				0x04,       // listLen = 4
 				0xfe, 0xfd, // but only 2 bytes present
 			},
-			err: errInvalidSupportedVersionsFormat,
+			err: dtlserrors.ErrInvalidSupportedVersionsFormat,
 		},
 		{
 			name: "server selected wrong size",
@@ -207,7 +208,7 @@ func TestSupportedVersions_Unmarshal_Errors(t *testing.T) {
 				0x00, 0x03, // length = 3
 				0xfe, 0xfc, 0x00,
 			},
-			err: errInvalidSupportedVersionsFormat,
+			err: dtlserrors.ErrInvalidSupportedVersionsFormat,
 		},
 	}
 
