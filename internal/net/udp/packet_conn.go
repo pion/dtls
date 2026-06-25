@@ -42,7 +42,7 @@ var (
 
 // listener augments a connection-oriented Listener over a UDP PacketConn.
 type listener struct {
-	pConn *net.UDPConn
+	pConn net.PacketConn
 
 	accepting      atomic.Value // bool
 	acceptCh       chan *PacketConn
@@ -166,21 +166,24 @@ type ListenConfig struct {
 //
 //nolint:contextcheck
 func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.PacketListener, error) {
-	if lc.Backlog == 0 {
-		lc.Backlog = defaultListenBacklog
-	}
-
 	laddrStr := ":0"
 	if laddr != nil {
 		laddrStr = laddr.String()
 	}
-	innerConn, err := lc.ListenConfig.ListenPacket(context.Background(), network, laddrStr)
+	conn, err := lc.ListenConfig.ListenPacket(context.Background(), network, laddrStr)
 	if err != nil {
 		return nil, err
 	}
-	conn, ok := innerConn.(*net.UDPConn)
-	if !ok {
-		return nil, errors.New("listen packet not a *net.UDPConn") //nolint:err113
+
+	return lc.ListenPacketConn(conn), nil
+}
+
+// ListenPacketConn creates a new listener that accepts connections on the
+// supplied packet connection. The listener takes ownership of the connection
+// and closes it on Close.
+func (lc *ListenConfig) ListenPacketConn(conn net.PacketConn) dtlsnet.PacketListener {
+	if lc.Backlog == 0 {
+		lc.Backlog = defaultListenBacklog
 	}
 
 	packetListener := &listener{
@@ -207,7 +210,7 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 		packetListener.readWG.Done()
 	}()
 
-	return packetListener, nil
+	return packetListener
 }
 
 // Listen creates a new listener using default ListenConfig.
