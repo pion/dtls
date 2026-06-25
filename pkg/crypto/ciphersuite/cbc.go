@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"hash"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -48,12 +49,12 @@ func NewCBC(
 
 	writeCBC, ok := cipher.NewCBCEncrypter(writeBlock, localWriteIV).(cbcMode)
 	if !ok {
-		return nil, errFailedToCast
+		return nil, dtlserrors.ErrFailedToCast
 	}
 
 	readCBC, ok := cipher.NewCBCDecrypter(readBlock, remoteWriteIV).(cbcMode)
 	if !ok {
-		return nil, errFailedToCast
+		return nil, dtlserrors.ErrFailedToCast
 	}
 
 	return &CBC{
@@ -130,7 +131,7 @@ func (c *CBC) Decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
 	case len(body)%blockSize != 0 || len(body) < blockSize+util.Max(mac.Size()+1, blockSize):
-		return nil, errNotEnoughRoomForNonce
+		return nil, dtlserrors.ErrNotEnoughRoomForNonce
 	}
 
 	// Set + remove per record IV
@@ -144,12 +145,12 @@ func (c *CBC) Decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 	// Otherwise we reveal information about the level of correctness
 	paddingLen, paddingGood := examinePadding(body)
 	if paddingGood != 255 {
-		return nil, errInvalidMAC
+		return nil, dtlserrors.ErrInvalidMAC
 	}
 
 	macSize := mac.Size()
 	if len(body) < macSize {
-		return nil, errInvalidMAC
+		return nil, dtlserrors.ErrInvalidMAC
 	}
 
 	dataEnd := len(body) - macSize - paddingLen
@@ -168,7 +169,7 @@ func (c *CBC) Decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 	}
 	// Compute Local MAC and compare
 	if err != nil || !hmac.Equal(actualMAC, expectedMAC) {
-		return nil, errInvalidMAC
+		return nil, dtlserrors.ErrInvalidMAC
 	}
 
 	return append(in[:header.Size()], body[:dataEnd]...), nil

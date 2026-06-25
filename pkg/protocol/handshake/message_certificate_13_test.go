@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,7 +101,7 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 		},
 		"invalid - buffer too small": {
 			rawCertificate: []byte{0x00},
-			expErr:         errBufferTooSmall,
+			expErr:         dtlserrors.ErrBufferTooSmall,
 		},
 	}
 
@@ -247,7 +248,7 @@ func TestMessageCertificate13_ContextTooLong(t *testing.T) {
 	}
 
 	_, err := msg.Marshal()
-	assert.ErrorIs(t, err, errCertificateRequestContextTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrCertificateRequestContextTooLong)
 }
 
 func TestMessageCertificate13_EmptyCertData(t *testing.T) {
@@ -260,7 +261,7 @@ func TestMessageCertificate13_EmptyCertData(t *testing.T) {
 	}
 
 	_, err := msg.Marshal()
-	assert.ErrorIs(t, err, errInvalidCertificateEntry)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateEntry)
 }
 
 func TestMessageCertificate13_CertDataAtMaxBoundary(t *testing.T) {
@@ -284,7 +285,7 @@ func TestMessageCertificate13_CertDataAtMaxBoundary(t *testing.T) {
 	_, err := msg.Marshal()
 	// Should fail with certificate list too long
 	// Serialized size = 3 (cert_data prefix) + 0xffffff (cert_data) + 2 (ext prefix) = 0x1000004
-	assert.ErrorIs(t, err, errCertificateListTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrCertificateListTooLong)
 }
 
 func TestMessageCertificate13_CertDataJustBelowMaxBoundary(t *testing.T) {
@@ -334,7 +335,7 @@ func TestMessageCertificate13_CertDataOneByteOverBoundary(t *testing.T) {
 	}
 
 	_, err := msg.Marshal()
-	assert.ErrorIs(t, err, errCertificateListTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrCertificateListTooLong)
 }
 
 func TestMessageCertificate13_MultipleCertsExceedingBoundary(t *testing.T) {
@@ -363,7 +364,7 @@ func TestMessageCertificate13_MultipleCertsExceedingBoundary(t *testing.T) {
 
 	_, err := msg.Marshal()
 	// Total serialized = 2 * (3 + 0x800000 + 2) = 2 * 0x800005 = 0x100000A (exceeds 0xffffff)
-	assert.ErrorIs(t, err, errCertificateListTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrCertificateListTooLong)
 }
 
 func TestMessageCertificate13_CertListAtExactBoundary(t *testing.T) {
@@ -415,7 +416,7 @@ func TestMessageCertificate13_UnmarshalBufferTooSmall(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := (&MessageCertificate13{}).Unmarshal(test.data)
-			assert.ErrorIs(t, err, errBufferTooSmall)
+			assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
 		})
 	}
 }
@@ -431,7 +432,7 @@ func TestMessageCertificate13_UnmarshalLengthMismatch(t *testing.T) {
 
 	err := (&MessageCertificate13{}).Unmarshal(data)
 	// With cryptobyte, this will fail when trying to read the certificate_list
-	assert.ErrorIs(t, err, errInvalidCertificateEntry)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateEntry)
 }
 
 func TestMessageCertificate13_UnmarshalInvalidCertEntry(t *testing.T) {
@@ -463,7 +464,7 @@ func TestMessageCertificate13_UnmarshalInvalidCertEntry(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := (&MessageCertificate13{}).Unmarshal(test.data)
-			assert.ErrorIs(t, err, errInvalidCertificateEntry)
+			assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateEntry)
 		})
 	}
 }

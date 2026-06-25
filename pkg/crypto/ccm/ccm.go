@@ -19,8 +19,9 @@ import (
 	"crypto/cipher"
 	"crypto/subtle"
 	"encoding/binary"
-	"errors"
 	"math"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
 // ccm represents a Counter with CBC-MAC with a specific key.
@@ -43,12 +44,6 @@ type CCM interface {
 	MaxLength() int
 }
 
-var (
-	errInvalidBlockSize = errors.New("ccm: NewCCM requires 128-bit block cipher")
-	errInvalidTagSize   = errors.New("ccm: tagsize must be 4, 6, 8, 10, 12, 14, or 16")
-	errInvalidNonceSize = errors.New("ccm: invalid nonce size")
-)
-
 // NewCCM returns the given 128-bit block cipher wrapped in CCM.
 // The tagsize must be an even integer between 4 and 16 inclusive
 // and is used as CCM's `M` parameter.
@@ -56,14 +51,14 @@ var (
 // 15-noncesize is used as CCM's `L` parameter.
 func NewCCM(b cipher.Block, tagsize, noncesize int) (CCM, error) {
 	if b.BlockSize() != ccmBlockSize {
-		return nil, errInvalidBlockSize
+		return nil, dtlserrors.ErrCCMInvalidBlockSize
 	}
 	if tagsize < 4 || tagsize > 16 || tagsize&1 != 0 {
-		return nil, errInvalidTagSize
+		return nil, dtlserrors.ErrCCMInvalidTagSize
 	}
 	lensize := 15 - noncesize
 	if lensize < 2 || lensize > 8 {
-		return nil, errInvalidNonceSize
+		return nil, dtlserrors.ErrCCMInvalidNonceSize
 	}
 	c := &ccm{b: b, M: uint8(tagsize), L: uint8(lensize)} //nolint:gosec // G114
 
@@ -119,8 +114,6 @@ func (c *ccm) cbcData(mac, data []byte) {
 	}
 }
 
-var errPlaintextTooLong = errors.New("ccm: plaintext too large")
-
 func (c *ccm) tag(nonce, plaintext, adata []byte) ([]byte, error) {
 	var mac [ccmBlockSize]byte
 
@@ -130,10 +123,10 @@ func (c *ccm) tag(nonce, plaintext, adata []byte) ([]byte, error) {
 	mac[0] |= (c.M - 2) << 2
 	mac[0] |= c.L - 1
 	if len(nonce) != c.NonceSize() {
-		return nil, errInvalidNonceSize
+		return nil, dtlserrors.ErrCCMInvalidNonceSize
 	}
 	if len(plaintext) > c.MaxLength() {
-		return nil, errPlaintextTooLong
+		return nil, dtlserrors.ErrCCMPlaintextTooLong
 	}
 	binary.BigEndian.PutUint64(mac[ccmBlockSize-8:], uint64(len(plaintext)))
 	copy(mac[1:ccmBlockSize-c.L], nonce)
@@ -215,18 +208,12 @@ func (c *ccm) Seal(dst, nonce, plaintext, adata []byte) []byte {
 	return ret
 }
 
-var (
-	errOpen               = errors.New("ccm: message authentication failed")
-	errCiphertextTooShort = errors.New("ccm: ciphertext too short")
-	errCiphertextTooLong  = errors.New("ccm: ciphertext too long")
-)
-
 func (c *ccm) Open(dst, nonce, ciphertext, adata []byte) ([]byte, error) {
 	if len(ciphertext) < int(c.M) {
-		return nil, errCiphertextTooShort
+		return nil, dtlserrors.ErrCCMCiphertextTooShort
 	}
 	if len(ciphertext) > c.MaxLength()+c.Overhead() {
-		return nil, errCiphertextTooLong
+		return nil, dtlserrors.ErrCCMCiphertextTooLong
 	}
 
 	tag := make([]byte, int(c.M))
@@ -253,7 +240,7 @@ func (c *ccm) Open(dst, nonce, ciphertext, adata []byte) ([]byte, error) {
 	}
 
 	if subtle.ConstantTimeCompare(tag, expectedTag) != 1 {
-		return nil, errOpen
+		return nil, dtlserrors.ErrCCMOpen
 	}
 
 	return append(dst, plaintext...), nil

@@ -6,6 +6,7 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/cryptobyte"
@@ -93,7 +94,7 @@ func TestKeyShare_Marshal_ClientHello_Errors(t *testing.T) {
 		}
 
 		_, err := ks.Marshal()
-		assert.ErrorIs(t, err, errDuplicateKeyShare)
+		assert.ErrorIs(t, err, dtlserrors.ErrDuplicateKeyShare)
 	})
 
 	t.Run("key len = 0", func(t *testing.T) {
@@ -104,7 +105,7 @@ func TestKeyShare_Marshal_ClientHello_Errors(t *testing.T) {
 		}
 
 		_, err := ks.Marshal()
-		assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 	})
 
 	t.Run("key len > 65535", func(t *testing.T) {
@@ -115,7 +116,7 @@ func TestKeyShare_Marshal_ClientHello_Errors(t *testing.T) {
 		}
 
 		_, err := ks.Marshal()
-		assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 	})
 }
 
@@ -170,7 +171,7 @@ func TestKeyShare_Marshal_MultipleContexts_Error(t *testing.T) {
 	}
 
 	_, err := ks.Marshal()
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 }
 
 func TestKeyShare_Unmarshal_ClientHello(t *testing.T) {
@@ -215,7 +216,7 @@ func TestKeyShare_Unmarshal_ClientHello(t *testing.T) {
 	}
 
 	err = ks.Unmarshal(rawZero)
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 
 	// sending duplicate valid groups should error
 	rawDup := []byte{
@@ -234,7 +235,7 @@ func TestKeyShare_Unmarshal_ClientHello(t *testing.T) {
 	}
 
 	err = ks.Unmarshal(rawDup)
-	assert.ErrorIs(t, err, errDuplicateKeyShare)
+	assert.ErrorIs(t, err, dtlserrors.ErrDuplicateKeyShare)
 }
 
 func TestKeyShare_Unmarshal_ClientHello_TruncatedEntries(t *testing.T) {
@@ -250,7 +251,7 @@ func TestKeyShare_Unmarshal_ClientHello_TruncatedEntries(t *testing.T) {
 
 	var ks KeyShare
 	err := ks.Unmarshal(raw)
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 
 	// bad ext 2: one full group but key_exchange length=1 with no bytes
 	raw2 := []byte{
@@ -263,7 +264,7 @@ func TestKeyShare_Unmarshal_ClientHello_TruncatedEntries(t *testing.T) {
 	}
 
 	err = ks.Unmarshal(raw2)
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 }
 
 func TestKeyShare_Unmarshal_HelloRetryRequest(t *testing.T) {
@@ -300,7 +301,7 @@ func TestKeyShare_Unmarshal_HelloRetryRequest(t *testing.T) {
 		0x00, 0x01, 0x00,
 	}
 	err = ks.Unmarshal(rawTrunc)
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 }
 
 func TestKeyShare_Unmarshal_ServerHello(t *testing.T) {
@@ -334,7 +335,7 @@ func TestKeyShare_Unmarshal_ServerHello(t *testing.T) {
 	}
 
 	err = ks.Unmarshal(rawTrailing)
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 
 	// bad key length (claims 1, provides 0)
 	rawBadLen := []byte{
@@ -345,7 +346,7 @@ func TestKeyShare_Unmarshal_ServerHello(t *testing.T) {
 		0x00, 0x01, // key len = 1, but 0 bytes provided -> format error
 	}
 	err = ks.Unmarshal(rawBadLen)
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 }
 
 func TestKeyShare_Unmarshal_Errors(t *testing.T) {
@@ -356,7 +357,7 @@ func TestKeyShare_Unmarshal_Errors(t *testing.T) {
 	rawWrong, _ := w.Bytes()
 	var ks KeyShare
 	err := ks.Unmarshal(rawWrong)
-	assert.ErrorIs(t, err, errInvalidExtensionType)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionType)
 
 	// buffer too small (no length field)
 	var small cryptobyte.Builder
@@ -364,7 +365,7 @@ func TestKeyShare_Unmarshal_Errors(t *testing.T) {
 
 	rawSmall, _ := small.Bytes()
 	err = ks.Unmarshal(rawSmall)
-	assert.ErrorIs(t, err, errBufferTooSmall)
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
 
 	// empty extData
 	var empty cryptobyte.Builder
@@ -373,7 +374,7 @@ func TestKeyShare_Unmarshal_Errors(t *testing.T) {
 
 	rawEmpty, _ := empty.Bytes()
 	err = ks.Unmarshal(rawEmpty)
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 
 	rawTrailing := []byte{
 		0x0, 0x33, // extension type
@@ -386,7 +387,7 @@ func TestKeyShare_Unmarshal_Errors(t *testing.T) {
 	}
 
 	err = ks.Unmarshal(rawTrailing)
-	assert.ErrorIs(t, err, errInvalidKeyShareFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyShareFormat)
 }
 
 func Test_hasTooManyContexts(t *testing.T) {

@@ -16,15 +16,15 @@ func TestIsPSS(t *testing.T) {
 		alg      Algorithm
 		expected bool
 	}{
-		{"RSA_PSS_RSAE_SHA256", RSA_PSS_RSAE_SHA256, true},
-		{"RSA_PSS_RSAE_SHA384", RSA_PSS_RSAE_SHA384, true},
-		{"RSA_PSS_RSAE_SHA512", RSA_PSS_RSAE_SHA512, true},
-		{"RSA_PSS_PSS_SHA256", RSA_PSS_PSS_SHA256, true},
-		{"RSA_PSS_PSS_SHA384", RSA_PSS_PSS_SHA384, true},
-		{"RSA_PSS_PSS_SHA512", RSA_PSS_PSS_SHA512, true},
-		{"RSA", RSA, false},
-		{"ECDSA", ECDSA, false},
-		{"Ed25519", Ed25519, false},
+		{"RSA_PSS_RSAE_SHA256", RSA_PSS_RSAE_SHA256, true}, //nolint:goconst
+		{"RSA_PSS_RSAE_SHA384", RSA_PSS_RSAE_SHA384, true}, //nolint:goconst
+		{"RSA_PSS_RSAE_SHA512", RSA_PSS_RSAE_SHA512, true}, //nolint:goconst
+		{"RSA_PSS_PSS_SHA256", RSA_PSS_PSS_SHA256, true},   //nolint:goconst
+		{"RSA_PSS_PSS_SHA384", RSA_PSS_PSS_SHA384, true},   //nolint:goconst
+		{"RSA_PSS_PSS_SHA512", RSA_PSS_PSS_SHA512, true},   //nolint:goconst
+		{"RSA", RSA, false},         //nolint:goconst
+		{"ECDSA", ECDSA, false},     //nolint:goconst
+		{"Ed25519", Ed25519, false}, //nolint:goconst
 		{"Anonymous", Anonymous, false},
 		// Edge cases: 0x0807 (Ed25519) and 0x0808 (Ed448) fall within the 0x0804-0x080b range
 		// but are NOT PSS schemes. This test ensures we check specific values, not just ranges.

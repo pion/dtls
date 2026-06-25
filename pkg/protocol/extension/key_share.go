@@ -4,6 +4,7 @@
 package extension
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -31,7 +32,7 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 
 	// there must be exactly one context.
 	if hasTooManyContexts(hasClientShares, hasServerShare, hasHelloRetryRequest) {
-		return nil, errInvalidKeyShareFormat
+		return nil, dtlserrors.ErrInvalidKeyShareFormat
 	}
 
 	var builder cryptobyte.Builder
@@ -42,20 +43,20 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 		seenGroups := map[elliptic.Curve]struct{}{}
 		for _, e := range k.ClientShares {
 			if _, ok := seenGroups[e.Group]; ok {
-				return nil, errDuplicateKeyShare
+				return nil, dtlserrors.ErrDuplicateKeyShare
 			}
 
 			seenGroups[e.Group] = struct{}{}
 
 			if l := len(e.KeyExchange); l == 0 || l > 0xffff {
-				return nil, errInvalidKeyShareFormat
+				return nil, dtlserrors.ErrInvalidKeyShareFormat
 			}
 		}
 	}
 
 	if hasServerShare {
 		if l := len(k.ServerShare.KeyExchange); l == 0 || l > 0xffff {
-			return nil, errInvalidKeyShareFormat
+			return nil, dtlserrors.ErrInvalidKeyShareFormat
 		}
 	}
 
@@ -89,13 +90,13 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 
 	var ext uint16
 	if !val.ReadUint16(&ext) || TypeValue(ext) != k.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	if extData.Empty() {
-		return errInvalidKeyShareFormat
+		return dtlserrors.ErrInvalidKeyShareFormat
 	}
 
 	k.ClientShares, k.ServerShare, k.SelectedGroup = nil, nil, nil
@@ -111,13 +112,13 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 			var raw cryptobyte.String
 
 			if !peek.ReadUint16(&groupU16) || !peek.ReadUint16LengthPrefixed(&raw) || len(raw) == 0 {
-				return errInvalidKeyShareFormat
+				return dtlserrors.ErrInvalidKeyShareFormat
 			}
 
 			group := elliptic.Curve(groupU16)
 
 			if _, ok := seenGroups[group]; ok {
-				return errDuplicateKeyShare
+				return dtlserrors.ErrDuplicateKeyShare
 			}
 
 			seenGroups[group] = struct{}{}
@@ -129,7 +130,7 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 
 		// consume vector (2 bytes length + vecLen)
 		if !extData.Skip(2 + int(vecLen)) {
-			return errInvalidKeyShareFormat
+			return dtlserrors.ErrInvalidKeyShareFormat
 		}
 
 		return nil
@@ -139,7 +140,7 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 	if len(extData) == 2 {
 		var groupU16 uint16
 		if !extData.ReadUint16(&groupU16) {
-			return errInvalidKeyShareFormat
+			return dtlserrors.ErrInvalidKeyShareFormat
 		}
 
 		group := elliptic.Curve(groupU16)
@@ -155,7 +156,7 @@ func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
 	var raw cryptobyte.String
 
 	if !extData.ReadUint16(&groupU16) || !extData.ReadUint16LengthPrefixed(&raw) || !extData.Empty() || len(raw) == 0 {
-		return errInvalidKeyShareFormat
+		return dtlserrors.ErrInvalidKeyShareFormat
 	}
 
 	group := elliptic.Curve(groupU16)

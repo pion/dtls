@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 )
 
@@ -56,13 +57,13 @@ func (m *MessageCertificate) Marshal() ([]byte, error) {
 // Unmarshal populates the message from encoded data.
 func (m *MessageCertificate) Unmarshal(data []byte) error {
 	if len(data) < handshakeMessageCertificateLengthFieldSize {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	if certificateBodyLen := int(util.BigEndianUint24(
 		data,
 	)); certificateBodyLen+handshakeMessageCertificateLengthFieldSize != len(data) {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	offset := handshakeMessageCertificateLengthFieldSize
@@ -71,7 +72,7 @@ func (m *MessageCertificate) Unmarshal(data []byte) error {
 		offset += handshakeMessageCertificateLengthFieldSize
 
 		if offset+certificateLen > len(data) {
-			return errLengthMismatch
+			return dtlserrors.ErrLengthMismatch
 		}
 
 		m.Certificate = append(m.Certificate, append([]byte{}, data[offset:offset+certificateLen]...))

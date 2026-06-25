@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
@@ -339,7 +340,7 @@ func TestCertificateOIDValidation(t *testing.T) {
 			expectedMsg, sig, hash.SHA256, signature.RSA_PSS_PSS_SHA256, [][]byte{rsaEncryptionCertBytes},
 		)
 		assert.Error(t, err)
-		assert.ErrorIs(t, err, errInvalidCertificateOID)
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateOID)
 	})
 
 	t.Run("RSAE_with_idRSASSAPSS_OID_fails", func(t *testing.T) {
@@ -351,7 +352,7 @@ func TestCertificateOIDValidation(t *testing.T) {
 		// Should fail: RSAE algorithm requires rsaEncryption OID, not id-RSASSA-PSS
 		err = verifyKeySignature(expectedMsg, sig, hash.SHA256, signature.RSA_PSS_RSAE_SHA256, [][]byte{pssCertBytes})
 		assert.Error(t, err)
-		assert.ErrorIs(t, err, errInvalidCertificateOID)
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateOID)
 	})
 }
 
@@ -394,7 +395,7 @@ func TestValidateCertificateSignatureAlgorithms(t *testing.T) {
 			{Hash: hash.SHA384, Signature: signature.ECDSA}, // Different algorithm
 		}
 		err := validateCertificateSignatureAlgorithms(certs, allowed)
-		assert.ErrorIs(t, err, errInvalidCertificateSignatureAlgorithm)
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateSignatureAlgorithm)
 	})
 
 	t.Run("Root certificate is not validated", func(t *testing.T) {
@@ -435,7 +436,7 @@ func TestValidateCertificateSignatureAlgorithms(t *testing.T) {
 			{Hash: hash.SHA256, Signature: signature.RSA}, // Only allows SHA256
 		}
 		err := validateCertificateSignatureAlgorithms(certs, allowed)
-		assert.ErrorIs(t, err, errInvalidCertificateSignatureAlgorithm)
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateSignatureAlgorithm)
 	})
 
 	t.Run("ECDSA certificates", func(t *testing.T) {

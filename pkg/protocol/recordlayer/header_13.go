@@ -6,6 +6,7 @@ package recordlayer
 import (
 	"math"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -57,7 +58,7 @@ func (u *UnifiedHeader) Marshal() ([]byte, error) {
 	if cidSz > 0 {
 		contentType |= UnifiedHeaderCIDBit
 		if cidSz > math.MaxUint8 {
-			return []byte{}, errCIDTooBig
+			return []byte{}, dtlserrors.ErrCIDTooBig
 		}
 		head.AddBytes(u.ConnectionID)
 	}
@@ -93,13 +94,13 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 
 	var ct uint8
 	if !str.ReadUint8(&ct) || !protocol.IsDTLS13Ciphertext(protocol.ContentType(ct)) {
-		return errInvalidContentType
+		return dtlserrors.ErrInvalidContentType
 	}
 
 	if ct&UnifiedHeaderCIDBit != 0 {
 		size := len(u.ConnectionID)
 		if !str.ReadBytes(&u.ConnectionID, size) {
-			return errInvalidUnifiedHeaderFormat
+			return dtlserrors.ErrInvalidUnifiedHeaderFormat
 		}
 	} else {
 		u.ConnectionID = []byte{}
@@ -108,14 +109,14 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 	if ct&UnifiedHeaderSeqBit != 0 {
 		var seq uint16
 		if !str.ReadUint16(&seq) {
-			return errInvalidUnifiedHeaderFormat
+			return dtlserrors.ErrInvalidUnifiedHeaderFormat
 		}
 		u.SequenceNumber = seq
 		u.SeqBit = true
 	} else {
 		var seq uint8
 		if !str.ReadUint8(&seq) {
-			return errInvalidUnifiedHeaderFormat
+			return dtlserrors.ErrInvalidUnifiedHeaderFormat
 		}
 		u.SequenceNumber = uint16(seq)
 		u.SeqBit = false
@@ -126,7 +127,7 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 	if ct&UnifiedHeaderLengthBit != 0 {
 		var length uint16
 		if !str.ReadUint16(&length) {
-			return errInvalidUnifiedHeaderFormat
+			return dtlserrors.ErrInvalidUnifiedHeaderFormat
 		}
 		u.Length = length
 		u.LengthBit = true

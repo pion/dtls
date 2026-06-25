@@ -5,33 +5,14 @@ package dtls
 
 import (
 	"crypto/sha256"
-	"errors"
 	"hash"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
-	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
 const tlsHandshakeHeaderLength13 = 4
-
-var (
-	errInvalidHandshakeTranscriptMessage = &protocol.InternalError{
-		Err: errors.New("invalid DTLS 1.3 handshake transcript message"), //nolint:err113
-	}
-	errHandshakeTranscriptHashNotSelected = &protocol.InternalError{
-		Err: errors.New("DTLS 1.3 handshake transcript hash is not selected"), //nolint:err113
-	}
-	errHandshakeTranscriptHashAlreadySelected = &protocol.InternalError{
-		Err: errors.New("DTLS 1.3 handshake transcript hash is already selected"), //nolint:err113
-	}
-	errHandshakeTranscriptMessageChanged = &protocol.InternalError{
-		Err: errors.New("DTLS 1.3 handshake transcript message changed during retransmission"), //nolint:err113
-	}
-	errHandshakeTranscriptHelloRetryRequestInvalid = &protocol.InternalError{
-		Err: errors.New("invalid DTLS 1.3 HelloRetryRequest transcript transition"), //nolint:err113
-	}
-)
 
 type transcriptSender13 uint8
 
@@ -75,7 +56,7 @@ func newHandshakeTranscript13() *handshakeTranscript13 {
 
 func canonicalHandshake13(raw []byte) ([]byte, error) {
 	if len(raw) < handshake.HeaderLength {
-		return nil, errBufferTooSmall
+		return nil, dtlserrors.ErrBufferTooSmall
 	}
 
 	var header handshake.Header
@@ -86,7 +67,7 @@ func canonicalHandshake13(raw []byte) ([]byte, error) {
 	if header.FragmentOffset != 0 ||
 		header.FragmentLength != header.Length ||
 		len(raw) != handshake.HeaderLength+int(header.Length) {
-		return nil, errInvalidHandshakeTranscriptMessage
+		return nil, dtlserrors.ErrInvalidHandshakeTranscriptMessage
 	}
 
 	out := make([]byte, tlsHandshakeHeaderLength13+int(header.Length))
@@ -98,15 +79,15 @@ func canonicalHandshake13(raw []byte) ([]byte, error) {
 
 func (t *handshakeTranscript13) selectHash(newHash func() hash.Hash) error {
 	if newHash == nil {
-		return errHandshakeTranscriptHashNotSelected
+		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 	if t.h != nil {
-		return errHandshakeTranscriptHashAlreadySelected
+		return dtlserrors.ErrHandshakeTranscriptHashAlreadySelected
 	}
 
 	h := newHash()
 	if h == nil {
-		return errHandshakeTranscriptHashNotSelected
+		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 
 	for _, message := range t.pending {
@@ -132,7 +113,7 @@ func (t *handshakeTranscript13) appendCanonical(id transcriptMessageID13, messag
 			return nil
 		}
 
-		return errHandshakeTranscriptMessageChanged
+		return dtlserrors.ErrHandshakeTranscriptMessageChanged
 	}
 
 	messageCopy := append([]byte(nil), message...)
@@ -159,7 +140,7 @@ func (t *handshakeTranscript13) appendCanonical(id transcriptMessageID13, messag
 
 func (t *handshakeTranscript13) sum() ([]byte, error) {
 	if t.h == nil {
-		return nil, errHandshakeTranscriptHashNotSelected
+		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 
 	return t.h.Sum(nil), nil
@@ -167,12 +148,12 @@ func (t *handshakeTranscript13) sum() ([]byte, error) {
 
 func (t *handshakeTranscript13) sumWithSuffix(suffix []byte) ([]byte, error) {
 	if t.h == nil {
-		return nil, errHandshakeTranscriptHashNotSelected
+		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 
 	h := t.newHash()
 	if h == nil {
-		return nil, errHandshakeTranscriptHashNotSelected
+		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 	if _, err := h.Write(t.transcript); err != nil {
 		return nil, err
@@ -186,13 +167,13 @@ func (t *handshakeTranscript13) sumWithSuffix(suffix []byte) ([]byte, error) {
 
 func (t *handshakeTranscript13) applyHelloRetryRequest() error {
 	if t.h == nil {
-		return errHandshakeTranscriptHashNotSelected
+		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 	if t.helloRetryApplied ||
 		len(t.order) != 1 ||
 		t.order[0].id.sender != transcriptClient13 ||
 		t.order[0].typ != handshake.TypeClientHello {
-		return errHandshakeTranscriptHelloRetryRequestInvalid
+		return dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid
 	}
 
 	clientHelloDigest := t.h.Sum(nil)
@@ -203,7 +184,7 @@ func (t *handshakeTranscript13) applyHelloRetryRequest() error {
 
 	h := t.newHash()
 	if h == nil {
-		return errHandshakeTranscriptHashNotSelected
+		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 	if _, err := h.Write(messageHash); err != nil {
 		return err
@@ -217,10 +198,10 @@ func (t *handshakeTranscript13) applyHelloRetryRequest() error {
 
 func validateCanonicalHandshake13(message []byte) error {
 	if len(message) < tlsHandshakeHeaderLength13 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	if int(util.BigEndianUint24(message[1:])) != len(message)-tlsHandshakeHeaderLength13 {
-		return errInvalidHandshakeTranscriptMessage
+		return dtlserrors.ErrInvalidHandshakeTranscriptMessage
 	}
 
 	return nil

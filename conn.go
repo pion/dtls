@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/closer"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -120,7 +121,7 @@ func createConn(
 	resumeState *State,
 ) (*Conn, error) {
 	if nextConn == nil {
-		return nil, errNilNextConn
+		return nil, dtlserrors.ErrNilNextConn
 	}
 
 	loggerFactory := config.LoggerFactory
@@ -318,7 +319,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 	// with the key in the server's end-entity certificate.
 	if !c.state.isClient {
 		cert, err := c.handshakeConfig.getCertificate(&ClientHelloInfo{})
-		if err != nil && !errors.Is(err, errNoCertificates) {
+		if err != nil && !errors.Is(err, dtlserrors.ErrNoCertificates) {
 			return err
 		}
 		c.handshakeConfig.localCipherSuites = filterCipherSuitesForCertificate(cert, c.handshakeConfig.localCipherSuites)
@@ -334,7 +335,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 		c.state.localVersion,
 	)
 	if len(c.handshakeConfig.localCipherSuites) == 0 {
-		return errNoAvailableCipherSuites
+		return dtlserrors.ErrNoAvailableCipherSuites
 	}
 
 	if err := c.handshake(ctx, start); err != nil {
@@ -454,9 +455,9 @@ func DialWithOptions(network string, rAddr *net.UDPAddr, opts ...ClientOption) (
 func Client(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
 	switch {
 	case config == nil:
-		return nil, errNoConfigProvided
+		return nil, dtlserrors.ErrNoConfigProvided
 	case config.PSK != nil && config.PSKIdentityHint == nil:
-		return nil, errPSKAndIdentityMustBeSetForClient
+		return nil, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
 	}
 
 	if err := validateConfig(config); err != nil {
@@ -479,7 +480,7 @@ func ClientWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ClientOption
 // serverWithConfig is an internal helper that accepts a *Config.
 func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
 	if config == nil {
-		return nil, errNoConfigProvided
+		return nil, dtlserrors.ErrNoConfigProvided
 	}
 	if config.OnConnectionAttempt != nil {
 		if err := config.OnConnectionAttempt(rAddr); err != nil {
@@ -495,7 +496,7 @@ func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *Config) (*Con
 // Deprecated: Use ServerWithOptions instead.
 func Server(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
 	if config == nil {
-		return nil, errNoConfigProvided
+		return nil, dtlserrors.ErrNoConfigProvided
 	}
 
 	if err := validateConfig(config); err != nil {
@@ -523,14 +524,14 @@ func (c *Conn) Read(buff []byte) (n int, err error) { //nolint:cyclop
 
 	select {
 	case <-c.readDeadline.Done():
-		return 0, errDeadlineExceeded
+		return 0, dtlserrors.ErrDeadlineExceeded
 	default:
 	}
 
 	for {
 		select {
 		case <-c.readDeadline.Done():
-			return 0, errDeadlineExceeded
+			return 0, dtlserrors.ErrDeadlineExceeded
 		case out, ok := <-c.decrypted:
 			if !ok {
 				return 0, io.EOF
@@ -538,7 +539,7 @@ func (c *Conn) Read(buff []byte) (n int, err error) { //nolint:cyclop
 			switch val := out.(type) {
 			case ([]byte):
 				if len(buff) < len(val) {
-					return 0, errBufferTooSmall
+					return 0, dtlserrors.ErrBufferTooSmall
 				}
 				copy(buff, val)
 
@@ -558,7 +559,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 
 	select {
 	case <-c.writeDeadline.Done():
-		return 0, errDeadlineExceeded
+		return 0, dtlserrors.ErrDeadlineExceeded
 	default:
 	}
 
@@ -714,7 +715,7 @@ func (c *Conn) processPacket(pkt *packet) ([]byte, error) { //nolint:cyclop
 		// RFC 6347 Section 4.1.0
 		// The implementation must either abandon an association or rehandshake
 		// prior to allowing the sequence number to wrap.
-		return nil, errSequenceNumberOverflow
+		return nil, dtlserrors.ErrSequenceNumberOverflow
 	}
 	pkt.record.Header.SequenceNumber = seq
 
@@ -785,7 +786,7 @@ func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Hand
 	for _, handshakeFragment := range handshakeFragments {
 		seq := atomic.AddUint64(&c.state.localSequenceNumber[epoch], 1) - 1
 		if seq > recordlayer.MaxSequenceNumber {
-			return nil, errSequenceNumberOverflow
+			return nil, dtlserrors.ErrSequenceNumberOverflow
 		}
 
 		var rawPacket []byte
@@ -897,7 +898,7 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocognit
 	bufptr, ok := poolReadBuffer.Get().(*[]byte)
 	if !ok {
-		return errFailedToAccessPoolReadBuffer
+		return dtlserrors.ErrFailedToAccessPoolReadBuffer
 	}
 	defer poolReadBuffer.Put(bufptr)
 
@@ -1194,7 +1195,7 @@ func (c *Conn) handleIncomingPacket(
 		if header.Epoch == 0 {
 			return false, false, &alert.Alert{
 				Level: alert.Fatal, Description: alert.UnexpectedMessage,
-			}, errApplicationDataEpochZero
+			}, dtlserrors.ErrApplicationDataEpochZero
 		}
 
 		isLatestSeqNum = markPacketAsValid()
@@ -1208,7 +1209,7 @@ func (c *Conn) handleIncomingPacket(
 	default:
 		return false, false, &alert.Alert{
 			Level: alert.Fatal, Description: alert.UnexpectedMessage,
-		}, fmt.Errorf("%w: %d", errUnhandledContextType, content.ContentType())
+		}, fmt.Errorf("%w: %d", dtlserrors.ErrUnhandledContextType, content.ContentType())
 	}
 
 	// Any valid connection ID record is a candidate for updating the remote
@@ -1306,7 +1307,7 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*packet, *handshak
 	if appended, err := appendClientHelloInitialFlights13(transcript, pkts); err != nil {
 		return nil, nil, err
 	} else if !appended {
-		return nil, nil, errHandshakeTranscriptMissingClientHello
+		return nil, nil, dtlserrors.ErrHandshakeTranscriptMissingClientHello
 	}
 	if err := c.writePackets(ctx, pkts); err != nil {
 		return nil, nil, err
@@ -1356,7 +1357,7 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 
 	chosen, ok := selectVersion(remote, c.handshakeConfig.minVersion, c.handshakeConfig.maxVersion)
 	if !ok {
-		return false, errNoCommonProtocolVersion
+		return false, dtlserrors.ErrNoCommonProtocolVersion
 	}
 
 	c.state.remoteVersions = remote
@@ -1429,10 +1430,10 @@ func remoteVersionsFromHelloRetryRequest(
 	err error,
 ) ([]protocol.Version, error) {
 	if err != nil || !seenSupportedVersions {
-		return nil, errInvalidHelloRetryRequest
+		return nil, dtlserrors.ErrInvalidHelloRetryRequest
 	}
 	if !remote[0].Equal(protocol.Version1_3) {
-		return nil, errUnsupportedProtocolVersion
+		return nil, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	return remote, nil
@@ -1441,7 +1442,7 @@ func remoteVersionsFromHelloRetryRequest(
 func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
 	chosen, ok := selectVersion(remote, c.handshakeConfig.minVersion, c.handshakeConfig.maxVersion)
 	if !ok {
-		return errNoCommonProtocolVersion
+		return dtlserrors.ErrNoCommonProtocolVersion
 	}
 	c.state.remoteVersions = remote
 	c.state.localVersion = chosen
@@ -1506,7 +1507,7 @@ func (c *Conn) primeHandshakeRecv(ctx context.Context) {
 func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
 	bufptr, ok := poolReadBuffer.Get().(*[]byte)
 	if !ok {
-		return errFailedToAccessPoolReadBuffer
+		return dtlserrors.ErrFailedToAccessPoolReadBuffer
 	}
 	defer poolReadBuffer.Put(bufptr)
 
@@ -1715,7 +1716,7 @@ func (c *Conn) translateHandshakeCtxError(err error) error {
 		return nil
 	}
 
-	return &HandshakeError{Err: err}
+	return fmt.Errorf("handshake failed: %w", err)
 }
 
 func (c *Conn) close(byUser bool) error {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -49,7 +50,8 @@ func flight0Parse(
 	}
 
 	if !clientHello.Version.Equal(protocol.Version1_2) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	state.remoteRandom = clientHello.Random
@@ -69,20 +71,20 @@ func flight0Parse(
 	cipherSuites = filterCipherSuitesForVersion(cipherSuites, protocol.Version1_2)
 
 	if state.cipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 
 	for _, val := range clientHello.Extensions {
 		switch ext := val.(type) {
 		case *extension.SupportedEllipticCurves:
 			if len(ext.EllipticCurves) == 0 {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
 			}
 			state.namedCurve = ext.EllipticCurves[0]
 		case *extension.UseSRTP:
 			profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
 			if !ok {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerNoMatchingSRTPProfile
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerNoMatchingSRTPProfile //nolint:lll
 			}
 			state.setSRTPProtectionProfile(profile)
 			state.remoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
@@ -115,7 +117,7 @@ func flight0Parse(
 	}
 
 	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerRequiredButNoClientEMS
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS //nolint:lll
 	}
 
 	if state.localKeypair == nil {
@@ -182,7 +184,7 @@ func flight0Generate(
 	state.localEpoch.Store(zeroEpoch)
 	state.remoteEpoch.Store(zeroEpoch)
 	if len(cfg.ellipticCurves) < 1 {
-		return nil, nil, errEmptyEllipticCurves
+		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 	state.namedCurve = cfg.ellipticCurves[0]
 

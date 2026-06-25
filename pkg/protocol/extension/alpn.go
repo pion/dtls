@@ -6,6 +6,7 @@ package extension
 import (
 	"slices"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -47,12 +48,12 @@ func (a *ALPN) Unmarshal(data []byte) error {
 	var extension uint16
 	val.ReadUint16(&extension)
 	if TypeValue(extension) != a.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	var extData cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	var protoList cryptobyte.String
@@ -61,7 +62,7 @@ func (a *ALPN) Unmarshal(data []byte) error {
 	}
 
 	if !extData.Empty() {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	for !protoList.Empty() {
@@ -86,5 +87,5 @@ func ALPNProtocolSelection(supportedProtocols, peerSupportedProtocols []string) 
 		}
 	}
 
-	return "", errALPNNoAppProto
+	return "", dtlserrors.ErrALPNNoAppProto
 }

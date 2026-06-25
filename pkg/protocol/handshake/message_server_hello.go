@@ -6,6 +6,7 @@ package handshake
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 )
@@ -38,11 +39,11 @@ func (m MessageServerHello) Type() Type {
 func (m *MessageServerHello) Marshal() ([]byte, error) {
 	switch {
 	case m.CipherSuiteID == nil:
-		return nil, errCipherSuiteUnset
+		return nil, dtlserrors.ErrCipherSuiteUnset
 	case m.CompressionMethod == nil:
-		return nil, errCompressionMethodUnset
+		return nil, dtlserrors.ErrCompressionMethodUnset
 	case len(m.SessionID) > 255:
-		return nil, errSessionIDTooLong
+		return nil, dtlserrors.ErrSessionIDTooLong
 	}
 
 	extensions, err := extension.Marshal(m.Extensions)
@@ -70,7 +71,7 @@ func (m *MessageServerHello) Marshal() ([]byte, error) {
 // Unmarshal populates the message from encoded data.
 func (m *MessageServerHello) Unmarshal(data []byte) error {
 	if len(data) < 2+RandomLength {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	m.Version.Major = data[0]
@@ -83,31 +84,31 @@ func (m *MessageServerHello) Unmarshal(data []byte) error {
 	currOffset := messageServerHelloVariableWidthStart
 	currOffset++
 	if len(data) <= currOffset {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	n := int(data[currOffset-1])
 	if len(data) <= currOffset+n {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.SessionID = append([]byte{}, data[currOffset:currOffset+n]...)
 	currOffset += len(m.SessionID)
 
 	if len(data) < currOffset+2 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.CipherSuiteID = new(uint16)
 	*m.CipherSuiteID = binary.BigEndian.Uint16(data[currOffset:])
 	currOffset += 2
 
 	if len(data) <= currOffset {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	if compressionMethod, ok := protocol.CompressionMethods()[protocol.CompressionMethodID(data[currOffset])]; ok {
 		m.CompressionMethod = compressionMethod
 		currOffset++
 	} else {
-		return errInvalidCompressionMethod
+		return dtlserrors.ErrInvalidCompressionMethod
 	}
 
 	if len(data) <= currOffset {

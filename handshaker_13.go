@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
@@ -123,7 +124,7 @@ func (s *handshakeFSM13) seedTranscriptFromInitialFlights() error {
 		return err
 	}
 	if s.retransmit && !appended {
-		return errHandshakeTranscriptMissingClientHello
+		return dtlserrors.ErrHandshakeTranscriptMissingClientHello
 	}
 
 	return nil
@@ -131,7 +132,7 @@ func (s *handshakeFSM13) seedTranscriptFromInitialFlights() error {
 
 func appendClientHelloInitialFlights13(transcript *handshakeTranscript13, flights []*packet) (bool, error) {
 	if transcript == nil {
-		return false, errHandshakeTranscriptMissingClientHello
+		return false, dtlserrors.ErrHandshakeTranscriptMissingClientHello
 	}
 
 	appended := false
@@ -203,7 +204,7 @@ func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState 
 		case handshakeFinished:
 			state, err = s.finish(ctx, conn)
 		default:
-			return errInvalidFSMTransition
+			return dtlserrors.ErrInvalidFSMTransition
 		}
 		if err != nil {
 			return err
@@ -265,13 +266,13 @@ func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshak
 }
 
 func (s *handshakeFSM13) send(ctx context.Context, c flightConn) (handshakeState, error) {
-	return handshakeErrored, errStateUnimplemented13
+	return handshakeErrored, dtlserrors.ErrStateUnimplemented13
 }
 
 func (s *handshakeFSM13) wait(ctx context.Context, conn flightConn) (handshakeState, error) {
-	return handshakeErrored, errStateUnimplemented13
+	return handshakeErrored, dtlserrors.ErrStateUnimplemented13
 }
 
 func (s *handshakeFSM13) finish(ctx context.Context, c flightConn) (handshakeState, error) {
-	return handshakeErrored, errStateUnimplemented13
+	return handshakeErrored, dtlserrors.ErrStateUnimplemented13
 }

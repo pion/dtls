@@ -6,6 +6,7 @@ package dtls
 import (
 	"context"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
 
@@ -39,7 +40,7 @@ func (f flightVal13) getFlightParser13() (flightParser13, error) {
 		return flight13_3Parse, nil
 
 	default:
-		return nil, errFlightUnimplemented13
+		return nil, dtlserrors.ErrFlightUnimplemented13
 	}
 }
 
@@ -54,6 +55,6 @@ func (f flightVal13) getFlightGenerator13() (gen flightGenerator13, retransmit b
 	case flight13_3:
 		return flight13_3Generate, true, nil
 	default:
-		return nil, false, errFlightUnimplemented13
+		return nil, false, dtlserrors.ErrFlightUnimplemented13
 	}
 }

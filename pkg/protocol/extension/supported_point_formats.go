@@ -6,6 +6,7 @@ package extension
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 )
 
@@ -29,7 +30,7 @@ func (s SupportedPointFormats) TypeValue() TypeValue {
 // Marshal encodes the extension.
 func (s *SupportedPointFormats) Marshal() ([]byte, error) {
 	if len(s.PointFormats) > 255 {
-		return nil, errPointFormatsTooLarge
+		return nil, dtlserrors.ErrPointFormatsTooLarge
 	}
 
 	out := make([]byte, supportedPointFormatsSize)
@@ -49,7 +50,7 @@ func (s *SupportedPointFormats) Marshal() ([]byte, error) {
 // Unmarshal populates the extension from encoded data.
 func (s *SupportedPointFormats) Unmarshal(data []byte) error {
 	if len(data) < supportedPointFormatsSize {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
@@ -57,13 +58,13 @@ func (s *SupportedPointFormats) Unmarshal(data []byte) error {
 
 	switch {
 	case TypeValue(binary.BigEndian.Uint16(data)) != s.TypeValue():
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	case declaredLength > len(data)-4: // type + declared length = 4
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	case supportedPointFormatsSize+pointFormatCount > len(data):
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	case pointFormatCount+1 != declaredLength:
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	for i := range pointFormatCount {

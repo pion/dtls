@@ -4,6 +4,7 @@
 package protocol
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -48,7 +49,7 @@ func (a *ACK) Unmarshal(data []byte) error {
 
 	var recordList cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&recordList) || !val.Empty() {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	a.Records = make([]RecordNumber, 0)
@@ -56,7 +57,7 @@ func (a *ACK) Unmarshal(data []byte) error {
 	for !recordList.Empty() {
 		var rec RecordNumber
 		if !recordList.ReadUint64(&rec.Epoch) || !recordList.ReadUint64(&rec.SequenceNumber) {
-			return errInvalidACK
+			return dtlserrors.ErrInvalidACK
 		}
 		a.Records = append(a.Records, rec)
 	}

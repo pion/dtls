@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -119,7 +120,7 @@ func (c *ChaCha20Poly1305) Decrypt(header recordlayer.Header, in []byte) ([]byte
 
 	plaintext, err := c.remoteCipher.Open(nil, nonce[:], ciphertext, additionalData)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errDecryptPacket, err) //nolint:errorlint
+		return nil, fmt.Errorf("%w: %v", dtlserrors.ErrDecryptPacket, err) //nolint:errorlint
 	}
 
 	return append(in[:header.Size()], plaintext...), nil

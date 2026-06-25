@@ -6,12 +6,13 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestALPN(t *testing.T) {
 	extension := ALPN{
-		ProtocolNameList: []string{"http/1.1", "spdy/1", "spdy/2", "spdy/3"},
+		ProtocolNameList: []string{"http/1.1", "spdy/1", "spdy/2", "spdy/3"}, //nolint:goconst
 	}
 
 	raw, err := extension.Marshal()
@@ -23,12 +24,12 @@ func TestALPN(t *testing.T) {
 }
 
 func TestALPNProtocolSelection(t *testing.T) {
-	selectedProtocol, err := ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{"spd/1"})
+	selectedProtocol, err := ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{"spd/1"}) //nolint:goconst
 	assert.NoError(t, err)
 	assert.Equal(t, "spd/1", selectedProtocol)
 
 	_, err = ALPNProtocolSelection([]string{"http/1.1"}, []string{"spd/1"})
-	assert.ErrorIs(t, err, errALPNNoAppProto)
+	assert.ErrorIs(t, err, dtlserrors.ErrALPNNoAppProto)
 
 	selectedProtocol, err = ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{})
 	assert.NoError(t, err)

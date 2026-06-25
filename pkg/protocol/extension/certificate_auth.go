@@ -4,6 +4,7 @@
 package extension
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -24,7 +25,7 @@ func (c CertificateAuthorities) TypeValue() TypeValue {
 // Marshal encodes the extension.
 func (c *CertificateAuthorities) Marshal() ([]byte, error) {
 	if len(c.Authorities) < 1 {
-		return []byte{}, errInvalidCertificateAuthFormat
+		return []byte{}, dtlserrors.ErrInvalidCertificateAuthFormat
 	}
 	var out cryptobyte.Builder
 	out.AddUint16(uint16(c.TypeValue()))
@@ -32,7 +33,7 @@ func (c *CertificateAuthorities) Marshal() ([]byte, error) {
 		b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 			for _, ca := range c.Authorities {
 				if len(ca) < 1 {
-					b.SetError(errInvalidCertificateAuthFormat)
+					b.SetError(dtlserrors.ErrInvalidCertificateAuthFormat)
 
 					return
 				}
@@ -51,28 +52,28 @@ func (c *CertificateAuthorities) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 	var extension uint16
 	if !val.ReadUint16(&extension) || TypeValue(extension) != c.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	var extData cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	var auths cryptobyte.String
 	if extData.Empty() || !extData.ReadUint16LengthPrefixed(&auths) || auths.Empty() {
-		return errInvalidCertificateAuthFormat
+		return dtlserrors.ErrInvalidCertificateAuthFormat
 	}
 
 	if !extData.Empty() {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	var cauths [][]byte
 	for !auths.Empty() {
 		var ca cryptobyte.String
 		if !auths.ReadUint16LengthPrefixed(&ca) || len(ca) < 1 {
-			return errInvalidCertificateAuthFormat
+			return dtlserrors.ErrInvalidCertificateAuthFormat
 		}
 		cauths = append(cauths, ca)
 	}

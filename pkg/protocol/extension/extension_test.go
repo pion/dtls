@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,7 +20,7 @@ func TestExtensions(t *testing.T) {
 
 	t.Run("Invalid", func(t *testing.T) {
 		extensions, err := Unmarshal([]byte{0x00})
-		assert.ErrorIs(t, err, errBufferTooSmall)
+		assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
 		assert.Empty(t, extensions)
 	})
 }

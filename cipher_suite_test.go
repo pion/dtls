@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/transport/v4/dpipe"
@@ -168,7 +169,7 @@ func TestParseCipherSuitesForVersions(t *testing.T) {
 			protocol.Version1_2,
 			protocol.Version1_2,
 		)
-		require.ErrorIs(t, err, errNoAvailableCertificateCipherSuite)
+		require.ErrorIs(t, err, dtlserrors.ErrNoAvailableCertificateCipherSuite)
 	})
 
 	t.Run("TLS 1.3 suites are authentication neutral", func(t *testing.T) {
@@ -195,7 +196,7 @@ func TestParseCipherSuitesForVersions(t *testing.T) {
 			protocol.Version1_2,
 			protocol.Version1_2,
 		)
-		require.ErrorIs(t, err, errNoAvailablePSKCipherSuite)
+		require.ErrorIs(t, err, dtlserrors.ErrNoAvailablePSKCipherSuite)
 	})
 }
 

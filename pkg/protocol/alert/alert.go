@@ -5,13 +5,11 @@
 package alert
 
 import (
-	"errors"
 	"fmt"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
-
-var errBufferTooSmall = &protocol.TemporaryError{Err: errors.New("buffer is too small")} //nolint:err113
 
 // Level is the level of the TLS Alert.
 type Level byte
@@ -156,7 +154,7 @@ func (a *Alert) Marshal() ([]byte, error) {
 // Unmarshal populates the alert from binary data.
 func (a *Alert) Unmarshal(data []byte) error {
 	if len(data) != 2 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	a.Level = Level(data[0])

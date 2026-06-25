@@ -6,6 +6,7 @@ package protocol
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -90,7 +91,7 @@ func TestACK_UnmarshalTruncatedRecord(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // only 7 bytes of epoch
 	}
 	newACK := ACK{}
-	assert.ErrorIs(t, newACK.Unmarshal(raw), errLengthMismatch)
+	assert.ErrorIs(t, newACK.Unmarshal(raw), dtlserrors.ErrLengthMismatch)
 }
 
 func TestACK_UnmarshalTrailingData(t *testing.T) {
@@ -102,7 +103,7 @@ func TestACK_UnmarshalTrailingData(t *testing.T) {
 		0xde, 0xad, // trailing garbage
 	}
 	newACK := ACK{}
-	assert.ErrorIs(t, newACK.Unmarshal(raw), errLengthMismatch)
+	assert.ErrorIs(t, newACK.Unmarshal(raw), dtlserrors.ErrLengthMismatch)
 }
 
 func TestACK_UnmarshalEmpty(t *testing.T) {

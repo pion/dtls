@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -38,14 +39,15 @@ func flight2Parse(
 	}
 
 	if !clientHello.Version.Equal(protocol.Version1_2) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	if len(clientHello.Cookie) == 0 {
 		return 0, nil, nil
 	}
 	if !bytes.Equal(state.cookie, clientHello.Cookie) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, errCookieMismatch
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
 
 	return flight4, nil, nil

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -121,7 +122,7 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 
 	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_1, []*packet{}, newHandshakeTranscript13())
 	require.Nil(t, fsm)
-	require.ErrorIs(t, err, errHandshakeTranscriptMissingClientHello)
+	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)
 }
 
 func canonicalPacketHandshake13(t *testing.T, p *packet) []byte {

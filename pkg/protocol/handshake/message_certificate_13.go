@@ -6,6 +6,7 @@ package handshake
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"golang.org/x/crypto/cryptobyte"
@@ -68,7 +69,7 @@ const (
 func (m *MessageCertificate13) Marshal() ([]byte, error) {
 	// Validate certificate_request_context length
 	if len(m.CertificateRequestContext) > cert13ContextMaxLength {
-		return nil, errCertificateRequestContextTooLong
+		return nil, dtlserrors.ErrCertificateRequestContextTooLong
 	}
 
 	// Start with certificate_request_context (1-byte length prefix)
@@ -82,7 +83,7 @@ func (m *MessageCertificate13) Marshal() ([]byte, error) {
 		// Add cert_data as a 3-byte length prefix
 		certDataLen := len(entry.CertificateData)
 		if certDataLen == 0 || certDataLen > maxUint24 {
-			return nil, errInvalidCertificateEntry
+			return nil, dtlserrors.ErrInvalidCertificateEntry
 		}
 		certDataLenBytes := make([]byte, cert13CertLengthFieldSize)
 		util.PutBigEndianUint24(certDataLenBytes, uint32(certDataLen)) //nolint:gosec // G115
@@ -98,7 +99,7 @@ func (m *MessageCertificate13) Marshal() ([]byte, error) {
 
 		// Check size of certificate_list is still within bounds
 		if len(certificateList) > maxUint24 {
-			return nil, errCertificateListTooLong
+			return nil, dtlserrors.ErrCertificateListTooLong
 		}
 	}
 
@@ -116,12 +117,12 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 	// Read cert_data with 3-byte length prefix
 	var certData cryptobyte.String
 	if !str.ReadUint24LengthPrefixed(&certData) {
-		return nil, errInvalidCertificateEntry
+		return nil, dtlserrors.ErrInvalidCertificateEntry
 	}
 
 	// Validate cert_data length is in valid range <1..2^24-1>
 	if len(certData) == 0 {
-		return nil, errInvalidCertificateEntry
+		return nil, dtlserrors.ErrInvalidCertificateEntry
 	}
 
 	// Copy cert_data to avoid aliasing issues
@@ -130,13 +131,13 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 
 	// Validate extensions length (2-byte length prefix + up to 2^16-1 bytes of data)
 	if len(*str) < cert13ExtLengthFieldSize {
-		return nil, errInvalidCertificateEntry
+		return nil, dtlserrors.ErrInvalidCertificateEntry
 	}
 
 	// Read extensions length to validate we have enough data
 	extensionsLen := binary.BigEndian.Uint16([]byte(*str)[:cert13ExtLengthFieldSize])
 	if len(*str) < cert13ExtLengthFieldSize+int(extensionsLen) {
-		return nil, errInvalidCertificateEntry
+		return nil, dtlserrors.ErrInvalidCertificateEntry
 	}
 
 	// Unmarshal extensions data
@@ -148,7 +149,7 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 
 	// Advance the cryptobyte.String's position
 	if !str.Skip(cert13ExtLengthFieldSize + int(extensionsLen)) {
-		return nil, errInvalidCertificateEntry
+		return nil, dtlserrors.ErrInvalidCertificateEntry
 	}
 
 	return &CertificateEntry13{
@@ -161,7 +162,7 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 func (m *MessageCertificate13) Unmarshal(data []byte) error {
 	// Validate minimum data length
 	if len(data) < cert13ContextLengthFieldSize+cert13CertLengthFieldSize {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	str := cryptobyte.String(data)
@@ -169,7 +170,7 @@ func (m *MessageCertificate13) Unmarshal(data []byte) error {
 	// Read certificate_request_context with 1-byte length prefix
 	var contextData cryptobyte.String
 	if !str.ReadUint8LengthPrefixed(&contextData) {
-		return errInvalidCertificateRequestContext
+		return dtlserrors.ErrInvalidCertificateRequestContext
 	}
 	m.CertificateRequestContext = make([]byte, len(contextData))
 	copy(m.CertificateRequestContext, contextData)
@@ -177,12 +178,12 @@ func (m *MessageCertificate13) Unmarshal(data []byte) error {
 	// Read certificate_list with 3-byte length prefix
 	var certificateListData cryptobyte.String
 	if !str.ReadUint24LengthPrefixed(&certificateListData) {
-		return errInvalidCertificateEntry
+		return dtlserrors.ErrInvalidCertificateEntry
 	}
 
 	// Ensure no trailing data
 	if len(str) != 0 {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	// Parse certificate_list

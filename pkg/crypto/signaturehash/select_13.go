@@ -5,6 +5,8 @@ package signaturehash
 
 import (
 	"crypto"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
 // selectSignatureScheme13 returns most preferred and compatible scheme.
@@ -12,7 +14,7 @@ import (
 func selectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey, is13 bool) (Algorithm, error) {
 	signer, ok := privateKey.(crypto.Signer)
 	if !ok {
-		return Algorithm{}, errInvalidPrivateKey
+		return Algorithm{}, dtlserrors.ErrSignatureHashInvalidPrivateKey
 	}
 	for _, ss := range sigs {
 		// Skip PSS schemes for DTLS 1.2 (PSS is only supported in DTLS 1.3)
@@ -28,5 +30,5 @@ func selectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey, is1
 		}
 	}
 
-	return Algorithm{}, errNoAvailableSignatureSchemes
+	return Algorithm{}, dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes
 }

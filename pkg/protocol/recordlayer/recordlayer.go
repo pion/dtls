@@ -6,6 +6,7 @@ package recordlayer
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -82,7 +83,7 @@ func (r *RecordLayer) Unmarshal(data []byte) error {
 	case protocol.ContentTypeApplicationData:
 		r.Content = &protocol.ApplicationData{}
 	default:
-		return errInvalidContentType
+		return dtlserrors.ErrInvalidContentType
 	}
 
 	return r.Content.Unmarshal(data[r.Header.Size()+len(r.Header.ConnectionID):])

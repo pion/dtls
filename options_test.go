@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
@@ -27,7 +28,7 @@ func TestClientWithOptionsValidatesOptionValues(t *testing.T) {
 
 	_, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithExtendedMasterSecret(ExtendedMasterSecretType(-1)))
-	require.ErrorIs(t, err, errInvalidExtendedMasterSecretType)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidExtendedMasterSecretType)
 }
 
 func TestServerWithOptionsValidatesOptionValues(t *testing.T) {
@@ -40,7 +41,7 @@ func TestServerWithOptionsValidatesOptionValues(t *testing.T) {
 	// Test invalid client auth type
 	_, err := ServerWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithClientAuth(ClientAuthType(-1)))
-	require.ErrorIs(t, err, errInvalidClientAuthType)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientAuthType)
 }
 
 func TestWithOptionsCreatesConn(t *testing.T) {
@@ -74,50 +75,50 @@ func TestWithOptionsCreatesConn(t *testing.T) {
 func TestEmptySliceOptionsReturnError(t *testing.T) {
 	t.Run("EmptyCertificates", func(t *testing.T) {
 		_, err := buildClientConfig(WithCertificates())
-		require.ErrorIs(t, err, errEmptyCertificates)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptyCertificates)
 
 		_, err = buildServerConfig(WithCertificates())
-		require.ErrorIs(t, err, errEmptyCertificates)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptyCertificates)
 	})
 
 	t.Run("EmptyCipherSuites", func(t *testing.T) {
 		_, err := buildClientConfig(WithCipherSuites())
-		require.ErrorIs(t, err, errEmptyCipherSuites)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptyCipherSuites)
 
 		_, err = buildServerConfig(WithCipherSuites())
-		require.ErrorIs(t, err, errEmptyCipherSuites)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptyCipherSuites)
 	})
 
 	t.Run("EmptySignatureSchemes", func(t *testing.T) {
 		_, err := buildClientConfig(WithSignatureSchemes())
-		require.ErrorIs(t, err, errEmptySignatureSchemes)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptySignatureSchemes)
 
 		_, err = buildServerConfig(WithSignatureSchemes())
-		require.ErrorIs(t, err, errEmptySignatureSchemes)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptySignatureSchemes)
 	})
 
 	t.Run("EmptySRTPProtectionProfiles", func(t *testing.T) {
 		_, err := buildClientConfig(WithSRTPProtectionProfiles())
-		require.ErrorIs(t, err, errEmptySRTPProtectionProfiles)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptySRTPProtectionProfiles)
 
 		_, err = buildServerConfig(WithSRTPProtectionProfiles())
-		require.ErrorIs(t, err, errEmptySRTPProtectionProfiles)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptySRTPProtectionProfiles)
 	})
 
 	t.Run("EmptySupportedProtocols", func(t *testing.T) {
 		_, err := buildClientConfig(WithSupportedProtocols())
-		require.ErrorIs(t, err, errEmptySupportedProtocols)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptySupportedProtocols)
 
 		_, err = buildServerConfig(WithSupportedProtocols())
-		require.ErrorIs(t, err, errEmptySupportedProtocols)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptySupportedProtocols)
 	})
 
 	t.Run("EmptyEllipticCurves", func(t *testing.T) {
 		_, err := buildClientConfig(WithEllipticCurves())
-		require.ErrorIs(t, err, errEmptyEllipticCurves)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptyEllipticCurves)
 
 		_, err = buildServerConfig(WithEllipticCurves())
-		require.ErrorIs(t, err, errEmptyEllipticCurves)
+		require.ErrorIs(t, err, dtlserrors.ErrEmptyEllipticCurves)
 	})
 }
 
@@ -126,74 +127,74 @@ func TestEmptySliceOptionsReturnError(t *testing.T) {
 func TestNilCallbackOptionsReturnError(t *testing.T) {
 	t.Run("NilCustomCipherSuites", func(t *testing.T) {
 		_, err := buildClientConfig(WithCustomCipherSuites(nil))
-		require.ErrorIs(t, err, errNilCustomCipherSuites)
+		require.ErrorIs(t, err, dtlserrors.ErrNilCustomCipherSuites)
 
 		_, err = buildServerConfig(WithCustomCipherSuites(nil))
-		require.ErrorIs(t, err, errNilCustomCipherSuites)
+		require.ErrorIs(t, err, dtlserrors.ErrNilCustomCipherSuites)
 	})
 
 	t.Run("NilPSKCallback", func(t *testing.T) {
 		_, err := buildClientConfig(WithPSK(nil))
-		require.ErrorIs(t, err, errNilPSKCallback)
+		require.ErrorIs(t, err, dtlserrors.ErrNilPSKCallback)
 
 		_, err = buildServerConfig(WithPSK(nil))
-		require.ErrorIs(t, err, errNilPSKCallback)
+		require.ErrorIs(t, err, dtlserrors.ErrNilPSKCallback)
 	})
 
 	t.Run("NilVerifyPeerCertificate", func(t *testing.T) {
 		_, err := buildClientConfig(WithVerifyPeerCertificate(nil))
-		require.ErrorIs(t, err, errNilVerifyPeerCertificate)
+		require.ErrorIs(t, err, dtlserrors.ErrNilVerifyPeerCertificate)
 
 		_, err = buildServerConfig(WithVerifyPeerCertificate(nil))
-		require.ErrorIs(t, err, errNilVerifyPeerCertificate)
+		require.ErrorIs(t, err, dtlserrors.ErrNilVerifyPeerCertificate)
 	})
 
 	t.Run("NilVerifyConnection", func(t *testing.T) {
 		_, err := buildClientConfig(WithVerifyConnection(nil))
-		require.ErrorIs(t, err, errNilVerifyConnection)
+		require.ErrorIs(t, err, dtlserrors.ErrNilVerifyConnection)
 
 		_, err = buildServerConfig(WithVerifyConnection(nil))
-		require.ErrorIs(t, err, errNilVerifyConnection)
+		require.ErrorIs(t, err, dtlserrors.ErrNilVerifyConnection)
 	})
 
 	t.Run("NilGetClientCertificate", func(t *testing.T) {
 		_, err := buildClientConfig(WithGetClientCertificate(nil))
-		require.ErrorIs(t, err, errNilGetClientCertificate)
+		require.ErrorIs(t, err, dtlserrors.ErrNilGetClientCertificate)
 
 		_, err = buildServerConfig(WithGetClientCertificate(nil))
-		require.ErrorIs(t, err, errNilGetClientCertificate)
+		require.ErrorIs(t, err, dtlserrors.ErrNilGetClientCertificate)
 	})
 
 	t.Run("NilConnectionIDGenerator", func(t *testing.T) {
 		_, err := buildClientConfig(WithConnectionIDGenerator(nil))
-		require.ErrorIs(t, err, errNilConnectionIDGenerator)
+		require.ErrorIs(t, err, dtlserrors.ErrNilConnectionIDGenerator)
 
 		_, err = buildServerConfig(WithConnectionIDGenerator(nil))
-		require.ErrorIs(t, err, errNilConnectionIDGenerator)
+		require.ErrorIs(t, err, dtlserrors.ErrNilConnectionIDGenerator)
 	})
 
 	t.Run("NilPaddingLengthGenerator", func(t *testing.T) {
 		_, err := buildClientConfig(WithPaddingLengthGenerator(nil))
-		require.ErrorIs(t, err, errNilPaddingLengthGenerator)
+		require.ErrorIs(t, err, dtlserrors.ErrNilPaddingLengthGenerator)
 
 		_, err = buildServerConfig(WithPaddingLengthGenerator(nil))
-		require.ErrorIs(t, err, errNilPaddingLengthGenerator)
+		require.ErrorIs(t, err, dtlserrors.ErrNilPaddingLengthGenerator)
 	})
 
 	t.Run("NilHelloRandomBytesGenerator", func(t *testing.T) {
 		_, err := buildClientConfig(WithHelloRandomBytesGenerator(nil))
-		require.ErrorIs(t, err, errNilHelloRandomBytesGenerator)
+		require.ErrorIs(t, err, dtlserrors.ErrNilHelloRandomBytesGenerator)
 
 		_, err = buildServerConfig(WithHelloRandomBytesGenerator(nil))
-		require.ErrorIs(t, err, errNilHelloRandomBytesGenerator)
+		require.ErrorIs(t, err, dtlserrors.ErrNilHelloRandomBytesGenerator)
 	})
 
 	t.Run("NilClientHelloMessageHook", func(t *testing.T) {
 		_, err := buildClientConfig(WithClientHelloMessageHook(nil))
-		require.ErrorIs(t, err, errNilClientHelloMessageHook)
+		require.ErrorIs(t, err, dtlserrors.ErrNilClientHelloMessageHook)
 
 		_, err = buildServerConfig(WithClientHelloMessageHook(nil))
-		require.ErrorIs(t, err, errNilClientHelloMessageHook)
+		require.ErrorIs(t, err, dtlserrors.ErrNilClientHelloMessageHook)
 	})
 }
 
@@ -202,22 +203,22 @@ func TestNilCallbackOptionsReturnError(t *testing.T) {
 func TestServerOnlyNilCallbackOptionsReturnError(t *testing.T) {
 	t.Run("NilGetCertificate", func(t *testing.T) {
 		_, err := buildServerConfig(WithGetCertificate(nil))
-		require.ErrorIs(t, err, errNilGetCertificate)
+		require.ErrorIs(t, err, dtlserrors.ErrNilGetCertificate)
 	})
 
 	t.Run("NilServerHelloMessageHook", func(t *testing.T) {
 		_, err := buildServerConfig(WithServerHelloMessageHook(nil))
-		require.ErrorIs(t, err, errNilServerHelloMessageHook)
+		require.ErrorIs(t, err, dtlserrors.ErrNilServerHelloMessageHook)
 	})
 
 	t.Run("NilCertificateRequestMessageHook", func(t *testing.T) {
 		_, err := buildServerConfig(WithCertificateRequestMessageHook(nil))
-		require.ErrorIs(t, err, errNilCertificateRequestMessageHook)
+		require.ErrorIs(t, err, dtlserrors.ErrNilCertificateRequestMessageHook)
 	})
 
 	t.Run("NilOnConnectionAttempt", func(t *testing.T) {
 		_, err := buildServerConfig(WithOnConnectionAttempt(nil))
-		require.ErrorIs(t, err, errNilOnConnectionAttempt)
+		require.ErrorIs(t, err, dtlserrors.ErrNilOnConnectionAttempt)
 	})
 }
 
@@ -226,56 +227,56 @@ func TestServerOnlyNilCallbackOptionsReturnError(t *testing.T) {
 func TestInvalidNumericOptionsReturnError(t *testing.T) {
 	t.Run("InvalidFlightInterval", func(t *testing.T) {
 		_, err := buildClientConfig(WithFlightInterval(0))
-		require.ErrorIs(t, err, errInvalidFlightInterval)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidFlightInterval)
 
 		_, err = buildClientConfig(WithFlightInterval(-time.Second))
-		require.ErrorIs(t, err, errInvalidFlightInterval)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidFlightInterval)
 
 		_, err = buildServerConfig(WithFlightInterval(0))
-		require.ErrorIs(t, err, errInvalidFlightInterval)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidFlightInterval)
 	})
 
 	t.Run("InvalidMTU", func(t *testing.T) {
 		_, err := buildClientConfig(WithMTU(0))
-		require.ErrorIs(t, err, errInvalidMTU)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidMTU)
 
 		_, err = buildClientConfig(WithMTU(-100))
-		require.ErrorIs(t, err, errInvalidMTU)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidMTU)
 
 		_, err = buildServerConfig(WithMTU(0))
-		require.ErrorIs(t, err, errInvalidMTU)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidMTU)
 	})
 
 	t.Run("InvalidReplayProtectionWindow", func(t *testing.T) {
 		_, err := buildClientConfig(WithReplayProtectionWindow(-1))
-		require.ErrorIs(t, err, errInvalidReplayProtectionWindow)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidReplayProtectionWindow)
 
 		_, err = buildServerConfig(WithReplayProtectionWindow(-1))
-		require.ErrorIs(t, err, errInvalidReplayProtectionWindow)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidReplayProtectionWindow)
 	})
 
 	t.Run("InvalidClientAuthType", func(t *testing.T) {
 		_, err := buildServerConfig(WithClientAuth(ClientAuthType(-1)))
-		require.ErrorIs(t, err, errInvalidClientAuthType)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidClientAuthType)
 
 		_, err = buildServerConfig(WithClientAuth(ClientAuthType(100)))
-		require.ErrorIs(t, err, errInvalidClientAuthType)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidClientAuthType)
 	})
 
 	t.Run("InvalidExtendedMasterSecretType", func(t *testing.T) {
 		_, err := buildClientConfig(WithExtendedMasterSecret(ExtendedMasterSecretType(-1)))
-		require.ErrorIs(t, err, errInvalidExtendedMasterSecretType)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidExtendedMasterSecretType)
 
 		_, err = buildServerConfig(WithExtendedMasterSecret(ExtendedMasterSecretType(100)))
-		require.ErrorIs(t, err, errInvalidExtendedMasterSecretType)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidExtendedMasterSecretType)
 	})
 
 	t.Run("InvalidVersions", func(t *testing.T) {
 		_, err := buildClientConfig(withMinVersion(protocol.Version{}))
-		require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 
 		_, err = buildClientConfig(withMaxVersion(protocol.Version{}))
-		require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 	})
 }
 
@@ -432,7 +433,7 @@ func TestOptionImmutability(t *testing.T) {
 	})
 
 	t.Run("SupportedProtocols", func(t *testing.T) {
-		protocols := []string{"h2", "http/1.1"}
+		protocols := []string{"h2", "http/1.1"} //nolint:goconst
 		config, err := buildClientConfig(WithSupportedProtocols(protocols...))
 		require.NoError(t, err)
 

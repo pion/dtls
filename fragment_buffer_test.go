@@ -6,6 +6,7 @@ package dtls
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -169,7 +170,7 @@ func TestFragmentBuffer_Overflow(t *testing.T) {
 	// Allocate a buffer that exceeds cache size
 	largeBuffer := make([]byte, fragmentBufferMaxSize)
 	_, _, err = fragmentBuffer.push(largeBuffer)
-	assert.ErrorIs(t, err, errFragmentBufferOverflow, "Pushing a large buffer should return an overflow error")
+	assert.ErrorIs(t, err, dtlserrors.ErrFragmentBufferOverflow, "Pushing a large buffer should return an overflow error")
 }
 
 func TestFragmentBuffer_TooSmall(t *testing.T) {
@@ -180,7 +181,7 @@ func TestFragmentBuffer_TooSmall(t *testing.T) {
 		0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03,
 		0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xfe, 0xff, 0x00,
 	})
-	assert.ErrorIs(t, err, errBufferTooSmall,
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall,
 		"Pushing a buffer that is smaller than fragment length should return an error")
 }
 

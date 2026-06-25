@@ -14,6 +14,7 @@ import (
 	"slices"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
@@ -459,11 +460,11 @@ func parseCipherSuitesForVersions(
 
 	switch {
 	case includeCertificateSuites && !foundCertificateSuite && !foundAnonymousSuite:
-		return nil, errNoAvailableCertificateCipherSuite
+		return nil, dtlserrors.ErrNoAvailableCertificateCipherSuite
 	case includePSKSuites && !foundPSKSuite && !foundTLS13Suite:
-		return nil, errNoAvailablePSKCipherSuite
+		return nil, dtlserrors.ErrNoAvailablePSKCipherSuite
 	case i == 0:
-		return nil, errNoAvailableCipherSuites
+		return nil, dtlserrors.ErrNoAvailableCipherSuites
 	}
 
 	return cipherSuites[:i], nil

@@ -5,39 +5,9 @@
 package recordlayer
 
 import (
-	"errors"
-
-	"github.com/pion/dtls/v3/pkg/protocol"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
-var (
-	// ErrInvalidPacketLength is returned when the packet length too small
-	// or declared length do not match.
-	ErrInvalidPacketLength = &protocol.TemporaryError{
-		Err: errors.New("packet length and declared length do not match"), //nolint:err113
-	}
-	errBufferTooSmall = &protocol.TemporaryError{
-		Err: errors.New("buffer is too small"), //nolint:err113
-	}
-	errSequenceNumberOverflow = &protocol.InternalError{
-		Err: errors.New("sequence number overflow"), //nolint:err113
-	}
-	errUnsupportedProtocolVersion = &protocol.FatalError{
-		Err: errors.New("unsupported protocol version"), //nolint:err113
-	}
-	errInvalidContentType = &protocol.TemporaryError{
-		Err: errors.New("invalid content type"), //nolint:err113
-	}
-	errInvalidCiphertextHeader = &protocol.FatalError{
-		Err: errors.New("invalid dtls 1.3 ciphertext header"), //nolint:err113
-	}
-	errInvalidEpoch = &protocol.InternalError{
-		Err: errors.New("invalid epoch"), //nolint:err113
-	}
-	errCIDTooBig = &protocol.InternalError{
-		Err: errors.New("connection ID size is too big"), //nolint:err113
-	}
-	errInvalidUnifiedHeaderFormat = &protocol.FatalError{
-		Err: errors.New("invalid dtls 1.3 unified header format"), //nolint:err113
-	}
-)
+// ErrInvalidPacketLength is returned when the packet length too small
+// or declared length do not match.
+var ErrInvalidPacketLength = dtlserrors.ErrInvalidPacketLength //nolint:gochecknoglobals

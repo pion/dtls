@@ -6,6 +6,7 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -83,7 +84,7 @@ func TestOIDFilters_DuplicateFilters(t *testing.T) {
 	}}
 
 	_, err := extension.Marshal()
-	assert.ErrorIs(t, err, errDuplicateOID)
+	assert.ErrorIs(t, err, dtlserrors.ErrDuplicateOID)
 
 	raw := []byte{
 		0x00, 0x30, // extension type
@@ -100,7 +101,7 @@ func TestOIDFilters_DuplicateFilters(t *testing.T) {
 	}
 
 	newExtension := OIDFilters{}
-	assert.ErrorIs(t, newExtension.Unmarshal(raw), errDuplicateOID)
+	assert.ErrorIs(t, newExtension.Unmarshal(raw), dtlserrors.ErrDuplicateOID)
 }
 
 func TestOIDFilters_EmptyValues(t *testing.T) {
@@ -156,7 +157,7 @@ func TestOIDFilters_EmptyOID(t *testing.T) {
 		0x00, // start of values length
 	}
 	newExtension := OIDFilters{}
-	assert.ErrorIs(t, newExtension.Unmarshal(raw), errOIDFiltersFormat)
+	assert.ErrorIs(t, newExtension.Unmarshal(raw), dtlserrors.ErrOIDFiltersFormat)
 }
 
 func TestOIDFilters_MarshalEmptyOID(t *testing.T) {
@@ -164,7 +165,7 @@ func TestOIDFilters_MarshalEmptyOID(t *testing.T) {
 		{OID: []byte{}, Values: []byte{0x01}},
 	}}
 	_, err := extension.Marshal()
-	assert.ErrorIs(t, err, errEmptyOIDFilter)
+	assert.ErrorIs(t, err, dtlserrors.ErrEmptyOIDFilter)
 }
 
 func FuzzOIDFiltersUnmarshal(f *testing.F) {

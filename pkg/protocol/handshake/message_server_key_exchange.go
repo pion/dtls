@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
@@ -53,11 +54,11 @@ func (m *MessageServerKeyExchange) Marshal() ([]byte, error) { //nolint:cyclop
 	out = append(out, m.PublicKey...)
 	switch {
 	case m.HashAlgorithm != hash.None && len(m.Signature) == 0:
-		return nil, errInvalidSignHashAlgorithm
+		return nil, dtlserrors.ErrInvalidSignHashAlgorithm
 	case m.HashAlgorithm == hash.None && len(m.Signature) > 0:
-		return nil, errInvalidSignHashAlgorithm
+		return nil, dtlserrors.ErrInvalidSignHashAlgorithm
 	case m.SignatureAlgorithm == signature.Anonymous && (m.HashAlgorithm != hash.None || len(m.Signature) > 0):
-		return nil, errInvalidSignHashAlgorithm
+		return nil, dtlserrors.ErrInvalidSignHashAlgorithm
 	case m.SignatureAlgorithm == signature.Anonymous:
 		return out, nil
 	}
@@ -74,9 +75,9 @@ func (m *MessageServerKeyExchange) Marshal() ([]byte, error) { //nolint:cyclop
 func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclop
 	switch {
 	case len(data) < 2:
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	case m.KeyExchangeAlgorithm == types.KeyExchangeAlgorithmNone:
-		return errCipherSuiteUnset
+		return dtlserrors.ErrCipherSuiteUnset
 	}
 
 	hintLength := binary.BigEndian.Uint16(data)
@@ -89,38 +90,38 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 			return nil
 		}
 
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	if !m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmEcdhe) {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	if len(data) == 0 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	if _, ok := elliptic.CurveTypes()[elliptic.CurveType(data[0])]; ok {
 		m.EllipticCurveType = elliptic.CurveType(data[0])
 	} else {
-		return errInvalidEllipticCurveType
+		return dtlserrors.ErrInvalidEllipticCurveType
 	}
 
 	if len(data[1:]) < 2 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.NamedCurve = elliptic.Curve(binary.BigEndian.Uint16(data[1:3]))
 	if _, ok := elliptic.Curves()[m.NamedCurve]; !ok {
-		return errInvalidNamedCurve
+		return dtlserrors.ErrInvalidNamedCurveFatal
 	}
 	if len(data) < 4 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	publicKeyLength := int(data[3])
 	offset := 4 + publicKeyLength
 	if len(data) < offset {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.PublicKey = append([]byte{}, data[4:offset]...)
 
@@ -128,14 +129,14 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 	if len(data) == offset {
 		return nil
 	} else if len(data) <= offset+1 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	scheme := binary.BigEndian.Uint16(data[offset : offset+2])
 	var alg signaturehash.Algorithm
 	err := alg.Unmarshal(tls.SignatureScheme(scheme))
 	if err != nil {
-		return errInvalidSignHashAlgorithm
+		return dtlserrors.ErrInvalidSignHashAlgorithm
 	}
 
 	m.HashAlgorithm = alg.Hash
@@ -144,12 +145,12 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 	offset += 2
 
 	if len(data) < offset+2 {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	signatureLength := int(binary.BigEndian.Uint16(data[offset:]))
 	offset += 2
 	if len(data) < offset+signatureLength {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	m.Signature = append([]byte{}, data[offset:offset+signatureLength]...)
 

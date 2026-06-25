@@ -11,6 +11,7 @@ import (
 	"errors"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/stretchr/testify/assert"
 )
@@ -47,7 +48,7 @@ func TestValidateConfig(t *testing.T) {
 		expErr     error
 	}{
 		"Empty config": {
-			expErr: errNoConfigProvided,
+			expErr: dtlserrors.ErrNoConfigProvided,
 		},
 		"PSK and Certificate, valid cipher suites": {
 			config: &Config{
@@ -66,7 +67,7 @@ func TestValidateConfig(t *testing.T) {
 				},
 				Certificates: []tls.Certificate{cert},
 			},
-			expErr: errNoAvailablePSKCipherSuite,
+			expErr: dtlserrors.ErrNoAvailablePSKCipherSuite,
 		},
 		"PSK and Certificate, no non-PSK cipher suite": {
 			config: &Config{
@@ -76,7 +77,7 @@ func TestValidateConfig(t *testing.T) {
 				},
 				Certificates: []tls.Certificate{cert},
 			},
-			expErr: errNoAvailableCertificateCipherSuite,
+			expErr: dtlserrors.ErrNoAvailableCertificateCipherSuite,
 		},
 		"PSK identity hint with not PSK": {
 			config: &Config{
@@ -84,21 +85,21 @@ func TestValidateConfig(t *testing.T) {
 				PSK:             nil,
 				PSKIdentityHint: []byte{},
 			},
-			expErr: errIdentityNoPSK,
+			expErr: dtlserrors.ErrIdentityNoPSK,
 		},
 		"Invalid private key": {
 			config: &Config{
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 				Certificates: []tls.Certificate{{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey}},
 			},
-			expErr: errInvalidPrivateKey,
+			expErr: dtlserrors.ErrInvalidPrivateKey,
 		},
 		"PrivateKey without Certificate": {
 			config: &Config{
 				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 				Certificates: []tls.Certificate{{PrivateKey: cert.PrivateKey}},
 			},
-			expErr: errInvalidCertificate,
+			expErr: dtlserrors.ErrInvalidCertificate,
 		},
 		"Invalid cipher suites": {
 			config:     &Config{CipherSuites: []CipherSuiteID{0x0000}},

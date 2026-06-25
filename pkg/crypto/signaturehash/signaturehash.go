@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 )
@@ -115,7 +116,7 @@ func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]A
 	}
 
 	if len(out) == 0 {
-		return nil, errNoAvailableSignatureSchemes
+		return nil, dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes
 	}
 
 	return out, nil
@@ -155,7 +156,7 @@ func FromCertificate(cert *x509.Certificate) (Algorithm, error) { //nolint:cyclo
 		hashAlg = hash.SHA1
 		sigAlg = signature.ECDSA
 	default:
-		return Algorithm{}, errInvalidSignatureAlgorithm
+		return Algorithm{}, dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm
 	}
 
 	return Algorithm{Hash: hashAlg, Signature: sigAlg}, nil
@@ -170,7 +171,7 @@ func (a *Algorithm) Unmarshal(sigScheme tls.SignatureScheme) error {
 		a.Signature = signature.Algorithm(sigScheme)
 		a.Hash = hash.ExtractHashFromPSS(uint16(sigScheme))
 		if a.Hash == hash.None {
-			return errInvalidHashAlgorithm
+			return dtlserrors.ErrSignatureHashInvalidHashAlgorithm
 		}
 	} else {
 		// TLS 1.2 style - split into hash (high byte) and signature (low byte)
@@ -180,12 +181,12 @@ func (a *Algorithm) Unmarshal(sigScheme tls.SignatureScheme) error {
 
 	// Validate signature algorithm
 	if _, ok := signature.Algorithms()[a.Signature]; !ok {
-		return errInvalidSignatureAlgorithm
+		return dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm
 	}
 
 	// Validate hash algorithm
 	if _, ok := hash.Algorithms()[a.Hash]; !ok || (ok && a.Hash == hash.None) {
-		return errInvalidHashAlgorithm
+		return dtlserrors.ErrSignatureHashInvalidHashAlgorithm
 	}
 
 	return nil

@@ -3,7 +3,11 @@
 
 package extension //nolint:dupl
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+)
 
 const (
 	postHandshakeAuthHeaderSize = 4
@@ -40,11 +44,11 @@ func (p *PostHandshakeAuth) Marshal() ([]byte, error) {
 func (p *PostHandshakeAuth) Unmarshal(data []byte) error {
 	switch {
 	case len(data) < postHandshakeAuthHeaderSize:
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	case data[2] != 0x00 || data[3] != 0x00:
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	case TypeValue(binary.BigEndian.Uint16(data)) != p.TypeValue():
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	p.Enabled = true

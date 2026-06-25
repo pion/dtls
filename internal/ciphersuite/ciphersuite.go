@@ -6,15 +6,10 @@
 package ciphersuite
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
-	"github.com/pion/dtls/v3/pkg/protocol"
 )
-
-//nolint:err113
-var errCipherSuiteNotInit = &protocol.TemporaryError{Err: errors.New("CipherSuite has not been initialized")}
 
 // ID is an ID for our supported CipherSuites.
 type ID uint16

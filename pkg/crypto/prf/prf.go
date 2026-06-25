@@ -8,13 +8,12 @@ import (
 	"crypto/ecdh"
 	"crypto/hmac"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"hash"
 	"math"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
 const (
@@ -38,8 +37,6 @@ type EncryptionKeys struct {
 	ClientWriteIV  []byte
 	ServerWriteIV  []byte
 }
-
-var errInvalidNamedCurve = &protocol.FatalError{Err: errors.New("invalid named curve")} //nolint:err113
 
 func (e *EncryptionKeys) String() string {
 	return fmt.Sprintf(`encryptionKeys:
@@ -117,7 +114,7 @@ func PreMasterSecret(publicKey, privateKey []byte, curve elliptic.Curve) ([]byte
 	case elliptic.P384:
 		ec = ecdh.P384()
 	default:
-		return nil, errInvalidNamedCurve
+		return nil, dtlserrors.ErrInvalidNamedCurveFatal
 	}
 
 	sk, err := ec.NewPrivateKey(privateKey)

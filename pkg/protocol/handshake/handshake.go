@@ -6,6 +6,7 @@ package handshake
 
 import (
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
@@ -104,9 +105,9 @@ func (h Handshake) ContentType() protocol.ContentType {
 // Marshal encodes a handshake into a binary message.
 func (h *Handshake) Marshal() ([]byte, error) {
 	if h.Message == nil {
-		return nil, errHandshakeMessageUnset
+		return nil, dtlserrors.ErrHandshakeMessageUnset
 	} else if h.Header.FragmentOffset != 0 {
-		return nil, errUnableToMarshalFragmented
+		return nil, dtlserrors.ErrUnableToMarshalFragmented
 	}
 
 	msg, err := h.Message.Marshal()
@@ -133,14 +134,14 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 
 	reportedLen := util.BigEndianUint24(data[1:])
 	if uint32(len(data)-HeaderLength) != reportedLen { //nolint:gosec // G115
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	} else if reportedLen != h.Header.FragmentLength {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	switch Type(data[0]) {
 	case TypeHelloRequest:
-		return errNotImplemented
+		return dtlserrors.ErrNotImplemented
 	case TypeClientHello:
 		h.Message = &MessageClientHello{}
 	case TypeHelloVerifyRequest:
@@ -162,7 +163,7 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 	case TypeCertificateVerify:
 		h.Message = &MessageCertificateVerify{}
 	default:
-		return errNotImplemented
+		return dtlserrors.ErrNotImplemented
 	}
 
 	return h.Message.Unmarshal(data[HeaderLength:])

@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -104,7 +105,7 @@ func TestFlight13_0ParseRejectsClientHelloWithSelectedSupportedVersion(t *testin
 		cfg:   cfg,
 	})
 
-	require.ErrorIs(t, err, errInvalidClientHello)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
@@ -220,7 +221,7 @@ func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.
 			cfg:   cfg,
 		})
 
-		require.ErrorIs(t, err, errMissingClientHelloExtension)
+		require.ErrorIs(t, err, dtlserrors.ErrMissingClientHelloExtension)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
 		assert.Zero(t, nextFlight)
@@ -244,7 +245,7 @@ func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.
 			cfg:   cfg,
 		})
 
-		require.ErrorIs(t, err, errMissingClientHelloExtension)
+		require.ErrorIs(t, err, dtlserrors.ErrMissingClientHelloExtension)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
 		assert.Zero(t, nextFlight)
@@ -264,7 +265,7 @@ func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.
 			cfg:   cfg,
 		})
 
-		require.ErrorIs(t, err, errMissingClientHelloExtension)
+		require.ErrorIs(t, err, dtlserrors.ErrMissingClientHelloExtension)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
 		assert.Zero(t, nextFlight)
@@ -516,7 +517,7 @@ func TestFlight13_2Parse(t *testing.T) {
 		pushClientHello13(t, cache, protocol.Version1_2, exts)
 
 		next, dtlsAlert, err := flight13_2Parse(context.Background(), nil, flight13_2Context(state, cache, cfg))
-		require.ErrorIs(t, err, errCookieMismatch)
+		require.ErrorIs(t, err, dtlserrors.ErrCookieMismatch)
 		assert.Equal(t, flightVal13(0), next)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlsAlert)
@@ -536,7 +537,7 @@ func TestFlight13_2Parse(t *testing.T) {
 		})
 
 		next, dtlsAlert, err := flight13_2Parse(context.Background(), nil, flight13_2Context(state, cache, cfg))
-		require.ErrorIs(t, err, errUnsupportedProtocolVersion)
+		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 		assert.Equal(t, flightVal13(0), next)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlsAlert)
@@ -552,7 +553,7 @@ func TestFlight13_2Parse(t *testing.T) {
 		})
 
 		next, dtlsAlert, err := flight13_2Parse(context.Background(), nil, flight13_2Context(state, cache, cfg))
-		require.ErrorIs(t, err, errMissingClientHelloExtension)
+		require.ErrorIs(t, err, dtlserrors.ErrMissingClientHelloExtension)
 		assert.Equal(t, flightVal13(0), next)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)

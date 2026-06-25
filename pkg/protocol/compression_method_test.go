@@ -6,6 +6,7 @@ package protocol
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,7 +16,7 @@ func TestDecodeCompressionMethods(t *testing.T) {
 		result []*CompressionMethod
 		err    error
 	}{
-		{[]byte{}, nil, errBufferTooSmall},
+		{[]byte{}, nil, dtlserrors.ErrBufferTooSmall},
 	}
 
 	for _, testCase := range testCases {

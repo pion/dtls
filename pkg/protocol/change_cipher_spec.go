@@ -3,6 +3,8 @@
 
 package protocol
 
+import dtlserrors "github.com/pion/dtls/v3/internal/errors"
+
 // ChangeCipherSpec protocol exists to signal transitions in
 // ciphering strategies.  The protocol consists of a single message,
 // which is encrypted and compressed under the current (not the pending)
@@ -26,5 +28,5 @@ func (c *ChangeCipherSpec) Unmarshal(data []byte) error {
 		return nil
 	}
 
-	return errInvalidCipherSpec
+	return dtlserrors.ErrInvalidCipherSpec
 }

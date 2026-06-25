@@ -6,6 +6,7 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -88,7 +89,7 @@ func TestPreSharedKey_ClientHello_EmptyIdentities(t *testing.T) {
 	extension := PreSharedKey{}
 
 	err := extension.Unmarshal(raw)
-	assert.ErrorIs(t, err, errPreSharedKeyFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrPreSharedKeyFormat)
 }
 
 func TestPreSharedKey_ClientHello_MultipleIdentities(t *testing.T) {
@@ -180,7 +181,7 @@ func TestPreSharedKey_ClientHello_MultipleIdentities_SingleBinder(t *testing.T) 
 	extension := PreSharedKey{}
 
 	err := extension.Unmarshal(raw)
-	assert.ErrorIs(t, err, errPreSharedKeyFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrPreSharedKeyFormat)
 }
 
 func TestPreSharedKey_ClientHello_LowBinders(t *testing.T) {
@@ -204,7 +205,7 @@ func TestPreSharedKey_ClientHello_LowBinders(t *testing.T) {
 	extension := PreSharedKey{}
 
 	err := extension.Unmarshal(raw)
-	assert.ErrorIs(t, err, errPreSharedKeyFormat)
+	assert.ErrorIs(t, err, dtlserrors.ErrPreSharedKeyFormat)
 }
 
 func FuzzPreSharedKeyUnmarshal(f *testing.F) {

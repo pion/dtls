@@ -4,6 +4,7 @@
 package extension
 
 import (
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -59,7 +60,7 @@ func (p *PreSharedKey) Marshal() ([]byte, error) {
 		b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 			for _, pskIdentity := range p.Identities {
 				if len(pskIdentity.Identity) == 0 {
-					b.SetError(errPreSharedKeyFormat)
+					b.SetError(dtlserrors.ErrPreSharedKeyFormat)
 				}
 				b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 					b.AddBytes(pskIdentity.Identity)
@@ -70,7 +71,7 @@ func (p *PreSharedKey) Marshal() ([]byte, error) {
 		b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 			for _, binder := range p.Binders {
 				if len(binder) < minPSKBinderSize {
-					b.SetError(errPreSharedKeyFormat)
+					b.SetError(dtlserrors.ErrPreSharedKeyFormat)
 				}
 				b.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
 					b.AddBytes(binder)
@@ -87,19 +88,19 @@ func (p *PreSharedKey) Unmarshal(data []byte) error { //nolint:cyclop
 	val := cryptobyte.String(data)
 	var extension uint16
 	if !val.ReadUint16(&extension) || TypeValue(extension) != p.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	var extData cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	// ServerHello
 	if len(extData) == 2 {
 		var selected uint16
 		if !extData.ReadUint16(&selected) {
-			return errPreSharedKeyFormat
+			return dtlserrors.ErrPreSharedKeyFormat
 		}
 		p.SelectedIdentity = selected
 
@@ -109,38 +110,38 @@ func (p *PreSharedKey) Unmarshal(data []byte) error { //nolint:cyclop
 	// ClientHello
 	var identities cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&identities) || identities.Empty() {
-		return errPreSharedKeyFormat
+		return dtlserrors.ErrPreSharedKeyFormat
 	}
 
 	for !identities.Empty() {
 		var identity cryptobyte.String
 		var ticket uint32
 		if !identities.ReadUint16LengthPrefixed(&identity) || !identities.ReadUint32(&ticket) || identity.Empty() {
-			return errPreSharedKeyFormat
+			return dtlserrors.ErrPreSharedKeyFormat
 		}
 		p.Identities = append(p.Identities, PskIdentity{identity, ticket})
 	}
 
 	var binders cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&binders) || binders.Empty() {
-		return errPreSharedKeyFormat
+		return dtlserrors.ErrPreSharedKeyFormat
 	}
 
 	for !binders.Empty() {
 		var binder cryptobyte.String
 		if !binders.ReadUint8LengthPrefixed(&binder) || len(binder) < minPSKBinderSize {
-			return errPreSharedKeyFormat
+			return dtlserrors.ErrPreSharedKeyFormat
 		}
 		p.Binders = append(p.Binders, PskBinderEntry(binder))
 	}
 
 	if !extData.Empty() {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	// Ensure there is one binder value per identity in list
 	if len(p.Binders) != len(p.Identities) {
-		return errPreSharedKeyFormat
+		return dtlserrors.ErrPreSharedKeyFormat
 	}
 
 	return nil

@@ -5,6 +5,8 @@ package extension
 
 import (
 	"encoding/binary"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
 const (
@@ -29,12 +31,12 @@ func (u UseSRTP) TypeValue() TypeValue {
 // Marshal encodes the extension.
 func (u *UseSRTP) Marshal() ([]byte, error) {
 	if len(u.MasterKeyIdentifier) > 255 {
-		return nil, errMasterKeyIdentifierTooLarge
+		return nil, dtlserrors.ErrMasterKeyIdentifierTooLarge
 	}
 
 	extensionDataLen := 2 + (len(u.ProtectionProfiles) * 2) + 1 + len(u.MasterKeyIdentifier)
 	if extensionDataLen > maxUint16 {
-		return nil, errUseSRTPDataTooLarge
+		return nil, dtlserrors.ErrUseSRTPDataTooLarge
 	}
 	out := make([]byte, 4+extensionDataLen)
 
@@ -62,15 +64,15 @@ func (u *UseSRTP) Marshal() ([]byte, error) {
 // Unmarshal populates the extension from encoded data.
 func (u *UseSRTP) Unmarshal(data []byte) error {
 	if len(data) <= useSRTPHeaderSize {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	} else if TypeValue(binary.BigEndian.Uint16(data)) != u.TypeValue() {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	profileCount := int(binary.BigEndian.Uint16(data[4:]) / 2)
 	masterKeyIdentifierIndex := supportedGroupsHeaderSize + (profileCount * 2)
 	if masterKeyIdentifierIndex+1 > len(data) {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
@@ -78,7 +80,7 @@ func (u *UseSRTP) Unmarshal(data []byte) error {
 	masterKeyIdentifierLen := int(data[masterKeyIdentifierIndex])
 	end := masterKeyIdentifierIndex + masterKeyIdentifierLen
 	if end >= len(data) || end-4 != declaredLength-1 {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	for i := range profileCount {

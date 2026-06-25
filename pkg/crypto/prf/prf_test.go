@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/stretchr/testify/assert"
 )
@@ -245,13 +246,13 @@ func TestEcdhePSKPreMasterSecret_InvalidCurve(t *testing.T) {
 	invalid := elliptic.Curve(0xFFFF)
 
 	_, err := EcdhePSKPreMasterSecret(psk, pub, priv, invalid)
-	assert.ErrorIs(t, err, errInvalidNamedCurve)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurveFatal)
 }
 
 func TestPreMasterSecret_InvalidCurve(t *testing.T) {
 	invalid := elliptic.Curve(0) // not supported
 	_, err := PreMasterSecret(nil, nil, invalid)
-	assert.ErrorIs(t, err, errInvalidNamedCurve)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurveFatal)
 }
 
 func TestPreMasterSecret_NewPrivateKeyError(t *testing.T) {

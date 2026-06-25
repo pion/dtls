@@ -6,6 +6,7 @@ package handshake
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -46,7 +47,7 @@ const (
 func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 	// Validate certificate_request_context length
 	if len(m.CertificateRequestContext) > certReq13ContextMaxLength {
-		return nil, errCertificateRequestContextTooLong
+		return nil, dtlserrors.ErrCertificateRequestContextTooLong
 	}
 
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
@@ -59,7 +60,7 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 		}
 	}
 	if !hasSignatureAlgorithms {
-		return nil, errMissingSignatureAlgorithmsExtension
+		return nil, dtlserrors.ErrMissingSignatureAlgorithmsExtension
 	}
 
 	var builder cryptobyte.Builder
@@ -76,7 +77,7 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 	}
 	// Validate extensions length is in valid range <2..2^16-1>
 	if len(extensionsData) < 2 || len(extensionsData) > maxUint16 {
-		return nil, errInvalidExtensionsLength
+		return nil, dtlserrors.ErrInvalidExtensionsLength
 	}
 	builder.AddBytes(extensionsData)
 
@@ -87,7 +88,7 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 	// Validate minimum data length
 	if len(data) < certReq13MinLength {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	str := cryptobyte.String(data)
@@ -95,20 +96,20 @@ func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 	// Read certificate_request_context
 	var contextData cryptobyte.String
 	if !str.ReadUint8LengthPrefixed(&contextData) {
-		return errInvalidCertificateRequestContext
+		return dtlserrors.ErrInvalidCertificateRequestContext
 	}
 	m.CertificateRequestContext = make([]byte, len(contextData))
 	copy(m.CertificateRequestContext, contextData)
 
 	// Read extensions length (2 bytes)
 	if len(str) < 2 {
-		return errInvalidExtensionsLength
+		return dtlserrors.ErrInvalidExtensionsLength
 	}
 	extensionsLen := binary.BigEndian.Uint16(str[:2])
 
 	// Validate we have exactly extensionsLen bytes remaining after the length field
 	if len(str[2:]) != int(extensionsLen) {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	var err error
@@ -127,7 +128,7 @@ func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 		}
 	}
 	if !hasSignatureAlgorithms {
-		return errMissingSignatureAlgorithmsExtension
+		return dtlserrors.ErrMissingSignatureAlgorithmsExtension
 	}
 
 	return nil

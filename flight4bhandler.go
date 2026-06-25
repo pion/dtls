@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -46,7 +47,7 @@ func flight4bParse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	if !bytes.Equal(expectedVerifyData, finished.VerifyData) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errVerifyDataMismatch
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrVerifyDataMismatch
 	}
 
 	// Other party may re-transmit the last flight. Keep state to be flight4b.

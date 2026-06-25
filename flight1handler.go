@@ -6,6 +6,7 @@ package dtls
 import (
 	"context"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -42,7 +43,8 @@ func flight1Parse(
 		// DTLS 1.2 clients must not assume that the server will use the protocol version
 		// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
 		if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+				dtlserrors.ErrUnsupportedProtocolVersion
 		}
 		state.cookie = append([]byte{}, h.Cookie...)
 		state.handshakeRecvSequence = seq
@@ -64,7 +66,7 @@ func flight1Generate(
 	state.localEpoch.Store(zeroEpoch)
 	state.remoteEpoch.Store(zeroEpoch)
 	if len(cfg.ellipticCurves) < 1 {
-		return nil, nil, errEmptyEllipticCurves
+		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 	state.namedCurve = cfg.ellipticCurves[0]
 	state.cookie = nil

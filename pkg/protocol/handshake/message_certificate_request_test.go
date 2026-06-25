@@ -6,6 +6,7 @@ package handshake
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
@@ -66,7 +67,7 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 				0x02, 0x01, 0x40, 0x00, 0x0C, 0x04, 0x03, 0x04, 0x01, 0x05,
 				0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x01,
 			},
-			expErr: errBufferTooSmall,
+			expErr: dtlserrors.ErrBufferTooSmall,
 		},
 	}
 
@@ -119,5 +120,5 @@ func TestHandshakeMessageCertificateRequest_CertificateTypesTooLong(t *testing.T
 	}
 
 	_, err := c.Marshal()
-	assert.ErrorIs(t, err, errCertificateTypesTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrCertificateTypesTooLong)
 }

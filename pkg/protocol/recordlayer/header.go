@@ -6,6 +6,7 @@ package recordlayer
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
@@ -33,7 +34,7 @@ const (
 // Marshal encodes a TLS RecordLayer Header to binary.
 func (h *Header) Marshal() ([]byte, error) {
 	if h.SequenceNumber > MaxSequenceNumber {
-		return nil, errSequenceNumberOverflow
+		return nil, dtlserrors.ErrSequenceNumberOverflow
 	}
 
 	hs := FixedHeaderSize + len(h.ConnectionID)
@@ -53,14 +54,14 @@ func (h *Header) Marshal() ([]byte, error) {
 // Unmarshal populates a TLS RecordLayer Header from binary.
 func (h *Header) Unmarshal(data []byte) error {
 	if len(data) < FixedHeaderSize {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 	h.ContentType = protocol.ContentType(data[0])
 	headerSize := FixedHeaderSize
 	if h.ContentType == protocol.ContentTypeConnectionID {
 		// If a CID was expected the ConnectionID should have been initialized.
 		if len(data) < FixedHeaderSize+len(h.ConnectionID) {
-			return errBufferTooSmall
+			return dtlserrors.ErrBufferTooSmall
 		}
 		h.ConnectionID = data[11 : 11+len(h.ConnectionID)]
 		headerSize += len(h.ConnectionID)
@@ -79,7 +80,7 @@ func (h *Header) Unmarshal(data []byte) error {
 	h.ContentLen = binary.BigEndian.Uint16(data[headerSize-2:])
 
 	if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
-		return errUnsupportedProtocolVersion
+		return dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	return nil

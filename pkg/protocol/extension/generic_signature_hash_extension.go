@@ -7,6 +7,7 @@ package extension
 import (
 	"crypto/tls"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -35,23 +36,23 @@ func unmarshalGenericSignatureHashAlgorithm(typeValue TypeValue, data []byte, ds
 	val := cryptobyte.String(data)
 	var extension uint16
 	if !val.ReadUint16(&extension) || TypeValue(extension) != typeValue {
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	}
 
 	var extData cryptobyte.String
 	if !val.ReadUint16LengthPrefixed(&extData) {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	var algData cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&algData) || !extData.Empty() {
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	for !algData.Empty() {
 		var scheme uint16
 		if !algData.ReadUint16(&scheme) {
-			return errLengthMismatch
+			return dtlserrors.ErrLengthMismatch
 		}
 
 		var alg signaturehash.Algorithm

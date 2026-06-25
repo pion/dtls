@@ -5,11 +5,10 @@ package fingerprint
 
 import (
 	"crypto"
-	"errors"
 	"strings"
-)
 
-var errInvalidHashAlgorithm = errors.New("fingerprint: invalid hash algorithm")
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+)
 
 func nameToHash() map[string]crypto.Hash {
 	return map[string]crypto.Hash{
@@ -28,7 +27,7 @@ func HashFromString(s string) (crypto.Hash, error) {
 		return h, nil
 	}
 
-	return 0, errInvalidHashAlgorithm
+	return 0, dtlserrors.ErrFingerprintInvalidHashAlgorithm
 }
 
 // StringFromHash allows looking up a string representation of the crypto.Hash.
@@ -39,5 +38,5 @@ func StringFromHash(hash crypto.Hash) (string, error) {
 		}
 	}
 
-	return "", errInvalidHashAlgorithm
+	return "", dtlserrors.ErrFingerprintInvalidHashAlgorithm
 }

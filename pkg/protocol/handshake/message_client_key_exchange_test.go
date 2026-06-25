@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,5 +40,5 @@ func TestHandshakeMessageClientKeyExchange_PublicKeyTooLong(t *testing.T) {
 	}
 
 	_, err := c.Marshal()
-	assert.ErrorIs(t, err, errPublicKeyTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrPublicKeyTooLong)
 }

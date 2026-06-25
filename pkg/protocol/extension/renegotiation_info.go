@@ -3,7 +3,11 @@
 
 package extension
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+)
 
 const (
 	renegotiationInfoHeaderSize = 5
@@ -37,11 +41,11 @@ func (r *RenegotiationInfo) Marshal() ([]byte, error) {
 func (r *RenegotiationInfo) Unmarshal(data []byte) error {
 	switch {
 	case len(data) < renegotiationInfoHeaderSize:
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	case TypeValue(binary.BigEndian.Uint16(data)) != r.TypeValue():
-		return errInvalidExtensionType
+		return dtlserrors.ErrInvalidExtensionType
 	case binary.BigEndian.Uint16(data[2:4]) != 1:
-		return errLengthMismatch
+		return dtlserrors.ErrLengthMismatch
 	}
 
 	r.RenegotiatedConnection = data[4]

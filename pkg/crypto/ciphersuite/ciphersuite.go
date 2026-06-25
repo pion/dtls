@@ -7,10 +7,10 @@ package ciphersuite
 import (
 	"crypto/cipher"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"golang.org/x/crypto/cryptobyte"
@@ -20,17 +20,6 @@ const (
 	// 8 bytes of 0xff.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-record-payload-protection
 	seqNumPlaceholder = 0xffffffffffffffff
-)
-
-var (
-	//nolint:err113
-	errNotEnoughRoomForNonce = &protocol.InternalError{Err: errors.New("buffer not long enough to contain nonce")}
-	//nolint:err113
-	errDecryptPacket = &protocol.TemporaryError{Err: errors.New("failed to decrypt packet")}
-	//nolint:err113
-	errInvalidMAC = &protocol.TemporaryError{Err: errors.New("invalid mac")}
-	//nolint:err113
-	errFailedToCast = &protocol.FatalError{Err: errors.New("failed to cast")}
 )
 
 // aead provides a generic API to Encrypt/Decrypt DTLS 1.2 Packets.
@@ -118,7 +107,7 @@ func (a *aead) decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
 	case len(in) <= (8 + header.Size()):
-		return nil, errNotEnoughRoomForNonce
+		return nil, dtlserrors.ErrNotEnoughRoomForNonce
 	}
 
 	// Get nonce buffer from pool
@@ -140,7 +129,7 @@ func (a *aead) decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 		// Return nonce buffer to pool
 		a.nonceBufferPool.Put(noncePtr)
 
-		return nil, fmt.Errorf("%w: %v", errDecryptPacket, err) //nolint:errorlint
+		return nil, fmt.Errorf("%w: %v", dtlserrors.ErrDecryptPacket, err) //nolint:errorlint
 	}
 
 	// Return nonce buffer to pool

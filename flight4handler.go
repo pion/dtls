@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -58,7 +59,7 @@ func flight4Parse(
 	//nolint:nestif
 	if verify, hasVerify := msgs[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasVerify {
 		if state.PeerCertificates == nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errCertificateVerifyNoCertificate
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrCertificateVerifyNoCertificate
 		}
 
 		plainText := cache.pullAndMerge(
@@ -82,7 +83,7 @@ func flight4Parse(
 			}
 		}
 		if !validSignatureScheme {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoAvailableSignatureSchemes
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoAvailableSignatureSchemes
 		}
 
 		if err := verifyCertificateVerify(
@@ -145,7 +146,7 @@ func flight4Parse(
 					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 				}
 			default:
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidCipherSuite
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidCipherSuite
 			}
 		} else {
 			preMasterSecret, err = prf.PreMasterSecret(
@@ -233,18 +234,18 @@ func flight4Parse(
 	switch cfg.clientAuth {
 	case RequireAnyClientCert:
 		if state.PeerCertificates == nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errClientCertificateRequired
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrClientCertificateRequired
 		}
 	case VerifyClientCertIfGiven:
 		if state.PeerCertificates != nil && !state.peerCertificatesVerified {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, errClientCertificateNotVerified
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, dtlserrors.ErrClientCertificateNotVerified
 		}
 	case RequireAndVerifyClientCert:
 		if state.PeerCertificates == nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errClientCertificateRequired
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrClientCertificateRequired
 		}
 		if !state.peerCertificatesVerified {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, errClientCertificateNotVerified
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, dtlserrors.ErrClientCertificateNotVerified
 		}
 	case NoClientCert, RequestClientCert:
 		// go to flight6
@@ -379,7 +380,7 @@ func flight4Generate(
 
 		signer, ok := certificate.PrivateKey.(crypto.Signer)
 		if !ok {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidPrivateKey
+			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidPrivateKey
 		}
 
 		// Find compatible signature scheme

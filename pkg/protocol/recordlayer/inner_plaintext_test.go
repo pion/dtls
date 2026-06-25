@@ -6,6 +6,7 @@ package recordlayer
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/stretchr/testify/require"
 )
@@ -44,6 +45,6 @@ func TestInnerPlaintextRejectsMissingContentType(t *testing.T) {
 		{0x00, 0x00},
 	} {
 		var inner InnerPlaintext
-		require.ErrorIs(t, inner.Unmarshal(raw), errBufferTooSmall)
+		require.ErrorIs(t, inner.Unmarshal(raw), dtlserrors.ErrBufferTooSmall)
 	}
 }

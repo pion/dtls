@@ -6,9 +6,9 @@ package dtls
 import (
 	"bytes"
 	"encoding/gob"
-	"errors"
 	"sync/atomic"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -108,8 +108,6 @@ type serializedState struct {
 	NegotiatedProtocol    string
 }
 
-var errCipherSuiteNotSet = &InternalError{Err: errors.New("cipher suite not set")} //nolint:err113
-
 func (s *State) clone() (*State, error) {
 	serialized, err := s.serialize()
 	if err != nil {
@@ -123,7 +121,7 @@ func (s *State) clone() (*State, error) {
 
 func (s *State) serialize() (*serializedState, error) {
 	if s.cipherSuite == nil {
-		return nil, errCipherSuiteNotSet
+		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
 	cipherSuiteID := uint16(s.cipherSuite.ID())
 
@@ -253,11 +251,11 @@ func (s *State) UnmarshalBinary(data []byte) error {
 // then use some of the keying material for their own purposes.
 func (s *State) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
 	if s.getLocalEpoch() == 0 {
-		return nil, errHandshakeInProgress
+		return nil, dtlserrors.ErrHandshakeInProgress
 	} else if len(context) != 0 {
-		return nil, errContextUnsupported
+		return nil, dtlserrors.ErrContextUnsupported
 	} else if _, ok := invalidKeyingLabels()[label]; ok {
-		return nil, errReservedExportKeyingMaterial
+		return nil, dtlserrors.ErrReservedExportKeyingMaterial
 	}
 
 	localRandom := s.localRandom.MarshalFixed()

@@ -15,61 +15,19 @@ import (
 var errExample = errors.New("an example error")
 
 func TestErrorUnwrap(t *testing.T) {
-	cases := []struct {
-		err          error
-		errUnwrapped []error
-	}{
-		{
-			&FatalError{Err: errExample},
-			[]error{errExample},
-		},
-		{
-			&TemporaryError{Err: errExample},
-			[]error{errExample},
-		},
-		{
-			&InternalError{Err: errExample},
-			[]error{errExample},
-		},
-		{
-			&TimeoutError{Err: errExample},
-			[]error{errExample},
-		},
-		{
-			&HandshakeError{Err: errExample},
-			[]error{errExample},
-		},
-	}
-	for _, c := range cases {
-		t.Run(fmt.Sprintf("%T", c.err), func(t *testing.T) {
-			err := c.err
-			for _, unwrapped := range c.errUnwrapped {
-				assert.ErrorIs(t, errors.Unwrap(err), unwrapped)
-			}
-		})
-	}
+	err := fmt.Errorf("handshake failed: %w", errExample)
+
+	assert.ErrorIs(t, err, errExample)
+	assert.ErrorIs(t, errors.Unwrap(err), errExample)
 }
 
 func TestErrorNetError(t *testing.T) {
-	cases := []struct {
-		err                error
-		str                string
-		timeout, temporary bool
-	}{
-		{&FatalError{Err: errExample}, "dtls fatal: an example error", false, false},
-		{&TemporaryError{Err: errExample}, "dtls temporary: an example error", false, true},
-		{&InternalError{Err: errExample}, "dtls internal: an example error", false, false},
-		{&TimeoutError{Err: errExample}, "dtls timeout: an example error", true, true},
-		{&HandshakeError{Err: errExample}, "handshake error: an example error", false, false},
-		{&HandshakeError{Err: &TimeoutError{Err: errExample}}, "handshake error: dtls timeout: an example error", true, true},
-	}
-	for _, testCase := range cases {
-		t.Run(fmt.Sprintf("%T", testCase.err), func(t *testing.T) {
-			var ne net.Error
-			assert.ErrorAs(t, testCase.err, &ne)
-			assert.Equal(t, testCase.timeout, ne.Timeout())
-			assert.Equal(t, testCase.temporary, ne.Temporary()) //nolint:staticcheck
-			assert.Equal(t, testCase.str, ne.Error())
-		})
-	}
+	err := temporaryNetworkError{err: errExample}
+
+	var ne net.Error
+	assert.ErrorAs(t, err, &ne)
+	assert.ErrorIs(t, err, errExample)
+	assert.False(t, ne.Timeout())
+	assert.True(t, ne.Temporary()) //nolint:staticcheck
+	assert.Equal(t, "an example error", ne.Error())
 }

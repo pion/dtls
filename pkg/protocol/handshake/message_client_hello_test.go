@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -91,7 +92,7 @@ func TestHandshakeMessageClientHello_SessionIDTooLong(t *testing.T) {
 	}
 
 	_, err := c.Marshal()
-	assert.ErrorIs(t, err, errSessionIDTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrSessionIDTooLong)
 }
 
 func TestHandshakeMessageClientHello_CompressionMethodsTooLong(t *testing.T) {
@@ -106,5 +107,5 @@ func TestHandshakeMessageClientHello_CompressionMethodsTooLong(t *testing.T) {
 	}
 
 	_, err := c.Marshal()
-	assert.ErrorIs(t, err, errCompressionMethodsTooLong)
+	assert.ErrorIs(t, err, dtlserrors.ErrCompressionMethodsTooLong)
 }

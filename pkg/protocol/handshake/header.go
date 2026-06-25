@@ -6,6 +6,7 @@ package handshake
 import (
 	"encoding/binary"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 )
 
@@ -42,7 +43,7 @@ func (h *Header) Marshal() ([]byte, error) {
 // Unmarshal populates the header from encoded data.
 func (h *Header) Unmarshal(data []byte) error {
 	if len(data) < HeaderLength {
-		return errBufferTooSmall
+		return dtlserrors.ErrBufferTooSmall
 	}
 
 	h.Type = Type(data[0])

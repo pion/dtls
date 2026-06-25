@@ -18,12 +18,12 @@ package udp
 
 import (
 	"context"
-	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	idtlsnet "github.com/pion/dtls/v3/internal/net"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/transport/v4/deadline"
@@ -36,8 +36,8 @@ const (
 
 // Typed errors.
 var (
-	ErrClosedListener      = errors.New("udp: listener closed")
-	ErrListenQueueExceeded = errors.New("udp: listen queue exceeded")
+	ErrClosedListener      = dtlserrors.ErrUDPClosedListener
+	ErrListenQueueExceeded = dtlserrors.ErrUDPListenQueueExceeded
 )
 
 // listener augments a connection-oriented Listener over a UDP PacketConn.
@@ -180,7 +180,7 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 	}
 	conn, ok := innerConn.(*net.UDPConn)
 	if !ok {
-		return nil, errors.New("listen packet not a *net.UDPConn") //nolint:err113
+		return nil, dtlserrors.ErrUDPListenPacketNotUDPConn
 	}
 
 	packetListener := &listener{

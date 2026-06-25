@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,7 +35,7 @@ func TestHKDFExtract_Nil_Hash_Error(t *testing.T) {
 	salt, _ := hex.DecodeString("000102030405060708090a0b0c")
 
 	_, err := HkdfExtract(nil, salt, ikm)
-	assert.ErrorIs(t, errMissingHashFunction, err)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleMissingHashFunction, err)
 }
 
 func TestHKDFExpandLabel_Simple(t *testing.T) {
@@ -59,7 +60,7 @@ func TestHKDFLabel_Encoding_Shape_Label_Small(t *testing.T) {
 
 	secret := make([]byte, sha256.Size)
 	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
-	assert.ErrorIs(t, errLabelTooSmall, err)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleLabelTooSmall, err)
 }
 
 func TestHKDFLabel_Encoding_Shape_Label_Big(t *testing.T) {
@@ -67,7 +68,7 @@ func TestHKDFLabel_Encoding_Shape_Label_Big(t *testing.T) {
 
 	secret := make([]byte, sha256.Size)
 	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
-	assert.ErrorIs(t, errLabelTooBig, err)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleLabelTooBig, err)
 }
 
 func TestHKDFLabel_Encoding_Shape_Context_Length_Zero(t *testing.T) {
@@ -88,13 +89,13 @@ func TestHKDFLabel_Encoding_Shape_Context_Too_Big(t *testing.T) {
 	invalidContext := bytes.Repeat([]byte{1}, 256)
 
 	_, err := HkdfExpandLabel(sha256.New, secret, validLabel, invalidContext, 32)
-	assert.ErrorIs(t, errContextTooBig, err)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleContextTooBig, err)
 	assert.Equal(t, 256, len(invalidContext))
 
 	invalidContext = bytes.NewBufferString(strings.Repeat("a", 256)).Bytes()
 
 	_, err = HkdfExpandLabel(sha256.New, secret, validLabel, invalidContext, 32)
-	assert.ErrorIs(t, errContextTooBig, err)
+	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleContextTooBig, err)
 	assert.Equal(t, 256, len(invalidContext))
 }
 

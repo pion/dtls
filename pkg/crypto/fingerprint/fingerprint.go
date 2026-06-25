@@ -7,19 +7,15 @@ package fingerprint
 import (
 	"crypto"
 	"crypto/x509"
-	"errors"
 	"fmt"
-)
 
-var (
-	errHashUnavailable          = errors.New("fingerprint: hash algorithm is not linked into the binary")
-	errInvalidFingerprintLength = errors.New("fingerprint: invalid fingerprint length")
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
 // Fingerprint creates a fingerprint for a certificate using the specified hash algorithm.
 func Fingerprint(cert *x509.Certificate, algo crypto.Hash) (string, error) {
 	if !algo.Available() {
-		return "", errHashUnavailable
+		return "", dtlserrors.ErrFingerprintHashUnavailable
 	}
 	h := algo.New()
 	for i := 0; i < len(cert.Raw); {
@@ -35,7 +31,7 @@ func Fingerprint(cert *x509.Certificate, algo crypto.Hash) (string, error) {
 		return "", nil
 	}
 	if digestlen%2 != 0 {
-		return "", errInvalidFingerprintLength
+		return "", dtlserrors.ErrFingerprintInvalidLength
 	}
 	res := make([]byte, digestlen>>1+digestlen-1)
 

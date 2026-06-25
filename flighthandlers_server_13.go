@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"slices"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -79,7 +80,7 @@ func processClientHello13Extensions(
 	}
 
 	if !seen.hasPreSharedKey && (!seen.hasSignatureAlgorithms || !seen.hasSupportedGroups) {
-		return newClientHello13ExtensionFailure(alert.MissingExtension, errMissingClientHelloExtension)
+		return newClientHello13ExtensionFailure(alert.MissingExtension, dtlserrors.ErrMissingClientHelloExtension)
 	}
 
 	return nil
@@ -95,13 +96,13 @@ func processClientHello13SecurityExtension(
 	case *extension.SupportedEllipticCurves:
 		seen.hasSupportedGroups = true
 		if len(ext.EllipticCurves) == 0 {
-			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, errNoSupportedEllipticCurves)
+			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
 		}
 		state.remoteGroups = ext.EllipticCurves
 	case *extension.UseSRTP:
 		profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
 		if !ok {
-			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, errServerNoMatchingSRTPProfile)
+			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrServerNoMatchingSRTPProfile)
 		}
 		state.setSRTPProtectionProfile(profile)
 		state.remoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
@@ -110,7 +111,7 @@ func processClientHello13SecurityExtension(
 		state.remoteSignatureSchemes = ext.SignatureHashAlgorithms
 	case *extension.SupportedVersions:
 		if ext.IsSelectedVersion() {
-			return newClientHello13ExtensionFailure(alert.IllegalParameter, errInvalidClientHello)
+			return newClientHello13ExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
 		}
 		state.remoteVersions = ext.Versions
 	case *extension.PreSharedKey:
@@ -160,7 +161,8 @@ func flight13_0Parse(
 	cfg := flightCtx.cfg
 
 	if state.localVersion != protocol.Version1_3 {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidProtocolVersionState
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
+			dtlserrors.ErrInvalidProtocolVersionState
 	}
 	seq, msgs, ok := cache.fullPullMap(0, state.cipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
@@ -185,7 +187,8 @@ func flight13_0Parse(
 	}
 
 	if !clientHello.Version.Equal(protocol.Version1_2) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	state.remoteRandom = clientHello.Random
@@ -205,7 +208,7 @@ func flight13_0Parse(
 	// nolint:godox
 	// TODO: check for DTLS 1.3 cipher suites
 	if state.cipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 
 	if failure := processClientHello13Extensions(state, cfg, clientHello); failure != nil {
@@ -215,7 +218,8 @@ func flight13_0Parse(
 	if !slices.Contains(state.remoteVersions, protocol.Version1_3) {
 		// nolint:godox
 		// TODO: This should actually handover the state machine to DTLS 1.2
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidProtocolVersionState
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
+			dtlserrors.ErrInvalidProtocolVersionState
 	}
 
 	// If the client doesn't support connection IDs, the server should not
@@ -225,7 +229,7 @@ func flight13_0Parse(
 	}
 
 	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerRequiredButNoClientEMS
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS //nolint:lll
 	}
 
 	nextFlight := flight13_2
@@ -284,7 +288,7 @@ func flight13_0Generate(
 	state.localEpoch.Store(zeroEpoch)
 	state.remoteEpoch.Store(zeroEpoch)
 	if len(cfg.ellipticCurves) < 1 {
-		return nil, nil, errEmptyEllipticCurves
+		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 
 	if err := state.localRandom.Populate(); err != nil {
@@ -312,7 +316,8 @@ func flight13_2Parse(
 	}
 
 	if !clientHello.Version.Equal(protocol.Version1_2) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	var cookie []byte
@@ -328,7 +333,7 @@ func flight13_2Parse(
 		return 0, nil, nil
 	}
 	if !bytes.Equal(flightCtx.state.cookie, cookie) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, errCookieMismatch
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
 
 	if failure := processClientHello13Extensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
