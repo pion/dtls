@@ -4,8 +4,7 @@
 package dtls
 
 import (
-	"slices"
-
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
@@ -25,15 +24,7 @@ func normalizeProtocolVersionRange(minVersion, maxVersion protocol.Version) (pro
 // down to minVersion, in preference order (newest first). Only DTLS 1.2 and
 // 1.3 are emitted.
 func supportedVersionsRange(minVersion, maxVersion protocol.Version) []protocol.Version {
-	ordered := []protocol.Version{protocol.Version1_3, protocol.Version1_2}
-	out := make([]protocol.Version, 0, len(ordered))
-	for _, v := range ordered {
-		if versionAtLeast(v, minVersion) && versionAtMost(v, maxVersion) {
-			out = append(out, v)
-		}
-	}
-
-	return out
+	return dtlsconfig.SupportedVersionsRange(minVersion, maxVersion)
 }
 
 // selectVersion picks the highest-preference version from remote that is
@@ -59,28 +50,6 @@ func versionAtLeast(v, lo protocol.Version) bool {
 
 func versionAtMost(v, hi protocol.Version) bool {
 	return v.Minor >= hi.Minor
-}
-
-func findMatchingSRTPProfile(a, b []SRTPProtectionProfile) (SRTPProtectionProfile, bool) {
-	for _, aProfile := range a {
-		if slices.Contains(b, aProfile) {
-			return aProfile, true
-		}
-	}
-
-	return 0, false
-}
-
-func findMatchingCipherSuite(a, b []CipherSuite) (CipherSuite, bool) {
-	for _, aSuite := range a {
-		for _, bSuite := range b {
-			if aSuite.ID() == bSuite.ID() {
-				return aSuite, true
-			}
-		}
-	}
-
-	return nil, false
 }
 
 func splitBytes(bytes []byte, splitLen int) [][]byte {

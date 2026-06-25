@@ -125,7 +125,7 @@ func TestParseCipherSuitesForVersions(t *testing.T) {
 			uint16(TLS_AES_128_GCM_SHA256),
 			uint16(TLS_AES_256_GCM_SHA384),
 			uint16(TLS_CHACHA20_POLY1305_SHA256),
-		}, cipherSuiteIDs(suites))
+		}, configCipherSuiteIDs(suites))
 	})
 
 	t.Run("default dual stack", func(t *testing.T) {
@@ -140,8 +140,8 @@ func TestParseCipherSuitesForVersions(t *testing.T) {
 		require.NoError(t, err)
 		require.Greater(t, len(suites), len(defaultCipherSuites13()))
 
-		assert.Equal(t, uint16(TLS_AES_128_GCM_SHA256), cipherSuiteIDs(suites)[0])
-		assert.Contains(t, cipherSuiteIDs(suites), uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256))
+		assert.Equal(t, uint16(TLS_AES_128_GCM_SHA256), configCipherSuiteIDs(suites)[0])
+		assert.Contains(t, configCipherSuiteIDs(suites), uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256))
 	})
 
 	t.Run("selected suites are filtered by version", func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestParseCipherSuitesForVersions(t *testing.T) {
 			protocol.Version1_2,
 		)
 		require.NoError(t, err)
-		require.Equal(t, []uint16{uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}, cipherSuiteIDs(suites))
+		require.Equal(t, []uint16{uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}, configCipherSuiteIDs(suites))
 	})
 
 	t.Run("selected suite must match version", func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestParseCipherSuitesForVersions(t *testing.T) {
 			protocol.Version1_3,
 		)
 		require.NoError(t, err)
-		require.Equal(t, []uint16{uint16(TLS_AES_128_GCM_SHA256)}, cipherSuiteIDs(suites))
+		require.Equal(t, []uint16{uint16(TLS_AES_128_GCM_SHA256)}, configCipherSuiteIDs(suites))
 	})
 
 	t.Run("custom anonymous suites do not satisfy PSK configs", func(t *testing.T) {

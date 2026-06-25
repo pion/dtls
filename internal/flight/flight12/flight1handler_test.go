@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight12
 
 import (
 	"context"
@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/logging"
 	"github.com/pion/transport/v4/test"
@@ -19,14 +21,11 @@ import (
 
 type flight1TestMockFlightConn struct{}
 
-func (f *flight1TestMockFlightConn) notify(context.Context, alert.Level, alert.Description) error {
+func (f *flight1TestMockFlightConn) HandleQueuedPackets(context.Context) error {
 	return nil
 }
-func (f *flight1TestMockFlightConn) writePackets(context.Context, []*packet) error { return nil }
-func (f *flight1TestMockFlightConn) recvHandshake() <-chan recvHandshakeState      { return nil }
-func (f *flight1TestMockFlightConn) setLocalEpoch(uint16)                          {}
-func (f *flight1TestMockFlightConn) handleQueuedPackets(context.Context) error     { return nil }
-func (f *flight1TestMockFlightConn) sessionKey() []byte                            { return nil }
+
+func (f *flight1TestMockFlightConn) SessionKey() []byte { return nil }
 
 type flight1TestMockCipherSuite struct {
 	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
@@ -56,13 +55,14 @@ func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) { //nolint:maintid
 	state := &dtlsstate.State{
 		CipherSuite: &flight1TestMockCipherSuite{t: t},
 	}
-	cache := newHandshakeCache()
-	cfg := &handshakeConfig{
-		localSRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AEAD_AES_128_GCM},
-		localCipherSuites:           []CipherSuite{},
+	cache := dtlsflight.NewCache()
+	cfg := &dtlsconfig.HandshakeConfig{
+		LocalSRTPProtectionProfiles: []dtlsconfig.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM},
 	}
-	cfg.localCipherSuites = []CipherSuite{cipherSuiteForID(TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, nil)}
-	cfg.log = logging.NewDefaultLoggerFactory().NewLogger("dtls")
+	cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{
+		ciphersuite.ForID(ciphersuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, nil),
+	}
+	cfg.Log = logging.NewDefaultLoggerFactory().NewLogger("dtls")
 
 	serverHello := []byte{
 		0x02, 0x00, 0x00, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -266,18 +266,18 @@ func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) { //nolint:maintid
 		0x0e, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00,
 	}
-	cache.push(certificate2, 0, 2, handshake.TypeCertificate, false)
-	cache.push(serverKeyExchange, 0, 3, handshake.TypeServerKeyExchange, false)
-	cache.push(certificateRequest, 0, 4, handshake.TypeCertificateRequest, false)
-	cache.push(serverHelloDone, 0, 5, handshake.TypeServerHelloDone, false)
+	cache.Push(certificate2, 0, 2, handshake.TypeCertificate, false)
+	cache.Push(serverKeyExchange, 0, 3, handshake.TypeServerKeyExchange, false)
+	cache.Push(certificateRequest, 0, 4, handshake.TypeCertificateRequest, false)
+	cache.Push(serverHelloDone, 0, 5, handshake.TypeServerHelloDone, false)
 
-	_, alt, err := flight1Parse(context.TODO(), mockConn, state, cache, cfg)
+	_, alt, err := parseForTest(t, dtlsflight.Flight1, context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)
 	assert.Nil(t, alt)
 
-	cache.push(serverHello, 0, 0, handshake.TypeServerHello, false)
-	cache.push(certificate1, 0, 1, handshake.TypeCertificate, false)
-	_, alt, err = flight1Parse(context.TODO(), mockConn, state, cache, cfg)
+	cache.Push(serverHello, 0, 0, handshake.TypeServerHello, false)
+	cache.Push(certificate1, 0, 1, handshake.TypeCertificate, false)
+	_, alt, err = parseForTest(t, dtlsflight.Flight1, context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)
 	assert.Nil(t, alt)
 }

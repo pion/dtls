@@ -10,7 +10,6 @@ import (
 	"net"
 	"time"
 
-	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -43,7 +42,41 @@ func defensiveCopy[T any](t ...T) []T {
 }
 
 type dtlsConfig struct {
-	dtlsconfig.Config
+	Certificates                  []tls.Certificate
+	CipherSuites                  []CipherSuiteID
+	SignatureSchemes              []tls.SignatureScheme
+	CertificateSignatureSchemes   []tls.SignatureScheme
+	SRTPProtectionProfiles        []SRTPProtectionProfile
+	SRTPMasterKeyIdentifier       []byte
+	ClientAuth                    ClientAuthType
+	ExtendedMasterSecret          ExtendedMasterSecretType
+	FlightInterval                time.Duration
+	DisableRetransmitBackoff      bool
+	PSKIdentityHint               []byte
+	InsecureSkipVerify            bool
+	InsecureHashes                bool
+	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	RootCAs                       *x509.CertPool
+	ClientCAs                     *x509.CertPool
+	ServerName                    string
+	LoggerFactory                 logging.LoggerFactory
+	MTU                           int
+	ReplayProtectionWindow        int
+	KeyLogWriter                  io.Writer
+	SupportedProtocols            []string
+	EllipticCurves                []elliptic.Curve
+	InsecureSkipVerifyHello       bool
+	ConnectionIDGenerator         func() []byte
+	PaddingLengthGenerator        func(uint) uint
+	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
+	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
+	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
+	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
+	OnConnectionAttempt           func(net.Addr) error
+	ListenConfig                  net.ListenConfig
+	MinVersion                    protocol.Version
+	MaxVersion                    protocol.Version
+
 	customCipherSuites   func() []CipherSuite
 	psk                  PSKCallback
 	verifyConnection     func(*State) error
@@ -54,7 +87,7 @@ type dtlsConfig struct {
 
 // applyDefaults applies default values to the config.
 func (c *dtlsConfig) applyDefaults() {
-	c.ExtendedMasterSecret = dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret)
+	c.ExtendedMasterSecret = RequestExtendedMasterSecret
 	c.FlightInterval = time.Second
 	c.MTU = defaultMTU
 	c.ReplayProtectionWindow = defaultReplayProtectionWindow
@@ -206,7 +239,7 @@ func WithExtendedMasterSecret(ems ExtendedMasterSecretType) Option {
 		if ems < RequestExtendedMasterSecret || ems > DisableExtendedMasterSecret {
 			return dtlserrors.ErrInvalidExtendedMasterSecretType
 		}
-		c.ExtendedMasterSecret = dtlsconfig.ExtendedMasterSecretType(ems)
+		c.ExtendedMasterSecret = ems
 
 		return nil
 	})
@@ -505,7 +538,7 @@ func WithClientAuth(auth ClientAuthType) ServerOption {
 		if auth < NoClientCert || auth > RequireAndVerifyClientCert {
 			return dtlserrors.ErrInvalidClientAuthType
 		}
-		c.ClientAuth = dtlsconfig.ClientAuthType(auth)
+		c.ClientAuth = auth
 
 		return nil
 	})

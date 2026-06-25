@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
@@ -348,8 +349,8 @@ func TestDefaultsAreApplied(t *testing.T) {
 		require.NoError(t, err)
 
 		config := client.handshakeConfig
-		require.Equal(t, RequestExtendedMasterSecret, config.extendedMasterSecret)
-		require.Equal(t, time.Second, config.initialRetransmitInterval)
+		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret), config.ExtendedMasterSecret)
+		require.Equal(t, time.Second, config.InitialRetransmitInterval)
 		require.Equal(t, defaultMTU, client.maximumTransmissionUnit)
 		require.Equal(t, uint(defaultReplayProtectionWindow), client.replayProtectionWindow)
 	})
@@ -359,8 +360,8 @@ func TestDefaultsAreApplied(t *testing.T) {
 		require.NoError(t, err)
 
 		config := server.handshakeConfig
-		require.Equal(t, RequestExtendedMasterSecret, config.extendedMasterSecret)
-		require.Equal(t, time.Second, config.initialRetransmitInterval)
+		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret), config.ExtendedMasterSecret)
+		require.Equal(t, time.Second, config.InitialRetransmitInterval)
 		require.Equal(t, defaultMTU, server.maximumTransmissionUnit)
 		require.Equal(t, uint(defaultReplayProtectionWindow), server.replayProtectionWindow)
 	})
@@ -378,8 +379,8 @@ func TestOptionsOverrideDefaults(t *testing.T) {
 		require.NoError(t, err)
 
 		config := client.handshakeConfig
-		require.Equal(t, RequireExtendedMasterSecret, config.extendedMasterSecret)
-		require.Equal(t, 2*time.Second, config.initialRetransmitInterval)
+		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequireExtendedMasterSecret), config.ExtendedMasterSecret)
+		require.Equal(t, 2*time.Second, config.InitialRetransmitInterval)
 		require.Equal(t, 1500, client.maximumTransmissionUnit)
 		require.Equal(t, uint(128), client.replayProtectionWindow)
 	})
@@ -395,11 +396,11 @@ func TestOptionsOverrideDefaults(t *testing.T) {
 		require.NoError(t, err)
 
 		config := server.handshakeConfig
-		require.Equal(t, DisableExtendedMasterSecret, config.extendedMasterSecret)
-		require.Equal(t, 3*time.Second, config.initialRetransmitInterval)
+		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(DisableExtendedMasterSecret), config.ExtendedMasterSecret)
+		require.Equal(t, 3*time.Second, config.InitialRetransmitInterval)
 		require.Equal(t, 1400, server.maximumTransmissionUnit)
 		require.Equal(t, uint(256), server.replayProtectionWindow)
-		require.Equal(t, RequireAndVerifyClientCert, config.clientAuth)
+		require.Equal(t, dtlsconfig.ClientAuthType(RequireAndVerifyClientCert), config.ClientAuth)
 	})
 }
 
@@ -422,14 +423,14 @@ func TestValidOptionsSucceed(t *testing.T) {
 		require.NoError(t, err)
 
 		config := client.handshakeConfig
-		require.Len(t, config.localCertificates, 1)
-		require.Len(t, config.localCipherSuites, 1)
-		require.Len(t, config.localSignatureSchemes, 1)
-		require.Len(t, config.localSRTPProtectionProfiles, 1)
-		require.Len(t, config.ellipticCurves, 1)
-		require.Len(t, config.supportedProtocols, 2)
-		require.True(t, config.insecureSkipVerify)
-		require.Equal(t, "example.com", config.serverName)
+		require.Len(t, config.LocalCertificates, 1)
+		require.Len(t, config.LocalCipherSuites, 1)
+		require.Len(t, config.LocalSignatureSchemes, 1)
+		require.Len(t, config.LocalSRTPProtectionProfiles, 1)
+		require.Len(t, config.EllipticCurves, 1)
+		require.Len(t, config.SupportedProtocols, 2)
+		require.True(t, config.InsecureSkipVerify)
+		require.Equal(t, "example.com", config.ServerName)
 	})
 
 	t.Run("ServerValidOptions", func(t *testing.T) {
@@ -446,9 +447,9 @@ func TestValidOptionsSucceed(t *testing.T) {
 		require.NoError(t, err)
 
 		config := server.handshakeConfig
-		require.Len(t, config.localCertificates, 1)
-		require.Equal(t, RequireAndVerifyClientCert, config.clientAuth)
-		require.True(t, config.insecureSkipHelloVerify)
+		require.Len(t, config.LocalCertificates, 1)
+		require.Equal(t, dtlsconfig.ClientAuthType(RequireAndVerifyClientCert), config.ClientAuth)
+		require.True(t, config.InsecureSkipHelloVerify)
 	})
 }
 
@@ -465,7 +466,7 @@ func TestOptionImmutability(t *testing.T) {
 
 		_ = append(certs, cert)
 
-		require.Len(t, client.handshakeConfig.localCertificates, 1)
+		require.Len(t, client.handshakeConfig.LocalCertificates, 1)
 	})
 
 	t.Run("cipherSuites", func(t *testing.T) {
@@ -475,7 +476,7 @@ func TestOptionImmutability(t *testing.T) {
 
 		suites[0] = TLS_PSK_WITH_AES_128_CCM_8
 
-		require.Equal(t, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, client.handshakeConfig.localCipherSuites[0].ID())
+		require.Equal(t, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, client.handshakeConfig.LocalCipherSuites[0].ID())
 	})
 
 	t.Run("signatureSchemes", func(t *testing.T) {
@@ -487,7 +488,7 @@ func TestOptionImmutability(t *testing.T) {
 
 		expected, err := signaturehash.ParseSignatureSchemes([]tls.SignatureScheme{tls.ECDSAWithP256AndSHA256}, false)
 		require.NoError(t, err)
-		require.Equal(t, expected[0], client.handshakeConfig.localSignatureSchemes[0])
+		require.Equal(t, expected[0], client.handshakeConfig.LocalSignatureSchemes[0])
 	})
 
 	t.Run("srtpProtectionProfiles", func(t *testing.T) {
@@ -497,28 +498,28 @@ func TestOptionImmutability(t *testing.T) {
 
 		profiles[0] = SRTP_AES128_CM_HMAC_SHA1_32
 
-		require.Equal(t, SRTP_AES128_CM_HMAC_SHA1_80, client.handshakeConfig.localSRTPProtectionProfiles[0])
+		require.Equal(t, SRTP_AES128_CM_HMAC_SHA1_80, client.handshakeConfig.LocalSRTPProtectionProfiles[0])
 	})
 
-	t.Run("supportedProtocols", func(t *testing.T) {
+	t.Run("SupportedProtocols", func(t *testing.T) {
 		protocols := []string{"h2", "http/1.1"} //nolint:goconst
 		client, err := newOptionsClient(t, WithSupportedProtocols(protocols...))
 		require.NoError(t, err)
 
 		protocols[0] = "grpc"
 
-		require.Equal(t, "h2", client.handshakeConfig.supportedProtocols[0])
-		require.Equal(t, "http/1.1", client.handshakeConfig.supportedProtocols[1])
+		require.Equal(t, "h2", client.handshakeConfig.SupportedProtocols[0])
+		require.Equal(t, "http/1.1", client.handshakeConfig.SupportedProtocols[1])
 	})
 
-	t.Run("ellipticCurves", func(t *testing.T) {
+	t.Run("EllipticCurves", func(t *testing.T) {
 		curves := []elliptic.Curve{elliptic.P256}
 		client, err := newOptionsClient(t, WithEllipticCurves(curves...))
 		require.NoError(t, err)
 
 		curves[0] = elliptic.P384
 
-		require.Equal(t, elliptic.P256, client.handshakeConfig.ellipticCurves[0])
+		require.Equal(t, elliptic.P256, client.handshakeConfig.EllipticCurves[0])
 	})
 
 	t.Run("pskIdentityHint", func(t *testing.T) {
@@ -532,7 +533,7 @@ func TestOptionImmutability(t *testing.T) {
 
 		hint[0] = 'X'
 
-		require.Equal(t, []byte("test-hint"), client.handshakeConfig.localPSKIdentityHint)
+		require.Equal(t, []byte("test-hint"), client.handshakeConfig.LocalPSKIdentityHint)
 	})
 
 	t.Run("srtpMasterKeyIdentifier", func(t *testing.T) {
@@ -542,6 +543,6 @@ func TestOptionImmutability(t *testing.T) {
 
 		identifier[0] = 0xFF
 
-		require.Equal(t, []byte{0x01, 0x02, 0x03}, client.handshakeConfig.localSRTPMasterKeyIdentifier)
+		require.Equal(t, []byte{0x01, 0x02, 0x03}, client.handshakeConfig.LocalSRTPMasterKeyIdentifier)
 	})
 }

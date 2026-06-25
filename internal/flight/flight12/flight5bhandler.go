@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight12
 
 import (
 	"context"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -16,13 +18,13 @@ import (
 
 func flight5bParse(
 	_ context.Context,
-	_ flightConn,
+	_ dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) (flightVal, *alert.Alert, error) {
-	_, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence-1, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) (dtlsflight.Flight12, *alert.Alert, error) {
+	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence-1, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		// No valid message received. Keep reading
@@ -33,21 +35,21 @@ func flight5bParse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	// Other party may re-transmit the last flight. Keep state to be flight5b.
-	return flight5b, nil, nil
+	// Other party may re-transmit the last  Keep state to be Flight5b.
+	return dtlsflight.Flight5b, nil, nil
 }
 
 func flight5bGenerate(
-	_ flightConn,
+	_ dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) ([]*packet, *alert.Alert, error) { //nolint:gocognit
-	var pkts []*packet
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) ([]*dtlsflight.Packet, *alert.Alert, error) { //nolint:gocognit
+	var pkts []*dtlsflight.Packet
 
 	pkts = append(pkts,
-		&packet{
-			record: &recordlayer.RecordLayer{
+		&dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},
@@ -56,10 +58,10 @@ func flight5bGenerate(
 		})
 
 	if len(state.LocalVerifyData) == 0 {
-		plainText := cache.pullAndMerge(
-			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
+		plainText := cache.PullAndMerge(
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
 		)
 
 		var err error
@@ -70,8 +72,8 @@ func flight5bGenerate(
 	}
 
 	pkts = append(pkts,
-		&packet{
-			record: &recordlayer.RecordLayer{
+		&dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 					Epoch:   1,
@@ -82,8 +84,8 @@ func flight5bGenerate(
 					},
 				},
 			},
-			shouldEncrypt:            true,
-			resetLocalSequenceNumber: true,
+			ShouldEncrypt:            true,
+			ResetLocalSequenceNumber: true,
 		})
 
 	return pkts, nil, nil

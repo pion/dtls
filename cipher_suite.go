@@ -11,7 +11,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"hash"
-	"slices"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -126,7 +125,7 @@ const VersionDTLS13 = 0xfefc
 // Our implementation differs slightly in that it takes in a CipherSuiteID,
 // like the rest of our library, instead of a uint16 like crypto/tls.
 func CipherSuiteName(id CipherSuiteID) string {
-	suite := cipherSuiteForID(id, nil)
+	suite := cipherSuiteForID(id)
 	if suite != nil {
 		return suite.String()
 	}
@@ -168,59 +167,8 @@ func InsecureCipherSuites() []*tls.CipherSuite {
 // Taken from https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
 // A cipherSuite is a specific combination of key agreement, cipher and MAC
 // function.
-func cipherSuiteForID(id CipherSuiteID, customCiphers func() []CipherSuite) CipherSuite { //nolint:cyclop
-	switch id { //nolint:exhaustive
-	case TLS_AES_128_GCM_SHA256:
-		return ciphersuite.NewTLSAes128GcmSha256()
-	case TLS_AES_256_GCM_SHA384:
-		return ciphersuite.NewTLSAes256GcmSha384()
-	case TLS_CHACHA20_POLY1305_SHA256:
-		return ciphersuite.NewTLSChacha20Poly1305Sha256()
-	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM:
-		return ciphersuite.NewTLSEcdheEcdsaWithAes128Ccm()
-	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8:
-		return ciphersuite.NewTLSEcdheEcdsaWithAes128Ccm8()
-	case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
-		return &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
-	case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
-		return &ciphersuite.TLSEcdheRsaWithAes128GcmSha256{}
-	case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
-		return &ciphersuite.TLSEcdheEcdsaWithAes256CbcSha{}
-	case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
-		return &ciphersuite.TLSEcdheRsaWithAes256CbcSha{}
-	case TLS_PSK_WITH_AES_128_CCM:
-		return ciphersuite.NewTLSPskWithAes128Ccm()
-	case TLS_PSK_WITH_AES_128_CCM_8:
-		return ciphersuite.NewTLSPskWithAes128Ccm8()
-	case TLS_PSK_WITH_AES_256_CCM_8:
-		return ciphersuite.NewTLSPskWithAes256Ccm8()
-	case TLS_PSK_WITH_AES_128_GCM_SHA256:
-		return &ciphersuite.TLSPskWithAes128GcmSha256{}
-	case TLS_PSK_WITH_AES_128_CBC_SHA256:
-		return &ciphersuite.TLSPskWithAes128CbcSha256{}
-	case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
-		return &ciphersuite.TLSEcdheEcdsaWithAes256GcmSha384{}
-	case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
-		return &ciphersuite.TLSEcdheRsaWithAes256GcmSha384{}
-	case TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256:
-		return ciphersuite.NewTLSEcdhePskWithAes128CbcSha256()
-	case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
-		return &ciphersuite.TLSEcdheEcdsaWithChacha20Poly1305Sha256{}
-	case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
-		return &ciphersuite.TLSEcdheRsaWithChacha20Poly1305Sha256{}
-	case TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:
-		return &ciphersuite.TLSPskWithChacha20Poly1305Sha256{}
-	}
-
-	if customCiphers != nil {
-		for _, c := range customCiphers() {
-			if c.ID() == id {
-				return c
-			}
-		}
-	}
-
-	return nil
+func cipherSuiteForID(id CipherSuiteID) CipherSuite {
+	return ciphersuite.ForID(id, nil)
 }
 
 // TLS 1.3 CipherSuites we support in order of preference.
@@ -278,6 +226,15 @@ func cipherSuiteIDs(cipherSuites []CipherSuite) []uint16 {
 	return rtrn
 }
 
+func configCipherSuiteIDs(cipherSuites []ciphersuite.CipherSuite) []uint16 {
+	rtrn := []uint16{}
+	for _, c := range cipherSuites {
+		rtrn = append(rtrn, uint16(c.ID()))
+	}
+
+	return rtrn
+}
+
 func defaultCipherSuitesForVersions(minVersion, maxVersion protocol.Version) []CipherSuite {
 	cipherSuites := []CipherSuite{}
 	for _, version := range supportedVersionsRange(minVersion, maxVersion) {
@@ -292,59 +249,16 @@ func defaultCipherSuitesForVersions(minVersion, maxVersion protocol.Version) []C
 	return cipherSuites
 }
 
-func knownCipherSuiteSupportedVersions(id CipherSuiteID) ([]protocol.Version, bool) {
-	switch id { //nolint:exhaustive
-	case TLS_AES_128_GCM_SHA256,
-		TLS_AES_256_GCM_SHA384,
-		TLS_CHACHA20_POLY1305_SHA256:
-		return []protocol.Version{protocol.Version1_3}, true
-	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
-		TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
-		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-		TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-		TLS_PSK_WITH_AES_128_CCM,
-		TLS_PSK_WITH_AES_128_CCM_8,
-		TLS_PSK_WITH_AES_256_CCM_8,
-		TLS_PSK_WITH_AES_128_GCM_SHA256,
-		TLS_PSK_WITH_AES_128_CBC_SHA256,
-		TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
-		TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-		TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-		TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:
-		return []protocol.Version{protocol.Version1_2}, true
-	default:
-		return nil, false
-	}
-}
-
 func cipherSuiteSupportedVersions(id CipherSuiteID) []protocol.Version {
-	if versions, ok := knownCipherSuiteSupportedVersions(id); ok {
-		return versions
-	}
-
-	return []protocol.Version{protocol.Version1_2}
+	return ciphersuite.SupportedVersions(id)
 }
 
 func cipherSuiteSupportedVersionIDs(id CipherSuiteID) []uint16 {
-	versions := cipherSuiteSupportedVersions(id)
-	ids := make([]uint16, 0, len(versions))
-	for _, version := range versions {
-		ids = append(ids, protocolVersionID(version))
-	}
-
-	return ids
-}
-
-func protocolVersionID(version protocol.Version) uint16 {
-	return uint16(version.Major)<<8 | uint16(version.Minor)
+	return ciphersuite.SupportedVersionIDs(id)
 }
 
 func cipherSuiteIDSupportsVersion(id CipherSuiteID, version protocol.Version) bool {
-	return slices.ContainsFunc(cipherSuiteSupportedVersions(id), version.Equal)
+	return ciphersuite.IDSupportsVersion(id, version)
 }
 
 func cipherSuiteIDSupportsVersions(id CipherSuiteID, minVersion, maxVersion protocol.Version) bool {
@@ -357,8 +271,11 @@ func cipherSuiteIDSupportsVersions(id CipherSuiteID, minVersion, maxVersion prot
 	return false
 }
 
-func filterCipherSuitesForVersion(cipherSuites []CipherSuite, version protocol.Version) []CipherSuite {
-	filtered := make([]CipherSuite, 0, len(cipherSuites))
+func filterCipherSuitesForVersion(
+	cipherSuites []ciphersuite.CipherSuite,
+	version protocol.Version,
+) []ciphersuite.CipherSuite {
+	filtered := make([]ciphersuite.CipherSuite, 0, len(cipherSuites))
 	for _, c := range cipherSuites {
 		if cipherSuiteIDSupportsVersion(c.ID(), version) {
 			filtered = append(filtered, c)
@@ -369,10 +286,10 @@ func filterCipherSuitesForVersion(cipherSuites []CipherSuite, version protocol.V
 }
 
 func filterCipherSuitesForVersions(
-	cipherSuites []CipherSuite,
+	cipherSuites []ciphersuite.CipherSuite,
 	minVersion, maxVersion protocol.Version,
-) []CipherSuite {
-	filtered := make([]CipherSuite, 0, len(cipherSuites))
+) []ciphersuite.CipherSuite {
+	filtered := make([]ciphersuite.CipherSuite, 0, len(cipherSuites))
 	for _, c := range cipherSuites {
 		if cipherSuiteIDSupportsVersions(c.ID(), minVersion, maxVersion) {
 			filtered = append(filtered, c)
@@ -387,7 +304,7 @@ func parseCipherSuites(
 	userSelectedSuites []CipherSuiteID,
 	customCipherSuites func() []CipherSuite,
 	includeCertificateSuites, includePSKSuites bool,
-) ([]CipherSuite, error) {
+) ([]ciphersuite.CipherSuite, error) {
 	return parseCipherSuitesForVersions(
 		userSelectedSuites,
 		customCipherSuites,
@@ -404,11 +321,11 @@ func parseCipherSuitesForVersions(
 	customCipherSuites func() []CipherSuite,
 	includeCertificateSuites, includePSKSuites bool,
 	minVersion, maxVersion protocol.Version,
-) ([]CipherSuite, error) {
-	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]CipherSuite, error) {
-		cipherSuites := []CipherSuite{}
+) ([]ciphersuite.CipherSuite, error) {
+	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]ciphersuite.CipherSuite, error) {
+		cipherSuites := []ciphersuite.CipherSuite{}
 		for _, id := range ids {
-			c := cipherSuiteForID(id, nil)
+			c := cipherSuiteForID(id)
 			if c == nil {
 				return nil, &invalidCipherSuiteError{id}
 			}
@@ -419,7 +336,7 @@ func parseCipherSuitesForVersions(
 	}
 
 	var (
-		cipherSuites []CipherSuite
+		cipherSuites []ciphersuite.CipherSuite
 		err          error
 		i            int
 	)
@@ -429,12 +346,17 @@ func parseCipherSuitesForVersions(
 			return nil, err
 		}
 	} else {
-		cipherSuites = defaultCipherSuitesForVersions(minVersion, maxVersion)
+		cipherSuites = toConfigCipherSuites(defaultCipherSuitesForVersions(minVersion, maxVersion))
 	}
 
 	// Put CustomCipherSuites before ID selected suites
 	if customCipherSuites != nil {
-		cipherSuites = append(customCipherSuites(), cipherSuites...)
+		custom := customCipherSuites()
+		configCipherSuites := make([]ciphersuite.CipherSuite, 0, len(custom)+len(cipherSuites))
+		for _, cipherSuite := range custom {
+			configCipherSuites = append(configCipherSuites, cipherSuite)
+		}
+		cipherSuites = append(configCipherSuites, cipherSuites...)
 	}
 
 	cipherSuites = filterCipherSuitesForVersions(cipherSuites, minVersion, maxVersion)
@@ -470,7 +392,10 @@ func parseCipherSuitesForVersions(
 	return cipherSuites[:i], nil
 }
 
-func filterCipherSuitesForCertificate(cert *tls.Certificate, cipherSuites []CipherSuite) []CipherSuite {
+func filterCipherSuitesForCertificate(
+	cert *tls.Certificate,
+	cipherSuites []ciphersuite.CipherSuite,
+) []ciphersuite.CipherSuite {
 	if cert == nil || cert.PrivateKey == nil {
 		return cipherSuites
 	}
@@ -487,7 +412,7 @@ func filterCipherSuitesForCertificate(cert *tls.Certificate, cipherSuites []Ciph
 		certType = clientcertificate.RSASign
 	}
 
-	filtered := []CipherSuite{}
+	filtered := []ciphersuite.CipherSuite{}
 	for _, c := range cipherSuites {
 		if c.AuthenticationType() != CipherSuiteAuthenticationTypeCertificate || certType == c.CertificateType() {
 			filtered = append(filtered, c)
