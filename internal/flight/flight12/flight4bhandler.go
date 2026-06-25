@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight12
 
 import (
 	"bytes"
 	"context"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -19,13 +21,13 @@ import (
 
 func flight4bParse(
 	_ context.Context,
-	_ flightConn,
+	_ dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) (flightVal, *alert.Alert, error) {
-	_, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, true, false},
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) (dtlsflight.Flight12, *alert.Alert, error) {
+	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		// No valid message received. Keep reading
@@ -37,10 +39,10 @@ func flight4bParse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	plainText := cache.pullAndMerge(
-		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
-		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
+	plainText := cache.PullAndMerge(
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
 	)
 
 	expectedVerifyData, err := prf.VerifyDataClient(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
@@ -51,36 +53,36 @@ func flight4bParse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrVerifyDataMismatch
 	}
 
-	// Other party may re-transmit the last flight. Keep state to be flight4b.
-	return flight4b, nil, nil
+	// Other party may re-transmit the last  Keep state to be Flight4b.
+	return dtlsflight.Flight4b, nil, nil
 }
 
 //nolint:cyclop
 func flight4bGenerate(
-	_ flightConn,
+	_ dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) ([]*packet, *alert.Alert, error) {
-	var pkts []*packet
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
+	var pkts []*dtlsflight.Packet
 
 	extensions := []extension.Extension{&extension.RenegotiationInfo{
 		RenegotiatedConnection: 0,
 	}}
-	if (cfg.extendedMasterSecret == RequestExtendedMasterSecret ||
-		cfg.extendedMasterSecret == RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
+	if (cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
+		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
 		extensions = append(extensions, &extension.UseExtendedMasterSecret{
 			Supported: true,
 		})
 	}
 	if state.GetSRTPProtectionProfile() != 0 {
 		extensions = append(extensions, &extension.UseSRTP{
-			ProtectionProfiles:  []SRTPProtectionProfile{state.GetSRTPProtectionProfile()},
-			MasterKeyIdentifier: cfg.localSRTPMasterKeyIdentifier,
+			ProtectionProfiles:  []dtlsconfig.SRTPProtectionProfile{state.GetSRTPProtectionProfile()},
+			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
 	}
 
-	selectedProto, err := extension.ALPNProtocolSelection(cfg.supportedProtocols, state.PeerSupportedProtocols)
+	selectedProto, err := extension.ALPNProtocolSelection(cfg.SupportedProtocols, state.PeerSupportedProtocols)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.NoApplicationProtocol}, err
 	}
@@ -99,12 +101,12 @@ func flight4bGenerate(
 		Random:            state.LocalRandom,
 		SessionID:         state.SessionID,
 		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: defaultCompressionMethods()[0],
+		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 		Extensions:        extensions,
 	}
 
-	if cfg.serverHelloMessageHook != nil {
-		serverHello = handshake.Handshake{Message: cfg.serverHelloMessageHook(*serverHelloMessage)}
+	if cfg.ServerHelloMessageHook != nil {
+		serverHello = handshake.Handshake{Message: cfg.ServerHelloMessageHook(*serverHelloMessage)}
 	} else {
 		serverHello = handshake.Handshake{Message: serverHelloMessage}
 	}
@@ -112,8 +114,8 @@ func flight4bGenerate(
 	serverHello.Header.MessageSequence = uint16(state.HandshakeSendSequence) //nolint:gosec // G115
 
 	if len(state.LocalVerifyData) == 0 {
-		plainText := cache.pullAndMerge(
-			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
+		plainText := cache.PullAndMerge(
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 		)
 		raw, err := serverHello.Marshal()
 		if err != nil {
@@ -128,24 +130,24 @@ func flight4bGenerate(
 	}
 
 	pkts = append(pkts,
-		&packet{
-			record: &recordlayer.RecordLayer{
+		&dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},
 				Content: &serverHello,
 			},
 		},
-		&packet{
-			record: &recordlayer.RecordLayer{
+		&dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},
 				Content: &protocol.ChangeCipherSpec{},
 			},
 		},
-		&packet{
-			record: &recordlayer.RecordLayer{
+		&dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 					Epoch:   1,
@@ -156,8 +158,8 @@ func flight4bGenerate(
 					},
 				},
 			},
-			shouldEncrypt:            true,
-			resetLocalSequenceNumber: true,
+			ShouldEncrypt:            true,
+			ResetLocalSequenceNumber: true,
 		},
 	)
 

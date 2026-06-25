@@ -8,9 +8,11 @@ package ciphersuite
 import (
 	"fmt"
 	"hash"
+	"slices"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
@@ -134,3 +136,101 @@ const (
 	KeyExchangeAlgorithmPsk   KeyExchangeAlgorithm = types.KeyExchangeAlgorithmPsk
 	KeyExchangeAlgorithmEcdhe KeyExchangeAlgorithm = types.KeyExchangeAlgorithmEcdhe
 )
+
+func ForID(id ID, customCiphers func() []CipherSuite) CipherSuite { //nolint:cyclop
+	switch id { //nolint:exhaustive
+	case TLS_AES_128_GCM_SHA256:
+		return NewTLSAes128GcmSha256()
+	case TLS_AES_256_GCM_SHA384:
+		return NewTLSAes256GcmSha384()
+	case TLS_CHACHA20_POLY1305_SHA256:
+		return NewTLSChacha20Poly1305Sha256()
+	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM:
+		return NewTLSEcdheEcdsaWithAes128Ccm()
+	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8:
+		return NewTLSEcdheEcdsaWithAes128Ccm8()
+	case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+		return &TLSEcdheEcdsaWithAes128GcmSha256{}
+	case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+		return &TLSEcdheRsaWithAes128GcmSha256{}
+	case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
+		return &TLSEcdheEcdsaWithAes256CbcSha{}
+	case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+		return &TLSEcdheRsaWithAes256CbcSha{}
+	case TLS_PSK_WITH_AES_128_CCM:
+		return NewTLSPskWithAes128Ccm()
+	case TLS_PSK_WITH_AES_128_CCM_8:
+		return NewTLSPskWithAes128Ccm8()
+	case TLS_PSK_WITH_AES_256_CCM_8:
+		return NewTLSPskWithAes256Ccm8()
+	case TLS_PSK_WITH_AES_128_GCM_SHA256:
+		return &TLSPskWithAes128GcmSha256{}
+	case TLS_PSK_WITH_AES_128_CBC_SHA256:
+		return &TLSPskWithAes128CbcSha256{}
+	case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+		return &TLSEcdheEcdsaWithAes256GcmSha384{}
+	case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+		return &TLSEcdheRsaWithAes256GcmSha384{}
+	case TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256:
+		return NewTLSEcdhePskWithAes128CbcSha256()
+	case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
+		return &TLSEcdheEcdsaWithChacha20Poly1305Sha256{}
+	case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+		return &TLSEcdheRsaWithChacha20Poly1305Sha256{}
+	case TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:
+		return &TLSPskWithChacha20Poly1305Sha256{}
+	}
+
+	if customCiphers != nil {
+		for _, c := range customCiphers() {
+			if c.ID() == id {
+				return c
+			}
+		}
+	}
+
+	return nil
+}
+
+func SupportedVersions(id ID) []protocol.Version {
+	switch id { //nolint:exhaustive
+	case TLS_AES_128_GCM_SHA256,
+		TLS_AES_256_GCM_SHA384,
+		TLS_CHACHA20_POLY1305_SHA256:
+		return []protocol.Version{protocol.Version1_3}
+	case TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
+		TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
+		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+		TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+		TLS_PSK_WITH_AES_128_CCM,
+		TLS_PSK_WITH_AES_128_CCM_8,
+		TLS_PSK_WITH_AES_256_CCM_8,
+		TLS_PSK_WITH_AES_128_GCM_SHA256,
+		TLS_PSK_WITH_AES_128_CBC_SHA256,
+		TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
+		TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+		TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+		TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:
+		return []protocol.Version{protocol.Version1_2}
+	default:
+		return []protocol.Version{protocol.Version1_2}
+	}
+}
+
+func SupportedVersionIDs(id ID) []uint16 {
+	versions := SupportedVersions(id)
+	ids := make([]uint16, 0, len(versions))
+	for _, version := range versions {
+		ids = append(ids, uint16(version.Major)<<8|uint16(version.Minor))
+	}
+
+	return ids
+}
+
+func IDSupportsVersion(id ID, version protocol.Version) bool {
+	return slices.ContainsFunc(SupportedVersions(id), version.Equal)
+}

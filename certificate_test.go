@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"testing"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/stretchr/testify/assert"
 )
@@ -80,11 +81,22 @@ func TestGetCertificate(t *testing.T) {
 
 	for _, test := range testCases {
 		t.Run(test.desc, func(t *testing.T) {
-			cfg := &handshakeConfig{
-				localCertificates:   test.localCertificates,
-				localGetCertificate: test.getCertificate,
+			getCertificate := func(info *dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
+				return test.getCertificate(&ClientHelloInfo{
+					ServerName:   info.ServerName,
+					CipherSuites: info.CipherSuites,
+					RandomBytes:  info.RandomBytes,
+				})
 			}
-			cert, err := cfg.getCertificate(&ClientHelloInfo{ServerName: test.serverName})
+			if test.getCertificate == nil {
+				getCertificate = nil
+			}
+
+			cfg := &handshakeConfig{
+				LocalCertificates:   test.localCertificates,
+				LocalGetCertificate: getCertificate,
+			}
+			cert, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: test.serverName})
 			assert.NoError(t, err)
 			assert.Equal(t, test.expectedCertificate.Leaf, cert.Leaf, "Certificate Leaf should match expected")
 		})

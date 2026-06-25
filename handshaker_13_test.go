@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -22,10 +24,10 @@ import (
 
 func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
-	cache := newHandshakeCache()
+	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_1, nil, nil)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_1, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, fsm.transcript)
 
@@ -38,16 +40,16 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 
 func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
-	cache := newHandshakeCache()
+	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
-	cfg.clientHelloMessageHook = func(ch handshake.MessageClientHello) handshake.Message {
+	cfg.ClientHelloMessageHook = func(ch handshake.MessageClientHello) handshake.Message {
 		ch.SessionID = []byte{0xaa, 0xbb}
 
 		return &ch
 	}
 
 	transcript := newHandshakeTranscript13()
-	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -58,7 +60,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	require.Len(t, pkts, 1)
 
 	const messageSequence = 7
-	content, ok := pkts[0].record.Content.(*handshake.Handshake)
+	content, ok := pkts[0].Record.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	content.Header.MessageSequence = messageSequence
 
@@ -67,7 +69,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, appended)
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_1, pkts, transcript)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_1, pkts, transcript)
 	require.NoError(t, err)
 	require.NotNil(t, fsm.transcript)
 	require.Same(t, transcript, fsm.transcript)
@@ -85,11 +87,11 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 
 func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testing.T) {
 	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
-	cache := newHandshakeCache()
+	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 	transcript := newHandshakeTranscript13()
 
-	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -98,14 +100,14 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_1, pkts, transcript)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_1, pkts, transcript)
 	require.NoError(t, err)
 
 	transcript = fsm.transcript
 	before := append([]byte(nil), transcript.transcript...)
 	require.Len(t, transcript.pending, 1)
 
-	fsm.currentFlight = flight13_2
+	fsm.currentFlight = dtlsflight.Flight13_2
 	fsm.retransmit = true
 	fsm.retransmitInterval *= 2
 
@@ -121,10 +123,12 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 
 func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
-	cache := newHandshakeCache()
+	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_1, []*packet{}, newHandshakeTranscript13())
+	fsm, err := newHandshakeFSM13(
+		state, cache, cfg, dtlsflight.Flight13_1, []*dtlsflight.Packet{}, newHandshakeTranscript13(),
+	)
 	require.Nil(t, fsm)
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)
 }
@@ -133,11 +137,11 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{
 		LocalVersion: protocol.Version1_3,
-		CipherSuite:  cfg.localCipherSuites[0],
+		CipherSuite:  cfg.LocalCipherSuites[0],
 	}
-	cache := newHandshakeCache()
+	cache := dtlsflight.NewCache()
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_2, nil, nil)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_2, nil, nil)
 	require.NoError(t, err)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
@@ -152,9 +156,9 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
-	cache := newHandshakeCache()
+	cache := dtlsflight.NewCache()
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_1, nil, nil)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_1, nil, nil)
 	require.NoError(t, err)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
@@ -174,15 +178,15 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{
 		LocalVersion: protocol.Version1_3,
-		CipherSuite:  cfg.localCipherSuites[0],
+		CipherSuite:  cfg.LocalCipherSuites[0],
 	}
-	cache := newHandshakeCache()
+	cache := dtlsflight.NewCache()
 	transcript := newHandshakeTranscript13()
 	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
-	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{clientHello}))
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*dtlsflight.Packet{clientHello}))
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_2, nil, transcript)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_2, nil, transcript)
 	require.NoError(t, err)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
@@ -201,10 +205,10 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	assert.Equal(t, 1, state.HandshakeSendSequence)
 }
 
-func canonicalPacketHandshake13(t *testing.T, p *packet) []byte {
+func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {
 	t.Helper()
 
-	content, ok := p.record.Content.(*handshake.Handshake)
+	content, ok := p.Record.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := content.Marshal()
 	require.NoError(t, err)
@@ -230,16 +234,16 @@ func testHandshakeConfig13(t *testing.T) *handshakeConfig {
 	loggerFactory := logging.NewDefaultLoggerFactory()
 
 	return &handshakeConfig{
-		localCipherSuites:           cipherSuites,
-		ellipticCurves:              defaultCurves,
-		initialRetransmitInterval:   time.Second,
-		extendedMasterSecret:        RequestExtendedMasterSecret,
-		log:                         loggerFactory.NewLogger("dtls"),
-		minVersion:                  protocol.Version1_3,
-		maxVersion:                  protocol.Version1_3,
-		localSignatureSchemes:       signaturehash.Algorithms13(),
-		localCertSignatureSchemes:   nil,
-		localSRTPProtectionProfiles: nil,
+		LocalCipherSuites:           cipherSuites,
+		EllipticCurves:              defaultCurves,
+		InitialRetransmitInterval:   time.Second,
+		ExtendedMasterSecret:        dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret),
+		Log:                         loggerFactory.NewLogger("dtls"),
+		MinVersion:                  protocol.Version1_3,
+		MaxVersion:                  protocol.Version1_3,
+		LocalSignatureSchemes:       signaturehash.Algorithms13(),
+		LocalCertSignatureSchemes:   nil,
+		LocalSRTPProtectionProfiles: nil,
 	}
 }
 
@@ -248,7 +252,7 @@ func TestAppendOutboundHandshakeFlight13ClientHello(t *testing.T) {
 	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 3)
 	expected := canonicalPacketHandshake13(t, pkt)
 
-	err := appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{pkt})
+	err := appendOutboundHandshakeFlight13(transcript, true, nil, []*dtlsflight.Packet{pkt})
 	require.NoError(t, err)
 	require.Len(t, transcript.order, 1)
 	require.Len(t, transcript.pending, 1)
@@ -263,10 +267,10 @@ func TestAppendOutboundHandshakeFlight13DuplicateNoop(t *testing.T) {
 	transcript := newHandshakeTranscript13()
 	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 
-	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{pkt}))
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*dtlsflight.Packet{pkt}))
 	before := append([]byte(nil), transcript.transcript...)
 
-	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{pkt}))
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*dtlsflight.Packet{pkt}))
 	assert.Equal(t, before, transcript.transcript)
 	assert.Len(t, transcript.order, 1)
 }
@@ -276,15 +280,15 @@ func TestAppendOutboundHandshakeFlight13ChangedSameSequenceFails(t *testing.T) {
 	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 	changedPkt := transcriptTestClientHelloPacket13([]byte{0x02}, 0)
 
-	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{pkt}))
-	err := appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{changedPkt})
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*dtlsflight.Packet{pkt}))
+	err := appendOutboundHandshakeFlight13(transcript, true, nil, []*dtlsflight.Packet{changedPkt})
 
 	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMessageChanged)
 }
 
 func TestAppendOutboundHandshakeFlight13HelloRetryRequest(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	cipherSuite := cfg.localCipherSuites[0]
+	cipherSuite := cfg.LocalCipherSuites[0]
 	transcript := newHandshakeTranscript13()
 	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 	helloRetryRequest := transcriptTestHelloRetryRequestPacket13(t, cipherSuite, 0)
@@ -292,8 +296,10 @@ func TestAppendOutboundHandshakeFlight13HelloRetryRequest(t *testing.T) {
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
 	helloRetryRequestCanonical := canonicalPacketHandshake13(t, helloRetryRequest)
 
-	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, cipherSuite, []*packet{clientHello}))
-	require.NoError(t, appendOutboundHandshakeFlight13(transcript, false, cipherSuite, []*packet{helloRetryRequest}))
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, cipherSuite, []*dtlsflight.Packet{clientHello}))
+	require.NoError(t, appendOutboundHandshakeFlight13(
+		transcript, false, cipherSuite, []*dtlsflight.Packet{helloRetryRequest},
+	))
 
 	clientHelloHash := hashTranscript13(clientHelloCanonical)
 	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHelloHash)
@@ -308,14 +314,16 @@ func TestAppendOutboundHandshakeFlight13HelloRetryRequest(t *testing.T) {
 	assert.Equal(t, handshake.TypeServerHello, transcript.order[1].typ)
 
 	before := append([]byte(nil), transcript.transcript...)
-	require.NoError(t, appendOutboundHandshakeFlight13(transcript, false, cipherSuite, []*packet{helloRetryRequest}))
+	require.NoError(t, appendOutboundHandshakeFlight13(
+		transcript, false, cipherSuite, []*dtlsflight.Packet{helloRetryRequest},
+	))
 	assert.Equal(t, before, transcript.transcript)
 	assert.Len(t, transcript.order, 2)
 }
 
-func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *packet {
-	return &packet{
-		record: &recordlayer.RecordLayer{
+func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *dtlsflight.Packet {
+	return &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
 			Header: recordlayer.Header{
 				Version: protocol.Version1_2,
 			},
@@ -332,15 +340,15 @@ func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *packet {
 	}
 }
 
-func transcriptTestHelloRetryRequestPacket13(tb testing.TB, cipherSuite CipherSuite, seq uint16) *packet {
+func transcriptTestHelloRetryRequestPacket13(tb testing.TB, cipherSuite CipherSuite, seq uint16) *dtlsflight.Packet {
 	tb.Helper()
 
 	random := handshake.Random{}
 	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
 	cipherSuiteID := uint16(cipherSuite.ID())
 
-	return &packet{
-		record: &recordlayer.RecordLayer{
+	return &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
 			Header: recordlayer.Header{
 				Version: protocol.Version1_2,
 			},

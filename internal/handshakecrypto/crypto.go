@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+// Package handshakecrypto contains internal handshake cryptography helpers.
+package handshakecrypto
 
 import (
 	"crypto"
@@ -27,7 +28,7 @@ type ecdsaSignature struct {
 	R, S *big.Int
 }
 
-func valueKeyMessage(clientRandom, serverRandom, publicKey []byte, namedCurve elliptic.Curve) []byte {
+func ValueKeyMessage(clientRandom, serverRandom, publicKey []byte, namedCurve elliptic.Curve) []byte {
 	serverECDHParams := make([]byte, 4)
 	serverECDHParams[0] = 3 // named curve
 	binary.BigEndian.PutUint16(serverECDHParams[1:], uint16(namedCurve))
@@ -92,19 +93,20 @@ func validateSignatureAlgOID(cert *x509.Certificate, sigAlg signature.Algorithm)
 	}
 }
 
+// GenerateKeySignature signs a key exchange message.
 // If the client provided a "signature_algorithms" extension, then all
 // certificates provided by the server MUST be signed by a
 // hash/signature algorithm pair that appears in that extension
 //
 // https://tools.ietf.org/html/rfc5246#section-7.4.2
-func generateKeySignature(
+func GenerateKeySignature(
 	clientRandom, serverRandom, publicKey []byte,
 	namedCurve elliptic.Curve,
 	signer crypto.Signer,
 	hashAlgorithm hash.Algorithm,
 	signatureAlgorithm signature.Algorithm,
 ) ([]byte, error) {
-	msg := valueKeyMessage(clientRandom, serverRandom, publicKey, namedCurve)
+	msg := ValueKeyMessage(clientRandom, serverRandom, publicKey, namedCurve)
 	switch signer.Public().(type) {
 	case ed25519.PublicKey:
 		// https://crypto.stackexchange.com/a/55483
@@ -134,7 +136,7 @@ func generateKeySignature(
 }
 
 //nolint:dupl,cyclop
-func verifyKeySignature(
+func VerifyKeySignature(
 	message, remoteKeySignature []byte,
 	hashAlgorithm hash.Algorithm,
 	signatureAlgorithm signature.Algorithm,
@@ -201,6 +203,7 @@ func verifyKeySignature(
 	return dtlserrors.ErrKeySignatureVerifyUnimplemented
 }
 
+// GenerateCertificateVerify signs a certificate verify message.
 // If the server has sent a CertificateRequest message, the client MUST send the Certificate
 // message.  The ClientKeyExchange message is now sent, and the content
 // of that message will depend on the public key algorithm selected
@@ -209,7 +212,7 @@ func verifyKeySignature(
 // CertificateVerify message is sent to explicitly verify possession of
 // the private key in the certificate.
 // https://tools.ietf.org/html/rfc5246#section-7.3
-func generateCertificateVerify(
+func GenerateCertificateVerify(
 	handshakeBodies []byte,
 	signer crypto.Signer,
 	hashAlgorithm hash.Algorithm,
@@ -246,7 +249,7 @@ func generateCertificateVerify(
 }
 
 //nolint:dupl,cyclop
-func verifyCertificateVerify(
+func VerifyCertificateVerify(
 	handshakeBodies []byte,
 	hashAlgorithm hash.Algorithm,
 	signatureAlgorithm signature.Algorithm,
@@ -331,7 +334,7 @@ func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-func verifyClientCert(
+func VerifyClientCert(
 	rawCertificates [][]byte,
 	roots *x509.CertPool,
 	certSignatureSchemes []signaturehash.Algorithm,
@@ -361,7 +364,7 @@ func verifyClientCert(
 	if len(certSignatureSchemes) > 0 && len(chains) > 0 {
 		var validChainFound bool
 		for _, chain := range chains {
-			if err := validateCertificateSignatureAlgorithms(chain, certSignatureSchemes); err == nil {
+			if err := ValidateCertificateSignatureAlgorithms(chain, certSignatureSchemes); err == nil {
 				validChainFound = true
 
 				break
@@ -375,7 +378,7 @@ func verifyClientCert(
 	return chains, nil
 }
 
-func verifyServerCert(
+func VerifyServerCert(
 	rawCertificates [][]byte,
 	roots *x509.CertPool,
 	serverName string,
@@ -406,7 +409,7 @@ func verifyServerCert(
 	if len(certSignatureSchemes) > 0 && len(chains) > 0 {
 		var validChainFound bool
 		for _, chain := range chains {
-			if err := validateCertificateSignatureAlgorithms(chain, certSignatureSchemes); err == nil {
+			if err := ValidateCertificateSignatureAlgorithms(chain, certSignatureSchemes); err == nil {
 				validChainFound = true
 
 				break
@@ -420,10 +423,10 @@ func verifyServerCert(
 	return chains, nil
 }
 
-// validateCertificateSignatureAlgorithms validates that all certificates in the chain
+// ValidateCertificateSignatureAlgorithms validates that all certificates in the chain
 // use signature algorithms that are in the allowed list. This implements the
 // signature_algorithms_cert extension validation per RFC 8446 Section 4.2.3.
-func validateCertificateSignatureAlgorithms(
+func ValidateCertificateSignatureAlgorithms(
 	certs []*x509.Certificate,
 	allowedAlgorithms []signaturehash.Algorithm,
 ) error {

@@ -299,7 +299,7 @@ func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
 }
 
 func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
-	cipherSuite := cipherSuiteForID(TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := cipherSuiteForID(TLS_AES_128_GCM_SHA256)
 	state := &dtlsstate.State{
 		CipherSuite:     cipherSuite,
 		PreMasterSecret: bytes.Repeat([]byte{0x11}, sha256.Size),
@@ -382,7 +382,7 @@ func TestFinishedVerifyData13(t *testing.T) {
 }
 
 func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
-	cipherSuite := cipherSuiteForID(TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := cipherSuiteForID(TLS_AES_128_GCM_SHA256)
 	state := &dtlsstate.State{
 		CipherSuite:     cipherSuite,
 		PreMasterSecret: bytes.Repeat([]byte{0x77}, sha256.Size),

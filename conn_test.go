@@ -26,6 +26,7 @@ import (
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
@@ -172,9 +173,9 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		atomic.StoreUint64(&ca.state.LocalSequenceNumber[0], recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
-		werr := ca.writePackets(ctx, []*packet{
+		werr := ca.writePackets(ctx, []*dtlsflight.Packet{
 			{
-				record: &recordlayer.RecordLayer{
+				Record: &recordlayer.RecordLayer{
 					Header: recordlayer.Header{
 						Version: protocol.Version1_2,
 					},
@@ -3122,7 +3123,7 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 			assert.Equal(
 				t,
 				len(test.HandshakeCurves),
-				len(server.fsm.(*handshakeFSM12).cfg.ellipticCurves), //nolint:forcetypeassert
+				len(server.fsm.(*handshakeFSM12).cfg.EllipticCurves), //nolint:forcetypeassert
 				"Failed to configure Elliptic curves",
 			)
 
@@ -3130,7 +3131,7 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 				assert.Equal(
 					t,
 					c,
-					server.fsm.(*handshakeFSM12).cfg.ellipticCurves[i], //nolint:forcetypeassert
+					server.fsm.(*handshakeFSM12).cfg.EllipticCurves[i], //nolint:forcetypeassert
 					"Failed to maintain Elliptic curve order",
 				)
 			}

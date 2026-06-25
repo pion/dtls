@@ -1,14 +1,16 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight12
 
 import (
 	"bytes"
 	"context"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -22,16 +24,16 @@ import (
 //nolint:gocognit,gocyclo,maintidx,cyclop
 func flight3Parse(
 	ctx context.Context,
-	conn flightConn,
+	conn dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) (flightVal, *alert.Alert, error) {
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) (dtlsflight.Flight12, *alert.Alert, error) {
 	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
 	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response
 	// to the new HelloVerifyRequest. RFC 6347 Section 4.2.1
-	seq, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeHelloVerifyRequest, cfg.initialEpoch, false, true},
+	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
 	)
 	if ok {
 		if h, msgOk := msgs[handshake.TypeHelloVerifyRequest].(*handshake.MessageHelloVerifyRequest); msgOk {
@@ -43,12 +45,12 @@ func flight3Parse(
 			state.Cookie = append([]byte{}, h.Cookie...)
 			state.HandshakeRecvSequence = seq
 
-			return flight3, nil, nil
+			return dtlsflight.Flight3, nil, nil
 		}
 	}
 
-	_, msgs, ok = cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
+	_, msgs, ok = cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		// Don't have enough messages. Keep reading
@@ -63,14 +65,14 @@ func flight3Parse(
 		for _, v := range serverHelloMsg.Extensions {
 			switch ext := v.(type) {
 			case *extension.UseSRTP:
-				profile, found := findMatchingSRTPProfile(ext.ProtectionProfiles, cfg.localSRTPProtectionProfiles)
+				profile, found := dtlsflight.FindMatchingSRTPProfile(ext.ProtectionProfiles, cfg.LocalSRTPProtectionProfiles)
 				if !found {
 					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrClientNoMatchingSRTPProfile //nolint:lll
 				}
 				state.SetSRTPProtectionProfile(profile)
 				state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
 			case *extension.UseExtendedMasterSecret:
-				if cfg.extendedMasterSecret != DisableExtendedMasterSecret {
+				if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 					state.ExtendedMasterSecret = true
 				}
 			case *extension.ALPN:
@@ -84,7 +86,7 @@ func flight3Parse(
 			case *extension.ConnectionID:
 				// Only set connection ID to be sent if client supports connection
 				// IDs.
-				if cfg.connectionIDGenerator != nil {
+				if cfg.ConnectionIDGenerator != nil {
 					state.RemoteConnectionID = ext.CID
 				}
 			}
@@ -95,42 +97,44 @@ func flight3Parse(
 			state.SetLocalConnectionID(nil)
 		}
 
-		if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
+		if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrClientRequiredButNoServerEMS //nolint:lll
 		}
-		if len(cfg.localSRTPProtectionProfiles) > 0 && state.GetSRTPProtectionProfile() == 0 {
+		if len(cfg.LocalSRTPProtectionProfiles) > 0 && state.GetSRTPProtectionProfile() == 0 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrRequestedButNoSRTPExtension //nolint:lll
 		}
 
-		remoteCipherSuite := cipherSuiteForID(CipherSuiteID(*serverHelloMsg.CipherSuiteID), cfg.customCipherSuites)
+		remoteCipherSuite := ciphersuite.ForID(ciphersuite.ID(*serverHelloMsg.CipherSuiteID), cfg.CustomCipherSuites)
 		if remoteCipherSuite == nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 		}
-		if !cipherSuiteIDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_2) {
+		if !ciphersuite.IDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_2) {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 		}
 
-		selectedCipherSuite, found := findMatchingCipherSuite([]CipherSuite{remoteCipherSuite}, cfg.localCipherSuites)
+		selectedCipherSuite, found := dtlsflight.FindMatchingCipherSuite(
+			[]dtlsconfig.CipherSuite{remoteCipherSuite}, cfg.LocalCipherSuites,
+		)
 		if !found {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 		}
 
 		state.CipherSuite = selectedCipherSuite
 		state.RemoteRandom = serverHelloMsg.Random
-		cfg.log.Tracef("[handshake] use cipher suite: %s", selectedCipherSuite.String())
+		cfg.Log.Tracef("[handshake] use cipher suite: %s", selectedCipherSuite.String())
 
 		if len(serverHelloMsg.SessionID) > 0 && bytes.Equal(state.SessionID, serverHelloMsg.SessionID) {
 			return handleResumption(ctx, conn, state, cache, cfg)
 		}
 
-		if len(state.SessionID) > 0 {
-			cfg.log.Tracef("[handshake] clean old session : %s", state.SessionID)
-			if err := cfg.sessionStore.Del(state.SessionID); err != nil {
+		if cfg.HasSessionStore && len(state.SessionID) > 0 {
+			cfg.Log.Tracef("[handshake] clean old session : %s", state.SessionID)
+			if err := cfg.DelSession(state.SessionID); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 		}
 
-		if cfg.sessionStore == nil {
+		if !cfg.HasSessionStore {
 			state.SessionID = []byte{}
 		} else {
 			state.SessionID = serverHelloMsg.SessionID
@@ -139,17 +143,17 @@ func flight3Parse(
 		state.MasterSecret = []byte{}
 	}
 
-	if cfg.localPSKCallback != nil {
-		seq, msgs, ok = cache.fullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
-			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, true},
-			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
+	if cfg.LocalPSKCallback != nil {
+		seq, msgs, ok = cache.FullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
 		)
 	} else {
-		seq, msgs, ok = cache.fullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, true},
-			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, true},
-			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
+		seq, msgs, ok = cache.FullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true},        //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},   //nolint:lll
 		)
 	}
 	if !ok {
@@ -160,7 +164,7 @@ func flight3Parse(
 
 	if h, ok := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
 		state.PeerCertificates = h.Certificate
-	} else if state.CipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
+	} else if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrInvalidCertificate
 	}
 
@@ -176,27 +180,27 @@ func flight3Parse(
 		state.RemoteRequestedCertificate = true
 	}
 
-	return flight5, nil, nil
+	return dtlsflight.Flight5, nil, nil
 }
 
 func handleResumption(
 	ctx context.Context,
-	c flightConn,
+	c dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) (flightVal, *alert.Alert, error) {
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) (dtlsflight.Flight12, *alert.Alert, error) {
 	if err := state.InitCipherSuite(); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
 	// Now, encrypted packets can be handled
-	if err := c.handleQueuedPackets(ctx); err != nil {
+	if err := c.HandleQueuedPackets(ctx); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
-	_, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
+	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		// No valid message received. Keep reading
@@ -207,9 +211,9 @@ func handleResumption(
 	if finished, ok = msgs[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
-	plainText := cache.pullAndMerge(
-		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
-		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
+	plainText := cache.PullAndMerge(
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},  //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 	)
 
 	expectedVerifyData, err := prf.VerifyDataServer(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
@@ -221,32 +225,32 @@ func handleResumption(
 	}
 
 	clientRandom := state.LocalRandom.MarshalFixed()
-	cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
+	cfg.WriteKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
 
-	return flight5b, nil, nil
+	return dtlsflight.Flight5b, nil, nil
 }
 
 //nolint:cyclop
 func handleServerKeyExchange(
-	_ flightConn,
+	_ dtlsflight.Conn,
 	state *dtlsstate.State,
-	cfg *handshakeConfig,
+	cfg *dtlsconfig.HandshakeConfig,
 	keyExchangeMessage *handshake.MessageServerKeyExchange,
 ) (*alert.Alert, error) {
 	var err error
 	if state.CipherSuite == nil {
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 	}
-	if cfg.localPSKCallback != nil { //nolint:nestif
+	if cfg.LocalPSKCallback != nil { //nolint:nestif
 		var psk []byte
-		if psk, err = cfg.localPSKCallback(keyExchangeMessage.IdentityHint); err != nil {
+		if psk, err = cfg.LocalPSKCallback(keyExchangeMessage.IdentityHint); err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		state.IdentityHint = keyExchangeMessage.IdentityHint
 		switch state.CipherSuite.KeyExchangeAlgorithm() {
-		case types.KeyExchangeAlgorithmPsk:
+		case ciphersuite.KeyExchangeAlgorithmPsk:
 			state.PreMasterSecret = prf.PSKPreMasterSecret(psk)
-		case (types.KeyExchangeAlgorithmEcdhe | types.KeyExchangeAlgorithmPsk):
+		case (ciphersuite.KeyExchangeAlgorithmEcdhe | ciphersuite.KeyExchangeAlgorithmPsk):
 			if state.LocalKeypair, err = elliptic.GenerateKeypair(keyExchangeMessage.NamedCurve); err != nil {
 				return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
@@ -280,30 +284,30 @@ func handleServerKeyExchange(
 }
 
 func flight3Generate(
-	_ flightConn,
+	_ dtlsflight.Conn,
 	state *dtlsstate.State,
-	_ *handshakeCache,
-	cfg *handshakeConfig,
-) ([]*packet, *alert.Alert, error) {
+	_ *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	extensions := []extension.Extension{
 		&extension.SupportedSignatureAlgorithms{
-			SignatureHashAlgorithms: cfg.localSignatureSchemes,
+			SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
 		},
 		&extension.RenegotiationInfo{
 			RenegotiatedConnection: 0,
 		},
 	}
 
-	if len(cfg.localCertSignatureSchemes) > 0 {
+	if len(cfg.LocalCertSignatureSchemes) > 0 {
 		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
-			SignatureHashAlgorithms: cfg.localCertSignatureSchemes,
+			SignatureHashAlgorithms: cfg.LocalCertSignatureSchemes,
 		})
 	}
 
 	if state.NamedCurve != 0 {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
-				EllipticCurves: cfg.ellipticCurves,
+				EllipticCurves: cfg.EllipticCurves,
 			},
 			&extension.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
@@ -311,26 +315,26 @@ func flight3Generate(
 		}...)
 	}
 
-	if len(cfg.localSRTPProtectionProfiles) > 0 {
+	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
 		extensions = append(extensions, &extension.UseSRTP{
-			ProtectionProfiles:  cfg.localSRTPProtectionProfiles,
-			MasterKeyIdentifier: cfg.localSRTPMasterKeyIdentifier,
+			ProtectionProfiles:  cfg.LocalSRTPProtectionProfiles,
+			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
 	}
 
-	if cfg.extendedMasterSecret == RequestExtendedMasterSecret ||
-		cfg.extendedMasterSecret == RequireExtendedMasterSecret {
+	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
+		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
 		extensions = append(extensions, &extension.UseExtendedMasterSecret{
 			Supported: true,
 		})
 	}
 
-	if len(cfg.serverName) > 0 {
-		extensions = append(extensions, &extension.ServerName{ServerName: cfg.serverName})
+	if len(cfg.ServerName) > 0 {
+		extensions = append(extensions, &extension.ServerName{ServerName: cfg.ServerName})
 	}
 
-	if len(cfg.supportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.supportedProtocols})
+	if len(cfg.SupportedProtocols) > 0 {
+		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.SupportedProtocols})
 	}
 
 	// If we sent a connection ID on the first ClientHello, send it on the
@@ -344,22 +348,22 @@ func flight3Generate(
 		SessionID:          state.SessionID,
 		Cookie:             state.Cookie,
 		Random:             state.LocalRandom,
-		CipherSuiteIDs:     cipherSuiteIDs(cfg.localCipherSuites),
-		CompressionMethods: defaultCompressionMethods(),
+		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 		Extensions:         extensions,
 	}
 
 	var content handshake.Handshake
 
-	if cfg.clientHelloMessageHook != nil {
-		content = handshake.Handshake{Message: cfg.clientHelloMessageHook(*clientHello)}
+	if cfg.ClientHelloMessageHook != nil {
+		content = handshake.Handshake{Message: cfg.ClientHelloMessageHook(*clientHello)}
 	} else {
 		content = handshake.Handshake{Message: clientHello}
 	}
 
-	return []*packet{
+	return []*dtlsflight.Packet{
 		{
-			record: &recordlayer.RecordLayer{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},

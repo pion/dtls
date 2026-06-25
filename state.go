@@ -122,7 +122,7 @@ func (s *State) deserialize(serialized serializedState) {
 }
 
 func (s *State) initializedCipherSuite() (CipherSuite, error) {
-	cipherSuite := cipherSuiteForID(s.CipherSuiteID, nil)
+	cipherSuite := cipherSuiteForID(s.CipherSuiteID)
 	if cipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -157,7 +157,7 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 		LocalRandom:        s.localRandom,
 		RemoteRandom:       s.remoteRandom,
 		MasterSecret:       s.masterSecret,
-		CipherSuite:        cipherSuiteForID(s.CipherSuiteID, nil),
+		CipherSuite:        cipherSuiteForID(s.CipherSuiteID),
 		RemoteConnectionID: s.remoteConnectionID,
 		IsClient:           s.isClient,
 		PeerCertificates:   s.PeerCertificates,

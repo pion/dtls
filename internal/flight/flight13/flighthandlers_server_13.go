@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight13
 
 import (
 	"bytes"
@@ -9,7 +9,10 @@ import (
 	"crypto/rand"
 	"slices"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -68,7 +71,7 @@ func newClientHello13ExtensionFailure(
 
 func processClientHello13Extensions(
 	state *dtlsstate.State,
-	cfg *handshakeConfig,
+	cfg *dtlsconfig.HandshakeConfig,
 	clientHello *handshake.MessageClientHello,
 ) *clientHello13ExtensionFailure {
 	var seen clientHello13ExtensionSet
@@ -89,7 +92,7 @@ func processClientHello13Extensions(
 
 func processClientHello13SecurityExtension(
 	state *dtlsstate.State,
-	cfg *handshakeConfig,
+	cfg *dtlsconfig.HandshakeConfig,
 	seen *clientHello13ExtensionSet,
 	val extension.Extension,
 ) *clientHello13ExtensionFailure {
@@ -101,7 +104,7 @@ func processClientHello13SecurityExtension(
 		}
 		state.RemoteGroups = ext.EllipticCurves
 	case *extension.UseSRTP:
-		profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
+		profile, ok := dtlsflight.FindMatchingSRTPProfile(cfg.LocalSRTPProtectionProfiles, ext.ProtectionProfiles)
 		if !ok {
 			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrServerNoMatchingSRTPProfile)
 		}
@@ -124,12 +127,12 @@ func processClientHello13SecurityExtension(
 
 func processClientHello13StateExtension(
 	state *dtlsstate.State,
-	cfg *handshakeConfig,
+	cfg *dtlsconfig.HandshakeConfig,
 	val extension.Extension,
 ) {
 	switch ext := val.(type) {
 	case *extension.UseExtendedMasterSecret:
-		if cfg.extendedMasterSecret != DisableExtendedMasterSecret {
+		if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 			state.ExtendedMasterSecret = true
 		}
 	case *extension.ServerName:
@@ -140,7 +143,7 @@ func processClientHello13StateExtension(
 		state.PeerSupportedProtocols = ext.ProtocolNameList
 	case *extension.ConnectionID:
 		// Only set connection ID to be sent if server supports connection IDs.
-		if cfg.connectionIDGenerator != nil {
+		if cfg.ConnectionIDGenerator != nil {
 			state.RemoteConnectionID = ext.CID
 		}
 	case *extension.SignatureAlgorithmsCert:
@@ -154,9 +157,9 @@ func processClientHello13StateExtension(
 //nolint:cyclop,gocognit,gocyclo,unused
 func flight13_0Parse(
 	_ context.Context,
-	_ flightConn,
+	_ dtlsflight.Conn,
 	flightCtx *handshakeContext13,
-) (flightVal13, *alert.Alert, error) {
+) (dtlsflight.Flight13, *alert.Alert, error) {
 	state := flightCtx.state
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
@@ -165,8 +168,8 @@ func flight13_0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
 			dtlserrors.ErrInvalidProtocolVersionState
 	}
-	seq, msgs, items, ok := cache.fullPullMapItems(0, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
+	seq, msgs, items, ok := cache.FullPullMapItems(0, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		// No valid message received. Keep reading
@@ -194,21 +197,21 @@ func flight13_0Parse(
 
 	state.RemoteRandom = clientHello.Random
 
-	cipherSuites := []CipherSuite{}
+	cipherSuites := []dtlsconfig.CipherSuite{}
 	for _, id := range clientHello.CipherSuiteIDs {
 		if id == renegotiationInfoSCSV {
 			state.RemoteSupportsRenegotiation = true
 
 			continue
 		}
-		if c := cipherSuiteForID(CipherSuiteID(id), cfg.customCipherSuites); c != nil {
+		if c := ciphersuite.ForID(ciphersuite.ID(id), cfg.CustomCipherSuites); c != nil {
 			cipherSuites = append(cipherSuites, c)
 		}
 	}
 
 	// nolint:godox
 	// TODO: check for DTLS 1.3 cipher suites
-	if state.CipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
+	if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, cfg.LocalCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 
@@ -229,18 +232,18 @@ func flight13_0Parse(
 		state.SetLocalConnectionID(nil)
 	}
 
-	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
+	if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS //nolint:lll
 	}
 
-	nextFlight := flight13_2
+	nextFlight := dtlsflight.Flight13_2
 
 	// nolint:nestif
 	if state.RemoteKeyEntries != nil && state.RemoteGroups != nil {
 		// Overlapping groups between client and server
 		var groups []elliptic.Curve
 		for _, group := range state.RemoteGroups {
-			if slices.Contains(cfg.ellipticCurves, group) {
+			if slices.Contains(cfg.EllipticCurves, group) {
 				groups = append(groups, group)
 			}
 		}
@@ -263,12 +266,14 @@ func flight13_0Parse(
 		}
 	}
 
-	if cfg.insecureSkipHelloVerify {
-		nextFlight = flight13_4
+	if cfg.InsecureSkipHelloVerify {
+		nextFlight = dtlsflight.Flight13_4
 	}
 
-	if err := appendInboundHandshakeCacheItems13(flightCtx.transcript, state.CipherSuite, items); err != nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	if flightCtx.inboundHandshakeHandler != nil {
+		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, items); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
 	}
 
 	return nextFlight, nil, nil
@@ -276,13 +281,13 @@ func flight13_0Parse(
 
 // nolint:unparam
 func flight13_0Generate(
-	_ flightConn,
+	_ dtlsflight.Conn,
 	flightCtx *handshakeContext13,
-) ([]*packet, *alert.Alert, error) {
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 
-	if !cfg.insecureSkipHelloVerify {
+	if !cfg.InsecureSkipHelloVerify {
 		state.Cookie = make([]byte, cookieLength)
 		if _, err := rand.Read(state.Cookie); err != nil {
 			return nil, nil, err
@@ -292,7 +297,7 @@ func flight13_0Generate(
 	var zeroEpoch uint16
 	state.LocalEpoch.Store(zeroEpoch)
 	state.RemoteEpoch.Store(zeroEpoch)
-	if len(cfg.ellipticCurves) < 1 {
+	if len(cfg.EllipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 
@@ -305,12 +310,12 @@ func flight13_0Generate(
 
 func flight13_2Parse(
 	_ context.Context,
-	_ flightConn,
+	_ dtlsflight.Conn,
 	flightCtx *handshakeContext13,
-) (flightVal13, *alert.Alert, error) {
-	seq, msgs, items, ok := flightCtx.cache.fullPullMapItems(
+) (dtlsflight.Flight13, *alert.Alert, error) {
+	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeClientHello, flightCtx.cfg.initialEpoch, true, false},
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		return 0, nil, nil
@@ -326,14 +331,7 @@ func flight13_2Parse(
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
-	var cookie []byte
-	for _, ext := range clientHello.Extensions {
-		if cookieExt, ok := ext.(*extension.CookieExt); ok {
-			cookie = cookieExt.Cookie
-
-			break
-		}
-	}
+	cookie := clientHello13Cookie(clientHello.Extensions)
 
 	if len(cookie) == 0 {
 		return 0, nil, nil
@@ -345,18 +343,30 @@ func flight13_2Parse(
 	if failure := processClientHello13Extensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	if err := appendInboundHandshakeCacheItems13(flightCtx.transcript, flightCtx.state.CipherSuite, items); err != nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	if flightCtx.inboundHandshakeHandler != nil {
+		if err := flightCtx.inboundHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
 	}
 	flightCtx.state.HandshakeRecvSequence = seq
 
-	return flight13_4, nil, nil
+	return dtlsflight.Flight13_4, nil, nil
+}
+
+func clientHello13Cookie(extensions []extension.Extension) []byte {
+	for _, ext := range extensions {
+		if cookieExt, ok := ext.(*extension.CookieExt); ok {
+			return cookieExt.Cookie
+		}
+	}
+
+	return nil
 }
 
 func flight13_2Generate(
-	_ flightConn,
+	_ dtlsflight.Conn,
 	flightCtx *handshakeContext13,
-) ([]*packet, *alert.Alert, error) {
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	flightCtx.state.HandshakeSendSequence = 0
 	if flightCtx.state.CipherSuite == nil {
 		return nil, nil, dtlserrors.ErrCipherSuiteUnset
@@ -385,9 +395,9 @@ func flight13_2Generate(
 		})
 	}
 
-	return []*packet{
+	return []*dtlsflight.Packet{
 		{
-			record: &recordlayer.RecordLayer{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},
@@ -396,7 +406,7 @@ func flight13_2Generate(
 						Version:           protocol.Version1_2,
 						Random:            random,
 						CipherSuiteID:     &cipherSuiteID,
-						CompressionMethod: defaultCompressionMethods()[0],
+						CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 						Extensions:        exts,
 					},
 				},

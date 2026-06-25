@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight12
 
 import (
 	"context"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -18,16 +20,16 @@ import (
 
 func flight1Parse(
 	ctx context.Context,
-	conn flightConn,
+	conn dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) (flightVal, *alert.Alert, error) {
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) (dtlsflight.Flight12, *alert.Alert, error) {
 	// HelloVerifyRequest can be skipped by the server,
 	// so allow ServerHello during flight1 also
-	seq, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeHelloVerifyRequest, cfg.initialEpoch, false, true},
-		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, true},
+	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true},        //nolint:lll
 	)
 	if !ok {
 		// No valid message received. Keep reading
@@ -50,7 +52,7 @@ func flight1Parse(
 		state.Cookie = append([]byte{}, h.Cookie...)
 		state.HandshakeRecvSequence = seq
 
-		return flight3, nil, nil
+		return dtlsflight.Flight3, nil, nil
 	}
 
 	return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
@@ -58,45 +60,45 @@ func flight1Parse(
 
 //nolint:cyclop
 func flight1Generate(
-	conn flightConn,
+	conn dtlsflight.Conn,
 	state *dtlsstate.State,
-	_ *handshakeCache,
-	cfg *handshakeConfig,
-) ([]*packet, *alert.Alert, error) {
+	_ *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	var zeroEpoch uint16
 	state.LocalEpoch.Store(zeroEpoch)
 	state.RemoteEpoch.Store(zeroEpoch)
-	if len(cfg.ellipticCurves) < 1 {
+	if len(cfg.EllipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
-	state.NamedCurve = cfg.ellipticCurves[0]
+	state.NamedCurve = cfg.EllipticCurves[0]
 	state.Cookie = nil
 
 	if err := state.LocalRandom.Populate(); err != nil {
 		return nil, nil, err
 	}
 
-	if cfg.helloRandomBytesGenerator != nil {
-		state.LocalRandom.RandomBytes = cfg.helloRandomBytesGenerator()
+	if cfg.HelloRandomBytesGenerator != nil {
+		state.LocalRandom.RandomBytes = cfg.HelloRandomBytesGenerator()
 	}
 
 	extensions := []extension.Extension{
 		&extension.SupportedSignatureAlgorithms{
-			SignatureHashAlgorithms: cfg.localSignatureSchemes,
+			SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
 		},
 		&extension.RenegotiationInfo{
 			RenegotiatedConnection: 0,
 		},
 	}
 
-	if len(cfg.localCertSignatureSchemes) > 0 {
+	if len(cfg.LocalCertSignatureSchemes) > 0 {
 		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
-			SignatureHashAlgorithms: cfg.localCertSignatureSchemes,
+			SignatureHashAlgorithms: cfg.LocalCertSignatureSchemes,
 		})
 	}
 
 	var setEllipticCurveCryptographyClientHelloExtensions bool
-	for _, c := range cfg.localCipherSuites {
+	for _, c := range cfg.LocalCipherSuites {
 		if c.ECC() {
 			setEllipticCurveCryptographyClientHelloExtensions = true
 
@@ -107,7 +109,7 @@ func flight1Generate(
 	if setEllipticCurveCryptographyClientHelloExtensions {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
-				EllipticCurves: cfg.ellipticCurves,
+				EllipticCurves: cfg.EllipticCurves,
 			},
 			&extension.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
@@ -115,45 +117,45 @@ func flight1Generate(
 		}...)
 	}
 
-	if len(cfg.localSRTPProtectionProfiles) > 0 {
+	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
 		extensions = append(extensions, &extension.UseSRTP{
-			ProtectionProfiles:  cfg.localSRTPProtectionProfiles,
-			MasterKeyIdentifier: cfg.localSRTPMasterKeyIdentifier,
+			ProtectionProfiles:  cfg.LocalSRTPProtectionProfiles,
+			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
 	}
 
-	if cfg.extendedMasterSecret == RequestExtendedMasterSecret ||
-		cfg.extendedMasterSecret == RequireExtendedMasterSecret {
+	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
+		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
 		extensions = append(extensions, &extension.UseExtendedMasterSecret{
 			Supported: true,
 		})
 	}
 
-	if len(cfg.serverName) > 0 {
-		extensions = append(extensions, &extension.ServerName{ServerName: cfg.serverName})
+	if len(cfg.ServerName) > 0 {
+		extensions = append(extensions, &extension.ServerName{ServerName: cfg.ServerName})
 	}
 
-	if len(cfg.supportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.supportedProtocols})
+	if len(cfg.SupportedProtocols) > 0 {
+		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.SupportedProtocols})
 	}
 
-	if cfg.sessionStore != nil {
-		cfg.log.Tracef("[handshake] try to resume session")
-		if s, err := cfg.sessionStore.Get(conn.sessionKey()); err != nil {
+	if cfg.HasSessionStore {
+		cfg.Log.Tracef("[handshake] try to resume session")
+		if id, secret, err := cfg.GetSession(conn.SessionKey()); err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		} else if s.ID != nil {
-			cfg.log.Tracef("[handshake] get saved session: %x", s.ID)
+		} else if id != nil {
+			cfg.Log.Tracef("[handshake] get saved session: %x", id)
 
-			state.SessionID = s.ID
-			state.MasterSecret = s.Secret
+			state.SessionID = id
+			state.MasterSecret = secret
 		}
 	}
 
 	// If we have a connection ID generator, use it. The CID may be zero length,
 	// in which case we are just requesting that the server send us a CID to
 	// use.
-	if cfg.connectionIDGenerator != nil {
-		state.SetLocalConnectionID(cfg.connectionIDGenerator())
+	if cfg.ConnectionIDGenerator != nil {
+		state.SetLocalConnectionID(cfg.ConnectionIDGenerator())
 		// The presence of a generator indicates support for connection IDs. We
 		// use the presence of a non-nil local CID in flight 3 to determine
 		// whether we send a CID in the second ClientHello, so we convert any
@@ -169,22 +171,22 @@ func flight1Generate(
 		SessionID:          state.SessionID,
 		Cookie:             state.Cookie,
 		Random:             state.LocalRandom,
-		CipherSuiteIDs:     cipherSuiteIDs(cfg.localCipherSuites),
-		CompressionMethods: defaultCompressionMethods(),
+		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 		Extensions:         extensions,
 	}
 
 	var content handshake.Handshake
 
-	if cfg.clientHelloMessageHook != nil {
-		content = handshake.Handshake{Message: cfg.clientHelloMessageHook(*clientHello)}
+	if cfg.ClientHelloMessageHook != nil {
+		content = handshake.Handshake{Message: cfg.ClientHelloMessageHook(*clientHello)}
 	} else {
 		content = handshake.Handshake{Message: clientHello}
 	}
 
-	return []*packet{
+	return []*dtlsflight.Packet{
 		{
-			record: &recordlayer.RecordLayer{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},

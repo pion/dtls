@@ -13,8 +13,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 )
 
-const keyLogLabelTLS12 = "CLIENT_RANDOM"
-
 const defaultMTU = 1200 // bytes
 
 var defaultCurves = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384} //nolint:gochecknoglobals

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight12
 
 import (
 	"context"
@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
-	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
@@ -22,14 +23,11 @@ import (
 
 type flight4TestMockFlightConn struct{}
 
-func (f *flight4TestMockFlightConn) notify(context.Context, alert.Level, alert.Description) error {
+func (f *flight4TestMockFlightConn) HandleQueuedPackets(context.Context) error {
 	return nil
 }
-func (f *flight4TestMockFlightConn) writePackets(context.Context, []*packet) error { return nil }
-func (f *flight4TestMockFlightConn) recvHandshake() <-chan recvHandshakeState      { return nil }
-func (f *flight4TestMockFlightConn) setLocalEpoch(uint16)                          {}
-func (f *flight4TestMockFlightConn) handleQueuedPackets(context.Context) error     { return nil }
-func (f *flight4TestMockFlightConn) sessionKey() []byte                            { return nil }
+
+func (f *flight4TestMockFlightConn) SessionKey() []byte { return nil }
 
 type flight4TestMockCipherSuite struct {
 	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
@@ -60,8 +58,8 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 	state := &dtlsstate.State{
 		CipherSuite: &flight4TestMockCipherSuite{t: t},
 	}
-	cache := newHandshakeCache()
-	cfg := &handshakeConfig{}
+	cache := dtlsflight.NewCache()
+	cfg := &dtlsconfig.HandshakeConfig{}
 
 	rawCertificate := []byte{
 		0x0b, 0x00, 0x01, 0x9b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -117,10 +115,10 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 		0x37, 0x4d, 0x34, 0x15, 0x18,
 	}
 
-	cache.push(rawCertificate, 0, 0, handshake.TypeCertificate, true)
-	cache.push(rawClientKeyExchange, 0, 1, handshake.TypeClientKeyExchange, true)
+	cache.Push(rawCertificate, 0, 0, handshake.TypeCertificate, true)
+	cache.Push(rawClientKeyExchange, 0, 1, handshake.TypeClientKeyExchange, true)
 
-	_, _, err := flight4Parse(context.TODO(), mockConn, state, cache, cfg)
+	_, _, err := parseForTest(t, dtlsflight.Flight4, context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)
 }
 
@@ -145,22 +143,22 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 	cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
 	assert.NoError(t, err)
 
-	cfg := &handshakeConfig{
-		localCertificates:     []tls.Certificate{cert},
-		localSignatureSchemes: signaturehash.Algorithms(),
-		clientAuth:            1,
-		certificateRequestMessageHook: func(mcr handshake.MessageCertificateRequest) handshake.Message {
+	cfg := &dtlsconfig.HandshakeConfig{
+		LocalCertificates:     []tls.Certificate{cert},
+		LocalSignatureSchemes: signaturehash.Algorithms(),
+		ClientAuth:            dtlsconfig.RequestClientCert,
+		CertificateRequestMessageHook: func(mcr handshake.MessageCertificateRequest) handshake.Message {
 			mcr.SignatureHashAlgorithms = []signaturehash.Algorithm{}
 
 			return &mcr
 		},
 	}
 
-	pkts, _, err := flight4Generate(mockConn, state, nil, cfg)
+	pkts, _, err := generateForTest(t, dtlsflight.Flight4, mockConn, state, nil, cfg)
 	assert.NoError(t, err)
 
 	for _, p := range pkts {
-		if h, ok := p.record.Content.(*handshake.Handshake); ok { //nolint:nestif
+		if h, ok := p.Record.Content.(*handshake.Handshake); ok { //nolint:nestif
 			if h.Message.Type() == handshake.TypeCertificateRequest {
 				mcr := &handshake.MessageCertificateRequest{}
 				msg, err := h.Message.Marshal()

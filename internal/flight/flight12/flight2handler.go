@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight12
 
 import (
 	"bytes"
 	"context"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -17,18 +19,18 @@ import (
 
 func flight2Parse(
 	ctx context.Context,
-	c flightConn,
+	conn dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) (flightVal, *alert.Alert, error) {
-	seq, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) (dtlsflight.Flight12, *alert.Alert, error) {
+	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		// Client may retransmit the first ClientHello when HelloVerifyRequest is dropped.
 		// Parse as flight 0 in this case.
-		return flight0Parse(ctx, c, state, cache, cfg)
+		return flight0Parse(ctx, conn, state, cache, cfg)
 	}
 	state.HandshakeRecvSequence = seq
 
@@ -51,20 +53,20 @@ func flight2Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
 
-	return flight4, nil, nil
+	return dtlsflight.Flight4, nil, nil
 }
 
 func flight2Generate(
-	_ flightConn,
+	_ dtlsflight.Conn,
 	state *dtlsstate.State,
-	_ *handshakeCache,
-	_ *handshakeConfig,
-) ([]*packet, *alert.Alert, error) {
+	_ *dtlsflight.Cache,
+	_ *dtlsconfig.HandshakeConfig,
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	state.HandshakeSendSequence = 0
 
-	return []*packet{
+	return []*dtlsflight.Packet{
 		{
-			record: &recordlayer.RecordLayer{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},

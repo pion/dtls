@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight12
 
 import (
 	"bytes"
@@ -9,7 +9,11 @@ import (
 	"crypto"
 	"crypto/x509"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -21,13 +25,13 @@ import (
 
 func flight5Parse(
 	_ context.Context,
-	conn flightConn,
+	conn dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) (flightVal, *alert.Alert, error) {
-	_, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) (dtlsflight.Flight12, *alert.Alert, error) {
+	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		// No valid message received. Keep reading
@@ -38,17 +42,18 @@ func flight5Parse(
 	if finished, ok = msgs[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
-	plainText := cache.pullAndMerge(
-		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
-		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-		handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, false},
-		handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
-		handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, false},
-		handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
-		handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, false},
-		handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
-		handshakeCachePullRule{handshake.TypeCertificateVerify, cfg.initialEpoch, true, false},
-		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, true, false},
+	//nolint:dupl
+	plainText := cache.PullAndMerge(
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},         //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},        //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},        //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},    //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},         //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateVerify, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false},        //nolint:lll
 	)
 
 	expectedVerifyData, err := prf.VerifyDataServer(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
@@ -60,41 +65,37 @@ func flight5Parse(
 	}
 
 	if len(state.SessionID) > 0 {
-		s := Session{
-			ID:     state.SessionID,
-			Secret: state.MasterSecret,
-		}
-		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
-		if err := cfg.sessionStore.Set(conn.sessionKey(), s); err != nil {
+		cfg.Log.Tracef("[handshake] save new session: %x", state.SessionID)
+		if err := cfg.SetSession(conn.SessionKey(), state.SessionID, state.MasterSecret); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}
 
-	return flight5, nil, nil
+	return dtlsflight.Flight5, nil, nil
 }
 
 //nolint:gocognit,cyclop,maintidx
 func flight5Generate(
-	conn flightConn,
+	conn dtlsflight.Conn,
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
-) ([]*packet, *alert.Alert, error) {
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	var signer crypto.Signer
-	var pkts []*packet
+	var pkts []*dtlsflight.Packet
 	if state.RemoteRequestedCertificate { //nolint:nestif
-		_, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence-2, state.CipherSuite,
-			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, false})
+		_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence-2, state.CipherSuite,
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}) //nolint:lll
 		if !ok {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired //nolint:lll
 		}
-		reqInfo := CertificateRequestInfo{}
+		reqInfo := dtlsconfig.CertificateRequestInfo{}
 		if r, ok2 := msgs[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
 			reqInfo.AcceptableCAs = r.CertificateAuthoritiesNames
 		} else {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired //nolint:lll
 		}
-		certificate, err := cfg.getClientCertificate(&reqInfo)
+		certificate, err := cfg.GetClientCertificate(&reqInfo)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 		}
@@ -108,8 +109,8 @@ func flight5Generate(
 			}
 		}
 		pkts = append(pkts,
-			&packet{
-				record: &recordlayer.RecordLayer{
+			&dtlsflight.Packet{
+				Record: &recordlayer.RecordLayer{
 					Header: recordlayer.Header{
 						Version: protocol.Version1_2,
 					},
@@ -123,18 +124,18 @@ func flight5Generate(
 	}
 
 	clientKeyExchange := &handshake.MessageClientKeyExchange{}
-	if cfg.localPSKCallback == nil {
+	if cfg.LocalPSKCallback == nil {
 		clientKeyExchange.PublicKey = state.LocalKeypair.PublicKey
 	} else {
-		clientKeyExchange.IdentityHint = cfg.localPSKIdentityHint
+		clientKeyExchange.IdentityHint = cfg.LocalPSKIdentityHint
 	}
 	if state != nil && state.LocalKeypair != nil && len(state.LocalKeypair.PublicKey) > 0 {
 		clientKeyExchange.PublicKey = state.LocalKeypair.PublicKey
 	}
 
 	pkts = append(pkts,
-		&packet{
-			record: &recordlayer.RecordLayer{
+		&dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},
@@ -144,8 +145,8 @@ func flight5Generate(
 			},
 		})
 
-	serverKeyExchangeData := cache.pullAndMerge(
-		handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
+	serverKeyExchangeData := cache.PullAndMerge(
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 	)
 
 	serverKeyExchange := &handshake.MessageServerKeyExchange{}
@@ -177,7 +178,7 @@ func flight5Generate(
 	merged := []byte{}
 	seqPred := uint16(state.HandshakeSendSequence) //nolint:gosec // G115
 	for _, p := range pkts {
-		h, ok := p.record.Content.(*handshake.Handshake)
+		h, ok := p.Record.Content.(*handshake.Handshake)
 		if !ok {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidContentType
 		}
@@ -198,15 +199,16 @@ func flight5Generate(
 	// CertificateVerify message is sent to explicitly verify possession of the
 	// private key in the certificate.
 	if state.RemoteRequestedCertificate && signer != nil {
-		plainText := append(cache.pullAndMerge(
-			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
+		//nolint:dupl
+		plainText := append(cache.PullAndMerge(
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},         //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},        //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},        //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},    //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},         //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
 		), merged...)
 
 		// Find compatible signature scheme
@@ -216,14 +218,19 @@ func flight5Generate(
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}
 
-		certVerify, err := generateCertificateVerify(plainText, signer, signatureHashAlgo.Hash, signatureHashAlgo.Signature)
+		certVerify, err := dtlscrypto.GenerateCertificateVerify(
+			plainText,
+			signer,
+			signatureHashAlgo.Hash,
+			signatureHashAlgo.Signature,
+		)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		state.LocalCertificatesVerify = certVerify
 
-		pkt := &packet{
-			record: &recordlayer.RecordLayer{
+		pkt := &dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},
@@ -238,7 +245,7 @@ func flight5Generate(
 		}
 		pkts = append(pkts, pkt)
 
-		h, ok := pkt.record.Content.(*handshake.Handshake)
+		h, ok := pkt.Record.Content.(*handshake.Handshake)
 		if !ok {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidContentType
 		}
@@ -252,8 +259,8 @@ func flight5Generate(
 	}
 
 	pkts = append(pkts,
-		&packet{
-			record: &recordlayer.RecordLayer{
+		&dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 				},
@@ -262,17 +269,18 @@ func flight5Generate(
 		})
 
 	if len(state.LocalVerifyData) == 0 {
-		plainText := cache.pullAndMerge(
-			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeCertificateVerify, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, true, false},
+		//nolint:dupl
+		plainText := cache.PullAndMerge(
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},         //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},        //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},        //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},    //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},         //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateVerify, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false},        //nolint:lll
 		)
 
 		var err error
@@ -287,8 +295,8 @@ func flight5Generate(
 	}
 
 	pkts = append(pkts,
-		&packet{
-			record: &recordlayer.RecordLayer{
+		&dtlsflight.Packet{
+			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
 					Epoch:   1,
@@ -299,9 +307,9 @@ func flight5Generate(
 					},
 				},
 			},
-			shouldWrapCID:            len(state.RemoteConnectionID) > 0,
-			shouldEncrypt:            true,
-			resetLocalSequenceNumber: true,
+			ShouldWrapCID:            len(state.RemoteConnectionID) > 0,
+			ShouldEncrypt:            true,
+			ResetLocalSequenceNumber: true,
 		})
 
 	return pkts, nil, nil
@@ -310,8 +318,8 @@ func flight5Generate(
 //nolint:gocognit,cyclop
 func initializeCipherSuite(
 	state *dtlsstate.State,
-	cache *handshakeCache,
-	cfg *handshakeConfig,
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
 	handshakeKeyExchange *handshake.MessageServerKeyExchange,
 	sendingPlainText []byte,
 ) (*alert.Alert, error) {
@@ -326,7 +334,7 @@ func initializeCipherSuite(
 
 	if state.ExtendedMasterSecret {
 		var sessionHash []byte
-		sessionHash, err = cache.sessionHash(state.CipherSuite.HashFunc(), cfg.initialEpoch, sendingPlainText)
+		sessionHash, err = cache.SessionHash(state.CipherSuite.HashFunc(), cfg.InitialEpoch, sendingPlainText)
 		if err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
@@ -347,10 +355,10 @@ func initializeCipherSuite(
 		}
 	}
 
-	if state.CipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate { //nolint:nestif
+	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate { //nolint:nestif
 		// Verify that the pair of hash algorithm and signiture is listed.
 		var validSignatureScheme bool
-		for _, ss := range cfg.localSignatureSchemes {
+		for _, ss := range cfg.LocalSignatureSchemes {
 			if ss.Hash == handshakeKeyExchange.HashAlgorithm && ss.Signature == handshakeKeyExchange.SignatureAlgorithm {
 				validSignatureScheme = true
 
@@ -361,13 +369,13 @@ func initializeCipherSuite(
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoAvailableSignatureSchemes //nolint:lll
 		}
 
-		expectedMsg := valueKeyMessage(
+		expectedMsg := dtlscrypto.ValueKeyMessage(
 			clientRandom[:],
 			serverRandom[:],
 			handshakeKeyExchange.PublicKey,
 			handshakeKeyExchange.NamedCurve,
 		)
-		if err = verifyKeySignature(
+		if err = dtlscrypto.VerifyKeySignature(
 			expectedMsg,
 			handshakeKeyExchange.Signature,
 			handshakeKeyExchange.HashAlgorithm,
@@ -377,28 +385,27 @@ func initializeCipherSuite(
 			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 		}
 		var chains [][]*x509.Certificate
-		if !cfg.insecureSkipVerify {
-			certAlgs := cfg.localCertSignatureSchemes
+		if !cfg.InsecureSkipVerify {
+			certAlgs := cfg.LocalCertSignatureSchemes
 			if len(certAlgs) == 0 {
-				certAlgs = cfg.localSignatureSchemes
+				certAlgs = cfg.LocalSignatureSchemes
 			}
-			if chains, err = verifyServerCert(state.PeerCertificates, cfg.rootCAs, cfg.serverName, certAlgs); err != nil {
+			chains, err = dtlscrypto.VerifyServerCert(
+				state.PeerCertificates, cfg.RootCAs, cfg.ServerName, certAlgs,
+			)
+			if err != nil {
 				return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
 		}
-		if cfg.verifyPeerCertificate != nil {
-			if err = cfg.verifyPeerCertificate(state.PeerCertificates, chains); err != nil {
+		if cfg.VerifyPeerCertificate != nil {
+			if err = cfg.VerifyPeerCertificate(state.PeerCertificates, chains); err != nil {
 				return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 			}
 		}
 	}
-	if cfg.verifyConnection != nil {
-		stateSnapshot, errC := generateState(state)
-		if errC != nil {
-			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errC
-		}
-		if errC = cfg.verifyConnection(stateSnapshot); errC != nil {
-			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, errC
+	if cfg.VerifyConnection != nil {
+		if verifyErr := cfg.VerifyConnection(state); verifyErr != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, verifyErr
 		}
 	}
 
@@ -406,7 +413,7 @@ func initializeCipherSuite(
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
-	cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
+	cfg.WriteKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
 
 	return nil, nil //nolint
 }
