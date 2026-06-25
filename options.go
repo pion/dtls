@@ -42,7 +42,6 @@ func defensiveCopy[T any](t ...T) []T {
 }
 
 // dtlsConfig is the internal configuration structure.
-// This will eventually replace the exported Config struct.
 type dtlsConfig struct { //nolint:dupl
 	certificates                  []tls.Certificate
 	cipherSuites                  []CipherSuiteID
@@ -94,77 +93,8 @@ func (c *dtlsConfig) applyDefaults() {
 	c.replayProtectionWindow = defaultReplayProtectionWindow
 }
 
-// toConfig converts internal dtlsConfig to the exported Config struct.
-// This is for backward compatibility and will be removed when Config is deprecated.
-// All slice fields are copied to ensure immutability.
-func (c *dtlsConfig) toConfig() *Config {
-	config := &Config{
-		CustomCipherSuites:            c.customCipherSuites,
-		ClientAuth:                    c.clientAuth,
-		ExtendedMasterSecret:          c.extendedMasterSecret,
-		FlightInterval:                c.flightInterval,
-		DisableRetransmitBackoff:      c.disableRetransmitBackoff,
-		PSK:                           c.psk,
-		InsecureSkipVerify:            c.insecureSkipVerify,
-		InsecureHashes:                c.insecureHashes,
-		VerifyPeerCertificate:         c.verifyPeerCertificate,
-		VerifyConnection:              c.verifyConnection,
-		RootCAs:                       c.rootCAs,
-		ClientCAs:                     c.clientCAs,
-		ServerName:                    c.serverName,
-		LoggerFactory:                 c.loggerFactory,
-		MTU:                           c.mtu,
-		ReplayProtectionWindow:        c.replayProtectionWindow,
-		KeyLogWriter:                  c.keyLogWriter,
-		SessionStore:                  c.sessionStore,
-		GetCertificate:                c.getCertificate,
-		GetClientCertificate:          c.getClientCertificate,
-		InsecureSkipVerifyHello:       c.insecureSkipVerifyHello,
-		ConnectionIDGenerator:         c.connectionIDGenerator,
-		PaddingLengthGenerator:        c.paddingLengthGenerator,
-		HelloRandomBytesGenerator:     c.helloRandomBytesGenerator,
-		ClientHelloMessageHook:        c.clientHelloMessageHook,
-		ServerHelloMessageHook:        c.serverHelloMessageHook,
-		CertificateRequestMessageHook: c.certificateRequestMessageHook,
-		OnConnectionAttempt:           c.onConnectionAttempt,
-		listenConfig:                  c.listenConfig,
-		minVersion:                    c.minVersion,
-		maxVersion:                    c.maxVersion,
-	}
-
-	if len(c.certificates) > 0 {
-		config.Certificates = append([]tls.Certificate(nil), c.certificates...)
-	}
-	if len(c.cipherSuites) > 0 {
-		config.CipherSuites = append([]CipherSuiteID(nil), c.cipherSuites...)
-	}
-	if len(c.signatureSchemes) > 0 {
-		config.SignatureSchemes = append([]tls.SignatureScheme(nil), c.signatureSchemes...)
-	}
-	if len(c.certificateSignatureSchemes) > 0 {
-		config.CertificateSignatureSchemes = append([]tls.SignatureScheme(nil), c.certificateSignatureSchemes...)
-	}
-	if len(c.srtpProtectionProfiles) > 0 {
-		config.SRTPProtectionProfiles = append([]SRTPProtectionProfile(nil), c.srtpProtectionProfiles...)
-	}
-	if len(c.srtpMasterKeyIdentifier) > 0 {
-		config.SRTPMasterKeyIdentifier = append([]byte(nil), c.srtpMasterKeyIdentifier...)
-	}
-	if len(c.pskIdentityHint) > 0 {
-		config.PSKIdentityHint = append([]byte(nil), c.pskIdentityHint...)
-	}
-	if len(c.supportedProtocols) > 0 {
-		config.SupportedProtocols = append([]string(nil), c.supportedProtocols...)
-	}
-	if len(c.ellipticCurves) > 0 {
-		config.EllipticCurves = append([]elliptic.Curve(nil), c.ellipticCurves...)
-	}
-
-	return config
-}
-
-// buildConfig builds a Config from the provided options, for mixed client/server cases.
-func buildConfig(opts ...Option) (*Config, error) {
+// buildConfig builds a config from the provided options, for mixed client/server cases.
+func buildConfig(opts ...Option) (*dtlsConfig, error) {
 	cfg := &dtlsConfig{}
 	cfg.applyDefaults()
 
@@ -174,11 +104,11 @@ func buildConfig(opts ...Option) (*Config, error) {
 		}
 	}
 
-	return cfg.toConfig(), nil
+	return cfg, nil
 }
 
-// buildServerConfig builds a Config for server from the provided options.
-func buildServerConfig(opts ...ServerOption) (*Config, error) {
+// buildServerConfig builds a config for server from the provided options.
+func buildServerConfig(opts ...ServerOption) (*dtlsConfig, error) {
 	cfg := &dtlsConfig{}
 	cfg.applyDefaults()
 
@@ -188,11 +118,11 @@ func buildServerConfig(opts ...ServerOption) (*Config, error) {
 		}
 	}
 
-	return cfg.toConfig(), nil
+	return cfg, nil
 }
 
-// buildClientConfig builds a Config for client from the provided options.
-func buildClientConfig(opts ...ClientOption) (*Config, error) {
+// buildClientConfig builds a config for client from the provided options.
+func buildClientConfig(opts ...ClientOption) (*dtlsConfig, error) {
 	cfg := &dtlsConfig{}
 	cfg.applyDefaults()
 
@@ -202,7 +132,7 @@ func buildClientConfig(opts ...ClientOption) (*Config, error) {
 		}
 	}
 
-	return cfg.toConfig(), nil
+	return cfg, nil
 }
 
 // sharedOption wraps an apply function that works for both client and server.
@@ -567,11 +497,11 @@ func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.
 	})
 }
 
-// MinVersion sets the minimum TLS version that is acceptable.
+// WithMinVersion sets the minimum TLS version that is acceptable.
 // By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
-func withMinVersion(version protocol.Version) Option { // nolint:unused
+func WithMinVersion(version protocol.Version) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		if protocol.IsSupportedVersion(version) {
+		if version.Equal(protocol.Version1_2) || version.Equal(protocol.Version1_3) {
 			c.minVersion = version
 
 			return nil
@@ -581,11 +511,11 @@ func withMinVersion(version protocol.Version) Option { // nolint:unused
 	})
 }
 
-// MaxVersion sets the maxiumum TLS version that is acceptable.
+// WithMaxVersion sets the maxiumum TLS version that is acceptable.
 // By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
-func withMaxVersion(version protocol.Version) Option { // nolint:unused
+func WithMaxVersion(version protocol.Version) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		if protocol.IsSupportedVersion(version) {
+		if version.Equal(protocol.Version1_2) || version.Equal(protocol.Version1_3) {
 			c.maxVersion = version
 
 			return nil

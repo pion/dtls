@@ -5,7 +5,6 @@ package dtls
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"testing"
 	"time"
@@ -30,9 +29,9 @@ func TestSimpleReadWrite(t *testing.T) {
 	gotHello := make(chan struct{})
 
 	go func() {
-		server, sErr := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
-			Certificates:  []tls.Certificate{certificate},
-			LoggerFactory: logging.NewDefaultLoggerFactory(),
+		server, sErr := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
+			WithCertificates(certificate),
+			WithLoggerFactory(logging.NewDefaultLoggerFactory()),
 		}, false)
 		assert.NoError(t, sErr)
 
@@ -44,9 +43,9 @@ func TestSimpleReadWrite(t *testing.T) {
 		assert.NoError(t, server.Close()) //nolint:contextcheck
 	}()
 
-	client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
-		LoggerFactory:      logging.NewDefaultLoggerFactory(),
-		InsecureSkipVerify: true,
+	client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{
+		WithLoggerFactory(logging.NewDefaultLoggerFactory()),
+		WithInsecureSkipVerify(true),
 	}, false)
 	assert.NoError(t, err)
 	_, err = client.Write([]byte("hello"))
@@ -72,8 +71,8 @@ func benchmarkConn(b *testing.B, payloadSize int64) {
 		server := make(chan *Conn)
 
 		go func() {
-			s, sErr := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
-				Certificates: []tls.Certificate{certificate},
+			s, sErr := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
+				WithCertificates(certificate),
 			}, false)
 			assert.NoError(b, sErr)
 
@@ -85,7 +84,7 @@ func benchmarkConn(b *testing.B, payloadSize int64) {
 		b.SetBytes(int64(len(hw)))
 		go func() {
 			client, cErr := testClient(
-				ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{InsecureSkipVerify: true}, false,
+				ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{WithInsecureSkipVerify(true)}, false,
 			)
 			assert.NoError(b, cErr)
 			for {

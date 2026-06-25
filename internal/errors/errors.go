@@ -10,16 +10,18 @@ import (
 )
 
 var ( //nolint:gochecknoglobals,lll
-	errBufferTooSmall                 = stderrors.New("buffer is too small")
-	errLengthMismatch                 = stderrors.New("data length and declared length do not match")
-	errInvalidContentType             = stderrors.New("invalid content type")
-	errUnsupportedProtocolVersion     = stderrors.New("unsupported protocol version")
-	errSequenceNumberOverflow         = stderrors.New("sequence number overflow")
-	errInvalidPrivateKey              = stderrors.New("invalid private key type")
-	errInvalidSignatureAlgorithm      = stderrors.New("invalid signature algorithm")
-	errNoAvailableSignatureSchemes    = stderrors.New("connection can not be created, no SignatureScheme satisfy this Config") //nolint:lll
-	errInvalidNamedCurve              = stderrors.New("invalid named curve")
-	errNoAvailableCipherSuites        = stderrors.New("connection can not be created, no CipherSuites satisfy this Config")
+	errBufferTooSmall              = stderrors.New("buffer is too small")
+	errLengthMismatch              = stderrors.New("data length and declared length do not match")
+	errInvalidContentType          = stderrors.New("invalid content type")
+	errUnsupportedProtocolVersion  = stderrors.New("unsupported protocol version")
+	errSequenceNumberOverflow      = stderrors.New("sequence number overflow")
+	errInvalidPrivateKey           = stderrors.New("invalid private key type")
+	errInvalidSignatureAlgorithm   = stderrors.New("invalid signature algorithm")
+	errNoAvailableSignatureSchemes = stderrors.New("connection can not be created, no SignatureScheme satisfy this Config") //nolint:lll
+	errInvalidNamedCurve           = stderrors.New("invalid named curve")
+	errNoAvailableCipherSuites     = stderrors.New(
+		"connection can not be created, no CipherSuites satisfy this Config",
+	)
 	errNoAvailablePSKCipherSuite      = stderrors.New("connection can not be created, pre-shared key present but no compatible CipherSuite") //nolint:lll
 	errNoAvailableCertificateSuite    = stderrors.New("connection can not be created, certificate present but no compatible CipherSuite")    //nolint:lll
 	errInvalidCertificate             = stderrors.New("no certificate provided")
