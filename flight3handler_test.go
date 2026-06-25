@@ -69,16 +69,14 @@ func TestSupportedEllipticCurves(t *testing.T) {
 	}
 
 	go func() {
-		conf := &Config{
-			CipherSuites:   []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			EllipticCurves: expectedCurves,
-		}
-
 		if client, err := testClient(
 			ctx,
 			dtlsnet.PacketConnFromConn(caAnalyzer),
 			caAnalyzer.RemoteAddr(),
-			conf,
+			[]ClientOption{
+				WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithEllipticCurves(expectedCurves...),
+			},
 			false,
 		); err != nil {
 			clientErr <- err
@@ -87,11 +85,9 @@ func TestSupportedEllipticCurves(t *testing.T) {
 		}
 	}()
 
-	config := &Config{
-		CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-	}
-
-	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), config, true)
+	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
+		WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+	}, true)
 	assert.NoError(t, err)
 	assert.NoError(t, server.Close())
 	assert.NoError(t, <-clientErr)

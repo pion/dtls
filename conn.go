@@ -116,7 +116,7 @@ type Conn struct {
 func createConn(
 	nextConn net.PacketConn,
 	rAddr net.Addr,
-	config *Config,
+	config *dtlsConfig,
 	isClient bool,
 	resumeState *State,
 ) (*Conn, error) {
@@ -124,24 +124,24 @@ func createConn(
 		return nil, dtlserrors.ErrNilNextConn
 	}
 
-	loggerFactory := config.LoggerFactory
+	loggerFactory := config.loggerFactory
 	if loggerFactory == nil {
 		loggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
 	logger := loggerFactory.NewLogger("dtls")
 
-	mtu := config.MTU
+	mtu := config.mtu
 	if mtu <= 0 {
 		mtu = defaultMTU
 	}
 
-	replayProtectionWindow := config.ReplayProtectionWindow
+	replayProtectionWindow := config.replayProtectionWindow
 	if replayProtectionWindow <= 0 {
 		replayProtectionWindow = defaultReplayProtectionWindow
 	}
 
-	paddingLengthGenerator := config.PaddingLengthGenerator
+	paddingLengthGenerator := config.paddingLengthGenerator
 	if paddingLengthGenerator == nil {
 		paddingLengthGenerator = func(uint) uint { return 0 }
 	}
@@ -149,10 +149,10 @@ func createConn(
 	minVersion, maxVersion := normalizeProtocolVersionRange(config.minVersion, config.maxVersion)
 
 	cipherSuites, err := parseCipherSuitesForVersions(
-		config.CipherSuites,
-		config.CustomCipherSuites,
+		config.cipherSuites,
+		config.customCipherSuites,
 		config.includeCertificateSuites(),
-		config.PSK != nil,
+		config.psk != nil,
 		minVersion,
 		maxVersion,
 	)
@@ -160,17 +160,17 @@ func createConn(
 		return nil, err
 	}
 
-	signatureSchemes, err := signaturehash.ParseSignatureSchemes(config.SignatureSchemes, config.InsecureHashes)
+	signatureSchemes, err := signaturehash.ParseSignatureSchemes(config.signatureSchemes, config.insecureHashes)
 	if err != nil {
 		return nil, err
 	}
 
 	// Parse certificate signature schemes only if explicitly configured
 	var certSignatureSchemes []signaturehash.Algorithm
-	if len(config.CertificateSignatureSchemes) > 0 {
+	if len(config.certificateSignatureSchemes) > 0 {
 		certSignatureSchemes, err = signaturehash.ParseSignatureSchemes(
-			config.CertificateSignatureSchemes,
-			config.InsecureHashes,
+			config.certificateSignatureSchemes,
+			config.insecureHashes,
 		)
 		if err != nil {
 			return nil, err
@@ -178,18 +178,18 @@ func createConn(
 	}
 
 	workerInterval := initialTickerInterval
-	if config.FlightInterval > 0 {
-		workerInterval = config.FlightInterval
+	if config.flightInterval > 0 {
+		workerInterval = config.flightInterval
 	}
 
-	serverName := config.ServerName
+	serverName := config.serverName
 	// Do not allow the use of an IP address literal as an SNI value.
 	// See RFC 6066, Section 3.
 	if net.ParseIP(serverName) != nil {
 		serverName = ""
 	}
 
-	curves := config.EllipticCurves
+	curves := config.ellipticCurves
 	if len(curves) == 0 {
 		curves = defaultCurves
 	}
@@ -206,39 +206,39 @@ func createConn(
 	}
 
 	handshakeConfig := &handshakeConfig{
-		localPSKCallback:              config.PSK,
-		localPSKIdentityHint:          config.PSKIdentityHint,
+		localPSKCallback:              config.psk,
+		localPSKIdentityHint:          config.pskIdentityHint,
 		localCipherSuites:             cipherSuites,
 		localSignatureSchemes:         signatureSchemes,
 		localCertSignatureSchemes:     certSignatureSchemes,
-		extendedMasterSecret:          config.ExtendedMasterSecret,
-		localSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
-		localSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
+		extendedMasterSecret:          config.extendedMasterSecret,
+		localSRTPProtectionProfiles:   config.srtpProtectionProfiles,
+		localSRTPMasterKeyIdentifier:  config.srtpMasterKeyIdentifier,
 		serverName:                    serverName,
-		supportedProtocols:            config.SupportedProtocols,
-		clientAuth:                    config.ClientAuth,
-		localCertificates:             config.Certificates,
-		insecureSkipVerify:            config.InsecureSkipVerify,
-		verifyPeerCertificate:         config.VerifyPeerCertificate,
-		verifyConnection:              config.VerifyConnection,
-		rootCAs:                       config.RootCAs,
-		clientCAs:                     config.ClientCAs,
-		customCipherSuites:            config.CustomCipherSuites,
+		supportedProtocols:            config.supportedProtocols,
+		clientAuth:                    config.clientAuth,
+		localCertificates:             config.certificates,
+		insecureSkipVerify:            config.insecureSkipVerify,
+		verifyPeerCertificate:         config.verifyPeerCertificate,
+		verifyConnection:              config.verifyConnection,
+		rootCAs:                       config.rootCAs,
+		clientCAs:                     config.clientCAs,
+		customCipherSuites:            config.customCipherSuites,
 		initialRetransmitInterval:     workerInterval,
-		disableRetransmitBackoff:      config.DisableRetransmitBackoff,
+		disableRetransmitBackoff:      config.disableRetransmitBackoff,
 		log:                           logger,
 		initialEpoch:                  0,
-		keyLogWriter:                  config.KeyLogWriter,
-		sessionStore:                  config.SessionStore,
+		keyLogWriter:                  config.keyLogWriter,
+		sessionStore:                  config.sessionStore,
 		ellipticCurves:                curves,
-		localGetCertificate:           config.GetCertificate,
-		localGetClientCertificate:     config.GetClientCertificate,
-		insecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
-		connectionIDGenerator:         config.ConnectionIDGenerator,
-		helloRandomBytesGenerator:     config.HelloRandomBytesGenerator,
-		clientHelloMessageHook:        config.ClientHelloMessageHook,
-		serverHelloMessageHook:        config.ServerHelloMessageHook,
-		certificateRequestMessageHook: config.CertificateRequestMessageHook,
+		localGetCertificate:           config.getCertificate,
+		localGetClientCertificate:     config.getClientCertificate,
+		insecureSkipHelloVerify:       config.insecureSkipVerifyHello,
+		connectionIDGenerator:         config.connectionIDGenerator,
+		helloRandomBytesGenerator:     config.helloRandomBytesGenerator,
+		clientHelloMessageHook:        config.clientHelloMessageHook,
+		serverHelloMessageHook:        config.serverHelloMessageHook,
+		certificateRequestMessageHook: config.certificateRequestMessageHook,
 		resumeState:                   resumeState,
 		minVersion:                    minVersion,
 		maxVersion:                    maxVersion,
@@ -424,10 +424,7 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 	}
 }
 
-// Dial connects to the given network address and establishes a DTLS connection on top.
-//
-// Deprecated: Use DialWithOptions instead.
-func Dial(network string, rAddr *net.UDPAddr, config *Config) (*Conn, error) {
+func dialWithConfig(network string, rAddr *net.UDPAddr, config *dtlsConfig) (*Conn, error) {
 	// net.ListenUDP is used rather than net.DialUDP as the latter prevents the
 	// use of net.PacketConn.WriteTo.
 	// https://github.com/golang/go/blob/ce5e37ec21442c6eb13a43e68ca20129102ebac0/src/net/udpsock_posix.go#L115
@@ -436,7 +433,7 @@ func Dial(network string, rAddr *net.UDPAddr, config *Config) (*Conn, error) {
 		return nil, err
 	}
 
-	return Client(pConn, rAddr, config)
+	return clientWithConfig(pConn, rAddr, config)
 }
 
 // DialWithOptions connects to the given network address and establishes a DTLS connection on top.
@@ -446,17 +443,14 @@ func DialWithOptions(network string, rAddr *net.UDPAddr, opts ...ClientOption) (
 		return nil, err
 	}
 
-	return Dial(network, rAddr, config)
+	return dialWithConfig(network, rAddr, config)
 }
 
-// Client establishes a DTLS connection over an existing connection.
-//
-// Deprecated: Use ClientWithOptions instead.
-func Client(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
+func clientWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
 	switch {
 	case config == nil:
 		return nil, dtlserrors.ErrNoConfigProvided
-	case config.PSK != nil && config.PSKIdentityHint == nil:
+	case config.psk != nil && config.pskIdentityHint == nil:
 		return nil, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
 	}
 
@@ -474,16 +468,15 @@ func ClientWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ClientOption
 		return nil, err
 	}
 
-	return Client(conn, rAddr, config)
+	return clientWithConfig(conn, rAddr, config)
 }
 
-// serverWithConfig is an internal helper that accepts a *Config.
-func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
+func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
 	if config == nil {
 		return nil, dtlserrors.ErrNoConfigProvided
 	}
-	if config.OnConnectionAttempt != nil {
-		if err := config.OnConnectionAttempt(rAddr); err != nil {
+	if config.onConnectionAttempt != nil {
+		if err := config.onConnectionAttempt(rAddr); err != nil {
 			return nil, err
 		}
 	}
@@ -491,10 +484,7 @@ func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *Config) (*Con
 	return createConn(conn, rAddr, config, false, nil)
 }
 
-// Server listens for incoming DTLS connections.
-//
-// Deprecated: Use ServerWithOptions instead.
-func Server(conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
+func serverWithValidatedConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
 	if config == nil {
 		return nil, dtlserrors.ErrNoConfigProvided
 	}
@@ -513,7 +503,7 @@ func ServerWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ServerOption
 		return nil, err
 	}
 
-	return Server(conn, rAddr, config)
+	return serverWithValidatedConfig(conn, rAddr, config)
 }
 
 // Read reads data from the connection.

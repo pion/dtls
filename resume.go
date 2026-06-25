@@ -9,10 +9,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 )
 
-// Resume imports an already established dtls connection using a specific dtls state.
-//
-// Deprecated: Use ResumeWithOptions instead.
-func Resume(state *State, conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
+func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
 	if err := state.initCipherSuite(); err != nil {
 		return nil, err
 	}
@@ -35,5 +32,5 @@ func ResumeWithOptions(state *State, conn net.PacketConn, rAddr net.Addr, opts .
 		return nil, err
 	}
 
-	return Resume(state, conn, rAddr, config)
+	return resumeWithConfig(state, conn, rAddr, config)
 }

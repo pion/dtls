@@ -233,16 +233,14 @@ func TestCustomCipherSuite(t *testing.T) {
 		resultCh := make(chan result)
 
 		go func() {
-			client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
-				CipherSuites:       []CipherSuiteID{},
-				CustomCipherSuites: cipherFactory,
+			client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{
+				WithCustomCipherSuites(cipherFactory),
 			}, true)
 			resultCh <- result{client, err}
 		}()
 
-		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
-			CipherSuites:       []CipherSuiteID{},
-			CustomCipherSuites: cipherFactory,
+		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
+			WithCustomCipherSuites(cipherFactory),
 		}, true)
 
 		clientResult := <-resultCh
