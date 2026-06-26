@@ -5,6 +5,8 @@ package dtls
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -275,4 +277,121 @@ func (s *handshakeFSM13) wait(ctx context.Context, conn flightConn) (handshakeSt
 
 func (s *handshakeFSM13) finish(ctx context.Context, c flightConn) (handshakeState, error) {
 	return handshakeErrored, dtlserrors.ErrStateUnimplemented13
+}
+
+func transcriptSenderForSide13(isClient bool) transcriptSender13 {
+	if isClient {
+		return transcriptClient13
+	}
+
+	return transcriptServer13
+}
+
+func selectTranscriptHashIfReady13(t *handshakeTranscript13, cipherSuite CipherSuite) error {
+	if t == nil || cipherSuite == nil {
+		return nil
+	}
+
+	err := t.selectHash(cipherSuite.HashFunc())
+	if errors.Is(err, dtlserrors.ErrHandshakeTranscriptHashAlreadySelected) {
+		return nil
+	}
+
+	return err
+}
+
+func appendOutboundHandshakeFlight13(
+	transcript *handshakeTranscript13,
+	isClient bool,
+	cipherSuite CipherSuite,
+	pkts []*packet,
+) error {
+	if transcript == nil {
+		return nil
+	}
+
+	sender := transcriptSenderForSide13(isClient)
+	for _, p := range pkts {
+		h, canonical, ok, err := canonicalOutboundHandshake13(p)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+
+		if err := appendOutboundHandshake13(transcript, sender, cipherSuite, h, canonical); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func canonicalOutboundHandshake13(p *packet) (*handshake.Handshake, []byte, bool, error) {
+	if p == nil || p.record == nil {
+		return nil, nil, false, nil
+	}
+
+	hs, ok := p.record.Content.(*handshake.Handshake)
+	if !ok || hs.Message == nil {
+		return nil, nil, false, nil
+	}
+
+	raw, err := hs.Marshal()
+	if err != nil {
+		return nil, nil, false, err
+	}
+	canonical, err := canonicalHandshake13(raw)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	return hs, canonical, true, nil
+}
+
+func appendOutboundHandshake13(
+	transcript *handshakeTranscript13,
+	sender transcriptSender13,
+	cipherSuite CipherSuite,
+	h *handshake.Handshake,
+	canonical []byte,
+) error {
+	id := transcriptMessageID13{
+		sender: sender,
+		seq:    h.Header.MessageSequence,
+	}
+	if sh, ok := h.Message.(*handshake.MessageServerHello); ok && isHelloRetryRequest(sh) {
+		duplicate, err := transcript.hasCanonical13(id, canonical)
+		if err != nil || duplicate {
+			return err
+		}
+
+		if err := selectTranscriptHashIfReady13(transcript, cipherSuite); err != nil {
+			return err
+		}
+		if err := transcript.applyHelloRetryRequest(); err != nil {
+			return err
+		}
+	}
+
+	return transcript.appendCanonical(id, canonical)
+}
+
+func (t *handshakeTranscript13) hasCanonical13(id transcriptMessageID13, message []byte) (bool, error) {
+	if err := validateCanonicalHandshake13(message); err != nil {
+		return false, err
+	}
+
+	seen, ok := t.seen[id]
+	if !ok {
+		return false, nil
+	}
+
+	fingerprint := sha256.Sum256(message)
+	if seen.length == len(message) && seen.fingerprint == fingerprint {
+		return true, nil
+	}
+
+	return false, dtlserrors.ErrHandshakeTranscriptMessageChanged
 }

@@ -275,6 +275,9 @@ func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.
 func serverHelloFromFlight13_2(t *testing.T, state *State, cfg *handshakeConfig) *handshake.MessageServerHello {
 	t.Helper()
 
+	if state.cipherSuite == nil {
+		state.cipherSuite = cfg.localCipherSuites[0]
+	}
 	pkts, dtlsAlert, err := flight13_2Generate(nil, flight13_2Context(state, newHandshakeCache(), cfg))
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
@@ -334,14 +337,28 @@ func TestFlight13_2Generate(t *testing.T) {
 	})
 
 	t.Run("ResetsHandshakeSendSequence", func(t *testing.T) {
-		state := &State{localVersion: protocol.Version1_3, handshakeSendSequence: 7}
 		cfg := testHandshakeConfig13(t)
+		state := &State{
+			localVersion:          protocol.Version1_3,
+			cipherSuite:           cfg.localCipherSuites[0],
+			handshakeSendSequence: 7,
+		}
 
 		_, dtlsAlert, err := flight13_2Generate(nil, flight13_2Context(state, newHandshakeCache(), cfg))
 		require.NoError(t, err)
 		require.Nil(t, dtlsAlert)
 
 		assert.Equal(t, 0, state.handshakeSendSequence)
+	})
+
+	t.Run("RejectsWithoutCipherSuite", func(t *testing.T) {
+		state := &State{localVersion: protocol.Version1_3}
+		cfg := testHandshakeConfig13(t)
+
+		pkts, dtlsAlert, err := flight13_2Generate(nil, flight13_2Context(state, newHandshakeCache(), cfg))
+		require.ErrorIs(t, err, dtlserrors.ErrCipherSuiteUnset)
+		require.Nil(t, dtlsAlert)
+		require.Nil(t, pkts)
 	})
 
 	t.Run("AlwaysIncludesSupportedVersions", func(t *testing.T) {
@@ -352,7 +369,30 @@ func TestFlight13_2Generate(t *testing.T) {
 
 		supportedVersions, ok := findSupportedVersions(serverHello.Extensions)
 		require.True(t, ok, "SupportedVersions extension must always be present")
-		assert.Equal(t, supportedVersionsRange(cfg.minVersion, cfg.maxVersion), supportedVersions.Versions)
+		assert.Equal(t, []protocol.Version{protocol.Version1_3}, supportedVersions.Versions)
+		assert.True(t, supportedVersions.IsSelectedVersion())
+	})
+
+	t.Run("IncludesCipherSuiteAndCompressionMethod", func(t *testing.T) {
+		state := &State{localVersion: protocol.Version1_3}
+		cfg := testHandshakeConfig13(t)
+
+		serverHello := serverHelloFromFlight13_2(t, state, cfg)
+
+		require.NotNil(t, serverHello.CipherSuiteID)
+		assert.Equal(t, uint16(cfg.localCipherSuites[0].ID()), *serverHello.CipherSuiteID)
+		require.NotNil(t, serverHello.CompressionMethod)
+		assert.Equal(t, defaultCompressionMethods()[0], serverHello.CompressionMethod)
+
+		raw, err := (&handshake.Handshake{Message: serverHello}).Marshal()
+		require.NoError(t, err)
+
+		var parsed handshake.Handshake
+		require.NoError(t, parsed.Unmarshal(raw))
+		parsedServerHello, ok := parsed.Message.(*handshake.MessageServerHello)
+		require.True(t, ok)
+		require.NotNil(t, parsedServerHello.CipherSuiteID)
+		assert.Equal(t, *serverHello.CipherSuiteID, *parsedServerHello.CipherSuiteID)
 	})
 
 	t.Run("OmitsKeyShareAndCookieByDefault", func(t *testing.T) {

@@ -349,6 +349,9 @@ func flight13_2Generate(
 	flightCtx *handshakeContext13,
 ) ([]*packet, *alert.Alert, error) {
 	flightCtx.state.handshakeSendSequence = 0
+	if flightCtx.state.cipherSuite == nil {
+		return nil, nil, dtlserrors.ErrCipherSuiteUnset
+	}
 
 	random := handshake.Random{}
 	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
@@ -356,8 +359,10 @@ func flight13_2Generate(
 	exts := []extension.Extension{}
 
 	exts = append(exts, &extension.SupportedVersions{
-		Versions: supportedVersionsRange(flightCtx.cfg.minVersion, flightCtx.cfg.maxVersion),
+		Versions:        []protocol.Version{protocol.Version1_3},
+		SelectedVersion: true,
 	})
+	cipherSuiteID := uint16(flightCtx.state.cipherSuite.ID())
 
 	if flightCtx.state.namedCurve != 0 {
 		exts = append(exts, &extension.KeyShare{
@@ -379,9 +384,11 @@ func flight13_2Generate(
 				},
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageServerHello{
-						Version:    protocol.Version1_2,
-						Random:     random,
-						Extensions: exts,
+						Version:           protocol.Version1_2,
+						Random:            random,
+						CipherSuiteID:     &cipherSuiteID,
+						CompressionMethod: defaultCompressionMethods()[0],
+						Extensions:        exts,
 					},
 				},
 			},

@@ -4,13 +4,16 @@
 package dtls
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -125,6 +128,26 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)
 }
 
+func TestHandshakeFSM13PrepareHelloRetryRequestDoesNotRequireSeededTranscript(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := &State{
+		localVersion: protocol.Version1_3,
+		cipherSuite:  cfg.localCipherSuites[0],
+	}
+	cache := newHandshakeCache()
+
+	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_2, nil, nil)
+	require.NoError(t, err)
+
+	nextState, err := fsm.prepare(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, handshakeSending, nextState)
+	require.Len(t, fsm.flights, 1)
+	assert.Empty(t, fsm.transcript.order)
+	assert.Empty(t, fsm.transcript.transcript)
+	assert.Equal(t, 1, state.handshakeSendSequence)
+}
+
 func canonicalPacketHandshake13(t *testing.T, p *packet) []byte {
 	t.Helper()
 
@@ -164,5 +187,125 @@ func testHandshakeConfig13(t *testing.T) *handshakeConfig {
 		localSignatureSchemes:       signaturehash.Algorithms13(),
 		localCertSignatureSchemes:   nil,
 		localSRTPProtectionProfiles: nil,
+	}
+}
+
+func TestAppendOutboundHandshakeFlight13ClientHello(t *testing.T) {
+	transcript := newHandshakeTranscript13()
+	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 3)
+	expected := canonicalPacketHandshake13(t, pkt)
+
+	err := appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{pkt})
+	require.NoError(t, err)
+	require.Len(t, transcript.order, 1)
+	require.Len(t, transcript.pending, 1)
+
+	assert.Equal(t, transcriptMessageID13{sender: transcriptClient13, seq: 3}, transcript.order[0].id)
+	assert.Equal(t, handshake.TypeClientHello, transcript.order[0].typ)
+	assert.Equal(t, expected, transcript.pending[0])
+	assert.Equal(t, expected, transcript.transcript)
+}
+
+func TestAppendOutboundHandshakeFlight13DuplicateNoop(t *testing.T) {
+	transcript := newHandshakeTranscript13()
+	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
+
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{pkt}))
+	before := append([]byte(nil), transcript.transcript...)
+
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{pkt}))
+	assert.Equal(t, before, transcript.transcript)
+	assert.Len(t, transcript.order, 1)
+}
+
+func TestAppendOutboundHandshakeFlight13ChangedSameSequenceFails(t *testing.T) {
+	transcript := newHandshakeTranscript13()
+	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
+	changedPkt := transcriptTestClientHelloPacket13([]byte{0x02}, 0)
+
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{pkt}))
+	err := appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{changedPkt})
+
+	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMessageChanged)
+}
+
+func TestAppendOutboundHandshakeFlight13HelloRetryRequest(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cipherSuite := cfg.localCipherSuites[0]
+	transcript := newHandshakeTranscript13()
+	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
+	helloRetryRequest := transcriptTestHelloRetryRequestPacket13(t, cipherSuite, 0)
+
+	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
+	helloRetryRequestCanonical := canonicalPacketHandshake13(t, helloRetryRequest)
+
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, cipherSuite, []*packet{clientHello}))
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, false, cipherSuite, []*packet{helloRetryRequest}))
+
+	clientHelloHash := hashTranscript13(clientHelloCanonical)
+	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHelloHash)
+	expectedTranscript := append(append([]byte(nil), messageHash...), helloRetryRequestCanonical...)
+	assert.Equal(t, expectedTranscript, transcript.transcript)
+
+	sum, err := transcript.sum()
+	require.NoError(t, err)
+	assert.Equal(t, hashTranscript13(messageHash, helloRetryRequestCanonical), sum)
+	require.Len(t, transcript.order, 2)
+	assert.Equal(t, handshake.TypeClientHello, transcript.order[0].typ)
+	assert.Equal(t, handshake.TypeServerHello, transcript.order[1].typ)
+
+	before := append([]byte(nil), transcript.transcript...)
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, false, cipherSuite, []*packet{helloRetryRequest}))
+	assert.Equal(t, before, transcript.transcript)
+	assert.Len(t, transcript.order, 2)
+}
+
+func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *packet {
+	return &packet{
+		record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+			},
+			Content: &handshake.Handshake{
+				Header: handshake.Header{MessageSequence: seq},
+				Message: &handshake.MessageClientHello{
+					Version:            protocol.Version1_2,
+					SessionID:          sessionID,
+					CipherSuiteIDs:     []uint16{uint16(TLS_AES_128_GCM_SHA256)},
+					CompressionMethods: defaultCompressionMethods(),
+				},
+			},
+		},
+	}
+}
+
+func transcriptTestHelloRetryRequestPacket13(tb testing.TB, cipherSuite CipherSuite, seq uint16) *packet {
+	tb.Helper()
+
+	random := handshake.Random{}
+	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
+	cipherSuiteID := uint16(cipherSuite.ID())
+
+	return &packet{
+		record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+			},
+			Content: &handshake.Handshake{
+				Header: handshake.Header{MessageSequence: seq},
+				Message: &handshake.MessageServerHello{
+					Version:           protocol.Version1_2,
+					Random:            random,
+					CipherSuiteID:     &cipherSuiteID,
+					CompressionMethod: defaultCompressionMethods()[0],
+					Extensions: []extension.Extension{
+						&extension.SupportedVersions{
+							Versions:        []protocol.Version{protocol.Version1_3},
+							SelectedVersion: true,
+						},
+					},
+				},
+			},
+		},
 	}
 }
