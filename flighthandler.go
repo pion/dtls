@@ -7,6 +7,7 @@ import (
 	"context"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
 
@@ -14,13 +15,18 @@ import (
 type flightParser func(
 	context.Context,
 	flightConn,
-	*State,
+	*dtlsstate.State,
 	*handshakeCache,
 	*handshakeConfig,
 ) (flightVal, *alert.Alert, error)
 
 // Generate flights.
-type flightGenerator func(flightConn, *State, *handshakeCache, *handshakeConfig) ([]*packet, *alert.Alert, error)
+type flightGenerator func(
+	flightConn,
+	*dtlsstate.State,
+	*handshakeCache,
+	*handshakeConfig,
+) ([]*packet, *alert.Alert, error)
 
 func (f flightVal) getFlightParser() (flightParser, error) { //nolint:cyclop
 	switch f {

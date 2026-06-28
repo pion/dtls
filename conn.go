@@ -17,6 +17,7 @@ import (
 
 	"github.com/pion/dtls/v3/internal/closer"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -77,7 +78,7 @@ type Conn struct {
 	handshakeCache *handshakeCache   // caching of handshake messages for verifyData generation
 	decrypted      chan any          // Decrypted Application Data or error, pull by calling `Read`
 	rAddr          net.Addr
-	state          State // Internal state
+	state          dtlsstate.State // Internal state
 
 	maximumTransmissionUnit int
 	paddingLengthGenerator  func(uint) uint
@@ -118,38 +119,38 @@ func createConn(
 	rAddr net.Addr,
 	config *dtlsConfig,
 	isClient bool,
-	resumeState *State,
+	resumeState *dtlsstate.State,
 ) (*Conn, error) {
 	if nextConn == nil {
 		return nil, dtlserrors.ErrNilNextConn
 	}
 
-	loggerFactory := config.loggerFactory
+	loggerFactory := config.LoggerFactory
 	if loggerFactory == nil {
 		loggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
 	logger := loggerFactory.NewLogger("dtls")
 
-	mtu := config.mtu
+	mtu := config.MTU
 	if mtu <= 0 {
 		mtu = defaultMTU
 	}
 
-	replayProtectionWindow := config.replayProtectionWindow
+	replayProtectionWindow := config.ReplayProtectionWindow
 	if replayProtectionWindow <= 0 {
 		replayProtectionWindow = defaultReplayProtectionWindow
 	}
 
-	paddingLengthGenerator := config.paddingLengthGenerator
+	paddingLengthGenerator := config.PaddingLengthGenerator
 	if paddingLengthGenerator == nil {
 		paddingLengthGenerator = func(uint) uint { return 0 }
 	}
 
-	minVersion, maxVersion := normalizeProtocolVersionRange(config.minVersion, config.maxVersion)
+	minVersion, maxVersion := normalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
 
 	cipherSuites, err := parseCipherSuitesForVersions(
-		config.cipherSuites,
+		config.CipherSuites,
 		config.customCipherSuites,
 		config.includeCertificateSuites(),
 		config.psk != nil,
@@ -160,17 +161,17 @@ func createConn(
 		return nil, err
 	}
 
-	signatureSchemes, err := signaturehash.ParseSignatureSchemes(config.signatureSchemes, config.insecureHashes)
+	signatureSchemes, err := signaturehash.ParseSignatureSchemes(config.SignatureSchemes, config.InsecureHashes)
 	if err != nil {
 		return nil, err
 	}
 
 	// Parse certificate signature schemes only if explicitly configured
 	var certSignatureSchemes []signaturehash.Algorithm
-	if len(config.certificateSignatureSchemes) > 0 {
+	if len(config.CertificateSignatureSchemes) > 0 {
 		certSignatureSchemes, err = signaturehash.ParseSignatureSchemes(
-			config.certificateSignatureSchemes,
-			config.insecureHashes,
+			config.CertificateSignatureSchemes,
+			config.InsecureHashes,
 		)
 		if err != nil {
 			return nil, err
@@ -178,18 +179,18 @@ func createConn(
 	}
 
 	workerInterval := initialTickerInterval
-	if config.flightInterval > 0 {
-		workerInterval = config.flightInterval
+	if config.FlightInterval > 0 {
+		workerInterval = config.FlightInterval
 	}
 
-	serverName := config.serverName
+	serverName := config.ServerName
 	// Do not allow the use of an IP address literal as an SNI value.
 	// See RFC 6066, Section 3.
 	if net.ParseIP(serverName) != nil {
 		serverName = ""
 	}
 
-	curves := config.ellipticCurves
+	curves := config.EllipticCurves
 	if len(curves) == 0 {
 		curves = defaultCurves
 	}
@@ -207,38 +208,38 @@ func createConn(
 
 	handshakeConfig := &handshakeConfig{
 		localPSKCallback:              config.psk,
-		localPSKIdentityHint:          config.pskIdentityHint,
+		localPSKIdentityHint:          config.PSKIdentityHint,
 		localCipherSuites:             cipherSuites,
 		localSignatureSchemes:         signatureSchemes,
 		localCertSignatureSchemes:     certSignatureSchemes,
-		extendedMasterSecret:          config.extendedMasterSecret,
-		localSRTPProtectionProfiles:   config.srtpProtectionProfiles,
-		localSRTPMasterKeyIdentifier:  config.srtpMasterKeyIdentifier,
+		extendedMasterSecret:          ExtendedMasterSecretType(config.ExtendedMasterSecret),
+		localSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
+		localSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
 		serverName:                    serverName,
-		supportedProtocols:            config.supportedProtocols,
-		clientAuth:                    config.clientAuth,
-		localCertificates:             config.certificates,
-		insecureSkipVerify:            config.insecureSkipVerify,
-		verifyPeerCertificate:         config.verifyPeerCertificate,
+		supportedProtocols:            config.SupportedProtocols,
+		clientAuth:                    ClientAuthType(config.ClientAuth),
+		localCertificates:             config.Certificates,
+		insecureSkipVerify:            config.InsecureSkipVerify,
+		verifyPeerCertificate:         config.VerifyPeerCertificate,
 		verifyConnection:              config.verifyConnection,
-		rootCAs:                       config.rootCAs,
-		clientCAs:                     config.clientCAs,
+		rootCAs:                       config.RootCAs,
+		clientCAs:                     config.ClientCAs,
 		customCipherSuites:            config.customCipherSuites,
 		initialRetransmitInterval:     workerInterval,
-		disableRetransmitBackoff:      config.disableRetransmitBackoff,
+		disableRetransmitBackoff:      config.DisableRetransmitBackoff,
 		log:                           logger,
 		initialEpoch:                  0,
-		keyLogWriter:                  config.keyLogWriter,
+		keyLogWriter:                  config.KeyLogWriter,
 		sessionStore:                  config.sessionStore,
 		ellipticCurves:                curves,
 		localGetCertificate:           config.getCertificate,
 		localGetClientCertificate:     config.getClientCertificate,
-		insecureSkipHelloVerify:       config.insecureSkipVerifyHello,
-		connectionIDGenerator:         config.connectionIDGenerator,
-		helloRandomBytesGenerator:     config.helloRandomBytesGenerator,
-		clientHelloMessageHook:        config.clientHelloMessageHook,
-		serverHelloMessageHook:        config.serverHelloMessageHook,
-		certificateRequestMessageHook: config.certificateRequestMessageHook,
+		insecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
+		connectionIDGenerator:         config.ConnectionIDGenerator,
+		helloRandomBytesGenerator:     config.HelloRandomBytesGenerator,
+		clientHelloMessageHook:        config.ClientHelloMessageHook,
+		serverHelloMessageHook:        config.ServerHelloMessageHook,
+		certificateRequestMessageHook: config.CertificateRequestMessageHook,
 		resumeState:                   resumeState,
 		minVersion:                    minVersion,
 		maxVersion:                    maxVersion,
@@ -267,8 +268,8 @@ func createConn(
 
 		replayProtectionWindow: uint(replayProtectionWindow), //nolint:gosec // G115
 
-		state: State{
-			isClient: isClient,
+		state: dtlsstate.State{
+			IsClient: isClient,
 		},
 	}
 
@@ -317,7 +318,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 	// rfc5246#section-7.4.3
 	// In addition, the hash and signature algorithms MUST be compatible
 	// with the key in the server's end-entity certificate.
-	if !c.state.isClient {
+	if !c.state.IsClient {
 		cert, err := c.handshakeConfig.getCertificate(&ClientHelloInfo{})
 		if err != nil && !errors.Is(err, dtlserrors.ErrNoCertificates) {
 			return err
@@ -332,7 +333,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 
 	c.handshakeConfig.localCipherSuites = filterCipherSuitesForVersion(
 		c.handshakeConfig.localCipherSuites,
-		c.state.localVersion,
+		c.state.LocalVersion,
 	)
 	if len(c.handshakeConfig.localCipherSuites) == 0 {
 		return dtlserrors.ErrNoAvailableCipherSuites
@@ -342,7 +343,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 		return err
 	}
 
-	if c.state.localVersion == protocol.Version1_3 {
+	if c.state.LocalVersion == protocol.Version1_3 {
 		c.log.Trace("Handshake DTLS 1.3 Completed")
 	} else {
 		c.log.Trace("Handshake Completed")
@@ -364,21 +365,21 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error) {
 	switch {
 	// DTLS 1.2 only
-	case c.state.isClient && c.handshakeConfig.maxVersion == protocol.Version1_2:
-		c.state.localVersion = protocol.Version1_2
+	case c.state.IsClient && c.handshakeConfig.maxVersion == protocol.Version1_2:
+		c.state.LocalVersion = protocol.Version1_2
 		if c.handshakeConfig.resumeState != nil {
 			c.state = *c.handshakeConfig.resumeState
-			c.state.localVersion = protocol.Version1_2
+			c.state.LocalVersion = protocol.Version1_2
 
 			return handshakeStart{flight: flight5, fsmState: handshakeFinished}, nil
 		}
 
 		return handshakeStart{flight: flight1, fsmState: handshakePreparing}, nil
-	case !c.state.isClient && c.handshakeConfig.maxVersion == protocol.Version1_2:
-		c.state.localVersion = protocol.Version1_2
+	case !c.state.IsClient && c.handshakeConfig.maxVersion == protocol.Version1_2:
+		c.state.LocalVersion = protocol.Version1_2
 		if c.handshakeConfig.resumeState != nil {
 			c.state = *c.handshakeConfig.resumeState
-			c.state.localVersion = protocol.Version1_2
+			c.state.LocalVersion = protocol.Version1_2
 
 			return handshakeStart{flight: flight6, fsmState: handshakeFinished}, nil
 		}
@@ -386,18 +387,18 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 		return handshakeStart{flight: flight0, fsmState: handshakePreparing}, nil
 
 	// DTLS 1.3 only
-	case c.state.isClient && c.handshakeConfig.minVersion == protocol.Version1_3:
-		c.state.localVersion = protocol.Version1_3
+	case c.state.IsClient && c.handshakeConfig.minVersion == protocol.Version1_3:
+		c.state.LocalVersion = protocol.Version1_3
 
 		return handshakeStart{flight: flightVal(flight13_1), fsmState: handshakePreparing}, nil
-	case !c.state.isClient && c.handshakeConfig.minVersion == protocol.Version1_3:
-		c.state.localVersion = protocol.Version1_3
+	case !c.state.IsClient && c.handshakeConfig.minVersion == protocol.Version1_3:
+		c.state.LocalVersion = protocol.Version1_3
 
 		return handshakeStart{flight: flightVal(flight13_0), fsmState: handshakePreparing}, nil
 
 	// Dual-stack
 	// This mode sends or read handshake messages to decide version without starting a FSM
-	case c.state.isClient:
+	case c.state.IsClient:
 		initialFlights, initialTranscript13, err := c.negotiateVersionClient(ctx)
 		if err != nil {
 			return handshakeStart{}, err
@@ -450,7 +451,7 @@ func clientWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (
 	switch {
 	case config == nil:
 		return nil, dtlserrors.ErrNoConfigProvided
-	case config.psk != nil && config.pskIdentityHint == nil:
+	case config.psk != nil && config.PSKIdentityHint == nil:
 		return nil, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
 	}
 
@@ -475,8 +476,8 @@ func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (
 	if config == nil {
 		return nil, dtlserrors.ErrNoConfigProvided
 	}
-	if config.onConnectionAttempt != nil {
-		if err := config.onConnectionAttempt(rAddr); err != nil {
+	if config.OnConnectionAttempt != nil {
+		if err := config.OnConnectionAttempt(rAddr); err != nil {
 			return nil, err
 		}
 	}
@@ -563,14 +564,14 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		{
 			record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
-					Epoch:   c.state.getLocalEpoch(),
+					Epoch:   c.state.GetLocalEpoch(),
 					Version: protocol.Version1_2,
 				},
 				Content: &protocol.ApplicationData{
 					Data: payload,
 				},
 			},
-			shouldWrapCID: len(c.state.remoteConnectionID) > 0,
+			shouldWrapCID: len(c.state.RemoteConnectionID) > 0,
 			shouldEncrypt: true,
 		},
 	})
@@ -594,17 +595,17 @@ func (c *Conn) Close() error {
 func (c *Conn) ConnectionState() (State, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	stateClone, err := c.state.clone()
+	state, err := generateState(&c.state)
 	if err != nil {
 		return State{}, false
 	}
 
-	return *stateClone, true
+	return *state, true
 }
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile.
 func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
-	profile := c.state.getSRTPProtectionProfile()
+	profile := c.state.GetSRTPProtectionProfile()
 	if profile == 0 {
 		return 0, false
 	}
@@ -614,11 +615,11 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 
 // RemoteSRTPMasterKeyIdentifier returns the MasterKeyIdentifier value from the use_srtp.
 func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
-	if profile := c.state.getSRTPProtectionProfile(); profile == 0 {
+	if profile := c.state.GetSRTPProtectionProfile(); profile == 0 {
 		return nil, false
 	}
 
-	return c.state.remoteSRTPMasterKeyIdentifier, true
+	return c.state.RemoteSRTPMasterKeyIdentifier, true
 }
 
 func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
@@ -635,7 +636,7 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 			}
 
 			c.log.Tracef("[handshake:%v] -> %s (epoch: %d, seq: %d)",
-				srvCliStr(c.state.isClient), dtlsHandshake.Header.Type.String(),
+				srvCliStr(c.state.IsClient), dtlsHandshake.Header.Type.String(),
 				pkt.record.Header.Epoch, dtlsHandshake.Header.MessageSequence)
 
 			c.handshakeCache.push(
@@ -643,7 +644,7 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
 				pkt.record.Header.Epoch,
 				dtlsHandshake.Header.MessageSequence,
 				dtlsHandshake.Header.Type,
-				c.state.isClient,
+				c.state.IsClient,
 			)
 
 			rawHandshakePackets, err := c.processHandshakePacket(pkt, dtlsHandshake)
@@ -697,10 +698,10 @@ func (c *Conn) compactRawPackets(rawPackets [][]byte) [][]byte {
 
 func (c *Conn) processPacket(pkt *packet) ([]byte, error) { //nolint:cyclop
 	epoch := pkt.record.Header.Epoch
-	for len(c.state.localSequenceNumber) <= int(epoch) {
-		c.state.localSequenceNumber = append(c.state.localSequenceNumber, uint64(0))
+	for len(c.state.LocalSequenceNumber) <= int(epoch) {
+		c.state.LocalSequenceNumber = append(c.state.LocalSequenceNumber, uint64(0))
 	}
-	seq := atomic.AddUint64(&c.state.localSequenceNumber[epoch], 1) - 1
+	seq := atomic.AddUint64(&c.state.LocalSequenceNumber[epoch], 1) - 1
 	if seq > recordlayer.MaxSequenceNumber {
 		// RFC 6347 Section 4.1.0
 		// The implementation must either abandon an association or rehandshake
@@ -732,7 +733,7 @@ func (c *Conn) processPacket(pkt *packet) ([]byte, error) { //nolint:cyclop
 			ContentType:    protocol.ContentTypeConnectionID,
 			Epoch:          pkt.record.Header.Epoch,
 			ContentLen:     uint16(len(rawInner)), //nolint:gosec //G115
-			ConnectionID:   c.state.remoteConnectionID,
+			ConnectionID:   c.state.RemoteConnectionID,
 			SequenceNumber: pkt.record.Header.SequenceNumber,
 		}
 		rawPacket, err = cidHeader.Marshal()
@@ -751,7 +752,7 @@ func (c *Conn) processPacket(pkt *packet) ([]byte, error) { //nolint:cyclop
 
 	if pkt.shouldEncrypt {
 		var err error
-		rawPacket, err = c.state.cipherSuite.Encrypt(pkt.record, rawPacket)
+		rawPacket, err = c.state.CipherSuite.Encrypt(pkt.record, rawPacket)
 		if err != nil {
 			return nil, err
 		}
@@ -769,12 +770,12 @@ func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Hand
 		return nil, err
 	}
 	epoch := pkt.record.Header.Epoch
-	for len(c.state.localSequenceNumber) <= int(epoch) {
-		c.state.localSequenceNumber = append(c.state.localSequenceNumber, uint64(0))
+	for len(c.state.LocalSequenceNumber) <= int(epoch) {
+		c.state.LocalSequenceNumber = append(c.state.LocalSequenceNumber, uint64(0))
 	}
 
 	for _, handshakeFragment := range handshakeFragments {
-		seq := atomic.AddUint64(&c.state.localSequenceNumber[epoch], 1) - 1
+		seq := atomic.AddUint64(&c.state.LocalSequenceNumber[epoch], 1) - 1
 		if seq > recordlayer.MaxSequenceNumber {
 			return nil, dtlserrors.ErrSequenceNumberOverflow
 		}
@@ -795,7 +796,7 @@ func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Hand
 				ContentType:    protocol.ContentTypeConnectionID,
 				Epoch:          pkt.record.Header.Epoch,
 				ContentLen:     uint16(len(rawInner)), //nolint:gosec //G115
-				ConnectionID:   c.state.remoteConnectionID,
+				ConnectionID:   c.state.RemoteConnectionID,
 				SequenceNumber: pkt.record.Header.SequenceNumber,
 			}
 			rawPacket, err = cidHeader.Marshal()
@@ -824,7 +825,7 @@ func (c *Conn) processHandshakePacket(pkt *packet, dtlsHandshake *handshake.Hand
 
 		if pkt.shouldEncrypt {
 			var err error
-			rawPacket, err = c.state.cipherSuite.Encrypt(pkt.record, rawPacket)
+			rawPacket, err = c.state.CipherSuite.Encrypt(pkt.record, rawPacket)
 			if err != nil {
 				return nil, err
 			}
@@ -898,7 +899,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 		return netError(err)
 	}
 
-	pkts, err := recordlayer.ContentAwareUnpackDatagram(b[:i], len(c.state.getLocalConnectionID()))
+	pkts, err := recordlayer.ContentAwareUnpackDatagram(b[:i], len(c.state.GetLocalConnectionID()))
 	if err != nil {
 		return err
 	}
@@ -1010,8 +1011,8 @@ func (c *Conn) handleIncomingPacket(
 	header := &recordlayer.Header{}
 	// Set connection ID size so that records of content type tls12_cid will
 	// be parsed correctly.
-	if len(c.state.getLocalConnectionID()) > 0 {
-		header.ConnectionID = make([]byte, len(c.state.getLocalConnectionID()))
+	if len(c.state.GetLocalConnectionID()) > 0 {
+		header.ConnectionID = make([]byte, len(c.state.GetLocalConnectionID()))
 	}
 	if err := header.Unmarshal(buf); err != nil {
 		// Decode error must be silently discarded
@@ -1021,7 +1022,7 @@ func (c *Conn) handleIncomingPacket(
 		return false, false, nil, nil
 	}
 	// Validate epoch
-	remoteEpoch := c.state.getRemoteEpoch()
+	remoteEpoch := c.state.GetRemoteEpoch()
 	if header.Epoch > remoteEpoch {
 		if header.Epoch > remoteEpoch+1 {
 			c.log.Debugf("discarded future packet (epoch: %d, seq: %d)",
@@ -1040,12 +1041,12 @@ func (c *Conn) handleIncomingPacket(
 	}
 
 	// Anti-replay protection
-	for len(c.state.replayDetector) <= int(header.Epoch) {
-		c.state.replayDetector = append(c.state.replayDetector,
+	for len(c.state.ReplayDetector) <= int(header.Epoch) {
+		c.state.ReplayDetector = append(c.state.ReplayDetector,
 			replaydetector.New(c.replayProtectionWindow, recordlayer.MaxSequenceNumber),
 		)
 	}
-	markPacketAsValid, ok := c.state.replayDetector[int(header.Epoch)].Check(header.SequenceNumber)
+	markPacketAsValid, ok := c.state.ReplayDetector[int(header.Epoch)].Check(header.SequenceNumber)
 	if !ok {
 		c.log.Debugf("discarded duplicated packet (epoch: %d, seq: %d)",
 			header.Epoch, header.SequenceNumber,
@@ -1060,7 +1061,7 @@ func (c *Conn) handleIncomingPacket(
 
 	// Decrypt
 	if header.Epoch != 0 { //nolint:nestif
-		if c.state.cipherSuite == nil || !c.state.cipherSuite.IsInitialized() {
+		if c.state.CipherSuite == nil || !c.state.CipherSuite.IsInitialized() {
 			if enqueue {
 				if ok := c.enqueueEncryptedPackets(addrPkt{rAddr, buf}); ok {
 					c.log.Debug("handshake not finished, queuing packet")
@@ -1072,7 +1073,7 @@ func (c *Conn) handleIncomingPacket(
 
 		// If a connection identifier had been negotiated and encryption is
 		// enabled, the connection identifier MUST be sent.
-		if len(c.state.getLocalConnectionID()) > 0 && header.ContentType != protocol.ContentTypeConnectionID {
+		if len(c.state.GetLocalConnectionID()) > 0 && header.ContentType != protocol.ContentTypeConnectionID {
 			c.log.Debug("discarded packet missing connection ID after value negotiated")
 
 			return false, false, nil, nil
@@ -1081,11 +1082,11 @@ func (c *Conn) handleIncomingPacket(
 		var err error
 		var hdr recordlayer.Header
 		if header.ContentType == protocol.ContentTypeConnectionID {
-			hdr.ConnectionID = make([]byte, len(c.state.getLocalConnectionID()))
+			hdr.ConnectionID = make([]byte, len(c.state.GetLocalConnectionID()))
 		}
-		buf, err = c.state.cipherSuite.Decrypt(hdr, buf)
+		buf, err = c.state.CipherSuite.Decrypt(hdr, buf)
 		if err != nil {
-			c.log.Debugf("%s: decrypt failed: %s", srvCliStr(c.state.isClient), err)
+			c.log.Debugf("%s: decrypt failed: %s", srvCliStr(c.state.IsClient), err)
 
 			return false, false, nil, nil
 		}
@@ -1116,7 +1117,7 @@ func (c *Conn) handleIncomingPacket(
 		}
 
 		// If connection ID does not match discard the packet.
-		if !bytes.Equal(c.state.getLocalConnectionID(), header.ConnectionID) {
+		if !bytes.Equal(c.state.GetLocalConnectionID(), header.ConnectionID) {
 			c.log.Debug("unexpected connection ID")
 
 			return false, false, nil, nil
@@ -1136,11 +1137,11 @@ func (c *Conn) handleIncomingPacket(
 		for out, epoch := c.fragmentBuffer.pop(); out != nil; out, epoch = c.fragmentBuffer.pop() {
 			header := &handshake.Header{}
 			if err := header.Unmarshal(out); err != nil {
-				c.log.Debugf("%s: handshake parse failed: %s", srvCliStr(c.state.isClient), err)
+				c.log.Debugf("%s: handshake parse failed: %s", srvCliStr(c.state.IsClient), err)
 
 				continue
 			}
-			c.handshakeCache.push(out, epoch, header.MessageSequence, header.Type, !c.state.isClient)
+			c.handshakeCache.push(out, epoch, header.MessageSequence, header.Type, !c.state.IsClient)
 		}
 
 		return true, isRetransmit, nil, nil
@@ -1154,7 +1155,7 @@ func (c *Conn) handleIncomingPacket(
 	isLatestSeqNum := false
 	switch content := r.Content.(type) {
 	case *alert.Alert:
-		c.log.Tracef("%s: <- %s", srvCliStr(c.state.isClient), content.String())
+		c.log.Tracef("%s: <- %s", srvCliStr(c.state.IsClient), content.String())
 		var a *alert.Alert
 		if content.Description == alert.CloseNotify {
 			// Respond with a close_notify [RFC5246 Section 7.2.1]
@@ -1164,7 +1165,7 @@ func (c *Conn) handleIncomingPacket(
 
 		return false, false, a, &alertError{content}
 	case *protocol.ChangeCipherSpec:
-		if c.state.cipherSuite == nil || !c.state.cipherSuite.IsInitialized() {
+		if c.state.CipherSuite == nil || !c.state.CipherSuite.IsInitialized() {
 			if enqueue {
 				if ok := c.enqueueEncryptedPackets(addrPkt{rAddr, buf}); ok {
 					c.log.Debugf("CipherSuite not initialized, queuing packet")
@@ -1175,9 +1176,9 @@ func (c *Conn) handleIncomingPacket(
 		}
 
 		newRemoteEpoch := header.Epoch + 1
-		c.log.Tracef("%s: <- ChangeCipherSpec (epoch: %d)", srvCliStr(c.state.isClient), newRemoteEpoch)
+		c.log.Tracef("%s: <- ChangeCipherSpec (epoch: %d)", srvCliStr(c.state.IsClient), newRemoteEpoch)
 
-		if c.state.getRemoteEpoch()+1 == newRemoteEpoch {
+		if c.state.GetRemoteEpoch()+1 == newRemoteEpoch {
 			c.setRemoteEpoch(newRemoteEpoch)
 			isLatestSeqNum = markPacketAsValid()
 		}
@@ -1222,7 +1223,7 @@ func (c *Conn) recvHandshake() <-chan recvHandshakeState {
 
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
 	if level == alert.Fatal && len(c.state.SessionID) > 0 { //nolint:nestif
-		if c.state.localVersion == protocol.Version1_2 {
+		if c.state.LocalVersion == protocol.Version1_2 {
 			// According to the RFC, we need to delete the stored session.
 			// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
 			if ss := c.fsm.(*handshakeFSM12).cfg.sessionStore; ss != nil { //nolint:forcetypeassert
@@ -1239,7 +1240,7 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 		{
 			record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
-					Epoch:   c.state.getLocalEpoch(),
+					Epoch:   c.state.GetLocalEpoch(),
 					Version: protocol.Version1_2,
 				},
 				Content: &alert.Alert{
@@ -1247,7 +1248,7 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 					Description: desc,
 				},
 			},
-			shouldWrapCID: len(c.state.remoteConnectionID) > 0,
+			shouldWrapCID: len(c.state.RemoteConnectionID) > 0,
 			shouldEncrypt: c.isHandshakeCompletedSuccessfully(),
 		},
 	})
@@ -1320,7 +1321,7 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*packet, *handshak
 // ClientHello and, if found, sets localVersion and remoteVersions.
 // Returns true once the version can be decided.
 func (c *Conn) pickVersionFromClientHello() (bool, error) {
-	_, msgs, ok := c.handshakeCache.fullPullMap(0, c.state.cipherSuite,
+	_, msgs, ok := c.handshakeCache.fullPullMap(0, c.state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, c.handshakeConfig.initialEpoch, true, false},
 	)
 	if !ok {
@@ -1350,8 +1351,8 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 		return false, dtlserrors.ErrNoCommonProtocolVersion
 	}
 
-	c.state.remoteVersions = remote
-	c.state.localVersion = chosen
+	c.state.RemoteVersions = remote
+	c.state.LocalVersion = chosen
 
 	return true, nil
 }
@@ -1394,7 +1395,7 @@ func (c *Conn) pickVersionFromServerHello(sh *handshake.MessageServerHello) erro
 }
 
 func (c *Conn) pickVersionFromHelloVerifyRequest(hvr *handshake.MessageHelloVerifyRequest) error {
-	c.state.localVersion = protocol.Version1_2
+	c.state.LocalVersion = protocol.Version1_2
 
 	return c.selectRemoteVersion([]protocol.Version{hvr.Version})
 }
@@ -1434,8 +1435,8 @@ func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
 	if !ok {
 		return dtlserrors.ErrNoCommonProtocolVersion
 	}
-	c.state.remoteVersions = remote
-	c.state.localVersion = chosen
+	c.state.RemoteVersions = remote
+	c.state.LocalVersion = chosen
 
 	return nil
 }
@@ -1443,7 +1444,7 @@ func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
 // findCachedServerMessage pulls the most recent handshake message of the
 // given type sent by the peer from the cache, if any.
 func (c *Conn) findCachedServerMessage(t handshake.Type) handshake.Message {
-	_, msgs, ok := c.handshakeCache.fullPullMap(0, c.state.cipherSuite,
+	_, msgs, ok := c.handshakeCache.fullPullMap(0, c.state.CipherSuite,
 		handshakeCachePullRule{t, c.handshakeConfig.initialEpoch, false, true},
 	)
 	if !ok {
@@ -1462,8 +1463,8 @@ func (c *Conn) stampHandshakeSequence(pkts []*packet) {
 	for _, p := range pkts {
 		p.record.Header.Epoch += epoch
 		if h, ok := p.record.Content.(*handshake.Handshake); ok {
-			h.Header.MessageSequence = uint16(c.state.handshakeSendSequence) //nolint:gosec // G115
-			c.state.handshakeSendSequence++
+			h.Header.MessageSequence = uint16(c.state.HandshakeSendSequence) //nolint:gosec // G115
+			c.state.HandshakeSendSequence++
 		}
 	}
 }
@@ -1507,7 +1508,7 @@ func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
 		return netError(err)
 	}
 
-	pkts, err := recordlayer.ContentAwareUnpackDatagram(b[:i], len(c.state.getLocalConnectionID()))
+	pkts, err := recordlayer.ContentAwareUnpackDatagram(b[:i], len(c.state.GetLocalConnectionID()))
 	if err != nil {
 		return err
 	}
@@ -1539,7 +1540,7 @@ func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
 //nolint:gocyclo,cyclop,gocognit,contextcheck
 func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 	done := make(chan struct{})
-	if c.state.localVersion == protocol.Version1_3 {
+	if c.state.LocalVersion == protocol.Version1_3 {
 		fsm, err := newHandshakeFSM13(
 			&c.state,
 			c.handshakeCache,
@@ -1755,11 +1756,11 @@ func (c *Conn) isConnectionClosed() bool {
 }
 
 func (c *Conn) setLocalEpoch(epoch uint16) {
-	c.state.localEpoch.Store(epoch)
+	c.state.LocalEpoch.Store(epoch)
 }
 
 func (c *Conn) setRemoteEpoch(epoch uint16) {
-	c.state.remoteEpoch.Store(epoch)
+	c.state.RemoteEpoch.Store(epoch)
 }
 
 // LocalAddr implements net.Conn.LocalAddr.
@@ -1776,11 +1777,11 @@ func (c *Conn) RemoteAddr() net.Addr {
 }
 
 func (c *Conn) sessionKey() []byte {
-	if c.state.isClient {
+	if c.state.IsClient {
 		// As ServerName can be like 0.example.com, it's better to add
 		// delimiter character which is not allowed to be in
 		// neither address or domain name.
-		if c.state.localVersion == protocol.Version1_3 {
+		if c.state.LocalVersion == protocol.Version1_3 {
 			return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM13).cfg.serverName) //nolint:forcetypeassert
 		}
 

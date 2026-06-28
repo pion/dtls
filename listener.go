@@ -34,12 +34,12 @@ func listenWithConfig(network string, laddr *net.UDPAddr, config *dtlsConfig) (n
 
 			return h.ContentType == protocol.ContentTypeHandshake
 		},
-		ListenConfig: config.listenConfig,
+		ListenConfig: config.ListenConfig,
 	}
 	// If connection ID support is enabled, then they must be supported in
 	// routing.
-	if config.connectionIDGenerator != nil {
-		lc.DatagramRouter = cidDatagramRouter(len(config.connectionIDGenerator()))
+	if config.ConnectionIDGenerator != nil {
+		lc.DatagramRouter = cidDatagramRouter(len(config.ConnectionIDGenerator()))
 		lc.ConnectionIdentifier = cidConnIdentifier()
 	}
 	parent, err := lc.Listen(network, laddr)

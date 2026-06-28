@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -20,7 +21,7 @@ import (
 )
 
 func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
-	state := &State{isClient: true, localVersion: protocol.Version1_3}
+	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
 	cache := newHandshakeCache()
 	cfg := testHandshakeConfig13(t)
 
@@ -36,7 +37,7 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 }
 
 func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
-	state := &State{isClient: true, localVersion: protocol.Version1_3}
+	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
 	cache := newHandshakeCache()
 	cfg := testHandshakeConfig13(t)
 	cfg.clientHelloMessageHook = func(ch handshake.MessageClientHello) handshake.Message {
@@ -83,7 +84,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 }
 
 func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testing.T) {
-	state := &State{isClient: true, localVersion: protocol.Version1_3}
+	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
 	cache := newHandshakeCache()
 	cfg := testHandshakeConfig13(t)
 	transcript := newHandshakeTranscript13()
@@ -119,7 +120,7 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 }
 
 func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
-	state := &State{isClient: true, localVersion: protocol.Version1_3}
+	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
 	cache := newHandshakeCache()
 	cfg := testHandshakeConfig13(t)
 
@@ -130,9 +131,9 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 
 func TestHandshakeFSM13PrepareHelloRetryRequestDoesNotRequireSeededTranscript(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{
-		localVersion: protocol.Version1_3,
-		cipherSuite:  cfg.localCipherSuites[0],
+	state := &dtlsstate.State{
+		LocalVersion: protocol.Version1_3,
+		CipherSuite:  cfg.localCipherSuites[0],
 	}
 	cache := newHandshakeCache()
 
@@ -145,7 +146,7 @@ func TestHandshakeFSM13PrepareHelloRetryRequestDoesNotRequireSeededTranscript(t 
 	require.Len(t, fsm.flights, 1)
 	assert.Empty(t, fsm.transcript.order)
 	assert.Empty(t, fsm.transcript.transcript)
-	assert.Equal(t, 1, state.handshakeSendSequence)
+	assert.Equal(t, 1, state.HandshakeSendSequence)
 }
 
 func canonicalPacketHandshake13(t *testing.T, p *packet) []byte {

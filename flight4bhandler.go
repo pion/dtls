@@ -8,6 +8,7 @@ import (
 	"context"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -19,11 +20,11 @@ import (
 func flight4bParse(
 	_ context.Context,
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) (flightVal, *alert.Alert, error) {
-	_, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
+	_, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, true, false},
 	)
 	if !ok {
@@ -42,7 +43,7 @@ func flight4bParse(
 		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
 	)
 
-	expectedVerifyData, err := prf.VerifyDataClient(state.masterSecret, plainText, state.cipherSuite.HashFunc())
+	expectedVerifyData, err := prf.VerifyDataClient(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
 	if err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -57,7 +58,7 @@ func flight4bParse(
 //nolint:cyclop
 func flight4bGenerate(
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) {
@@ -67,19 +68,19 @@ func flight4bGenerate(
 		RenegotiatedConnection: 0,
 	}}
 	if (cfg.extendedMasterSecret == RequestExtendedMasterSecret ||
-		cfg.extendedMasterSecret == RequireExtendedMasterSecret) && state.extendedMasterSecret {
+		cfg.extendedMasterSecret == RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
 		extensions = append(extensions, &extension.UseExtendedMasterSecret{
 			Supported: true,
 		})
 	}
-	if state.getSRTPProtectionProfile() != 0 {
+	if state.GetSRTPProtectionProfile() != 0 {
 		extensions = append(extensions, &extension.UseSRTP{
-			ProtectionProfiles:  []SRTPProtectionProfile{state.getSRTPProtectionProfile()},
+			ProtectionProfiles:  []SRTPProtectionProfile{state.GetSRTPProtectionProfile()},
 			MasterKeyIdentifier: cfg.localSRTPMasterKeyIdentifier,
 		})
 	}
 
-	selectedProto, err := extension.ALPNProtocolSelection(cfg.supportedProtocols, state.peerSupportedProtocols)
+	selectedProto, err := extension.ALPNProtocolSelection(cfg.supportedProtocols, state.PeerSupportedProtocols)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.NoApplicationProtocol}, err
 	}
@@ -90,12 +91,12 @@ func flight4bGenerate(
 		state.NegotiatedProtocol = selectedProto
 	}
 
-	cipherSuiteID := uint16(state.cipherSuite.ID())
+	cipherSuiteID := uint16(state.CipherSuite.ID())
 	var serverHello handshake.Handshake
 
 	serverHelloMessage := &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
-		Random:            state.localRandom,
+		Random:            state.LocalRandom,
 		SessionID:         state.SessionID,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: defaultCompressionMethods()[0],
@@ -108,9 +109,9 @@ func flight4bGenerate(
 		serverHello = handshake.Handshake{Message: serverHelloMessage}
 	}
 
-	serverHello.Header.MessageSequence = uint16(state.handshakeSendSequence) //nolint:gosec // G115
+	serverHello.Header.MessageSequence = uint16(state.HandshakeSendSequence) //nolint:gosec // G115
 
-	if len(state.localVerifyData) == 0 {
+	if len(state.LocalVerifyData) == 0 {
 		plainText := cache.pullAndMerge(
 			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 		)
@@ -120,7 +121,7 @@ func flight4bGenerate(
 		}
 		plainText = append(plainText, raw...)
 
-		state.localVerifyData, err = prf.VerifyDataServer(state.masterSecret, plainText, state.cipherSuite.HashFunc())
+		state.LocalVerifyData, err = prf.VerifyDataServer(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
@@ -151,7 +152,7 @@ func flight4bGenerate(
 				},
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageFinished{
-						VerifyData: state.localVerifyData,
+						VerifyData: state.LocalVerifyData,
 					},
 				},
 			},

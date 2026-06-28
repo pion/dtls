@@ -10,7 +10,8 @@ import (
 )
 
 func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
-	if err := state.initCipherSuite(); err != nil {
+	internalState, err := state.generateInternalState()
+	if err != nil {
 		return nil, err
 	}
 
@@ -22,7 +23,7 @@ func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config 
 		return nil, err
 	}
 
-	return createConn(conn, rAddr, config, state.isClient, state)
+	return createConn(conn, rAddr, config, internalState.IsClient, internalState)
 }
 
 // ResumeWithOptions imports an already established dtls connection using a specific dtls state.

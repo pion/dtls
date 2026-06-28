@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -75,7 +76,7 @@ func marshalServerHello(
 func generateFlight13_1ClientHello(t *testing.T, cfg *handshakeConfig) *handshake.MessageClientHello {
 	t.Helper()
 
-	state := &State{}
+	state := &dtlsstate.State{}
 
 	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
 		state: state,
@@ -101,7 +102,7 @@ func generateFlight13_1ClientHello(t *testing.T, cfg *handshakeConfig) *handshak
 
 func TestFlight13_1GenerateClientHelloUsesSupportedVersionsVector(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 
 	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
 		state: state,
@@ -178,7 +179,7 @@ func TestFlight13_1GenerateClientHelloIncludesSupportedGroups(t *testing.T) {
 
 func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 
 	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
 		state: state,
@@ -209,12 +210,12 @@ func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 	}
 	require.NotNil(t, keyShare)
 	require.Len(t, keyShare.ClientShares, len(cfg.ellipticCurves))
-	require.Len(t, state.localKeyEntries, len(keyShare.ClientShares))
-	require.Len(t, state.localKeypairs, len(keyShare.ClientShares))
+	require.Len(t, state.LocalKeyEntries, len(keyShare.ClientShares))
+	require.Len(t, state.LocalKeypairs, len(keyShare.ClientShares))
 
 	for _, entry := range keyShare.ClientShares {
 		t.Run(entry.Group.String(), func(t *testing.T) {
-			localKeypair, ok := state.localKeypairs[entry.Group]
+			localKeypair, ok := state.LocalKeypairs[entry.Group]
 			require.True(t, ok)
 			require.Equal(t, entry.KeyExchange, localKeypair.PublicKey)
 
@@ -248,7 +249,7 @@ func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 		},
 	)
 
-	state := &State{}
+	state := &dtlsstate.State{}
 	cache := newHandshakeCache()
 	cache.push(rawServerHello, cfg.initialEpoch, 0, handshake.TypeServerHello, false)
 
@@ -261,7 +262,7 @@ func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, flight13_3, nextFlight)
-	entries := *state.remoteKeyEntries
+	entries := *state.RemoteKeyEntries
 	require.Len(t, entries, 1)
 	assert.Equal(t, selectedGroup, entries[0].Group)
 	assert.Empty(t, entries[0].KeyExchange)
@@ -279,7 +280,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithoutSupportedVersions(t *test
 		},
 	)
 
-	state := &State{}
+	state := &dtlsstate.State{}
 	cache := newHandshakeCache()
 	cache.push(rawServerHello, cfg.initialEpoch, 0, handshake.TypeServerHello, false)
 
@@ -294,7 +295,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithoutSupportedVersions(t *test
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
-	assert.Nil(t, state.remoteKeyEntries)
+	assert.Nil(t, state.RemoteKeyEntries)
 }
 
 func TestFlight13_1ParseRejectsHelloRetryRequestWithWrongSelectedVersion(t *testing.T) {
@@ -313,7 +314,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithWrongSelectedVersion(t *test
 		},
 	)
 
-	state := &State{}
+	state := &dtlsstate.State{}
 	cache := newHandshakeCache()
 	cache.push(rawServerHello, cfg.initialEpoch, 0, handshake.TypeServerHello, false)
 
@@ -328,7 +329,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithWrongSelectedVersion(t *test
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.ProtocolVersion, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
-	assert.Nil(t, state.remoteKeyEntries)
+	assert.Nil(t, state.RemoteKeyEntries)
 }
 
 func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersionsEncoding(t *testing.T) {
@@ -352,7 +353,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersions
 		},
 	)
 
-	state := &State{}
+	state := &dtlsstate.State{}
 	cache := newHandshakeCache()
 	cache.push(rawServerHello, cfg.initialEpoch, 0, handshake.TypeServerHello, false)
 
@@ -367,7 +368,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersions
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
-	assert.Nil(t, state.remoteKeyEntries)
+	assert.Nil(t, state.RemoteKeyEntries)
 }
 
 func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVersions(t *testing.T) {
@@ -394,7 +395,7 @@ func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVe
 
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
 	assert.False(t, ok)
-	assert.Equal(t, protocol.Version{}, conn.state.localVersion)
+	assert.Equal(t, protocol.Version{}, conn.state.LocalVersion)
 }
 
 func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupportedVersionsEncoding(t *testing.T) {
@@ -430,13 +431,13 @@ func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupported
 
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
 	assert.False(t, ok)
-	assert.Equal(t, protocol.Version{}, conn.state.localVersion)
+	assert.Equal(t, protocol.Version{}, conn.state.LocalVersion)
 }
 
 func TestFlight13_3GenerateRejectsWithoutCommonVersion(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
-	require.NoError(t, state.localRandom.Populate())
+	state := &dtlsstate.State{}
+	require.NoError(t, state.LocalRandom.Populate())
 
 	pkts, dtlsAlert, err := flight13_3Generate(nil, &handshakeContext13{
 		state: state,
@@ -450,11 +451,11 @@ func TestFlight13_3GenerateRejectsWithoutCommonVersion(t *testing.T) {
 
 func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{
-		cookie:         []byte{0x01, 0x02, 0x03, 0x04},
-		remoteVersions: []protocol.Version{protocol.Version1_3},
+	state := &dtlsstate.State{
+		Cookie:         []byte{0x01, 0x02, 0x03, 0x04},
+		RemoteVersions: []protocol.Version{protocol.Version1_3},
 	}
-	require.NoError(t, state.localRandom.Populate())
+	require.NoError(t, state.LocalRandom.Populate())
 
 	pkts, dtlsAlert, err := flight13_3Generate(nil, &handshakeContext13{
 		state: state,
@@ -507,7 +508,7 @@ func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 		}
 	}
 	require.NotNil(t, cookieExt)
-	assert.Equal(t, state.cookie, cookieExt.Cookie)
+	assert.Equal(t, state.Cookie, cookieExt.Cookie)
 }
 
 func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.T) {
@@ -516,14 +517,14 @@ func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.
 
 	originalKeypair, err := elliptic.GenerateKeypair(elliptic.X25519)
 	require.NoError(t, err)
-	state := &State{
-		remoteVersions: []protocol.Version{protocol.Version1_3},
-		localKeyEntries: []extension.KeyShareEntry{
+	state := &dtlsstate.State{
+		RemoteVersions: []protocol.Version{protocol.Version1_3},
+		LocalKeyEntries: []extension.KeyShareEntry{
 			{Group: originalKeypair.Curve, KeyExchange: originalKeypair.PublicKey},
 		},
-		remoteKeyEntries: &[]extension.KeyShareEntry{{Group: selectedGroup}},
+		RemoteKeyEntries: &[]extension.KeyShareEntry{{Group: selectedGroup}},
 	}
-	require.NoError(t, state.localRandom.Populate())
+	require.NoError(t, state.LocalRandom.Populate())
 
 	pkts, dtlsAlert, err := flight13_3Generate(nil, &handshakeContext13{
 		state: state,
@@ -558,7 +559,7 @@ func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.
 	assert.NotEmpty(t, keyShare.ClientShares[0].KeyExchange)
 	assert.Equal(t, elliptic.X25519, keyShare.ClientShares[1].Group)
 
-	selectedKeypair := state.localKeypairs[selectedGroup]
+	selectedKeypair := state.LocalKeypairs[selectedGroup]
 	require.NotNil(t, selectedKeypair)
 	assert.Equal(t, keyShare.ClientShares[0].KeyExchange, selectedKeypair.PublicKey)
 }
@@ -569,14 +570,14 @@ func TestFlight13_3GenerateDoesNotRegenerateAlreadyAdvertisedGroup(t *testing.T)
 
 	keypair, err := elliptic.GenerateKeypair(selectedGroup)
 	require.NoError(t, err)
-	state := &State{
-		remoteVersions: []protocol.Version{protocol.Version1_3},
-		localKeyEntries: []extension.KeyShareEntry{
+	state := &dtlsstate.State{
+		RemoteVersions: []protocol.Version{protocol.Version1_3},
+		LocalKeyEntries: []extension.KeyShareEntry{
 			{Group: keypair.Curve, KeyExchange: keypair.PublicKey},
 		},
-		remoteKeyEntries: &[]extension.KeyShareEntry{{Group: selectedGroup}},
+		RemoteKeyEntries: &[]extension.KeyShareEntry{{Group: selectedGroup}},
 	}
-	require.NoError(t, state.localRandom.Populate())
+	require.NoError(t, state.LocalRandom.Populate())
 
 	pkts, dtlsAlert, err := flight13_3Generate(nil, &handshakeContext13{
 		state: state,
@@ -612,7 +613,7 @@ func TestFlight13_3GenerateDoesNotRegenerateAlreadyAdvertisedGroup(t *testing.T)
 
 func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 	_, _, err := flight13_1Generate(nil, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
@@ -638,27 +639,27 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, flight13_5, nextFlight)
 
-	assert.Equal(t, protocol.Version1_3, state.localVersion)
-	assert.Equal(t, []protocol.Version{protocol.Version1_3}, state.remoteVersions)
-	require.NotNil(t, state.cipherSuite)
-	assert.Equal(t, cfg.localCipherSuites[0].ID(), state.cipherSuite.ID())
-	assert.Equal(t, group, state.namedCurve)
-	assert.Equal(t, random.RandomBytes, state.remoteRandom.RandomBytes)
-	require.NotNil(t, state.remoteKeyEntries)
-	require.Len(t, *state.remoteKeyEntries, 1)
-	assert.Equal(t, group, (*state.remoteKeyEntries)[0].Group)
+	assert.Equal(t, protocol.Version1_3, state.LocalVersion)
+	assert.Equal(t, []protocol.Version{protocol.Version1_3}, state.RemoteVersions)
+	require.NotNil(t, state.CipherSuite)
+	assert.Equal(t, cfg.localCipherSuites[0].ID(), state.CipherSuite.ID())
+	assert.Equal(t, group, state.NamedCurve)
+	assert.Equal(t, random.RandomBytes, state.RemoteRandom.RandomBytes)
+	require.NotNil(t, state.RemoteKeyEntries)
+	require.Len(t, *state.RemoteKeyEntries, 1)
+	assert.Equal(t, group, (*state.RemoteKeyEntries)[0].Group)
 
-	clientKeypair := state.localKeypairs[group]
+	clientKeypair := state.LocalKeypairs[group]
 	require.NotNil(t, clientKeypair)
 	expected, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
-	assert.Equal(t, expected, state.preMasterSecret)
-	assert.NotEmpty(t, state.preMasterSecret)
+	assert.Equal(t, expected, state.PreMasterSecret)
+	assert.NotEmpty(t, state.PreMasterSecret)
 }
 
 func TestFlight13_3ParseKeepsReadingWithoutServerHello(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 
 	nextFlight, dtlsAlert, err := flight13_3Parse(context.Background(), nil, &handshakeContext13{
 		state: state,
@@ -673,7 +674,7 @@ func TestFlight13_3ParseKeepsReadingWithoutServerHello(t *testing.T) {
 
 func TestFlight13_3ParseRejectsSecondHelloRetryRequest(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 	_, _, err := flight13_1Generate(nil, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
@@ -698,7 +699,7 @@ func TestFlight13_3ParseRejectsSecondHelloRetryRequest(t *testing.T) {
 
 func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 	_, _, err := flight13_1Generate(nil, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
@@ -736,7 +737,7 @@ func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 
 func TestFlight13_3ParseRejectsMissingSupportedVersions(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 	_, _, err := flight13_1Generate(nil, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
@@ -765,7 +766,7 @@ func TestFlight13_3ParseRejectsMissingSupportedVersions(t *testing.T) {
 
 func TestFlight13_3ParseRejectsMissingKeyShare(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 	_, _, err := flight13_1Generate(nil, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
@@ -790,7 +791,7 @@ func TestFlight13_3ParseRejectsMissingKeyShare(t *testing.T) {
 
 func TestFlight13_3ParseRejectsUnofferedKeyShareGroup(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &State{}
+	state := &dtlsstate.State{}
 
 	group := cfg.ellipticCurves[0]
 	serverKeypair, err := elliptic.GenerateKeypair(group)

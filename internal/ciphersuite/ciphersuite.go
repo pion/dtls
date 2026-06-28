@@ -7,9 +7,28 @@ package ciphersuite
 
 import (
 	"fmt"
+	"hash"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
+
+// CipherSuite is the interface that all DTLS CipherSuites satisfy. The public
+// dtls.CipherSuite interface mirrors it for the package's exported API.
+type CipherSuite interface {
+	String() string
+	ID() ID
+	CertificateType() clientcertificate.Type
+	HashFunc() func() hash.Hash
+	AuthenticationType() AuthenticationType
+	KeyExchangeAlgorithm() KeyExchangeAlgorithm
+	ECC() bool
+	Init(masterSecret, clientRandom, serverRandom []byte, isClient bool) error
+	IsInitialized() bool
+	Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
+	Decrypt(h recordlayer.Header, in []byte) ([]byte, error)
+}
 
 // ID is an ID for our supported CipherSuites.
 type ID uint16

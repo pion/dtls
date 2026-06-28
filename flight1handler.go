@@ -7,6 +7,7 @@ import (
 	"context"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -18,13 +19,13 @@ import (
 func flight1Parse(
 	ctx context.Context,
 	conn flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) (flightVal, *alert.Alert, error) {
 	// HelloVerifyRequest can be skipped by the server,
 	// so allow ServerHello during flight1 also
-	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
+	seq, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeHelloVerifyRequest, cfg.initialEpoch, false, true},
 		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, true},
 	)
@@ -46,8 +47,8 @@ func flight1Parse(
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 				dtlserrors.ErrUnsupportedProtocolVersion
 		}
-		state.cookie = append([]byte{}, h.Cookie...)
-		state.handshakeRecvSequence = seq
+		state.Cookie = append([]byte{}, h.Cookie...)
+		state.HandshakeRecvSequence = seq
 
 		return flight3, nil, nil
 	}
@@ -58,25 +59,25 @@ func flight1Parse(
 //nolint:cyclop
 func flight1Generate(
 	conn flightConn,
-	state *State,
+	state *dtlsstate.State,
 	_ *handshakeCache,
 	cfg *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) {
 	var zeroEpoch uint16
-	state.localEpoch.Store(zeroEpoch)
-	state.remoteEpoch.Store(zeroEpoch)
+	state.LocalEpoch.Store(zeroEpoch)
+	state.RemoteEpoch.Store(zeroEpoch)
 	if len(cfg.ellipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
-	state.namedCurve = cfg.ellipticCurves[0]
-	state.cookie = nil
+	state.NamedCurve = cfg.ellipticCurves[0]
+	state.Cookie = nil
 
-	if err := state.localRandom.Populate(); err != nil {
+	if err := state.LocalRandom.Populate(); err != nil {
 		return nil, nil, err
 	}
 
 	if cfg.helloRandomBytesGenerator != nil {
-		state.localRandom.RandomBytes = cfg.helloRandomBytesGenerator()
+		state.LocalRandom.RandomBytes = cfg.helloRandomBytesGenerator()
 	}
 
 	extensions := []extension.Extension{
@@ -144,7 +145,7 @@ func flight1Generate(
 			cfg.log.Tracef("[handshake] get saved session: %x", s.ID)
 
 			state.SessionID = s.ID
-			state.masterSecret = s.Secret
+			state.MasterSecret = s.Secret
 		}
 	}
 
@@ -152,22 +153,22 @@ func flight1Generate(
 	// in which case we are just requesting that the server send us a CID to
 	// use.
 	if cfg.connectionIDGenerator != nil {
-		state.setLocalConnectionID(cfg.connectionIDGenerator())
+		state.SetLocalConnectionID(cfg.connectionIDGenerator())
 		// The presence of a generator indicates support for connection IDs. We
 		// use the presence of a non-nil local CID in flight 3 to determine
 		// whether we send a CID in the second ClientHello, so we convert any
 		// nil CID returned by a generator to []byte{}.
-		if state.getLocalConnectionID() == nil {
-			state.setLocalConnectionID([]byte{})
+		if state.GetLocalConnectionID() == nil {
+			state.SetLocalConnectionID([]byte{})
 		}
-		extensions = append(extensions, &extension.ConnectionID{CID: state.getLocalConnectionID()})
+		extensions = append(extensions, &extension.ConnectionID{CID: state.GetLocalConnectionID()})
 	}
 
 	clientHello := &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		SessionID:          state.SessionID,
-		Cookie:             state.cookie,
-		Random:             state.localRandom,
+		Cookie:             state.Cookie,
+		Random:             state.LocalRandom,
 		CipherSuiteIDs:     cipherSuiteIDs(cfg.localCipherSuites),
 		CompressionMethods: defaultCompressionMethods(),
 		Extensions:         extensions,

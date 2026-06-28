@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/logging"
@@ -52,8 +53,8 @@ func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) { //nolint:maintid
 	defer report()
 
 	mockConn := &flight1TestMockFlightConn{}
-	state := &State{
-		cipherSuite: &flight1TestMockCipherSuite{t: t},
+	state := &dtlsstate.State{
+		CipherSuite: &flight1TestMockCipherSuite{t: t},
 	}
 	cache := newHandshakeCache()
 	cfg := &handshakeConfig{

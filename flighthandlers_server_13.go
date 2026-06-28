@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -66,7 +67,7 @@ func newClientHello13ExtensionFailure(
 }
 
 func processClientHello13Extensions(
-	state *State,
+	state *dtlsstate.State,
 	cfg *handshakeConfig,
 	clientHello *handshake.MessageClientHello,
 ) *clientHello13ExtensionFailure {
@@ -87,7 +88,7 @@ func processClientHello13Extensions(
 }
 
 func processClientHello13SecurityExtension(
-	state *State,
+	state *dtlsstate.State,
 	cfg *handshakeConfig,
 	seen *clientHello13ExtensionSet,
 	val extension.Extension,
@@ -98,22 +99,22 @@ func processClientHello13SecurityExtension(
 		if len(ext.EllipticCurves) == 0 {
 			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
 		}
-		state.remoteGroups = ext.EllipticCurves
+		state.RemoteGroups = ext.EllipticCurves
 	case *extension.UseSRTP:
 		profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
 		if !ok {
 			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrServerNoMatchingSRTPProfile)
 		}
-		state.setSRTPProtectionProfile(profile)
-		state.remoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
+		state.SetSRTPProtectionProfile(profile)
+		state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
 	case *extension.SupportedSignatureAlgorithms:
 		seen.hasSignatureAlgorithms = true
-		state.remoteSignatureSchemes = ext.SignatureHashAlgorithms
+		state.RemoteSignatureSchemes = ext.SignatureHashAlgorithms
 	case *extension.SupportedVersions:
 		if ext.IsSelectedVersion() {
 			return newClientHello13ExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
 		}
-		state.remoteVersions = ext.Versions
+		state.RemoteVersions = ext.Versions
 	case *extension.PreSharedKey:
 		seen.hasPreSharedKey = true
 	}
@@ -122,31 +123,31 @@ func processClientHello13SecurityExtension(
 }
 
 func processClientHello13StateExtension(
-	state *State,
+	state *dtlsstate.State,
 	cfg *handshakeConfig,
 	val extension.Extension,
 ) {
 	switch ext := val.(type) {
 	case *extension.UseExtendedMasterSecret:
 		if cfg.extendedMasterSecret != DisableExtendedMasterSecret {
-			state.extendedMasterSecret = true
+			state.ExtendedMasterSecret = true
 		}
 	case *extension.ServerName:
-		state.serverName = ext.ServerName // remote server name
+		state.ServerName = ext.ServerName // remote server name
 	case *extension.RenegotiationInfo:
-		state.remoteSupportsRenegotiation = true
+		state.RemoteSupportsRenegotiation = true
 	case *extension.ALPN:
-		state.peerSupportedProtocols = ext.ProtocolNameList
+		state.PeerSupportedProtocols = ext.ProtocolNameList
 	case *extension.ConnectionID:
 		// Only set connection ID to be sent if server supports connection IDs.
 		if cfg.connectionIDGenerator != nil {
-			state.remoteConnectionID = ext.CID
+			state.RemoteConnectionID = ext.CID
 		}
 	case *extension.SignatureAlgorithmsCert:
 		// Store the client's certificate signature schemes for later validation.
-		state.remoteCertSignatureSchemes = ext.SignatureHashAlgorithms
+		state.RemoteCertSignatureSchemes = ext.SignatureHashAlgorithms
 	case *extension.KeyShare:
-		state.remoteKeyEntries = &ext.ClientShares
+		state.RemoteKeyEntries = &ext.ClientShares
 	}
 }
 
@@ -160,11 +161,11 @@ func flight13_0Parse(
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
 
-	if state.localVersion != protocol.Version1_3 {
+	if state.LocalVersion != protocol.Version1_3 {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
 			dtlserrors.ErrInvalidProtocolVersionState
 	}
-	seq, msgs, ok := cache.fullPullMap(0, state.cipherSuite,
+	seq, msgs, ok := cache.fullPullMap(0, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 	)
 	if !ok {
@@ -174,10 +175,10 @@ func flight13_0Parse(
 
 	// Connection Identifiers must be negotiated afresh on session resumption.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
-	state.setLocalConnectionID(nil)
-	state.remoteConnectionID = nil
+	state.SetLocalConnectionID(nil)
+	state.RemoteConnectionID = nil
 
-	state.handshakeRecvSequence = seq
+	state.HandshakeRecvSequence = seq
 
 	var clientHello *handshake.MessageClientHello
 
@@ -191,12 +192,12 @@ func flight13_0Parse(
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
-	state.remoteRandom = clientHello.Random
+	state.RemoteRandom = clientHello.Random
 
 	cipherSuites := []CipherSuite{}
 	for _, id := range clientHello.CipherSuiteIDs {
 		if id == renegotiationInfoSCSV {
-			state.remoteSupportsRenegotiation = true
+			state.RemoteSupportsRenegotiation = true
 
 			continue
 		}
@@ -207,7 +208,7 @@ func flight13_0Parse(
 
 	// nolint:godox
 	// TODO: check for DTLS 1.3 cipher suites
-	if state.cipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
+	if state.CipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 
@@ -215,7 +216,7 @@ func flight13_0Parse(
 		return 0, failure.alert, failure.err
 	}
 
-	if !slices.Contains(state.remoteVersions, protocol.Version1_3) {
+	if !slices.Contains(state.RemoteVersions, protocol.Version1_3) {
 		// nolint:godox
 		// TODO: This should actually handover the state machine to DTLS 1.2
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
@@ -224,38 +225,38 @@ func flight13_0Parse(
 
 	// If the client doesn't support connection IDs, the server should not
 	// expect one to be sent.
-	if state.remoteConnectionID == nil {
-		state.setLocalConnectionID(nil)
+	if state.RemoteConnectionID == nil {
+		state.SetLocalConnectionID(nil)
 	}
 
-	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {
+	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS //nolint:lll
 	}
 
 	nextFlight := flight13_2
 
 	// nolint:nestif
-	if state.remoteKeyEntries != nil && state.remoteGroups != nil {
+	if state.RemoteKeyEntries != nil && state.RemoteGroups != nil {
 		// Overlapping groups between client and server
 		var groups []elliptic.Curve
-		for _, group := range state.remoteGroups {
+		for _, group := range state.RemoteGroups {
 			if slices.Contains(cfg.ellipticCurves, group) {
 				groups = append(groups, group)
 			}
 		}
 		// Find key entry group in supported groups by client and server
 		foundEntry := false
-		for _, entry := range *state.remoteKeyEntries {
+		for _, entry := range *state.RemoteKeyEntries {
 			if slices.Contains(groups, entry.Group) {
-				state.namedCurve = entry.Group
+				state.NamedCurve = entry.Group
 				foundEntry = true
 				// Ensure that first matching entry is chosen
 				break
 			}
 		}
-		if foundEntry && (state.localKeypair == nil || state.localKeypair.Curve != state.namedCurve) {
+		if foundEntry && (state.LocalKeypair == nil || state.LocalKeypair.Curve != state.NamedCurve) {
 			var err error
-			state.localKeypair, err = elliptic.GenerateKeypair(state.namedCurve)
+			state.LocalKeypair, err = elliptic.GenerateKeypair(state.NamedCurve)
 			if err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 			}
@@ -278,20 +279,20 @@ func flight13_0Generate(
 	cfg := flightCtx.cfg
 
 	if !cfg.insecureSkipHelloVerify {
-		state.cookie = make([]byte, cookieLength)
-		if _, err := rand.Read(state.cookie); err != nil {
+		state.Cookie = make([]byte, cookieLength)
+		if _, err := rand.Read(state.Cookie); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	var zeroEpoch uint16
-	state.localEpoch.Store(zeroEpoch)
-	state.remoteEpoch.Store(zeroEpoch)
+	state.LocalEpoch.Store(zeroEpoch)
+	state.RemoteEpoch.Store(zeroEpoch)
 	if len(cfg.ellipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 
-	if err := state.localRandom.Populate(); err != nil {
+	if err := state.LocalRandom.Populate(); err != nil {
 		return nil, nil, err
 	}
 
@@ -303,7 +304,7 @@ func flight13_2Parse(
 	_ flightConn,
 	flightCtx *handshakeContext13,
 ) (flightVal13, *alert.Alert, error) {
-	seq, msgs, ok := flightCtx.cache.fullPullMap(flightCtx.state.handshakeRecvSequence, flightCtx.state.cipherSuite,
+	seq, msgs, ok := flightCtx.cache.fullPullMap(flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, flightCtx.cfg.initialEpoch, true, false},
 	)
 	if !ok {
@@ -332,14 +333,14 @@ func flight13_2Parse(
 	if len(cookie) == 0 {
 		return 0, nil, nil
 	}
-	if !bytes.Equal(flightCtx.state.cookie, cookie) {
+	if !bytes.Equal(flightCtx.state.Cookie, cookie) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
 
 	if failure := processClientHello13Extensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	flightCtx.state.handshakeRecvSequence = seq
+	flightCtx.state.HandshakeRecvSequence = seq
 
 	return flight13_4, nil, nil
 }
@@ -348,8 +349,8 @@ func flight13_2Generate(
 	_ flightConn,
 	flightCtx *handshakeContext13,
 ) ([]*packet, *alert.Alert, error) {
-	flightCtx.state.handshakeSendSequence = 0
-	if flightCtx.state.cipherSuite == nil {
+	flightCtx.state.HandshakeSendSequence = 0
+	if flightCtx.state.CipherSuite == nil {
 		return nil, nil, dtlserrors.ErrCipherSuiteUnset
 	}
 
@@ -362,17 +363,17 @@ func flight13_2Generate(
 		Versions:        []protocol.Version{protocol.Version1_3},
 		SelectedVersion: true,
 	})
-	cipherSuiteID := uint16(flightCtx.state.cipherSuite.ID())
+	cipherSuiteID := uint16(flightCtx.state.CipherSuite.ID())
 
-	if flightCtx.state.namedCurve != 0 {
+	if flightCtx.state.NamedCurve != 0 {
 		exts = append(exts, &extension.KeyShare{
-			SelectedGroup: &flightCtx.state.namedCurve,
+			SelectedGroup: &flightCtx.state.NamedCurve,
 		})
 	}
 
-	if len(flightCtx.state.cookie) > 0 {
+	if len(flightCtx.state.Cookie) > 0 {
 		exts = append(exts, &extension.CookieExt{
-			Cookie: flightCtx.state.cookie,
+			Cookie: flightCtx.state.Cookie,
 		})
 	}
 

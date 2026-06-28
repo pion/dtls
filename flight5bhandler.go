@@ -6,6 +6,7 @@ package dtls
 import (
 	"context"
 
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -16,11 +17,11 @@ import (
 func flight5bParse(
 	_ context.Context,
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) (flightVal, *alert.Alert, error) {
-	_, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence-1, state.cipherSuite,
+	_, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence-1, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, false, false},
 	)
 	if !ok {
@@ -38,7 +39,7 @@ func flight5bParse(
 
 func flight5bGenerate(
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) { //nolint:gocognit
@@ -54,7 +55,7 @@ func flight5bGenerate(
 			},
 		})
 
-	if len(state.localVerifyData) == 0 {
+	if len(state.LocalVerifyData) == 0 {
 		plainText := cache.pullAndMerge(
 			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
@@ -62,7 +63,7 @@ func flight5bGenerate(
 		)
 
 		var err error
-		state.localVerifyData, err = prf.VerifyDataClient(state.masterSecret, plainText, state.cipherSuite.HashFunc())
+		state.LocalVerifyData, err = prf.VerifyDataClient(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
@@ -77,7 +78,7 @@ func flight5bGenerate(
 				},
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageFinished{
-						VerifyData: state.localVerifyData,
+						VerifyData: state.LocalVerifyData,
 					},
 				},
 			},
