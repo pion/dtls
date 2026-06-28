@@ -119,7 +119,7 @@ func pushFlight13_0ClientHello(
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 	exts []extension.Extension,
-) {
+) []byte {
 	t.Helper()
 
 	clientHello := &handshake.MessageClientHello{
@@ -135,6 +135,8 @@ func pushFlight13_0ClientHello(
 	require.NoError(t, err)
 
 	cache.push(rawClientHello, cfg.initialEpoch, 0, handshake.TypeClientHello, true)
+
+	return rawClientHello
 }
 
 func requiredClientHello13Extensions(t *testing.T, cfg *handshakeConfig) []extension.Extension {
@@ -271,6 +273,85 @@ func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
 		assert.Zero(t, nextFlight)
 	})
+}
+
+func TestFlight13ServerParseAppendsNoHRRTranscriptOrder(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.insecureSkipHelloVerify = true
+	state := &dtlsstate.State{LocalVersion: protocol.Version1_3}
+	cache := newHandshakeCache()
+	rawClientHello := pushFlight13_0ClientHello(t, cache, cfg, requiredClientHello13Extensions(t, cfg))
+	clientHelloCanonical, err := canonicalHandshake13(rawClientHello)
+	require.NoError(t, err)
+	transcript := newHandshakeTranscript13()
+
+	nextFlight, dtlsAlert, err := flight13_0Parse(context.Background(), nil, &handshakeContext13{
+		state:      state,
+		cache:      cache,
+		cfg:        cfg,
+		transcript: transcript,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, flight13_4, nextFlight)
+	assert.Equal(t, []transcriptMessage13{
+		{id: transcriptMessageID13{sender: transcriptClient13, seq: 0}, typ: handshake.TypeClientHello},
+	}, transcript.order)
+	assert.Equal(t, clientHelloCanonical, transcript.transcript)
+}
+
+func TestFlight13ServerParseAppendsHRRTranscriptOrder(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cookie := []byte{0xde, 0xad, 0xbe, 0xef}
+	state := &dtlsstate.State{
+		LocalVersion: protocol.Version1_3,
+		Cookie:       cookie,
+	}
+	cache := newHandshakeCache()
+	rawClientHello1 := pushFlight13_0ClientHello(t, cache, cfg, requiredClientHello13Extensions(t, cfg))
+	clientHello1Canonical, err := canonicalHandshake13(rawClientHello1)
+	require.NoError(t, err)
+	transcript := newHandshakeTranscript13()
+	flightCtx := &handshakeContext13{
+		state:      state,
+		cache:      cache,
+		cfg:        cfg,
+		transcript: transcript,
+	}
+
+	nextFlight, dtlsAlert, err := flight13_0Parse(context.Background(), nil, flightCtx)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, flight13_2, nextFlight)
+
+	helloRetryRequest, dtlsAlert, err := flight13_2Generate(nil, flightCtx)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, helloRetryRequest, 1)
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, false, state.CipherSuite, helloRetryRequest))
+	helloRetryRequestCanonical := canonicalPacketHandshake13(t, helloRetryRequest[0])
+
+	exts := append(requiredClientHello13Extensions(t, cfg), &extension.CookieExt{Cookie: cookie})
+	rawClientHello2 := pushClientHello13WithSequence(t, cache, protocol.Version1_2, 1, exts)
+	clientHello2Canonical, err := canonicalHandshake13(rawClientHello2)
+	require.NoError(t, err)
+
+	nextFlight, dtlsAlert, err = flight13_2Parse(context.Background(), nil, flightCtx)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, flight13_4, nextFlight)
+
+	clientHello1Hash := hashTranscript13(clientHello1Canonical)
+	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHello1Hash)
+	expectedTranscript := append(append(append([]byte(nil), messageHash...), helloRetryRequestCanonical...),
+		clientHello2Canonical...)
+	assert.Equal(t, []transcriptMessage13{
+		{id: transcriptMessageID13{sender: transcriptClient13, seq: 0}, typ: handshake.TypeClientHello},
+		{id: transcriptMessageID13{sender: transcriptServer13, seq: 0}, typ: handshake.TypeServerHello},
+		{id: transcriptMessageID13{sender: transcriptClient13, seq: 1}, typ: handshake.TypeClientHello},
+	}, transcript.order)
+	assert.Equal(t, expectedTranscript, transcript.transcript)
 }
 
 func serverHelloFromFlight13_2(
@@ -469,8 +550,20 @@ func pushClientHello13(
 ) {
 	t.Helper()
 
+	pushClientHello13WithSequence(t, cache, version, 0, exts)
+}
+
+func pushClientHello13WithSequence(
+	t *testing.T,
+	cache *handshakeCache,
+	version protocol.Version,
+	seq uint16,
+	exts []extension.Extension,
+) []byte {
+	t.Helper()
+
 	content := &handshake.Handshake{
-		Header: handshake.Header{MessageSequence: 0},
+		Header: handshake.Header{MessageSequence: seq},
 		Message: &handshake.MessageClientHello{
 			Version:            version,
 			Random:             handshake.Random{},
@@ -483,7 +576,9 @@ func pushClientHello13(
 	raw, err := content.Marshal()
 	require.NoError(t, err)
 
-	cache.push(raw, 0, 0, handshake.TypeClientHello, true)
+	cache.push(raw, 0, seq, handshake.TypeClientHello, true)
+
+	return raw
 }
 
 func flight13_2Context(state *dtlsstate.State, cache *handshakeCache, cfg *handshakeConfig) *handshakeContext13 {

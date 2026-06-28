@@ -72,67 +72,117 @@ func (h *handshakeCache) pull(rules ...handshakeCachePullRule) []*handshakeCache
 }
 
 // fullPullMap pulls all handshakes between rules[0] to rules[len(rules)-1] as map.
-//
-//nolint:cyclop
 func (h *handshakeCache) fullPullMap(
 	startSeq int,
 	cipherSuite CipherSuite,
 	rules ...handshakeCachePullRule,
 ) (int, map[handshake.Type]handshake.Message, bool) {
+	seq, msgs, _, ok := h.fullPullMapItems(startSeq, cipherSuite, rules...)
+
+	return seq, msgs, ok
+}
+
+func (h *handshakeCache) fullPullMapItems(
+	startSeq int,
+	cipherSuite CipherSuite,
+	rules ...handshakeCachePullRule,
+) (int, map[handshake.Type]handshake.Message, []*handshakeCacheItem, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	ci := make(map[handshake.Type]*handshakeCacheItem)
-	for _, rule := range rules {
-		var item *handshakeCacheItem
-		for _, c := range h.cache {
-			if c.typ == rule.typ && c.isClient == rule.isClient && c.epoch == rule.epoch {
-				switch {
-				case item == nil:
-					item = c
-				case item.messageSequence < c.messageSequence:
-					item = c
-				}
-			}
-		}
-		if !rule.optional && item == nil {
-			// Missing mandatory message.
-			return startSeq, nil, false
-		}
-		ci[rule.typ] = item
+	ci, ok := h.pullLastCacheItems(rules)
+	if !ok {
+		return startSeq, nil, nil, false
 	}
-	out := make(map[handshake.Type]handshake.Message)
-	seq := startSeq
-	ok := false
-	for _, r := range rules {
-		typ := r.typ
-		i := ci[typ]
-		if i == nil {
+
+	return fullPullMapCacheItems(startSeq, cipherSuite, rules, ci)
+}
+
+func (h *handshakeCache) pullLastCacheItems(rules []handshakeCachePullRule) ([]*handshakeCacheItem, bool) {
+	items := make([]*handshakeCacheItem, len(rules))
+	for i, rule := range rules {
+		items[i] = h.lastCacheItemForRule(rule)
+		if !rule.optional && items[i] == nil {
+			return nil, false
+		}
+	}
+
+	return items, true
+}
+
+func (h *handshakeCache) lastCacheItemForRule(rule handshakeCachePullRule) *handshakeCacheItem {
+	var last *handshakeCacheItem
+	for _, c := range h.cache {
+		if !cacheItemMatchesRule(c, rule) {
 			continue
 		}
-		var keyExchangeAlgorithm CipherSuiteKeyExchangeAlgorithm
-		if cipherSuite != nil {
-			keyExchangeAlgorithm = cipherSuite.KeyExchangeAlgorithm()
+		if last == nil || last.messageSequence < c.messageSequence {
+			last = c
 		}
-		rawHandshake := &handshake.Handshake{
-			KeyExchangeAlgorithm: keyExchangeAlgorithm,
+	}
+
+	return last
+}
+
+func cacheItemMatchesRule(item *handshakeCacheItem, rule handshakeCachePullRule) bool {
+	return item.typ == rule.typ && item.isClient == rule.isClient && item.epoch == rule.epoch
+}
+
+func fullPullMapCacheItems(
+	startSeq int,
+	cipherSuite CipherSuite,
+	rules []handshakeCachePullRule,
+	ci []*handshakeCacheItem,
+) (int, map[handshake.Type]handshake.Message, []*handshakeCacheItem, bool) {
+	out := make(map[handshake.Type]handshake.Message)
+	items := make([]*handshakeCacheItem, 0, len(rules))
+	seq := startSeq
+	keyExchangeAlgorithm := keyExchangeAlgorithmForCipherSuite(cipherSuite)
+	for i, r := range rules {
+		typ := r.typ
+		item := ci[i]
+		if item == nil {
+			continue
 		}
-		if err := rawHandshake.Unmarshal(i.data); err != nil {
-			return startSeq, nil, false
+		rawHandshake, ok := unmarshalCachedHandshake(item, keyExchangeAlgorithm)
+		if !ok {
+			return startSeq, nil, nil, false
 		}
 		if uint16(seq) != rawHandshake.Header.MessageSequence { //nolint:gosec // G115
 			// There is a gap. Some messages are not arrived.
-			return startSeq, nil, false
+			return startSeq, nil, nil, false
 		}
 		seq++
-		ok = true
 		out[typ] = rawHandshake.Message
+		items = append(items, item)
 	}
-	if !ok {
-		return seq, nil, false
+	if len(items) == 0 {
+		return seq, nil, nil, false
 	}
 
-	return seq, out, true
+	return seq, out, items, true
+}
+
+func keyExchangeAlgorithmForCipherSuite(cipherSuite CipherSuite) CipherSuiteKeyExchangeAlgorithm {
+	if cipherSuite == nil {
+		return 0
+	}
+
+	return cipherSuite.KeyExchangeAlgorithm()
+}
+
+func unmarshalCachedHandshake(
+	item *handshakeCacheItem,
+	keyExchangeAlgorithm CipherSuiteKeyExchangeAlgorithm,
+) (*handshake.Handshake, bool) {
+	rawHandshake := &handshake.Handshake{
+		KeyExchangeAlgorithm: keyExchangeAlgorithm,
+	}
+	if err := rawHandshake.Unmarshal(item.data); err != nil {
+		return nil, false
+	}
+
+	return rawHandshake, true
 }
 
 // pullAndMerge calls pull and then merges the results, ignoring any null entries.

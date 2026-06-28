@@ -165,7 +165,7 @@ func flight13_0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
 			dtlserrors.ErrInvalidProtocolVersionState
 	}
-	seq, msgs, ok := cache.fullPullMap(0, state.CipherSuite,
+	seq, msgs, items, ok := cache.fullPullMapItems(0, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 	)
 	if !ok {
@@ -267,6 +267,10 @@ func flight13_0Parse(
 		nextFlight = flight13_4
 	}
 
+	if err := appendInboundHandshakeCacheItems13(flightCtx.transcript, state.CipherSuite, items); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+
 	return nextFlight, nil, nil
 }
 
@@ -304,7 +308,8 @@ func flight13_2Parse(
 	_ flightConn,
 	flightCtx *handshakeContext13,
 ) (flightVal13, *alert.Alert, error) {
-	seq, msgs, ok := flightCtx.cache.fullPullMap(flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
+	seq, msgs, items, ok := flightCtx.cache.fullPullMapItems(
+		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, flightCtx.cfg.initialEpoch, true, false},
 	)
 	if !ok {
@@ -339,6 +344,9 @@ func flight13_2Parse(
 
 	if failure := processClientHello13Extensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
+	}
+	if err := appendInboundHandshakeCacheItems13(flightCtx.transcript, flightCtx.state.CipherSuite, items); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	flightCtx.state.HandshakeRecvSequence = seq
 

@@ -59,6 +59,18 @@ func marshalServerHello(
 ) []byte {
 	t.Helper()
 
+	return marshalServerHelloWithSequence(t, cfg, random, extensions, 0)
+}
+
+func marshalServerHelloWithSequence(
+	t *testing.T,
+	cfg *handshakeConfig,
+	random handshake.Random,
+	extensions []extension.Extension,
+	seq uint16,
+) []byte {
+	t.Helper()
+
 	cipherSuiteID := uint16(cfg.localCipherSuites[0].ID())
 	serverHello := &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
@@ -67,7 +79,10 @@ func marshalServerHello(
 		CompressionMethod: defaultCompressionMethods()[0],
 		Extensions:        extensions,
 	}
-	rawServerHello, err := (&handshake.Handshake{Message: serverHello}).Marshal()
+	rawServerHello, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: seq},
+		Message: serverHello,
+	}).Marshal()
 	require.NoError(t, err)
 
 	return rawServerHello
@@ -655,6 +670,145 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expected, state.PreMasterSecret)
 	assert.NotEmpty(t, state.PreMasterSecret)
+}
+
+func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := &dtlsstate.State{}
+	transcript := newHandshakeTranscript13()
+
+	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
+		state:      state,
+		cfg:        cfg,
+		transcript: transcript,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	appended, err := appendClientHelloInitialFlights13(transcript, pkts)
+	require.NoError(t, err)
+	require.True(t, appended)
+	clientHelloCanonical := canonicalPacketHandshake13(t, pkts[0])
+
+	group := cfg.ellipticCurves[0]
+	serverKeypair, err := elliptic.GenerateKeypair(group)
+	require.NoError(t, err)
+	rawServerHello := marshalServerHello(t, cfg, handshake.Random{
+		RandomBytes: [handshake.RandomBytesLength]byte{0x01},
+	}, []extension.Extension{
+		&extension.SupportedVersions{Versions: []protocol.Version{protocol.Version1_3}, SelectedVersion: true},
+		&extension.KeyShare{ServerShare: &extension.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+	})
+	serverHelloCanonical, err := canonicalHandshake13(rawServerHello)
+	require.NoError(t, err)
+
+	cache := newHandshakeCache()
+	cache.push(rawServerHello, cfg.initialEpoch, 0, handshake.TypeServerHello, false)
+	nextFlight, dtlsAlert, err := flight13_1Parse(context.Background(), nil, &handshakeContext13{
+		state:      state,
+		cache:      cache,
+		cfg:        cfg,
+		transcript: transcript,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, flight13_5, nextFlight)
+	assert.Equal(t, []transcriptMessage13{
+		{id: transcriptMessageID13{sender: transcriptClient13, seq: 0}, typ: handshake.TypeClientHello},
+		{id: transcriptMessageID13{sender: transcriptServer13, seq: 0}, typ: handshake.TypeServerHello},
+	}, transcript.order)
+	assert.Equal(t, append(append([]byte(nil), clientHelloCanonical...), serverHelloCanonical...), transcript.transcript)
+}
+
+func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := &dtlsstate.State{}
+	transcript := newHandshakeTranscript13()
+
+	pkts, dtlsAlert, err := flight13_1Generate(nil, &handshakeContext13{
+		state:      state,
+		cfg:        cfg,
+		transcript: transcript,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	appended, err := appendClientHelloInitialFlights13(transcript, pkts)
+	require.NoError(t, err)
+	require.True(t, appended)
+	clientHello1Canonical := canonicalPacketHandshake13(t, pkts[0])
+
+	group := cfg.ellipticCurves[0]
+	rawHelloRetryRequest := marshalHelloRetryRequestServerHello(t, cfg, []extension.Extension{
+		&extension.SupportedVersions{Versions: []protocol.Version{protocol.Version1_3}, SelectedVersion: true},
+		&extension.KeyShare{SelectedGroup: &group},
+	})
+	helloRetryRequestCanonical, err := canonicalHandshake13(rawHelloRetryRequest)
+	require.NoError(t, err)
+
+	cache := newHandshakeCache()
+	cache.push(rawHelloRetryRequest, cfg.initialEpoch, 0, handshake.TypeServerHello, false)
+	nextFlight, dtlsAlert, err := flight13_1Parse(context.Background(), nil, &handshakeContext13{
+		state:      state,
+		cache:      cache,
+		cfg:        cfg,
+		transcript: transcript,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, flight13_3, nextFlight)
+
+	clientHello2, dtlsAlert, err := flight13_3Generate(nil, &handshakeContext13{
+		state:      state,
+		cache:      cache,
+		cfg:        cfg,
+		transcript: transcript,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, clientHello2, 1)
+	clientHello2Handshake, ok := clientHello2[0].record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	clientHello2Handshake.Header.MessageSequence = 1
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, state.CipherSuite, clientHello2))
+	clientHello2Canonical := canonicalPacketHandshake13(t, clientHello2[0])
+
+	serverKeypair, err := elliptic.GenerateKeypair(group)
+	require.NoError(t, err)
+	rawServerHello := marshalServerHelloWithSequence(
+		t,
+		cfg,
+		handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x02}},
+		[]extension.Extension{
+			&extension.SupportedVersions{Versions: []protocol.Version{protocol.Version1_3}, SelectedVersion: true},
+			&extension.KeyShare{ServerShare: &extension.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+		},
+		1,
+	)
+	serverHelloCanonical, err := canonicalHandshake13(rawServerHello)
+	require.NoError(t, err)
+	cache.push(rawServerHello, cfg.initialEpoch, 1, handshake.TypeServerHello, false)
+
+	nextFlight, dtlsAlert, err = flight13_3Parse(context.Background(), nil, &handshakeContext13{
+		state:      state,
+		cache:      cache,
+		cfg:        cfg,
+		transcript: transcript,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, flight13_5, nextFlight)
+
+	clientHello1Hash := hashTranscript13(clientHello1Canonical)
+	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHello1Hash)
+	expectedTranscript := append(append(append(append([]byte(nil), messageHash...), helloRetryRequestCanonical...),
+		clientHello2Canonical...), serverHelloCanonical...)
+	assert.Equal(t, []transcriptMessage13{
+		{id: transcriptMessageID13{sender: transcriptClient13, seq: 0}, typ: handshake.TypeClientHello},
+		{id: transcriptMessageID13{sender: transcriptServer13, seq: 0}, typ: handshake.TypeServerHello},
+		{id: transcriptMessageID13{sender: transcriptClient13, seq: 1}, typ: handshake.TypeClientHello},
+		{id: transcriptMessageID13{sender: transcriptServer13, seq: 1}, typ: handshake.TypeServerHello},
+	}, transcript.order)
+	assert.Equal(t, expectedTranscript, transcript.transcript)
 }
 
 func TestFlight13_3ParseKeepsReadingWithoutServerHello(t *testing.T) {

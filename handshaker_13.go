@@ -358,11 +358,60 @@ func appendOutboundHandshake13(
 	h *handshake.Handshake,
 	canonical []byte,
 ) error {
+	return appendHandshake13(transcript, sender, cipherSuite, h.Header.MessageSequence, h.Message, canonical)
+}
+
+func appendInboundHandshakeCacheItems13(
+	transcript *handshakeTranscript13,
+	cipherSuite CipherSuite,
+	items []*handshakeCacheItem,
+) error {
+	if transcript == nil {
+		return nil
+	}
+
+	keyExchangeAlgorithm := keyExchangeAlgorithmForCipherSuite(cipherSuite)
+	for _, item := range items {
+		canonical, err := canonicalHandshake13(item.data)
+		if err != nil {
+			return err
+		}
+
+		h := &handshake.Handshake{
+			KeyExchangeAlgorithm: keyExchangeAlgorithm,
+		}
+		if err := h.Unmarshal(item.data); err != nil {
+			return err
+		}
+
+		if err := appendHandshake13(
+			transcript,
+			transcriptSenderForSide13(item.isClient),
+			cipherSuite,
+			h.Header.MessageSequence,
+			h.Message,
+			canonical,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func appendHandshake13(
+	transcript *handshakeTranscript13,
+	sender transcriptSender13,
+	cipherSuite CipherSuite,
+	seq uint16,
+	message handshake.Message,
+	canonical []byte,
+) error {
 	id := transcriptMessageID13{
 		sender: sender,
-		seq:    h.Header.MessageSequence,
+		seq:    seq,
 	}
-	if sh, ok := h.Message.(*handshake.MessageServerHello); ok && isHelloRetryRequest(sh) {
+	if sh, ok := message.(*handshake.MessageServerHello); ok && isHelloRetryRequest(sh) {
 		duplicate, err := transcript.hasCanonical13(id, canonical)
 		if err != nil || duplicate {
 			return err

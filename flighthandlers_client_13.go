@@ -78,6 +78,34 @@ func validateHelloRetryRequestSelectedVersion(extensions []extension.Extension) 
 	return nil
 }
 
+func selectServerHelloCipherSuite13(
+	serverHello *handshake.MessageServerHello,
+	cfg *handshakeConfig,
+) (CipherSuite, *alert.Alert, error) {
+	if serverHello.CipherSuiteID == nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
+			dtlserrors.ErrInvalidServerHello
+	}
+	remoteCipherSuite := cipherSuiteForID(CipherSuiteID(*serverHello.CipherSuiteID), cfg.customCipherSuites)
+	if remoteCipherSuite == nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
+			dtlserrors.ErrCipherSuiteNoIntersection
+	}
+	if !cipherSuiteIDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_3) {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
+			dtlserrors.ErrInvalidCipherSuite
+	}
+	selectedCipherSuite, found := findMatchingCipherSuite(
+		[]CipherSuite{remoteCipherSuite}, cfg.localCipherSuites,
+	)
+	if !found {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
+			dtlserrors.ErrInvalidCipherSuite
+	}
+
+	return selectedCipherSuite, nil, nil
+}
+
 // nolint:unused,cyclop
 func flight13_1Parse(
 	ctx context.Context,
@@ -88,7 +116,7 @@ func flight13_1Parse(
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
 
-	seq, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+	seq, msgs, items, ok := cache.fullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, true},
 	)
 	if !ok {
@@ -120,6 +148,11 @@ func flight13_1Parse(
 
 		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
 	}
+	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite13(sh, cfg)
+	if err != nil {
+		return 0, dtlsAlert, err
+	}
+	state.CipherSuite = selectedCipherSuite
 
 	// nolint:godox
 	// TODO: negotiate minimial set of extensions necessary for the client
@@ -144,6 +177,9 @@ func flight13_1Parse(
 		}
 	}
 
+	if err := appendInboundHandshakeCacheItems13(flightCtx.transcript, state.CipherSuite, items); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
 	state.HandshakeRecvSequence = seq
 
 	return flight13_3, nil, nil
@@ -155,7 +191,8 @@ func flight13_3Parse(
 	_ flightConn,
 	flightCtx *handshakeContext13,
 ) (flightVal13, *alert.Alert, error) {
-	seq, msgs, ok := flightCtx.cache.fullPullMap(flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
+	seq, msgs, items, ok := flightCtx.cache.fullPullMapItems(
+		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeServerHello, flightCtx.cfg.initialEpoch, false, false},
 	)
 	if !ok {
@@ -188,21 +225,9 @@ func flight13_3Parse(
 	flightCtx.state.RemoteVersions = versions
 	flightCtx.state.LocalVersion = protocol.Version1_3
 
-	if serverHello.CipherSuiteID == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrInvalidServerHello
-	}
-	remoteCipherSuite := cipherSuiteForID(CipherSuiteID(*serverHello.CipherSuiteID), flightCtx.cfg.customCipherSuites)
-	if remoteCipherSuite == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
-	}
-	if !cipherSuiteIDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_3) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
-	}
-	selectedCipherSuite, found := findMatchingCipherSuite(
-		[]CipherSuite{remoteCipherSuite}, flightCtx.cfg.localCipherSuites,
-	)
-	if !found {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
+	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite13(serverHello, flightCtx.cfg)
+	if err != nil {
+		return 0, dtlsAlert, err
 	}
 	flightCtx.state.CipherSuite = selectedCipherSuite
 	flightCtx.state.RemoteRandom = serverHello.Random
@@ -235,6 +260,9 @@ func flight13_3Parse(
 	flightCtx.state.NamedCurve = serverShare.Group
 	flightCtx.state.RemoteKeyEntries = &[]extension.KeyShareEntry{*serverShare}
 
+	if err := appendInboundHandshakeCacheItems13(flightCtx.transcript, flightCtx.state.CipherSuite, items); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
 	flightCtx.state.HandshakeRecvSequence = seq
 
 	return flight13_5, nil, nil

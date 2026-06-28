@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandshakeCacheSinglePush(t *testing.T) {
@@ -123,6 +125,49 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 		verifyData := h.pullAndMerge(test.Rule...)
 		assert.Equal(t, test.Expected, verifyData)
 	}
+}
+
+func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
+	cipherSuiteID := uint16(TLS_AES_128_GCM_SHA256)
+	rawClientHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		CipherSuiteIDs:     []uint16{uint16(TLS_AES_128_GCM_SHA256)},
+		CompressionMethods: defaultCompressionMethods(),
+	})
+	rawServerHello := marshalHandshakeCacheTestMessage(t, 1, &handshake.MessageServerHello{
+		Version:           protocol.Version1_2,
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: defaultCompressionMethods()[0],
+	})
+
+	cache := newHandshakeCache()
+	cache.push(rawServerHello, 0, 1, handshake.TypeServerHello, false)
+	cache.push(rawClientHello, 0, 0, handshake.TypeClientHello, true)
+
+	seq, msgs, items, ok := cache.fullPullMapItems(0, nil,
+		handshakeCachePullRule{handshake.TypeClientHello, 0, true, false},
+		handshakeCachePullRule{handshake.TypeServerHello, 0, false, false},
+	)
+
+	require.True(t, ok)
+	assert.Equal(t, 2, seq)
+	require.IsType(t, &handshake.MessageClientHello{}, msgs[handshake.TypeClientHello])
+	require.IsType(t, &handshake.MessageServerHello{}, msgs[handshake.TypeServerHello])
+	require.Len(t, items, 2)
+	assert.Equal(t, rawClientHello, items[0].data)
+	assert.Equal(t, rawServerHello, items[1].data)
+}
+
+func marshalHandshakeCacheTestMessage(t *testing.T, seq uint16, message handshake.Message) []byte {
+	t.Helper()
+
+	raw, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: seq},
+		Message: message,
+	}).Marshal()
+	require.NoError(t, err)
+
+	return raw
 }
 
 func TestHandshakeCacheSessionHash(t *testing.T) {
