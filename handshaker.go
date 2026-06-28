@@ -13,6 +13,7 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -88,7 +89,7 @@ type handshakeFSM12 struct {
 	flights            []*packet
 	retransmit         bool
 	retransmitInterval time.Duration
-	state              *State
+	state              *dtlsstate.State
 	cache              *handshakeCache
 	cfg                *handshakeConfig
 	closed             chan struct{}
@@ -137,7 +138,7 @@ type handshakeConfig struct {
 	serverHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	certificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 
-	resumeState *State
+	resumeState *dtlsstate.State
 
 	minVersion protocol.Version
 	maxVersion protocol.Version
@@ -175,7 +176,7 @@ func srvCliStr(isClient bool) string {
 }
 
 func newHandshakeFSM12(
-	s *State, cache *handshakeCache, cfg *handshakeConfig,
+	s *dtlsstate.State, cache *handshakeCache, cfg *handshakeConfig,
 	initialFlight flightVal,
 ) *handshakeFSM12 {
 	return &handshakeFSM12{
@@ -204,7 +205,7 @@ func (s *handshakeFSM12) Run(ctx context.Context, conn flightConn, initialState 
 		close(s.closed)
 	}()
 	for {
-		s.cfg.log.Tracef("[handshake:%s] %s: %s", srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
+		s.cfg.log.Tracef("[handshake:%s] %s: %s", srvCliStr(s.state.IsClient), s.currentFlight.String(), state.String())
 		if s.cfg.onFlightState != nil {
 			s.cfg.onFlightState(s.currentFlight, state)
 		}
@@ -268,12 +269,12 @@ func (s *handshakeFSM12) prepare(ctx context.Context, conn flightConn) (handshak
 			nextEpoch = p.record.Header.Epoch
 		}
 		if h, ok := p.record.Content.(*handshake.Handshake); ok {
-			h.Header.MessageSequence = uint16(s.state.handshakeSendSequence) //nolint:gosec // G115
-			s.state.handshakeSendSequence++
+			h.Header.MessageSequence = uint16(s.state.HandshakeSendSequence) //nolint:gosec // G115
+			s.state.HandshakeSendSequence++
 		}
 	}
 	if epoch != nextEpoch {
-		s.cfg.log.Tracef("[handshake:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.isClient), nextEpoch)
+		s.cfg.log.Tracef("[handshake:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.IsClient), nextEpoch)
 		conn.setLocalEpoch(nextEpoch)
 	}
 
@@ -330,7 +331,7 @@ func (s *handshakeFSM12) wait(ctx context.Context, conn flightConn) (handshakeSt
 			}
 			s.cfg.log.Tracef(
 				"[handshake:%s] %s -> %s",
-				srvCliStr(s.state.isClient),
+				srvCliStr(s.state.IsClient),
 				s.currentFlight.String(),
 				nextFlight.String(),
 			)
@@ -369,7 +370,7 @@ func (s *handshakeFSM12) finish(ctx context.Context, c flightConn) (handshakeSta
 	select {
 	case state := <-c.recvHandshake():
 		close(state.done)
-		if s.state.isClient {
+		if s.state.IsClient {
 			return handshakeFinished, nil
 		} else {
 			return handshakeSending, nil

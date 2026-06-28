@@ -6,6 +6,7 @@ package dtls
 import (
 	"context"
 
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -16,11 +17,11 @@ import (
 func flight6Parse(
 	_ context.Context,
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) (flightVal, *alert.Alert, error) {
-	_, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence-1, state.cipherSuite,
+	_, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence-1, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, true, false},
 	)
 	if !ok {
@@ -38,7 +39,7 @@ func flight6Parse(
 
 func flight6Generate(
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) {
@@ -54,7 +55,7 @@ func flight6Generate(
 			},
 		})
 
-	if len(state.localVerifyData) == 0 {
+	if len(state.LocalVerifyData) == 0 {
 		plainText := cache.pullAndMerge(
 			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
@@ -69,7 +70,7 @@ func flight6Generate(
 		)
 
 		var err error
-		state.localVerifyData, err = prf.VerifyDataServer(state.masterSecret, plainText, state.cipherSuite.HashFunc())
+		state.LocalVerifyData, err = prf.VerifyDataServer(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
@@ -84,11 +85,11 @@ func flight6Generate(
 				},
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageFinished{
-						VerifyData: state.localVerifyData,
+						VerifyData: state.LocalVerifyData,
 					},
 				},
 			},
-			shouldWrapCID:            len(state.remoteConnectionID) > 0,
+			shouldWrapCID:            len(state.RemoteConnectionID) > 0,
 			shouldEncrypt:            true,
 			resetLocalSequenceNumber: true,
 		},

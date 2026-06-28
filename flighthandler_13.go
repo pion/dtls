@@ -7,11 +7,12 @@ import (
 	"context"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
 
 type handshakeContext13 struct {
-	state      *State
+	state      *dtlsstate.State
 	cache      *handshakeCache
 	cfg        *handshakeConfig
 	transcript *handshakeTranscript13

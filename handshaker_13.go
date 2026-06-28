@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
@@ -68,7 +69,7 @@ type handshakeFSM13 struct {
 	flights            []*packet //nolint:unused
 	retransmit         bool      //nolint:unused
 	retransmitInterval time.Duration
-	state              *State
+	state              *dtlsstate.State
 	cache              *handshakeCache
 	cfg                *handshakeConfig
 	transcript         *handshakeTranscript13
@@ -76,7 +77,7 @@ type handshakeFSM13 struct {
 }
 
 func newHandshakeFSM13(
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 	initialFlight flightVal13,
@@ -117,7 +118,7 @@ func (s *handshakeFSM13) flightContext() *handshakeContext13 {
 // seedTranscriptFromInitialFlights handles the dual-stack ClientHello generated
 // before the DTLS 1.3 FSM exists.
 func (s *handshakeFSM13) seedTranscriptFromInitialFlights() error {
-	if !s.state.isClient {
+	if !s.state.IsClient {
 		return nil
 	}
 
@@ -189,7 +190,7 @@ func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState 
 		close(s.closed)
 	}()
 	for {
-		s.cfg.log.Tracef("[handshake13:%s] %s: %s", srvCliStr(s.state.isClient), s.currentFlight.String(), state.String())
+		s.cfg.log.Tracef("[handshake13:%s] %s: %s", srvCliStr(s.state.IsClient), s.currentFlight.String(), state.String())
 		// nolint:godox
 		// TODO:: refactor callback, see discussion in https://github.com/pion/dtls/pull/738#discussion_r3131501159
 		if s.cfg.onFlightState13 != nil {
@@ -255,12 +256,12 @@ func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshak
 			nextEpoch = p.record.Header.Epoch
 		}
 		if h, ok := p.record.Content.(*handshake.Handshake); ok {
-			h.Header.MessageSequence = uint16(s.state.handshakeSendSequence) //nolint:gosec // G115
-			s.state.handshakeSendSequence++
+			h.Header.MessageSequence = uint16(s.state.HandshakeSendSequence) //nolint:gosec // G115
+			s.state.HandshakeSendSequence++
 		}
 	}
 	if epoch != nextEpoch {
-		s.cfg.log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.isClient), nextEpoch)
+		s.cfg.log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.IsClient), nextEpoch)
 		conn.setLocalEpoch(nextEpoch)
 	}
 

@@ -15,13 +15,13 @@ import (
 
 const keyLogLabelTLS12 = "CLIENT_RANDOM"
 
-func (c *dtlsConfig) includeCertificateSuites() bool {
-	return c.psk == nil || len(c.certificates) > 0 || c.getCertificate != nil || c.getClientCertificate != nil
-}
-
 const defaultMTU = 1200 // bytes
 
 var defaultCurves = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384} //nolint:gochecknoglobals
+
+func (c *dtlsConfig) includeCertificateSuites() bool {
+	return c.psk == nil || len(c.Certificates) > 0 || c.getCertificate != nil || c.getClientCertificate != nil
+}
 
 // PSKCallback is called once we have the remote's PSKIdentityHint.
 // If the remote provided none it will be nil.
@@ -55,11 +55,11 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 	switch {
 	case config == nil:
 		return dtlserrors.ErrNoConfigProvided
-	case config.pskIdentityHint != nil && config.psk == nil:
+	case config.PSKIdentityHint != nil && config.psk == nil:
 		return dtlserrors.ErrIdentityNoPSK
 	}
 
-	for _, cert := range config.certificates {
+	for _, cert := range config.Certificates {
 		if cert.Certificate == nil {
 			return dtlserrors.ErrInvalidCertificate
 		}
@@ -78,9 +78,9 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 		}
 	}
 
-	minVersion, maxVersion := normalizeProtocolVersionRange(config.minVersion, config.maxVersion)
+	minVersion, maxVersion := normalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
 	_, err := parseCipherSuitesForVersions(
-		config.cipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil,
+		config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil,
 		minVersion, maxVersion,
 	)
 

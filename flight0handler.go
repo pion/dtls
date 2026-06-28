@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -23,11 +24,11 @@ const renegotiationInfoSCSV uint16 = 0x00ff
 func flight0Parse(
 	_ context.Context,
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) (flightVal, *alert.Alert, error) {
-	seq, msgs, ok := cache.fullPullMap(0, state.cipherSuite,
+	seq, msgs, ok := cache.fullPullMap(0, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 	)
 	if !ok {
@@ -37,10 +38,10 @@ func flight0Parse(
 
 	// Connection Identifiers must be negotiated afresh on session resumption.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
-	state.setLocalConnectionID(nil)
-	state.remoteConnectionID = nil
+	state.SetLocalConnectionID(nil)
+	state.RemoteConnectionID = nil
 
-	state.handshakeRecvSequence = seq
+	state.HandshakeRecvSequence = seq
 
 	var clientHello *handshake.MessageClientHello
 
@@ -54,12 +55,12 @@ func flight0Parse(
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
-	state.remoteRandom = clientHello.Random
+	state.RemoteRandom = clientHello.Random
 
 	cipherSuites := []CipherSuite{}
 	for _, id := range clientHello.CipherSuiteIDs {
 		if id == renegotiationInfoSCSV {
-			state.remoteSupportsRenegotiation = true
+			state.RemoteSupportsRenegotiation = true
 
 			continue
 		}
@@ -70,7 +71,7 @@ func flight0Parse(
 
 	cipherSuites = filterCipherSuitesForVersion(cipherSuites, protocol.Version1_2)
 
-	if state.cipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
+	if state.CipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 
@@ -80,49 +81,49 @@ func flight0Parse(
 			if len(ext.EllipticCurves) == 0 {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
 			}
-			state.namedCurve = ext.EllipticCurves[0]
+			state.NamedCurve = ext.EllipticCurves[0]
 		case *extension.UseSRTP:
 			profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
 			if !ok {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerNoMatchingSRTPProfile //nolint:lll
 			}
-			state.setSRTPProtectionProfile(profile)
-			state.remoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
+			state.SetSRTPProtectionProfile(profile)
+			state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
 		case *extension.UseExtendedMasterSecret:
 			if cfg.extendedMasterSecret != DisableExtendedMasterSecret {
-				state.extendedMasterSecret = true
+				state.ExtendedMasterSecret = true
 			}
 		case *extension.ServerName:
-			state.serverName = ext.ServerName // remote server name
+			state.ServerName = ext.ServerName // remote server name
 		case *extension.RenegotiationInfo:
-			state.remoteSupportsRenegotiation = true
+			state.RemoteSupportsRenegotiation = true
 		case *extension.ALPN:
-			state.peerSupportedProtocols = ext.ProtocolNameList
+			state.PeerSupportedProtocols = ext.ProtocolNameList
 		case *extension.ConnectionID:
 			// Only set connection ID to be sent if server supports connection
 			// IDs.
 			if cfg.connectionIDGenerator != nil {
-				state.remoteConnectionID = ext.CID
+				state.RemoteConnectionID = ext.CID
 			}
 		case *extension.SignatureAlgorithmsCert:
 			// Store the client's certificate signature schemes for later validation
-			state.remoteCertSignatureSchemes = ext.SignatureHashAlgorithms
+			state.RemoteCertSignatureSchemes = ext.SignatureHashAlgorithms
 		}
 	}
 
 	// If the client doesn't support connection IDs, the server should not
 	// expect one to be sent.
-	if state.remoteConnectionID == nil {
-		state.setLocalConnectionID(nil)
+	if state.RemoteConnectionID == nil {
+		state.SetLocalConnectionID(nil)
 	}
 
-	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {
+	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS //nolint:lll
 	}
 
-	if state.localKeypair == nil {
+	if state.LocalKeypair == nil {
 		var err error
-		state.localKeypair, err = elliptic.GenerateKeypair(state.namedCurve)
+		state.LocalKeypair, err = elliptic.GenerateKeypair(state.NamedCurve)
 		if err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 		}
@@ -139,7 +140,7 @@ func flight0Parse(
 
 func handleHelloResume(
 	sessionID []byte,
-	state *State,
+	state *dtlsstate.State,
 	cfg *handshakeConfig,
 	next flightVal,
 ) (flightVal, *alert.Alert, error) {
@@ -150,14 +151,14 @@ func handleHelloResume(
 			cfg.log.Tracef("[handshake] resume session: %x", sessionID)
 
 			state.SessionID = sessionID
-			state.masterSecret = s.Secret
+			state.MasterSecret = s.Secret
 
-			if err := state.initCipherSuite(); err != nil {
+			if err := state.InitCipherSuite(); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 
-			clientRandom := state.localRandom.MarshalFixed()
-			cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
+			clientRandom := state.LocalRandom.MarshalFixed()
+			cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
 
 			return flight4b, nil, nil
 		}
@@ -168,27 +169,27 @@ func handleHelloResume(
 
 func flight0Generate(
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	_ *handshakeCache,
 	cfg *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) {
 	// Initialize
 	if !cfg.insecureSkipHelloVerify {
-		state.cookie = make([]byte, cookieLength)
-		if _, err := rand.Read(state.cookie); err != nil {
+		state.Cookie = make([]byte, cookieLength)
+		if _, err := rand.Read(state.Cookie); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	var zeroEpoch uint16
-	state.localEpoch.Store(zeroEpoch)
-	state.remoteEpoch.Store(zeroEpoch)
+	state.LocalEpoch.Store(zeroEpoch)
+	state.RemoteEpoch.Store(zeroEpoch)
 	if len(cfg.ellipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
-	state.namedCurve = cfg.ellipticCurves[0]
+	state.NamedCurve = cfg.ellipticCurves[0]
 
-	if err := state.localRandom.Populate(); err != nil {
+	if err := state.LocalRandom.Populate(); err != nil {
 		return nil, nil, err
 	}
 

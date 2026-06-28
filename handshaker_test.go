@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -260,7 +261,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			}
 
 			ca, cb := flightTestPipe(ctx, clientEndpoint, serverEndpoint)
-			ca.state.isClient = true
+			ca.state.IsClient = true
 
 			var wg sync.WaitGroup
 			wg.Add(2)
@@ -384,7 +385,7 @@ func flightTestPipe(
 }
 
 type flightTestConn struct {
-	state          State
+	state          dtlsstate.State
 	handshakeCache *handshakeCache
 	recv           chan recvHandshakeState
 	done           <-chan struct{}
@@ -432,7 +433,7 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 				pkt.record.Header.Epoch,
 				handshake.Header.MessageSequence,
 				handshake.Header.Type,
-				c.state.isClient,
+				c.state.IsClient,
 			)
 
 			content, err := handshake.Message.Marshal()
@@ -450,7 +451,7 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 				pkt.record.Header.Epoch,
 				handshake.Header.MessageSequence,
 				handshake.Header.Type,
-				c.state.isClient,
+				c.state.IsClient,
 			)
 		}
 	}

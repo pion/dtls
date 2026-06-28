@@ -8,6 +8,7 @@ import (
 	"context"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -17,11 +18,11 @@ import (
 func flight2Parse(
 	ctx context.Context,
 	c flightConn,
-	state *State,
+	state *dtlsstate.State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) (flightVal, *alert.Alert, error) {
-	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
+	seq, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 	)
 	if !ok {
@@ -29,7 +30,7 @@ func flight2Parse(
 		// Parse as flight 0 in this case.
 		return flight0Parse(ctx, c, state, cache, cfg)
 	}
-	state.handshakeRecvSequence = seq
+	state.HandshakeRecvSequence = seq
 
 	var clientHello *handshake.MessageClientHello
 
@@ -46,7 +47,7 @@ func flight2Parse(
 	if len(clientHello.Cookie) == 0 {
 		return 0, nil, nil
 	}
-	if !bytes.Equal(state.cookie, clientHello.Cookie) {
+	if !bytes.Equal(state.Cookie, clientHello.Cookie) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
 
@@ -55,11 +56,11 @@ func flight2Parse(
 
 func flight2Generate(
 	_ flightConn,
-	state *State,
+	state *dtlsstate.State,
 	_ *handshakeCache,
 	_ *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) {
-	state.handshakeSendSequence = 0
+	state.HandshakeSendSequence = 0
 
 	return []*packet{
 		{
@@ -70,7 +71,7 @@ func flight2Generate(
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageHelloVerifyRequest{
 						Version: protocol.Version1_2,
-						Cookie:  state.cookie,
+						Cookie:  state.Cookie,
 					},
 				},
 			},

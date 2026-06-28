@@ -26,6 +26,7 @@ import (
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
@@ -152,7 +153,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		ca, cb, err := pipeMemory()
 		assert.NoError(t, err)
 
-		atomic.StoreUint64(&ca.state.localSequenceNumber[1], recordlayer.MaxSequenceNumber)
+		atomic.StoreUint64(&ca.state.LocalSequenceNumber[1], recordlayer.MaxSequenceNumber)
 		_, werr := ca.Write(make([]byte, 100))
 		assert.NoError(t, werr, "Write must send message with maximum sequence number")
 		_, werr = ca.Write(make([]byte, 100))
@@ -168,7 +169,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 
-		atomic.StoreUint64(&ca.state.localSequenceNumber[0], recordlayer.MaxSequenceNumber+1)
+		atomic.StoreUint64(&ca.state.LocalSequenceNumber[0], recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
 		werr := ca.writePackets(ctx, []*packet{
@@ -460,11 +461,11 @@ func TestExportKeyingMaterial(t *testing.T) {
 	expectedClientKey := []byte{0x87, 0xf0, 0x40, 0x02, 0xf6, 0x1c, 0xf1, 0xfe, 0x8c, 0x77}
 
 	conn := &Conn{
-		state: State{
-			localRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand},
-			remoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0), RandomBytes: rand},
-			localSequenceNumber: []uint64{0, 0},
-			cipherSuite:         &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
+		state: dtlsstate.State{
+			LocalRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand},
+			RemoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0), RandomBytes: rand},
+			LocalSequenceNumber: []uint64{0, 0},
+			CipherSuite:         &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
 		},
 	}
 	conn.setLocalEpoch(0)
@@ -498,7 +499,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 	assert.NoError(t, err, "ExportingKeyingMaterial as server error")
 	assert.Equal(t, expectedServerKey, keyingMaterial, "ExportKeyingMaterial client export mismatch")
 
-	conn.state.isClient = true
+	conn.state.IsClient = true
 	state, ok = conn.ConnectionState()
 	assert.True(t, ok)
 
@@ -1377,13 +1378,13 @@ func TestConnectionID(t *testing.T) {
 				}
 			}()
 
-			assert.True(t, bytes.Equal(tt.clientConnectionID, res.c.state.getLocalConnectionID()),
+			assert.True(t, bytes.Equal(tt.clientConnectionID, res.c.state.GetLocalConnectionID()),
 				"Unexpected client local connection ID")
-			assert.True(t, bytes.Equal(tt.serverConnectionID, res.c.state.remoteConnectionID),
+			assert.True(t, bytes.Equal(tt.serverConnectionID, res.c.state.RemoteConnectionID),
 				"Unexpected client remote connection ID")
-			assert.True(t, bytes.Equal(tt.serverConnectionID, server.state.getLocalConnectionID()),
+			assert.True(t, bytes.Equal(tt.serverConnectionID, server.state.GetLocalConnectionID()),
 				"Unexpected server local connection ID")
-			assert.True(t, bytes.Equal(tt.clientConnectionID, server.state.remoteConnectionID),
+			assert.True(t, bytes.Equal(tt.clientConnectionID, server.state.RemoteConnectionID),
 				"Unexpected server remote connection ID")
 		})
 	}
@@ -1719,7 +1720,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			}
 			assert.ErrorIsf(t, res.err, test.WantClientError, "TestCipherSuiteConfiguration: Client Error Mismatch '%s'")
 			if test.WantSelectedCipherSuite != 0x00 {
-				assert.Equal(t, test.WantSelectedCipherSuite, res.c.state.cipherSuite.ID(),
+				assert.Equal(t, test.WantSelectedCipherSuite, res.c.state.CipherSuite.ID(),
 					"TestCipherSuiteConfiguration: Server Selected Bad Cipher Suite '%s'", test.Name)
 			}
 		})
@@ -2985,7 +2986,7 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) { //nolint:cyclop
 
 			state, ok := c.ConnectionState()
 			assert.True(t, ok)
-			assert.Equal(t, test.expectedCipher, state.cipherSuite.ID())
+			assert.Equal(t, test.expectedCipher, state.CipherSuiteID)
 		})
 	}
 }

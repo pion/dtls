@@ -88,7 +88,7 @@ func flight13_1Parse(
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
 
-	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
+	seq, msgs, ok := cache.fullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, true},
 	)
 	if !ok {
@@ -132,19 +132,19 @@ func flight13_1Parse(
 		case *extension.SupportedVersions:
 			// nolint:godox
 			// TODO: negotiate version
-			state.remoteVersions = ext.Versions
+			state.RemoteVersions = ext.Versions
 		case *extension.CookieExt:
-			state.cookie = ext.Cookie
+			state.Cookie = ext.Cookie
 		case *extension.KeyShare:
 			if ext.SelectedGroup != nil {
-				state.remoteKeyEntries = &[]extension.KeyShareEntry{
+				state.RemoteKeyEntries = &[]extension.KeyShareEntry{
 					{Group: *ext.SelectedGroup},
 				}
 			}
 		}
 	}
 
-	state.handshakeRecvSequence = seq
+	state.HandshakeRecvSequence = seq
 
 	return flight13_3, nil, nil
 }
@@ -155,7 +155,7 @@ func flight13_3Parse(
 	_ flightConn,
 	flightCtx *handshakeContext13,
 ) (flightVal13, *alert.Alert, error) {
-	seq, msgs, ok := flightCtx.cache.fullPullMap(flightCtx.state.handshakeRecvSequence, flightCtx.state.cipherSuite,
+	seq, msgs, ok := flightCtx.cache.fullPullMap(flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		handshakeCachePullRule{handshake.TypeServerHello, flightCtx.cfg.initialEpoch, false, false},
 	)
 	if !ok {
@@ -185,8 +185,8 @@ func flight13_3Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}
-	flightCtx.state.remoteVersions = versions
-	flightCtx.state.localVersion = protocol.Version1_3
+	flightCtx.state.RemoteVersions = versions
+	flightCtx.state.LocalVersion = protocol.Version1_3
 
 	if serverHello.CipherSuiteID == nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrInvalidServerHello
@@ -204,8 +204,8 @@ func flight13_3Parse(
 	if !found {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 	}
-	flightCtx.state.cipherSuite = selectedCipherSuite
-	flightCtx.state.remoteRandom = serverHello.Random
+	flightCtx.state.CipherSuite = selectedCipherSuite
+	flightCtx.state.RemoteRandom = serverHello.Random
 	flightCtx.cfg.log.Tracef("[handshake13] use cipher suite: %s", selectedCipherSuite.String())
 
 	var serverShare *extension.KeyShareEntry
@@ -221,7 +221,7 @@ func flight13_3Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrServerKeyShareMissing
 	}
 
-	localKeypair, ok := flightCtx.state.localKeypairs[serverShare.Group]
+	localKeypair, ok := flightCtx.state.LocalKeypairs[serverShare.Group]
 	if !ok || localKeypair == nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
 			dtlserrors.ErrServerKeyShareUnknownGroup
@@ -231,11 +231,11 @@ func flight13_3Parse(
 	if err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
-	flightCtx.state.preMasterSecret = preMasterSecret
-	flightCtx.state.namedCurve = serverShare.Group
-	flightCtx.state.remoteKeyEntries = &[]extension.KeyShareEntry{*serverShare}
+	flightCtx.state.PreMasterSecret = preMasterSecret
+	flightCtx.state.NamedCurve = serverShare.Group
+	flightCtx.state.RemoteKeyEntries = &[]extension.KeyShareEntry{*serverShare}
 
-	flightCtx.state.handshakeRecvSequence = seq
+	flightCtx.state.HandshakeRecvSequence = seq
 
 	return flight13_5, nil, nil
 }
@@ -249,23 +249,23 @@ func flight13_1Generate(
 	cfg := flightCtx.cfg
 
 	var zeroEpoch uint16
-	state.localEpoch.Store(zeroEpoch)
-	state.remoteEpoch.Store(zeroEpoch)
+	state.LocalEpoch.Store(zeroEpoch)
+	state.RemoteEpoch.Store(zeroEpoch)
 	if len(cfg.ellipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 	if len(cfg.localSignatureSchemes) < 1 {
 		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
-	state.namedCurve = cfg.ellipticCurves[0]
-	state.cookie = nil
+	state.NamedCurve = cfg.ellipticCurves[0]
+	state.Cookie = nil
 
-	if err := state.localRandom.Populate(); err != nil {
+	if err := state.LocalRandom.Populate(); err != nil {
 		return nil, nil, err
 	}
 
 	if cfg.helloRandomBytesGenerator != nil {
-		state.localRandom.RandomBytes = cfg.helloRandomBytesGenerator()
+		state.LocalRandom.RandomBytes = cfg.helloRandomBytesGenerator()
 	}
 
 	extensions := []extension.Extension{
@@ -321,8 +321,8 @@ func flight13_1Generate(
 		})
 		keypairs[keypair.Curve] = keypair
 	}
-	state.localKeyEntries = entries
-	state.localKeypairs = keypairs
+	state.LocalKeyEntries = entries
+	state.LocalKeypairs = keypairs
 	extensions = append(extensions, &extension.KeyShare{
 		ClientShares: entries,
 	})
@@ -356,7 +356,7 @@ func flight13_1Generate(
 		Version:   protocol.Version1_2,
 		SessionID: state.SessionID,
 		Cookie:    nil,
-		Random:    state.localRandom,
+		Random:    state.LocalRandom,
 		// Add DTLS 1.3 ciphersuites
 		CipherSuiteIDs:     cipherSuiteIDs(cfg.localCipherSuites),
 		CompressionMethods: defaultCompressionMethods(),
@@ -409,7 +409,7 @@ func flight13_3Generate(
 		RenegotiatedConnection: 0,
 	})
 
-	if flightCtx.state.namedCurve != 0 {
+	if flightCtx.state.NamedCurve != 0 {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
 				EllipticCurves: flightCtx.cfg.ellipticCurves,
@@ -427,12 +427,12 @@ func flight13_3Generate(
 	var localGroups []elliptic.Curve
 	var newEntries []extension.KeyShareEntry
 	newKeypairs := map[elliptic.Curve]*elliptic.Keypair{}
-	if flightCtx.state.remoteKeyEntries != nil {
-		for _, entry := range flightCtx.state.localKeyEntries {
+	if flightCtx.state.RemoteKeyEntries != nil {
+		for _, entry := range flightCtx.state.LocalKeyEntries {
 			localGroups = append(localGroups, entry.Group)
 		}
 
-		for _, entry := range *flightCtx.state.remoteKeyEntries {
+		for _, entry := range *flightCtx.state.RemoteKeyEntries {
 			if !slices.Contains(localGroups, entry.Group) && slices.Contains(flightCtx.cfg.ellipticCurves, entry.Group) {
 				keypair, err := elliptic.GenerateKeypair(entry.Group)
 				if err != nil {
@@ -446,17 +446,17 @@ func flight13_3Generate(
 		}
 	}
 	if len(newEntries) > 0 {
-		flightCtx.state.localKeyEntries = append(newEntries, flightCtx.state.localKeyEntries...)
-		if flightCtx.state.localKeypairs == nil {
-			flightCtx.state.localKeypairs = make(map[elliptic.Curve]*elliptic.Keypair, len(newKeypairs))
+		flightCtx.state.LocalKeyEntries = append(newEntries, flightCtx.state.LocalKeyEntries...)
+		if flightCtx.state.LocalKeypairs == nil {
+			flightCtx.state.LocalKeypairs = make(map[elliptic.Curve]*elliptic.Keypair, len(newKeypairs))
 		}
-		maps.Copy(flightCtx.state.localKeypairs, newKeypairs)
+		maps.Copy(flightCtx.state.LocalKeypairs, newKeypairs)
 	}
 	extensions = append(extensions, &extension.KeyShare{
-		ClientShares: flightCtx.state.localKeyEntries,
+		ClientShares: flightCtx.state.LocalKeyEntries,
 	})
 
-	if !slices.Contains(flightCtx.state.remoteVersions, protocol.Version1_3) {
+	if !slices.Contains(flightCtx.state.RemoteVersions, protocol.Version1_3) {
 		return nil, nil, dtlserrors.ErrNoCommonProtocolVersion
 	}
 	extensions = append(extensions, &extension.SupportedVersions{
@@ -480,15 +480,15 @@ func flight13_3Generate(
 		})
 	}
 
-	if len(flightCtx.state.cookie) > 0 {
-		extensions = append(extensions, &extension.CookieExt{Cookie: flightCtx.state.cookie})
+	if len(flightCtx.state.Cookie) > 0 {
+		extensions = append(extensions, &extension.CookieExt{Cookie: flightCtx.state.Cookie})
 	}
 
 	clientHello := &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		SessionID:          flightCtx.state.SessionID,
 		Cookie:             []byte{},
-		Random:             flightCtx.state.localRandom,
+		Random:             flightCtx.state.LocalRandom,
 		CipherSuiteIDs:     cipherSuiteIDs(flightCtx.cfg.localCipherSuites),
 		CompressionMethods: defaultCompressionMethods(),
 		Extensions:         extensions,
