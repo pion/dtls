@@ -18,6 +18,11 @@ import (
 	"github.com/pion/transport/v4/replaydetector"
 )
 
+type HandshakeTrafficSecrets13 struct {
+	Client []byte
+	Server []byte
+}
+
 type State struct {
 	LocalEpoch, RemoteEpoch   atomic.Value
 	LocalSequenceNumber       []uint64 // uint48
@@ -76,6 +81,9 @@ type State struct {
 	LocalVersion protocol.Version
 	// RemoteVersions are the DTLS versions advertised by the peer
 	RemoteVersions []protocol.Version
+	// HandshakeTrafficSecrets13 are derived from the ECDHE secret and the
+	// transcript through ServerHello. Record protection consumes them later.
+	HandshakeTrafficSecrets13 HandshakeTrafficSecrets13
 	// LocalKeyEntries are the DTLS 1.3 KeyShareEntry values generated locally
 	// and sent in the ClientHello's key_share extension.
 	LocalKeyEntries []extension.KeyShareEntry

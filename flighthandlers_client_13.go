@@ -263,6 +263,9 @@ func flight13_3Parse(
 	if err := appendInboundHandshakeCacheItems13(flightCtx.transcript, flightCtx.state.CipherSuite, items); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
+	if err := deriveAndStoreHandshakeTrafficSecrets13(flightCtx.state, flightCtx.transcript); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
 	flightCtx.state.HandshakeRecvSequence = seq
 
 	return flight13_5, nil, nil

@@ -248,6 +248,14 @@ func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshak
 	}
 
 	s.flights = pkts
+	if err := s.commitPreparedFlights(conn); err != nil {
+		return handshakeErrored, err
+	}
+
+	return handshakeSending, nil
+}
+
+func (s *handshakeFSM13) commitPreparedFlights(conn flightConn) error {
 	epoch := s.cfg.initialEpoch
 	nextEpoch := epoch
 	for _, p := range s.flights {
@@ -260,12 +268,20 @@ func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshak
 			s.state.HandshakeSendSequence++
 		}
 	}
+	if err := appendOutboundHandshakeFlight13(
+		s.transcript,
+		s.state.IsClient,
+		s.state.CipherSuite,
+		s.flights,
+	); err != nil {
+		return err
+	}
 	if epoch != nextEpoch {
 		s.cfg.log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.IsClient), nextEpoch)
 		conn.setLocalEpoch(nextEpoch)
 	}
 
-	return handshakeSending, nil
+	return nil
 }
 
 func (s *handshakeFSM13) send(ctx context.Context, c flightConn) (handshakeState, error) {

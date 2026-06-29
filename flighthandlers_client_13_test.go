@@ -629,8 +629,12 @@ func TestFlight13_3GenerateDoesNotRegenerateAlreadyAdvertisedGroup(t *testing.T)
 func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
-	_, _, err := flight13_1Generate(nil, &handshakeContext13{state: state, cfg: cfg})
+	transcript := newHandshakeTranscript13()
+	clientHello, _, err := flight13_1Generate(nil, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
+	appended, err := appendClientHelloInitialFlights13(transcript, clientHello)
+	require.NoError(t, err)
+	require.True(t, appended)
 
 	group := cfg.ellipticCurves[0]
 	serverKeypair, err := elliptic.GenerateKeypair(group)
@@ -645,9 +649,10 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	cache := newHandshakeCache()
 	cache.push(rawServerHello, cfg.initialEpoch, 0, handshake.TypeServerHello, false)
 	nextFlight, dtlsAlert, err := flight13_3Parse(context.Background(), nil, &handshakeContext13{
-		state: state,
-		cache: cache,
-		cfg:   cfg,
+		state:      state,
+		cache:      cache,
+		cfg:        cfg,
+		transcript: transcript,
 	})
 
 	require.NoError(t, err)
@@ -670,6 +675,12 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expected, state.PreMasterSecret)
 	assert.NotEmpty(t, state.PreMasterSecret)
+	transcriptHash, err := transcript.sum()
+	require.NoError(t, err)
+	expectedSecrets, err := deriveHandshakeTrafficSecrets13(state.CipherSuite.HashFunc(), expected, transcriptHash)
+	require.NoError(t, err)
+	assert.Equal(t, expectedSecrets, state.HandshakeTrafficSecrets13)
+	assert.NotEqual(t, state.HandshakeTrafficSecrets13.Client, state.HandshakeTrafficSecrets13.Server)
 }
 
 func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {

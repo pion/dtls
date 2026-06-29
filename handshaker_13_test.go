@@ -129,7 +129,7 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)
 }
 
-func TestHandshakeFSM13PrepareHelloRetryRequestDoesNotRequireSeededTranscript(t *testing.T) {
+func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{
 		LocalVersion: protocol.Version1_3,
@@ -141,11 +141,63 @@ func TestHandshakeFSM13PrepareHelloRetryRequestDoesNotRequireSeededTranscript(t 
 	require.NoError(t, err)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
-	require.NoError(t, err)
-	assert.Equal(t, handshakeSending, nextState)
+	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid)
+	assert.Equal(t, handshakeErrored, nextState)
 	require.Len(t, fsm.flights, 1)
 	assert.Empty(t, fsm.transcript.order)
 	assert.Empty(t, fsm.transcript.transcript)
+	assert.Equal(t, 1, state.HandshakeSendSequence)
+}
+
+func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
+	cache := newHandshakeCache()
+
+	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_1, nil, nil)
+	require.NoError(t, err)
+
+	nextState, err := fsm.prepare(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, handshakeSending, nextState)
+	require.Len(t, fsm.flights, 1)
+
+	expected := canonicalPacketHandshake13(t, fsm.flights[0])
+	require.Len(t, fsm.transcript.order, 1)
+	assert.Equal(t, transcriptMessageID13{sender: transcriptClient13, seq: 0}, fsm.transcript.order[0].id)
+	assert.Equal(t, handshake.TypeClientHello, fsm.transcript.order[0].typ)
+	assert.Equal(t, expected, fsm.transcript.transcript)
+	assert.Equal(t, 1, state.HandshakeSendSequence)
+}
+
+func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscript(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := &dtlsstate.State{
+		LocalVersion: protocol.Version1_3,
+		CipherSuite:  cfg.localCipherSuites[0],
+	}
+	cache := newHandshakeCache()
+	transcript := newHandshakeTranscript13()
+	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
+	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*packet{clientHello}))
+
+	fsm, err := newHandshakeFSM13(state, cache, cfg, flight13_2, nil, transcript)
+	require.NoError(t, err)
+
+	nextState, err := fsm.prepare(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, handshakeSending, nextState)
+	require.Len(t, fsm.flights, 1)
+
+	helloRetryRequestCanonical := canonicalPacketHandshake13(t, fsm.flights[0])
+	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, hashTranscript13(clientHelloCanonical))
+	expectedTranscript := append(append([]byte(nil), messageHash...), helloRetryRequestCanonical...)
+
+	assert.Equal(t, expectedTranscript, fsm.transcript.transcript)
+	require.Len(t, fsm.transcript.order, 2)
+	assert.Equal(t, transcriptMessageID13{sender: transcriptServer13, seq: 0}, fsm.transcript.order[1].id)
+	assert.Equal(t, handshake.TypeServerHello, fsm.transcript.order[1].typ)
 	assert.Equal(t, 1, state.HandshakeSendSequence)
 }
 

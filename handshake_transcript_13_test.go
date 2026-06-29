@@ -4,16 +4,19 @@
 package dtls
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCanonicalHandshake13(t *testing.T) {
@@ -256,6 +259,177 @@ func TestHandshakeTranscript13HelloRetryRequestErrors(t *testing.T) {
 		err := transcript.applyHelloRetryRequest()
 		assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid)
 	})
+}
+
+func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
+	preMasterSecret := bytes.Repeat([]byte{0x42}, sha256.Size)
+
+	clientHello := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})
+	serverHello := canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})
+	noHRRTranscriptHash := hashTranscript13(clientHello, serverHello)
+
+	noHRRSecrets, err := deriveHandshakeTrafficSecrets13(sha256.New, preMasterSecret, noHRRTranscriptHash)
+	require.NoError(t, err)
+	require.Len(t, noHRRSecrets.Client, sha256.Size)
+	require.Len(t, noHRRSecrets.Server, sha256.Size)
+	assert.NotEqual(t, noHRRSecrets.Client, noHRRSecrets.Server)
+
+	again, err := deriveHandshakeTrafficSecrets13(sha256.New, preMasterSecret, noHRRTranscriptHash)
+	require.NoError(t, err)
+	assert.Equal(t, noHRRSecrets, again)
+
+	clientHello1 := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x03})
+	helloRetryRequest := canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x04})
+	clientHello2 := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x05})
+	serverHello2 := canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x06})
+	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, hashTranscript13(clientHello1))
+	hrrTranscriptHash := hashTranscript13(messageHash, helloRetryRequest, clientHello2, serverHello2)
+
+	hrrSecrets, err := deriveHandshakeTrafficSecrets13(sha256.New, preMasterSecret, hrrTranscriptHash)
+	require.NoError(t, err)
+	assert.NotEqual(t, noHRRSecrets.Client, hrrSecrets.Client)
+	assert.NotEqual(t, noHRRSecrets.Server, hrrSecrets.Server)
+
+	changedSecret := append([]byte(nil), preMasterSecret...)
+	changedSecret[0] ^= 0xff
+	changedSecrets, err := deriveHandshakeTrafficSecrets13(sha256.New, changedSecret, noHRRTranscriptHash)
+	require.NoError(t, err)
+	assert.NotEqual(t, noHRRSecrets.Client, changedSecrets.Client)
+	assert.NotEqual(t, noHRRSecrets.Server, changedSecrets.Server)
+}
+
+func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
+	cipherSuite := cipherSuiteForID(TLS_AES_128_GCM_SHA256, nil)
+	state := &dtlsstate.State{
+		CipherSuite:     cipherSuite,
+		PreMasterSecret: bytes.Repeat([]byte{0x11}, sha256.Size),
+	}
+
+	clientHello := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})
+	serverHello := canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})
+	transcript := newHandshakeTranscript13()
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID13{sender: transcriptClient13}, clientHello))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID13{sender: transcriptServer13}, serverHello))
+
+	require.NoError(t, deriveAndStoreHandshakeTrafficSecrets13(state, transcript))
+
+	transcriptHash, err := transcript.sum()
+	require.NoError(t, err)
+	expected, err := deriveHandshakeTrafficSecrets13(cipherSuite.HashFunc(), state.PreMasterSecret, transcriptHash)
+	require.NoError(t, err)
+	assert.Equal(t, expected, state.HandshakeTrafficSecrets13)
+	assert.NotEmpty(t, state.HandshakeTrafficSecrets13.Client)
+	assert.NotEmpty(t, state.HandshakeTrafficSecrets13.Server)
+}
+
+func TestCertificateVerifyInput13ServerAndClient(t *testing.T) {
+	transcriptHash := bytes.Repeat([]byte{0xa5}, sha256.Size)
+
+	serverInput := certificateVerifyInput13(false, transcriptHash)
+	clientInput := certificateVerifyInput13(true, transcriptHash)
+
+	require.Len(t, serverInput, certificateVerifyPaddingLen13+len(serverCertificateVerifyContext13)+sha256.Size)
+	assert.Equal(t, bytes.Repeat([]byte{0x20}, certificateVerifyPaddingLen13),
+		serverInput[:certificateVerifyPaddingLen13])
+	serverContextEnd := certificateVerifyPaddingLen13 + len(serverCertificateVerifyContext13)
+	serverContext := serverInput[certificateVerifyPaddingLen13:serverContextEnd]
+	assert.Equal(t, serverCertificateVerifyContext13,
+		string(serverContext))
+	assert.Equal(t, transcriptHash, serverInput[len(serverInput)-sha256.Size:])
+
+	require.Len(t, clientInput, certificateVerifyPaddingLen13+len(clientCertificateVerifyContext13)+sha256.Size)
+	clientContextEnd := certificateVerifyPaddingLen13 + len(clientCertificateVerifyContext13)
+	clientContext := clientInput[certificateVerifyPaddingLen13:clientContextEnd]
+	assert.Equal(t, clientCertificateVerifyContext13,
+		string(clientContext))
+	assert.Equal(t, transcriptHash, clientInput[len(clientInput)-sha256.Size:])
+	assert.NotEqual(t, serverInput, clientInput)
+}
+
+func TestFinishedVerifyData13(t *testing.T) {
+	baseKey := bytes.Repeat([]byte{0x11}, sha256.Size)
+	transcriptHash := bytes.Repeat([]byte{0x22}, sha256.Size)
+
+	finishedKey, err := finishedKey13(sha256.New, baseKey)
+	require.NoError(t, err)
+
+	verifyData, err := finishedVerifyData13(sha256.New, baseKey, transcriptHash)
+	require.NoError(t, err)
+	require.Len(t, verifyData, sha256.Size)
+
+	expectedMAC := hmac.New(sha256.New, finishedKey)
+	_, err = expectedMAC.Write(transcriptHash)
+	require.NoError(t, err)
+	assert.Equal(t, expectedMAC.Sum(nil), verifyData)
+	assert.NoError(t, verifyFinishedData13(sha256.New, baseKey, transcriptHash, verifyData))
+
+	changedTranscript := append([]byte(nil), transcriptHash...)
+	changedTranscript[0] ^= 0xff
+	changedVerifyData, err := finishedVerifyData13(sha256.New, baseKey, changedTranscript)
+	require.NoError(t, err)
+	assert.NotEqual(t, verifyData, changedVerifyData)
+
+	changedKey := append([]byte(nil), baseKey...)
+	changedKey[0] ^= 0xff
+	changedKeyVerifyData, err := finishedVerifyData13(sha256.New, changedKey, transcriptHash)
+	require.NoError(t, err)
+	assert.NotEqual(t, verifyData, changedKeyVerifyData)
+
+	badVerifyData := append([]byte(nil), verifyData...)
+	badVerifyData[0] ^= 0xff
+	assert.ErrorIs(t, verifyFinishedData13(sha256.New, baseKey, transcriptHash, badVerifyData),
+		dtlserrors.ErrVerifyDataMismatch)
+}
+
+func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
+	cipherSuite := cipherSuiteForID(TLS_AES_128_GCM_SHA256, nil)
+	state := &dtlsstate.State{
+		CipherSuite:     cipherSuite,
+		PreMasterSecret: bytes.Repeat([]byte{0x77}, sha256.Size),
+	}
+	transcript := newHandshakeTranscript13()
+
+	clientHello := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})
+	serverHello := canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID13{sender: transcriptClient13}, clientHello))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID13{sender: transcriptServer13}, serverHello))
+
+	require.NoError(t, deriveAndStoreHandshakeTrafficSecrets13(state, transcript))
+	require.NotEmpty(t, state.HandshakeTrafficSecrets13.Client)
+	require.NotEmpty(t, state.HandshakeTrafficSecrets13.Server)
+
+	certificate := canonicalTranscriptHandshake13(handshake.TypeCertificate, []byte{0x03})
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID13{
+		sender: transcriptServer13,
+		seq:    1,
+	}, certificate))
+
+	certVerifyInput, err := certificateVerifyInputFromTranscript13(false, transcript)
+	require.NoError(t, err)
+	certVerifyTranscriptHash, err := transcript.sum()
+	require.NoError(t, err)
+	assert.Equal(t, certVerifyTranscriptHash, certVerifyInput[len(certVerifyInput)-sha256.Size:])
+
+	certVerify := canonicalTranscriptHandshake13(handshake.TypeCertificateVerify, []byte{0x04})
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID13{
+		sender: transcriptServer13,
+		seq:    2,
+	}, certVerify))
+
+	verifyData, err := finishedVerifyDataFromTranscript13(
+		sha256.New,
+		state.HandshakeTrafficSecrets13.Server,
+		transcript,
+	)
+	require.NoError(t, err)
+	finishedTranscriptHash, err := transcript.sum()
+	require.NoError(t, err)
+	assert.NoError(t, verifyFinishedData13(
+		sha256.New,
+		state.HandshakeTrafficSecrets13.Server,
+		finishedTranscriptHash,
+		verifyData,
+	))
 }
 
 func FuzzCanonicalHandshake13(f *testing.F) {
