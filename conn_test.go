@@ -3053,8 +3053,8 @@ func TestMultipleServerCertificates(t *testing.T) {
 				WithCertificates(fooCert, barCert),
 			}, false)
 			assert.NoError(t, err)
-			assert.NoError(t, s.Close())
 			assert.NoError(t, <-clientErr)
+			assert.NoError(t, s.Close())
 			assert.NoError(t, (<-client).Close())
 		})
 	}
