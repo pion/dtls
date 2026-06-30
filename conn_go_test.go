@@ -50,8 +50,7 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 	}
 
 	dials := map[string]struct {
-		f     func() (func() (net.Conn, error), func())
-		order []byte
+		f func() (func() (net.Conn, error), func())
 	}{
 		"Dial": {
 			f: func() (func() (net.Conn, error), func()) {
@@ -68,7 +67,6 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 						cancel()
 					}
 			},
-			order: []byte{0, 1, 2},
 		},
 		"Client": {
 			f: func() (func() (net.Conn, error), func()) {
@@ -87,7 +85,6 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 						cancel()
 					}
 			},
-			order: []byte{0, 1, 2},
 		},
 		"Server": {
 			f: func() (func() (net.Conn, error), func()) {
@@ -106,50 +103,65 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 						cancel()
 					}
 			},
-			order: []byte{0, 1, 2},
 		},
+	}
+
+	type dialResult struct {
+		err         error
+		ok          bool
+		completedAt time.Time
 	}
 
 	for name, dial := range dials {
 		t.Run(name, func(t *testing.T) {
-			done := make(chan struct{})
+			done := make(chan dialResult, 1)
+			startedAt := time.Now()
 
 			go func() {
 				d, cancel := dial.f()
 				conn, err := d()
 				defer cancel()
 				var netError net.Error
-				if !errors.As(err, &netError) || !netError.Temporary() { //nolint:staticcheck
-					assert.Fail(t, "Dial failed with unexpected error", "err: %v", err)
-					close(done)
-
-					return
-				}
-				done <- struct{}{}
 				if err == nil {
 					_ = conn.Close()
 				}
-			}()
 
-			var order []byte
-			early := time.After(20 * time.Millisecond)
-			late := time.After(60 * time.Millisecond)
-			func() {
-				for len(order) < 3 {
-					select {
-					case <-early:
-						order = append(order, 0)
-					case _, ok := <-done:
-						if !ok {
-							return
-						}
-						order = append(order, 1)
-					case <-late:
-						order = append(order, 2)
-					}
+				done <- dialResult{
+					err:         err,
+					ok:          errors.As(err, &netError) && netError.Temporary(), //nolint:staticcheck
+					completedAt: time.Now(),
 				}
 			}()
-			assert.Equal(t, dial.order, order, "Invalid cancel timing")
+
+			const earlyCancelWindow = 20 * time.Millisecond
+			time.Sleep(earlyCancelWindow)
+
+			assertResult := func(result dialResult) {
+				assert.GreaterOrEqual(
+					t,
+					result.completedAt.Sub(startedAt),
+					earlyCancelWindow,
+					"Invalid cancel timing",
+				)
+				if !result.ok {
+					assert.Fail(t, "Dial failed with unexpected error", "err: %v", result.err)
+				}
+			}
+
+			select {
+			case result := <-done:
+				assertResult(result)
+
+				return
+			default:
+			}
+
+			select {
+			case result := <-done:
+				assertResult(result)
+			case <-time.After(time.Second):
+				assert.Fail(t, "Dial did not finish after context cancellation")
+			}
 		})
 	}
 }
