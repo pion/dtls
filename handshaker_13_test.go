@@ -11,6 +11,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -27,7 +28,7 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_1, nil, nil)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight13.Flight1, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, fsm.transcript)
 
@@ -49,7 +50,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	}
 
 	transcript := newHandshakeTranscript13()
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -69,7 +70,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, appended)
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_1, pkts, transcript)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight13.Flight1, pkts, transcript)
 	require.NoError(t, err)
 	require.NotNil(t, fsm.transcript)
 	require.Same(t, transcript, fsm.transcript)
@@ -91,7 +92,7 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 	cfg := testHandshakeConfig13(t)
 	transcript := newHandshakeTranscript13()
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -100,14 +101,14 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_1, pkts, transcript)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight13.Flight1, pkts, transcript)
 	require.NoError(t, err)
 
 	transcript = fsm.transcript
 	before := append([]byte(nil), transcript.transcript...)
 	require.Len(t, transcript.pending, 1)
 
-	fsm.currentFlight = dtlsflight.Flight13_2
+	fsm.currentFlight = dtlsflight13.Flight2
 	fsm.retransmit = true
 	fsm.retransmitInterval *= 2
 
@@ -127,7 +128,7 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 
 	fsm, err := newHandshakeFSM13(
-		state, cache, cfg, dtlsflight.Flight13_1, []*dtlsflight.Packet{}, newHandshakeTranscript13(),
+		state, cache, cfg, dtlsflight13.Flight1, []*dtlsflight.Packet{}, newHandshakeTranscript13(),
 	)
 	require.Nil(t, fsm)
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)
@@ -141,7 +142,7 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 	}
 	cache := dtlsflight.NewCache()
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_2, nil, nil)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight13.Flight2, nil, nil)
 	require.NoError(t, err)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
@@ -158,7 +159,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
 	cache := dtlsflight.NewCache()
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_1, nil, nil)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight13.Flight1, nil, nil)
 	require.NoError(t, err)
 
 	nextState, err := fsm.prepare(context.Background(), nil)
@@ -186,7 +187,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
 	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*dtlsflight.Packet{clientHello}))
 
-	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight.Flight13_2, nil, transcript)
+	fsm, err := newHandshakeFSM13(state, cache, cfg, dtlsflight13.Flight2, nil, transcript)
 	require.NoError(t, err)
 
 	nextState, err := fsm.prepare(context.Background(), nil)

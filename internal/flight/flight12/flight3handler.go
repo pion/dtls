@@ -28,7 +28,7 @@ func flight3Parse(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
 	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response
 	// to the new HelloVerifyRequest. RFC 6347 Section 4.2.1
@@ -45,7 +45,7 @@ func flight3Parse(
 			state.Cookie = append([]byte{}, h.Cookie...)
 			state.HandshakeRecvSequence = seq
 
-			return dtlsflight.Flight3, nil, nil
+			return Flight3, nil, nil
 		}
 	}
 
@@ -180,7 +180,7 @@ func flight3Parse(
 		state.RemoteRequestedCertificate = true
 	}
 
-	return dtlsflight.Flight5, nil, nil
+	return Flight5, nil, nil
 }
 
 func handleResumption(
@@ -189,7 +189,7 @@ func handleResumption(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	if err := state.InitCipherSuite(); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -227,7 +227,7 @@ func handleResumption(
 	clientRandom := state.LocalRandom.MarshalFixed()
 	cfg.WriteKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
 
-	return dtlsflight.Flight5b, nil, nil
+	return Flight5b, nil, nil
 }
 
 //nolint:cyclop

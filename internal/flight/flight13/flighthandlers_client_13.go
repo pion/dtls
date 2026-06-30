@@ -114,7 +114,7 @@ func flight13_1Parse(
 	ctx context.Context,
 	conn dtlsflight.Conn,
 	flightCtx *handshakeContext13,
-) (dtlsflight.Flight13, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	state := flightCtx.state
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
@@ -187,7 +187,7 @@ func flight13_1Parse(
 	}
 	state.HandshakeRecvSequence = seq
 
-	return dtlsflight.Flight13_3, nil, nil
+	return Flight3, nil, nil
 }
 
 //nolint:cyclop
@@ -195,7 +195,7 @@ func flight13_3Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext13,
-) (dtlsflight.Flight13, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
@@ -277,7 +277,7 @@ func flight13_3Parse(
 	}
 	flightCtx.state.HandshakeRecvSequence = seq
 
-	return dtlsflight.Flight13_5, nil, nil
+	return Flight5, nil, nil
 }
 
 //nolint:cyclop

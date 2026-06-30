@@ -23,7 +23,7 @@ func flight2Parse(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
@@ -53,7 +53,7 @@ func flight2Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
 
-	return dtlsflight.Flight4, nil, nil
+	return Flight4, nil, nil
 }
 
 func flight2Generate(

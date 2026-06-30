@@ -29,7 +29,7 @@ func flight5Parse(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
 	)
@@ -71,7 +71,7 @@ func flight5Parse(
 		}
 	}
 
-	return dtlsflight.Flight5, nil, nil
+	return Flight5, nil, nil
 }
 
 //nolint:gocognit,cyclop,maintidx

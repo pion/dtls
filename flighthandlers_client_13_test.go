@@ -9,6 +9,7 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -94,7 +95,7 @@ func generateFlight13_1ClientHello(t *testing.T, cfg *handshakeConfig) *handshak
 
 	state := &dtlsstate.State{}
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
 		state: state,
 		cfg:   cfg,
 	})
@@ -120,7 +121,7 @@ func TestFlight13_1GenerateClientHelloUsesSupportedVersionsVector(t *testing.T) 
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
 		state: state,
 		cfg:   cfg,
 	})
@@ -197,7 +198,7 @@ func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
 		state: state,
 		cfg:   cfg,
 	})
@@ -269,7 +270,7 @@ func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
 
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_1, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight1, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -277,7 +278,7 @@ func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
-	assert.Equal(t, dtlsflight.Flight13_3, nextFlight)
+	assert.Equal(t, dtlsflight13.Flight3, nextFlight)
 	entries := *state.RemoteKeyEntries
 	require.Len(t, entries, 1)
 	assert.Equal(t, selectedGroup, entries[0].Group)
@@ -300,7 +301,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithoutSupportedVersions(t *test
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
 
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_1, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight1, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -334,7 +335,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithWrongSelectedVersion(t *test
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
 
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_1, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight1, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -373,7 +374,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersions
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
 
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_1, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight1, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -455,7 +456,7 @@ func TestFlight13_3GenerateRejectsWithoutCommonVersion(t *testing.T) {
 	state := &dtlsstate.State{}
 	require.NoError(t, state.LocalRandom.Populate())
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_3, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeContext13{
 		state: state,
 		cfg:   cfg,
 	})
@@ -473,7 +474,7 @@ func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 	}
 	require.NoError(t, state.LocalRandom.Populate())
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_3, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeContext13{
 		state: state,
 		cfg:   cfg,
 	})
@@ -542,7 +543,7 @@ func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.
 	}
 	require.NoError(t, state.LocalRandom.Populate())
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_3, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeContext13{
 		state: state,
 		cfg:   cfg,
 	})
@@ -595,7 +596,7 @@ func TestFlight13_3GenerateDoesNotRegenerateAlreadyAdvertisedGroup(t *testing.T)
 	}
 	require.NoError(t, state.LocalRandom.Populate())
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_3, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeContext13{
 		state: state,
 		cfg:   cfg,
 	})
@@ -631,7 +632,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
 	transcript := newHandshakeTranscript13()
-	clientHello, _, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{state: state, cfg: cfg})
+	clientHello, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 	appended, err := appendClientHelloInitialFlights13(transcript, clientHello)
 	require.NoError(t, err)
@@ -649,7 +650,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_3, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -658,7 +659,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
-	assert.Equal(t, dtlsflight.Flight13_5, nextFlight)
+	assert.Equal(t, dtlsflight13.Flight5, nextFlight)
 
 	assert.Equal(t, protocol.Version1_3, state.LocalVersion)
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, state.RemoteVersions)
@@ -689,7 +690,7 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 	state := &dtlsstate.State{}
 	transcript := newHandshakeTranscript13()
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
 		state:      state,
 		cfg:        cfg,
 		transcript: transcript,
@@ -715,7 +716,7 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_1, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight1, context.Background(), &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -724,7 +725,7 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
-	assert.Equal(t, dtlsflight.Flight13_5, nextFlight)
+	assert.Equal(t, dtlsflight13.Flight5, nextFlight)
 	assert.Equal(t, []transcriptMessage13{
 		{id: transcriptMessageID13{sender: transcriptClient13, seq: 0}, typ: handshake.TypeClientHello},
 		{id: transcriptMessageID13{sender: transcriptServer13, seq: 0}, typ: handshake.TypeServerHello},
@@ -737,7 +738,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	state := &dtlsstate.State{}
 	transcript := newHandshakeTranscript13()
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
 		state:      state,
 		cfg:        cfg,
 		transcript: transcript,
@@ -759,7 +760,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawHelloRetryRequest, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_1, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight1, context.Background(), &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -767,9 +768,9 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
-	assert.Equal(t, dtlsflight.Flight13_3, nextFlight)
+	assert.Equal(t, dtlsflight13.Flight3, nextFlight)
 
-	clientHello2, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight.Flight13_3, &handshakeContext13{
+	clientHello2, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -800,7 +801,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	require.NoError(t, err)
 	cache.Push(rawServerHello, cfg.InitialEpoch, 1, handshake.TypeServerHello, false)
 
-	nextFlight, dtlsAlert, err = flight13ParseForTest(t, dtlsflight.Flight13_3, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err = flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeContext13{
 		state:      state,
 		cache:      cache,
 		cfg:        cfg,
@@ -808,7 +809,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
-	assert.Equal(t, dtlsflight.Flight13_5, nextFlight)
+	assert.Equal(t, dtlsflight13.Flight5, nextFlight)
 
 	clientHello1Hash := hashTranscript13(clientHello1Canonical)
 	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHello1Hash)
@@ -827,7 +828,7 @@ func TestFlight13_3ParseKeepsReadingWithoutServerHello(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
 
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_3, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeContext13{
 		state: state,
 		cache: dtlsflight.NewCache(),
 		cfg:   cfg,
@@ -841,7 +842,7 @@ func TestFlight13_3ParseKeepsReadingWithoutServerHello(t *testing.T) {
 func TestFlight13_3ParseRejectsSecondHelloRetryRequest(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
-	_, _, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{state: state, cfg: cfg})
+	_, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
 	rawServerHello := marshalHelloRetryRequestServerHello(t, cfg, []extension.Extension{
@@ -850,7 +851,7 @@ func TestFlight13_3ParseRejectsSecondHelloRetryRequest(t *testing.T) {
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_3, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -866,7 +867,7 @@ func TestFlight13_3ParseRejectsSecondHelloRetryRequest(t *testing.T) {
 func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
-	_, _, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{state: state, cfg: cfg})
+	_, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
 	group := cfg.EllipticCurves[0]
@@ -889,7 +890,7 @@ func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_3, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -904,7 +905,7 @@ func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 func TestFlight13_3ParseRejectsMissingSupportedVersions(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
-	_, _, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{state: state, cfg: cfg})
+	_, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
 	group := cfg.EllipticCurves[0]
@@ -918,7 +919,7 @@ func TestFlight13_3ParseRejectsMissingSupportedVersions(t *testing.T) {
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_3, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -933,7 +934,7 @@ func TestFlight13_3ParseRejectsMissingSupportedVersions(t *testing.T) {
 func TestFlight13_3ParseRejectsMissingKeyShare(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
-	_, _, err := flight13GenerateForTest(t, dtlsflight.Flight13_1, &handshakeContext13{state: state, cfg: cfg})
+	_, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
 	random := handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}}
@@ -943,7 +944,7 @@ func TestFlight13_3ParseRejectsMissingKeyShare(t *testing.T) {
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_3, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -971,7 +972,7 @@ func TestFlight13_3ParseRejectsUnofferedKeyShareGroup(t *testing.T) {
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight.Flight13_3, context.Background(), &handshakeContext13{
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeContext13{
 		state: state,
 		cache: cache,
 		cfg:   cfg,

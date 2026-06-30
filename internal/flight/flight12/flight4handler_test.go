@@ -118,7 +118,7 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 	cache.Push(rawCertificate, 0, 0, handshake.TypeCertificate, true)
 	cache.Push(rawClientKeyExchange, 0, 1, handshake.TypeClientKeyExchange, true)
 
-	_, _, err := parseForTest(t, dtlsflight.Flight4, context.TODO(), mockConn, state, cache, cfg)
+	_, _, err := parseForTest(t, Flight4, context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)
 }
 
@@ -154,7 +154,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 		},
 	}
 
-	pkts, _, err := generateForTest(t, dtlsflight.Flight4, mockConn, state, nil, cfg)
+	pkts, _, err := generateForTest(t, Flight4, mockConn, state, nil, cfg)
 	assert.NoError(t, err)
 
 	for _, p := range pkts {

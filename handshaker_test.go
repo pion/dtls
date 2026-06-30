@@ -14,6 +14,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight12 "github.com/pion/dtls/v3/internal/flight/flight12"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -273,14 +274,14 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			go func() {
 				defer wg.Done()
 				runHandshakeFSM12ForTest(
-					t, ctx, ca, cipherSuites, clientCert, logger, clientEndpoint, cancelCli, dtlsflight.Flight1,
+					t, ctx, ca, cipherSuites, clientCert, logger, clientEndpoint, cancelCli, dtlsflight12.Flight1,
 				)
 			}()
 
 			go func() {
 				defer wg.Done()
 				runHandshakeFSM12ForTest(
-					t, ctx, cb, cipherSuites, clientCert, logger, serverEndpoint, cancelSrv, dtlsflight.Flight0,
+					t, ctx, cb, cipherSuites, clientCert, logger, serverEndpoint, cancelSrv, dtlsflight12.Flight0,
 				)
 			}()
 
@@ -302,7 +303,7 @@ func runHandshakeFSM12ForTest(
 	logger logging.LeveledLogger,
 	endpoint TestEndpoint,
 	cancel func(),
-	initialFlight dtlsflight.Flight12,
+	initialFlight dtlsflight12.Flight,
 ) {
 	t.Helper()
 

@@ -79,7 +79,7 @@ func (s handshakeState) String() string {
 }
 
 type handshakeFSM12 struct {
-	currentFlight      dtlsflight.Flight12
+	currentFlight      dtlsflight12.Flight
 	flights            []*dtlsflight.Packet
 	retransmit         bool
 	retransmitInterval time.Duration
@@ -130,7 +130,7 @@ func srvCliStr(isClient bool) string {
 
 func newHandshakeFSM12(
 	s *dtlsstate.State, cache *dtlsflight.Cache, cfg *handshakeConfig,
-	initialFlight dtlsflight.Flight12,
+	initialFlight dtlsflight12.Flight,
 ) *handshakeFSM12 {
 	return &handshakeFSM12{
 		currentFlight:      initialFlight,

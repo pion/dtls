@@ -34,10 +34,10 @@ func (s *handshakeFSM13) flightContext() *handshakeContext13 {
 
 func flight13ParseForTest(
 	testingT require.TestingT,
-	flight dtlsflight.Flight13,
+	flight dtlsflight13.Flight,
 	ctx context.Context,
 	flightCtx *handshakeContext13,
-) (dtlsflight.Flight13, *alert.Alert, error) {
+) (dtlsflight13.Flight, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {
 		helper.Helper()
 	}
@@ -63,7 +63,7 @@ func flight13ParseForTest(
 
 func flight13GenerateForTest(
 	testingT require.TestingT,
-	flight dtlsflight.Flight13,
+	flight dtlsflight13.Flight,
 	flightCtx *handshakeContext13,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {

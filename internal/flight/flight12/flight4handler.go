@@ -33,7 +33,7 @@ func flight4Parse(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: true},        //nolint:lll
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
@@ -225,7 +225,7 @@ func flight4Parse(
 			}
 		}
 
-		return dtlsflight.Flight6, nil, nil
+		return Flight6, nil, nil
 	}
 
 	switch cfg.ClientAuth {
@@ -253,7 +253,7 @@ func flight4Parse(
 		}
 	}
 
-	return dtlsflight.Flight6, nil, nil
+	return Flight6, nil, nil
 }
 
 //nolint:gocognit,cyclop,maintidx

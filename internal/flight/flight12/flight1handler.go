@@ -24,7 +24,7 @@ func flight1Parse(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	// HelloVerifyRequest can be skipped by the server,
 	// so allow ServerHello during flight1 also
 	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
@@ -52,7 +52,7 @@ func flight1Parse(
 		state.Cookie = append([]byte{}, h.Cookie...)
 		state.HandshakeRecvSequence = seq
 
-		return dtlsflight.Flight3, nil, nil
+		return Flight3, nil, nil
 	}
 
 	return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil

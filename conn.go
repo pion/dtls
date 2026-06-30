@@ -20,6 +20,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight12 "github.com/pion/dtls/v3/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -76,8 +77,8 @@ type recvHandshakeState struct {
 }
 
 type handshakeStart struct {
-	flight12     dtlsflight.Flight12
-	flight13     dtlsflight.Flight13
+	flight12     dtlsflight12.Flight
+	flight13     dtlsflight13.Flight
 	fsmState     handshakeState
 	flights      []*dtlsflight.Packet
 	transcript13 *handshakeTranscript13
@@ -440,30 +441,30 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 			c.state = *c.handshakeConfig.ResumeState
 			c.state.LocalVersion = protocol.Version1_2
 
-			return handshakeStart{flight12: dtlsflight.Flight5, fsmState: handshakeFinished}, nil
+			return handshakeStart{flight12: dtlsflight12.Flight5, fsmState: handshakeFinished}, nil
 		}
 
-		return handshakeStart{flight12: dtlsflight.Flight1, fsmState: handshakePreparing}, nil
+		return handshakeStart{flight12: dtlsflight12.Flight1, fsmState: handshakePreparing}, nil
 	case !c.state.IsClient && c.handshakeConfig.MaxVersion == protocol.Version1_2:
 		c.state.LocalVersion = protocol.Version1_2
 		if c.handshakeConfig.ResumeState != nil {
 			c.state = *c.handshakeConfig.ResumeState
 			c.state.LocalVersion = protocol.Version1_2
 
-			return handshakeStart{flight12: dtlsflight.Flight6, fsmState: handshakeFinished}, nil
+			return handshakeStart{flight12: dtlsflight12.Flight6, fsmState: handshakeFinished}, nil
 		}
 
-		return handshakeStart{flight12: dtlsflight.Flight0, fsmState: handshakePreparing}, nil
+		return handshakeStart{flight12: dtlsflight12.Flight0, fsmState: handshakePreparing}, nil
 
 	// DTLS 1.3 only
 	case c.state.IsClient && c.handshakeConfig.MinVersion == protocol.Version1_3:
 		c.state.LocalVersion = protocol.Version1_3
 
-		return handshakeStart{flight13: dtlsflight.Flight13_1, fsmState: handshakePreparing}, nil
+		return handshakeStart{flight13: dtlsflight13.Flight1, fsmState: handshakePreparing}, nil
 	case !c.state.IsClient && c.handshakeConfig.MinVersion == protocol.Version1_3:
 		c.state.LocalVersion = protocol.Version1_3
 
-		return handshakeStart{flight13: dtlsflight.Flight13_0, fsmState: handshakePreparing}, nil
+		return handshakeStart{flight13: dtlsflight13.Flight0, fsmState: handshakePreparing}, nil
 
 	// Dual-stack
 	// This mode sends or read handshake messages to decide version without starting a FSM
@@ -478,8 +479,8 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 		}
 
 		return handshakeStart{
-			flight12:     dtlsflight.Flight1,
-			flight13:     dtlsflight.Flight13_1,
+			flight12:     dtlsflight12.Flight1,
+			flight13:     dtlsflight13.Flight1,
 			fsmState:     handshakeWaiting,
 			flights:      initialFlights,
 			transcript13: initialTranscript13,
@@ -492,8 +493,8 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 		}
 
 		return handshakeStart{
-			flight12: dtlsflight.Flight0,
-			flight13: dtlsflight.Flight13_0,
+			flight12: dtlsflight12.Flight0,
+			flight13: dtlsflight13.Flight0,
 			fsmState: handshakePreparing,
 		}, nil
 	}
@@ -1354,7 +1355,7 @@ func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 //nolint:cyclop
 func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet, *handshakeTranscript13, error) {
 	transcript := newHandshakeTranscript13()
-	gen, _, ok := dtlsflight13.GetGenerator(dtlsflight.Flight13_1)
+	gen, _, ok := dtlsflight13.GetGenerator(dtlsflight13.Flight1)
 	if !ok {
 		return nil, nil, dtlserrors.ErrFlightUnimplemented13
 	}
