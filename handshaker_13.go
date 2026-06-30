@@ -248,27 +248,57 @@ func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshak
 	return handshakeSending, nil
 }
 
-func (s *handshakeFSM13) commitPreparedFlights(conn flightConn) error {
+func (s *handshakeFSM13) commitPreparedFlights(conn flightConn) error { //nolint:cyclop,nestif
 	epoch := s.cfg.InitialEpoch
 	nextEpoch := epoch
-	for _, p := range s.flights {
+	protectedFlightStart := len(s.flights)
+	for i, p := range s.flights {
 		p.Record.Header.Epoch += epoch
 		if p.Record.Header.Epoch > nextEpoch {
 			nextEpoch = p.Record.Header.Epoch
+		}
+		if p.ShouldEncrypt && protectedFlightStart == len(s.flights) {
+			protectedFlightStart = i
 		}
 		if h, ok := p.Record.Content.(*handshake.Handshake); ok {
 			h.Header.MessageSequence = uint16(s.state.HandshakeSendSequence) //nolint:gosec // G115
 			s.state.HandshakeSendSequence++
 		}
 	}
-	if err := appendOutboundHandshakeFlight13(
-		s.transcript,
-		s.state.IsClient,
-		s.state.CipherSuite,
-		s.flights,
-	); err != nil {
-		return err
+
+	if protectedFlightStart == len(s.flights) { //nolint:nestif
+		if err := appendOutboundHandshakeFlight13(
+			s.transcript,
+			s.state.IsClient,
+			s.state.CipherSuite,
+			s.flights,
+		); err != nil {
+			return err
+		}
+	} else {
+		if err := appendOutboundHandshakeFlight13(
+			s.transcript,
+			s.state.IsClient,
+			s.state.CipherSuite,
+			s.flights[:protectedFlightStart],
+		); err != nil {
+			return err
+		}
+		if len(s.state.HandshakeTrafficSecrets13.Client) == 0 && len(s.state.HandshakeTrafficSecrets13.Server) == 0 {
+			if err := deriveAndStoreHandshakeTrafficSecrets13(s.state, s.transcript); err != nil {
+				return err
+			}
+		}
+		if err := appendOutboundHandshakeFlight13(
+			s.transcript,
+			s.state.IsClient,
+			s.state.CipherSuite,
+			s.flights[protectedFlightStart:],
+		); err != nil {
+			return err
+		}
 	}
+
 	if epoch != nextEpoch {
 		s.cfg.Log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.IsClient), nextEpoch)
 		conn.setLocalEpoch(nextEpoch)

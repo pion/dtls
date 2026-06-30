@@ -13,6 +13,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -204,6 +205,52 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	assert.Equal(t, transcriptMessageID13{sender: transcriptServer13, seq: 0}, fsm.transcript.order[1].id)
 	assert.Equal(t, handshake.TypeServerHello, fsm.transcript.order[1].typ)
 	assert.Equal(t, 1, state.HandshakeSendSequence)
+}
+
+func TestHandshakeFSM13PrepareDerivesTrafficSecretsBeforeEncryptedExtensions(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	group := cfg.EllipticCurves[0]
+	keypair, err := elliptic.GenerateKeypair(group)
+	require.NoError(t, err)
+
+	state := &dtlsstate.State{
+		LocalVersion:    protocol.Version1_3,
+		CipherSuite:     cfg.LocalCipherSuites[0],
+		LocalKeypair:    keypair,
+		LocalRandom:     handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
+		PreMasterSecret: []byte{0x01, 0x02, 0x03},
+	}
+	transcript := newHandshakeTranscript13()
+	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
+	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
+	require.NoError(t, appendOutboundHandshakeFlight13(transcript, true, nil, []*dtlsflight.Packet{clientHello}))
+
+	fsm, err := newHandshakeFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight4, nil, transcript)
+	require.NoError(t, err)
+
+	nextState, err := fsm.prepare(context.Background(), &flightTestConn{})
+	require.NoError(t, err)
+	assert.Equal(t, handshakeSending, nextState)
+	require.Len(t, fsm.flights, 2)
+
+	serverHelloCanonical := canonicalPacketHandshake13(t, fsm.flights[0])
+	encryptedExtensionsCanonical := canonicalPacketHandshake13(t, fsm.flights[1])
+	expectedTranscript := append(append(append([]byte(nil), clientHelloCanonical...), serverHelloCanonical...),
+		encryptedExtensionsCanonical...)
+	assert.Equal(t, expectedTranscript, fsm.transcript.transcript)
+	assert.Equal(t, []transcriptMessage13{
+		{id: transcriptMessageID13{sender: transcriptClient13, seq: 0}, typ: handshake.TypeClientHello},
+		{id: transcriptMessageID13{sender: transcriptServer13, seq: 0}, typ: handshake.TypeServerHello},
+		{id: transcriptMessageID13{sender: transcriptServer13, seq: 1}, typ: handshake.TypeEncryptedExtensions},
+	}, fsm.transcript.order)
+
+	expectedSecrets, err := deriveHandshakeTrafficSecrets13(
+		state.CipherSuite.HashFunc(),
+		state.PreMasterSecret,
+		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, expectedSecrets, state.HandshakeTrafficSecrets13)
 }
 
 func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {

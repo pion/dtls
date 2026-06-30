@@ -196,7 +196,7 @@ func flight13_3Parse(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext13,
 ) (Flight, *alert.Alert, error) {
-	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
+	serverHelloSeq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 	)
@@ -272,6 +272,23 @@ func flight13_3Parse(
 	}
 	if flightCtx.handshakeTrafficSecretDeriver != nil {
 		if err := flightCtx.handshakeTrafficSecretDeriver(flightCtx.state); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
+
+	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
+		serverHelloSeq, flightCtx.state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeEncryptedExtensions, Epoch: flightCtx.cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
+	)
+	if !ok {
+		return 0, nil, nil
+	}
+	_, hasEncryptedExtensions := msgs[handshake.TypeEncryptedExtensions].(*handshake.MessageEncryptedExtensions)
+	if !hasEncryptedExtensions {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+	if flightCtx.inboundHandshakeHandler != nil {
+		if err := flightCtx.inboundHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}

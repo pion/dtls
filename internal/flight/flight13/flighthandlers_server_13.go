@@ -414,3 +414,61 @@ func flight13_2Generate(
 		},
 	}, nil, nil
 }
+
+func flight13_4Generate(
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext13,
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
+	if flightCtx.state.CipherSuite == nil {
+		return nil, nil, dtlserrors.ErrCipherSuiteUnset
+	}
+	if flightCtx.state.LocalKeypair == nil {
+		return nil, nil, dtlserrors.ErrServerKeyShareMissing
+	}
+
+	cipherSuiteID := uint16(flightCtx.state.CipherSuite.ID())
+	serverHelloExtensions := []extension.Extension{
+		&extension.SupportedVersions{
+			Versions:        []protocol.Version{protocol.Version1_3},
+			SelectedVersion: true,
+		},
+	}
+	serverHelloExtensions = append(serverHelloExtensions, &extension.KeyShare{
+		ServerShare: &extension.KeyShareEntry{
+			Group:       flightCtx.state.LocalKeypair.Curve,
+			KeyExchange: flightCtx.state.LocalKeypair.PublicKey,
+		},
+	})
+
+	return []*dtlsflight.Packet{
+		{
+			Record: &recordlayer.RecordLayer{
+				Header: recordlayer.Header{
+					Version: protocol.Version1_2,
+				},
+				Content: &handshake.Handshake{
+					Message: &handshake.MessageServerHello{
+						Version:           protocol.Version1_2,
+						Random:            flightCtx.state.LocalRandom,
+						CipherSuiteID:     &cipherSuiteID,
+						CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+						Extensions:        serverHelloExtensions,
+					},
+				},
+			},
+		},
+		{
+			Record: &recordlayer.RecordLayer{
+				Header: recordlayer.Header{
+					Version: protocol.Version1_2,
+					Epoch:   1,
+				},
+				Content: &handshake.Handshake{
+					Message: &handshake.MessageEncryptedExtensions{},
+				},
+			},
+			ShouldEncrypt:            true,
+			ResetLocalSequenceNumber: true,
+		},
+	}, nil, nil
+}
