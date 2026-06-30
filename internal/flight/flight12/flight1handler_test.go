@@ -271,13 +271,13 @@ func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) { //nolint:maintid
 	cache.Push(certificateRequest, 0, 4, handshake.TypeCertificateRequest, false)
 	cache.Push(serverHelloDone, 0, 5, handshake.TypeServerHelloDone, false)
 
-	_, alt, err := parseForTest(t, dtlsflight.Flight1, context.TODO(), mockConn, state, cache, cfg)
+	_, alt, err := parseForTest(t, Flight1, context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)
 	assert.Nil(t, alt)
 
 	cache.Push(serverHello, 0, 0, handshake.TypeServerHello, false)
 	cache.Push(certificate1, 0, 1, handshake.TypeCertificate, false)
-	_, alt, err = parseForTest(t, dtlsflight.Flight1, context.TODO(), mockConn, state, cache, cfg)
+	_, alt, err = parseForTest(t, Flight1, context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)
 	assert.Nil(t, alt)
 }

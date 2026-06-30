@@ -22,7 +22,7 @@ type flightParser13 func(
 	context.Context,
 	dtlsflight.Conn,
 	*handshakeContext13,
-) (dtlsflight.Flight13, *alert.Alert, error)
+) (Flight, *alert.Alert, error)
 
 type contextFlightGenerator func(dtlsflight.Conn, *handshakeContext13) ([]*dtlsflight.Packet, *alert.Alert, error)
 
@@ -45,15 +45,15 @@ type handshakeContext13 struct {
 	handshakeTrafficSecretDeriver HandshakeTrafficSecretDeriver
 }
 
-func getFlight13Parser(f dtlsflight.Flight13) (flightParser13, bool) { //nolint:cyclop
+func getFlight13Parser(f Flight) (flightParser13, bool) { //nolint:cyclop
 	switch f {
-	case dtlsflight.Flight13_0:
+	case Flight0:
 		return flight13_0Parse, true
-	case dtlsflight.Flight13_1:
+	case Flight1:
 		return flight13_1Parse, true
-	case dtlsflight.Flight13_2:
+	case Flight2:
 		return flight13_2Parse, true
-	case dtlsflight.Flight13_3:
+	case Flight3:
 		return flight13_3Parse, true
 	default:
 		return nil, false
@@ -71,16 +71,16 @@ func adaptFlight13Generator(gen contextFlightGenerator) Generator {
 	}
 }
 
-func GetGenerator(f dtlsflight.Flight13) (gen Generator, retransmit bool, ok bool) { //nolint:cyclop
+func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) { //nolint:cyclop
 	switch f {
-	case dtlsflight.Flight13_0:
+	case Flight0:
 		return adaptFlight13Generator(flight13_0Generate), true, true
-	case dtlsflight.Flight13_1:
+	case Flight1:
 		return adaptFlight13Generator(flight13_1Generate), true, true
-	case dtlsflight.Flight13_2:
+	case Flight2:
 		// HelloRetryRequests must not be retransmitted.
 		return adaptFlight13Generator(flight13_2Generate), false, true
-	case dtlsflight.Flight13_3:
+	case Flight3:
 		return adaptFlight13Generator(flight13_3Generate), true, true
 	default:
 		return nil, false, false
@@ -89,14 +89,14 @@ func GetGenerator(f dtlsflight.Flight13) (gen Generator, retransmit bool, ok boo
 
 func Parse(
 	ctx context.Context,
-	f dtlsflight.Flight13,
+	f Flight,
 	conn dtlsflight.Conn,
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	inboundHandshakeHandler InboundHandshakeHandler,
 	handshakeTrafficSecretDeriver HandshakeTrafficSecretDeriver,
-) (dtlsflight.Flight13, *alert.Alert, error, bool) {
+) (Flight, *alert.Alert, error, bool) {
 	parse, ok := getFlight13Parser(f)
 	if !ok {
 		return 0, nil, nil, false

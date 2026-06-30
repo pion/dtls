@@ -15,13 +15,13 @@ import (
 
 func parseForTest(
 	testingT require.TestingT,
-	flight dtlsflight.Flight12,
+	flight Flight,
 	ctx context.Context,
 	conn dtlsflight.Conn,
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {
 		helper.Helper()
 	}
@@ -34,7 +34,7 @@ func parseForTest(
 
 func generateForTest(
 	testingT require.TestingT,
-	flight dtlsflight.Flight12,
+	flight Flight,
 	conn dtlsflight.Conn,
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,

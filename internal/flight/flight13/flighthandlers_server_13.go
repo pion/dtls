@@ -159,7 +159,7 @@ func flight13_0Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext13,
-) (dtlsflight.Flight13, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	state := flightCtx.state
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
@@ -236,7 +236,7 @@ func flight13_0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS //nolint:lll
 	}
 
-	nextFlight := dtlsflight.Flight13_2
+	nextFlight := Flight2
 
 	// nolint:nestif
 	if state.RemoteKeyEntries != nil && state.RemoteGroups != nil {
@@ -267,7 +267,7 @@ func flight13_0Parse(
 	}
 
 	if cfg.InsecureSkipHelloVerify {
-		nextFlight = dtlsflight.Flight13_4
+		nextFlight = Flight4
 	}
 
 	if flightCtx.inboundHandshakeHandler != nil {
@@ -312,7 +312,7 @@ func flight13_2Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext13,
-) (dtlsflight.Flight13, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
@@ -350,7 +350,7 @@ func flight13_2Parse(
 	}
 	flightCtx.state.HandshakeRecvSequence = seq
 
-	return dtlsflight.Flight13_4, nil, nil
+	return Flight4, nil, nil
 }
 
 func clientHello13Cookie(extensions []extension.Extension) []byte {

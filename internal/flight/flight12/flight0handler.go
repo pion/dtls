@@ -30,7 +30,7 @@ func flight0Parse(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	seq, msgs, ok := cache.FullPullMap(0, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
@@ -138,10 +138,10 @@ func flight0Parse(
 		}
 	}
 
-	nextFlight := dtlsflight.Flight2
+	nextFlight := Flight2
 
 	if cfg.InsecureSkipHelloVerify {
-		nextFlight = dtlsflight.Flight4
+		nextFlight = Flight4
 	}
 
 	return handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
@@ -151,8 +151,8 @@ func handleHelloResume(
 	sessionID []byte,
 	state *dtlsstate.State,
 	cfg *dtlsconfig.HandshakeConfig,
-	next dtlsflight.Flight12,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+	next Flight,
+) (Flight, *alert.Alert, error) {
 	if len(sessionID) > 0 && cfg.HasSessionStore {
 		if id, secret, err := cfg.GetSession(sessionID); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
@@ -169,7 +169,7 @@ func handleHelloResume(
 			clientRandom := state.LocalRandom.MarshalFixed()
 			cfg.WriteKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
 
-			return dtlsflight.Flight4b, nil, nil
+			return Flight4b, nil, nil
 		}
 	}
 

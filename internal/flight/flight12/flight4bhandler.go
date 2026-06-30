@@ -25,7 +25,7 @@ func flight4bParse(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsflight.Flight12, *alert.Alert, error) {
+) (Flight, *alert.Alert, error) {
 	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false}, //nolint:lll
 	)
@@ -54,7 +54,7 @@ func flight4bParse(
 	}
 
 	// Other party may re-transmit the last  Keep state to be Flight4b.
-	return dtlsflight.Flight4b, nil, nil
+	return Flight4b, nil, nil
 }
 
 //nolint:cyclop

@@ -67,7 +67,7 @@ import (
 //             Retransmit ACK
 
 type handshakeFSM13 struct {
-	currentFlight      dtlsflight.Flight13
+	currentFlight      dtlsflight13.Flight
 	flights            []*dtlsflight.Packet //nolint:unused
 	retransmit         bool                 //nolint:unused
 	retransmitInterval time.Duration
@@ -82,7 +82,7 @@ func newHandshakeFSM13(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
 	cfg *handshakeConfig,
-	initialFlight dtlsflight.Flight13,
+	initialFlight dtlsflight13.Flight,
 	initialFlights []*dtlsflight.Packet,
 	initialTranscript *handshakeTranscript13,
 ) (*handshakeFSM13, error) {
