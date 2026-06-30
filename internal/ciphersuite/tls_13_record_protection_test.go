@@ -6,7 +6,6 @@ package ciphersuite
 import (
 	"bytes"
 	"crypto/aes"
-	"crypto/sha512"
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -17,116 +16,165 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeriveRecordTrafficKeys13TLSAES256GCMSHA384(t *testing.T) {
-	trafficSecret := bytes.Repeat([]byte{0x3c}, sha512.Size384)
-
-	keys, err := deriveRecordTrafficKeys13(sha512.New384, trafficSecret, tls13AES256GCMKeyLen)
-	require.NoError(t, err)
-
-	require.Len(t, keys.key, tls13AES256GCMKeyLen)
-	require.Len(t, keys.iv, tls13AEADWriteIVLen)
-	require.Len(t, keys.sequenceNumberKey, tls13AES256GCMKeyLen)
-
-	expectedKey, err := keyschedule.HkdfExpandLabel(
-		sha512.New384,
-		trafficSecret,
-		"key",
-		nil,
-		tls13AES256GCMKeyLen,
-	)
-	require.NoError(t, err)
-
-	expectedIV, err := keyschedule.HkdfExpandLabel(
-		sha512.New384,
-		trafficSecret,
-		"iv",
-		nil,
-		tls13AEADWriteIVLen,
-	)
-	require.NoError(t, err)
-
-	expectedSequenceNumberKey, err := keyschedule.HkdfExpandLabel(
-		sha512.New384,
-		trafficSecret,
-		"sn",
-		nil,
-		tls13AES256GCMKeyLen,
-	)
-	require.NoError(t, err)
-
-	assert.Equal(t, expectedKey, keys.key)
-	assert.Equal(t, expectedIV, keys.iv)
-	assert.Equal(t, expectedSequenceNumberKey, keys.sequenceNumberKey)
-	assert.NotEqual(t, keys.key, keys.sequenceNumberKey)
+type aesGCMRecordProtection13TestCase struct {
+	name   string
+	suite  tls13RecordProtectionSuite
+	keyLen int
 }
 
-func TestNewAES256GCMRecordProtection13(t *testing.T) {
-	localTrafficSecret := bytes.Repeat([]byte{0x5a}, sha512.Size384)
-	remoteTrafficSecret := bytes.Repeat([]byte{0x6b}, sha512.Size384)
+type tls13RecordProtectionSuite interface {
+	CipherSuite
+	newRecordProtection(localTrafficSecret, remoteTrafficSecret []byte) (*recordProtection13, error)
+}
 
-	protection, err := newAES256GCMRecordProtection13(sha512.New384, localTrafficSecret, remoteTrafficSecret)
-	require.NoError(t, err)
-	require.NotNil(t, protection.local.aead)
-	require.NotNil(t, protection.remote.aead)
+func aesGCMRecordProtection13TestCases() []aesGCMRecordProtection13TestCase {
+	return []aesGCMRecordProtection13TestCase{
+		{
+			name:   "TLS_AES_128_GCM_SHA256",
+			suite:  NewTLSAes128GcmSha256(),
+			keyLen: tls13AES128GCMKeyLen,
+		},
+		{
+			name:   "TLS_AES_256_GCM_SHA384",
+			suite:  NewTLSAes256GcmSha384(),
+			keyLen: tls13AES256GCMKeyLen,
+		},
+	}
+}
 
-	assert.Equal(t, tls13AEADWriteIVLen, protection.local.aead.NonceSize())
-	assert.Equal(t, 16, protection.local.aead.Overhead())
-	require.Len(t, protection.local.iv, tls13AEADWriteIVLen)
-	require.Len(t, protection.remote.iv, tls13AEADWriteIVLen)
-	require.Len(t, protection.local.sequenceNumberKey, tls13AES256GCMKeyLen)
-	require.Len(t, protection.remote.sequenceNumberKey, tls13AES256GCMKeyLen)
-	assert.NotEqual(t, protection.local.iv, protection.remote.iv)
-	assert.NotEqual(t, protection.local.sequenceNumberKey, protection.remote.sequenceNumberKey)
+func trafficSecret13(suite tls13RecordProtectionSuite, fill byte) []byte {
+	hashFunc := suite.HashFunc()
 
-	plaintext := []byte("dtls13 aes-256-gcm")
-	additionalData := []byte("synthetic aad")
-	nonce := append([]byte(nil), protection.local.iv...)
+	return bytes.Repeat([]byte{fill}, hashFunc().Size())
+}
 
-	ciphertext := protection.local.aead.Seal(nil, nonce, plaintext, additionalData)
-	require.Len(t, ciphertext, len(plaintext)+protection.local.aead.Overhead())
+func TestDeriveRecordTrafficKeys13AESGCMSuites(t *testing.T) {
+	for _, testCase := range aesGCMRecordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			hashFunc := testCase.suite.HashFunc()
+			trafficSecret := trafficSecret13(testCase.suite, 0x3c)
 
-	decrypted, err := protection.local.aead.Open(nil, nonce, ciphertext, additionalData)
-	require.NoError(t, err)
-	assert.Equal(t, plaintext, decrypted)
+			keys, err := deriveRecordTrafficKeys13(hashFunc, trafficSecret, testCase.keyLen)
+			require.NoError(t, err)
+
+			require.Len(t, keys.key, testCase.keyLen)
+			require.Len(t, keys.iv, tls13AEADWriteIVLen)
+			require.Len(t, keys.sequenceNumberKey, testCase.keyLen)
+
+			expectedKey, err := keyschedule.HkdfExpandLabel(
+				hashFunc,
+				trafficSecret,
+				trafficKeyLabel13,
+				nil,
+				testCase.keyLen,
+			)
+			require.NoError(t, err)
+
+			expectedIV, err := keyschedule.HkdfExpandLabel(
+				hashFunc,
+				trafficSecret,
+				trafficIVLabel13,
+				nil,
+				tls13AEADWriteIVLen,
+			)
+			require.NoError(t, err)
+
+			expectedSequenceNumberKey, err := keyschedule.HkdfExpandLabel(
+				hashFunc,
+				trafficSecret,
+				trafficSequenceNumberKeyLabel13,
+				nil,
+				testCase.keyLen,
+			)
+			require.NoError(t, err)
+
+			assert.Equal(t, expectedKey, keys.key)
+			assert.Equal(t, expectedIV, keys.iv)
+			assert.Equal(t, expectedSequenceNumberKey, keys.sequenceNumberKey)
+			assert.NotEqual(t, keys.key, keys.sequenceNumberKey)
+		})
+	}
+}
+
+func TestTLS13CipherSuiteNewRecordProtectionAESGCMSuites(t *testing.T) {
+	for _, testCase := range aesGCMRecordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			localTrafficSecret := trafficSecret13(testCase.suite, 0x5a)
+			remoteTrafficSecret := trafficSecret13(testCase.suite, 0x6b)
+
+			protection, err := testCase.suite.newRecordProtection(localTrafficSecret, remoteTrafficSecret)
+			require.NoError(t, err)
+			require.NotNil(t, protection.local.aead)
+			require.NotNil(t, protection.remote.aead)
+
+			assert.Equal(t, tls13AEADWriteIVLen, protection.local.aead.NonceSize())
+			assert.Equal(t, tls13AESGCMTagLen, protection.local.aead.Overhead())
+			require.Len(t, protection.local.iv, tls13AEADWriteIVLen)
+			require.Len(t, protection.remote.iv, tls13AEADWriteIVLen)
+			require.Len(t, protection.local.sequenceNumberKey, testCase.keyLen)
+			require.Len(t, protection.remote.sequenceNumberKey, testCase.keyLen)
+			assert.NotEqual(t, protection.local.iv, protection.remote.iv)
+			assert.NotEqual(t, protection.local.sequenceNumberKey, protection.remote.sequenceNumberKey)
+
+			plaintext := []byte("dtls13 aes-gcm")
+			additionalData := []byte("synthetic aad")
+			nonce := append([]byte(nil), protection.local.iv...)
+
+			ciphertext := protection.local.aead.Seal(nil, nonce, plaintext, additionalData)
+			require.Len(t, ciphertext, len(plaintext)+protection.local.aead.Overhead())
+
+			decrypted, err := protection.local.aead.Open(nil, nonce, ciphertext, additionalData)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, decrypted)
+		})
+	}
+}
+
+func TestTLS13CipherSuiteNewRecordProtectionRejectsChaCha20Poly1305(t *testing.T) {
+	suite := NewTLSChacha20Poly1305Sha256()
+
+	_, err := suite.newRecordProtection(trafficSecret13(suite, 0x5a), trafficSecret13(suite, 0x6b))
+	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
 }
 
 func TestRecordProtection13SealOpenSyntheticTrafficSecret(t *testing.T) {
-	localTrafficSecret := bytes.Repeat([]byte{0xa6}, sha512.Size384)
-	remoteTrafficSecret := bytes.Repeat([]byte{0xb6}, sha512.Size384)
-	protection, err := newAES256GCMRecordProtection13(sha512.New384, localTrafficSecret, remoteTrafficSecret)
-	require.NoError(t, err)
-	peerProtection, err := newAES256GCMRecordProtection13(sha512.New384, remoteTrafficSecret, localTrafficSecret)
-	require.NoError(t, err)
+	for _, testCase := range aesGCMRecordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			localTrafficSecret := trafficSecret13(testCase.suite, 0xa6)
+			remoteTrafficSecret := trafficSecret13(testCase.suite, 0xb6)
+			protection, err := testCase.suite.newRecordProtection(localTrafficSecret, remoteTrafficSecret)
+			require.NoError(t, err)
+			peerProtection, err := testCase.suite.newRecordProtection(remoteTrafficSecret, localTrafficSecret)
+			require.NoError(t, err)
 
-	header := recordlayer.UnifiedHeader{
-		SequenceNumber: 0x1234,
-		EpochLow:       2,
+			header := recordlayer.UnifiedHeader{
+				SequenceNumber: 0x1234,
+				EpochLow:       2,
+			}
+			sequenceNumber := uint64(0x0102030405060708)
+			plaintext := []byte("protected dtls13 payload")
+
+			record, err := protection.seal(header, sequenceNumber, protocol.ContentTypeApplicationData, plaintext)
+			require.NoError(t, err)
+
+			require.Equal(t, uint16(len(record.EncryptedRecord)), record.Header.Length) //nolint:gosec
+			require.True(t, record.Header.LengthBit)
+			require.True(t, record.Header.SeqBit)
+			require.Len(t, record.EncryptedRecord, len(plaintext)+1+tls13AESGCMTagLen)
+
+			innerPlaintext, err := peerProtection.open(record.Header, sequenceNumber, record.EncryptedRecord)
+			require.NoError(t, err)
+
+			assert.Equal(t, plaintext, innerPlaintext.Content)
+			assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+			assert.Equal(t, uint(0), innerPlaintext.Zeros)
+		})
 	}
-	sequenceNumber := uint64(0x0102030405060708)
-	plaintext := []byte("protected dtls13 payload")
-
-	record, err := protection.seal(header, sequenceNumber, protocol.ContentTypeApplicationData, plaintext)
-	require.NoError(t, err)
-
-	require.Equal(t, uint16(len(record.EncryptedRecord)), record.Header.Length) //nolint:gosec
-	require.True(t, record.Header.LengthBit)
-	require.True(t, record.Header.SeqBit)
-	require.Len(t, record.EncryptedRecord, len(plaintext)+1+tls13AESGCMTagLen)
-
-	innerPlaintext, err := peerProtection.open(record.Header, sequenceNumber, record.EncryptedRecord)
-	require.NoError(t, err)
-
-	assert.Equal(t, plaintext, innerPlaintext.Content)
-	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
-	assert.Equal(t, uint(0), innerPlaintext.Zeros)
 }
 
 func TestRecordProtection13SealRejectsOversizedPlaintext(t *testing.T) {
-	protection, err := newAES256GCMRecordProtection13(
-		sha512.New384,
-		bytes.Repeat([]byte{0xaa}, sha512.Size384),
-		bytes.Repeat([]byte{0xab}, sha512.Size384),
-	)
+	suite := NewTLSAes128GcmSha256()
+	protection, err := suite.newRecordProtection(trafficSecret13(suite, 0xaa), trafficSecret13(suite, 0xab))
 	require.NoError(t, err)
 
 	header := recordlayer.UnifiedHeader{SequenceNumber: 0x1234, EpochLow: 2}
@@ -148,70 +196,98 @@ func TestRecordProtection13SealRejectsOversizedPlaintext(t *testing.T) {
 }
 
 func TestRecordProtection13OpenRejectsWrongAdditionalData(t *testing.T) {
-	localTrafficSecret := bytes.Repeat([]byte{0xb7}, sha512.Size384)
-	remoteTrafficSecret := bytes.Repeat([]byte{0xc7}, sha512.Size384)
-	protection, err := newAES256GCMRecordProtection13(sha512.New384, localTrafficSecret, remoteTrafficSecret)
-	require.NoError(t, err)
-	peerProtection, err := newAES256GCMRecordProtection13(sha512.New384, remoteTrafficSecret, localTrafficSecret)
-	require.NoError(t, err)
+	for _, testCase := range aesGCMRecordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			localTrafficSecret := trafficSecret13(testCase.suite, 0xb7)
+			remoteTrafficSecret := trafficSecret13(testCase.suite, 0xc7)
+			protection, err := testCase.suite.newRecordProtection(localTrafficSecret, remoteTrafficSecret)
+			require.NoError(t, err)
+			peerProtection, err := testCase.suite.newRecordProtection(remoteTrafficSecret, localTrafficSecret)
+			require.NoError(t, err)
 
-	record, err := protection.seal(
-		recordlayer.UnifiedHeader{SequenceNumber: 0x4567, EpochLow: 1},
-		0x0102030405060708,
-		protocol.ContentTypeHandshake,
-		[]byte{0x01, 0x02, 0x03},
-	)
-	require.NoError(t, err)
+			record, err := protection.seal(
+				recordlayer.UnifiedHeader{SequenceNumber: 0x4567, EpochLow: 1},
+				0x0102030405060708,
+				protocol.ContentTypeHandshake,
+				[]byte{0x01, 0x02, 0x03},
+			)
+			require.NoError(t, err)
 
-	record.Header.SequenceNumber ^= 0x0001
-	_, err = peerProtection.open(record.Header, 0x0102030405060708, record.EncryptedRecord)
-	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+			record.Header.SequenceNumber ^= 0x0001
+			_, err = peerProtection.open(record.Header, 0x0102030405060708, record.EncryptedRecord)
+			assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+		})
+	}
+}
+
+func TestRecordProtection13OpenRejectsWrongSequenceNumber(t *testing.T) {
+	for _, testCase := range aesGCMRecordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			localTrafficSecret := trafficSecret13(testCase.suite, 0xbe)
+			remoteTrafficSecret := trafficSecret13(testCase.suite, 0xce)
+			protection, err := testCase.suite.newRecordProtection(localTrafficSecret, remoteTrafficSecret)
+			require.NoError(t, err)
+			peerProtection, err := testCase.suite.newRecordProtection(remoteTrafficSecret, localTrafficSecret)
+			require.NoError(t, err)
+
+			record, err := protection.seal(
+				recordlayer.UnifiedHeader{SequenceNumber: 0x4567, EpochLow: 1},
+				0x0102030405060708,
+				protocol.ContentTypeHandshake,
+				[]byte{0x01, 0x02, 0x03},
+			)
+			require.NoError(t, err)
+
+			_, err = peerProtection.open(record.Header, 0x0102030405060709, record.EncryptedRecord)
+			assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+		})
+	}
 }
 
 func TestRecordProtection13SequenceNumberMaskSyntheticTrafficSecret(t *testing.T) {
-	protection, err := newAES256GCMRecordProtection13(
-		sha512.New384,
-		bytes.Repeat([]byte{0xc8}, sha512.Size384),
-		bytes.Repeat([]byte{0xc9}, sha512.Size384),
-	)
-	require.NoError(t, err)
+	for _, testCase := range aesGCMRecordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			protection, err := testCase.suite.newRecordProtection(
+				trafficSecret13(testCase.suite, 0xc8),
+				trafficSecret13(testCase.suite, 0xc9),
+			)
+			require.NoError(t, err)
 
-	record, err := protection.seal(
-		recordlayer.UnifiedHeader{SequenceNumber: 0x0102, EpochLow: 3},
-		0x1112131415161718,
-		protocol.ContentTypeApplicationData,
-		[]byte("mask sample source"),
-	)
-	require.NoError(t, err)
+			record, err := protection.seal(
+				recordlayer.UnifiedHeader{SequenceNumber: 0x0102, EpochLow: 3},
+				0x1112131415161718,
+				protocol.ContentTypeApplicationData,
+				[]byte("mask sample source"),
+			)
+			require.NoError(t, err)
 
-	mask, err := protection.sequenceNumberMask(record.EncryptedRecord)
-	require.NoError(t, err)
-	require.Len(t, mask, aes.BlockSize)
+			mask, err := protection.sequenceNumberMask(record.EncryptedRecord)
+			require.NoError(t, err)
+			require.Len(t, mask, aes.BlockSize)
 
-	block, err := aes.NewCipher(protection.local.sequenceNumberKey)
-	require.NoError(t, err)
-	expectedMask := make([]byte, aes.BlockSize)
-	block.Encrypt(expectedMask, record.EncryptedRecord[:aes.BlockSize])
-	assert.Equal(t, expectedMask, mask)
+			block, err := aes.NewCipher(protection.local.sequenceNumberKey)
+			require.NoError(t, err)
+			expectedMask := make([]byte, aes.BlockSize)
+			block.Encrypt(expectedMask, record.EncryptedRecord[:aes.BlockSize])
+			assert.Equal(t, expectedMask, mask)
 
-	rawHeader, err := record.Header.Marshal()
-	require.NoError(t, err)
-	maskedHeader := append([]byte(nil), rawHeader...)
-	maskedHeader[1] ^= mask[0]
-	maskedHeader[2] ^= mask[1]
-	assert.NotEqual(t, rawHeader, maskedHeader)
+			rawHeader, err := record.Header.Marshal()
+			require.NoError(t, err)
+			maskedHeader := append([]byte(nil), rawHeader...)
+			maskedHeader[1] ^= mask[0]
+			maskedHeader[2] ^= mask[1]
+			assert.NotEqual(t, rawHeader, maskedHeader)
 
-	maskedHeader[1] ^= mask[0]
-	maskedHeader[2] ^= mask[1]
-	assert.Equal(t, rawHeader, maskedHeader)
+			maskedHeader[1] ^= mask[0]
+			maskedHeader[2] ^= mask[1]
+			assert.Equal(t, rawHeader, maskedHeader)
+		})
+	}
 }
 
 func TestRecordProtection13SequenceNumberMaskRejectsShortCiphertext(t *testing.T) {
-	protection, err := newAES256GCMRecordProtection13(
-		sha512.New384,
-		bytes.Repeat([]byte{0xd9}, sha512.Size384),
-		bytes.Repeat([]byte{0xda}, sha512.Size384),
-	)
+	suite := NewTLSAes128GcmSha256()
+	protection, err := suite.newRecordProtection(trafficSecret13(suite, 0xd9), trafficSecret13(suite, 0xda))
 	require.NoError(t, err)
 
 	_, err = protection.sequenceNumberMask(bytes.Repeat([]byte{0x01}, aes.BlockSize-1))
@@ -228,16 +304,18 @@ func TestRecordNonce13(t *testing.T) {
 }
 
 func TestNewAESGCMRecordProtection13RejectsInvalidAESKeyLength(t *testing.T) {
+	suite := NewTLSAes256GcmSha384()
 	_, err := newAESGCMRecordProtection13(
-		sha512.New384,
-		bytes.Repeat([]byte{0x5a}, sha512.Size384),
-		bytes.Repeat([]byte{0x6a}, sha512.Size384),
+		suite.HashFunc(),
+		trafficSecret13(suite, 0x5a),
+		trafficSecret13(suite, 0x6a),
 		31,
 	)
 	assert.Error(t, err)
 }
 
 func TestDeriveRecordTrafficKeys13RejectsInvalidKeyLength(t *testing.T) {
-	_, err := deriveRecordTrafficKeys13(sha512.New384, bytes.Repeat([]byte{0x3c}, sha512.Size384), 0)
+	suite := NewTLSAes256GcmSha384()
+	_, err := deriveRecordTrafficKeys13(suite.HashFunc(), trafficSecret13(suite, 0x3c), 0)
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 }

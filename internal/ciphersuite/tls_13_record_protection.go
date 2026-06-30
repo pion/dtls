@@ -22,6 +22,7 @@ const (
 	trafficSequenceNumberKeyLabel13 = "sn"
 
 	tls13AEADWriteIVLen  = 12
+	tls13AES128GCMKeyLen = 16
 	tls13AES256GCMKeyLen = 32
 	tls13AESGCMTagLen    = 16
 
@@ -44,6 +45,13 @@ type recordTrafficProtection13 struct {
 type recordProtection13 struct {
 	local  recordTrafficProtection13
 	remote recordTrafficProtection13
+}
+
+func newAES128GCMRecordProtection13(
+	hashFunc func() hash.Hash,
+	localTrafficSecret, remoteTrafficSecret []byte,
+) (*recordProtection13, error) {
+	return newAESGCMRecordProtection13(hashFunc, localTrafficSecret, remoteTrafficSecret, tls13AES128GCMKeyLen)
 }
 
 func newAES256GCMRecordProtection13(
