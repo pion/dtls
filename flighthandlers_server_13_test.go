@@ -558,6 +558,87 @@ func TestFlight13_2Generate(t *testing.T) {
 	})
 }
 
+func TestFlight13_4Generate(t *testing.T) {
+	t.Run("GeneratesServerHelloThenEncryptedExtensions", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		group := cfg.EllipticCurves[0]
+		keypair, err := elliptic.GenerateKeypair(group)
+		require.NoError(t, err)
+
+		state := &dtlsstate.State{
+			LocalVersion: protocol.Version1_3,
+			CipherSuite:  cfg.LocalCipherSuites[0],
+			LocalKeypair: keypair,
+			LocalRandom:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01, 0x02, 0x03}},
+		}
+
+		pkts, dtlsAlert, err := flight13GenerateForTest(
+			t, dtlsflight13.Flight4, &handshakeContext13{state: state, cfg: cfg},
+		)
+		require.NoError(t, err)
+		require.Nil(t, dtlsAlert)
+		require.Len(t, pkts, 2)
+		assert.Equal(t, uint16(0), pkts[0].Record.Header.Epoch)
+		assert.False(t, pkts[0].ShouldEncrypt)
+
+		serverHelloHandshake, ok := pkts[0].Record.Content.(*handshake.Handshake)
+		require.True(t, ok)
+		serverHello, ok := serverHelloHandshake.Message.(*handshake.MessageServerHello)
+		require.True(t, ok)
+		assert.Equal(t, protocol.Version1_2, serverHello.Version)
+		assert.Equal(t, state.LocalRandom, serverHello.Random)
+		require.NotNil(t, serverHello.CipherSuiteID)
+		assert.Equal(t, uint16(cfg.LocalCipherSuites[0].ID()), *serverHello.CipherSuiteID)
+
+		keyShare, ok := findKeyShare(serverHello.Extensions)
+		require.True(t, ok)
+		require.NotNil(t, keyShare.ServerShare)
+		assert.Equal(t, group, keyShare.ServerShare.Group)
+		assert.Equal(t, keypair.PublicKey, keyShare.ServerShare.KeyExchange)
+
+		supportedVersions, ok := findSupportedVersions(serverHello.Extensions)
+		require.True(t, ok)
+		assert.True(t, supportedVersions.IsSelectedVersion())
+		assert.Equal(t, []protocol.Version{protocol.Version1_3}, supportedVersions.Versions)
+
+		encryptedExtensionsHandshake, ok := pkts[1].Record.Content.(*handshake.Handshake)
+		require.True(t, ok)
+		assert.Equal(t, uint16(1), pkts[1].Record.Header.Epoch)
+		assert.True(t, pkts[1].ShouldEncrypt)
+		assert.True(t, pkts[1].ResetLocalSequenceNumber)
+		encryptedExtensions, ok := encryptedExtensionsHandshake.Message.(*handshake.MessageEncryptedExtensions)
+		require.True(t, ok)
+		assert.Empty(t, encryptedExtensions.Extensions)
+	})
+
+	t.Run("RejectsWithoutCipherSuite", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		state := &dtlsstate.State{LocalVersion: protocol.Version1_3}
+
+		pkts, dtlsAlert, err := flight13GenerateForTest(
+			t, dtlsflight13.Flight4, &handshakeContext13{state: state, cfg: cfg},
+		)
+		require.ErrorIs(t, err, dtlserrors.ErrCipherSuiteUnset)
+		require.Nil(t, dtlsAlert)
+		require.Nil(t, pkts)
+	})
+
+	t.Run("RejectsWithoutLocalKeypair", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		state := &dtlsstate.State{
+			LocalVersion: protocol.Version1_3,
+			CipherSuite:  cfg.LocalCipherSuites[0],
+		}
+
+		pkts, dtlsAlert, err := flight13GenerateForTest(
+			t, dtlsflight13.Flight4, &handshakeContext13{state: state, cfg: cfg},
+		)
+		require.ErrorIs(t, err, dtlserrors.ErrServerKeyShareMissing)
+		require.Nil(t, dtlsAlert)
+		require.Nil(t, pkts)
+	})
+}
+
 func pushClientHello13(
 	t *testing.T,
 	cache *dtlsflight.Cache,

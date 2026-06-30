@@ -17,17 +17,18 @@ type Type uint8
 
 // Types of DTLS Handshake messages we know about.
 const (
-	TypeHelloRequest       Type = 0
-	TypeClientHello        Type = 1
-	TypeServerHello        Type = 2
-	TypeHelloVerifyRequest Type = 3
-	TypeCertificate        Type = 11
-	TypeServerKeyExchange  Type = 12
-	TypeCertificateRequest Type = 13
-	TypeServerHelloDone    Type = 14
-	TypeCertificateVerify  Type = 15
-	TypeClientKeyExchange  Type = 16
-	TypeFinished           Type = 20
+	TypeHelloRequest        Type = 0
+	TypeClientHello         Type = 1
+	TypeServerHello         Type = 2
+	TypeHelloVerifyRequest  Type = 3
+	TypeEncryptedExtensions Type = 8
+	TypeCertificate         Type = 11
+	TypeServerKeyExchange   Type = 12
+	TypeCertificateRequest  Type = 13
+	TypeServerHelloDone     Type = 14
+	TypeCertificateVerify   Type = 15
+	TypeClientKeyExchange   Type = 16
+	TypeFinished            Type = 20
 
 	// TypeMessageHash is a synthetic TLS 1.3 transcript-only handshake type.
 	TypeMessageHash Type = 254
@@ -56,6 +57,8 @@ func (t Type) String() string { //nolint:cyclop
 		return "ServerHello"
 	case TypeHelloVerifyRequest:
 		return "HelloVerifyRequest"
+	case TypeEncryptedExtensions:
+		return "EncryptedExtensions"
 	case TypeCertificate:
 		return "TypeCertificate"
 	case TypeServerKeyExchange:
@@ -148,6 +151,8 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 		h.Message = &MessageHelloVerifyRequest{}
 	case TypeServerHello:
 		h.Message = &MessageServerHello{}
+	case TypeEncryptedExtensions:
+		h.Message = &MessageEncryptedExtensions{}
 	case TypeCertificate:
 		h.Message = &MessageCertificate{}
 	case TypeServerKeyExchange:

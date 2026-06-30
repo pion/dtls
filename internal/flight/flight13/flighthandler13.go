@@ -82,6 +82,8 @@ func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) { //nolint
 		return adaptFlight13Generator(flight13_2Generate), false, true
 	case Flight3:
 		return adaptFlight13Generator(flight13_3Generate), true, true
+	case Flight4:
+		return adaptFlight13Generator(flight13_4Generate), true, true
 	default:
 		return nil, false, false
 	}
