@@ -888,7 +888,10 @@ func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
 			receivedServerKeyExchange := gotServerKeyExchange.Load()
 
 			assert.NoError(t, server.Close())
-			assert.NoError(t, <-clientErr, "TestPSK: Client erro")
+			if err := <-clientErr; err != nil {
+				assert.ErrorIs(t, err, &alertError{&alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}},
+					"TestPSK: Client error")
+			}
 
 			assert.Equal(t, expectedServerKeyExchange, receivedServerKeyExchange)
 		})
