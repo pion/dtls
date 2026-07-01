@@ -14,6 +14,8 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/keyschedule"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
+	"golang.org/x/crypto/chacha20"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
@@ -26,9 +28,17 @@ const (
 	tls13AES256GCMKeyLen = 32
 	tls13AESGCMTagLen    = 16
 
+	tls13ChaCha20Poly1305KeyLen = chacha20poly1305.KeySize
+	tls13ChaCha20Poly1305TagLen = chacha20poly1305.Overhead
+	tls13ChaCha20BlockLen       = 64
+
+	tls13SequenceNumberMaskSampleLen = 16
+
 	maxDTLSPlaintextRecordLen13  = 1 << 14
 	maxDTLSCiphertextRecordLen13 = maxDTLSPlaintextRecordLen13 + 256
 )
+
+type recordSequenceNumberMaskFunc13 func(sequenceNumberKey, encryptedRecord []byte) ([]byte, error)
 
 type recordTrafficKeys13 struct {
 	key               []byte
@@ -37,9 +47,10 @@ type recordTrafficKeys13 struct {
 }
 
 type recordTrafficProtection13 struct {
-	aead              cipher.AEAD
-	iv                []byte
-	sequenceNumberKey []byte
+	aead               cipher.AEAD
+	iv                 []byte
+	sequenceNumberKey  []byte
+	sequenceNumberMask recordSequenceNumberMaskFunc13
 }
 
 type recordProtection13 struct {
@@ -103,9 +114,52 @@ func newAESGCMRecordTrafficProtection13(
 	}
 
 	return recordTrafficProtection13{
-		aead:              aead,
-		iv:                keys.iv,
-		sequenceNumberKey: keys.sequenceNumberKey,
+		aead:               aead,
+		iv:                 keys.iv,
+		sequenceNumberKey:  keys.sequenceNumberKey,
+		sequenceNumberMask: recordSequenceNumberMaskAES13,
+	}, nil
+}
+
+func newChaCha20Poly1305RecordProtection13(
+	hashFunc func() hash.Hash,
+	localTrafficSecret, remoteTrafficSecret []byte,
+) (*recordProtection13, error) {
+	local, err := newChaCha20Poly1305RecordTrafficProtection13(hashFunc, localTrafficSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	remote, err := newChaCha20Poly1305RecordTrafficProtection13(hashFunc, remoteTrafficSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	return &recordProtection13{
+		local:  local,
+		remote: remote,
+	}, nil
+}
+
+func newChaCha20Poly1305RecordTrafficProtection13(
+	hashFunc func() hash.Hash,
+	trafficSecret []byte,
+) (recordTrafficProtection13, error) {
+	keys, err := deriveRecordTrafficKeys13(hashFunc, trafficSecret, tls13ChaCha20Poly1305KeyLen)
+	if err != nil {
+		return recordTrafficProtection13{}, err
+	}
+
+	aead, err := chacha20poly1305.New(keys.key)
+	if err != nil {
+		return recordTrafficProtection13{}, err
+	}
+
+	return recordTrafficProtection13{
+		aead:               aead,
+		iv:                 keys.iv,
+		sequenceNumberKey:  keys.sequenceNumberKey,
+		sequenceNumberMask: recordSequenceNumberMaskChaCha20Poly1305TLS13,
 	}, nil
 }
 
@@ -181,11 +235,15 @@ func (r *recordProtection13) open(
 }
 
 func (r *recordProtection13) sequenceNumberMask(encryptedRecord []byte) ([]byte, error) {
-	return recordSequenceNumberMaskAES13(r.local.sequenceNumberKey, encryptedRecord)
+	if r.local.sequenceNumberMask == nil {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	return r.local.sequenceNumberMask(r.local.sequenceNumberKey, encryptedRecord)
 }
 
 func recordSequenceNumberMaskAES13(sequenceNumberKey, encryptedRecord []byte) ([]byte, error) {
-	if len(encryptedRecord) < aes.BlockSize {
+	if len(encryptedRecord) < tls13SequenceNumberMaskSampleLen {
 		return nil, dtlserrors.ErrBufferTooSmall
 	}
 
@@ -196,6 +254,23 @@ func recordSequenceNumberMaskAES13(sequenceNumberKey, encryptedRecord []byte) ([
 
 	mask := make([]byte, aes.BlockSize)
 	block.Encrypt(mask, encryptedRecord[:aes.BlockSize])
+
+	return mask, nil
+}
+
+func recordSequenceNumberMaskChaCha20Poly1305TLS13(sequenceNumberKey, encryptedRecord []byte) ([]byte, error) {
+	if len(encryptedRecord) < tls13SequenceNumberMaskSampleLen {
+		return nil, dtlserrors.ErrBufferTooSmall
+	}
+
+	chacha, err := chacha20.NewUnauthenticatedCipher(sequenceNumberKey, encryptedRecord[4:16])
+	if err != nil {
+		return nil, err
+	}
+
+	chacha.SetCounter(binary.LittleEndian.Uint32(encryptedRecord[:4]))
+	mask := make([]byte, tls13ChaCha20BlockLen)
+	chacha.XORKeyStream(mask, mask)
 
 	return mask, nil
 }

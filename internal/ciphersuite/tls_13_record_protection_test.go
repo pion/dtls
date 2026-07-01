@@ -6,6 +6,8 @@ package ciphersuite
 import (
 	"bytes"
 	"crypto/aes"
+	"encoding/binary"
+	"encoding/hex"
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -14,12 +16,15 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/chacha20"
 )
 
-type aesGCMRecordProtection13TestCase struct {
-	name   string
-	suite  tls13RecordProtectionSuite
-	keyLen int
+type recordProtection13TestCase struct {
+	name                       string
+	suite                      tls13RecordProtectionSuite
+	keyLen                     int
+	tagLen                     int
+	expectedSequenceNumberMask func(t *testing.T, sequenceNumberKey, encryptedRecord []byte) []byte
 }
 
 type tls13RecordProtectionSuite interface {
@@ -27,19 +32,55 @@ type tls13RecordProtectionSuite interface {
 	newRecordProtection(localTrafficSecret, remoteTrafficSecret []byte) (*recordProtection13, error)
 }
 
-func aesGCMRecordProtection13TestCases() []aesGCMRecordProtection13TestCase {
-	return []aesGCMRecordProtection13TestCase{
+func recordProtection13TestCases() []recordProtection13TestCase {
+	return []recordProtection13TestCase{
 		{
-			name:   "TLS_AES_128_GCM_SHA256",
-			suite:  NewTLSAes128GcmSha256(),
-			keyLen: tls13AES128GCMKeyLen,
+			name:                       "TLS_AES_128_GCM_SHA256",
+			suite:                      NewTLSAes128GcmSha256(),
+			keyLen:                     tls13AES128GCMKeyLen,
+			tagLen:                     tls13AESGCMTagLen,
+			expectedSequenceNumberMask: expectedAESSequenceNumberMask13,
 		},
 		{
-			name:   "TLS_AES_256_GCM_SHA384",
-			suite:  NewTLSAes256GcmSha384(),
-			keyLen: tls13AES256GCMKeyLen,
+			name:                       "TLS_AES_256_GCM_SHA384",
+			suite:                      NewTLSAes256GcmSha384(),
+			keyLen:                     tls13AES256GCMKeyLen,
+			tagLen:                     tls13AESGCMTagLen,
+			expectedSequenceNumberMask: expectedAESSequenceNumberMask13,
+		},
+		{
+			name:                       "TLS_CHACHA20_POLY1305_SHA256",
+			suite:                      NewTLSChacha20Poly1305Sha256(),
+			keyLen:                     tls13ChaCha20Poly1305KeyLen,
+			tagLen:                     tls13ChaCha20Poly1305TagLen,
+			expectedSequenceNumberMask: expectedChaCha20SequenceNumberMask13,
 		},
 	}
+}
+
+func expectedAESSequenceNumberMask13(t *testing.T, sequenceNumberKey, encryptedRecord []byte) []byte {
+	t.Helper()
+
+	block, err := aes.NewCipher(sequenceNumberKey)
+	require.NoError(t, err)
+
+	expectedMask := make([]byte, aes.BlockSize)
+	block.Encrypt(expectedMask, encryptedRecord[:aes.BlockSize])
+
+	return expectedMask
+}
+
+func expectedChaCha20SequenceNumberMask13(t *testing.T, sequenceNumberKey, encryptedRecord []byte) []byte {
+	t.Helper()
+
+	chacha, err := chacha20.NewUnauthenticatedCipher(sequenceNumberKey, encryptedRecord[4:16])
+	require.NoError(t, err)
+	chacha.SetCounter(binary.LittleEndian.Uint32(encryptedRecord[:4]))
+
+	expectedMask := make([]byte, tls13ChaCha20BlockLen)
+	chacha.XORKeyStream(expectedMask, expectedMask)
+
+	return expectedMask
 }
 
 func trafficSecret13(suite tls13RecordProtectionSuite, fill byte) []byte {
@@ -48,8 +89,8 @@ func trafficSecret13(suite tls13RecordProtectionSuite, fill byte) []byte {
 	return bytes.Repeat([]byte{fill}, hashFunc().Size())
 }
 
-func TestDeriveRecordTrafficKeys13AESGCMSuites(t *testing.T) {
-	for _, testCase := range aesGCMRecordProtection13TestCases() {
+func TestDeriveRecordTrafficKeys13Suites(t *testing.T) {
+	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			hashFunc := testCase.suite.HashFunc()
 			trafficSecret := trafficSecret13(testCase.suite, 0x3c)
@@ -96,8 +137,8 @@ func TestDeriveRecordTrafficKeys13AESGCMSuites(t *testing.T) {
 	}
 }
 
-func TestTLS13CipherSuiteNewRecordProtectionAESGCMSuites(t *testing.T) {
-	for _, testCase := range aesGCMRecordProtection13TestCases() {
+func TestTLS13CipherSuiteNewRecordProtectionSuites(t *testing.T) {
+	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			localTrafficSecret := trafficSecret13(testCase.suite, 0x5a)
 			remoteTrafficSecret := trafficSecret13(testCase.suite, 0x6b)
@@ -108,7 +149,7 @@ func TestTLS13CipherSuiteNewRecordProtectionAESGCMSuites(t *testing.T) {
 			require.NotNil(t, protection.remote.aead)
 
 			assert.Equal(t, tls13AEADWriteIVLen, protection.local.aead.NonceSize())
-			assert.Equal(t, tls13AESGCMTagLen, protection.local.aead.Overhead())
+			assert.Equal(t, testCase.tagLen, protection.local.aead.Overhead())
 			require.Len(t, protection.local.iv, tls13AEADWriteIVLen)
 			require.Len(t, protection.remote.iv, tls13AEADWriteIVLen)
 			require.Len(t, protection.local.sequenceNumberKey, testCase.keyLen)
@@ -116,7 +157,7 @@ func TestTLS13CipherSuiteNewRecordProtectionAESGCMSuites(t *testing.T) {
 			assert.NotEqual(t, protection.local.iv, protection.remote.iv)
 			assert.NotEqual(t, protection.local.sequenceNumberKey, protection.remote.sequenceNumberKey)
 
-			plaintext := []byte("dtls13 aes-gcm")
+			plaintext := []byte("dtls13 record protection")
 			additionalData := []byte("synthetic aad")
 			nonce := append([]byte(nil), protection.local.iv...)
 
@@ -130,15 +171,8 @@ func TestTLS13CipherSuiteNewRecordProtectionAESGCMSuites(t *testing.T) {
 	}
 }
 
-func TestTLS13CipherSuiteNewRecordProtectionRejectsChaCha20Poly1305(t *testing.T) {
-	suite := NewTLSChacha20Poly1305Sha256()
-
-	_, err := suite.newRecordProtection(trafficSecret13(suite, 0x5a), trafficSecret13(suite, 0x6b))
-	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
-}
-
 func TestRecordProtection13SealOpenSyntheticTrafficSecret(t *testing.T) {
-	for _, testCase := range aesGCMRecordProtection13TestCases() {
+	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			localTrafficSecret := trafficSecret13(testCase.suite, 0xa6)
 			remoteTrafficSecret := trafficSecret13(testCase.suite, 0xb6)
@@ -160,7 +194,7 @@ func TestRecordProtection13SealOpenSyntheticTrafficSecret(t *testing.T) {
 			require.Equal(t, uint16(len(record.EncryptedRecord)), record.Header.Length) //nolint:gosec
 			require.True(t, record.Header.LengthBit)
 			require.True(t, record.Header.SeqBit)
-			require.Len(t, record.EncryptedRecord, len(plaintext)+1+tls13AESGCMTagLen)
+			require.Len(t, record.EncryptedRecord, len(plaintext)+1+testCase.tagLen)
 
 			innerPlaintext, err := peerProtection.open(record.Header, sequenceNumber, record.EncryptedRecord)
 			require.NoError(t, err)
@@ -196,7 +230,7 @@ func TestRecordProtection13SealRejectsOversizedPlaintext(t *testing.T) {
 }
 
 func TestRecordProtection13OpenRejectsWrongAdditionalData(t *testing.T) {
-	for _, testCase := range aesGCMRecordProtection13TestCases() {
+	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			localTrafficSecret := trafficSecret13(testCase.suite, 0xb7)
 			remoteTrafficSecret := trafficSecret13(testCase.suite, 0xc7)
@@ -221,7 +255,7 @@ func TestRecordProtection13OpenRejectsWrongAdditionalData(t *testing.T) {
 }
 
 func TestRecordProtection13OpenRejectsWrongSequenceNumber(t *testing.T) {
-	for _, testCase := range aesGCMRecordProtection13TestCases() {
+	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			localTrafficSecret := trafficSecret13(testCase.suite, 0xbe)
 			remoteTrafficSecret := trafficSecret13(testCase.suite, 0xce)
@@ -245,7 +279,7 @@ func TestRecordProtection13OpenRejectsWrongSequenceNumber(t *testing.T) {
 }
 
 func TestRecordProtection13SequenceNumberMaskSyntheticTrafficSecret(t *testing.T) {
-	for _, testCase := range aesGCMRecordProtection13TestCases() {
+	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			protection, err := testCase.suite.newRecordProtection(
 				trafficSecret13(testCase.suite, 0xc8),
@@ -263,12 +297,8 @@ func TestRecordProtection13SequenceNumberMaskSyntheticTrafficSecret(t *testing.T
 
 			mask, err := protection.sequenceNumberMask(record.EncryptedRecord)
 			require.NoError(t, err)
-			require.Len(t, mask, aes.BlockSize)
+			expectedMask := testCase.expectedSequenceNumberMask(t, protection.local.sequenceNumberKey, record.EncryptedRecord)
 
-			block, err := aes.NewCipher(protection.local.sequenceNumberKey)
-			require.NoError(t, err)
-			expectedMask := make([]byte, aes.BlockSize)
-			block.Encrypt(expectedMask, record.EncryptedRecord[:aes.BlockSize])
 			assert.Equal(t, expectedMask, mask)
 
 			rawHeader, err := record.Header.Marshal()
@@ -286,12 +316,37 @@ func TestRecordProtection13SequenceNumberMaskSyntheticTrafficSecret(t *testing.T
 }
 
 func TestRecordProtection13SequenceNumberMaskRejectsShortCiphertext(t *testing.T) {
-	suite := NewTLSAes128GcmSha256()
-	protection, err := suite.newRecordProtection(trafficSecret13(suite, 0xd9), trafficSecret13(suite, 0xda))
+	for _, testCase := range recordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			protection, err := testCase.suite.newRecordProtection(
+				trafficSecret13(testCase.suite, 0xd9),
+				trafficSecret13(testCase.suite, 0xda),
+			)
+			require.NoError(t, err)
+
+			_, err = protection.sequenceNumberMask(bytes.Repeat([]byte{0x01}, tls13SequenceNumberMaskSampleLen-1))
+			assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+		})
+	}
+}
+
+func TestRecordSequenceNumberMaskChaCha20RFC8439BlockVector(t *testing.T) {
+	sequenceNumberKey, err := hex.DecodeString("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	require.NoError(t, err)
+	encryptedRecord, err := hex.DecodeString("01000000000000090000004a00000000")
 	require.NoError(t, err)
 
-	_, err = protection.sequenceNumberMask(bytes.Repeat([]byte{0x01}, aes.BlockSize-1))
-	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+	mask, err := recordSequenceNumberMaskChaCha20Poly1305TLS13(sequenceNumberKey, encryptedRecord)
+	require.NoError(t, err)
+
+	expected, err := hex.DecodeString(
+		"10f1e7e4d13b5915500fdd1fa32071c4" +
+			"c7d1f4c733c068030422aa9ac3d46c4e" +
+			"d2826446079faa0914c2d705d98b02a2" +
+			"b5129cd1de164eb9cbd083e8a2503c4e",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, expected, mask)
 }
 
 func TestRecordNonce13(t *testing.T) {
