@@ -90,7 +90,11 @@ func flight0Parse(
 			if len(ext.EllipticCurves) == 0 {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
 			}
-			state.NamedCurve = ext.EllipticCurves[0]
+			namedCurve, ok := selectDTLS12EllipticCurve(cfg.EllipticCurves, ext.EllipticCurves)
+			if !ok {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
+			}
+			state.NamedCurve = namedCurve
 		case *extension.UseSRTP:
 			profile, ok := dtlsflight.FindMatchingSRTPProfile(cfg.LocalSRTPProtectionProfiles, ext.ProtectionProfiles)
 			if !ok {
@@ -193,10 +197,11 @@ func flight0Generate(
 	var zeroEpoch uint16
 	state.LocalEpoch.Store(zeroEpoch)
 	state.RemoteEpoch.Store(zeroEpoch)
-	if len(cfg.EllipticCurves) < 1 {
+	ellipticCurves := dtls12EllipticCurves(cfg.EllipticCurves)
+	if len(ellipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
-	state.NamedCurve = cfg.EllipticCurves[0]
+	state.NamedCurve = ellipticCurves[0]
 
 	if err := state.LocalRandom.Populate(); err != nil {
 		return nil, nil, err

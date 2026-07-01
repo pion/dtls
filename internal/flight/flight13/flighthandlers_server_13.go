@@ -15,6 +15,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -238,36 +239,15 @@ func flight13_0Parse(
 
 	nextFlight := Flight2
 
-	// nolint:nestif
-	if state.RemoteKeyEntries != nil && state.RemoteGroups != nil {
-		// Overlapping groups between client and server
-		var groups []elliptic.Curve
-		for _, group := range state.RemoteGroups {
-			if slices.Contains(cfg.EllipticCurves, group) {
-				groups = append(groups, group)
-			}
-		}
-		// Find key entry group in supported groups by client and server
-		foundEntry := false
-		for _, entry := range *state.RemoteKeyEntries {
-			if slices.Contains(groups, entry.Group) {
-				state.NamedCurve = entry.Group
-				foundEntry = true
-				// Ensure that first matching entry is chosen
-				break
-			}
-		}
-		if foundEntry && (state.LocalKeypair == nil || state.LocalKeypair.Curve != state.NamedCurve) {
-			var err error
-			state.LocalKeypair, err = elliptic.GenerateKeypair(state.NamedCurve)
-			if err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
-			}
-		}
-	}
+	selectClientKeyShare13(state, cfg)
 
 	if cfg.InsecureSkipHelloVerify {
-		nextFlight = Flight4
+		if _, ok := matchingClientKeyShare13(state, cfg); ok {
+			if failure := generateClientKeyShareSecret13(state, cfg); failure != nil {
+				return 0, failure.alert, failure.err
+			}
+			nextFlight = Flight4
+		}
 	}
 
 	if flightCtx.inboundHandshakeHandler != nil {
@@ -343,6 +323,9 @@ func flight13_2Parse(
 	if failure := processClientHello13Extensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
 	}
+	if failure := generateClientKeyShareSecret13(flightCtx.state, flightCtx.cfg); failure != nil {
+		return 0, failure.alert, failure.err
+	}
 	if flightCtx.inboundHandshakeHandler != nil {
 		if err := flightCtx.inboundHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
@@ -361,6 +344,110 @@ func clientHello13Cookie(extensions []extension.Extension) []byte {
 	}
 
 	return nil
+}
+
+func selectClientKeyShare13(
+	state *dtlsstate.State,
+	cfg *dtlsconfig.HandshakeConfig,
+) bool {
+	selectedGroup, ok := preferredClientGroup13(state, cfg)
+	if !ok {
+		return false
+	}
+	state.NamedCurve = selectedGroup
+
+	return true
+}
+
+func generateClientKeyShareSecret13(
+	state *dtlsstate.State,
+	cfg *dtlsconfig.HandshakeConfig,
+) *clientHello13ExtensionFailure {
+	selectedGroup, ok := preferredClientGroup13(state, cfg)
+	if !ok {
+		if state.RemoteGroups != nil {
+			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
+		}
+
+		return nil
+	}
+	state.NamedCurve = selectedGroup
+
+	selectedEntry, ok := clientKeyShareForGroup13(state, selectedGroup)
+	if !ok {
+		return newClientHello13ExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
+	}
+
+	if needsClientKeypair13(state) {
+		keypair, err := elliptic.GenerateKeypairForPeer(state.NamedCurve, selectedEntry.KeyExchange)
+		if err != nil {
+			return newClientHello13ExtensionFailure(alert.IllegalParameter, err)
+		}
+		state.LocalKeypair = keypair
+	}
+
+	preMasterSecret, err := prf.PreMasterSecret(
+		selectedEntry.KeyExchange,
+		state.LocalKeypair.PrivateKey,
+		state.NamedCurve,
+	)
+	if err != nil {
+		return newClientHello13ExtensionFailure(alert.IllegalParameter, err)
+	}
+	state.PreMasterSecret = preMasterSecret
+
+	return nil
+}
+
+func matchingClientKeyShare13(
+	state *dtlsstate.State,
+	cfg *dtlsconfig.HandshakeConfig,
+) (extension.KeyShareEntry, bool) {
+	selectedGroup, ok := preferredClientGroup13(state, cfg)
+	if !ok {
+		return extension.KeyShareEntry{}, false
+	}
+
+	return clientKeyShareForGroup13(state, selectedGroup)
+}
+
+func preferredClientGroup13(
+	state *dtlsstate.State,
+	cfg *dtlsconfig.HandshakeConfig,
+) (elliptic.Curve, bool) {
+	if state.RemoteGroups == nil {
+		return 0, false
+	}
+
+	for _, group := range cfg.EllipticCurves {
+		if slices.Contains(state.RemoteGroups, group) {
+			return group, true
+		}
+	}
+
+	return 0, false
+}
+
+func clientKeyShareForGroup13(
+	state *dtlsstate.State,
+	group elliptic.Curve,
+) (extension.KeyShareEntry, bool) {
+	if state.RemoteKeyEntries == nil {
+		return extension.KeyShareEntry{}, false
+	}
+	for _, entry := range *state.RemoteKeyEntries {
+		if entry.Group == group {
+			return entry, true
+		}
+	}
+
+	return extension.KeyShareEntry{}, false
+}
+
+func needsClientKeypair13(state *dtlsstate.State) bool {
+	return state.LocalKeypair == nil ||
+		state.LocalKeypair.Curve != state.NamedCurve ||
+		state.NamedCurve == elliptic.X25519MLKEM768
 }
 
 func flight13_2Generate(

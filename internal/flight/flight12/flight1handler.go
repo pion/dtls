@@ -68,10 +68,11 @@ func flight1Generate(
 	var zeroEpoch uint16
 	state.LocalEpoch.Store(zeroEpoch)
 	state.RemoteEpoch.Store(zeroEpoch)
-	if len(cfg.EllipticCurves) < 1 {
+	ellipticCurves := dtls12EllipticCurves(cfg.EllipticCurves)
+	if len(ellipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
-	state.NamedCurve = cfg.EllipticCurves[0]
+	state.NamedCurve = ellipticCurves[0]
 	state.Cookie = nil
 
 	if err := state.LocalRandom.Populate(); err != nil {
@@ -109,7 +110,7 @@ func flight1Generate(
 	if setEllipticCurveCryptographyClientHelloExtensions {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
-				EllipticCurves: cfg.EllipticCurves,
+				EllipticCurves: ellipticCurves,
 			},
 			&extension.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},

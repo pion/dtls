@@ -12,6 +12,7 @@ import (
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -20,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFlight13_0ParseGeneratesKeypairForNegotiatedGroup(t *testing.T) {
+func TestFlight13_0ParseSelectsNegotiatedGroupWithoutGeneratingKeypair(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	cfg.EllipticCurves = []elliptic.Curve{elliptic.P384, elliptic.P256}
 
@@ -74,9 +75,151 @@ func TestFlight13_0ParseGeneratesKeypairForNegotiatedGroup(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, dtlsflight13.Flight2, nextFlight)
-	require.NotNil(t, state.LocalKeypair)
 	assert.Equal(t, elliptic.P384, state.NamedCurve)
-	assert.Equal(t, elliptic.P384, state.LocalKeypair.Curve)
+	assert.Same(t, staleServerKeypair, state.LocalKeypair)
+	assert.Empty(t, state.PreMasterSecret)
+}
+
+func TestFlight13_0ParseSelectsX25519MLKEM768WithoutGeneratingKeypair(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.EllipticCurves = []elliptic.Curve{elliptic.X25519MLKEM768}
+
+	clientKeypair, err := elliptic.GenerateKeypair(elliptic.X25519MLKEM768)
+	require.NoError(t, err)
+
+	clientHello := &handshake.MessageClientHello{
+		Version: protocol.Version1_2,
+		Random:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
+		CipherSuiteIDs: []uint16{
+			uint16(cfg.LocalCipherSuites[0].ID()),
+		},
+		CompressionMethods: defaultCompressionMethods(),
+		Extensions: []extension.Extension{
+			&extension.SupportedSignatureAlgorithms{
+				SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+			},
+			&extension.SupportedEllipticCurves{
+				EllipticCurves: []elliptic.Curve{elliptic.X25519MLKEM768},
+			},
+			&extension.KeyShare{
+				ClientShares: []extension.KeyShareEntry{
+					{Group: elliptic.X25519MLKEM768, KeyExchange: clientKeypair.PublicKey},
+				},
+			},
+			&extension.SupportedVersions{
+				Versions: []protocol.Version{protocol.Version1_3},
+			},
+		},
+	}
+	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
+	require.NoError(t, err)
+
+	state := &dtlsstate.State{LocalVersion: protocol.Version1_3}
+	cache := dtlsflight.NewCache()
+	cache.Push(rawClientHello, cfg.InitialEpoch, 0, handshake.TypeClientHello, true)
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(
+		t, dtlsflight13.Flight0, context.Background(), &handshakeContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, dtlsflight13.Flight2, nextFlight)
+	assert.Equal(t, elliptic.X25519MLKEM768, state.NamedCurve)
+	assert.Nil(t, state.LocalKeypair)
+	assert.Empty(t, state.PreMasterSecret)
+}
+
+func TestFlight13_0ParseSelectsServerPreferredGroupFromClientShares(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.EllipticCurves = []elliptic.Curve{elliptic.X25519MLKEM768, elliptic.X25519}
+
+	mlkemKeypair, err := elliptic.GenerateKeypair(elliptic.X25519MLKEM768)
+	require.NoError(t, err)
+	x25519Keypair, err := elliptic.GenerateKeypair(elliptic.X25519)
+	require.NoError(t, err)
+
+	state := &dtlsstate.State{LocalVersion: protocol.Version1_3}
+	cache := dtlsflight.NewCache()
+	pushFlight13_0ClientHello(t, cache, cfg, []extension.Extension{
+		&extension.SupportedSignatureAlgorithms{
+			SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+		},
+		&extension.SupportedEllipticCurves{
+			EllipticCurves: []elliptic.Curve{elliptic.X25519, elliptic.X25519MLKEM768},
+		},
+		&extension.KeyShare{
+			ClientShares: []extension.KeyShareEntry{
+				{Group: elliptic.X25519, KeyExchange: x25519Keypair.PublicKey},
+				{Group: elliptic.X25519MLKEM768, KeyExchange: mlkemKeypair.PublicKey},
+			},
+		},
+		&extension.SupportedVersions{
+			Versions: []protocol.Version{protocol.Version1_3},
+		},
+	})
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(
+		t, dtlsflight13.Flight0, context.Background(), &handshakeContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, dtlsflight13.Flight2, nextFlight)
+	assert.Equal(t, elliptic.X25519MLKEM768, state.NamedCurve)
+	assert.Nil(t, state.LocalKeypair)
+	assert.Empty(t, state.PreMasterSecret)
+}
+
+func TestFlight13_0ParseRequestsPreferredGroupWhenShareMissing(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.EllipticCurves = []elliptic.Curve{elliptic.X25519MLKEM768, elliptic.X25519}
+
+	x25519Keypair, err := elliptic.GenerateKeypair(elliptic.X25519)
+	require.NoError(t, err)
+
+	state := &dtlsstate.State{LocalVersion: protocol.Version1_3}
+	cache := dtlsflight.NewCache()
+	pushFlight13_0ClientHello(t, cache, cfg, []extension.Extension{
+		&extension.SupportedSignatureAlgorithms{
+			SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+		},
+		&extension.SupportedEllipticCurves{
+			EllipticCurves: cfg.EllipticCurves,
+		},
+		&extension.KeyShare{
+			ClientShares: []extension.KeyShareEntry{
+				{Group: elliptic.X25519, KeyExchange: x25519Keypair.PublicKey},
+			},
+		},
+		&extension.SupportedVersions{
+			Versions: []protocol.Version{protocol.Version1_3},
+		},
+	})
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(
+		t, dtlsflight13.Flight0, context.Background(), &handshakeContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, dtlsflight13.Flight2, nextFlight)
+	assert.Equal(t, elliptic.X25519MLKEM768, state.NamedCurve)
+
+	serverHello := serverHelloFromFlight13_2(t, state, cfg)
+	keyShare, ok := findKeyShare(serverHello.Extensions)
+	require.True(t, ok)
+	require.NotNil(t, keyShare.SelectedGroup)
+	assert.Equal(t, elliptic.X25519MLKEM768, *keyShare.SelectedGroup)
 }
 
 func TestFlight13_0ParseRejectsClientHelloWithSelectedSupportedVersion(t *testing.T) {
@@ -705,6 +848,91 @@ func TestFlight13_2Parse(t *testing.T) {
 		require.Nil(t, dtlsAlert)
 		assert.Equal(t, dtlsflight13.Flight4, next)
 		assert.Equal(t, 1, state.HandshakeRecvSequence)
+	})
+
+	t.Run("GeneratesX25519MLKEM768KeypairAfterMatchingCookie", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		cfg.EllipticCurves = []elliptic.Curve{elliptic.X25519MLKEM768}
+		clientKeypair, err := elliptic.GenerateKeypair(elliptic.X25519MLKEM768)
+		require.NoError(t, err)
+
+		state := &dtlsstate.State{LocalVersion: protocol.Version1_3, Cookie: cookie}
+		cache := dtlsflight.NewCache()
+		pushClientHello13(t, cache, protocol.Version1_2, []extension.Extension{
+			&extension.SupportedSignatureAlgorithms{
+				SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+			},
+			&extension.SupportedEllipticCurves{
+				EllipticCurves: cfg.EllipticCurves,
+			},
+			&extension.KeyShare{
+				ClientShares: []extension.KeyShareEntry{
+					{Group: elliptic.X25519MLKEM768, KeyExchange: clientKeypair.PublicKey},
+				},
+			},
+			&extension.SupportedVersions{
+				Versions: []protocol.Version{protocol.Version1_3},
+			},
+			&extension.CookieExt{Cookie: cookie},
+		})
+
+		next, dtlsAlert, err := flight13ParseForTest(
+			t, dtlsflight13.Flight2, context.Background(), flight13_2Context(state, cache, cfg),
+		)
+		require.NoError(t, err)
+		require.Nil(t, dtlsAlert)
+		assert.Equal(t, dtlsflight13.Flight4, next)
+		require.NotNil(t, state.LocalKeypair)
+		assert.Equal(t, elliptic.X25519MLKEM768, state.NamedCurve)
+		assert.Equal(t, elliptic.X25519MLKEM768, state.LocalKeypair.Curve)
+		assert.Len(t, state.LocalKeypair.PublicKey, elliptic.X25519MLKEM768ServerPublicKeySize)
+
+		clientSecret, err := prf.PreMasterSecret(
+			state.LocalKeypair.PublicKey,
+			clientKeypair.PrivateKey,
+			elliptic.X25519MLKEM768,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, clientSecret, state.PreMasterSecret)
+		assert.Len(t, state.PreMasterSecret, elliptic.X25519MLKEM768SharedSecretSize)
+	})
+
+	t.Run("RejectsUnsupportedSupportedGroupsAfterMatchingCookie", func(t *testing.T) {
+		cfg := testHandshakeConfig13(t)
+		cfg.EllipticCurves = []elliptic.Curve{elliptic.P256}
+		clientKeypair, err := elliptic.GenerateKeypair(elliptic.P384)
+		require.NoError(t, err)
+
+		state := &dtlsstate.State{LocalVersion: protocol.Version1_3, Cookie: cookie}
+		cache := dtlsflight.NewCache()
+		pushClientHello13(t, cache, protocol.Version1_2, []extension.Extension{
+			&extension.SupportedSignatureAlgorithms{
+				SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+			},
+			&extension.SupportedEllipticCurves{
+				EllipticCurves: []elliptic.Curve{elliptic.P384},
+			},
+			&extension.KeyShare{
+				ClientShares: []extension.KeyShareEntry{
+					{Group: elliptic.P384, KeyExchange: clientKeypair.PublicKey},
+				},
+			},
+			&extension.SupportedVersions{
+				Versions: []protocol.Version{protocol.Version1_3},
+			},
+			&extension.CookieExt{Cookie: cookie},
+		})
+
+		next, dtlsAlert, err := flight13ParseForTest(
+			t, dtlsflight13.Flight2, context.Background(), flight13_2Context(state, cache, cfg),
+		)
+		require.ErrorIs(t, err, dtlserrors.ErrNoSupportedEllipticCurves)
+		assert.Equal(t, dtlsflight13.Flight(0), next)
+		require.NotNil(t, dtlsAlert)
+		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlsAlert)
+		assert.Empty(t, state.PreMasterSecret)
+		assert.Nil(t, state.LocalKeypair)
+		assert.Zero(t, state.NamedCurve)
 	})
 
 	t.Run("KeepsWaitingWhenNoClientHelloCached", func(t *testing.T) {

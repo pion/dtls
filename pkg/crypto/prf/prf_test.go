@@ -14,6 +14,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPreMasterSecret(t *testing.T) {
@@ -33,6 +34,29 @@ func TestPreMasterSecret(t *testing.T) {
 	preMasterSecret, err := PreMasterSecret(publicKey, privateKey, elliptic.X25519)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedPreMasterSecret, preMasterSecret)
+}
+
+func TestPreMasterSecret_X25519MLKEM768(t *testing.T) {
+	clientKeypair, err := elliptic.GenerateKeypair(elliptic.X25519MLKEM768)
+	require.NoError(t, err)
+	serverKeypair, err := elliptic.GenerateKeypairForPeer(elliptic.X25519MLKEM768, clientKeypair.PublicKey)
+	require.NoError(t, err)
+
+	clientSecret, err := PreMasterSecret(
+		serverKeypair.PublicKey,
+		clientKeypair.PrivateKey,
+		elliptic.X25519MLKEM768,
+	)
+	require.NoError(t, err)
+	serverSecret, err := PreMasterSecret(
+		clientKeypair.PublicKey,
+		serverKeypair.PrivateKey,
+		elliptic.X25519MLKEM768,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, serverSecret, clientSecret)
+	assert.Len(t, clientSecret, elliptic.X25519MLKEM768SharedSecretSize)
 }
 
 func TestMasterSecret(t *testing.T) {
@@ -253,6 +277,17 @@ func TestPreMasterSecret_InvalidCurve(t *testing.T) {
 	invalid := elliptic.Curve(0) // not supported
 	_, err := PreMasterSecret(nil, nil, invalid)
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurveFatal)
+}
+
+func TestPreMasterSecret_X25519MLKEM768RejectsBadShareLengths(t *testing.T) {
+	clientKeypair, err := elliptic.GenerateKeypair(elliptic.X25519MLKEM768)
+	require.NoError(t, err)
+
+	_, err = PreMasterSecret([]byte{0x01}, clientKeypair.PrivateKey, elliptic.X25519MLKEM768)
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+
+	_, err = PreMasterSecret(clientKeypair.PublicKey, []byte{0x01}, elliptic.X25519MLKEM768)
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 }
 
 func TestPreMasterSecret_NewPrivateKeyError(t *testing.T) {

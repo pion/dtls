@@ -85,6 +85,34 @@ type handshakeStart struct {
 	postSetup    func(context.Context)
 }
 
+type connConfigValues struct {
+	logger                      logging.LeveledLogger
+	maximumTransmissionUnit     int
+	paddingLengthGenerator      func(uint) uint
+	replayProtectionWindow      int
+	initialRetransmitInterval   time.Duration
+	minVersion                  protocol.Version
+	maxVersion                  protocol.Version
+	cipherSuites                []dtlsconfig.CipherSuite
+	signatureSchemes            []signaturehash.Algorithm
+	certificateSignatureSchemes []signaturehash.Algorithm
+	ellipticCurves              []elliptic.Curve
+	serverName                  string
+}
+
+type connConfigCallbacks struct {
+	customCipherSuites   func() []dtlsconfig.CipherSuite
+	verifyConnection     func(*dtlsstate.State) error
+	getCertificate       func(*dtlsconfig.ClientHelloInfo) (*tls.Certificate, error)
+	getClientCertificate func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error)
+}
+
+type connSessionCallbacks struct {
+	getSession func(key []byte) (id, secret []byte, err error)
+	setSession func(key, id, secret []byte) error
+	delSession func(key []byte) error
+}
+
 // Conn represents a DTLS connection.
 type Conn struct {
 	lock           sync.RWMutex      // Internal lock (must not be public)
@@ -127,8 +155,6 @@ type Conn struct {
 
 // createConn creates a new DTLS connection.
 // Caller is responsible for validating the config before calling this function.
-//
-//nolint:cyclop
 func createConn(
 	nextConn net.PacketConn,
 	rAddr net.Addr,
@@ -140,30 +166,24 @@ func createConn(
 		return nil, dtlserrors.ErrNilNextConn
 	}
 
-	loggerFactory := config.LoggerFactory
-	if loggerFactory == nil {
-		loggerFactory = logging.NewDefaultLoggerFactory()
+	configValues, err := newConnConfigValues(config)
+	if err != nil {
+		return nil, err
 	}
 
-	logger := loggerFactory.NewLogger("dtls")
+	callbacks := newConnConfigCallbacks(config)
+	sessions := newConnSessionCallbacks(config.sessionStore)
+	handshakeConfig := newHandshakeConfig(config, configValues, callbacks, sessions, resumeState)
+	conn := newConn(nextConn, rAddr, configValues, handshakeConfig, isClient)
 
-	mtu := config.MTU
-	if mtu <= 0 {
-		mtu = defaultMTU
-	}
+	conn.setRemoteEpoch(0)
+	conn.setLocalEpoch(0)
 
-	replayProtectionWindow := config.ReplayProtectionWindow
-	if replayProtectionWindow <= 0 {
-		replayProtectionWindow = defaultReplayProtectionWindow
-	}
+	return conn, nil
+}
 
-	paddingLengthGenerator := config.PaddingLengthGenerator
-	if paddingLengthGenerator == nil {
-		paddingLengthGenerator = func(uint) uint { return 0 }
-	}
-
+func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 	minVersion, maxVersion := normalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
-
 	cipherSuites, err := parseCipherSuitesForVersions(
 		config.CipherSuites,
 		config.customCipherSuites,
@@ -173,15 +193,38 @@ func createConn(
 		maxVersion,
 	)
 	if err != nil {
-		return nil, err
+		return connConfigValues{}, err
 	}
 
+	signatureSchemes, certSignatureSchemes, err := parseConnSignatureSchemes(config)
+	if err != nil {
+		return connConfigValues{}, err
+	}
+
+	return connConfigValues{
+		logger:                      newConnLogger(config),
+		maximumTransmissionUnit:     effectiveMTU(config.MTU),
+		paddingLengthGenerator:      effectivePaddingLengthGenerator(config.PaddingLengthGenerator),
+		replayProtectionWindow:      effectiveReplayProtectionWindow(config.ReplayProtectionWindow),
+		initialRetransmitInterval:   effectiveFlightInterval(config.FlightInterval),
+		minVersion:                  minVersion,
+		maxVersion:                  maxVersion,
+		cipherSuites:                cipherSuites,
+		signatureSchemes:            signatureSchemes,
+		certificateSignatureSchemes: certSignatureSchemes,
+		ellipticCurves:              effectiveEllipticCurves(config.EllipticCurves),
+		serverName:                  effectiveServerName(config.ServerName),
+	}, nil
+}
+
+func parseConnSignatureSchemes(
+	config *dtlsConfig,
+) ([]signaturehash.Algorithm, []signaturehash.Algorithm, error) {
 	signatureSchemes, err := signaturehash.ParseSignatureSchemes(config.SignatureSchemes, config.InsecureHashes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// Parse certificate signature schemes only if explicitly configured
 	var certSignatureSchemes []signaturehash.Algorithm
 	if len(config.CertificateSignatureSchemes) > 0 {
 		certSignatureSchemes, err = signaturehash.ParseSignatureSchemes(
@@ -189,140 +232,273 @@ func createConn(
 			config.InsecureHashes,
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	workerInterval := initialTickerInterval
-	if config.FlightInterval > 0 {
-		workerInterval = config.FlightInterval
+	return signatureSchemes, certSignatureSchemes, nil
+}
+
+func newConnLogger(config *dtlsConfig) logging.LeveledLogger {
+	loggerFactory := config.LoggerFactory
+	if loggerFactory == nil {
+		loggerFactory = logging.NewDefaultLoggerFactory()
 	}
 
-	serverName := config.ServerName
+	return loggerFactory.NewLogger("dtls")
+}
+
+func effectiveMTU(mtu int) int {
+	if mtu <= 0 {
+		return defaultMTU
+	}
+
+	return mtu
+}
+
+func effectiveReplayProtectionWindow(replayProtectionWindow int) int {
+	if replayProtectionWindow <= 0 {
+		return defaultReplayProtectionWindow
+	}
+
+	return replayProtectionWindow
+}
+
+func effectivePaddingLengthGenerator(generator func(uint) uint) func(uint) uint {
+	if generator == nil {
+		return func(uint) uint { return 0 }
+	}
+
+	return generator
+}
+
+func effectiveFlightInterval(flightInterval time.Duration) time.Duration {
+	if flightInterval <= 0 {
+		return initialTickerInterval
+	}
+
+	return flightInterval
+}
+
+func effectiveServerName(serverName string) string {
 	// Do not allow the use of an IP address literal as an SNI value.
 	// See RFC 6066, Section 3.
 	if net.ParseIP(serverName) != nil {
-		serverName = ""
+		return ""
 	}
 
-	curves := config.EllipticCurves
+	return serverName
+}
+
+func effectiveEllipticCurves(curves []elliptic.Curve) []elliptic.Curve {
 	if len(curves) == 0 {
 		curves = defaultCurves
 	}
-
-	if fips140.Enabled() {
-		// On FIPS systems, filter out non-approved curves
-		filtered := make([]elliptic.Curve, 0, len(curves))
-		for _, c := range curves {
-			if c != elliptic.X25519 {
-				filtered = append(filtered, c)
-			}
-		}
-		curves = filtered
+	if !fips140.Enabled() {
+		return curves
 	}
 
-	var customCipherSuites func() []dtlsconfig.CipherSuite
-	if config.customCipherSuites != nil {
-		customCipherSuites = func() []dtlsconfig.CipherSuite {
-			return toConfigCipherSuites(config.customCipherSuites())
+	return filterFIPSCurves(curves)
+}
+
+func filterFIPSCurves(curves []elliptic.Curve) []elliptic.Curve {
+	filtered := make([]elliptic.Curve, 0, len(curves))
+	for _, curve := range curves {
+		if curve != elliptic.X25519 && curve != elliptic.X25519MLKEM768 {
+			filtered = append(filtered, curve)
 		}
 	}
 
-	var verifyConnection func(*dtlsstate.State) error
-	if config.verifyConnection != nil {
-		verifyConnection = func(state *dtlsstate.State) error {
-			stateSnapshot, err := generateState(state)
-			if err != nil {
-				return err
-			}
+	return filtered
+}
 
-			return config.verifyConnection(stateSnapshot)
+func newConnConfigCallbacks(config *dtlsConfig) connConfigCallbacks {
+	return connConfigCallbacks{
+		customCipherSuites:   adaptCustomCipherSuites(config.customCipherSuites),
+		verifyConnection:     adaptVerifyConnection(config.verifyConnection),
+		getCertificate:       adaptGetCertificate(config.getCertificate),
+		getClientCertificate: adaptGetClientCertificate(config.getClientCertificate),
+	}
+}
+
+func adaptCustomCipherSuites(customCipherSuites func() []CipherSuite) func() []dtlsconfig.CipherSuite {
+	if customCipherSuites == nil {
+		return nil
+	}
+
+	return func() []dtlsconfig.CipherSuite {
+		return toConfigCipherSuites(customCipherSuites())
+	}
+}
+
+func adaptVerifyConnection(verifyConnection func(*State) error) func(*dtlsstate.State) error {
+	if verifyConnection == nil {
+		return nil
+	}
+
+	return func(state *dtlsstate.State) error {
+		stateSnapshot, err := generateState(state)
+		if err != nil {
+			return err
 		}
+
+		return verifyConnection(stateSnapshot)
+	}
+}
+
+func adaptGetCertificate(
+	getCertificate func(*ClientHelloInfo) (*tls.Certificate, error),
+) func(*dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
+	if getCertificate == nil {
+		return nil
 	}
 
-	var getCertificate func(*dtlsconfig.ClientHelloInfo) (*tls.Certificate, error)
-	if config.getCertificate != nil {
-		getCertificate = func(info *dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
-			return config.getCertificate(&ClientHelloInfo{
-				ServerName:   info.ServerName,
-				CipherSuites: info.CipherSuites,
-				RandomBytes:  info.RandomBytes,
-			})
-		}
+	return func(info *dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
+		return getCertificate(&ClientHelloInfo{
+			ServerName:   info.ServerName,
+			CipherSuites: info.CipherSuites,
+			RandomBytes:  info.RandomBytes,
+		})
+	}
+}
+
+func adaptGetClientCertificate(
+	getClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error),
+) func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
+	if getClientCertificate == nil {
+		return nil
 	}
 
-	var getClientCertificate func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error)
-	if config.getClientCertificate != nil {
-		getClientCertificate = func(info *dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
-			return config.getClientCertificate(&CertificateRequestInfo{AcceptableCAs: info.AcceptableCAs})
-		}
+	return func(info *dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
+		return getClientCertificate(&CertificateRequestInfo{AcceptableCAs: info.AcceptableCAs})
 	}
+}
 
-	getSession := func(key []byte) ([]byte, []byte, error) {
-		session, err := config.sessionStore.Get(key)
+func newConnSessionCallbacks(sessionStore SessionStore) connSessionCallbacks {
+	return connSessionCallbacks{
+		getSession: func(key []byte) (id, secret []byte, err error) {
+			session, err := sessionStore.Get(key)
 
-		return session.ID, session.Secret, err
+			return session.ID, session.Secret, err
+		},
+		setSession: func(key, id, secret []byte) error {
+			return sessionStore.Set(key, Session{ID: id, Secret: secret})
+		},
+		delSession: func(key []byte) error {
+			return sessionStore.Del(key)
+		},
 	}
-	setSession := func(key, id, secret []byte) error {
-		return config.sessionStore.Set(key, Session{ID: id, Secret: secret})
-	}
-	delSession := func(key []byte) error {
-		return config.sessionStore.Del(key)
-	}
+}
 
+func newHandshakeConfig(
+	config *dtlsConfig,
+	configValues connConfigValues,
+	callbacks connConfigCallbacks,
+	sessions connSessionCallbacks,
+	resumeState *dtlsstate.State,
+) *handshakeConfig {
 	handshakeConfig := &handshakeConfig{
-		LocalPSKCallback:              config.psk,
-		LocalPSKIdentityHint:          config.PSKIdentityHint,
-		LocalCipherSuites:             cipherSuites,
-		LocalSignatureSchemes:         signatureSchemes,
-		LocalCertSignatureSchemes:     certSignatureSchemes,
-		ExtendedMasterSecret:          dtlsconfig.ExtendedMasterSecretType(config.ExtendedMasterSecret),
-		LocalSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
-		LocalSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
-		ServerName:                    serverName,
-		SupportedProtocols:            config.SupportedProtocols,
-		ClientAuth:                    dtlsconfig.ClientAuthType(config.ClientAuth),
-		LocalCertificates:             config.Certificates,
-		InsecureSkipVerify:            config.InsecureSkipVerify,
-		VerifyPeerCertificate:         config.VerifyPeerCertificate,
-		VerifyConnection:              verifyConnection,
-		HasSessionStore:               config.sessionStore != nil,
-		GetSession:                    getSession,
-		SetSession:                    setSession,
-		DelSession:                    delSession,
-		RootCAs:                       config.RootCAs,
-		ClientCAs:                     config.ClientCAs,
-		CustomCipherSuites:            customCipherSuites,
-		InitialRetransmitInterval:     workerInterval,
-		DisableRetransmitBackoff:      config.DisableRetransmitBackoff,
-		Log:                           logger,
-		InitialEpoch:                  0,
-		KeyLogWriter:                  config.KeyLogWriter,
-		EllipticCurves:                curves,
-		LocalGetCertificate:           getCertificate,
-		LocalGetClientCertificate:     getClientCertificate,
-		InsecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
-		ConnectionIDGenerator:         config.ConnectionIDGenerator,
-		HelloRandomBytesGenerator:     config.HelloRandomBytesGenerator,
-		ClientHelloMessageHook:        config.ClientHelloMessageHook,
-		ServerHelloMessageHook:        config.ServerHelloMessageHook,
-		CertificateRequestMessageHook: config.CertificateRequestMessageHook,
-		ResumeState:                   resumeState,
-		MinVersion:                    minVersion,
-		MaxVersion:                    maxVersion,
+		Log:          configValues.logger,
+		InitialEpoch: 0,
+		ResumeState:  resumeState,
 	}
 
-	conn := &Conn{
+	setHandshakeConfigCrypto(handshakeConfig, config, configValues)
+	setHandshakeConfigIdentity(handshakeConfig, config, configValues, callbacks)
+	setHandshakeConfigSession(handshakeConfig, config, sessions)
+	setHandshakeConfigTransport(handshakeConfig, config, configValues, callbacks)
+	setHandshakeConfigHooks(handshakeConfig, config)
+
+	return handshakeConfig
+}
+
+func setHandshakeConfigCrypto(
+	handshakeConfig *handshakeConfig,
+	config *dtlsConfig,
+	configValues connConfigValues,
+) {
+	handshakeConfig.LocalPSKCallback = config.psk
+	handshakeConfig.LocalPSKIdentityHint = config.PSKIdentityHint
+	handshakeConfig.LocalCipherSuites = configValues.cipherSuites
+	handshakeConfig.LocalSignatureSchemes = configValues.signatureSchemes
+	handshakeConfig.LocalCertSignatureSchemes = configValues.certificateSignatureSchemes
+	handshakeConfig.ExtendedMasterSecret = dtlsconfig.ExtendedMasterSecretType(config.ExtendedMasterSecret)
+	handshakeConfig.LocalCertificates = config.Certificates
+	handshakeConfig.RootCAs = config.RootCAs
+	handshakeConfig.ClientCAs = config.ClientCAs
+	handshakeConfig.EllipticCurves = configValues.ellipticCurves
+}
+
+func setHandshakeConfigIdentity(
+	handshakeConfig *handshakeConfig,
+	config *dtlsConfig,
+	configValues connConfigValues,
+	callbacks connConfigCallbacks,
+) {
+	handshakeConfig.ServerName = configValues.serverName
+	handshakeConfig.SupportedProtocols = config.SupportedProtocols
+	handshakeConfig.ClientAuth = dtlsconfig.ClientAuthType(config.ClientAuth)
+	handshakeConfig.InsecureSkipVerify = config.InsecureSkipVerify
+	handshakeConfig.VerifyPeerCertificate = config.VerifyPeerCertificate
+	handshakeConfig.VerifyConnection = callbacks.verifyConnection
+	handshakeConfig.LocalGetCertificate = callbacks.getCertificate
+	handshakeConfig.LocalGetClientCertificate = callbacks.getClientCertificate
+}
+
+func setHandshakeConfigSession(
+	handshakeConfig *handshakeConfig,
+	config *dtlsConfig,
+	sessions connSessionCallbacks,
+) {
+	handshakeConfig.HasSessionStore = config.sessionStore != nil
+	handshakeConfig.GetSession = sessions.getSession
+	handshakeConfig.SetSession = sessions.setSession
+	handshakeConfig.DelSession = sessions.delSession
+}
+
+func setHandshakeConfigTransport(
+	handshakeConfig *handshakeConfig,
+	config *dtlsConfig,
+	configValues connConfigValues,
+	callbacks connConfigCallbacks,
+) {
+	handshakeConfig.LocalSRTPProtectionProfiles = config.SRTPProtectionProfiles
+	handshakeConfig.LocalSRTPMasterKeyIdentifier = config.SRTPMasterKeyIdentifier
+	handshakeConfig.CustomCipherSuites = callbacks.customCipherSuites
+	handshakeConfig.InitialRetransmitInterval = configValues.initialRetransmitInterval
+	handshakeConfig.DisableRetransmitBackoff = config.DisableRetransmitBackoff
+	handshakeConfig.KeyLogWriter = config.KeyLogWriter
+	handshakeConfig.InsecureSkipHelloVerify = config.InsecureSkipVerifyHello
+	handshakeConfig.ConnectionIDGenerator = config.ConnectionIDGenerator
+	handshakeConfig.HelloRandomBytesGenerator = config.HelloRandomBytesGenerator
+	handshakeConfig.MinVersion = configValues.minVersion
+	handshakeConfig.MaxVersion = configValues.maxVersion
+}
+
+func setHandshakeConfigHooks(handshakeConfig *handshakeConfig, config *dtlsConfig) {
+	handshakeConfig.ClientHelloMessageHook = config.ClientHelloMessageHook
+	handshakeConfig.ServerHelloMessageHook = config.ServerHelloMessageHook
+	handshakeConfig.CertificateRequestMessageHook = config.CertificateRequestMessageHook
+}
+
+func newConn(
+	nextConn net.PacketConn,
+	rAddr net.Addr,
+	configValues connConfigValues,
+	handshakeConfig *handshakeConfig,
+	isClient bool,
+) *Conn {
+	return &Conn{
 		rAddr:                   rAddr,
 		nextConn:                netctx.NewPacketConn(nextConn),
 		handshakeConfig:         handshakeConfig,
 		fragmentBuffer:          newFragmentBuffer(),
 		handshakeCache:          dtlsflight.NewCache(),
-		maximumTransmissionUnit: mtu,
-		paddingLengthGenerator:  paddingLengthGenerator,
+		maximumTransmissionUnit: configValues.maximumTransmissionUnit,
+		paddingLengthGenerator:  configValues.paddingLengthGenerator,
 
 		decrypted: make(chan any, 1),
-		log:       logger,
+		log:       configValues.logger,
 
 		readDeadline:  deadline.New(),
 		writeDeadline: deadline.New(),
@@ -333,17 +509,12 @@ func createConn(
 		cancelHandshaker:      func() {},
 		cancelHandshakeReader: func() {},
 
-		replayProtectionWindow: uint(replayProtectionWindow), //nolint:gosec // G115
+		replayProtectionWindow: uint(configValues.replayProtectionWindow), //nolint:gosec // G115
 
 		state: dtlsstate.State{
 			IsClient: isClient,
 		},
 	}
-
-	conn.setRemoteEpoch(0)
-	conn.setLocalEpoch(0)
-
-	return conn, nil
 }
 
 // Handshake runs the client or server DTLS handshake
