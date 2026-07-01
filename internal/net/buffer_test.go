@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
@@ -346,6 +347,10 @@ func BenchmarkBufferWWR1400(b *testing.B) {
 
 func benchmarkBuffer(b *testing.B, size int64) {
 	b.Helper()
+
+	if runtime.GOARCH == "386" {
+		b.Skip("skip memory-intensive benchmark on 32-bit")
+	}
 
 	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:5684")
 	assert.NoError(b, err)
