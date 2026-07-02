@@ -241,6 +241,11 @@ func handleServerKeyExchange(
 	if state.CipherSuite == nil {
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 	}
+	if keyExchangeMessage.NamedCurve == elliptic.X25519MLKEM768 {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
+			dtlserrors.ErrUnsupportedEllipticCurveVersion
+	}
+
 	if cfg.LocalPSKCallback != nil { //nolint:nestif
 		var psk []byte
 		if psk, err = cfg.LocalPSKCallback(keyExchangeMessage.IdentityHint); err != nil {
@@ -305,9 +310,11 @@ func flight3Generate(
 	}
 
 	if state.NamedCurve != 0 {
+		ellipticCurves := dtls12EllipticCurves(cfg.EllipticCurves)
+
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
-				EllipticCurves: cfg.EllipticCurves,
+				EllipticCurves: ellipticCurves,
 			},
 			&extension.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},

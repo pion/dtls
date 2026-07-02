@@ -6,10 +6,28 @@ package elliptic
 
 import (
 	"crypto/ecdh"
+	"crypto/mlkem"
 	"crypto/rand"
 	"fmt"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+)
+
+// X25519KeySize is the size in bytes of an X25519 public key, private key, or
+// shared secret.
+const X25519KeySize = 32
+
+const (
+	// X25519MLKEM768ClientPublicKeySize is the encoded client key share size.
+	X25519MLKEM768ClientPublicKeySize = mlkem.EncapsulationKeySize768 + X25519KeySize
+	// X25519MLKEM768ServerPublicKeySize is the encoded server key share size.
+	X25519MLKEM768ServerPublicKeySize = mlkem.CiphertextSize768 + X25519KeySize
+	// X25519MLKEM768ClientPrivateKeySize is the encoded client private key size.
+	X25519MLKEM768ClientPrivateKeySize = mlkem.SeedSize + X25519KeySize
+	// X25519MLKEM768ServerPrivateKeySize is the encoded server private key size.
+	X25519MLKEM768ServerPrivateKeySize = mlkem.SharedKeySize + X25519KeySize
+	// X25519MLKEM768SharedSecretSize is the hybrid shared secret size.
+	X25519MLKEM768SharedSecretSize = mlkem.SharedKeySize + X25519KeySize
 )
 
 // CurvePointFormat is used to represent the IANA registered curve points
@@ -77,14 +95,34 @@ func (c Curve) String() string {
 // Curves returns all curves we implement.
 func Curves() map[Curve]bool {
 	return map[Curve]bool{
-		X25519: true,
-		P256:   true,
-		P384:   true,
+		X25519:         true,
+		P256:           true,
+		P384:           true,
+		X25519MLKEM768: true,
 	}
 }
 
 // GenerateKeypair generates a keypair for the given Curve.
 func GenerateKeypair(curve Curve) (*Keypair, error) {
+	if curve == X25519MLKEM768 {
+		return generateX25519MLKEM768ClientKeypair()
+	}
+
+	return generateECDHKeypair(curve)
+}
+
+// GenerateKeypairForPeer generates a keypair for the given Curve and peer
+// public key. Classical ECDHE groups ignore peerPublicKey, while hybrid KEM
+// groups need it to produce their response key share.
+func GenerateKeypairForPeer(curve Curve, peerPublicKey []byte) (*Keypair, error) {
+	if curve == X25519MLKEM768 {
+		return generateX25519MLKEM768ServerKeypair(peerPublicKey)
+	}
+
+	return generateECDHKeypair(curve)
+}
+
+func generateECDHKeypair(curve Curve) (*Keypair, error) {
 	ec, err := curve.toECDH()
 	if err != nil {
 		return nil, err
@@ -101,6 +139,63 @@ func GenerateKeypair(curve Curve) (*Keypair, error) {
 		Curve:      curve,
 		PublicKey:  pk.Bytes(), // NIST: SEC1 uncompressed (04||X||Y); X25519: 32 bytes
 		PrivateKey: sk.Bytes(), // Scalar suitable for ecdh.NewPrivateKey
+	}, nil
+}
+
+func generateX25519MLKEM768ClientKeypair() (*Keypair, error) {
+	mlkemSecretKey, err := mlkem.GenerateKey768()
+	if err != nil {
+		return nil, err
+	}
+
+	x25519Keypair, err := generateECDHKeypair(X25519)
+	if err != nil {
+		return nil, err
+	}
+
+	publicKey := make([]byte, 0, X25519MLKEM768ClientPublicKeySize)
+	publicKey = append(publicKey, mlkemSecretKey.EncapsulationKey().Bytes()...)
+	publicKey = append(publicKey, x25519Keypair.PublicKey...)
+
+	privateKey := make([]byte, 0, X25519MLKEM768ClientPrivateKeySize)
+	privateKey = append(privateKey, mlkemSecretKey.Bytes()...)
+	privateKey = append(privateKey, x25519Keypair.PrivateKey...)
+
+	return &Keypair{
+		Curve:      X25519MLKEM768,
+		PublicKey:  publicKey,
+		PrivateKey: privateKey,
+	}, nil
+}
+
+func generateX25519MLKEM768ServerKeypair(peerPublicKey []byte) (*Keypair, error) {
+	if len(peerPublicKey) != X25519MLKEM768ClientPublicKeySize {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+
+	mlkemEncapsulationKey, err := mlkem.NewEncapsulationKey768(peerPublicKey[:mlkem.EncapsulationKeySize768])
+	if err != nil {
+		return nil, err
+	}
+	mlkemSharedKey, mlkemCiphertext := mlkemEncapsulationKey.Encapsulate()
+
+	x25519Keypair, err := generateECDHKeypair(X25519)
+	if err != nil {
+		return nil, err
+	}
+
+	publicKey := make([]byte, 0, X25519MLKEM768ServerPublicKeySize)
+	publicKey = append(publicKey, mlkemCiphertext...)
+	publicKey = append(publicKey, x25519Keypair.PublicKey...)
+
+	privateKey := make([]byte, 0, X25519MLKEM768ServerPrivateKeySize)
+	privateKey = append(privateKey, mlkemSharedKey...)
+	privateKey = append(privateKey, x25519Keypair.PrivateKey...)
+
+	return &Keypair{
+		Curve:      X25519MLKEM768,
+		PublicKey:  publicKey,
+		PrivateKey: privateKey,
 	}, nil
 }
 

@@ -124,6 +124,7 @@ var ( //nolint:gochecknoglobals,lll
 	ErrInvalidReplayProtectionWindow    = stderrors.New("replay protection window must be non-negative")             //nolint:lll
 	ErrEmptySupportedProtocols          = stderrors.New("supported protocols option requires at least one protocol") //nolint:lll
 	ErrEmptyEllipticCurves              = stderrors.New("elliptic curves option requires at least one curve")        //nolint:lll
+	ErrUnsupportedEllipticCurveVersion  = stderrors.New("elliptic curve is not supported for the configured DTLS version")
 	ErrNilGetClientCertificate          = stderrors.New("get client certificate option requires a non-nil callback")
 	ErrNilConnectionIDGenerator         = stderrors.New("connection ID generator option requires a non-nil function")
 	ErrNilPaddingLengthGenerator        = stderrors.New("padding length generator option requires a non-nil function")

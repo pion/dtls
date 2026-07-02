@@ -250,6 +250,66 @@ func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 	}
 }
 
+func TestFlight13_1GenerateClientHelloIncludesX25519MLKEM768KeyShare(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.EllipticCurves = []elliptic.Curve{elliptic.X25519MLKEM768}
+	state := &dtlsstate.State{}
+
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
+		state: state,
+		cfg:   cfg,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, pkts, 1)
+
+	hand, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	raw, err := hand.Marshal()
+	require.NoError(t, err)
+
+	var parsed handshake.Handshake
+	require.NoError(t, parsed.Unmarshal(raw))
+	clientHello, ok := parsed.Message.(*handshake.MessageClientHello)
+	require.True(t, ok)
+
+	var keyShare *extension.KeyShare
+	for _, ext := range clientHello.Extensions {
+		if ks, ok := ext.(*extension.KeyShare); ok {
+			keyShare = ks
+
+			break
+		}
+	}
+	require.NotNil(t, keyShare)
+	require.Len(t, keyShare.ClientShares, 1)
+	assert.Equal(t, elliptic.X25519MLKEM768, keyShare.ClientShares[0].Group)
+	assert.Len(t, keyShare.ClientShares[0].KeyExchange, elliptic.X25519MLKEM768ClientPublicKeySize)
+
+	localKeypair := state.LocalKeypairs[elliptic.X25519MLKEM768]
+	require.NotNil(t, localKeypair)
+	serverKeypair, err := elliptic.GenerateKeypairForPeer(elliptic.X25519MLKEM768, localKeypair.PublicKey)
+	require.NoError(t, err)
+	assert.Len(t, serverKeypair.PublicKey, elliptic.X25519MLKEM768ServerPublicKeySize)
+
+	clientSecret, err := prf.PreMasterSecret(
+		serverKeypair.PublicKey,
+		localKeypair.PrivateKey,
+		elliptic.X25519MLKEM768,
+	)
+	require.NoError(t, err)
+	serverSecret, err := prf.PreMasterSecret(
+		localKeypair.PublicKey,
+		serverKeypair.PrivateKey,
+		elliptic.X25519MLKEM768,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, serverSecret, clientSecret)
+	assert.Len(t, clientSecret, elliptic.X25519MLKEM768SharedSecretSize)
+}
+
 func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	selectedGroup := elliptic.P384

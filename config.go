@@ -8,9 +8,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
+	"slices"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
 const defaultMTU = 1200 // bytes
@@ -77,10 +79,41 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 	}
 
 	minVersion, maxVersion := normalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
+	if err := validateEllipticCurveVersions(config.EllipticCurves, minVersion, maxVersion); err != nil {
+		return err
+	}
+
 	_, err := parseCipherSuitesForVersions(
 		config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil,
 		minVersion, maxVersion,
 	)
 
 	return err
+}
+
+func validateEllipticCurveVersions(
+	curves []elliptic.Curve,
+	minVersion, maxVersion protocol.Version,
+) error {
+	if !slices.Contains(curves, elliptic.X25519MLKEM768) {
+		return nil
+	}
+	if !maxVersion.Equal(protocol.Version1_3) {
+		return dtlserrors.ErrUnsupportedEllipticCurveVersion
+	}
+	if minVersion.Equal(protocol.Version1_3) || hasDTLS12CompatibleCurve(curves) {
+		return nil
+	}
+
+	return dtlserrors.ErrUnsupportedEllipticCurveVersion
+}
+
+func hasDTLS12CompatibleCurve(curves []elliptic.Curve) bool {
+	for _, curve := range curves {
+		if curve != elliptic.X25519MLKEM768 {
+			return true
+		}
+	}
+
+	return false
 }

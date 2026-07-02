@@ -342,6 +342,72 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 	})
 }
 
+func TestX25519MLKEM768RequiresDTLS13(t *testing.T) {
+	t.Run("DTLS12OnlyClient", func(t *testing.T) {
+		err := clientOptionsError(t,
+			WithMaxVersion(protocol.Version1_2),
+			WithEllipticCurves(elliptic.X25519MLKEM768),
+		)
+		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
+	})
+
+	t.Run("DTLS12OnlyServer", func(t *testing.T) {
+		err := serverOptionsError(t,
+			WithMaxVersion(protocol.Version1_2),
+			WithEllipticCurves(elliptic.X25519MLKEM768),
+		)
+		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
+	})
+
+	t.Run("DualStackMLKEMOnlyClient", func(t *testing.T) {
+		err := clientOptionsError(t,
+			WithMaxVersion(protocol.Version1_3),
+			WithEllipticCurves(elliptic.X25519MLKEM768),
+		)
+		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
+	})
+
+	t.Run("DualStackMLKEMOnlyServer", func(t *testing.T) {
+		err := serverOptionsError(t,
+			WithMaxVersion(protocol.Version1_3),
+			WithEllipticCurves(elliptic.X25519MLKEM768),
+		)
+		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
+	})
+
+	t.Run("DualStackWithClassicalFallback", func(t *testing.T) {
+		_, err := newOptionsClient(t,
+			WithMaxVersion(protocol.Version1_3),
+			WithEllipticCurves(elliptic.X25519MLKEM768, elliptic.X25519),
+		)
+		require.NoError(t, err)
+
+		_, err = newOptionsServer(t,
+			WithMaxVersion(protocol.Version1_3),
+			WithEllipticCurves(elliptic.X25519MLKEM768, elliptic.X25519),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("DTLS13OnlyClient", func(t *testing.T) {
+		_, err := newOptionsClient(t,
+			WithMinVersion(protocol.Version1_3),
+			WithMaxVersion(protocol.Version1_3),
+			WithEllipticCurves(elliptic.X25519MLKEM768),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("DTLS13OnlyServer", func(t *testing.T) {
+		_, err := newOptionsServer(t,
+			WithMinVersion(protocol.Version1_3),
+			WithMaxVersion(protocol.Version1_3),
+			WithEllipticCurves(elliptic.X25519MLKEM768),
+		)
+		require.NoError(t, err)
+	})
+}
+
 // TestDefaultsAreApplied verifies that defaults are applied before options.
 func TestDefaultsAreApplied(t *testing.T) {
 	t.Run("ClientDefaults", func(t *testing.T) {
