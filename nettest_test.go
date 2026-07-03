@@ -15,22 +15,6 @@ import (
 	"golang.org/x/net/nettest"
 )
 
-// closeOnceConn wraps a net.Conn to make Close() idempotent,
-// returning nil on subsequent calls instead of ErrConnClosed.
-type closeOnceConn struct {
-	net.Conn
-	closeOnce sync.Once
-	closeErr  error
-}
-
-func (c *closeOnceConn) Close() error {
-	c.closeOnce.Do(func() {
-		c.closeErr = c.Conn.Close()
-	})
-
-	return c.closeErr
-}
-
 func TestNetTest(t *testing.T) {
 	lim := test.TimeOut(time.Minute*1 + time.Second*10)
 	defer lim.Stop()
@@ -41,15 +25,14 @@ func TestNetTest(t *testing.T) {
 			return nil, nil, nil, err
 		}
 
-		// Wrap connections to handle ErrConnClosed gracefully
-		c1Wrapper := &closeOnceConn{Conn: c1}
-		c2Wrapper := &closeOnceConn{Conn: c2}
-
+		var stopOnce sync.Once
 		stop = func() {
-			_ = c1Wrapper.Close()
-			_ = c2Wrapper.Close()
+			stopOnce.Do(func() {
+				_ = c1.Close()
+				_ = c2.Close()
+			})
 		}
 
-		return c1Wrapper, c2Wrapper, stop, nil
+		return c1, c2, stop, nil
 	})
 }
