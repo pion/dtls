@@ -28,7 +28,7 @@ type recordProtection13TestCase struct {
 }
 
 type tls13RecordProtectionSuite interface {
-	CipherSuite
+	CipherSuiteTLS13
 	newRecordProtection(localTrafficSecret, remoteTrafficSecret []byte) (*recordProtection13, error)
 }
 
@@ -87,6 +87,46 @@ func trafficSecret13(suite tls13RecordProtectionSuite, fill byte) []byte {
 	hashFunc := suite.HashFunc()
 
 	return bytes.Repeat([]byte{fill}, hashFunc().Size())
+}
+
+func newRecordProtection13TestSuite(t *testing.T, name string) tls13RecordProtectionSuite {
+	t.Helper()
+
+	for _, testCase := range recordProtection13TestCases() {
+		if testCase.name == name {
+			return testCase.suite
+		}
+	}
+
+	assert.FailNowf(t, "unknown TLS 1.3 test suite", "name: %s", name)
+
+	return nil
+}
+
+func requireRecordProtection13(t *testing.T, suite tls13RecordProtectionSuite) *recordProtection13 {
+	t.Helper()
+
+	switch s := suite.(type) {
+	case *TLSAes128GcmSha256:
+		protection, ok := s.getRecordProtection13()
+		require.True(t, ok)
+
+		return protection
+	case *TLSAes256GcmSha384:
+		protection, ok := s.getRecordProtection13()
+		require.True(t, ok)
+
+		return protection
+	case *TLSChacha20Poly1305Sha256:
+		protection, ok := s.getRecordProtection13()
+		require.True(t, ok)
+
+		return protection
+	default:
+		assert.FailNowf(t, "unknown TLS 1.3 test suite", "suite: %T", suite)
+
+		return nil
+	}
 }
 
 func TestDeriveRecordTrafficKeys13Suites(t *testing.T) {
@@ -167,6 +207,44 @@ func TestTLS13CipherSuiteNewRecordProtectionSuites(t *testing.T) {
 			decrypted, err := protection.local.aead.Open(nil, nonce, ciphertext, additionalData)
 			require.NoError(t, err)
 			assert.Equal(t, plaintext, decrypted)
+		})
+	}
+}
+
+func TestTLS13CipherSuiteInitFromTrafficSecrets13(t *testing.T) {
+	for _, testCase := range recordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			clientSuite := testCase.suite
+			serverSuite := newRecordProtection13TestSuite(t, testCase.name)
+
+			clientSecret := trafficSecret13(testCase.suite, 0xa6)
+			serverSecret := trafficSecret13(testCase.suite, 0xb6)
+
+			require.False(t, clientSuite.IsInitialized())
+			require.False(t, serverSuite.IsInitialized())
+
+			require.NoError(t, clientSuite.InitFromTrafficSecrets13(clientSecret, serverSecret, true))
+			require.NoError(t, serverSuite.InitFromTrafficSecrets13(clientSecret, serverSecret, false))
+
+			require.True(t, clientSuite.IsInitialized())
+			require.True(t, serverSuite.IsInitialized())
+
+			clientProtection := requireRecordProtection13(t, clientSuite)
+			serverProtection := requireRecordProtection13(t, serverSuite)
+			header := recordlayer.UnifiedHeader{
+				SequenceNumber: 0x1234,
+				EpochLow:       2,
+			}
+			sequenceNumber := uint64(0x0102030405060708)
+			plaintext := []byte("traffic-secret initialized payload")
+
+			record, err := clientProtection.seal(header, sequenceNumber, protocol.ContentTypeApplicationData, plaintext)
+			require.NoError(t, err)
+
+			innerPlaintext, err := serverProtection.open(record.Header, sequenceNumber, record.EncryptedRecord)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, innerPlaintext.Content)
+			assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
 		})
 	}
 }
