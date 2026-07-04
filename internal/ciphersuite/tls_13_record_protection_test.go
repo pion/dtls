@@ -103,6 +103,30 @@ func newRecordProtection13TestSuite(t *testing.T, name string) tls13RecordProtec
 	return nil
 }
 
+func mustDecodeHex13(t *testing.T, s string) []byte {
+	t.Helper()
+
+	out, err := hex.DecodeString(s)
+	require.NoError(t, err)
+
+	return out
+}
+
+func tlsAES128GCM13VectorSecrets(t *testing.T) (clientSecret, serverSecret []byte) {
+	t.Helper()
+
+	clientSecret = mustDecodeHex13(t,
+		"000102030405060708090a0b0c0d0e0f"+
+			"101112131415161718191a1b1c1d1e1f",
+	)
+	serverSecret = mustDecodeHex13(t,
+		"202122232425262728292a2b2c2d2e2f"+
+			"303132333435363738393a3b3c3d3e3f",
+	)
+
+	return clientSecret, serverSecret
+}
+
 func requireRecordProtection13(t *testing.T, suite tls13RecordProtectionSuite) *recordProtection13 {
 	t.Helper()
 
@@ -126,6 +150,224 @@ func requireRecordProtection13(t *testing.T, suite tls13RecordProtectionSuite) *
 		assert.FailNowf(t, "unknown TLS 1.3 test suite", "suite: %T", suite)
 
 		return nil
+	}
+}
+
+func TestTLSAES128GCMSHA256RecordProtectionKnownVector(t *testing.T) {
+	suite := NewTLSAes128GcmSha256()
+	clientSecret, serverSecret := tlsAES128GCM13VectorSecrets(t)
+	sequenceNumber := uint64(0x0001020304050607)
+	plaintext := []byte("dtls13 aes-128-gcm vector")
+
+	clientKeys, err := deriveRecordTrafficKeys13(suite.HashFunc(), clientSecret, tls13AES128GCMKeyLen)
+	require.NoError(t, err)
+	assert.Equal(t, mustDecodeHex13(t, "cc95abc258d309424ddbf7cba68bd77e"), clientKeys.key)
+	assert.Equal(t, mustDecodeHex13(t, "6d3299305dd209fc865cf8f1"), clientKeys.iv)
+	assert.Equal(t, mustDecodeHex13(t, "c5b1a0649ea4fdafbe7e256665068222"), clientKeys.sequenceNumberKey)
+
+	serverKeys, err := deriveRecordTrafficKeys13(suite.HashFunc(), serverSecret, tls13AES128GCMKeyLen)
+	require.NoError(t, err)
+	assert.Equal(t, mustDecodeHex13(t, "18e38156d5a877f3114a359c90cf6b1c"), serverKeys.key)
+	assert.Equal(t, mustDecodeHex13(t, "0fc4773203e01ccd271e629b"), serverKeys.iv)
+	assert.Equal(t, mustDecodeHex13(t, "65a419e0a1eda1c3850853fa556adee4"), serverKeys.sequenceNumberKey)
+
+	protection, err := suite.newRecordProtection(clientSecret, serverSecret)
+	require.NoError(t, err)
+	peerProtection, err := suite.newRecordProtection(serverSecret, clientSecret)
+	require.NoError(t, err)
+
+	nonce, err := recordNonce13(protection.local.iv, sequenceNumber)
+	require.NoError(t, err)
+	assert.Equal(t, mustDecodeHex13(t, "6d3299305dd30bff8259fef6"), nonce)
+
+	record, err := protection.seal(
+		recordlayer.UnifiedHeader{
+			ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
+			SequenceNumber: uint16(sequenceNumber), //nolint:gosec // G115
+			EpochLow:       3,
+		},
+		sequenceNumber,
+		protocol.ContentTypeApplicationData,
+		plaintext,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint8(3), record.Header.EpochLow)
+	assert.True(t, record.Header.SeqBit)
+	assert.True(t, record.Header.LengthBit)
+	assert.Equal(t, uint16(0x0607), record.Header.SequenceNumber)
+	assert.Equal(t, uint16(0x002a), record.Header.Length)
+
+	additionalData, err := record.Header.Marshal()
+	require.NoError(t, err)
+	assert.Equal(t, mustDecodeHex13(t, "3fcafebabe0607002a"), additionalData)
+	assert.Equal(
+		t,
+		mustDecodeHex13(t,
+			"82bacfceae1035329372dbcbdce0240faf434e68077fb4df25edc71ddd89db18"+
+				"b510ccd2518b77499d7e",
+		),
+		record.EncryptedRecord,
+	)
+
+	mask, err := protection.local.sequenceNumberMask(record.EncryptedRecord)
+	require.NoError(t, err)
+	assert.Equal(t, mustDecodeHex13(t, "adc05ac9d6be3e1570d34d94457bdb31"), mask)
+
+	maskedHeader := record.Header
+	require.NoError(t, applySequenceNumberMask13(&maskedHeader, mask))
+	assert.Equal(t, uint16(0xabc7), maskedHeader.SequenceNumber)
+
+	maskedRaw, err := (&recordlayer.CiphertextRecord13{
+		Header:          maskedHeader,
+		EncryptedRecord: record.EncryptedRecord,
+	}).Marshal()
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		mustDecodeHex13(t,
+			"3fcafebabeabc7002a82bacfceae1035329372dbcbdce0240faf434e68077fb4df25edc71ddd89db18"+
+				"b510ccd2518b77499d7e",
+		),
+		maskedRaw,
+	)
+
+	innerPlaintext, err := peerProtection.open(record.Header, sequenceNumber, record.EncryptedRecord)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, innerPlaintext.Content)
+	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+	assert.Equal(t, uint(0), innerPlaintext.Zeros)
+}
+
+func TestTLSAES128GCMSHA256SuiteSealOpenKnownVector(t *testing.T) {
+	clientSuite := NewTLSAes128GcmSha256()
+	serverSuite := NewTLSAes128GcmSha256()
+	clientSecret, serverSecret := tlsAES128GCM13VectorSecrets(t)
+	sequenceNumber := uint64(0x0001020304050607)
+	plaintext := []byte("dtls13 aes-128-gcm vector")
+
+	require.NoError(t, clientSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
+	require.NoError(t, serverSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
+
+	record, err := clientSuite.Seal(
+		recordlayer.UnifiedHeader{
+			ConnectionID: []byte{0xca, 0xfe, 0xba, 0xbe},
+			EpochLow:     3,
+		},
+		sequenceNumber,
+		protocol.ContentTypeApplicationData,
+		plaintext,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint16(0xabc7), record.Header.SequenceNumber)
+	assert.Equal(t, uint16(0x002a), record.Header.Length)
+	assert.True(t, record.Header.SeqBit)
+	assert.True(t, record.Header.LengthBit)
+	assert.Equal(
+		t,
+		mustDecodeHex13(t,
+			"82bacfceae1035329372dbcbdce0240faf434e68077fb4df25edc71ddd89db18"+
+				"b510ccd2518b77499d7e",
+		),
+		record.EncryptedRecord,
+	)
+
+	raw, err := record.Marshal()
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		mustDecodeHex13(t,
+			"3fcafebabeabc7002a82bacfceae1035329372dbcbdce0240faf434e68077fb4df25edc71ddd89db18"+
+				"b510ccd2518b77499d7e",
+		),
+		raw,
+	)
+
+	innerPlaintext, err := serverSuite.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, innerPlaintext.Content)
+	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+}
+
+func TestTLSAES128GCMSHA256OpenRejectsKnownVectorMutation(t *testing.T) {
+	suite := NewTLSAes128GcmSha256()
+	clientSecret, serverSecret := tlsAES128GCM13VectorSecrets(t)
+	sequenceNumber := uint64(0x0001020304050607)
+
+	protection, err := suite.newRecordProtection(clientSecret, serverSecret)
+	require.NoError(t, err)
+	peerProtection, err := suite.newRecordProtection(serverSecret, clientSecret)
+	require.NoError(t, err)
+
+	record, err := protection.seal(
+		recordlayer.UnifiedHeader{
+			ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
+			SequenceNumber: uint16(sequenceNumber), //nolint:gosec // G115
+			EpochLow:       3,
+		},
+		sequenceNumber,
+		protocol.ContentTypeApplicationData,
+		[]byte("dtls13 aes-128-gcm vector"),
+	)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		mutateHeader    func(*recordlayer.UnifiedHeader)
+		mutateEncrypted func([]byte)
+		sequenceNumber  uint64
+	}{
+		{
+			name: "header length authenticated",
+			mutateHeader: func(header *recordlayer.UnifiedHeader) {
+				header.Length ^= 0x0001
+			},
+			sequenceNumber: sequenceNumber,
+		},
+		{
+			name: "connection id authenticated",
+			mutateHeader: func(header *recordlayer.UnifiedHeader) {
+				header.ConnectionID[0] ^= 0x80
+			},
+			sequenceNumber: sequenceNumber,
+		},
+		{
+			name:           "nonce sequence number authenticated",
+			sequenceNumber: sequenceNumber + 1,
+		},
+		{
+			name: "ciphertext authenticated",
+			mutateEncrypted: func(encryptedRecord []byte) {
+				encryptedRecord[0] ^= 0x80
+			},
+			sequenceNumber: sequenceNumber,
+		},
+		{
+			name: "tag authenticated",
+			mutateEncrypted: func(encryptedRecord []byte) {
+				encryptedRecord[len(encryptedRecord)-1] ^= 0x01
+			},
+			sequenceNumber: sequenceNumber,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			header := record.Header
+			header.ConnectionID = append([]byte(nil), record.Header.ConnectionID...)
+			encryptedRecord := append([]byte(nil), record.EncryptedRecord...)
+
+			if testCase.mutateHeader != nil {
+				testCase.mutateHeader(&header)
+			}
+			if testCase.mutateEncrypted != nil {
+				testCase.mutateEncrypted(encryptedRecord)
+			}
+
+			_, err := peerProtection.open(header, testCase.sequenceNumber, encryptedRecord)
+			assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+		})
 	}
 }
 
