@@ -144,6 +144,21 @@ func tlsAES256GCM13VectorSecrets(t *testing.T) (clientSecret, serverSecret []byt
 	return clientSecret, serverSecret
 }
 
+func tlsChaCha20Poly1305SHA25613VectorSecrets(t *testing.T) (clientSecret, serverSecret []byte) {
+	t.Helper()
+
+	clientSecret = mustDecodeHex13(t,
+		"000102030405060708090a0b0c0d0e0f"+
+			"101112131415161718191a1b1c1d1e1f",
+	)
+	serverSecret = mustDecodeHex13(t,
+		"202122232425262728292a2b2c2d2e2f"+
+			"303132333435363738393a3b3c3d3e3f",
+	)
+
+	return clientSecret, serverSecret
+}
+
 func requireRecordProtection13(t *testing.T, suite tls13RecordProtectionSuite) *recordProtection13 {
 	t.Helper()
 
@@ -170,7 +185,7 @@ func requireRecordProtection13(t *testing.T, suite tls13RecordProtectionSuite) *
 	}
 }
 
-type tlsAESGCM13KnownVector struct {
+type tls13KnownVector struct {
 	name                         string
 	suite                        func() tls13RecordProtectionSuite
 	secrets                      func(t *testing.T) (clientSecret, serverSecret []byte)
@@ -190,8 +205,8 @@ type tlsAESGCM13KnownVector struct {
 	expectedMaskedRaw            string
 }
 
-func tlsAESGCM13KnownVectors() []tlsAESGCM13KnownVector {
-	return []tlsAESGCM13KnownVector{
+func tls13KnownVectors() []tls13KnownVector {
+	return []tls13KnownVector{
 		{
 			name:                         "TLS_AES_128_GCM_SHA256",
 			suite:                        func() tls13RecordProtectionSuite { return NewTLSAes128GcmSha256() },
@@ -234,18 +249,40 @@ func tlsAESGCM13KnownVectors() []tlsAESGCM13KnownVector {
 			expectedMaskedRaw: "3fcafebabecbe8002a799936beea392e94f73b56ad19e96f5ff607481e8abf5aa6895414e222eea46" +
 				"b4e2385ac65b6fc516ede",
 		},
+		{
+			name:                         "TLS_CHACHA20_POLY1305_SHA256",
+			suite:                        func() tls13RecordProtectionSuite { return NewTLSChacha20Poly1305Sha256() },
+			secrets:                      tlsChaCha20Poly1305SHA25613VectorSecrets,
+			keyLen:                       tls13ChaCha20Poly1305KeyLen,
+			plaintext:                    "dtls13 chacha20-poly1305 vector",
+			expectedClientKey:            "fa36130205a96cbeb292e37361db797a5292833e60912c992462e04b0eba0ecd",
+			expectedClientIV:             "6d3299305dd209fc865cf8f1",
+			expectedClientSequenceNumber: "534890654f2b1ca72683f148cdbae6a98ffeaaad7e23fc9e693486e2a92b6892",
+			expectedServerKey:            "764d73625579da13dbf400345a3a28f64e1fd7d755ec9b6e1f7ade12c2b7b735",
+			expectedServerIV:             "0fc4773203e01ccd271e629b",
+			expectedServerSequenceNumber: "93360cb9d6b073a87e187ca4398acb6adf02f76aa7f485b76e18e07eba60d867",
+			expectedNonce:                "6d3299305dd30bff8259fef6",
+			expectedAdditionalData:       "3fcafebabe06070030",
+			expectedEncryptedRecord: "69f043b34d3e3b856ce115bab907b93c384fe7d6375a38b00d864a1562eedd91" +
+				"f386a79a681d216cd5ff74d73b419b97",
+			expectedSequenceNumberMask: "2e70bc45d477904ca0053b5321f731eaa5abe10c14ddbefe797decfe78d9c802" +
+				"4d8fce70b14fef48c53d095eb737c95812be77d25a1280c60a68d4a8600680c3",
+			expectedMaskedSequenceNumber: 0x2877,
+			expectedMaskedRaw: "3fcafebabe2877003069f043b34d3e3b856ce115bab907b93c384fe7d6375a38b00d864a1562eedd91" +
+				"f386a79a681d216cd5ff74d73b419b97",
+		},
 	}
 }
 
-func TestTLSAESGCMRecordProtectionKnownVectors(t *testing.T) {
-	for _, vector := range tlsAESGCM13KnownVectors() {
+func TestTLS13RecordProtectionKnownVectors(t *testing.T) {
+	for _, vector := range tls13KnownVectors() {
 		t.Run(vector.name, func(t *testing.T) {
-			assertTLSAESGCMRecordProtectionKnownVector(t, vector)
+			assertTLS13RecordProtectionKnownVector(t, vector)
 		})
 	}
 }
 
-func assertTLSAESGCMRecordProtectionKnownVector(t *testing.T, vector tlsAESGCM13KnownVector) {
+func assertTLS13RecordProtectionKnownVector(t *testing.T, vector tls13KnownVector) {
 	t.Helper()
 
 	suite := vector.suite()
@@ -255,7 +292,7 @@ func assertTLSAESGCMRecordProtectionKnownVector(t *testing.T, vector tlsAESGCM13
 
 	clientKeys, err := deriveRecordTrafficKeys13(suite.HashFunc(), clientSecret, vector.keyLen)
 	require.NoError(t, err)
-	assertTLSAESGCMTrafficKeys13(t, clientKeys,
+	assertTLS13TrafficKeys(t, clientKeys,
 		vector.expectedClientKey,
 		vector.expectedClientIV,
 		vector.expectedClientSequenceNumber,
@@ -263,7 +300,7 @@ func assertTLSAESGCMRecordProtectionKnownVector(t *testing.T, vector tlsAESGCM13
 
 	serverKeys, err := deriveRecordTrafficKeys13(suite.HashFunc(), serverSecret, vector.keyLen)
 	require.NoError(t, err)
-	assertTLSAESGCMTrafficKeys13(t, serverKeys,
+	assertTLS13TrafficKeys(t, serverKeys,
 		vector.expectedServerKey,
 		vector.expectedServerIV,
 		vector.expectedServerSequenceNumber,
@@ -294,12 +331,13 @@ func assertTLSAESGCMRecordProtectionKnownVector(t *testing.T, vector tlsAESGCM13
 	assert.True(t, record.Header.SeqBit)
 	assert.True(t, record.Header.LengthBit)
 	assert.Equal(t, uint16(0x0607), record.Header.SequenceNumber)
-	assert.Equal(t, uint16(0x002a), record.Header.Length)
+	expectedEncryptedRecord := mustDecodeHex13(t, vector.expectedEncryptedRecord)
+	assert.Equal(t, uint16(len(expectedEncryptedRecord)), record.Header.Length) //nolint:gosec // G115
 
 	additionalData, err := record.Header.Marshal()
 	require.NoError(t, err)
 	assert.Equal(t, mustDecodeHex13(t, vector.expectedAdditionalData), additionalData)
-	assert.Equal(t, mustDecodeHex13(t, vector.expectedEncryptedRecord), record.EncryptedRecord)
+	assert.Equal(t, expectedEncryptedRecord, record.EncryptedRecord)
 
 	mask, err := protection.local.sequenceNumberMask(record.EncryptedRecord)
 	require.NoError(t, err)
@@ -323,7 +361,7 @@ func assertTLSAESGCMRecordProtectionKnownVector(t *testing.T, vector tlsAESGCM13
 	assert.Equal(t, uint(0), innerPlaintext.Zeros)
 }
 
-func assertTLSAESGCMTrafficKeys13(
+func assertTLS13TrafficKeys(
 	t *testing.T,
 	keys recordTrafficKeys13,
 	expectedKey, expectedIV, expectedSequenceNumberKey string,
@@ -335,15 +373,15 @@ func assertTLSAESGCMTrafficKeys13(
 	assert.Equal(t, mustDecodeHex13(t, expectedSequenceNumberKey), keys.sequenceNumberKey)
 }
 
-func TestTLSAESGCMSuiteSealOpenKnownVectors(t *testing.T) {
-	for _, vector := range tlsAESGCM13KnownVectors() {
+func TestTLS13SuiteSealOpenKnownVectors(t *testing.T) {
+	for _, vector := range tls13KnownVectors() {
 		t.Run(vector.name, func(t *testing.T) {
-			assertTLSAESGCMSuiteSealOpenKnownVector(t, vector)
+			assertTLS13SuiteSealOpenKnownVector(t, vector)
 		})
 	}
 }
 
-func assertTLSAESGCMSuiteSealOpenKnownVector(t *testing.T, vector tlsAESGCM13KnownVector) {
+func assertTLS13SuiteSealOpenKnownVector(t *testing.T, vector tls13KnownVector) {
 	t.Helper()
 
 	clientSuite := vector.suite()
@@ -367,10 +405,11 @@ func assertTLSAESGCMSuiteSealOpenKnownVector(t *testing.T, vector tlsAESGCM13Kno
 	require.NoError(t, err)
 
 	assert.Equal(t, vector.expectedMaskedSequenceNumber, record.Header.SequenceNumber)
-	assert.Equal(t, uint16(0x002a), record.Header.Length)
+	expectedEncryptedRecord := mustDecodeHex13(t, vector.expectedEncryptedRecord)
+	assert.Equal(t, uint16(len(expectedEncryptedRecord)), record.Header.Length) //nolint:gosec // G115
 	assert.True(t, record.Header.SeqBit)
 	assert.True(t, record.Header.LengthBit)
-	assert.Equal(t, mustDecodeHex13(t, vector.expectedEncryptedRecord), record.EncryptedRecord)
+	assert.Equal(t, expectedEncryptedRecord, record.EncryptedRecord)
 
 	raw, err := record.Marshal()
 	require.NoError(t, err)
@@ -382,15 +421,15 @@ func assertTLSAESGCMSuiteSealOpenKnownVector(t *testing.T, vector tlsAESGCM13Kno
 	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
 }
 
-func TestTLSAESGCMOpenRejectsKnownVectorMutations(t *testing.T) {
-	for _, vector := range tlsAESGCM13KnownVectors() {
+func TestTLS13OpenRejectsKnownVectorMutations(t *testing.T) {
+	for _, vector := range tls13KnownVectors() {
 		t.Run(vector.name, func(t *testing.T) {
-			assertTLSAESGCMOpenRejectsKnownVectorMutations(t, vector)
+			assertTLS13OpenRejectsKnownVectorMutations(t, vector)
 		})
 	}
 }
 
-func assertTLSAESGCMOpenRejectsKnownVectorMutations(t *testing.T, vector tlsAESGCM13KnownVector) {
+func assertTLS13OpenRejectsKnownVectorMutations(t *testing.T, vector tls13KnownVector) {
 	t.Helper()
 
 	suite := vector.suite()
@@ -414,7 +453,7 @@ func assertTLSAESGCMOpenRejectsKnownVectorMutations(t *testing.T, vector tlsAESG
 	)
 	require.NoError(t, err)
 
-	for _, testCase := range tlsAESGCM13KnownVectorMutationCases(sequenceNumber) {
+	for _, testCase := range tls13KnownVectorMutationCases(sequenceNumber) {
 		t.Run(testCase.name, func(t *testing.T) {
 			header := record.Header
 			header.ConnectionID = append([]byte(nil), record.Header.ConnectionID...)
@@ -433,15 +472,15 @@ func assertTLSAESGCMOpenRejectsKnownVectorMutations(t *testing.T, vector tlsAESG
 	}
 }
 
-type tlsAESGCM13KnownVectorMutationCase struct {
+type tls13KnownVectorMutationCase struct {
 	name            string
 	mutateHeader    func(*recordlayer.UnifiedHeader)
 	mutateEncrypted func([]byte)
 	sequenceNumber  uint64
 }
 
-func tlsAESGCM13KnownVectorMutationCases(sequenceNumber uint64) []tlsAESGCM13KnownVectorMutationCase {
-	return []tlsAESGCM13KnownVectorMutationCase{
+func tls13KnownVectorMutationCases(sequenceNumber uint64) []tls13KnownVectorMutationCase {
+	return []tls13KnownVectorMutationCase{
 		{
 			name: "header length authenticated",
 			mutateHeader: func(header *recordlayer.UnifiedHeader) {
