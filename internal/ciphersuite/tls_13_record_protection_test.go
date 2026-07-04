@@ -249,6 +249,62 @@ func TestTLS13CipherSuiteInitFromTrafficSecrets(t *testing.T) {
 	}
 }
 
+func TestTLS13CipherSuiteSeal(t *testing.T) {
+	for _, testCase := range recordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			clientSuite := testCase.suite
+			serverSuite := newRecordProtection13TestSuite(t, testCase.name)
+
+			clientSecret := trafficSecret13(testCase.suite, 0xa7)
+			serverSecret := trafficSecret13(testCase.suite, 0xb7)
+			require.NoError(t, clientSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
+			require.NoError(t, serverSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
+
+			header := recordlayer.UnifiedHeader{
+				SequenceNumber: 0xbeef,
+				EpochLow:       2,
+			}
+			sequenceNumber := uint64(0x0102030405061234)
+			plaintext := []byte("suite-level seal13 payload")
+
+			record, err := clientSuite.Seal(header, sequenceNumber, protocol.ContentTypeApplicationData, plaintext)
+			require.NoError(t, err)
+
+			require.True(t, record.Header.SeqBit)
+			require.True(t, record.Header.LengthBit)
+			require.Equal(t, uint16(len(record.EncryptedRecord)), record.Header.Length) //nolint:gosec
+
+			serverProtection := requireRecordProtection13(t, serverSuite)
+			mask, err := serverProtection.remote.sequenceNumberMask13(record.EncryptedRecord)
+			require.NoError(t, err)
+			expectedHeaderSequenceNumber := uint16(sequenceNumber & 0xffff) //nolint:gosec // G115
+			expectedMaskedSequenceNumber := expectedHeaderSequenceNumber ^ (uint16(mask[0])<<8 | uint16(mask[1]))
+			assert.Equal(t, expectedMaskedSequenceNumber, record.Header.SequenceNumber)
+
+			clearHeader := record.Header
+			require.NoError(t, applySequenceNumberMask13(&clearHeader, mask))
+			assert.Equal(t, expectedHeaderSequenceNumber, clearHeader.SequenceNumber)
+
+			innerPlaintext, err := serverProtection.open(clearHeader, sequenceNumber, record.EncryptedRecord)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, innerPlaintext.Content)
+			assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+		})
+	}
+}
+
+func TestTLS13CipherSuiteSealRejectsUninitialized(t *testing.T) {
+	suite := NewTLSAes128GcmSha256()
+
+	_, err := suite.Seal(
+		recordlayer.UnifiedHeader{SequenceNumber: 0x1234, EpochLow: 2},
+		0x0102030405061234,
+		protocol.ContentTypeApplicationData,
+		[]byte("uninitialized"),
+	)
+	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+}
+
 func TestRecordProtection13SealOpenSyntheticTrafficSecret(t *testing.T) {
 	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -391,6 +447,23 @@ func TestRecordProtection13SequenceNumberMaskSyntheticTrafficSecret(t *testing.T
 			assert.Equal(t, rawHeader, maskedHeader)
 		})
 	}
+}
+
+func TestApplySequenceNumberMask13ShortSequenceNumber(t *testing.T) {
+	header := recordlayer.UnifiedHeader{
+		SequenceNumber: 0xabcd,
+		SeqBit:         false,
+	}
+	require.NoError(t, applySequenceNumberMask13(&header, []byte{0xef}))
+	assert.Equal(t, uint16(0x0022), header.SequenceNumber)
+
+	header = recordlayer.UnifiedHeader{
+		SequenceNumber: 0xabcd,
+		SeqBit:         false,
+	}
+	err := applySequenceNumberMask13(&header, nil)
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+	assert.Equal(t, uint16(0xabcd), header.SequenceNumber)
 }
 
 func TestRecordProtection13SequenceNumberMaskRejectsShortCiphertext(t *testing.T) {

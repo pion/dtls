@@ -9,6 +9,7 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
@@ -16,6 +17,12 @@ import (
 type CipherSuiteTLS13 interface {
 	CipherSuite
 	InitFromTrafficSecrets(clientSecret, serverSecret []byte, isClient bool) error
+	Seal(
+		header recordlayer.UnifiedHeader,
+		sequenceNumber uint64,
+		contentType protocol.ContentType,
+		plaintext []byte,
+	) (recordlayer.CiphertextRecord13, error)
 }
 
 // TLS13CipherSuite provides behavior common to TLS 1.3 cipher suites. TLS 1.3
@@ -69,6 +76,30 @@ func (c *TLS13CipherSuite) getRecordProtection13() (*recordProtection13, bool) {
 	protection, ok := c.recordProtection.Load().(*recordProtection13)
 
 	return protection, ok
+}
+
+func (c *TLS13CipherSuite) Seal(
+	header recordlayer.UnifiedHeader,
+	sequenceNumber uint64,
+	contentType protocol.ContentType,
+	plaintext []byte,
+) (recordlayer.CiphertextRecord13, error) {
+	protection, ok := c.getRecordProtection13()
+	if !ok {
+		return recordlayer.CiphertextRecord13{}, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	header.SequenceNumber = uint16(sequenceNumber & 0xffff) //nolint:gosec // G115
+	record, err := protection.seal(header, sequenceNumber, contentType, plaintext)
+	if err != nil {
+		return recordlayer.CiphertextRecord13{}, err
+	}
+
+	if err = protection.maskLocalSequenceNumber13(&record.Header, record.EncryptedRecord); err != nil {
+		return recordlayer.CiphertextRecord13{}, err
+	}
+
+	return record, nil
 }
 
 func (c *TLS13CipherSuite) Init(_, _, _ []byte, _ bool) error {

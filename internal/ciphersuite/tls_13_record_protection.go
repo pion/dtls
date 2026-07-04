@@ -235,11 +235,51 @@ func (r *recordProtection13) open(
 }
 
 func (r *recordProtection13) sequenceNumberMask(encryptedRecord []byte) ([]byte, error) {
-	if r.local.sequenceNumberMask == nil {
+	return r.local.sequenceNumberMask13(encryptedRecord)
+}
+
+func (r *recordProtection13) maskLocalSequenceNumber13(
+	header *recordlayer.UnifiedHeader,
+	encryptedRecord []byte,
+) error {
+	mask, err := r.local.sequenceNumberMask13(encryptedRecord)
+	if err != nil {
+		return err
+	}
+
+	return applySequenceNumberMask13(header, mask)
+}
+
+func (p recordTrafficProtection13) sequenceNumberMask13(encryptedRecord []byte) ([]byte, error) {
+	if p.sequenceNumberMask == nil {
 		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
-	return r.local.sequenceNumberMask(r.local.sequenceNumberKey, encryptedRecord)
+	return p.sequenceNumberMask(p.sequenceNumberKey, encryptedRecord)
+}
+
+func applySequenceNumberMask13(header *recordlayer.UnifiedHeader, mask []byte) error {
+	if header == nil {
+		return dtlserrors.ErrInvalidCiphertextHeader
+	}
+
+	if header.SeqBit {
+		if len(mask) < 2 {
+			return dtlserrors.ErrBufferTooSmall
+		}
+
+		header.SequenceNumber ^= uint16(mask[0])<<8 | uint16(mask[1])
+
+		return nil
+	}
+
+	if len(mask) < 1 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	header.SequenceNumber = (header.SequenceNumber ^ uint16(mask[0])) & 0x00ff
+
+	return nil
 }
 
 func recordSequenceNumberMaskAES13(sequenceNumberKey, encryptedRecord []byte) ([]byte, error) {
