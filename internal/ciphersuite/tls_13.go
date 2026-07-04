@@ -15,7 +15,7 @@ import (
 // CipherSuiteTLS13 is the DTLS 1.3-specific cipher suite surface.
 type CipherSuiteTLS13 interface {
 	CipherSuite
-	InitFromTrafficSecrets13(clientSecret, serverSecret []byte, isClient bool) error
+	InitFromTrafficSecrets(clientSecret, serverSecret []byte, isClient bool) error
 }
 
 // TLS13CipherSuite provides behavior common to TLS 1.3 cipher suites. TLS 1.3

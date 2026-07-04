@@ -32,9 +32,9 @@ func (c *TLSAes128GcmSha256) HashFunc() func() hash.Hash {
 	return sha256.New
 }
 
-// InitFromTrafficSecrets13 initializes DTLS 1.3 record protection from the
+// InitFromTrafficSecrets initializes DTLS 1.3 record protection from the
 // negotiated client and server handshake/application traffic secrets.
-func (c *TLSAes128GcmSha256) InitFromTrafficSecrets13(clientSecret, serverSecret []byte, isClient bool) error {
+func (c *TLSAes128GcmSha256) InitFromTrafficSecrets(clientSecret, serverSecret []byte, isClient bool) error {
 	return c.initFromTrafficSecrets13(clientSecret, serverSecret, isClient, c.newRecordProtection)
 }
 

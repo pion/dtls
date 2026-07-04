@@ -211,7 +211,7 @@ func TestTLS13CipherSuiteNewRecordProtectionSuites(t *testing.T) {
 	}
 }
 
-func TestTLS13CipherSuiteInitFromTrafficSecrets13(t *testing.T) {
+func TestTLS13CipherSuiteInitFromTrafficSecrets(t *testing.T) {
 	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			clientSuite := testCase.suite
@@ -223,8 +223,8 @@ func TestTLS13CipherSuiteInitFromTrafficSecrets13(t *testing.T) {
 			require.False(t, clientSuite.IsInitialized())
 			require.False(t, serverSuite.IsInitialized())
 
-			require.NoError(t, clientSuite.InitFromTrafficSecrets13(clientSecret, serverSecret, true))
-			require.NoError(t, serverSuite.InitFromTrafficSecrets13(clientSecret, serverSecret, false))
+			require.NoError(t, clientSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
+			require.NoError(t, serverSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
 
 			require.True(t, clientSuite.IsInitialized())
 			require.True(t, serverSuite.IsInitialized())
