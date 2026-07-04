@@ -517,6 +517,41 @@ func TestRecordProtection13SequenceNumberMaskSyntheticTrafficSecret(t *testing.T
 	}
 }
 
+func TestRecordProtection13SequenceNumberMaskUnmaskRoundTrip(t *testing.T) {
+	for _, testCase := range recordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			localTrafficSecret := trafficSecret13(testCase.suite, 0xcb)
+			remoteTrafficSecret := trafficSecret13(testCase.suite, 0xdb)
+			protection, err := testCase.suite.newRecordProtection(localTrafficSecret, remoteTrafficSecret)
+			require.NoError(t, err)
+			peerProtection, err := testCase.suite.newRecordProtection(remoteTrafficSecret, localTrafficSecret)
+			require.NoError(t, err)
+
+			sequenceNumber := uint64(0x0102030405062468)
+			record, err := protection.seal(
+				recordlayer.UnifiedHeader{SequenceNumber: uint16(sequenceNumber), EpochLow: 2}, //nolint:gosec // G115
+				sequenceNumber,
+				protocol.ContentTypeApplicationData,
+				[]byte("mask and unmask round trip"),
+			)
+			require.NoError(t, err)
+
+			mask, err := protection.local.sequenceNumberMask(record.EncryptedRecord)
+			require.NoError(t, err)
+			expectedMaskedHeader := record.Header
+			require.NoError(t, applySequenceNumberMask13(&expectedMaskedHeader, mask))
+
+			maskedHeader := record.Header
+			require.NoError(t, protection.maskLocalSequenceNumber(&maskedHeader, record.EncryptedRecord))
+			assert.Equal(t, expectedMaskedHeader, maskedHeader)
+
+			unmaskedHeader := maskedHeader
+			require.NoError(t, peerProtection.unmaskRemoteSequenceNumber(&unmaskedHeader, record.EncryptedRecord))
+			assert.Equal(t, record.Header, unmaskedHeader)
+		})
+	}
+}
+
 func TestApplySequenceNumberMask13ShortSequenceNumber(t *testing.T) {
 	header := recordlayer.UnifiedHeader{
 		SequenceNumber: 0xabcd,
@@ -530,6 +565,19 @@ func TestApplySequenceNumberMask13ShortSequenceNumber(t *testing.T) {
 		SeqBit:         false,
 	}
 	err := applySequenceNumberMask13(&header, nil)
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+	assert.Equal(t, uint16(0xabcd), header.SequenceNumber)
+}
+
+func TestApplySequenceNumberMask13RejectsInvalidInputs(t *testing.T) {
+	err := applySequenceNumberMask13(nil, []byte{0x01, 0x02})
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
+
+	header := recordlayer.UnifiedHeader{
+		SequenceNumber: 0xabcd,
+		SeqBit:         true,
+	}
+	err = applySequenceNumberMask13(&header, []byte{0x01})
 	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
 	assert.Equal(t, uint16(0xabcd), header.SequenceNumber)
 }
