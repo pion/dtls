@@ -179,7 +179,7 @@ func (t *handshakeTranscript13) sumWithSuffix(suffix []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-func (t *handshakeTranscript13) hasInitialClientHello13() bool {
+func (t *handshakeTranscript13) hasInitialClientHello() bool {
 	return len(t.order) == 1 &&
 		t.order[0].id.sender == transcriptClient13 &&
 		t.order[0].typ == handshake.TypeClientHello
@@ -189,7 +189,7 @@ func (t *handshakeTranscript13) applyHelloRetryRequest() error {
 	if t.h == nil {
 		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
-	if t.helloRetryApplied || !t.hasInitialClientHello13() {
+	if t.helloRetryApplied || !t.hasInitialClientHello() {
 		return dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid
 	}
 

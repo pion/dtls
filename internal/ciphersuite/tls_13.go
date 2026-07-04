@@ -100,7 +100,7 @@ func (c *TLS13CipherSuite) Seal(
 		return recordlayer.CiphertextRecord13{}, err
 	}
 
-	if err = protection.maskLocalSequenceNumber13(&record.Header, record.EncryptedRecord); err != nil {
+	if err = protection.maskLocalSequenceNumber(&record.Header, record.EncryptedRecord); err != nil {
 		return recordlayer.CiphertextRecord13{}, err
 	}
 
@@ -118,7 +118,7 @@ func (c *TLS13CipherSuite) Open(
 	}
 
 	clearHeader := header
-	if err := protection.unmaskRemoteSequenceNumber13(&clearHeader, encryptedRecord); err != nil {
+	if err := protection.unmaskRemoteSequenceNumber(&clearHeader, encryptedRecord); err != nil {
 		return recordlayer.InnerPlaintext{}, err
 	}
 	if err := validateSequenceNumberLowBits13(clearHeader, sequenceNumber); err != nil {

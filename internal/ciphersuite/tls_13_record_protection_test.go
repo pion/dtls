@@ -275,7 +275,7 @@ func TestTLS13CipherSuiteSeal(t *testing.T) {
 			require.Equal(t, uint16(len(record.EncryptedRecord)), record.Header.Length) //nolint:gosec
 
 			serverProtection := requireRecordProtection13(t, serverSuite)
-			mask, err := serverProtection.remote.sequenceNumberMask13(record.EncryptedRecord)
+			mask, err := serverProtection.remote.sequenceNumberMask(record.EncryptedRecord)
 			require.NoError(t, err)
 			expectedHeaderSequenceNumber := uint16(sequenceNumber & 0xffff) //nolint:gosec // G115
 			expectedMaskedSequenceNumber := expectedHeaderSequenceNumber ^ (uint16(mask[0])<<8 | uint16(mask[1]))
@@ -364,7 +364,7 @@ func TestTLS13CipherSuiteOpenRejectsWrongSequenceNumberLowBits(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	mask, err := protection.local.sequenceNumberMask13(record.EncryptedRecord)
+	mask, err := protection.local.sequenceNumberMask(record.EncryptedRecord)
 	require.NoError(t, err)
 	maskedHeader := record.Header
 	require.NoError(t, applySequenceNumberMask13(&maskedHeader, mask))

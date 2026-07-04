@@ -454,7 +454,7 @@ func appendHandshake13(
 		seq:    seq,
 	}
 	if sh, ok := message.(*handshake.MessageServerHello); ok && dtlsflight13.IsHelloRetryRequest(sh) {
-		duplicate, err := transcript.hasCanonical13(id, canonical)
+		duplicate, err := transcript.hasCanonical(id, canonical)
 		if err != nil || duplicate {
 			return err
 		}
@@ -470,7 +470,7 @@ func appendHandshake13(
 	return transcript.appendCanonical(id, canonical)
 }
 
-func (t *handshakeTranscript13) hasCanonical13(id transcriptMessageID13, message []byte) (bool, error) {
+func (t *handshakeTranscript13) hasCanonical(id transcriptMessageID13, message []byte) (bool, error) {
 	if err := validateCanonicalHandshake13(message); err != nil {
 		return false, err
 	}
