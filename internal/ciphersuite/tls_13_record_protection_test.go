@@ -260,12 +260,12 @@ func TestTLS13CipherSuiteSeal(t *testing.T) {
 			require.NoError(t, clientSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
 			require.NoError(t, serverSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
 
+			sequenceNumber := uint64(0x0102030405061234)
 			header := recordlayer.UnifiedHeader{
-				SequenceNumber: 0xbeef,
+				SequenceNumber: uint16(sequenceNumber), //nolint:gosec // G115
 				EpochLow:       2,
 			}
-			sequenceNumber := uint64(0x0102030405061234)
-			plaintext := []byte("suite-level seal13 payload")
+			plaintext := []byte("suite-level seal payload")
 
 			record, err := clientSuite.Seal(header, sequenceNumber, protocol.ContentTypeApplicationData, plaintext)
 			require.NoError(t, err)
@@ -303,6 +303,74 @@ func TestTLS13CipherSuiteSealRejectsUninitialized(t *testing.T) {
 		[]byte("uninitialized"),
 	)
 	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+}
+
+func TestTLS13CipherSuiteOpen(t *testing.T) {
+	for _, testCase := range recordProtection13TestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			clientSuite := testCase.suite
+			serverSuite := newRecordProtection13TestSuite(t, testCase.name)
+
+			clientSecret := trafficSecret13(testCase.suite, 0xa8)
+			serverSecret := trafficSecret13(testCase.suite, 0xb8)
+			require.NoError(t, clientSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
+			require.NoError(t, serverSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
+
+			sequenceNumber := uint64(0x0102030405061234)
+			plaintext := []byte("suite-level open payload")
+
+			record, err := clientSuite.Seal(
+				recordlayer.UnifiedHeader{SequenceNumber: 0xbeef, EpochLow: 2},
+				sequenceNumber,
+				protocol.ContentTypeApplicationData,
+				plaintext,
+			)
+			require.NoError(t, err)
+
+			innerPlaintext, err := serverSuite.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, innerPlaintext.Content)
+			assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+		})
+	}
+}
+
+func TestTLS13CipherSuiteOpenRejectsUninitialized(t *testing.T) {
+	suite := NewTLSAes128GcmSha256()
+
+	_, err := suite.Open(
+		recordlayer.UnifiedHeader{SequenceNumber: 0x1234, EpochLow: 2},
+		0x0102030405061234,
+		[]byte("uninitialized"),
+	)
+	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+}
+
+func TestTLS13CipherSuiteOpenRejectsWrongSequenceNumberLowBits(t *testing.T) {
+	suite := NewTLSAes128GcmSha256()
+	clientSecret := trafficSecret13(suite, 0xc1)
+	serverSecret := trafficSecret13(suite, 0xd1)
+	require.NoError(t, suite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
+
+	protection, err := suite.newRecordProtection(clientSecret, serverSecret)
+	require.NoError(t, err)
+
+	sequenceNumber := uint64(0x0102030405061234)
+	record, err := protection.seal(
+		recordlayer.UnifiedHeader{SequenceNumber: uint16(sequenceNumber), EpochLow: 2}, //nolint:gosec // G115
+		sequenceNumber,
+		protocol.ContentTypeApplicationData,
+		[]byte("wrong sequence number"),
+	)
+	require.NoError(t, err)
+
+	mask, err := protection.local.sequenceNumberMask13(record.EncryptedRecord)
+	require.NoError(t, err)
+	maskedHeader := record.Header
+	require.NoError(t, applySequenceNumberMask13(&maskedHeader, mask))
+
+	_, err = suite.Open(maskedHeader, sequenceNumber+1, record.EncryptedRecord)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 }
 
 func TestRecordProtection13SealOpenSyntheticTrafficSecret(t *testing.T) {

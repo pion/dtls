@@ -250,6 +250,18 @@ func (r *recordProtection13) maskLocalSequenceNumber13(
 	return applySequenceNumberMask13(header, mask)
 }
 
+func (r *recordProtection13) unmaskRemoteSequenceNumber13(
+	header *recordlayer.UnifiedHeader,
+	encryptedRecord []byte,
+) error {
+	mask, err := r.remote.sequenceNumberMask13(encryptedRecord)
+	if err != nil {
+		return err
+	}
+
+	return applySequenceNumberMask13(header, mask)
+}
+
 func (p recordTrafficProtection13) sequenceNumberMask13(encryptedRecord []byte) ([]byte, error) {
 	if p.sequenceNumberMask == nil {
 		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
@@ -278,6 +290,22 @@ func applySequenceNumberMask13(header *recordlayer.UnifiedHeader, mask []byte) e
 	}
 
 	header.SequenceNumber = (header.SequenceNumber ^ uint16(mask[0])) & 0x00ff
+
+	return nil
+}
+
+func validateSequenceNumberLowBits13(header recordlayer.UnifiedHeader, sequenceNumber uint64) error {
+	if header.SeqBit {
+		if uint64(header.SequenceNumber) != sequenceNumber&0xffff {
+			return dtlserrors.ErrInvalidCiphertextHeader
+		}
+
+		return nil
+	}
+
+	if uint64(header.SequenceNumber)&0xff != sequenceNumber&0xff {
+		return dtlserrors.ErrInvalidCiphertextHeader
+	}
 
 	return nil
 }
