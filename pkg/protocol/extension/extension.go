@@ -73,53 +73,56 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 
 	for offset := 2; offset < len(buf); {
 		bufView := buf[offset:] //nolint:gosec // offset bounded by loop condition
-		if len(bufView) < 2 {
+		if len(bufView) < 4 {
 			return nil, dtlserrors.ErrBufferTooSmall
 		}
+
+		extensionLength := int(binary.BigEndian.Uint16(bufView[2:4]))
+		extensionEnd := 4 + extensionLength
+		if extensionEnd > len(bufView) {
+			return nil, dtlserrors.ErrLengthMismatch
+		}
+		extensionData := bufView[:extensionEnd]
 
 		var err error
 		switch TypeValue(binary.BigEndian.Uint16(bufView)) {
 		case ServerNameTypeValue:
-			err = unmarshalAndAppend(bufView, &ServerName{})
+			err = unmarshalAndAppend(extensionData, &ServerName{})
 		case SupportedEllipticCurvesTypeValue:
-			err = unmarshalAndAppend(bufView, &SupportedEllipticCurves{})
+			err = unmarshalAndAppend(extensionData, &SupportedEllipticCurves{})
 		case SupportedPointFormatsTypeValue:
-			err = unmarshalAndAppend(bufView, &SupportedPointFormats{})
+			err = unmarshalAndAppend(extensionData, &SupportedPointFormats{})
 		case SupportedSignatureAlgorithmsTypeValue:
-			err = unmarshalAndAppend(bufView, &SupportedSignatureAlgorithms{})
+			err = unmarshalAndAppend(extensionData, &SupportedSignatureAlgorithms{})
 		case SignatureAlgorithmsCertTypeValue:
-			err = unmarshalAndAppend(bufView, &SignatureAlgorithmsCert{})
+			err = unmarshalAndAppend(extensionData, &SignatureAlgorithmsCert{})
 		case UseSRTPTypeValue:
-			err = unmarshalAndAppend(bufView, &UseSRTP{})
+			err = unmarshalAndAppend(extensionData, &UseSRTP{})
 		case ALPNTypeValue:
-			err = unmarshalAndAppend(bufView, &ALPN{})
+			err = unmarshalAndAppend(extensionData, &ALPN{})
 		case UseExtendedMasterSecretTypeValue:
-			err = unmarshalAndAppend(bufView, &UseExtendedMasterSecret{})
+			err = unmarshalAndAppend(extensionData, &UseExtendedMasterSecret{})
 		case RenegotiationInfoTypeValue:
-			err = unmarshalAndAppend(bufView, &RenegotiationInfo{})
+			err = unmarshalAndAppend(extensionData, &RenegotiationInfo{})
 		case ConnectionIDTypeValue:
-			err = unmarshalAndAppend(bufView, &ConnectionID{})
+			err = unmarshalAndAppend(extensionData, &ConnectionID{})
 		case SupportedVersionsTypeValue:
-			err = unmarshalAndAppend(bufView, &SupportedVersions{})
+			err = unmarshalAndAppend(extensionData, &SupportedVersions{})
 		case KeyShareTypeValue:
-			err = unmarshalAndAppend(bufView, &KeyShare{})
+			err = unmarshalAndAppend(extensionData, &KeyShare{})
 		case CookieTypeValue:
-			err = unmarshalAndAppend(bufView, &CookieExt{})
+			err = unmarshalAndAppend(extensionData, &CookieExt{})
 		case PskKeyExchangeModesTypeValue:
-			err = unmarshalAndAppend(bufView, &PskKeyExchangeModes{})
+			err = unmarshalAndAppend(extensionData, &PskKeyExchangeModes{})
 		case PreSharedKeyValue:
-			err = unmarshalAndAppend(bufView, &PreSharedKey{})
+			err = unmarshalAndAppend(extensionData, &PreSharedKey{})
 		default:
 		}
 
 		if err != nil {
 			return nil, err
 		}
-		if len(bufView) < 4 {
-			return nil, dtlserrors.ErrBufferTooSmall
-		}
-		extensionLength := binary.BigEndian.Uint16(bufView[2:])
-		offset += (4 + int(extensionLength))
+		offset += extensionEnd
 	}
 
 	return extensions, nil
