@@ -1,0 +1,226 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package dtlshandshake
+
+import (
+	"crypto/hmac"
+	"hash"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/pkg/crypto/keyschedule"
+)
+
+const (
+	clientHandshakeTrafficLabel13 = "c hs traffic"
+	serverHandshakeTrafficLabel13 = "s hs traffic"
+	derivedSecretLabel13          = "derived"
+	finishedLabel13               = "finished"
+
+	serverCertificateVerifyContext13 = "TLS 1.3, server CertificateVerify\x00"
+	clientCertificateVerifyContext13 = "TLS 1.3, client CertificateVerify\x00"
+	certificateVerifyPaddingLen13    = 64
+)
+
+// deriveHandshakeTrafficSecrets derives the DTLS 1.3 client and server
+// handshake traffic secrets from the ECDHE secret and transcript hash.
+func deriveHandshakeTrafficSecrets(
+	hashFunc func() hash.Hash,
+	preMasterSecret, transcriptHash []byte,
+) (dtlsstate.HandshakeTrafficSecrets13, error) {
+	hashSize, err := hashSize13(hashFunc)
+	if err != nil {
+		return dtlsstate.HandshakeTrafficSecrets13{}, err
+	}
+	if len(preMasterSecret) == 0 || len(transcriptHash) != hashSize {
+		return dtlsstate.HandshakeTrafficSecrets13{}, dtlserrors.ErrLengthMismatch
+	}
+
+	zeroSecret := make([]byte, hashSize)
+	earlySecret, err := keyschedule.HkdfExtract(hashFunc, nil, zeroSecret)
+	if err != nil {
+		return dtlsstate.HandshakeTrafficSecrets13{}, err
+	}
+
+	derivedSecret, err := keyschedule.DeriveSecret(hashFunc, earlySecret, derivedSecretLabel13, nil)
+	if err != nil {
+		return dtlsstate.HandshakeTrafficSecrets13{}, err
+	}
+
+	handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedSecret, preMasterSecret)
+	if err != nil {
+		return dtlsstate.HandshakeTrafficSecrets13{}, err
+	}
+
+	clientSecret, err := keyschedule.HkdfExpandLabel(
+		hashFunc,
+		handshakeSecret,
+		clientHandshakeTrafficLabel13,
+		transcriptHash,
+		hashSize,
+	)
+	if err != nil {
+		return dtlsstate.HandshakeTrafficSecrets13{}, err
+	}
+
+	serverSecret, err := keyschedule.HkdfExpandLabel(
+		hashFunc,
+		handshakeSecret,
+		serverHandshakeTrafficLabel13,
+		transcriptHash,
+		hashSize,
+	)
+	if err != nil {
+		return dtlsstate.HandshakeTrafficSecrets13{}, err
+	}
+
+	return dtlsstate.HandshakeTrafficSecrets13{
+		Client: clientSecret,
+		Server: serverSecret,
+	}, nil
+}
+
+// DeriveAndStoreHandshakeTrafficSecrets derives DTLS 1.3 handshake traffic
+// secrets and stores them in state.
+func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State, transcript *Transcript) error {
+	if state == nil || state.CipherSuite == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+	if transcript == nil {
+		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+	if err := selectHashIfReady(transcript, state.CipherSuite); err != nil {
+		return err
+	}
+
+	transcriptHash, err := transcript.sum()
+	if err != nil {
+		return err
+	}
+
+	secrets, err := deriveHandshakeTrafficSecrets(
+		state.CipherSuite.HashFunc(),
+		state.PreMasterSecret,
+		transcriptHash,
+	)
+	if err != nil {
+		return err
+	}
+	state.HandshakeTrafficSecrets13 = secrets
+
+	return nil
+}
+
+// certificateVerifyInputFromTranscript returns the TLS 1.3 CertificateVerify
+// input for the current transcript hash.
+func certificateVerifyInputFromTranscript(
+	isClient bool,
+	transcript *Transcript,
+) ([]byte, error) {
+	if transcript == nil {
+		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+
+	transcriptHash, err := transcript.sum()
+	if err != nil {
+		return nil, err
+	}
+
+	return certificateVerifyInput(isClient, transcriptHash), nil
+}
+
+// certificateVerifyInput returns the TLS 1.3 CertificateVerify input for a
+// transcript hash.
+func certificateVerifyInput(isClient bool, transcriptHash []byte) []byte {
+	context := serverCertificateVerifyContext13
+	if isClient {
+		context = clientCertificateVerifyContext13
+	}
+
+	out := make([]byte, certificateVerifyPaddingLen13, certificateVerifyPaddingLen13+len(context)+len(transcriptHash))
+	for i := range out {
+		out[i] = 0x20
+	}
+	out = append(out, context...)
+	out = append(out, transcriptHash...)
+
+	return out
+}
+
+// finishedKey returns the TLS 1.3 finished key derived from baseKey.
+func finishedKey(hashFunc func() hash.Hash, baseKey []byte) ([]byte, error) {
+	hashSize, err := hashSize13(hashFunc)
+	if err != nil {
+		return nil, err
+	}
+
+	return keyschedule.HkdfExpandLabel(hashFunc, baseKey, finishedLabel13, nil, hashSize)
+}
+
+// finishedVerifyDataFromTranscript returns verify_data for the current
+// transcript hash.
+func finishedVerifyDataFromTranscript(
+	hashFunc func() hash.Hash,
+	baseKey []byte,
+	transcript *Transcript,
+) ([]byte, error) {
+	if transcript == nil {
+		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+
+	transcriptHash, err := transcript.sum()
+	if err != nil {
+		return nil, err
+	}
+
+	return finishedVerifyData(hashFunc, baseKey, transcriptHash)
+}
+
+// finishedVerifyData returns TLS 1.3 Finished verify_data.
+func finishedVerifyData(hashFunc func() hash.Hash, baseKey, transcriptHash []byte) ([]byte, error) {
+	hashSize, err := hashSize13(hashFunc)
+	if err != nil {
+		return nil, err
+	}
+	if len(transcriptHash) != hashSize {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+
+	finishedKey, err := finishedKey(hashFunc, baseKey)
+	if err != nil {
+		return nil, err
+	}
+
+	mac := hmac.New(hashFunc, finishedKey)
+	if _, err := mac.Write(transcriptHash); err != nil {
+		return nil, err
+	}
+
+	return mac.Sum(nil), nil
+}
+
+// verifyFinishedData verifies TLS 1.3 Finished verify_data.
+func verifyFinishedData(hashFunc func() hash.Hash, baseKey, transcriptHash, verifyData []byte) error {
+	expected, err := finishedVerifyData(hashFunc, baseKey, transcriptHash)
+	if err != nil {
+		return err
+	}
+	if !hmac.Equal(expected, verifyData) {
+		return dtlserrors.ErrVerifyDataMismatch
+	}
+
+	return nil
+}
+
+func hashSize13(hashFunc func() hash.Hash) (int, error) {
+	if hashFunc == nil {
+		return 0, dtlserrors.ErrKeyScheduleMissingHashFunction
+	}
+	h := hashFunc()
+	if h == nil {
+		return 0, dtlserrors.ErrKeyScheduleMissingHashFunction
+	}
+
+	return h.Size(), nil
+}

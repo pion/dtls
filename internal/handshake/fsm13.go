@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package dtlshandshake
 
 import (
 	"context"
-	"crypto/sha256"
-	"errors"
 	"time"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
@@ -66,31 +66,42 @@ import (
 //         Server read retransmit
 //             Retransmit ACK
 
-type handshakeFSM13 struct {
+type fsm13 struct {
 	currentFlight      dtlsflight13.Flight
 	flights            []*dtlsflight.Packet //nolint:unused
 	retransmit         bool                 //nolint:unused
 	retransmitInterval time.Duration
 	state              *dtlsstate.State
 	cache              *dtlsflight.Cache
-	cfg                *handshakeConfig
-	transcript         *handshakeTranscript13
+	cfg                *dtlsconfig.HandshakeConfig
+	transcript         *Transcript
 	closed             chan struct{}
 }
 
-func newHandshakeFSM13(
+func NewFSM13(
 	state *dtlsstate.State,
 	cache *dtlsflight.Cache,
-	cfg *handshakeConfig,
+	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight13.Flight,
 	initialFlights []*dtlsflight.Packet,
-	initialTranscript *handshakeTranscript13,
-) (*handshakeFSM13, error) {
+	initialTranscript *Transcript,
+) (FSM, error) {
+	return newFSM13(state, cache, cfg, initialFlight, initialFlights, initialTranscript)
+}
+
+func newFSM13(
+	state *dtlsstate.State,
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+	initialFlight dtlsflight13.Flight,
+	initialFlights []*dtlsflight.Packet,
+	initialTranscript *Transcript,
+) (*fsm13, error) {
 	if initialTranscript == nil {
-		initialTranscript = newHandshakeTranscript13()
+		initialTranscript = NewTranscript()
 	}
 
-	fsm := &handshakeFSM13{
+	fsm := &fsm13{
 		currentFlight:      initialFlight,
 		flights:            initialFlights,
 		retransmit:         initialFlights != nil,
@@ -110,12 +121,12 @@ func newHandshakeFSM13(
 
 // seedTranscriptFromInitialFlights handles the dual-stack ClientHello generated
 // before the DTLS 1.3 FSM exists.
-func (s *handshakeFSM13) seedTranscriptFromInitialFlights() error {
+func (s *fsm13) seedTranscriptFromInitialFlights() error {
 	if !s.state.IsClient {
 		return nil
 	}
 
-	appended, err := appendClientHelloInitialFlights13(s.transcript, s.flights)
+	appended, err := AppendClientHelloInitialFlights(s.transcript, s.flights)
 	if err != nil {
 		return err
 	}
@@ -126,7 +137,7 @@ func (s *handshakeFSM13) seedTranscriptFromInitialFlights() error {
 	return nil
 }
 
-func appendClientHelloInitialFlights13(transcript *handshakeTranscript13, flights []*dtlsflight.Packet) (bool, error) {
+func AppendClientHelloInitialFlights(transcript *Transcript, flights []*dtlsflight.Packet) (bool, error) {
 	if transcript == nil {
 		return false, dtlserrors.ErrHandshakeTranscriptMissingClientHello
 	}
@@ -140,9 +151,9 @@ func appendClientHelloInitialFlights13(transcript *handshakeTranscript13, flight
 		if !ok {
 			continue
 		}
-		if err := transcript.appendCanonical(transcriptMessageID13{
-			sender: transcriptClient13,
-			seq:    seq,
+		if err := transcript.appendCanonical(transcriptMessageID{
+			sender: transcriptSenderClient,
+			Seq:    seq,
 		}, canonical); err != nil {
 			return false, err
 		}
@@ -168,7 +179,7 @@ func canonicalClientHelloInitialFlight13(p *dtlsflight.Packet) (uint16, []byte, 
 	if err != nil {
 		return 0, nil, false, err
 	}
-	canonical, err := canonicalHandshake13(raw)
+	canonical, err := canonicalHandshake(raw)
 	if err != nil {
 		return 0, nil, false, err
 	}
@@ -177,13 +188,13 @@ func canonicalClientHelloInitialFlight13(p *dtlsflight.Packet) (uint16, []byte, 
 }
 
 //nolint:dupl
-func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState handshakeState) error {
+func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) error {
 	state := initialState
 	defer func() {
 		close(s.closed)
 	}()
 	for {
-		s.cfg.Log.Tracef("[handshake13:%s] %s: %s", srvCliStr(s.state.IsClient), s.currentFlight.String(), state.String())
+		s.cfg.Log.Tracef("[handshake13:%s] %s: %s", sideString(s.state.IsClient), s.currentFlight.String(), state.String())
 		// nolint:godox
 		// TODO:: refactor callback, see discussion in https://github.com/pion/dtls/pull/738#discussion_r3131501159
 		if s.cfg.OnFlightState13 != nil {
@@ -191,13 +202,13 @@ func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState 
 		}
 		var err error
 		switch state {
-		case handshakePreparing:
+		case StatePreparing:
 			state, err = s.prepare(ctx, conn)
-		case handshakeSending:
+		case StateSending:
 			state, err = s.send(ctx, conn)
-		case handshakeWaiting:
+		case StateWaiting:
 			state, err = s.wait(ctx, conn)
-		case handshakeFinished:
+		case StateFinished:
 			state, err = s.finish(ctx, conn)
 		default:
 			return dtlserrors.ErrInvalidFSMTransition
@@ -208,12 +219,12 @@ func (s *handshakeFSM13) Run(ctx context.Context, conn flightConn, initialState 
 	}
 }
 
-func (s *handshakeFSM13) Done() <-chan struct{} {
+func (s *fsm13) Done() <-chan struct{} {
 	return s.closed
 }
 
 //nolint:dupl
-func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshakeState, error) {
+func (s *fsm13) prepare(ctx context.Context, conn Conn) (State, error) {
 	s.flights = nil
 	// Prepare flights
 	var (
@@ -226,29 +237,29 @@ func (s *handshakeFSM13) prepare(ctx context.Context, conn flightConn) (handshak
 		err = dtlserrors.ErrFlightUnimplemented13
 		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
 	} else {
-		pkts, dtlsAlert, err = gen(adaptFlightConn(conn), s.state, s.cache, s.cfg)
+		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
 		s.retransmit = retransmit
 	}
 	if dtlsAlert != nil {
-		if alertErr := conn.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
+		if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
 			if err != nil {
 				err = alertErr
 			}
 		}
 	}
 	if err != nil {
-		return handshakeErrored, err
+		return StateErrored, err
 	}
 
 	s.flights = pkts
 	if err := s.commitPreparedFlights(conn); err != nil {
-		return handshakeErrored, err
+		return StateErrored, err
 	}
 
-	return handshakeSending, nil
+	return StateSending, nil
 }
 
-func (s *handshakeFSM13) commitPreparedFlights(conn flightConn) error { //nolint:cyclop,nestif
+func (s *fsm13) commitPreparedFlights(conn Conn) error { //nolint:cyclop,nestif
 	epoch := s.cfg.InitialEpoch
 	nextEpoch := epoch
 	protectedFlightStart := len(s.flights)
@@ -267,7 +278,7 @@ func (s *handshakeFSM13) commitPreparedFlights(conn flightConn) error { //nolint
 	}
 
 	if protectedFlightStart == len(s.flights) { //nolint:nestif
-		if err := appendOutboundHandshakeFlight13(
+		if err := AppendOutboundHandshakeFlight(
 			s.transcript,
 			s.state.IsClient,
 			s.state.CipherSuite,
@@ -276,7 +287,7 @@ func (s *handshakeFSM13) commitPreparedFlights(conn flightConn) error { //nolint
 			return err
 		}
 	} else {
-		if err := appendOutboundHandshakeFlight13(
+		if err := AppendOutboundHandshakeFlight(
 			s.transcript,
 			s.state.IsClient,
 			s.state.CipherSuite,
@@ -285,11 +296,11 @@ func (s *handshakeFSM13) commitPreparedFlights(conn flightConn) error { //nolint
 			return err
 		}
 		if len(s.state.HandshakeTrafficSecrets13.Client) == 0 && len(s.state.HandshakeTrafficSecrets13.Server) == 0 {
-			if err := deriveAndStoreHandshakeTrafficSecrets13(s.state, s.transcript); err != nil {
+			if err := DeriveAndStoreHandshakeTrafficSecrets(s.state, s.transcript); err != nil {
 				return err
 			}
 		}
-		if err := appendOutboundHandshakeFlight13(
+		if err := AppendOutboundHandshakeFlight(
 			s.transcript,
 			s.state.IsClient,
 			s.state.CipherSuite,
@@ -300,50 +311,37 @@ func (s *handshakeFSM13) commitPreparedFlights(conn flightConn) error { //nolint
 	}
 
 	if epoch != nextEpoch {
-		s.cfg.Log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.IsClient), nextEpoch)
-		conn.setLocalEpoch(nextEpoch)
+		s.cfg.Log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", sideString(s.state.IsClient), nextEpoch)
+		conn.SetLocalEpoch(nextEpoch)
 	}
 
 	return nil
 }
 
-func (s *handshakeFSM13) send(ctx context.Context, c flightConn) (handshakeState, error) {
-	return handshakeErrored, dtlserrors.ErrStateUnimplemented13
+func (s *fsm13) send(ctx context.Context, c Conn) (State, error) {
+	return StateErrored, dtlserrors.ErrStateUnimplemented13
 }
 
-func (s *handshakeFSM13) wait(ctx context.Context, conn flightConn) (handshakeState, error) {
-	return handshakeErrored, dtlserrors.ErrStateUnimplemented13
+func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
+	return StateErrored, dtlserrors.ErrStateUnimplemented13
 }
 
-func (s *handshakeFSM13) finish(ctx context.Context, c flightConn) (handshakeState, error) {
-	return handshakeErrored, dtlserrors.ErrStateUnimplemented13
+func (s *fsm13) finish(ctx context.Context, c Conn) (State, error) {
+	return StateErrored, dtlserrors.ErrStateUnimplemented13
 }
 
-func transcriptSenderForSide13(isClient bool) transcriptSender13 {
+func transcriptSenderForSide13(isClient bool) transcriptSender {
 	if isClient {
-		return transcriptClient13
+		return transcriptSenderClient
 	}
 
-	return transcriptServer13
+	return transcriptSenderServer
 }
 
-func selectTranscriptHashIfReady13(t *handshakeTranscript13, cipherSuite CipherSuite) error {
-	if t == nil || cipherSuite == nil {
-		return nil
-	}
-
-	err := t.selectHash(cipherSuite.HashFunc())
-	if errors.Is(err, dtlserrors.ErrHandshakeTranscriptHashAlreadySelected) {
-		return nil
-	}
-
-	return err
-}
-
-func appendOutboundHandshakeFlight13(
-	transcript *handshakeTranscript13,
+func AppendOutboundHandshakeFlight(
+	transcript *Transcript,
 	isClient bool,
-	cipherSuite CipherSuite,
+	cipherSuite dtlsconfig.CipherSuite,
 	pkts []*dtlsflight.Packet,
 ) error {
 	if transcript == nil {
@@ -382,7 +380,7 @@ func canonicalOutboundHandshake13(p *dtlsflight.Packet) (*handshake.Handshake, [
 	if err != nil {
 		return nil, nil, false, err
 	}
-	canonical, err := canonicalHandshake13(raw)
+	canonical, err := canonicalHandshake(raw)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -391,30 +389,30 @@ func canonicalOutboundHandshake13(p *dtlsflight.Packet) (*handshake.Handshake, [
 }
 
 func appendOutboundHandshake13(
-	transcript *handshakeTranscript13,
-	sender transcriptSender13,
-	cipherSuite CipherSuite,
+	transcript *Transcript,
+	sender transcriptSender,
+	cipherSuite dtlsconfig.CipherSuite,
 	h *handshake.Handshake,
 	canonical []byte,
 ) error {
 	return appendHandshake13(transcript, sender, cipherSuite, h.Header.MessageSequence, h.Message, canonical)
 }
 
-func appendInboundHandshakeCacheItems13(
-	transcript *handshakeTranscript13,
-	cipherSuite CipherSuite,
+func AppendInboundHandshakeCacheItems(
+	transcript *Transcript,
+	cipherSuite dtlsconfig.CipherSuite,
 	items []*dtlsflight.HandshakeCacheItem,
 ) error {
 	if transcript == nil {
 		return nil
 	}
 
-	var keyExchangeAlgorithm CipherSuiteKeyExchangeAlgorithm
+	var keyExchangeAlgorithm types.KeyExchangeAlgorithm
 	if cipherSuite != nil {
 		keyExchangeAlgorithm = cipherSuite.KeyExchangeAlgorithm()
 	}
 	for _, item := range items {
-		canonical, err := canonicalHandshake13(item.Data)
+		canonical, err := canonicalHandshake(item.Data)
 		if err != nil {
 			return err
 		}
@@ -442,16 +440,16 @@ func appendInboundHandshakeCacheItems13(
 }
 
 func appendHandshake13(
-	transcript *handshakeTranscript13,
-	sender transcriptSender13,
-	cipherSuite CipherSuite,
+	transcript *Transcript,
+	sender transcriptSender,
+	cipherSuite dtlsconfig.CipherSuite,
 	seq uint16,
 	message handshake.Message,
 	canonical []byte,
 ) error {
-	id := transcriptMessageID13{
+	id := transcriptMessageID{
 		sender: sender,
-		seq:    seq,
+		Seq:    seq,
 	}
 	if sh, ok := message.(*handshake.MessageServerHello); ok && dtlsflight13.IsHelloRetryRequest(sh) {
 		duplicate, err := transcript.hasCanonical(id, canonical)
@@ -459,7 +457,7 @@ func appendHandshake13(
 			return err
 		}
 
-		if err := selectTranscriptHashIfReady13(transcript, cipherSuite); err != nil {
+		if err := selectHashIfReady(transcript, cipherSuite); err != nil {
 			return err
 		}
 		if err := transcript.applyHelloRetryRequest(); err != nil {
@@ -468,22 +466,4 @@ func appendHandshake13(
 	}
 
 	return transcript.appendCanonical(id, canonical)
-}
-
-func (t *handshakeTranscript13) hasCanonical(id transcriptMessageID13, message []byte) (bool, error) {
-	if err := validateCanonicalHandshake13(message); err != nil {
-		return false, err
-	}
-
-	seen, ok := t.seen[id]
-	if !ok {
-		return false, nil
-	}
-
-	fingerprint := sha256.Sum256(message)
-	if seen.length == len(message) && seen.fingerprint == fingerprint {
-		return true, nil
-	}
-
-	return false, dtlserrors.ErrHandshakeTranscriptMessageChanged
 }

@@ -1,7 +1,7 @@
-// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package dtlshandshake
 
 import (
 	"context"
@@ -51,90 +51,39 @@ import (
 //              Read retransmit
 //           Retransmit last flight
 
-type handshakeState uint8
-
-const (
-	handshakeErrored handshakeState = iota
-	handshakePreparing
-	handshakeSending
-	handshakeWaiting
-	handshakeFinished
-)
-
-func (s handshakeState) String() string {
-	switch s {
-	case handshakeErrored:
-		return "Errored"
-	case handshakePreparing:
-		return "Preparing"
-	case handshakeSending:
-		return "Sending"
-	case handshakeWaiting:
-		return "Waiting"
-	case handshakeFinished:
-		return "Finished"
-	default:
-		return "Unknown"
-	}
-}
-
-type handshakeFSM12 struct {
+type fsm12 struct {
 	currentFlight      dtlsflight12.Flight
 	flights            []*dtlsflight.Packet
 	retransmit         bool
 	retransmitInterval time.Duration
 	state              *dtlsstate.State
 	cache              *dtlsflight.Cache
-	cfg                *handshakeConfig
+	cfg                *dtlsconfig.HandshakeConfig
 	closed             chan struct{}
 }
 
-type handshakeConfig = dtlsconfig.HandshakeConfig
-
-type flightConn interface {
-	notify(ctx context.Context, level alert.Level, desc alert.Description) error
-	writePackets(context.Context, []*dtlsflight.Packet) error
-	recvHandshake() <-chan recvHandshakeState
-	setLocalEpoch(epoch uint16)
-	handleQueuedPackets(context.Context) error
-	sessionKey() []byte
-}
-
-type flightConnAdapter struct {
-	flightConn
-}
-
-func (c flightConnAdapter) HandleQueuedPackets(ctx context.Context) error {
-	return c.handleQueuedPackets(ctx)
-}
-
-func (c flightConnAdapter) SessionKey() []byte {
-	return c.sessionKey()
-}
-
-func adaptFlightConn(conn flightConn) dtlsflight.Conn {
-	if conn == nil {
-		return nil
-	}
-
-	return flightConnAdapter{conn}
-}
-
-func srvCliStr(isClient bool) string {
-	if isClient {
-		return "client"
-	}
-
-	return "server"
-}
-
-func newHandshakeFSM12(
-	s *dtlsstate.State, cache *dtlsflight.Cache, cfg *handshakeConfig,
+func NewFSM12(
+	state *dtlsstate.State,
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight12.Flight,
-) *handshakeFSM12 {
-	return &handshakeFSM12{
+	initialFlights []*dtlsflight.Packet,
+) FSM {
+	return newFSM12(state, cache, cfg, initialFlight, initialFlights)
+}
+
+func newFSM12(
+	state *dtlsstate.State,
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+	initialFlight dtlsflight12.Flight,
+	initialFlights []*dtlsflight.Packet,
+) *fsm12 {
+	return &fsm12{
 		currentFlight:      initialFlight,
-		state:              s,
+		flights:            initialFlights,
+		retransmit:         initialFlights != nil,
+		state:              state,
 		cache:              cache,
 		cfg:                cfg,
 		retransmitInterval: cfg.InitialRetransmitInterval,
@@ -142,35 +91,26 @@ func newHandshakeFSM12(
 	}
 }
 
-type handshakeFSM interface {
-	Done() <-chan struct{}
-	Run(ctx context.Context, conn flightConn, initialState handshakeState) error
-	finish(ctx context.Context, c flightConn) (handshakeState, error)
-	prepare(ctx context.Context, conn flightConn) (handshakeState, error)
-	send(ctx context.Context, c flightConn) (handshakeState, error)
-	wait(ctx context.Context, conn flightConn) (handshakeState, error)
-}
-
 //nolint:dupl
-func (s *handshakeFSM12) Run(ctx context.Context, conn flightConn, initialState handshakeState) error {
+func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
 	state := initialState
 	defer func() {
 		close(s.closed)
 	}()
 	for {
-		s.cfg.Log.Tracef("[handshake:%s] %s: %s", srvCliStr(s.state.IsClient), s.currentFlight.String(), state.String())
+		s.cfg.Log.Tracef("[handshake:%s] %s: %s", sideString(s.state.IsClient), s.currentFlight.String(), state.String())
 		if s.cfg.OnFlightState != nil {
 			s.cfg.OnFlightState(uint8(s.currentFlight), uint8(state))
 		}
 		var err error
 		switch state {
-		case handshakePreparing:
+		case StatePreparing:
 			state, err = s.prepare(ctx, conn)
-		case handshakeSending:
+		case StateSending:
 			state, err = s.send(ctx, conn)
-		case handshakeWaiting:
+		case StateWaiting:
 			state, err = s.wait(ctx, conn)
-		case handshakeFinished:
+		case StateFinished:
 			state, err = s.finish(ctx, conn)
 		default:
 			return dtlserrors.ErrInvalidFSMTransition
@@ -181,12 +121,12 @@ func (s *handshakeFSM12) Run(ctx context.Context, conn flightConn, initialState 
 	}
 }
 
-func (s *handshakeFSM12) Done() <-chan struct{} {
+func (s *fsm12) Done() <-chan struct{} {
 	return s.closed
 }
 
 //nolint:dupl
-func (s *handshakeFSM12) prepare(ctx context.Context, conn flightConn) (handshakeState, error) {
+func (s *fsm12) prepare(ctx context.Context, conn Conn) (State, error) {
 	s.flights = nil
 	// Prepare flights
 	var (
@@ -199,18 +139,18 @@ func (s *handshakeFSM12) prepare(ctx context.Context, conn flightConn) (handshak
 		err = dtlserrors.ErrInvalidFlight
 		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
 	} else {
-		pkts, dtlsAlert, err = gen(adaptFlightConn(conn), s.state, s.cache, s.cfg)
+		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
 		s.retransmit = retransmit
 	}
 	if dtlsAlert != nil {
-		if alertErr := conn.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
+		if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
 			if err != nil {
 				err = alertErr
 			}
 		}
 	}
 	if err != nil {
-		return handshakeErrored, err
+		return StateErrored, err
 	}
 
 	s.flights = pkts
@@ -227,32 +167,32 @@ func (s *handshakeFSM12) prepare(ctx context.Context, conn flightConn) (handshak
 		}
 	}
 	if epoch != nextEpoch {
-		s.cfg.Log.Tracef("[handshake:%s] -> changeCipherSpec (epoch: %d)", srvCliStr(s.state.IsClient), nextEpoch)
-		conn.setLocalEpoch(nextEpoch)
+		s.cfg.Log.Tracef("[handshake:%s] -> changeCipherSpec (epoch: %d)", sideString(s.state.IsClient), nextEpoch)
+		conn.SetLocalEpoch(nextEpoch)
 	}
 
-	return handshakeSending, nil
+	return StateSending, nil
 }
 
-func (s *handshakeFSM12) send(ctx context.Context, c flightConn) (handshakeState, error) {
+func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
 	// Send flights
-	if err := c.writePackets(ctx, s.flights); err != nil {
-		return handshakeErrored, err
+	if err := c.WritePackets(ctx, s.flights); err != nil {
+		return StateErrored, err
 	}
 
 	if s.currentFlight.IsLastSendFlight() {
-		return handshakeFinished, nil
+		return StateFinished, nil
 	}
 
-	return handshakeWaiting, nil
+	return StateWaiting, nil
 }
 
-func (s *handshakeFSM12) wait(ctx context.Context, conn flightConn) (handshakeState, error) { //nolint:gocognit,cyclop
+func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:gocognit,cyclop
 	retransmitTimer := time.NewTimer(s.retransmitInterval)
 	for {
 		select {
-		case state := <-conn.recvHandshake():
-			if !state.isRetransmit {
+		case state := <-conn.RecvHandshake():
+			if !state.IsRetransmit {
 				// only reset retransmit interval on non-retransmit state
 				// https://github.com/pion/dtls/issues/758
 				s.retransmitInterval = s.cfg.InitialRetransmitInterval
@@ -261,48 +201,48 @@ func (s *handshakeFSM12) wait(ctx context.Context, conn flightConn) (handshakeSt
 			nextFlight, dtlsAlert, err, ok := dtlsflight12.Parse(
 				ctx,
 				s.currentFlight,
-				adaptFlightConn(conn),
+				conn,
 				s.state,
 				s.cache,
 				s.cfg,
 			)
 			if !ok {
-				if alertErr := conn.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
-					return handshakeErrored, alertErr
+				if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
+					return StateErrored, alertErr
 				}
 
-				return handshakeErrored, dtlserrors.ErrInvalidFlight
+				return StateErrored, dtlserrors.ErrInvalidFlight
 			}
-			close(state.done)
+			close(state.Done)
 			if dtlsAlert != nil {
-				if alertErr := conn.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
+				if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
 					if err != nil {
 						err = alertErr
 					}
 				}
 			}
 			if err != nil {
-				return handshakeErrored, err
+				return StateErrored, err
 			}
 			if nextFlight == 0 {
 				break
 			}
 			s.cfg.Log.Tracef(
 				"[handshake:%s] %s -> %s",
-				srvCliStr(s.state.IsClient),
+				sideString(s.state.IsClient),
 				s.currentFlight.String(),
 				nextFlight.String(),
 			)
 			if nextFlight.IsLastRecvFlight() && s.currentFlight == nextFlight {
-				return handshakeFinished, nil
+				return StateFinished, nil
 			}
 			s.currentFlight = nextFlight
 
-			return handshakePreparing, nil
+			return StatePreparing, nil
 
 		case <-retransmitTimer.C:
 			if !s.retransmit {
-				return handshakeWaiting, nil
+				return StateWaiting, nil
 			}
 
 			// RFC 4347 4.2.4.1:
@@ -315,25 +255,25 @@ func (s *handshakeFSM12) wait(ctx context.Context, conn flightConn) (handshakeSt
 				s.retransmitInterval = time.Second * 60
 			}
 
-			return handshakeSending, nil
+			return StateSending, nil
 		case <-ctx.Done():
 			s.retransmitInterval = s.cfg.InitialRetransmitInterval
 
-			return handshakeErrored, ctx.Err()
+			return StateErrored, ctx.Err()
 		}
 	}
 }
 
-func (s *handshakeFSM12) finish(ctx context.Context, c flightConn) (handshakeState, error) {
+func (s *fsm12) finish(ctx context.Context, c Conn) (State, error) {
 	select {
-	case state := <-c.recvHandshake():
-		close(state.done)
+	case state := <-c.RecvHandshake():
+		close(state.Done)
 		if s.state.IsClient {
-			return handshakeFinished, nil
-		} else {
-			return handshakeSending, nil
+			return StateFinished, nil
 		}
+
+		return StateSending, nil
 	case <-ctx.Done():
-		return handshakeErrored, ctx.Err()
+		return StateErrored, ctx.Err()
 	}
 }

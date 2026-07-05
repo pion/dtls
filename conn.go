@@ -22,6 +22,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight12 "github.com/pion/dtls/v3/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
+	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -70,19 +71,84 @@ type addrPkt struct {
 	rAddr net.Addr
 	data  []byte
 }
-
-type recvHandshakeState struct {
-	done         chan struct{}
-	isRetransmit bool
-}
-
 type handshakeStart struct {
 	flight12     dtlsflight12.Flight
 	flight13     dtlsflight13.Flight
 	fsmState     handshakeState
 	flights      []*dtlsflight.Packet
-	transcript13 *handshakeTranscript13
+	transcript13 *dtlshandshake.Transcript
 	postSetup    func(context.Context)
+}
+
+type (
+	handshakeConfig = dtlsconfig.HandshakeConfig
+	handshakeState  = dtlshandshake.State
+)
+
+const (
+	handshakeErrored   = dtlshandshake.StateErrored
+	handshakePreparing = dtlshandshake.StatePreparing
+	handshakeSending   = dtlshandshake.StateSending
+	handshakeWaiting   = dtlshandshake.StateWaiting
+	handshakeFinished  = dtlshandshake.StateFinished
+)
+
+type (
+	recvHandshakeState = dtlshandshake.RecvHandshakeState
+	handshakeFSM       = dtlshandshake.FSM
+)
+
+type handshakeConn interface {
+	notify(ctx context.Context, level alert.Level, desc alert.Description) error
+	writePackets(context.Context, []*dtlsflight.Packet) error
+	recvHandshake() <-chan recvHandshakeState
+	setLocalEpoch(epoch uint16)
+	handleQueuedPackets(context.Context) error
+	sessionKey() []byte
+}
+
+type handshakeConnAdapter struct {
+	handshakeConn
+}
+
+func (c handshakeConnAdapter) Notify(ctx context.Context, level alert.Level, desc alert.Description) error {
+	return c.notify(ctx, level, desc)
+}
+
+func (c handshakeConnAdapter) WritePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
+	return c.writePackets(ctx, pkts)
+}
+
+func (c handshakeConnAdapter) RecvHandshake() <-chan recvHandshakeState {
+	return c.recvHandshake()
+}
+
+func (c handshakeConnAdapter) SetLocalEpoch(epoch uint16) {
+	c.setLocalEpoch(epoch)
+}
+
+func (c handshakeConnAdapter) HandleQueuedPackets(ctx context.Context) error {
+	return c.handleQueuedPackets(ctx)
+}
+
+func (c handshakeConnAdapter) SessionKey() []byte {
+	return c.sessionKey()
+}
+
+func adaptFlightConn(conn handshakeConn) dtlsflight.Conn {
+	if conn == nil {
+		return nil
+	}
+
+	return handshakeConnAdapter{conn}
+}
+
+func srvCliStr(isClient bool) string {
+	if isClient {
+		return "client"
+	}
+
+	return "server"
 }
 
 type connConfigValues struct {
@@ -142,7 +208,7 @@ type Conn struct {
 	log logging.LeveledLogger
 
 	reading               chan struct{}
-	handshakeRecv         chan recvHandshakeState
+	handshakeRecv         chan dtlshandshake.RecvHandshakeState
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
@@ -504,7 +570,7 @@ func newConn(
 		writeDeadline: deadline.New(),
 
 		reading:               make(chan struct{}, 1),
-		handshakeRecv:         make(chan recvHandshakeState),
+		handshakeRecv:         make(chan dtlshandshake.RecvHandshakeState),
 		closed:                closer.NewCloser(),
 		cancelHandshaker:      func() {},
 		cancelHandshakeReader: func() {},
@@ -1178,15 +1244,15 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 		}
 	}
 	if hasHandshake {
-		s := recvHandshakeState{
-			done:         make(chan struct{}),
-			isRetransmit: isRetransmit,
+		s := dtlshandshake.RecvHandshakeState{
+			Done:         make(chan struct{}),
+			IsRetransmit: isRetransmit,
 		}
 		select {
 		case c.handshakeRecv <- s:
 			// If the other party may retransmit the flight,
 			// we should respond even if it not a new message.
-			<-s.done
+			<-s.Done
 		case <-c.fsm.Done():
 		}
 	}
@@ -1463,7 +1529,7 @@ func (c *Conn) handleIncomingPacket(
 	return false, false, nil, nil
 }
 
-func (c *Conn) recvHandshake() <-chan recvHandshakeState {
+func (c *Conn) recvHandshake() <-chan dtlshandshake.RecvHandshakeState {
 	return c.handshakeRecv
 }
 
@@ -1472,10 +1538,9 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 		if c.state.LocalVersion == protocol.Version1_2 {
 			// According to the RFC, we need to delete the stored session.
 			// https://datatracker.ietf.org/doc/html/rfc5246#section-7.2
-			cfg := c.fsm.(*handshakeFSM12).cfg //nolint:forcetypeassert
-			if cfg.HasSessionStore {
+			if c.handshakeConfig.HasSessionStore {
 				c.log.Tracef("clean invalid session: %s", c.state.SessionID)
-				if err := cfg.DelSession(c.sessionKey()); err != nil {
+				if err := c.handshakeConfig.DelSession(c.sessionKey()); err != nil {
 					return err
 				}
 			}
@@ -1524,8 +1589,8 @@ func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 }
 
 //nolint:cyclop
-func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet, *handshakeTranscript13, error) {
-	transcript := newHandshakeTranscript13()
+func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet, *dtlshandshake.Transcript, error) {
+	transcript := dtlshandshake.NewTranscript()
 	gen, _, ok := dtlsflight13.GetGenerator(dtlsflight13.Flight1)
 	if !ok {
 		return nil, nil, dtlserrors.ErrFlightUnimplemented13
@@ -1541,7 +1606,7 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet
 	}
 
 	c.stampHandshakeSequence(pkts)
-	if appended, err := appendClientHelloInitialFlights13(transcript, pkts); err != nil {
+	if appended, err := dtlshandshake.AppendClientHelloInitialFlights(transcript, pkts); err != nil {
 		return nil, nil, err
 	} else if !appended {
 		return nil, nil, dtlserrors.ErrHandshakeTranscriptMissingClientHello
@@ -1721,14 +1786,14 @@ func (c *Conn) stampHandshakeSequence(pkts []*dtlsflight.Packet) {
 // its retransmit timer fires, since readAndBufferNoFSM does not signal.
 // The send blocks until the FSM reaches wait() or the handshake is torn down.
 func (c *Conn) primeHandshakeRecv(ctx context.Context) {
-	s := recvHandshakeState{
-		done:         make(chan struct{}),
-		isRetransmit: false,
+	s := dtlshandshake.RecvHandshakeState{
+		Done:         make(chan struct{}),
+		IsRetransmit: false,
 	}
 	select {
 	case c.handshakeRecv <- s:
 		select {
-		case <-s.done:
+		case <-s.Done:
 		case <-ctx.Done():
 		case <-c.fsm.Done():
 		}
@@ -1787,7 +1852,7 @@ func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
 func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 	done := make(chan struct{})
 	if c.state.LocalVersion == protocol.Version1_3 {
-		fsm, err := newHandshakeFSM13(
+		fsm, err := dtlshandshake.NewFSM13(
 			&c.state,
 			c.handshakeCache,
 			c.handshakeConfig,
@@ -1808,16 +1873,7 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 			}
 		}
 	} else {
-		c.fsm = &handshakeFSM12{
-			currentFlight:      start.flight12,
-			flights:            start.flights,
-			retransmit:         start.flights != nil,
-			state:              &c.state,
-			cache:              c.handshakeCache,
-			cfg:                c.handshakeConfig,
-			retransmitInterval: c.handshakeConfig.InitialRetransmitInterval,
-			closed:             make(chan struct{}),
-		}
+		c.fsm = dtlshandshake.NewFSM12(&c.state, c.handshakeCache, c.handshakeConfig, start.flight12, start.flights)
 		c.handshakeConfig.OnFlightState = func(_ uint8, s uint8) {
 			if handshakeState(s) == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
 				close(done)
@@ -1842,7 +1898,7 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 	// The other party may request retransmission of the last flight to cope with packet drop.
 	go func() {
 		defer handshakeLoopsFinished.Done()
-		err := c.fsm.Run(ctxHs, c, start.fsmState)
+		err := c.fsm.Run(ctxHs, handshakeConnAdapter{c}, start.fsmState)
 		if !errors.Is(err, context.Canceled) {
 			select {
 			case firstErr <- err:
@@ -2027,11 +2083,7 @@ func (c *Conn) sessionKey() []byte {
 		// As ServerName can be like 0.example.com, it's better to add
 		// delimiter character which is not allowed to be in
 		// neither address or domain name.
-		if c.state.LocalVersion == protocol.Version1_3 {
-			return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM13).cfg.ServerName) //nolint:forcetypeassert
-		}
-
-		return []byte(c.rAddr.String() + "_" + c.fsm.(*handshakeFSM12).cfg.ServerName) //nolint:forcetypeassert
+		return []byte(c.rAddr.String() + "_" + c.handshakeConfig.ServerName)
 	}
 
 	return c.state.SessionID

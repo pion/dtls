@@ -15,6 +15,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight12 "github.com/pion/dtls/v3/internal/flight/flight12"
+	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -325,8 +326,8 @@ func runHandshakeFSM12ForTest(
 		InitialRetransmitInterval: nonZeroRetransmitInterval,
 	}
 
-	fsm := newHandshakeFSM12(&conn.state, conn.handshakeCache, cfg, initialFlight)
-	err := fsm.Run(ctx, conn, handshakePreparing)
+	fsm := dtlshandshake.NewFSM12(&conn.state, conn.handshakeCache, cfg, initialFlight, nil)
+	err := fsm.Run(ctx, handshakeConnAdapter{conn}, handshakePreparing)
 	switch {
 	case errors.Is(err, context.Canceled):
 	case errors.Is(err, context.DeadlineExceeded):
@@ -450,7 +451,7 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*dtlsflight.Pack
 	}
 	go func() {
 		select {
-		case c.otherEndRecv <- recvHandshakeState{done: make(chan struct{}), isRetransmit: isRetransmit}:
+		case c.otherEndRecv <- recvHandshakeState{Done: make(chan struct{}), IsRetransmit: isRetransmit}:
 		case <-c.done:
 		}
 	}()

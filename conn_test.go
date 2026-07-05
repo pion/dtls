@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
@@ -54,6 +55,8 @@ var (
 	errWrongCert                    = errors.New("wrong cert")
 	errConnectionAttemptFailed      = errors.New("connection attempt failed")
 )
+
+const renegotiationInfoSCSV uint16 = 0x00ff
 
 func TestStressDuplex(t *testing.T) {
 	// Limit runtime in case of deadlocks
@@ -2256,6 +2259,152 @@ func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
 	})
 }
 
+type rawExtension13 struct {
+	typeValue extension.TypeValue
+	raw       []byte
+}
+
+func (e rawExtension13) Marshal() ([]byte, error) {
+	return append([]byte(nil), e.raw...), nil
+}
+
+func (e rawExtension13) Unmarshal([]byte) error {
+	return nil
+}
+
+func (e rawExtension13) TypeValue() extension.TypeValue {
+	return e.typeValue
+}
+
+func marshalVersionNegotiationHelloRetryRequestServerHello13(
+	t *testing.T,
+	cfg *handshakeConfig,
+	extensions []extension.Extension,
+) []byte {
+	t.Helper()
+
+	var hrrRandomFixed [handshake.RandomLength]byte
+	copy(hrrRandomFixed[:], handshake.HelloRetryRequestRandom())
+	var hrrRandom handshake.Random
+	hrrRandom.UnmarshalFixed(hrrRandomFixed)
+
+	return marshalVersionNegotiationServerHello13(t, cfg, hrrRandom, extensions)
+}
+
+func marshalVersionNegotiationServerHello13(
+	t *testing.T,
+	cfg *handshakeConfig,
+	random handshake.Random,
+	extensions []extension.Extension,
+) []byte {
+	t.Helper()
+
+	cipherSuiteID := uint16(cfg.LocalCipherSuites[0].ID())
+	serverHello := &handshake.MessageServerHello{
+		Version:           protocol.Version1_2,
+		Random:            random,
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: defaultCompressionMethods()[0],
+		Extensions:        extensions,
+	}
+	rawServerHello, err := (&handshake.Handshake{Message: serverHello}).Marshal()
+	assert.NoError(t, err)
+
+	return rawServerHello
+}
+
+func testVersionNegotiationHandshakeConfig13(t *testing.T) *handshakeConfig {
+	t.Helper()
+
+	cipherSuites, err := parseCipherSuitesForVersions(
+		nil,
+		nil,
+		true,
+		false,
+		protocol.Version1_3,
+		protocol.Version1_3,
+	)
+	assert.NoError(t, err)
+
+	loggerFactory := logging.NewDefaultLoggerFactory()
+
+	return &handshakeConfig{
+		LocalCipherSuites:           cipherSuites,
+		EllipticCurves:              defaultCurves,
+		InitialRetransmitInterval:   time.Second,
+		ExtendedMasterSecret:        dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret),
+		Log:                         loggerFactory.NewLogger("dtls"),
+		MinVersion:                  protocol.Version1_3,
+		MaxVersion:                  protocol.Version1_3,
+		LocalSignatureSchemes:       signaturehash.Algorithms13(),
+		LocalCertSignatureSchemes:   nil,
+		LocalSRTPProtectionProfiles: nil,
+	}
+}
+
+func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVersions(t *testing.T) {
+	cfg := testVersionNegotiationHandshakeConfig13(t)
+	cfg.MinVersion = protocol.Version1_2
+	cfg.MaxVersion = protocol.Version1_3
+	selectedGroup := elliptic.P384
+
+	rawServerHello := marshalVersionNegotiationHelloRetryRequestServerHello13(
+		t,
+		cfg,
+		[]extension.Extension{
+			&extension.KeyShare{SelectedGroup: &selectedGroup},
+		},
+	)
+
+	conn := &Conn{
+		handshakeCache:  dtlsflight.NewCache(),
+		handshakeConfig: cfg,
+	}
+	conn.handshakeCache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+
+	ok, err := conn.pickVersionFromServerResponse()
+
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
+	assert.False(t, ok)
+	assert.Equal(t, protocol.Version{}, conn.state.LocalVersion)
+}
+
+func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupportedVersionsEncoding(t *testing.T) {
+	cfg := testVersionNegotiationHandshakeConfig13(t)
+	cfg.MinVersion = protocol.Version1_2
+	cfg.MaxVersion = protocol.Version1_3
+	random := handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}}
+
+	rawServerHello := marshalVersionNegotiationServerHello13(
+		t,
+		cfg,
+		random,
+		[]extension.Extension{
+			rawExtension13{
+				typeValue: extension.SupportedVersionsTypeValue,
+				raw: []byte{
+					0x00, 0x2b, // supported_versions
+					0x00, 0x03, // extension_data length
+					0x02,       // ClientHello vector length
+					0xfe, 0xfc, // DTLS v1.3
+				},
+			},
+		},
+	)
+
+	conn := &Conn{
+		handshakeCache:  dtlsflight.NewCache(),
+		handshakeConfig: cfg,
+	}
+	conn.handshakeCache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+
+	ok, err := conn.pickVersionFromServerResponse()
+
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
+	assert.False(t, ok)
+	assert.Equal(t, protocol.Version{}, conn.state.LocalVersion)
+}
+
 func TestMultipleHelloVerifyRequest(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
@@ -3123,7 +3272,7 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 			assert.Equal(
 				t,
 				len(test.HandshakeCurves),
-				len(server.fsm.(*handshakeFSM12).cfg.EllipticCurves), //nolint:forcetypeassert
+				len(server.handshakeConfig.EllipticCurves),
 				"Failed to configure Elliptic curves",
 			)
 
@@ -3131,7 +3280,7 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 				assert.Equal(
 					t,
 					c,
-					server.fsm.(*handshakeFSM12).cfg.EllipticCurves[i], //nolint:forcetypeassert
+					server.handshakeConfig.EllipticCurves[i],
 					"Failed to maintain Elliptic curve order",
 				)
 			}
