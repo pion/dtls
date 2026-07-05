@@ -44,17 +44,16 @@ func (s *ServerName) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (s *ServerName) Unmarshal(data []byte) error { //nolint:cyclop
-	val := cryptobyte.String(data)
-	var extension uint16
-	val.ReadUint16(&extension)
-	if TypeValue(extension) != s.TypeValue() {
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, s.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	var extData cryptobyte.String
-	if !val.ReadUint16LengthPrefixed(&extData) {
-		return dtlserrors.ErrBufferTooSmall
-	}
+	return s.unmarshalPayload(payload)
+}
+
+func (s *ServerName) unmarshalPayload(data []byte) error { //nolint:cyclop
+	extData := cryptobyte.String(data)
 
 	var nameList cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&nameList) || nameList.Empty() {

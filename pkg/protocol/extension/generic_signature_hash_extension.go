@@ -33,16 +33,16 @@ func marshalGenericSignatureHashAlgorithm(typeValue TypeValue, sigHashAlgs []sig
 // This supports hybrid encoding: detects TLS 1.3 PSS schemes
 // and handles them as full uint16, while TLS 1.2 schemes use byte-split encoding.
 func unmarshalGenericSignatureHashAlgorithm(typeValue TypeValue, data []byte, dst *[]signaturehash.Algorithm) error {
-	val := cryptobyte.String(data)
-	var extension uint16
-	if !val.ReadUint16(&extension) || TypeValue(extension) != typeValue {
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, typeValue)
+	if err != nil {
+		return err
 	}
 
-	var extData cryptobyte.String
-	if !val.ReadUint16LengthPrefixed(&extData) {
-		return dtlserrors.ErrBufferTooSmall
-	}
+	return unmarshalGenericSignatureHashAlgorithmPayload(payload, dst)
+}
+
+func unmarshalGenericSignatureHashAlgorithmPayload(data []byte, dst *[]signaturehash.Algorithm) error {
+	extData := cryptobyte.String(data)
 
 	var algData cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&algData) || !extData.Empty() {

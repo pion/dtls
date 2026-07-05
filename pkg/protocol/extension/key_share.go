@@ -85,16 +85,17 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 
 // Unmarshal decodes the extension.
 func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
-	val := cryptobyte.String(data)
-	var extData cryptobyte.String
+	payload, err := extensionPayload(data, k.TypeValue())
+	if err != nil {
+		return err
+	}
 
-	var ext uint16
-	if !val.ReadUint16(&ext) || TypeValue(ext) != k.TypeValue() {
-		return dtlserrors.ErrInvalidExtensionType
-	}
-	if !val.ReadUint16LengthPrefixed(&extData) {
-		return dtlserrors.ErrBufferTooSmall
-	}
+	return k.unmarshalPayload(payload)
+}
+
+func (k *KeyShare) unmarshalPayload(data []byte) error { //nolint:cyclop
+	extData := cryptobyte.String(data)
+
 	if extData.Empty() {
 		return dtlserrors.ErrInvalidKeyShareFormat
 	}

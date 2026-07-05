@@ -39,16 +39,20 @@ func (r *RenegotiationInfo) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (r *RenegotiationInfo) Unmarshal(data []byte) error {
-	switch {
-	case len(data) < renegotiationInfoHeaderSize:
-		return dtlserrors.ErrBufferTooSmall
-	case TypeValue(binary.BigEndian.Uint16(data)) != r.TypeValue():
-		return dtlserrors.ErrInvalidExtensionType
-	case binary.BigEndian.Uint16(data[2:4]) != 1:
+	payload, err := extensionPayload(data, r.TypeValue())
+	if err != nil {
+		return err
+	}
+
+	return r.unmarshalPayload(payload)
+}
+
+func (r *RenegotiationInfo) unmarshalPayload(data []byte) error {
+	if len(data) != 1 {
 		return dtlserrors.ErrLengthMismatch
 	}
 
-	r.RenegotiatedConnection = data[4]
+	r.RenegotiatedConnection = data[0]
 
 	return nil
 }

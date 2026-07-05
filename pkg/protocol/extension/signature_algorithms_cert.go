@@ -41,3 +41,9 @@ func (s *SignatureAlgorithmsCert) Unmarshal(data []byte) error {
 
 	return unmarshalGenericSignatureHashAlgorithm(s.TypeValue(), data, &s.SignatureHashAlgorithms)
 }
+
+func (s *SignatureAlgorithmsCert) unmarshalPayload(data []byte) error {
+	s.SignatureHashAlgorithms = []signaturehash.Algorithm{}
+
+	return unmarshalGenericSignatureHashAlgorithmPayload(data, &s.SignatureHashAlgorithms)
+}

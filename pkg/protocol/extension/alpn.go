@@ -43,18 +43,16 @@ func (a *ALPN) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (a *ALPN) Unmarshal(data []byte) error {
-	val := cryptobyte.String(data)
-
-	var extension uint16
-	val.ReadUint16(&extension)
-	if TypeValue(extension) != a.TypeValue() {
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, a.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	var extData cryptobyte.String
-	if !val.ReadUint16LengthPrefixed(&extData) {
-		return dtlserrors.ErrLengthMismatch
-	}
+	return a.unmarshalPayload(payload)
+}
+
+func (a *ALPN) unmarshalPayload(data []byte) error {
+	extData := cryptobyte.String(data)
 
 	var protoList cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&protoList) || protoList.Empty() {

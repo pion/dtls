@@ -79,18 +79,16 @@ func (s *SupportedVersions) Marshal() ([]byte, error) {
 // Unmarshal parses either the ClientHello list or the ServerHello/HelloRetryRequest single value.
 // Any version not recognized is discarded.
 func (s *SupportedVersions) Unmarshal(data []byte) error { //nolint:cyclop
-	val := cryptobyte.String(data)
-	var extData cryptobyte.String
-
-	var extension uint16
-	val.ReadUint16(&extension)
-	if TypeValue(extension) != s.TypeValue() {
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, s.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	if !val.ReadUint16LengthPrefixed(&extData) {
-		return dtlserrors.ErrBufferTooSmall
-	}
+	return s.unmarshalPayload(payload)
+}
+
+func (s *SupportedVersions) unmarshalPayload(data []byte) error { //nolint:cyclop
+	extData := cryptobyte.String(data)
 
 	if extData.Empty() {
 		return dtlserrors.ErrInvalidSupportedVersionsFormat

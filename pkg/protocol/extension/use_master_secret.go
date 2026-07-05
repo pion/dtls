@@ -41,15 +41,18 @@ func (u *UseExtendedMasterSecret) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (u *UseExtendedMasterSecret) Unmarshal(data []byte) error {
-	switch {
-	case len(data) < useExtendedMasterSecretHeaderSize:
-		return dtlserrors.ErrBufferTooSmall
-	case data[2] != 0x00 || data[3] != 0x00:
-		return dtlserrors.ErrLengthMismatch
-	case TypeValue(binary.BigEndian.Uint16(data)) != u.TypeValue():
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, u.TypeValue())
+	if err != nil {
+		return err
 	}
 
+	return u.unmarshalPayload(payload)
+}
+
+func (u *UseExtendedMasterSecret) unmarshalPayload(data []byte) error {
+	if len(data) != 0 {
+		return dtlserrors.ErrLengthMismatch
+	}
 	u.Supported = true
 
 	return nil

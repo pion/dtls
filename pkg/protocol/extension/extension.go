@@ -46,6 +46,29 @@ type Extension interface {
 	TypeValue() TypeValue
 }
 
+type extensionPayloadUnmarshaller interface {
+	unmarshalPayload(data []byte) error
+}
+
+func extensionPayload(data []byte, expected TypeValue) ([]byte, error) {
+	if len(data) < 2 {
+		return nil, dtlserrors.ErrBufferTooSmall
+	}
+	if TypeValue(binary.BigEndian.Uint16(data)) != expected {
+		return nil, dtlserrors.ErrInvalidExtensionType
+	}
+	if len(data) < 4 {
+		return nil, dtlserrors.ErrBufferTooSmall
+	}
+
+	declaredLen := int(binary.BigEndian.Uint16(data[2:4]))
+	if declaredLen != len(data)-4 {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+
+	return data[4:], nil
+}
+
 // Unmarshal many extensions at once.
 func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 	switch {
@@ -62,9 +85,14 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 
 	extensions := []Extension{}
 	unmarshalAndAppend := func(data []byte, e Extension) error {
-		err := e.Unmarshal(data)
-		if err != nil {
-			return err
+		if payloadUnmarshaller, ok := e.(extensionPayloadUnmarshaller); ok {
+			if err := payloadUnmarshaller.unmarshalPayload(data[4:]); err != nil {
+				return err
+			}
+		} else {
+			if err := e.Unmarshal(data); err != nil {
+				return err
+			}
 		}
 		extensions = append(extensions, e)
 
