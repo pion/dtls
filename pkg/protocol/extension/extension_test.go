@@ -25,6 +25,50 @@ func TestExtensions(t *testing.T) {
 	})
 }
 
+func TestExtensionsUnmarshalBoundsExtensionData(t *testing.T) {
+	raw, err := Marshal([]Extension{
+		&UseExtendedMasterSecret{Supported: true},
+		&RenegotiationInfo{},
+	})
+	assert.NoError(t, err)
+
+	extensions, err := Unmarshal(raw)
+	assert.NoError(t, err)
+	assert.Len(t, extensions, 2)
+	assert.IsType(t, &UseExtendedMasterSecret{}, extensions[0])
+	assert.IsType(t, &RenegotiationInfo{}, extensions[1])
+}
+
+func TestExtensionsUnmarshalRejectsExtensionLengthOverflow(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		raw  []byte
+	}{
+		{
+			name: "unknown extension",
+			raw: []byte{
+				0x00, 0x04, // extensions length
+				0x12, 0x34, // unknown extension type
+				0x00, 0x01, // extension length, but no extension data remains
+			},
+		},
+		{
+			name: "known extension",
+			raw: []byte{
+				0x00, 0x04, // extensions length
+				0x00, 0x17, // extended_master_secret
+				0x00, 0x01, // extension length, but no extension data remains
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			extensions, err := Unmarshal(tt.raw)
+			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+			assert.Empty(t, extensions)
+		})
+	}
+}
+
 // testExtDataLength is used to check the declared length in an extension and
 // trailing bytes. It should only be called after a succesfull unmarshal.
 func testExtDataLength(t *testing.T, ext Extension, data []byte, trailing bool) {
