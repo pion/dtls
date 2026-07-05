@@ -162,7 +162,7 @@ func TestPreSharedKey_ClientHello_MultipleIdentities_SingleBinder(t *testing.T) 
 
 	raw := []byte{
 		0x00, 0x29, // extension type
-		0x00, 0x0a, // extension length
+		0x00, 0x35, // extension length
 		0x00, 0x10, // identities length
 		0x00, 0x02, // identity length
 		0x41, 0x41, // identity
@@ -191,7 +191,7 @@ func TestPreSharedKey_ClientHello_LowBinders(t *testing.T) {
 	}
 	raw := []byte{
 		0x00, 0x29, // extension type
-		0x00, 0x0a, // extension length
+		0x00, 0x1d, // extension length
 		0x00, 0x06, // identities length
 		0x00, 0x02, // identity length
 		0x42, 0x42, // identity

@@ -63,28 +63,34 @@ func (u *UseSRTP) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (u *UseSRTP) Unmarshal(data []byte) error {
-	if len(data) <= useSRTPHeaderSize {
-		return dtlserrors.ErrBufferTooSmall
-	} else if TypeValue(binary.BigEndian.Uint16(data)) != u.TypeValue() {
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, u.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	profileCount := int(binary.BigEndian.Uint16(data[4:]) / 2)
-	masterKeyIdentifierIndex := supportedGroupsHeaderSize + (profileCount * 2)
-	if masterKeyIdentifierIndex+1 > len(data) {
+	return u.unmarshalPayload(payload)
+}
+
+func (u *UseSRTP) unmarshalPayload(data []byte) error {
+	if len(data) < 3 {
+		return dtlserrors.ErrBufferTooSmall
+	}
+
+	profilesLength := int(binary.BigEndian.Uint16(data))
+	masterKeyIdentifierIndex := 2 + profilesLength
+	if profilesLength%2 != 0 || masterKeyIdentifierIndex+1 > len(data) {
 		return dtlserrors.ErrLengthMismatch
 	}
-
-	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
 
 	masterKeyIdentifierLen := int(data[masterKeyIdentifierIndex])
-	end := masterKeyIdentifierIndex + masterKeyIdentifierLen
-	if end >= len(data) || end-4 != declaredLength-1 {
+	masterKeyIdentifierEnd := masterKeyIdentifierIndex + 1 + masterKeyIdentifierLen
+	if masterKeyIdentifierEnd != len(data) {
 		return dtlserrors.ErrLengthMismatch
 	}
 
+	profileCount := profilesLength / 2
 	for i := range profileCount {
-		supportedProfile := SRTPProtectionProfile(binary.BigEndian.Uint16(data[(useSRTPHeaderSize + (i * 2)):]))
+		supportedProfile := SRTPProtectionProfile(binary.BigEndian.Uint16(data[2+(i*2):]))
 		if _, ok := srtpProtectionProfiles()[supportedProfile]; ok {
 			u.ProtectionProfiles = append(u.ProtectionProfiles, supportedProfile)
 		}
@@ -92,7 +98,7 @@ func (u *UseSRTP) Unmarshal(data []byte) error {
 
 	u.MasterKeyIdentifier = append(
 		[]byte{},
-		data[masterKeyIdentifierIndex+1:end+1]...,
+		data[masterKeyIdentifierIndex+1:masterKeyIdentifierEnd]...,
 	)
 
 	return nil

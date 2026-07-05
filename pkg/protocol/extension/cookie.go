@@ -40,16 +40,16 @@ func (c *CookieExt) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (c *CookieExt) Unmarshal(data []byte) error { //nolint:cyclop
-	val := cryptobyte.String(data)
-	var extension uint16
-	if !val.ReadUint16(&extension) || TypeValue(extension) != c.TypeValue() {
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, c.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	var extData cryptobyte.String
-	if !val.ReadUint16LengthPrefixed(&extData) {
-		return dtlserrors.ErrBufferTooSmall
-	}
+	return c.unmarshalPayload(payload)
+}
+
+func (c *CookieExt) unmarshalPayload(data []byte) error { //nolint:cyclop
+	extData := cryptobyte.String(data)
 
 	var cookie cryptobyte.String
 	if !extData.ReadUint16LengthPrefixed(&cookie) || cookie.Empty() || len(cookie) > maxCookieSize {

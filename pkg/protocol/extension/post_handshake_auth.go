@@ -42,15 +42,18 @@ func (p *PostHandshakeAuth) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (p *PostHandshakeAuth) Unmarshal(data []byte) error {
-	switch {
-	case len(data) < postHandshakeAuthHeaderSize:
-		return dtlserrors.ErrBufferTooSmall
-	case data[2] != 0x00 || data[3] != 0x00:
-		return dtlserrors.ErrLengthMismatch
-	case TypeValue(binary.BigEndian.Uint16(data)) != p.TypeValue():
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, p.TypeValue())
+	if err != nil {
+		return err
 	}
 
+	return p.unmarshalPayload(payload)
+}
+
+func (p *PostHandshakeAuth) unmarshalPayload(data []byte) error {
+	if len(data) != 0 {
+		return dtlserrors.ErrLengthMismatch
+	}
 	p.Enabled = true
 
 	return nil

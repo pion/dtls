@@ -165,7 +165,7 @@ func TestSignatureAlgorithmsCertUnmarshalErrors(t *testing.T) {
 	t.Run("Empty data", func(t *testing.T) {
 		ext := &SignatureAlgorithmsCert{}
 		err := ext.Unmarshal([]byte{})
-		assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionType)
+		assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
 	})
 
 	t.Run("Invalid extension type", func(t *testing.T) {
@@ -187,16 +187,16 @@ func TestSignatureAlgorithmsCertUnmarshalErrors(t *testing.T) {
 		assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
 	})
 
-	t.Run("Buffer too small - missing algorithms length", func(t *testing.T) {
+	t.Run("Length mismatch - missing algorithms length", func(t *testing.T) {
 		ext := &SignatureAlgorithmsCert{}
 		err := ext.Unmarshal([]byte{
 			0x00, 0x32, // Extension type
 			0x00, 0x02, // Extension length
 		})
-		assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+		assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 	})
 
-	t.Run("Truncated algorithm list", func(t *testing.T) {
+	t.Run("Length mismatch - truncated algorithm list", func(t *testing.T) {
 		ext := &SignatureAlgorithmsCert{}
 		err := ext.Unmarshal([]byte{
 			0x00, 0x32, // Extension type
@@ -205,7 +205,7 @@ func TestSignatureAlgorithmsCertUnmarshalErrors(t *testing.T) {
 			0x04, 0x03, // SHA256, ECDSA
 			0x05, // Incomplete second algorithm
 		})
-		assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+		assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 	})
 
 	t.Run("Length mismatch - declared length too long", func(t *testing.T) {
@@ -216,7 +216,7 @@ func TestSignatureAlgorithmsCertUnmarshalErrors(t *testing.T) {
 			0x00, 0x06, // Algorithms length: 6 bytes (but only 2 bytes of data follow)
 			0x04, 0x03, // SHA256, ECDSA
 		})
-		assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+		assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 	})
 
 	t.Run("Empty extension data", func(t *testing.T) {

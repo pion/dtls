@@ -51,16 +51,16 @@ func (p *PskKeyExchangeModes) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (p *PskKeyExchangeModes) Unmarshal(data []byte) error { //nolint:cyclop
-	val := cryptobyte.String(data)
-	var extension uint16
-	if !val.ReadUint16(&extension) || TypeValue(extension) != p.TypeValue() {
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, p.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	var extData cryptobyte.String
-	if !val.ReadUint16LengthPrefixed(&extData) {
-		return dtlserrors.ErrBufferTooSmall
-	}
+	return p.unmarshalPayload(payload)
+}
+
+func (p *PskKeyExchangeModes) unmarshalPayload(data []byte) error { //nolint:cyclop
+	extData := cryptobyte.String(data)
 
 	var strModes cryptobyte.String
 

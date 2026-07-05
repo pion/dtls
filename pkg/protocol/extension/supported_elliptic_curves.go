@@ -48,26 +48,27 @@ func (s *SupportedEllipticCurves) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (s *SupportedEllipticCurves) Unmarshal(data []byte) error {
-	if len(data) < supportedGroupsHeaderSize {
-		return dtlserrors.ErrBufferTooSmall
+	payload, err := extensionPayload(data, s.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
-	groupCount := int(binary.BigEndian.Uint16(data[4:]) / 2)
+	return s.unmarshalPayload(payload)
+}
 
+func (s *SupportedEllipticCurves) unmarshalPayload(data []byte) error {
 	switch {
-	case TypeValue(binary.BigEndian.Uint16(data)) != s.TypeValue():
-		return dtlserrors.ErrInvalidExtensionType
-	case declaredLength > len(data)-4: // type + declared length = 4
+	case len(data) < 2:
+		return dtlserrors.ErrBufferTooSmall
+	case int(binary.BigEndian.Uint16(data))+2 != len(data):
 		return dtlserrors.ErrLengthMismatch
-	case supportedGroupsHeaderSize+(groupCount*2) > len(data):
-		return dtlserrors.ErrLengthMismatch
-	case groupCount*2+2 != declaredLength:
+	case binary.BigEndian.Uint16(data)%2 != 0:
 		return dtlserrors.ErrLengthMismatch
 	}
 
+	groupCount := int(binary.BigEndian.Uint16(data) / 2)
 	for i := range groupCount {
-		supportedGroupID := elliptic.Curve(binary.BigEndian.Uint16(data[(supportedGroupsHeaderSize + (i * 2)):]))
+		supportedGroupID := elliptic.Curve(binary.BigEndian.Uint16(data[2+(i*2):]))
 		if _, ok := elliptic.Curves()[supportedGroupID]; ok {
 			s.EllipticCurves = append(s.EllipticCurves, supportedGroupID)
 		}

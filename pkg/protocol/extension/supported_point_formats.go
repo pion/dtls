@@ -49,26 +49,25 @@ func (s *SupportedPointFormats) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (s *SupportedPointFormats) Unmarshal(data []byte) error {
-	if len(data) < supportedPointFormatsSize {
-		return dtlserrors.ErrBufferTooSmall
+	payload, err := extensionPayload(data, s.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	declaredLength := int(binary.BigEndian.Uint16(data[2:4]))
-	pointFormatCount := int(data[4])
+	return s.unmarshalPayload(payload)
+}
 
+func (s *SupportedPointFormats) unmarshalPayload(data []byte) error {
 	switch {
-	case TypeValue(binary.BigEndian.Uint16(data)) != s.TypeValue():
-		return dtlserrors.ErrInvalidExtensionType
-	case declaredLength > len(data)-4: // type + declared length = 4
-		return dtlserrors.ErrLengthMismatch
-	case supportedPointFormatsSize+pointFormatCount > len(data):
-		return dtlserrors.ErrLengthMismatch
-	case pointFormatCount+1 != declaredLength:
+	case len(data) < 1:
+		return dtlserrors.ErrBufferTooSmall
+	case int(data[0])+1 != len(data):
 		return dtlserrors.ErrLengthMismatch
 	}
 
+	pointFormatCount := int(data[0])
 	for i := range pointFormatCount {
-		p := elliptic.CurvePointFormat(data[supportedPointFormatsSize+i])
+		p := elliptic.CurvePointFormat(data[1+i])
 		switch p {
 		case elliptic.CurvePointFormatUncompressed:
 			s.PointFormats = append(s.PointFormats, p)

@@ -42,16 +42,16 @@ func (e *EarlyDataIndication) Marshal() ([]byte, error) {
 
 // Unmarshal populates the extension from encoded data.
 func (e *EarlyDataIndication) Unmarshal(data []byte) error {
-	val := cryptobyte.String(data)
-	var extension uint16
-	if !val.ReadUint16(&extension) || TypeValue(extension) != e.TypeValue() {
-		return dtlserrors.ErrInvalidExtensionType
+	payload, err := extensionPayload(data, e.TypeValue())
+	if err != nil {
+		return err
 	}
 
-	var extData cryptobyte.String
-	if !val.ReadUint16LengthPrefixed(&extData) {
-		return dtlserrors.ErrBufferTooSmall
-	}
+	return e.unmarshalPayload(payload)
+}
+
+func (e *EarlyDataIndication) unmarshalPayload(data []byte) error {
+	extData := cryptobyte.String(data)
 
 	// new_session_ticket
 	if !extData.Empty() {
