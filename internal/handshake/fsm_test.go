@@ -109,12 +109,10 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 		return &ch
 	}
 
-	transcript := NewTranscript()
 	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
-		state:      state,
-		cache:      cache,
-		cfg:        cfg,
-		transcript: transcript,
+		state: state,
+		cache: cache,
+		cfg:   cfg,
 	})
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
@@ -126,14 +124,10 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	content.Header.MessageSequence = messageSequence
 
 	expected := canonicalPacketHandshake13(t, pkts[0])
-	appended, err := AppendClientHelloInitialFlights(transcript, pkts)
-	require.NoError(t, err)
-	require.True(t, appended)
 
-	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, pkts, transcript)
+	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, pkts, nil)
 	require.NoError(t, err)
 	require.NotNil(t, fsm.transcript)
-	require.Same(t, transcript, fsm.transcript)
 	require.Len(t, fsm.transcript.pendingMessages(), 1)
 	require.Len(t, fsm.transcript.messageOrder(), 1)
 
@@ -150,21 +144,19 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
-	transcript := NewTranscript()
 
 	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
-		state:      state,
-		cache:      cache,
-		cfg:        cfg,
-		transcript: transcript,
+		state: state,
+		cache: cache,
+		cfg:   cfg,
 	})
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 
-	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, pkts, transcript)
+	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, pkts, nil)
 	require.NoError(t, err)
 
-	transcript = fsm.transcript
+	transcript := fsm.transcript
 	before := append([]byte(nil), transcript.Bytes()...)
 	require.Len(t, transcript.pendingMessages(), 1)
 
@@ -188,7 +180,7 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 
 	fsm, err := newFSM13(
-		state, cache, cfg, dtlsflight13.Flight1, []*dtlsflight.Packet{}, NewTranscript(),
+		state, cache, cfg, dtlsflight13.Flight1, []*dtlsflight.Packet{}, nil,
 	)
 	require.Nil(t, fsm)
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)

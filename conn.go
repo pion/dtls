@@ -72,12 +72,11 @@ type addrPkt struct {
 	data  []byte
 }
 type handshakeStart struct {
-	flight12     dtlsflight12.Flight
-	flight13     dtlsflight13.Flight
-	fsmState     handshakeState
-	flights      []*dtlsflight.Packet
-	transcript13 *dtlshandshake.Transcript
-	postSetup    func(context.Context)
+	flight12  dtlsflight12.Flight
+	flight13  dtlsflight13.Flight
+	fsmState  handshakeState
+	flights   []*dtlsflight.Packet
+	postSetup func(context.Context)
 }
 
 type (
@@ -666,8 +665,9 @@ func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
 // - DTLS 1.3 only
 // - Dual-stack (this mode sends or read handshake messages without starting a FSM)
 //
-// In dual-stack client mode, flights holds the already-sent ClientHello and
-// transcript13 carries the same ClientHello into the DTLS 1.3 FSM.
+// In dual-stack client mode, flights holds the already-sent ClientHello. If
+// DTLS 1.3 is selected, the DTLS 1.3 FSM imports those packets into its
+// transcript.
 // nolint:cyclop
 func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error) {
 	switch {
@@ -706,7 +706,7 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 	// Dual-stack
 	// This mode sends or read handshake messages to decide version without starting a FSM
 	case c.state.IsClient:
-		initialFlights, initialTranscript13, err := c.negotiateVersionClient(ctx)
+		initialFlights, err := c.negotiateVersionClient(ctx)
 		if err != nil {
 			return handshakeStart{}, err
 		}
@@ -716,12 +716,11 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 		}
 
 		return handshakeStart{
-			flight12:     dtlsflight12.Flight1,
-			flight13:     dtlsflight13.Flight1,
-			fsmState:     handshakeWaiting,
-			flights:      initialFlights,
-			transcript13: initialTranscript13,
-			postSetup:    primer,
+			flight12:  dtlsflight12.Flight1,
+			flight13:  dtlsflight13.Flight1,
+			fsmState:  handshakeWaiting,
+			flights:   initialFlights,
+			postSetup: primer,
 		}, nil
 	default:
 		err := c.negotiateVersionServer(ctx)
@@ -1589,11 +1588,10 @@ func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 }
 
 //nolint:cyclop
-func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet, *dtlshandshake.Transcript, error) {
-	transcript := dtlshandshake.NewTranscript()
+func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet, error) {
 	gen, _, ok := dtlsflight13.GetGenerator(dtlsflight13.Flight1)
 	if !ok {
-		return nil, nil, dtlserrors.ErrFlightUnimplemented13
+		return nil, dtlserrors.ErrFlightUnimplemented13
 	}
 	pkts, dtlsAlert, err := gen(adaptFlightConn(c), &c.state, c.handshakeCache, c.handshakeConfig)
 	if dtlsAlert != nil {
@@ -1602,27 +1600,25 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet
 		}
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	c.stampHandshakeSequence(pkts)
-	if appended, err := dtlshandshake.AppendClientHelloInitialFlights(transcript, pkts); err != nil {
-		return nil, nil, err
-	} else if !appended {
-		return nil, nil, dtlserrors.ErrHandshakeTranscriptMissingClientHello
+	if err := dtlshandshake.ValidateClientHelloInitialFlights(pkts); err != nil {
+		return nil, err
 	}
 	if err := c.writePackets(ctx, pkts); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	for {
 		if err := c.readAndBufferNoFSM(ctx); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if ok, err := c.pickVersionFromServerResponse(); err != nil {
-			return nil, nil, err
+			return nil, err
 		} else if ok {
-			return pkts, transcript, nil
+			return pkts, nil
 		}
 		// ServerHello or HelloVerifyRequest not yet (fully) received; keep reading.
 	}
@@ -1858,7 +1854,6 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 			c.handshakeConfig,
 			start.flight13,
 			start.flights,
-			start.transcript13,
 		)
 		if err != nil {
 			return err

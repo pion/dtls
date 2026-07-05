@@ -84,9 +84,8 @@ func NewFSM13(
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight13.Flight,
 	initialFlights []*dtlsflight.Packet,
-	initialTranscript *Transcript,
 ) (FSM, error) {
-	return newFSM13(state, cache, cfg, initialFlight, initialFlights, initialTranscript)
+	return newFSM13(state, cache, cfg, initialFlight, initialFlights, nil)
 }
 
 func newFSM13(
@@ -119,7 +118,7 @@ func newFSM13(
 	return fsm, nil
 }
 
-// seedTranscriptFromInitialFlights handles the dual-stack ClientHello generated
+// seedTranscriptFromInitialFlights imports the dual-stack ClientHello generated
 // before the DTLS 1.3 FSM exists.
 func (s *fsm13) seedTranscriptFromInitialFlights() error {
 	if !s.state.IsClient {
@@ -161,6 +160,20 @@ func AppendClientHelloInitialFlights(transcript *Transcript, flights []*dtlsflig
 	}
 
 	return appended, nil
+}
+
+// ValidateClientHelloInitialFlights verifies that the dual-stack initial flight
+// contains a canonical ClientHello before it is written.
+func ValidateClientHelloInitialFlights(flights []*dtlsflight.Packet) error {
+	appended, err := AppendClientHelloInitialFlights(NewTranscript(), flights)
+	if err != nil {
+		return err
+	}
+	if !appended {
+		return dtlserrors.ErrHandshakeTranscriptMissingClientHello
+	}
+
+	return nil
 }
 
 func canonicalClientHelloInitialFlight13(p *dtlsflight.Packet) (uint16, []byte, bool, error) {

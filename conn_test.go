@@ -3734,6 +3734,54 @@ func TestDTLSDualStackClient(t *testing.T) {
 	testDTLSDualStack(t, clientOpts, serverOpts)
 }
 
+func TestDTLSDualStackClientRejectsNonClientHelloBeforeWrite(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 5).Stop()
+
+	ca, cb := dpipe.Pipe()
+	defer func() {
+		_ = ca.Close()
+		_ = cb.Close()
+	}()
+
+	var writes atomic.Int32
+	caCount := &connWithCallback{
+		Conn: ca,
+		onWrite: func([]byte) {
+			writes.Add(1)
+		},
+	}
+
+	cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
+	client, err := ClientWithOptions(
+		dtlsnet.PacketConnFromConn(caCount),
+		caCount.RemoteAddr(),
+		WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_2),
+		WithMaxVersion(protocol.Version1_3),
+		WithClientHelloMessageHook(func(handshake.MessageClientHello) handshake.Message {
+			return &handshake.MessageServerHello{
+				Version:           protocol.Version1_2,
+				CipherSuiteID:     &cipherSuiteID,
+				CompressionMethod: defaultCompressionMethods()[0],
+			}
+		}),
+	)
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer func() {
+		_ = client.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	err = client.HandshakeContext(ctx)
+	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)
+	assert.Equal(t, int32(0), writes.Load())
+}
+
 // WIP! Tests if the dual stack mode server managed to negotiate a version successfully.
 func TestDTLSDualStackServer(t *testing.T) {
 	defer test.CheckRoutines(t)()
