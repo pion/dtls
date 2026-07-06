@@ -45,6 +45,21 @@ import (
 // | Flight 5c |
 // +-----------+
 
+type flightParseFailure struct {
+	alert *alert.Alert
+	err   error
+}
+
+func newFlightParseFailure(
+	description alert.Description,
+	err error,
+) *flightParseFailure {
+	return &flightParseFailure{
+		alert: &alert.Alert{Level: alert.Fatal, Description: description},
+		err:   err,
+	}
+}
+
 func IsHelloRetryRequest(sh *handshake.MessageServerHello) bool {
 	randomBytes := sh.Random.MarshalFixed()
 
@@ -190,122 +205,208 @@ func flight1Parse(
 	return Flight3, nil, nil
 }
 
-//nolint:cyclop,gocognit
 func flight3Parse(
 	ctx context.Context,
 	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
-	serverHelloSeq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
+	serverHelloSeq, serverHello, items, ok, failure := flight3PullServerHello(flightCtx)
+	if !ok {
+		return 0, nil, nil
+	}
+	if failure != nil {
+		return 0, failure.alert, failure.err
+	}
+
+	failure = processFlight3ServerHello(flightCtx, serverHello)
+	if failure != nil {
+		return 0, failure.alert, failure.err
+	}
+	failure = initializeFlight3HandshakeProtection(ctx, conn, flightCtx, items)
+	if failure != nil {
+		return 0, failure.alert, failure.err
+	}
+
+	seq, ok, failure := flight3PullEncryptedExtensions(flightCtx, serverHelloSeq)
+	if !ok {
+		return 0, nil, nil
+	}
+	if failure != nil {
+		return 0, failure.alert, failure.err
+	}
+	flightCtx.state.HandshakeRecvSequence = seq
+
+	return Flight5, nil, nil
+}
+
+func flight3PullServerHello(
+	flightCtx *handshakeContext,
+) (int, *handshake.MessageServerHello, []*dtlsflight.HandshakeCacheItem, bool, *flightParseFailure) {
+	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 	)
 	if !ok {
-		return 0, nil, nil
+		return 0, nil, nil, false, nil
 	}
 
 	serverHello, ok := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello)
 	if !ok {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+		return 0, nil, nil, true, newFlightParseFailure(alert.InternalError, nil)
 	}
 
-	if IsHelloRetryRequest(serverHello) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
-			dtlserrors.ErrUnexpectedSecondHelloRetryRequest
-	}
+	return seq, serverHello, items, true, nil
+}
 
-	if !serverHello.Version.Equal(protocol.Version1_2) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
-			dtlserrors.ErrUnsupportedProtocolVersion
-	}
-
-	versions, seenSupportedVersions, err := ServerHelloSelectedVersions(serverHello.Extensions)
-	if err != nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrInvalidServerHello
-	}
-	if !seenSupportedVersions || !versions[0].Equal(protocol.Version1_3) {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
-			dtlserrors.ErrUnsupportedProtocolVersion
+func processFlight3ServerHello(
+	flightCtx *handshakeContext,
+	serverHello *handshake.MessageServerHello,
+) *flightParseFailure {
+	versions, failure := validateFlight3ServerHello(serverHello)
+	if failure != nil {
+		return failure
 	}
 	flightCtx.state.RemoteVersions = versions
 	flightCtx.state.LocalVersion = protocol.Version1_3
 
 	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(serverHello, flightCtx.cfg)
 	if err != nil {
-		return 0, dtlsAlert, err
+		return &flightParseFailure{alert: dtlsAlert, err: err}
 	}
 	flightCtx.state.CipherSuite = selectedCipherSuite
 	flightCtx.state.RemoteRandom = serverHello.Random
 	flightCtx.cfg.Log.Tracef("[handshake13] use cipher suite: %s", selectedCipherSuite.String())
 
-	var serverShare *extension.KeyShareEntry
-	for _, ext := range serverHello.Extensions {
-		keyShare, isKeyShare := ext.(*extension.KeyShare)
-		if isKeyShare && keyShare.ServerShare != nil {
-			serverShare = keyShare.ServerShare
-
-			break
-		}
-	}
+	serverShare := serverHelloKeyShare(serverHello.Extensions)
 	if serverShare == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrServerKeyShareMissing
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareMissing)
 	}
 
+	return applyFlight3ServerKeyShare(flightCtx, serverShare)
+}
+
+func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]protocol.Version, *flightParseFailure) {
+	if IsHelloRetryRequest(serverHello) {
+		return nil, newFlightParseFailure(
+			alert.UnexpectedMessage,
+			dtlserrors.ErrUnexpectedSecondHelloRetryRequest,
+		)
+	}
+
+	if !serverHello.Version.Equal(protocol.Version1_2) {
+		return nil, newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
+	}
+
+	versions, seenSupportedVersions, err := ServerHelloSelectedVersions(serverHello.Extensions)
+	if err != nil {
+		return nil, newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrInvalidServerHello)
+	}
+	if !seenSupportedVersions || !versions[0].Equal(protocol.Version1_3) {
+		return nil, newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
+	}
+
+	return versions, nil
+}
+
+func serverHelloKeyShare(extensions []extension.Extension) *extension.KeyShareEntry {
+	for _, ext := range extensions {
+		keyShare, ok := ext.(*extension.KeyShare)
+		if !ok || keyShare.ServerShare == nil {
+			continue
+		}
+
+		return keyShare.ServerShare
+	}
+
+	return nil
+}
+
+func applyFlight3ServerKeyShare(
+	flightCtx *handshakeContext,
+	serverShare *extension.KeyShareEntry,
+) *flightParseFailure {
 	localKeypair, ok := flightCtx.state.LocalKeypairs[serverShare.Group]
 	if !ok || localKeypair == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-			dtlserrors.ErrServerKeyShareUnknownGroup
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareUnknownGroup)
 	}
 
 	preMasterSecret, err := prf.PreMasterSecret(serverShare.KeyExchange, localKeypair.PrivateKey, serverShare.Group)
 	if err != nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		return newFlightParseFailure(alert.InternalError, err)
 	}
 	flightCtx.state.PreMasterSecret = preMasterSecret
 	flightCtx.state.NamedCurve = serverShare.Group
 	flightCtx.state.RemoteKeyEntries = &[]extension.KeyShareEntry{*serverShare}
 
-	if flightCtx.inboundHandshakeHandler != nil {
-		if err := flightCtx.inboundHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
+	return nil
+}
+
+func initializeFlight3HandshakeProtection(
+	ctx context.Context,
+	conn dtlsflight.Conn,
+	flightCtx *handshakeContext,
+	items []*dtlsflight.HandshakeCacheItem,
+) *flightParseFailure {
+	if failure := handleFlight3InboundHandshake(flightCtx, items); failure != nil {
+		return failure
 	}
 	if flightCtx.handshakeTrafficSecretDeriver != nil {
 		if err := flightCtx.handshakeTrafficSecretDeriver(flightCtx.state); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			return newFlightParseFailure(alert.InternalError, err)
 		}
 	}
-	if flightCtx.handshakeRecordProtectionInitializer != nil {
-		if err := flightCtx.handshakeRecordProtectionInitializer(flightCtx.state); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
-		flightCtx.state.RemoteEpoch.Store(EpochHandshake)
-		if conn != nil {
-			if err := conn.HandleQueuedPackets(ctx); err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-		}
+	if flightCtx.handshakeRecordProtectionInitializer == nil {
+		return nil
+	}
+	if err := flightCtx.handshakeRecordProtectionInitializer(flightCtx.state); err != nil {
+		return newFlightParseFailure(alert.InternalError, err)
+	}
+	flightCtx.state.RemoteEpoch.Store(EpochHandshake)
+	if conn == nil {
+		return nil
+	}
+	if err := conn.HandleQueuedPackets(ctx); err != nil {
+		return newFlightParseFailure(alert.InternalError, err)
 	}
 
+	return nil
+}
+
+func flight3PullEncryptedExtensions(
+	flightCtx *handshakeContext,
+	serverHelloSeq int,
+) (int, bool, *flightParseFailure) {
 	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		serverHelloSeq, flightCtx.state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false, Optional: false}, //nolint:lll
 	)
 	if !ok {
-		return 0, nil, nil
+		return 0, false, nil
 	}
-	_, hasEncryptedExtensions := msgs[handshake.TypeEncryptedExtensions].(*handshake.MessageEncryptedExtensions)
-	if !hasEncryptedExtensions {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
-	}
-	if flightCtx.inboundHandshakeHandler != nil {
-		if err := flightCtx.inboundHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
-	}
-	flightCtx.state.HandshakeRecvSequence = seq
 
-	return Flight5, nil, nil
+	_, ok = msgs[handshake.TypeEncryptedExtensions].(*handshake.MessageEncryptedExtensions)
+	if !ok {
+		return 0, true, newFlightParseFailure(alert.InternalError, nil)
+	}
+	if failure := handleFlight3InboundHandshake(flightCtx, items); failure != nil {
+		return 0, true, failure
+	}
+
+	return seq, true, nil
+}
+
+func handleFlight3InboundHandshake(
+	flightCtx *handshakeContext,
+	items []*dtlsflight.HandshakeCacheItem,
+) *flightParseFailure {
+	if flightCtx.inboundHandshakeHandler == nil {
+		return nil
+	}
+	if err := flightCtx.inboundHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
+		return newFlightParseFailure(alert.InternalError, err)
+	}
+
+	return nil
 }
 
 //nolint:cyclop
