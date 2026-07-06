@@ -18,6 +18,13 @@ const (
 	renegotiationInfoSCSV = 0x00ff
 )
 
+const (
+	EpochInitial     uint16 = 0
+	EpochEarlyData   uint16 = 1
+	EpochHandshake   uint16 = 2
+	EpochApplication uint16 = 3
+)
+
 type flightParser13 func(
 	context.Context,
 	dtlsflight.Conn,

@@ -59,7 +59,11 @@ func flight13GenerateForTest(
 	return gen(nil, flightCtx.state, flightCtx.cache, flightCtx.cfg)
 }
 
-type flightTestConn struct{}
+type flightTestConn struct {
+	localEpoch          uint16
+	setLocalEpochCalled bool
+	handleQueuedPackets func(context.Context) error
+}
 
 func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description) error {
 	return nil
@@ -73,9 +77,16 @@ func (c *flightTestConn) RecvHandshake() <-chan RecvHandshakeState {
 	return nil
 }
 
-func (c *flightTestConn) SetLocalEpoch(uint16) {}
+func (c *flightTestConn) SetLocalEpoch(epoch uint16) {
+	c.localEpoch = epoch
+	c.setLocalEpochCalled = true
+}
 
-func (c *flightTestConn) HandleQueuedPackets(context.Context) error {
+func (c *flightTestConn) HandleQueuedPackets(ctx context.Context) error {
+	if c.handleQueuedPackets != nil {
+		return c.handleQueuedPackets(ctx)
+	}
+
 	return nil
 }
 
@@ -258,7 +269,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	assert.Equal(t, 1, state.HandshakeSendSequence)
 }
 
-func TestHandshakeFSM13PrepareDerivesTrafficSecretsBeforeEncryptedExtensions(t *testing.T) {
+func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	group := cfg.EllipticCurves[0]
 	keypair, err := elliptic.GenerateKeypair(group)
@@ -279,10 +290,13 @@ func TestHandshakeFSM13PrepareDerivesTrafficSecretsBeforeEncryptedExtensions(t *
 	fsm, err := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight4, nil, transcript)
 	require.NoError(t, err)
 
-	nextState, err := fsm.prepare(context.Background(), &flightTestConn{})
+	conn := &flightTestConn{}
+	nextState, err := fsm.prepare(context.Background(), conn)
 	require.NoError(t, err)
 	assert.Equal(t, StateSending, nextState)
 	require.Len(t, fsm.flights, 2)
+	assert.Equal(t, dtlsflight13.EpochHandshake, fsm.flights[1].Record.Header.Epoch)
+	assert.True(t, fsm.flights[1].ShouldEncrypt)
 
 	serverHelloCanonical := canonicalPacketHandshake13(t, fsm.flights[0])
 	encryptedExtensionsCanonical := canonicalPacketHandshake13(t, fsm.flights[1])
@@ -303,6 +317,8 @@ func TestHandshakeFSM13PrepareDerivesTrafficSecretsBeforeEncryptedExtensions(t *
 	require.NoError(t, err)
 	assert.Equal(t, expectedSecrets, state.HandshakeTrafficSecrets13)
 	assert.True(t, state.CipherSuite.IsInitialized())
+	assert.True(t, conn.setLocalEpochCalled)
+	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
 }
 
 func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {

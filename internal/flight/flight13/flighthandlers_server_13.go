@@ -274,9 +274,8 @@ func flight13_0Generate(
 		}
 	}
 
-	var zeroEpoch uint16
-	state.LocalEpoch.Store(zeroEpoch)
-	state.RemoteEpoch.Store(zeroEpoch)
+	state.LocalEpoch.Store(EpochInitial)
+	state.RemoteEpoch.Store(EpochInitial)
 	if len(cfg.EllipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
@@ -548,7 +547,7 @@ func flight13_4Generate(
 			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
 					Version: protocol.Version1_2,
-					Epoch:   1,
+					Epoch:   EpochHandshake,
 				},
 				Content: &handshake.Handshake{
 					Message: &handshake.MessageEncryptedExtensions{},

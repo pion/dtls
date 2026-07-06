@@ -190,10 +190,10 @@ func flight13_1Parse(
 	return Flight3, nil, nil
 }
 
-//nolint:cyclop
+//nolint:cyclop,gocognit
 func flight13_3Parse(
-	_ context.Context,
-	_ dtlsflight.Conn,
+	ctx context.Context,
+	conn dtlsflight.Conn,
 	flightCtx *handshakeContext13,
 ) (Flight, *alert.Alert, error) {
 	serverHelloSeq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
@@ -279,11 +279,17 @@ func flight13_3Parse(
 		if err := flightCtx.handshakeRecordProtectionInitializer(flightCtx.state); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
+		flightCtx.state.RemoteEpoch.Store(EpochHandshake)
+		if conn != nil {
+			if err := conn.HandleQueuedPackets(ctx); err != nil {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+		}
 	}
 
 	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		serverHelloSeq, flightCtx.state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeEncryptedExtensions, Epoch: flightCtx.cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false, Optional: false}, //nolint:lll
 	)
 	if !ok {
 		return 0, nil, nil
@@ -310,9 +316,8 @@ func flight13_1Generate(
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 
-	var zeroEpoch uint16
-	state.LocalEpoch.Store(zeroEpoch)
-	state.RemoteEpoch.Store(zeroEpoch)
+	state.LocalEpoch.Store(EpochInitial)
+	state.RemoteEpoch.Store(EpochInitial)
 	if len(cfg.EllipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}

@@ -1307,6 +1307,24 @@ func (c *Conn) enqueueEncryptedPackets(packet addrPkt) bool {
 	return false
 }
 
+func (c *Conn) maxQueueableFutureEpoch(remoteEpoch uint16) uint16 {
+	maxEpoch := remoteEpoch + 1
+	if remoteEpoch >= dtlsflight13.EpochHandshake {
+		return maxEpoch
+	}
+	if c.state.LocalVersion.Equal(protocol.Version1_3) {
+		return dtlsflight13.EpochHandshake
+	}
+	if !c.state.LocalVersion.Equal(protocol.Version{}) {
+		return maxEpoch
+	}
+	if c.handshakeConfig != nil && c.handshakeConfig.MaxVersion.Equal(protocol.Version1_3) {
+		return dtlsflight13.EpochHandshake
+	}
+
+	return maxEpoch
+}
+
 // nolint:unused
 func (c *Conn) handleIncomingPacket13(
 	ctx context.Context,
@@ -1341,7 +1359,7 @@ func (c *Conn) handleIncomingPacket(
 	// Validate epoch
 	remoteEpoch := c.state.GetRemoteEpoch()
 	if header.Epoch > remoteEpoch {
-		if header.Epoch > remoteEpoch+1 {
+		if header.Epoch > c.maxQueueableFutureEpoch(remoteEpoch) {
 			c.log.Debugf("discarded future packet (epoch: %d, seq: %d)",
 				header.Epoch, header.SequenceNumber,
 			)

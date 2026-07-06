@@ -28,6 +28,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
@@ -3423,6 +3424,44 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	assert.NoError(t, ca.Close())
 	<-done
+}
+
+func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T) {
+	conn := &Conn{
+		fragmentBuffer:         newFragmentBuffer(),
+		handshakeCache:         dtlsflight.NewCache(),
+		log:                    logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		replayProtectionWindow: defaultReplayProtectionWindow,
+		handshakeConfig:        testVersionNegotiationHandshakeConfig13(t),
+		state:                  dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3},
+	}
+	conn.setRemoteEpoch(0)
+
+	rawPacket, err := (&recordlayer.RecordLayer{
+		Header: recordlayer.Header{
+			Version:        protocol.Version1_2,
+			Epoch:          dtlsflight13.EpochHandshake,
+			SequenceNumber: 0,
+		},
+		Content: &handshake.Handshake{
+			Header:  handshake.Header{MessageSequence: 1},
+			Message: &handshake.MessageEncryptedExtensions{},
+		},
+	}).Marshal()
+	assert.NoError(t, err)
+
+	isHandshake, isRetransmit, dtlsAlert, err := conn.handleIncomingPacket(
+		context.Background(),
+		rawPacket,
+		nil,
+		true,
+	)
+	assert.NoError(t, err)
+	assert.Nil(t, dtlsAlert)
+	assert.False(t, isHandshake)
+	assert.False(t, isRetransmit)
+	assert.Len(t, conn.encryptedPackets, 1)
+	assert.Equal(t, rawPacket, conn.encryptedPackets[0].data)
 }
 
 func TestHelloRandom(t *testing.T) {

@@ -59,6 +59,16 @@ func flight13ParseForTest(
 	ctx context.Context,
 	flightCtx *handshakeTestContext13,
 ) (Flight, *alert.Alert, error) {
+	return flight13ParseForTestWithConn(testingT, flight, ctx, nil, flightCtx)
+}
+
+func flight13ParseForTestWithConn(
+	testingT require.TestingT,
+	flight Flight,
+	ctx context.Context,
+	conn dtlsflight.Conn,
+	flightCtx *handshakeTestContext13,
+) (Flight, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {
 		helper.Helper()
 	}
@@ -66,7 +76,7 @@ func flight13ParseForTest(
 	nextFlight, dtlsAlert, err, ok := dtlsflight13.Parse(
 		ctx,
 		flight,
-		nil,
+		conn,
 		flightCtx.state,
 		flightCtx.cache,
 		flightCtx.cfg,
@@ -81,6 +91,22 @@ func flight13ParseForTest(
 	require.True(testingT, ok)
 
 	return nextFlight, dtlsAlert, err
+}
+
+type flight13QueuedPacketConn struct {
+	handleQueuedPackets func(context.Context) error
+}
+
+func (c *flight13QueuedPacketConn) HandleQueuedPackets(ctx context.Context) error {
+	if c.handleQueuedPackets == nil {
+		return nil
+	}
+
+	return c.handleQueuedPackets(ctx)
+}
+
+func (c *flight13QueuedPacketConn) SessionKey() []byte {
+	return nil
 }
 
 func flight13GenerateForTest(
@@ -840,7 +866,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, cfg.InitialEpoch+1, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
 		state:      state,
 		cache:      cache,
@@ -876,6 +902,60 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	assert.Equal(t, expectedSecrets, state.HandshakeTrafficSecrets13)
 	assert.NotEqual(t, state.HandshakeTrafficSecrets13.Client, state.HandshakeTrafficSecrets13.Server)
 	assert.True(t, state.CipherSuite.IsInitialized())
+}
+
+func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := &dtlsstate.State{IsClient: true}
+	transcript := dtlshandshake.NewTranscript()
+	clientHello, _, err := flight13GenerateForTest(t, Flight1, &handshakeTestContext13{state: state, cfg: cfg})
+	require.NoError(t, err)
+	appended, err := dtlshandshake.AppendClientHelloInitialFlights(transcript, clientHello)
+	require.NoError(t, err)
+	require.True(t, appended)
+
+	group := cfg.EllipticCurves[0]
+	serverKeypair, err := elliptic.GenerateKeypair(group)
+	require.NoError(t, err)
+	rawServerHello := marshalServerHello(t, cfg, handshake.Random{
+		RandomBytes: [handshake.RandomBytesLength]byte{0x01},
+	}, []extension.Extension{
+		&extension.SupportedVersions{Versions: []protocol.Version{protocol.Version1_3}, SelectedVersion: true},
+		&extension.KeyShare{ServerShare: &extension.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+	})
+	rawEncryptedExtensions, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: 1},
+		Message: &handshake.MessageEncryptedExtensions{},
+	}).Marshal()
+	require.NoError(t, err)
+
+	cache := dtlsflight.NewCache()
+	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+	drained := false
+	conn := &flight13QueuedPacketConn{
+		handleQueuedPackets: func(context.Context) error {
+			drained = true
+			assert.True(t, state.CipherSuite.IsInitialized())
+			assert.Equal(t, dtlsflight13.EpochHandshake, state.GetRemoteEpoch())
+			cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
+
+			return nil
+		},
+	}
+
+	nextFlight, dtlsAlert, err := flight13ParseForTestWithConn(
+		t, Flight3, context.Background(), conn, &handshakeTestContext13{
+			state:      state,
+			cache:      cache,
+			cfg:        cfg,
+			transcript: transcript,
+		},
+	)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.True(t, drained)
+	assert.Equal(t, Flight5, nextFlight)
+	assert.Equal(t, 2, state.HandshakeRecvSequence)
 }
 
 func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
@@ -914,7 +994,7 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, cfg.InitialEpoch+1, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
 	require.NoError(t, err)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight1, context.Background(), &handshakeTestContext13{
@@ -1004,7 +1084,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, cfg.InitialEpoch+1, 2, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 2, handshake.TypeEncryptedExtensions, false)
 	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
 	require.NoError(t, err)
 
@@ -1057,7 +1137,7 @@ func TestFlight13_3ParseRejectsSecondHelloRetryRequest(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, cfg.InitialEpoch+1, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
 		state: state,
 		cache: cache,
@@ -1102,7 +1182,7 @@ func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, cfg.InitialEpoch+1, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
 		state: state,
 		cache: cache,
@@ -1137,7 +1217,7 @@ func TestFlight13_3ParseRejectsMissingSupportedVersions(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, cfg.InitialEpoch+1, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
 		state: state,
 		cache: cache,
@@ -1168,7 +1248,7 @@ func TestFlight13_3ParseRejectsMissingKeyShare(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, cfg.InitialEpoch+1, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
 		state: state,
 		cache: cache,
@@ -1202,7 +1282,7 @@ func TestFlight13_3ParseRejectsUnofferedKeyShareGroup(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, cfg.InitialEpoch+1, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
 		state: state,
 		cache: cache,
@@ -1934,7 +2014,7 @@ func TestFlight13_4Generate(t *testing.T) {
 
 		encryptedExtensionsHandshake, ok := pkts[1].Record.Content.(*handshake.Handshake)
 		require.True(t, ok)
-		assert.Equal(t, uint16(1), pkts[1].Record.Header.Epoch)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[1].Record.Header.Epoch)
 		assert.True(t, pkts[1].ShouldEncrypt)
 		assert.True(t, pkts[1].ResetLocalSequenceNumber)
 		encryptedExtensions, ok := encryptedExtensionsHandshake.Message.(*handshake.MessageEncryptedExtensions)
@@ -1968,6 +2048,33 @@ func TestFlight13_4Generate(t *testing.T) {
 		require.Nil(t, dtlsAlert)
 		require.Nil(t, pkts)
 	})
+}
+
+func TestFlight13ServerFlight4UsesHandshakeEpoch(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	group := cfg.EllipticCurves[0]
+	keypair, err := elliptic.GenerateKeypair(group)
+	require.NoError(t, err)
+
+	state := &dtlsstate.State{
+		LocalVersion: protocol.Version1_3,
+		CipherSuite:  cfg.LocalCipherSuites[0],
+		LocalKeypair: keypair,
+		LocalRandom:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
+	}
+
+	pkts, dtlsAlert, err := flight13GenerateForTest(
+		t, Flight4, &handshakeTestContext13{state: state, cfg: cfg},
+	)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, pkts, 2)
+
+	assert.Equal(t, uint16(0), pkts[0].Record.Header.Epoch)
+	assert.False(t, pkts[0].ShouldEncrypt)
+	assert.Equal(t, dtlsflight13.EpochHandshake, pkts[1].Record.Header.Epoch)
+	assert.True(t, pkts[1].ShouldEncrypt)
+	assert.True(t, pkts[1].ResetLocalSequenceNumber)
 }
 
 func pushClientHello13(
