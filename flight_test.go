@@ -76,6 +76,7 @@ func flight13ParseForTest(
 		func(state *dtlsstate.State) error {
 			return dtlshandshake.DeriveAndStoreHandshakeTrafficSecrets(state, flightCtx.transcript)
 		},
+		dtlshandshake.InitHandshakeRecordProtection,
 	)
 	require.True(testingT, ok)
 
@@ -874,6 +875,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expectedSecrets, state.HandshakeTrafficSecrets13)
 	assert.NotEqual(t, state.HandshakeTrafficSecrets13.Client, state.HandshakeTrafficSecrets13.Server)
+	assert.True(t, state.CipherSuite.IsInitialized())
 }
 
 func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {

@@ -313,6 +313,9 @@ func (s *fsm13) commitPreparedFlights(conn Conn) error { //nolint:cyclop,nestif
 				return err
 			}
 		}
+		if err := InitHandshakeRecordProtection(s.state); err != nil {
+			return err
+		}
 		if err := AppendOutboundHandshakeFlight(
 			s.transcript,
 			s.state.IsClient,

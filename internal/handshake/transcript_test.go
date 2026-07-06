@@ -327,6 +327,80 @@ func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 	assert.NotEmpty(t, state.HandshakeTrafficSecrets13.Server)
 }
 
+func TestInitHandshakeRecordProtection13(t *testing.T) {
+	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	secretLen := cipherSuite.HashFunc()().Size()
+	state := &dtlsstate.State{
+		CipherSuite: cipherSuite,
+		IsClient:    true,
+		HandshakeTrafficSecrets13: dtlsstate.HandshakeTrafficSecrets13{
+			Client: bytes.Repeat([]byte{0x11}, secretLen),
+			Server: bytes.Repeat([]byte{0x22}, secretLen),
+		},
+	}
+
+	require.False(t, state.CipherSuite.IsInitialized())
+	require.NoError(t, InitHandshakeRecordProtection(state))
+	assert.True(t, state.CipherSuite.IsInitialized())
+	require.NoError(t, InitHandshakeRecordProtection(state))
+}
+
+func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
+	tests := []struct {
+		name  string
+		state *dtlsstate.State
+		err   error
+	}{
+		{
+			name: "nil state",
+			err:  dtlserrors.ErrCipherSuiteNotSet,
+		},
+		{
+			name:  "missing cipher suite",
+			state: &dtlsstate.State{},
+			err:   dtlserrors.ErrCipherSuiteNotSet,
+		},
+		{
+			name: "not tls 13",
+			state: &dtlsstate.State{
+				CipherSuite: ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil),
+				HandshakeTrafficSecrets13: dtlsstate.HandshakeTrafficSecrets13{
+					Client: []byte{0x11},
+					Server: []byte{0x22},
+				},
+			},
+			err: dtlserrors.ErrInvalidCipherSuite,
+		},
+		{
+			name: "missing client secret",
+			state: &dtlsstate.State{
+				CipherSuite: ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil),
+				HandshakeTrafficSecrets13: dtlsstate.HandshakeTrafficSecrets13{
+					Server: []byte{0x22},
+				},
+			},
+			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+		},
+		{
+			name: "missing server secret",
+			state: &dtlsstate.State{
+				CipherSuite: ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil),
+				HandshakeTrafficSecrets13: dtlsstate.HandshakeTrafficSecrets13{
+					Client: []byte{0x11},
+				},
+			},
+			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := InitHandshakeRecordProtection(test.state)
+			require.ErrorIs(t, err, test.err)
+		})
+	}
+}
+
 func TestCertificateVerifyInput13ServerAndClient(t *testing.T) {
 	transcriptHash := bytes.Repeat([]byte{0xa5}, sha256.Size)
 

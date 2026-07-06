@@ -275,6 +275,11 @@ func flight13_3Parse(
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}
+	if flightCtx.handshakeRecordProtectionInitializer != nil {
+		if err := flightCtx.handshakeRecordProtectionInitializer(flightCtx.state); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
 
 	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		serverHelloSeq, flightCtx.state.CipherSuite,

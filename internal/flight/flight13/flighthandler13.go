@@ -37,12 +37,15 @@ type InboundHandshakeHandler func(dtlsconfig.CipherSuite, []*dtlsflight.Handshak
 
 type HandshakeTrafficSecretDeriver func(*dtlsstate.State) error
 
+type HandshakeRecordProtectionInitializer func(*dtlsstate.State) error
+
 type handshakeContext13 struct {
-	state                         *dtlsstate.State
-	cache                         *dtlsflight.Cache
-	cfg                           *dtlsconfig.HandshakeConfig
-	inboundHandshakeHandler       InboundHandshakeHandler
-	handshakeTrafficSecretDeriver HandshakeTrafficSecretDeriver
+	state                                *dtlsstate.State
+	cache                                *dtlsflight.Cache
+	cfg                                  *dtlsconfig.HandshakeConfig
+	inboundHandshakeHandler              InboundHandshakeHandler
+	handshakeTrafficSecretDeriver        HandshakeTrafficSecretDeriver
+	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer
 }
 
 func getFlight13Parser(f Flight) (flightParser13, bool) { //nolint:cyclop
@@ -98,6 +101,7 @@ func Parse(
 	cfg *dtlsconfig.HandshakeConfig,
 	inboundHandshakeHandler InboundHandshakeHandler,
 	handshakeTrafficSecretDeriver HandshakeTrafficSecretDeriver,
+	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer,
 ) (Flight, *alert.Alert, error, bool) {
 	parse, ok := getFlight13Parser(f)
 	if !ok {
@@ -105,11 +109,12 @@ func Parse(
 	}
 
 	nextFlight, dtlsAlert, err := parse(ctx, conn, &handshakeContext13{
-		state:                         state,
-		cache:                         cache,
-		cfg:                           cfg,
-		inboundHandshakeHandler:       inboundHandshakeHandler,
-		handshakeTrafficSecretDeriver: handshakeTrafficSecretDeriver,
+		state:                                state,
+		cache:                                cache,
+		cfg:                                  cfg,
+		inboundHandshakeHandler:              inboundHandshakeHandler,
+		handshakeTrafficSecretDeriver:        handshakeTrafficSecretDeriver,
+		handshakeRecordProtectionInitializer: handshakeRecordProtectionInitializer,
 	})
 
 	return nextFlight, dtlsAlert, err, true

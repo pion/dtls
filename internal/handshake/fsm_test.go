@@ -302,6 +302,7 @@ func TestHandshakeFSM13PrepareDerivesTrafficSecretsBeforeEncryptedExtensions(t *
 	)
 	require.NoError(t, err)
 	assert.Equal(t, expectedSecrets, state.HandshakeTrafficSecrets13)
+	assert.True(t, state.CipherSuite.IsInitialized())
 }
 
 func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {
