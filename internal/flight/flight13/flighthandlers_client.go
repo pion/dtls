@@ -81,7 +81,7 @@ func validateHelloRetryRequestSelectedVersion(extensions []extension.Extension) 
 	return nil
 }
 
-func selectServerHelloCipherSuite13(
+func selectServerHelloCipherSuite(
 	serverHello *handshake.MessageServerHello,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (dtlsconfig.CipherSuite, *alert.Alert, error) {
@@ -110,10 +110,10 @@ func selectServerHelloCipherSuite13(
 }
 
 // nolint:unused,cyclop
-func flight13_1Parse(
+func flight1Parse(
 	ctx context.Context,
 	conn dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
 	state := flightCtx.state
 	cache := flightCtx.cache
@@ -135,7 +135,7 @@ func flight13_1Parse(
 	if !IsHelloRetryRequest(sh) {
 		// Flight1 and flight2 were skipped.
 		// Parse as flight3.
-		return flight13_3Parse(ctx, conn, flightCtx)
+		return flight3Parse(ctx, conn, flightCtx)
 	}
 	// Handle HelloRetryRequest
 
@@ -151,7 +151,7 @@ func flight13_1Parse(
 
 		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
 	}
-	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite13(sh, cfg)
+	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(sh, cfg)
 	if err != nil {
 		return 0, dtlsAlert, err
 	}
@@ -191,10 +191,10 @@ func flight13_1Parse(
 }
 
 //nolint:cyclop,gocognit
-func flight13_3Parse(
+func flight3Parse(
 	ctx context.Context,
 	conn dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
 	serverHelloSeq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
@@ -230,7 +230,7 @@ func flight13_3Parse(
 	flightCtx.state.RemoteVersions = versions
 	flightCtx.state.LocalVersion = protocol.Version1_3
 
-	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite13(serverHello, flightCtx.cfg)
+	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(serverHello, flightCtx.cfg)
 	if err != nil {
 		return 0, dtlsAlert, err
 	}
@@ -309,9 +309,9 @@ func flight13_3Parse(
 }
 
 //nolint:cyclop
-func flight13_1Generate(
+func flight1Generate(
 	_ dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
@@ -451,9 +451,9 @@ func flight13_1Generate(
 }
 
 // nolint:cyclop
-func flight13_3Generate(
+func flight3Generate(
 	_ dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	if len(flightCtx.cfg.LocalSignatureSchemes) < 1 {
 		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes

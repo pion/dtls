@@ -90,7 +90,7 @@ func flight0Parse(
 			if len(ext.EllipticCurves) == 0 {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
 			}
-			namedCurve, ok := selectDTLS12EllipticCurve(cfg.EllipticCurves, ext.EllipticCurves)
+			namedCurve, ok := selectEllipticCurve(cfg.EllipticCurves, ext.EllipticCurves)
 			if !ok {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
 			}
@@ -171,7 +171,7 @@ func handleHelloResume(
 			}
 
 			clientRandom := state.LocalRandom.MarshalFixed()
-			cfg.WriteKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
+			cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
 
 			return Flight4b, nil, nil
 		}
@@ -197,7 +197,7 @@ func flight0Generate(
 	var zeroEpoch uint16
 	state.LocalEpoch.Store(zeroEpoch)
 	state.RemoteEpoch.Store(zeroEpoch)
-	ellipticCurves := dtls12EllipticCurves(cfg.EllipticCurves)
+	ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)
 	if len(ellipticCurves) < 1 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}

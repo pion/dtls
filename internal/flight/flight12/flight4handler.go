@@ -190,7 +190,7 @@ func flight4Parse(
 		if err := state.CipherSuite.Init(state.MasterSecret, clientRandom[:], serverRandom[:], false); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
-		cfg.WriteKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
+		cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
 	}
 
 	if len(state.SessionID) > 0 {

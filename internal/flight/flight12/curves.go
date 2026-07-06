@@ -9,7 +9,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 )
 
-func dtls12EllipticCurves(curves []elliptic.Curve) []elliptic.Curve {
+func supportedEllipticCurves(curves []elliptic.Curve) []elliptic.Curve {
 	if !slices.Contains(curves, elliptic.X25519MLKEM768) {
 		return curves
 	}
@@ -24,8 +24,8 @@ func dtls12EllipticCurves(curves []elliptic.Curve) []elliptic.Curve {
 	return filtered
 }
 
-func selectDTLS12EllipticCurve(localCurves, remoteCurves []elliptic.Curve) (elliptic.Curve, bool) {
-	localCurves = dtls12EllipticCurves(localCurves)
+func selectEllipticCurve(localCurves, remoteCurves []elliptic.Curve) (elliptic.Curve, bool) {
+	localCurves = supportedEllipticCurves(localCurves)
 	for _, remoteCurve := range remoteCurves {
 		if slices.Contains(localCurves, remoteCurve) {
 			return remoteCurve, true

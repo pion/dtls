@@ -13,14 +13,14 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
 
-const keyLogLabelTLS12 = "CLIENT_RANDOM"
+const keyLogLabel = "CLIENT_RANDOM"
 
 const (
 	cookieLength  = 20
 	sessionLength = 32
 )
 
-type flightParser12 func(
+type flightParser func(
 	context.Context,
 	dtlsflight.Conn,
 	*dtlsstate.State,
@@ -35,7 +35,7 @@ type Generator func(
 	*dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error)
 
-func getFlight12Parser(f Flight) (flightParser12, bool) { //nolint:cyclop
+func getFlightParser(f Flight) (flightParser, bool) { //nolint:cyclop
 	switch f {
 	case Flight0:
 		return flight0Parse, true
@@ -95,7 +95,7 @@ func Parse(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error, bool) {
-	parse, ok := getFlight12Parser(f)
+	parse, ok := getFlightParser(f)
 	if !ok {
 		return 0, nil, nil, false
 	}

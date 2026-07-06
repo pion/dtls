@@ -25,13 +25,13 @@ const (
 	EpochApplication uint16 = 3
 )
 
-type flightParser13 func(
+type flightParser func(
 	context.Context,
 	dtlsflight.Conn,
-	*handshakeContext13,
+	*handshakeContext,
 ) (Flight, *alert.Alert, error)
 
-type contextFlightGenerator func(dtlsflight.Conn, *handshakeContext13) ([]*dtlsflight.Packet, *alert.Alert, error)
+type contextFlightGenerator func(dtlsflight.Conn, *handshakeContext) ([]*dtlsflight.Packet, *alert.Alert, error)
 
 type Generator func(
 	dtlsflight.Conn,
@@ -46,7 +46,7 @@ type HandshakeTrafficSecretDeriver func(*dtlsstate.State) error
 
 type HandshakeRecordProtectionInitializer func(*dtlsstate.State) error
 
-type handshakeContext13 struct {
+type handshakeContext struct {
 	state                                *dtlsstate.State
 	cache                                *dtlsflight.Cache
 	cfg                                  *dtlsconfig.HandshakeConfig
@@ -55,45 +55,45 @@ type handshakeContext13 struct {
 	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer
 }
 
-func getFlight13Parser(f Flight) (flightParser13, bool) { //nolint:cyclop
+func getFlightParser(f Flight) (flightParser, bool) { //nolint:cyclop
 	switch f {
 	case Flight0:
-		return flight13_0Parse, true
+		return flight0Parse, true
 	case Flight1:
-		return flight13_1Parse, true
+		return flight1Parse, true
 	case Flight2:
-		return flight13_2Parse, true
+		return flight2Parse, true
 	case Flight3:
-		return flight13_3Parse, true
+		return flight3Parse, true
 	default:
 		return nil, false
 	}
 }
 
-func adaptFlight13Generator(gen contextFlightGenerator) Generator {
+func adaptFlightGenerator(gen contextFlightGenerator) Generator {
 	return func(
 		conn dtlsflight.Conn,
 		state *dtlsstate.State,
 		cache *dtlsflight.Cache,
 		cfg *dtlsconfig.HandshakeConfig,
 	) ([]*dtlsflight.Packet, *alert.Alert, error) {
-		return gen(conn, &handshakeContext13{state: state, cache: cache, cfg: cfg})
+		return gen(conn, &handshakeContext{state: state, cache: cache, cfg: cfg})
 	}
 }
 
 func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) { //nolint:cyclop
 	switch f {
 	case Flight0:
-		return adaptFlight13Generator(flight13_0Generate), true, true
+		return adaptFlightGenerator(flight0Generate), true, true
 	case Flight1:
-		return adaptFlight13Generator(flight13_1Generate), true, true
+		return adaptFlightGenerator(flight1Generate), true, true
 	case Flight2:
 		// HelloRetryRequests must not be retransmitted.
-		return adaptFlight13Generator(flight13_2Generate), false, true
+		return adaptFlightGenerator(flight2Generate), false, true
 	case Flight3:
-		return adaptFlight13Generator(flight13_3Generate), true, true
+		return adaptFlightGenerator(flight3Generate), true, true
 	case Flight4:
-		return adaptFlight13Generator(flight13_4Generate), true, true
+		return adaptFlightGenerator(flight4Generate), true, true
 	default:
 		return nil, false, false
 	}
@@ -110,12 +110,12 @@ func Parse(
 	handshakeTrafficSecretDeriver HandshakeTrafficSecretDeriver,
 	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer,
 ) (Flight, *alert.Alert, error, bool) {
-	parse, ok := getFlight13Parser(f)
+	parse, ok := getFlightParser(f)
 	if !ok {
 		return 0, nil, nil, false
 	}
 
-	nextFlight, dtlsAlert, err := parse(ctx, conn, &handshakeContext13{
+	nextFlight, dtlsAlert, err := parse(ctx, conn, &handshakeContext{
 		state:                                state,
 		cache:                                cache,
 		cfg:                                  cfg,

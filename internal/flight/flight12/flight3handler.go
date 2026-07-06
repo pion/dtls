@@ -225,7 +225,7 @@ func handleResumption(
 	}
 
 	clientRandom := state.LocalRandom.MarshalFixed()
-	cfg.WriteKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
+	cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
 
 	return Flight5b, nil, nil
 }
@@ -310,7 +310,7 @@ func flight3Generate(
 	}
 
 	if state.NamedCurve != 0 {
-		ellipticCurves := dtls12EllipticCurves(cfg.EllipticCurves)
+		ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)
 
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{

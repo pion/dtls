@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFlight12ClientHelloFiltersX25519MLKEM768(t *testing.T) {
+func TestClientHelloFiltersX25519MLKEM768(t *testing.T) {
 	cfg := &dtlsconfig.HandshakeConfig{
 		EllipticCurves: []elliptic.Curve{
 			elliptic.X25519MLKEM768,
@@ -48,7 +48,7 @@ func TestFlight12ClientHelloFiltersX25519MLKEM768(t *testing.T) {
 	require.Equal(t, []elliptic.Curve{elliptic.P256}, supportedGroups.EllipticCurves)
 }
 
-func TestFlight12ServerSelectsClassicalCurveFromClientGroups(t *testing.T) {
+func TestServerSelectsClassicalCurveFromClientGroups(t *testing.T) {
 	cfg := &dtlsconfig.HandshakeConfig{
 		EllipticCurves: []elliptic.Curve{
 			elliptic.X25519MLKEM768,
@@ -56,20 +56,20 @@ func TestFlight12ServerSelectsClassicalCurveFromClientGroups(t *testing.T) {
 		},
 	}
 
-	selected, ok := selectDTLS12EllipticCurve(cfg.EllipticCurves, []elliptic.Curve{
+	selected, ok := selectEllipticCurve(cfg.EllipticCurves, []elliptic.Curve{
 		elliptic.X25519MLKEM768,
 		elliptic.P256,
 	})
 	require.True(t, ok)
 	require.Equal(t, elliptic.P256, selected)
 
-	_, ok = selectDTLS12EllipticCurve(cfg.EllipticCurves, []elliptic.Curve{
+	_, ok = selectEllipticCurve(cfg.EllipticCurves, []elliptic.Curve{
 		elliptic.X25519MLKEM768,
 	})
 	require.False(t, ok)
 }
 
-func TestFlight12RejectsX25519MLKEM768ServerKeyExchange(t *testing.T) {
+func TestRejectsX25519MLKEM768ServerKeyExchange(t *testing.T) {
 	state := &dtlsstate.State{
 		CipherSuite: ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil),
 	}

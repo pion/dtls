@@ -17,17 +17,17 @@ const (
 func (f Flight) String() string { //nolint:cyclop
 	switch f {
 	case Flight0:
-		return "Flight13 0"
+		return "Flight 0"
 	case Flight1:
-		return "Flight13 1"
+		return "Flight 1"
 	case Flight2:
-		return "Flight13 2"
+		return "Flight 2"
 	case Flight3:
-		return "Flight13 3"
+		return "Flight 3"
 	case Flight4:
-		return "Flight13 4"
+		return "Flight 4"
 	case Flight5:
-		return "Flight13 5"
+		return "Flight 5"
 	default:
 		return "Invalid Flight"
 	}

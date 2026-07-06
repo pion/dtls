@@ -49,65 +49,65 @@ import (
 // | Flight 4c |
 // +-----------+
 
-type clientHello13ExtensionSet struct {
+type clientHelloExtensionSet struct {
 	hasPreSharedKey        bool
 	hasSignatureAlgorithms bool
 	hasSupportedGroups     bool
 }
 
-type clientHello13ExtensionFailure struct {
+type clientHelloExtensionFailure struct {
 	alert *alert.Alert
 	err   error
 }
 
-func newClientHello13ExtensionFailure(
+func newClientHelloExtensionFailure(
 	description alert.Description,
 	err error,
-) *clientHello13ExtensionFailure {
-	return &clientHello13ExtensionFailure{
+) *clientHelloExtensionFailure {
+	return &clientHelloExtensionFailure{
 		alert: &alert.Alert{Level: alert.Fatal, Description: description},
 		err:   err,
 	}
 }
 
-func processClientHello13Extensions(
+func processClientHelloExtensions(
 	state *dtlsstate.State,
 	cfg *dtlsconfig.HandshakeConfig,
 	clientHello *handshake.MessageClientHello,
-) *clientHello13ExtensionFailure {
-	var seen clientHello13ExtensionSet
+) *clientHelloExtensionFailure {
+	var seen clientHelloExtensionSet
 
 	for _, val := range clientHello.Extensions {
-		if failure := processClientHello13SecurityExtension(state, cfg, &seen, val); failure != nil {
+		if failure := processClientHelloSecurityExtension(state, cfg, &seen, val); failure != nil {
 			return failure
 		}
-		processClientHello13StateExtension(state, cfg, val)
+		processClientHelloStateExtension(state, cfg, val)
 	}
 
 	if !seen.hasPreSharedKey && (!seen.hasSignatureAlgorithms || !seen.hasSupportedGroups) {
-		return newClientHello13ExtensionFailure(alert.MissingExtension, dtlserrors.ErrMissingClientHelloExtension)
+		return newClientHelloExtensionFailure(alert.MissingExtension, dtlserrors.ErrMissingClientHelloExtension)
 	}
 
 	return nil
 }
 
-func processClientHello13SecurityExtension(
+func processClientHelloSecurityExtension(
 	state *dtlsstate.State,
 	cfg *dtlsconfig.HandshakeConfig,
-	seen *clientHello13ExtensionSet,
+	seen *clientHelloExtensionSet,
 	val extension.Extension,
-) *clientHello13ExtensionFailure {
+) *clientHelloExtensionFailure {
 	switch ext := val.(type) {
 	case *extension.SupportedEllipticCurves:
 		seen.hasSupportedGroups = true
 		if len(ext.EllipticCurves) == 0 {
-			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
+			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
 		}
 		state.RemoteGroups = ext.EllipticCurves
 	case *extension.UseSRTP:
 		profile, ok := dtlsflight.FindMatchingSRTPProfile(cfg.LocalSRTPProtectionProfiles, ext.ProtectionProfiles)
 		if !ok {
-			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrServerNoMatchingSRTPProfile)
+			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrServerNoMatchingSRTPProfile)
 		}
 		state.SetSRTPProtectionProfile(profile)
 		state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
@@ -116,7 +116,7 @@ func processClientHello13SecurityExtension(
 		state.RemoteSignatureSchemes = ext.SignatureHashAlgorithms
 	case *extension.SupportedVersions:
 		if ext.IsSelectedVersion() {
-			return newClientHello13ExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
+			return newClientHelloExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
 		}
 		state.RemoteVersions = ext.Versions
 	case *extension.PreSharedKey:
@@ -126,7 +126,7 @@ func processClientHello13SecurityExtension(
 	return nil
 }
 
-func processClientHello13StateExtension(
+func processClientHelloStateExtension(
 	state *dtlsstate.State,
 	cfg *dtlsconfig.HandshakeConfig,
 	val extension.Extension,
@@ -156,10 +156,10 @@ func processClientHello13StateExtension(
 }
 
 //nolint:cyclop,gocognit,gocyclo,unused
-func flight13_0Parse(
+func flight0Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
 	state := flightCtx.state
 	cache := flightCtx.cache
@@ -216,7 +216,7 @@ func flight13_0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 
-	if failure := processClientHello13Extensions(state, cfg, clientHello); failure != nil {
+	if failure := processClientHelloExtensions(state, cfg, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
 	}
 
@@ -239,11 +239,11 @@ func flight13_0Parse(
 
 	nextFlight := Flight2
 
-	selectClientKeyShare13(state, cfg)
+	selectClientKeyShare(state, cfg)
 
 	if cfg.InsecureSkipHelloVerify {
-		if _, ok := matchingClientKeyShare13(state, cfg); ok {
-			if failure := generateClientKeyShareSecret13(state, cfg); failure != nil {
+		if _, ok := matchingClientKeyShare(state, cfg); ok {
+			if failure := generateClientKeyShareSecret(state, cfg); failure != nil {
 				return 0, failure.alert, failure.err
 			}
 			nextFlight = Flight4
@@ -260,9 +260,9 @@ func flight13_0Parse(
 }
 
 // nolint:unparam
-func flight13_0Generate(
+func flight0Generate(
 	_ dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
@@ -287,10 +287,10 @@ func flight13_0Generate(
 	return nil, nil, nil
 }
 
-func flight13_2Parse(
+func flight2Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
 	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
@@ -310,7 +310,7 @@ func flight13_2Parse(
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
-	cookie := clientHello13Cookie(clientHello.Extensions)
+	cookie := clientHelloCookie(clientHello.Extensions)
 
 	if len(cookie) == 0 {
 		return 0, nil, nil
@@ -319,10 +319,10 @@ func flight13_2Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
 
-	if failure := processClientHello13Extensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
+	if failure := processClientHelloExtensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	if failure := generateClientKeyShareSecret13(flightCtx.state, flightCtx.cfg); failure != nil {
+	if failure := generateClientKeyShareSecret(flightCtx.state, flightCtx.cfg); failure != nil {
 		return 0, failure.alert, failure.err
 	}
 	if flightCtx.inboundHandshakeHandler != nil {
@@ -335,7 +335,7 @@ func flight13_2Parse(
 	return Flight4, nil, nil
 }
 
-func clientHello13Cookie(extensions []extension.Extension) []byte {
+func clientHelloCookie(extensions []extension.Extension) []byte {
 	for _, ext := range extensions {
 		if cookieExt, ok := ext.(*extension.CookieExt); ok {
 			return cookieExt.Cookie
@@ -345,11 +345,11 @@ func clientHello13Cookie(extensions []extension.Extension) []byte {
 	return nil
 }
 
-func selectClientKeyShare13(
+func selectClientKeyShare(
 	state *dtlsstate.State,
 	cfg *dtlsconfig.HandshakeConfig,
 ) bool {
-	selectedGroup, ok := preferredClientGroup13(state, cfg)
+	selectedGroup, ok := preferredClientGroup(state, cfg)
 	if !ok {
 		return false
 	}
@@ -358,29 +358,29 @@ func selectClientKeyShare13(
 	return true
 }
 
-func generateClientKeyShareSecret13(
+func generateClientKeyShareSecret(
 	state *dtlsstate.State,
 	cfg *dtlsconfig.HandshakeConfig,
-) *clientHello13ExtensionFailure {
-	selectedGroup, ok := preferredClientGroup13(state, cfg)
+) *clientHelloExtensionFailure {
+	selectedGroup, ok := preferredClientGroup(state, cfg)
 	if !ok {
 		if state.RemoteGroups != nil {
-			return newClientHello13ExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
+			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
 		}
 
 		return nil
 	}
 	state.NamedCurve = selectedGroup
 
-	selectedEntry, ok := clientKeyShareForGroup13(state, selectedGroup)
+	selectedEntry, ok := clientKeyShareForGroup(state, selectedGroup)
 	if !ok {
-		return newClientHello13ExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
+		return newClientHelloExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
 	}
 
-	if needsClientKeypair13(state) {
+	if needsClientKeypair(state) {
 		keypair, err := elliptic.GenerateKeypairForPeer(state.NamedCurve, selectedEntry.KeyExchange)
 		if err != nil {
-			return newClientHello13ExtensionFailure(alert.IllegalParameter, err)
+			return newClientHelloExtensionFailure(alert.IllegalParameter, err)
 		}
 		state.LocalKeypair = keypair
 	}
@@ -391,26 +391,26 @@ func generateClientKeyShareSecret13(
 		state.NamedCurve,
 	)
 	if err != nil {
-		return newClientHello13ExtensionFailure(alert.IllegalParameter, err)
+		return newClientHelloExtensionFailure(alert.IllegalParameter, err)
 	}
 	state.PreMasterSecret = preMasterSecret
 
 	return nil
 }
 
-func matchingClientKeyShare13(
+func matchingClientKeyShare(
 	state *dtlsstate.State,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (extension.KeyShareEntry, bool) {
-	selectedGroup, ok := preferredClientGroup13(state, cfg)
+	selectedGroup, ok := preferredClientGroup(state, cfg)
 	if !ok {
 		return extension.KeyShareEntry{}, false
 	}
 
-	return clientKeyShareForGroup13(state, selectedGroup)
+	return clientKeyShareForGroup(state, selectedGroup)
 }
 
-func preferredClientGroup13(
+func preferredClientGroup(
 	state *dtlsstate.State,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (elliptic.Curve, bool) {
@@ -427,7 +427,7 @@ func preferredClientGroup13(
 	return 0, false
 }
 
-func clientKeyShareForGroup13(
+func clientKeyShareForGroup(
 	state *dtlsstate.State,
 	group elliptic.Curve,
 ) (extension.KeyShareEntry, bool) {
@@ -443,15 +443,15 @@ func clientKeyShareForGroup13(
 	return extension.KeyShareEntry{}, false
 }
 
-func needsClientKeypair13(state *dtlsstate.State) bool {
+func needsClientKeypair(state *dtlsstate.State) bool {
 	return state.LocalKeypair == nil ||
 		state.LocalKeypair.Curve != state.NamedCurve ||
 		state.NamedCurve == elliptic.X25519MLKEM768
 }
 
-func flight13_2Generate(
+func flight2Generate(
 	_ dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	flightCtx.state.HandshakeSendSequence = 0
 	if flightCtx.state.CipherSuite == nil {
@@ -501,9 +501,9 @@ func flight13_2Generate(
 	}, nil, nil
 }
 
-func flight13_4Generate(
+func flight4Generate(
 	_ dtlsflight.Conn,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	if flightCtx.state.CipherSuite == nil {
 		return nil, nil, dtlserrors.ErrCipherSuiteUnset

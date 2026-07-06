@@ -413,7 +413,7 @@ func initializeCipherSuite(
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
-	cfg.WriteKeyLog(keyLogLabelTLS12, clientRandom[:], state.MasterSecret)
+	cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
 
 	return nil, nil //nolint
 }
