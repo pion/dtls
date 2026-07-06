@@ -102,6 +102,34 @@ func TestRoutineLeakOnClose(t *testing.T) {
 	// inboundLoop routine should not be leaked.
 }
 
+func TestReadUnblocksOnClose(t *testing.T) {
+	lim := test.TimeOut(5 * time.Second)
+	defer lim.Stop()
+
+	ca, cb, err := pipeMemory()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, cb.Close())
+	}()
+
+	readErr := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := ca.Read(buf)
+		readErr <- err
+	}()
+
+	assert.NoError(t, ca.Close())
+	assert.NoError(t, ca.Close())
+
+	select {
+	case err := <-readErr:
+		assert.ErrorIs(t, err, io.EOF)
+	case <-time.After(time.Second):
+		assert.Fail(t, "Read did not unblock after Close")
+	}
+}
+
 func TestReadWriteDeadline(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(5 * time.Second)
