@@ -155,7 +155,7 @@ func processClientHelloStateExtension(
 	}
 }
 
-//nolint:cyclop,gocognit,gocyclo,unused
+//nolint:cyclop,gocognit,gocyclo
 func flight0Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,

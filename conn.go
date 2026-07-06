@@ -1325,17 +1325,6 @@ func (c *Conn) maxQueueableFutureEpoch(remoteEpoch uint16) uint16 {
 	return maxEpoch
 }
 
-// nolint:unused
-func (c *Conn) handleIncomingPacket13(
-	ctx context.Context,
-	buf []byte,
-	rAddr net.Addr,
-	enqueue bool,
-) (bool, bool, *alert.Alert, error) {
-	// Placeholder function
-	return false, false, nil, nil
-}
-
 //nolint:gocognit,gocyclo,cyclop,maintidx
 func (c *Conn) handleIncomingPacket(
 	ctx context.Context,

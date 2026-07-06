@@ -68,8 +68,8 @@ import (
 
 type fsm13 struct {
 	currentFlight      dtlsflight13.Flight
-	flights            []*dtlsflight.Packet //nolint:unused
-	retransmit         bool                 //nolint:unused
+	flights            []*dtlsflight.Packet
+	retransmit         bool
 	retransmitInterval time.Duration
 	state              *dtlsstate.State
 	cache              *dtlsflight.Cache

@@ -109,7 +109,7 @@ func selectServerHelloCipherSuite(
 	return selectedCipherSuite, nil, nil
 }
 
-// nolint:unused,cyclop
+// nolint:cyclop
 func flight1Parse(
 	ctx context.Context,
 	conn dtlsflight.Conn,
