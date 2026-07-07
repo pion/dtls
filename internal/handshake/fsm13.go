@@ -255,7 +255,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (State, error) {
 	}
 	if dtlsAlert != nil {
 		if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
-			if err != nil {
+			if err == nil {
 				err = alertErr
 			}
 		}
@@ -335,11 +335,88 @@ func (s *fsm13) commitPreparedFlights(conn Conn) error { //nolint:cyclop,nestif
 }
 
 func (s *fsm13) send(ctx context.Context, c Conn) (State, error) {
-	return StateErrored, dtlserrors.ErrStateUnimplemented13
+	if err := c.WritePackets(ctx, s.flights); err != nil {
+		return StateErrored, err
+	}
+
+	return StateWaiting, nil
 }
 
-func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
-	return StateErrored, dtlserrors.ErrStateUnimplemented13
+func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:gocognit,cyclop
+	retransmitTimer := time.NewTimer(s.retransmitInterval)
+	defer retransmitTimer.Stop()
+	for {
+		select {
+		case state := <-conn.RecvHandshake():
+			if !state.IsRetransmit {
+				s.retransmitInterval = s.cfg.InitialRetransmitInterval
+			}
+
+			nextFlight, dtlsAlert, err, ok := dtlsflight13.Parse(
+				ctx,
+				s.currentFlight,
+				conn,
+				s.state,
+				s.cache,
+				s.cfg,
+				func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+					return AppendInboundHandshakeCacheItems(s.transcript, cipherSuite, items)
+				},
+				func(state *dtlsstate.State) error {
+					return DeriveAndStoreHandshakeTrafficSecrets(state, s.transcript)
+				},
+				InitHandshakeRecordProtection,
+			)
+			close(state.Done)
+			if !ok {
+				if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
+					return StateErrored, alertErr
+				}
+
+				return StateErrored, dtlserrors.ErrFlightUnimplemented13
+			}
+			if dtlsAlert != nil {
+				if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
+					if err == nil {
+						err = alertErr
+					}
+				}
+			}
+			if err != nil {
+				return StateErrored, err
+			}
+			if nextFlight == 0 {
+				break
+			}
+			s.cfg.Log.Tracef(
+				"[handshake13:%s] %s -> %s",
+				sideString(s.state.IsClient),
+				s.currentFlight.String(),
+				nextFlight.String(),
+			)
+			s.currentFlight = nextFlight
+
+			return StatePreparing, nil
+
+		case <-retransmitTimer.C:
+			if !s.retransmit {
+				return StateWaiting, nil
+			}
+
+			if !s.cfg.DisableRetransmitBackoff {
+				s.retransmitInterval *= 2
+			}
+			if s.retransmitInterval > time.Second*60 {
+				s.retransmitInterval = time.Second * 60
+			}
+
+			return StateSending, nil
+		case <-ctx.Done():
+			s.retransmitInterval = s.cfg.InitialRetransmitInterval
+
+			return StateErrored, ctx.Err()
+		}
+	}
 }
 
 func (s *fsm13) finish(ctx context.Context, c Conn) (State, error) {

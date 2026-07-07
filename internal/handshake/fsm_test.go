@@ -63,17 +63,29 @@ type flightTestConn struct {
 	localEpoch          uint16
 	setLocalEpochCalled bool
 	handleQueuedPackets func(context.Context) error
+	writePackets        func(context.Context, []*dtlsflight.Packet) error
+	recvHandshake       chan RecvHandshakeState
+	writtenPackets      []*dtlsflight.Packet
 }
 
 func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description) error {
 	return nil
 }
 
-func (c *flightTestConn) WritePackets(context.Context, []*dtlsflight.Packet) error {
+func (c *flightTestConn) WritePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
+	c.writtenPackets = append(c.writtenPackets, pkts...)
+	if c.writePackets != nil {
+		return c.writePackets(ctx, pkts)
+	}
+
 	return nil
 }
 
 func (c *flightTestConn) RecvHandshake() <-chan RecvHandshakeState {
+	if c.recvHandshake != nil {
+		return c.recvHandshake
+	}
+
 	return nil
 }
 
@@ -321,6 +333,96 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
 }
 
+func TestHandshakeFSM13SendsFlight4ProtectedRecords(t *testing.T) {
+	fixture := newNoHRRFlight13Fixture(t)
+	fsm, err := newFSM13(
+		fixture.serverState,
+		dtlsflight.NewCache(),
+		fixture.cfg,
+		dtlsflight13.Flight4,
+		nil,
+		fixture.transcript,
+	)
+	require.NoError(t, err)
+
+	conn := &flightTestConn{}
+	nextState, err := fsm.prepare(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateSending, nextState)
+
+	nextState, err = fsm.send(context.Background(), conn)
+	require.NoError(t, err)
+	assert.Equal(t, StateWaiting, nextState)
+	require.Len(t, conn.writtenPackets, 2)
+
+	assert.False(t, conn.writtenPackets[0].ShouldEncrypt)
+	assert.Equal(t, dtlsflight13.EpochInitial, conn.writtenPackets[0].Record.Header.Epoch)
+	assert.True(t, conn.writtenPackets[1].ShouldEncrypt)
+	assert.True(t, conn.writtenPackets[1].ResetLocalSequenceNumber)
+	assert.Equal(t, dtlsflight13.EpochHandshake, conn.writtenPackets[1].Record.Header.Epoch)
+	assert.True(t, fixture.serverState.CipherSuite.IsInitialized())
+	assert.True(t, conn.setLocalEpochCalled)
+	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
+}
+
+func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
+	fixture := newNoHRRFlight13Fixture(t)
+	cache := dtlsflight.NewCache()
+	pushFlight13HandshakePacketsToCache(t, cache, fixture.serverFlight4, false)
+
+	fsm, err := newFSM13(
+		fixture.clientState,
+		cache,
+		fixture.cfg,
+		dtlsflight13.Flight3,
+		nil,
+		fixture.transcript,
+	)
+	require.NoError(t, err)
+
+	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+	recvState := RecvHandshakeState{Done: make(chan struct{})}
+	conn.recvHandshake <- recvState
+
+	nextState, err := fsm.wait(context.Background(), conn)
+	require.NoError(t, err)
+	assert.Equal(t, StatePreparing, nextState)
+	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
+	assert.Equal(t, 2, fixture.clientState.HandshakeRecvSequence)
+	assert.True(t, fixture.clientState.CipherSuite.IsInitialized())
+	assert.Equal(t, dtlsflight13.EpochHandshake, fixture.clientState.GetRemoteEpoch())
+	assertFlight13RecvDoneClosed(t, recvState)
+	assertFlight13ClientTranscriptThroughEncryptedExtensions(t, fsm.transcript)
+}
+
+func TestHandshakeFSM13NoHRRReachesFlight5AfterEncryptedExtensions(t *testing.T) {
+	fixture := newNoHRRFlight13Fixture(t)
+	cache := dtlsflight.NewCache()
+	pushFlight13HandshakePacketsToCache(t, cache, fixture.serverFlight4, false)
+
+	fsm, err := newFSM13(
+		fixture.clientState,
+		cache,
+		fixture.cfg,
+		dtlsflight13.Flight1,
+		fixture.clientHello,
+		nil,
+	)
+	require.NoError(t, err)
+
+	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+	recvState := RecvHandshakeState{Done: make(chan struct{})}
+	conn.recvHandshake <- recvState
+
+	nextState, err := fsm.wait(context.Background(), conn)
+	require.NoError(t, err)
+	assert.Equal(t, StatePreparing, nextState)
+	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
+	assert.Equal(t, 2, fixture.clientState.HandshakeRecvSequence)
+	assertFlight13RecvDoneClosed(t, recvState)
+	assertFlight13ClientTranscriptThroughEncryptedExtensions(t, fsm.transcript)
+}
+
 func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {
 	t.Helper()
 
@@ -332,6 +434,147 @@ func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {
 	require.NoError(t, err)
 
 	return canonical
+}
+
+type noHRRFlight13Fixture struct {
+	clientState   *dtlsstate.State
+	serverState   *dtlsstate.State
+	cfg           *dtlsconfig.HandshakeConfig
+	clientHello   []*dtlsflight.Packet
+	transcript    *Transcript
+	serverFlight4 []*dtlsflight.Packet
+}
+
+func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
+	t.Helper()
+
+	cfg := testHandshakeConfig13(t)
+	cfg.InsecureSkipHelloVerify = true
+
+	clientState, clientHello, transcript := newFlight13ClientHelloFixture(t, cfg)
+	serverState := &dtlsstate.State{LocalVersion: protocol.Version1_3}
+	serverCache := dtlsflight.NewCache()
+
+	_, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight0, &handshakeContext13{
+		state: serverState,
+		cache: serverCache,
+		cfg:   cfg,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	pushFlight13HandshakePacketsToCache(t, serverCache, clientHello, true)
+
+	nextFlight, dtlsAlert, err, ok := dtlsflight13.Parse(
+		context.Background(),
+		dtlsflight13.Flight0,
+		nil,
+		serverState,
+		serverCache,
+		cfg,
+		nil,
+		nil,
+		nil,
+	)
+	require.True(t, ok)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Equal(t, dtlsflight13.Flight4, nextFlight)
+
+	serverFlight4, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight4, &handshakeContext13{
+		state: serverState,
+		cache: serverCache,
+		cfg:   cfg,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, serverFlight4, 2)
+	setFlight13HandshakeSequence(t, serverFlight4[0], 0)
+	setFlight13HandshakeSequence(t, serverFlight4[1], 1)
+
+	return noHRRFlight13Fixture{
+		clientState:   clientState,
+		serverState:   serverState,
+		cfg:           cfg,
+		clientHello:   clientHello,
+		transcript:    transcript,
+		serverFlight4: serverFlight4,
+	}
+}
+
+func newFlight13ClientHelloFixture(
+	t *testing.T,
+	cfg *dtlsconfig.HandshakeConfig,
+) (*dtlsstate.State, []*dtlsflight.Packet, *Transcript) {
+	t.Helper()
+
+	clientState := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
+	clientHello, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
+		state: clientState,
+		cache: dtlsflight.NewCache(),
+		cfg:   cfg,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, clientHello, 1)
+	setFlight13HandshakeSequence(t, clientHello[0], 0)
+	clientState.HandshakeSendSequence = 1
+
+	transcript := NewTranscript()
+	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, clientHello))
+
+	return clientState, clientHello, transcript
+}
+
+func pushFlight13HandshakePacketsToCache(
+	t *testing.T,
+	cache *dtlsflight.Cache,
+	pkts []*dtlsflight.Packet,
+	isClient bool,
+) {
+	t.Helper()
+
+	for _, p := range pkts {
+		content, ok := p.Record.Content.(*handshake.Handshake)
+		require.True(t, ok)
+		raw, err := content.Marshal()
+		require.NoError(t, err)
+		cache.Push(
+			raw,
+			p.Record.Header.Epoch,
+			content.Header.MessageSequence,
+			content.Message.Type(),
+			isClient,
+		)
+	}
+}
+
+func setFlight13HandshakeSequence(t *testing.T, p *dtlsflight.Packet, seq uint16) {
+	t.Helper()
+
+	content, ok := p.Record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	content.Header.MessageSequence = seq
+}
+
+func assertFlight13RecvDoneClosed(t *testing.T, state RecvHandshakeState) {
+	t.Helper()
+
+	select {
+	case <-state.Done:
+	default:
+		assert.Fail(t, "state.Done is not closed")
+	}
+}
+
+func assertFlight13ClientTranscriptThroughEncryptedExtensions(t *testing.T, transcript *Transcript) {
+	t.Helper()
+
+	require.Len(t, transcript.messageOrder(), 3)
+	assert.Equal(t, []transcriptMessage{
+		{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 0}, Type: handshake.TypeClientHello},
+		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 0}, Type: handshake.TypeServerHello},
+		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 1}, Type: handshake.TypeEncryptedExtensions},
+	}, transcript.messageOrder())
 }
 
 func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {

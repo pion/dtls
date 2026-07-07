@@ -3728,7 +3728,7 @@ func TestDTLS13Enabled(t *testing.T) {
 	_, ok := client.ConnectionState()
 	assert.False(t, ok)
 
-	ctxClient, cancelClient := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxClient, cancelClient := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancelClient()
 	errorChannel := make(chan error)
 	go func() {
@@ -3738,7 +3738,7 @@ func TestDTLS13Enabled(t *testing.T) {
 
 	err = <-errorChannel
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, dtlserrors.ErrStateUnimplemented13)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 
 	// Setup server
 	serverCert, err := selfsign.GenerateSelfSigned()
@@ -3760,7 +3760,7 @@ func TestDTLS13Enabled(t *testing.T) {
 	_, ok = server.ConnectionState()
 	assert.False(t, ok)
 
-	ctxServer, cancelServer := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxServer, cancelServer := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancelServer()
 	go func() {
 		errS := server.HandshakeContext(ctxServer)
@@ -3768,7 +3768,7 @@ func TestDTLS13Enabled(t *testing.T) {
 	}()
 	err = <-errorChannel
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, dtlserrors.ErrStateUnimplemented13)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 // WIP! Tests if the dual stack mode client managed to negotiate a version successfully.
