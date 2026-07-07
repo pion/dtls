@@ -222,7 +222,7 @@ func flight3Parse(
 	if failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	failure = initializeFlight3HandshakeProtection(ctx, conn, flightCtx, items)
+	failure = initializeFlight3HandshakeProtection(ctx, conn, flightCtx, serverHelloSeq, items)
 	if failure != nil {
 		return 0, failure.alert, failure.err
 	}
@@ -345,11 +345,13 @@ func initializeFlight3HandshakeProtection(
 	ctx context.Context,
 	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
+	serverHelloSeq int,
 	items []*dtlsflight.HandshakeCacheItem,
 ) *flightParseFailure {
 	if failure := handleFlight3InboundHandshake(flightCtx, items); failure != nil {
 		return failure
 	}
+	flightCtx.state.HandshakeRecvSequence = serverHelloSeq
 	if flightCtx.handshakeTrafficSecretDeriver != nil {
 		if err := flightCtx.handshakeTrafficSecretDeriver(flightCtx.state); err != nil {
 			return newFlightParseFailure(alert.InternalError, err)

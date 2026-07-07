@@ -47,6 +47,23 @@ func (f *fragmentBuffer) size() int {
 	return f.totalBufferSize
 }
 
+func (f *fragmentBuffer) advanceTo(messageSequence uint16) {
+	if messageSequence <= f.currentMessageSequenceNumber {
+		return
+	}
+
+	for cachedSequence, cachedFragments := range f.cache {
+		if cachedSequence >= messageSequence {
+			continue
+		}
+		f.totalBufferSize -= int(cachedFragments.fragmentsLength)
+		f.totalFragmentCount -= len(cachedFragments.fragmentByOffset)
+		delete(f.cache, cachedSequence)
+	}
+
+	f.currentMessageSequenceNumber = messageSequence
+}
+
 // Attempts to push a DTLS packet to the fragmentBuffer
 // when it returns true it means the fragmentBuffer has inserted and the buffer shouldn't be handled
 // when an error returns it is fatal, and the DTLS connection should be stopped.

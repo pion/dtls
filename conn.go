@@ -2062,6 +2062,7 @@ func (c *Conn) handleIncomingPacket(
 	header := prepared.header
 	markPacketAsValid := prepared.markPacketAsValid
 
+	c.syncFragmentBufferHandshakeSequence()
 	isHandshake, isRetransmit, err := c.fragmentBuffer.push(append([]byte{}, buf...))
 	if err != nil {
 		// Decode error must be silently discarded
@@ -2153,6 +2154,15 @@ func (c *Conn) handleIncomingPacket(
 	}
 
 	return false, false, nil, nil
+}
+
+func (c *Conn) syncFragmentBufferHandshakeSequence() {
+	if c.fragmentBuffer == nil || c.state.HandshakeRecvSequence <= 0 ||
+		c.state.HandshakeRecvSequence > int(^uint16(0)) {
+		return
+	}
+
+	c.fragmentBuffer.advanceTo(uint16(c.state.HandshakeRecvSequence)) //nolint:gosec // G115 checked above.
 }
 
 func (c *Conn) recvHandshake() <-chan dtlshandshake.RecvHandshakeState {

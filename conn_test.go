@@ -4038,9 +4038,11 @@ func TestOpenCiphertextRecordFailsWithTamperedCiphertext(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
 }
 
-func TestOpenCiphertextRecordDispatchesInnerHandshake(t *testing.T) {
+func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithReadProtection(t)
-	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
+	conn.state.HandshakeRecvSequence = 1
+	expectedPlaintext := encryptedExtensionsHandshakeWithSequence(t, 1)
+	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, expectedPlaintext)
 	rawPacket, err := record.Marshal()
 	assert.NoError(t, err)
 
@@ -4050,15 +4052,36 @@ func TestOpenCiphertextRecordDispatchesInnerHandshake(t *testing.T) {
 	assert.True(t, isHandshake)
 	assert.False(t, isRetransmit)
 
-	_, messages, ok := conn.handshakeCache.FullPullMap(0, conn.state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{
-			Typ:      handshake.TypeEncryptedExtensions,
-			Epoch:    dtlsflight13.EpochHandshake,
-			IsClient: false,
-		},
-	)
+	items := conn.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{
+		Typ:      handshake.TypeEncryptedExtensions,
+		Epoch:    dtlsflight13.EpochHandshake,
+		IsClient: false,
+	})
+	if assert.Len(t, items, 1) && assert.NotNil(t, items[0]) {
+		assert.Equal(t, dtlsflight13.EpochHandshake, items[0].Epoch)
+		assert.Equal(t, uint16(1), items[0].MessageSequence)
+		assert.Equal(t, expectedPlaintext, items[0].Data)
+	}
+}
+
+func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithReadProtection(t)
+	const sequenceNumber = uint64(0x1002a)
+	conn.updateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0x10005)
+	expectedPlaintext := encryptedExtensionsHandshakeWithSequence(t, 0)
+	record := sealTestProtectedHandshakeRecordWithSequence(t, peerCipherSuite, expectedPlaintext, sequenceNumber)
+	rawPacket, err := record.Marshal()
+	assert.NoError(t, err)
+
+	prepared, ok := conn.prepareIncomingPacket(rawPacket, nil, true)
 	assert.True(t, ok)
-	assert.IsType(t, &handshake.MessageEncryptedExtensions{}, messages[handshake.TypeEncryptedExtensions])
+	if assert.NotNil(t, prepared.header) {
+		assert.Equal(t, protocol.ContentTypeHandshake, prepared.header.ContentType)
+		assert.Equal(t, dtlsflight13.EpochHandshake, prepared.header.Epoch)
+		assert.Equal(t, sequenceNumber, prepared.header.SequenceNumber)
+		assert.Equal(t, uint16(len(expectedPlaintext)), prepared.header.ContentLen) //nolint:gosec
+		assert.Equal(t, appendProtectedRecordHeader(t, prepared.header, expectedPlaintext), prepared.buf)
+	}
 }
 
 func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.CipherSuiteTLS13) {
@@ -4114,7 +4137,14 @@ func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.CipherSuite
 func encryptedExtensionsHandshake(t *testing.T) []byte {
 	t.Helper()
 
+	return encryptedExtensionsHandshakeWithSequence(t, 0)
+}
+
+func encryptedExtensionsHandshakeWithSequence(t *testing.T, messageSequence uint16) []byte {
+	t.Helper()
+
 	raw, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: messageSequence},
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	assert.NoError(t, err)
@@ -4129,17 +4159,37 @@ func sealTestProtectedHandshakeRecord(
 ) recordlayer.CiphertextRecord13 {
 	t.Helper()
 
+	return sealTestProtectedHandshakeRecordWithSequence(t, cipherSuite, plaintext, 0)
+}
+
+func sealTestProtectedHandshakeRecordWithSequence(
+	t *testing.T,
+	cipherSuite ciphersuite.CipherSuiteTLS13,
+	plaintext []byte,
+	sequenceNumber uint64,
+) recordlayer.CiphertextRecord13 {
+	t.Helper()
+
 	record, err := cipherSuite.Seal(
 		recordlayer.UnifiedHeader{
 			EpochLow: uint8(dtlsflight13.EpochHandshake & recordlayer.TwoLowBitsMask),
 		},
-		0,
+		sequenceNumber,
 		protocol.ContentTypeHandshake,
 		plaintext,
 	)
 	assert.NoError(t, err)
 
 	return record
+}
+
+func appendProtectedRecordHeader(t *testing.T, header *recordlayer.Header, content []byte) []byte {
+	t.Helper()
+
+	headerRaw, err := header.Marshal()
+	assert.NoError(t, err)
+
+	return append(headerRaw, content...)
 }
 
 func openTestProtectedRecord(

@@ -958,6 +958,86 @@ func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(
 	assert.Equal(t, 2, state.HandshakeRecvSequence)
 }
 
+func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cache := dtlsflight.NewCache()
+	conn := &Conn{
+		fragmentBuffer:          newFragmentBuffer(),
+		handshakeCache:          cache,
+		maximumTransmissionUnit: defaultMTU,
+		replayProtectionWindow:  defaultReplayProtectionWindow,
+		log:                     logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		state:                   dtlsstate.State{IsClient: true},
+	}
+	state := &conn.state
+	transcript := dtlshandshake.NewTranscript()
+
+	clientHello, _, err := flight13GenerateForTest(t, Flight1, &handshakeTestContext13{state: state, cfg: cfg})
+	require.NoError(t, err)
+	appended, err := dtlshandshake.AppendClientHelloInitialFlights(transcript, clientHello)
+	require.NoError(t, err)
+	require.True(t, appended)
+	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello[0])
+
+	group := cfg.EllipticCurves[0]
+	serverKeypair, err := elliptic.GenerateKeypair(group)
+	require.NoError(t, err)
+	rawServerHello := marshalServerHello(t, cfg, handshake.Random{
+		RandomBytes: [handshake.RandomBytesLength]byte{0x01},
+	}, []extension.Extension{
+		&extension.SupportedVersions{Versions: []protocol.Version{protocol.Version1_3}, SelectedVersion: true},
+		&extension.KeyShare{ServerShare: &extension.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+	})
+	serverHelloCanonical, err := canonicalHandshake13(rawServerHello)
+	require.NoError(t, err)
+	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+
+	clientKeypair := state.LocalKeypairs[group]
+	require.NotNil(t, clientKeypair)
+	preMasterSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	require.NoError(t, err)
+	secrets, err := deriveHandshakeTrafficSecrets13(
+		cfg.LocalCipherSuites[0].HashFunc(),
+		preMasterSecret,
+		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
+	)
+	require.NoError(t, err)
+	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	require.NoError(t, peerCipherSuite.InitFromTrafficSecrets(secrets.Client, secrets.Server, false))
+
+	rawEncryptedExtensions, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: 1},
+		Message: &handshake.MessageEncryptedExtensions{},
+	}).Marshal()
+	require.NoError(t, err)
+	protectedRecord := sealTestProtectedHandshakeRecord(t, peerCipherSuite, rawEncryptedExtensions)
+	protectedRaw, err := protectedRecord.Marshal()
+	require.NoError(t, err)
+	conn.encryptedPackets = []addrPkt{{data: protectedRaw}}
+
+	nextFlight, dtlsAlert, err := flight13ParseForTestWithConn(
+		t, Flight3, context.Background(), adaptFlightConn(conn), &handshakeTestContext13{
+			state:      state,
+			cache:      cache,
+			cfg:        cfg,
+			transcript: transcript,
+		},
+	)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, Flight5, nextFlight)
+	assert.Equal(t, 2, state.HandshakeRecvSequence)
+
+	items := cache.Pull(dtlsflight.HandshakeCachePullRule{
+		Typ:      handshake.TypeEncryptedExtensions,
+		Epoch:    dtlsflight13.EpochHandshake,
+		IsClient: false,
+	})
+	if assert.Len(t, items, 1) && assert.NotNil(t, items[0]) {
+		assert.Equal(t, rawEncryptedExtensions, items[0].Data)
+	}
+}
+
 func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := &dtlsstate.State{}
