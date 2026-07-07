@@ -71,7 +71,7 @@ func newClientHelloExtensionFailure(
 }
 
 func processClientHelloExtensions(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 	clientHello *handshake.MessageClientHello,
 ) *clientHelloExtensionFailure {
@@ -92,7 +92,7 @@ func processClientHelloExtensions(
 }
 
 func processClientHelloSecurityExtension(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 	seen *clientHelloExtensionSet,
 	val extension.Extension,
@@ -127,19 +127,13 @@ func processClientHelloSecurityExtension(
 }
 
 func processClientHelloStateExtension(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 	val extension.Extension,
 ) {
 	switch ext := val.(type) {
-	case *extension.UseExtendedMasterSecret:
-		if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
-			state.ExtendedMasterSecret = true
-		}
 	case *extension.ServerName:
 		state.ServerName = ext.ServerName // remote server name
-	case *extension.RenegotiationInfo:
-		state.RemoteSupportsRenegotiation = true
 	case *extension.ALPN:
 		state.PeerSupportedProtocols = ext.ProtocolNameList
 	case *extension.ConnectionID:
@@ -201,8 +195,6 @@ func flight0Parse(
 	cipherSuites := []dtlsconfig.CipherSuite{}
 	for _, id := range clientHello.CipherSuiteIDs {
 		if id == renegotiationInfoSCSV {
-			state.RemoteSupportsRenegotiation = true
-
 			continue
 		}
 		if c := ciphersuite.ForID(ciphersuite.ID(id), cfg.CustomCipherSuites); c != nil {
@@ -231,10 +223,6 @@ func flight0Parse(
 	// expect one to be sent.
 	if state.RemoteConnectionID == nil {
 		state.SetLocalConnectionID(nil)
-	}
-
-	if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS //nolint:lll
 	}
 
 	nextFlight := Flight2
@@ -346,20 +334,20 @@ func clientHelloCookie(extensions []extension.Extension) []byte {
 }
 
 func selectClientKeyShare(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 ) bool {
 	selectedGroup, ok := preferredClientGroup(state, cfg)
 	if !ok {
 		return false
 	}
-	state.NamedCurve = selectedGroup
+	state.SelectedGroup = selectedGroup
 
 	return true
 }
 
 func generateClientKeyShareSecret(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 ) *clientHelloExtensionFailure {
 	selectedGroup, ok := preferredClientGroup(state, cfg)
@@ -370,7 +358,7 @@ func generateClientKeyShareSecret(
 
 		return nil
 	}
-	state.NamedCurve = selectedGroup
+	state.SelectedGroup = selectedGroup
 
 	selectedEntry, ok := clientKeyShareForGroup(state, selectedGroup)
 	if !ok {
@@ -378,7 +366,7 @@ func generateClientKeyShareSecret(
 	}
 
 	if needsClientKeypair(state) {
-		keypair, err := elliptic.GenerateKeypairForPeer(state.NamedCurve, selectedEntry.KeyExchange)
+		keypair, err := elliptic.GenerateKeypairForPeer(state.SelectedGroup, selectedEntry.KeyExchange)
 		if err != nil {
 			return newClientHelloExtensionFailure(alert.IllegalParameter, err)
 		}
@@ -388,18 +376,18 @@ func generateClientKeyShareSecret(
 	preMasterSecret, err := prf.PreMasterSecret(
 		selectedEntry.KeyExchange,
 		state.LocalKeypair.PrivateKey,
-		state.NamedCurve,
+		state.SelectedGroup,
 	)
 	if err != nil {
 		return newClientHelloExtensionFailure(alert.IllegalParameter, err)
 	}
-	state.PreMasterSecret = preMasterSecret
+	state.KeyAgreementSecret = preMasterSecret
 
 	return nil
 }
 
 func matchingClientKeyShare(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (extension.KeyShareEntry, bool) {
 	selectedGroup, ok := preferredClientGroup(state, cfg)
@@ -411,7 +399,7 @@ func matchingClientKeyShare(
 }
 
 func preferredClientGroup(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (elliptic.Curve, bool) {
 	if state.RemoteGroups == nil {
@@ -428,7 +416,7 @@ func preferredClientGroup(
 }
 
 func clientKeyShareForGroup(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	group elliptic.Curve,
 ) (extension.KeyShareEntry, bool) {
 	if state.RemoteKeyEntries == nil {
@@ -443,10 +431,10 @@ func clientKeyShareForGroup(
 	return extension.KeyShareEntry{}, false
 }
 
-func needsClientKeypair(state *dtlsstate.State) bool {
+func needsClientKeypair(state *dtlsstate.State13) bool {
 	return state.LocalKeypair == nil ||
-		state.LocalKeypair.Curve != state.NamedCurve ||
-		state.NamedCurve == elliptic.X25519MLKEM768
+		state.LocalKeypair.Curve != state.SelectedGroup ||
+		state.SelectedGroup == elliptic.X25519MLKEM768
 }
 
 func flight2Generate(
@@ -469,9 +457,9 @@ func flight2Generate(
 	})
 	cipherSuiteID := uint16(flightCtx.state.CipherSuite.ID())
 
-	if flightCtx.state.NamedCurve != 0 {
+	if flightCtx.state.SelectedGroup != 0 {
 		exts = append(exts, &extension.KeyShare{
-			SelectedGroup: &flightCtx.state.NamedCurve,
+			SelectedGroup: &flightCtx.state.SelectedGroup,
 		})
 	}
 

@@ -11,6 +11,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -25,6 +26,7 @@ type State struct {
 	localConnectionID         []byte
 	remoteConnectionID        []byte
 	isClient                  bool
+	version                   protocol.Version
 
 	CipherSuiteID      CipherSuiteID
 	PeerCertificates   [][]byte
@@ -34,6 +36,7 @@ type State struct {
 }
 
 type serializedState struct {
+	Version               protocol.Version
 	LocalEpoch            uint16
 	RemoteEpoch           uint16
 	LocalRandom           [handshake.RandomLength]byte
@@ -55,6 +58,9 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 	if internalState.CipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
+	if internalState.LocalVersion.Equal(protocol.Version1_3) {
+		return nil, ErrStateSerializationUnsupported
+	}
 
 	epoch := internalState.GetLocalEpoch()
 
@@ -69,6 +75,7 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 		localConnectionID:     internalState.GetLocalConnectionID(),
 		remoteConnectionID:    internalState.RemoteConnectionID,
 		isClient:              internalState.IsClient,
+		version:               protocol.Version1_2,
 		CipherSuiteID:         internalState.CipherSuite.ID(),
 		PeerCertificates:      internalState.PeerCertificates,
 		IdentityHint:          internalState.IdentityHint,
@@ -82,8 +89,17 @@ func (s *State) serialize() (*serializedState, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
+	if s.version.Equal(protocol.Version1_3) {
+		return nil, ErrStateSerializationUnsupported
+	}
+
+	version := s.version
+	if version.Equal(protocol.Version{}) {
+		version = protocol.Version1_2
+	}
 
 	return &serializedState{
+		Version:               version,
 		LocalEpoch:            s.localEpoch,
 		RemoteEpoch:           s.remoteEpoch,
 		CipherSuiteID:         uint16(s.CipherSuiteID),
@@ -103,6 +119,10 @@ func (s *State) serialize() (*serializedState, error) {
 }
 
 func (s *State) deserialize(serialized serializedState) {
+	s.version = serialized.Version
+	if s.version.Equal(protocol.Version{}) {
+		s.version = protocol.Version1_2
+	}
 	s.localEpoch = serialized.LocalEpoch
 	s.remoteEpoch = serialized.RemoteEpoch
 	s.localRandom.UnmarshalFixed(serialized.LocalRandom)
@@ -152,18 +172,24 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
+	if s.version.Equal(protocol.Version1_3) {
+		return nil, ErrStateSerializationUnsupported
+	}
 
 	state := &dtlsstate.State{
-		LocalRandom:        s.localRandom,
-		RemoteRandom:       s.remoteRandom,
-		MasterSecret:       s.masterSecret,
-		CipherSuite:        cipherSuiteForID(s.CipherSuiteID),
-		RemoteConnectionID: s.remoteConnectionID,
-		IsClient:           s.isClient,
-		PeerCertificates:   s.PeerCertificates,
-		IdentityHint:       s.IdentityHint,
-		SessionID:          s.SessionID,
-		NegotiatedProtocol: s.NegotiatedProtocol,
+		Common: &dtlsstate.Common{
+			LocalRandom:        s.localRandom,
+			RemoteRandom:       s.remoteRandom,
+			CipherSuite:        cipherSuiteForID(s.CipherSuiteID),
+			RemoteConnectionID: s.remoteConnectionID,
+			IsClient:           s.isClient,
+			PeerCertificates:   s.PeerCertificates,
+			IdentityHint:       s.IdentityHint,
+			SessionID:          s.SessionID,
+			NegotiatedProtocol: s.NegotiatedProtocol,
+			LocalVersion:       protocol.Version1_2,
+		},
+		MasterSecret: s.masterSecret,
 	}
 	state.LocalEpoch.Store(s.localEpoch)
 	state.RemoteEpoch.Store(s.remoteEpoch)
@@ -204,6 +230,9 @@ func (s *State) UnmarshalBinary(data []byte) error {
 	var serialized serializedState
 	if err := enc.Decode(&serialized); err != nil {
 		return err
+	}
+	if serialized.Version.Equal(protocol.Version1_3) {
+		return ErrStateSerializationUnsupported
 	}
 
 	s.deserialize(serialized)

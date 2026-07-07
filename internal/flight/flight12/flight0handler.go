@@ -27,7 +27,7 @@ const renegotiationInfoSCSV uint16 = 0x00ff
 func flight0Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
@@ -153,7 +153,7 @@ func flight0Parse(
 
 func handleHelloResume(
 	sessionID []byte,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cfg *dtlsconfig.HandshakeConfig,
 	next Flight,
 ) (Flight, *alert.Alert, error) {
@@ -182,7 +182,7 @@ func handleHelloResume(
 
 func flight0Generate(
 	_ dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {

@@ -9,7 +9,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 )
 
-func InitHandshakeRecordProtection(state *dtlsstate.State) error {
+func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
 	if state == nil || state.CipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -22,7 +22,7 @@ func InitHandshakeRecordProtection(state *dtlsstate.State) error {
 		return nil
 	}
 
-	secrets := state.HandshakeTrafficSecrets13
+	secrets := state.KeySchedule.HandshakeTraffic
 	if len(secrets.Client) == 0 || len(secrets.Server) == 0 {
 		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}

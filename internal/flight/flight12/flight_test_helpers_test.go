@@ -18,7 +18,7 @@ func parseForTest(
 	flight Flight,
 	ctx context.Context,
 	conn dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
@@ -36,7 +36,7 @@ func generateForTest(
 	testingT require.TestingT,
 	flight Flight,
 	conn dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
@@ -48,4 +48,10 @@ func generateForTest(
 	require.True(testingT, ok)
 
 	return gen(conn, state, cache, cfg)
+}
+
+func newTestState12() *dtlsstate.State12 {
+	state := dtlsstate.NewState12(false)
+
+	return &state
 }

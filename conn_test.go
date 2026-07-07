@@ -45,6 +45,7 @@ import (
 	"github.com/pion/transport/v4/dpipe"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -186,7 +187,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		ca, cb, err := pipeMemory()
 		assert.NoError(t, err)
 
-		atomic.StoreUint64(&ca.state.LocalSequenceNumber[1], recordlayer.MaxSequenceNumber)
+		atomic.StoreUint64(&dtlsstate.CommonState(ca.state).LocalSequenceNumber[1], recordlayer.MaxSequenceNumber)
 		_, werr := ca.Write(make([]byte, 100))
 		assert.NoError(t, werr, "Write must send message with maximum sequence number")
 		_, werr = ca.Write(make([]byte, 100))
@@ -202,7 +203,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 
-		atomic.StoreUint64(&ca.state.LocalSequenceNumber[0], recordlayer.MaxSequenceNumber+1)
+		atomic.StoreUint64(&dtlsstate.CommonState(ca.state).LocalSequenceNumber[0], recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
 		werr := ca.writePackets(ctx, []*dtlsflight.Packet{
@@ -494,11 +495,13 @@ func TestExportKeyingMaterial(t *testing.T) {
 	expectedClientKey := []byte{0x87, 0xf0, 0x40, 0x02, 0xf6, 0x1c, 0xf1, 0xfe, 0x8c, 0x77}
 
 	conn := &Conn{
-		state: dtlsstate.State{
-			LocalRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand},
-			RemoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0), RandomBytes: rand},
-			LocalSequenceNumber: []uint64{0, 0},
-			CipherSuite:         &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
+		state: &dtlsstate.State12{
+			Common: &dtlsstate.Common{
+				LocalRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand},
+				RemoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0), RandomBytes: rand},
+				LocalSequenceNumber: []uint64{0, 0},
+				CipherSuite:         &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
+			},
 		},
 	}
 	conn.setLocalEpoch(0)
@@ -532,7 +535,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 	assert.NoError(t, err, "ExportingKeyingMaterial as server error")
 	assert.Equal(t, expectedServerKey, keyingMaterial, "ExportKeyingMaterial client export mismatch")
 
-	conn.state.IsClient = true
+	dtlsstate.CommonState(conn.state).IsClient = true
 	state, ok = conn.ConnectionState()
 	assert.True(t, ok)
 
@@ -1414,13 +1417,13 @@ func TestConnectionID(t *testing.T) {
 				}
 			}()
 
-			assert.True(t, bytes.Equal(tt.clientConnectionID, res.c.state.GetLocalConnectionID()),
+			assert.True(t, bytes.Equal(tt.clientConnectionID, dtlsstate.CommonState(res.c.state).GetLocalConnectionID()),
 				"Unexpected client local connection ID")
-			assert.True(t, bytes.Equal(tt.serverConnectionID, res.c.state.RemoteConnectionID),
+			assert.True(t, bytes.Equal(tt.serverConnectionID, dtlsstate.CommonState(res.c.state).RemoteConnectionID),
 				"Unexpected client remote connection ID")
-			assert.True(t, bytes.Equal(tt.serverConnectionID, server.state.GetLocalConnectionID()),
+			assert.True(t, bytes.Equal(tt.serverConnectionID, dtlsstate.CommonState(server.state).GetLocalConnectionID()),
 				"Unexpected server local connection ID")
-			assert.True(t, bytes.Equal(tt.clientConnectionID, server.state.RemoteConnectionID),
+			assert.True(t, bytes.Equal(tt.clientConnectionID, dtlsstate.CommonState(server.state).RemoteConnectionID),
 				"Unexpected server remote connection ID")
 		})
 	}
@@ -1756,7 +1759,7 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 			}
 			assert.ErrorIsf(t, res.err, test.WantClientError, "TestCipherSuiteConfiguration: Client Error Mismatch '%s'")
 			if test.WantSelectedCipherSuite != 0x00 {
-				assert.Equal(t, test.WantSelectedCipherSuite, res.c.state.CipherSuite.ID(),
+				assert.Equal(t, test.WantSelectedCipherSuite, dtlsstate.CommonState(res.c.state).CipherSuite.ID(),
 					"TestCipherSuiteConfiguration: Server Selected Bad Cipher Suite '%s'", test.Name)
 			}
 		})
@@ -2395,7 +2398,7 @@ func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVe
 
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
 	assert.False(t, ok)
-	assert.Equal(t, protocol.Version{}, conn.state.LocalVersion)
+	assert.Equal(t, protocol.Version{}, dtlsstate.CommonState(conn.state).LocalVersion)
 }
 
 func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupportedVersionsEncoding(t *testing.T) {
@@ -2431,7 +2434,36 @@ func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupported
 
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
 	assert.False(t, ok)
-	assert.Equal(t, protocol.Version{}, conn.state.LocalVersion)
+	assert.Equal(t, protocol.Version{}, dtlsstate.CommonState(conn.state).LocalVersion)
+}
+
+func TestSelectRemoteVersionActivatesChosenState(t *testing.T) {
+	cfg := testVersionNegotiationHandshakeConfig13(t)
+	cfg.MinVersion = protocol.Version1_2
+	cfg.MaxVersion = protocol.Version1_3
+
+	commonState := &dtlsstate.Common{}
+	conn := &Conn{
+		handshakeConfig: cfg,
+		state: &dtlsstate.State12{
+			Common:                commonState,
+			HandshakeSendSequence: 3,
+		},
+	}
+	err := conn.selectRemoteVersion([]protocol.Version{protocol.Version1_3})
+	assert.NoError(t, err)
+	state13, ok := conn.state.(*dtlsstate.State13)
+	assert.True(t, ok)
+	assert.Equal(t, 3, state13.HandshakeSendSequence)
+	assert.NotNil(t, state13.LocalKeypairs)
+	assert.Equal(t, protocol.Version1_3, dtlsstate.CommonState(conn.state).LocalVersion)
+
+	err = conn.selectRemoteVersion([]protocol.Version{protocol.Version1_2})
+	assert.NoError(t, err)
+	state12, ok := conn.state.(*dtlsstate.State12)
+	assert.True(t, ok)
+	assert.Equal(t, 3, state12.HandshakeSendSequence)
+	assert.Equal(t, protocol.Version1_2, dtlsstate.CommonState(conn.state).LocalVersion)
 }
 
 func TestMultipleHelloVerifyRequest(t *testing.T) {
@@ -3455,13 +3487,14 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 }
 
 func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T) {
+	commonState := &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3}
 	conn := &Conn{
 		fragmentBuffer:         newFragmentBuffer(),
 		handshakeCache:         dtlsflight.NewCache(),
 		log:                    logging.NewDefaultLoggerFactory().NewLogger("dtls"),
 		replayProtectionWindow: defaultReplayProtectionWindow,
 		handshakeConfig:        testVersionNegotiationHandshakeConfig13(t),
-		state:                  dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3},
+		state:                  &dtlsstate.State13{Common: commonState},
 	}
 	conn.setRemoteEpoch(0)
 
@@ -4040,7 +4073,9 @@ func TestOpenCiphertextRecordFailsWithTamperedCiphertext(t *testing.T) {
 
 func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithReadProtection(t)
-	conn.state.HandshakeRecvSequence = 1
+	state13, err := dtlsstate.As13(conn.state)
+	require.NoError(t, err)
+	state13.HandshakeRecvSequence = 1
 	expectedPlaintext := encryptedExtensionsHandshakeWithSequence(t, 1)
 	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, expectedPlaintext)
 	rawPacket, err := record.Marshal()
@@ -4095,14 +4130,16 @@ func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.CipherSuit
 	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
 	assert.NoError(t, peerCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
 
+	commonState := &dtlsstate.Common{
+		IsClient:     true,
+		LocalVersion: protocol.Version1_3,
+		CipherSuite:  localCipherSuite,
+	}
+
 	return &Conn{
 		handshakeCache:          dtlsflight.NewCache(),
 		maximumTransmissionUnit: defaultMTU,
-		state: dtlsstate.State{
-			IsClient:     true,
-			LocalVersion: protocol.Version1_3,
-			CipherSuite:  localCipherSuite,
-		},
+		state:                   &dtlsstate.State13{Common: commonState},
 	}, peerCipherSuite
 }
 
@@ -4117,17 +4154,19 @@ func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.CipherSuite
 	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
 	assert.NoError(t, peerCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
 
+	commonState := &dtlsstate.Common{
+		IsClient:     true,
+		LocalVersion: protocol.Version1_3,
+		CipherSuite:  localCipherSuite,
+	}
+
 	conn := &Conn{
 		fragmentBuffer:          newFragmentBuffer(),
 		handshakeCache:          dtlsflight.NewCache(),
 		maximumTransmissionUnit: defaultMTU,
 		replayProtectionWindow:  defaultReplayProtectionWindow,
 		log:                     logging.NewDefaultLoggerFactory().NewLogger("dtls"),
-		state: dtlsstate.State{
-			IsClient:     true,
-			LocalVersion: protocol.Version1_3,
-			CipherSuite:  localCipherSuite,
-		},
+		state:                   &dtlsstate.State13{Common: commonState},
 	}
 	conn.setRemoteEpoch(dtlsflight13.EpochHandshake)
 

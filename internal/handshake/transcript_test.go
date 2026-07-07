@@ -376,10 +376,9 @@ func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
 
 func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
-	state := &dtlsstate.State{
-		CipherSuite:     cipherSuite,
-		PreMasterSecret: bytes.Repeat([]byte{0x11}, sha256.Size),
-	}
+	state := newTestState13(false)
+	state.CipherSuite = cipherSuite
+	state.KeyAgreementSecret = bytes.Repeat([]byte{0x11}, sha256.Size)
 
 	clientHello := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})
 	serverHello := canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})
@@ -391,23 +390,21 @@ func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 
 	transcriptHash, err := transcript.sum()
 	require.NoError(t, err)
-	expected, err := deriveHandshakeTrafficSecrets(cipherSuite.HashFunc(), state.PreMasterSecret, transcriptHash)
+	expected, err := deriveHandshakeTrafficSecrets(cipherSuite.HashFunc(), state.KeyAgreementSecret, transcriptHash)
 	require.NoError(t, err)
-	assert.Equal(t, expected, state.HandshakeTrafficSecrets13)
-	assert.NotEmpty(t, state.HandshakeTrafficSecrets13.Client)
-	assert.NotEmpty(t, state.HandshakeTrafficSecrets13.Server)
+	assert.Equal(t, expected, state.KeySchedule.HandshakeTraffic)
+	assert.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Client)
+	assert.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Server)
 }
 
 func TestInitHandshakeRecordProtection13(t *testing.T) {
 	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 	secretLen := cipherSuite.HashFunc()().Size()
-	state := &dtlsstate.State{
-		CipherSuite: cipherSuite,
-		IsClient:    true,
-		HandshakeTrafficSecrets13: dtlsstate.HandshakeTrafficSecrets13{
-			Client: bytes.Repeat([]byte{0x11}, secretLen),
-			Server: bytes.Repeat([]byte{0x22}, secretLen),
-		},
+	state := newTestState13(true)
+	state.CipherSuite = cipherSuite
+	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
+		Client: bytes.Repeat([]byte{0x11}, secretLen),
+		Server: bytes.Repeat([]byte{0x22}, secretLen),
 	}
 
 	require.False(t, state.CipherSuite.IsInitialized())
@@ -419,7 +416,7 @@ func TestInitHandshakeRecordProtection13(t *testing.T) {
 func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 	tests := []struct {
 		name  string
-		state *dtlsstate.State
+		state *dtlsstate.State13
 		err   error
 	}{
 		{
@@ -428,38 +425,47 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 		},
 		{
 			name:  "missing cipher suite",
-			state: &dtlsstate.State{},
+			state: newTestState13(false),
 			err:   dtlserrors.ErrCipherSuiteNotSet,
 		},
 		{
 			name: "not tls 13",
-			state: &dtlsstate.State{
-				CipherSuite: ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil),
-				HandshakeTrafficSecrets13: dtlsstate.HandshakeTrafficSecrets13{
+			state: func() *dtlsstate.State13 {
+				state := newTestState13(false)
+				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: []byte{0x11},
 					Server: []byte{0x22},
-				},
-			},
+				}
+
+				return state
+			}(),
 			err: dtlserrors.ErrInvalidCipherSuite,
 		},
 		{
 			name: "missing client secret",
-			state: &dtlsstate.State{
-				CipherSuite: ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil),
-				HandshakeTrafficSecrets13: dtlsstate.HandshakeTrafficSecrets13{
+			state: func() *dtlsstate.State13 {
+				state := newTestState13(false)
+				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Server: []byte{0x22},
-				},
-			},
+				}
+
+				return state
+			}(),
 			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
 		},
 		{
 			name: "missing server secret",
-			state: &dtlsstate.State{
-				CipherSuite: ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil),
-				HandshakeTrafficSecrets13: dtlsstate.HandshakeTrafficSecrets13{
+			state: func() *dtlsstate.State13 {
+				state := newTestState13(false)
+				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: []byte{0x11},
-				},
-			},
+				}
+
+				return state
+			}(),
 			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
 		},
 	}
@@ -633,10 +639,9 @@ func TestFinishedFailureDoesNotPoisonTranscript13(t *testing.T) {
 
 func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
-	state := &dtlsstate.State{
-		CipherSuite:     cipherSuite,
-		PreMasterSecret: bytes.Repeat([]byte{0x77}, sha256.Size),
-	}
+	state := newTestState13(false)
+	state.CipherSuite = cipherSuite
+	state.KeyAgreementSecret = bytes.Repeat([]byte{0x77}, sha256.Size)
 	transcript := NewTranscript()
 
 	clientHello := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})
@@ -645,8 +650,8 @@ func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, serverHello))
 
 	require.NoError(t, DeriveAndStoreHandshakeTrafficSecrets(state, transcript))
-	require.NotEmpty(t, state.HandshakeTrafficSecrets13.Client)
-	require.NotEmpty(t, state.HandshakeTrafficSecrets13.Server)
+	require.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Client)
+	require.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Server)
 
 	certificate := canonicalTranscriptHandshake13(handshake.TypeCertificate, []byte{0x03})
 	require.NoError(t, transcript.appendCanonical(transcriptMessageID{
@@ -668,7 +673,7 @@ func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 
 	verifyData, err := finishedVerifyDataFromTranscript(
 		sha256.New,
-		state.HandshakeTrafficSecrets13.Server,
+		state.KeySchedule.HandshakeTraffic.Server,
 		transcript,
 	)
 	require.NoError(t, err)
@@ -676,7 +681,7 @@ func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, verifyFinishedData(
 		sha256.New,
-		state.HandshakeTrafficSecrets13.Server,
+		state.KeySchedule.HandshakeTraffic.Server,
 		finishedTranscriptHash,
 		verifyData,
 	))

@@ -29,7 +29,7 @@ import (
 var testCurves13 = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384} //nolint:gochecknoglobals
 
 type handshakeContext13 struct {
-	state      *dtlsstate.State
+	state      *dtlsstate.State13
 	cache      *dtlsflight.Cache
 	cfg        *dtlsconfig.HandshakeConfig
 	transcript *Transcript
@@ -106,8 +106,14 @@ func (c *flightTestConn) SessionKey() []byte {
 	return nil
 }
 
+func newTestState13(isClient bool) *dtlsstate.State13 {
+	state := dtlsstate.NewState13(isClient)
+
+	return &state
+}
+
 func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
-	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
+	state := newTestState13(true)
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
@@ -123,7 +129,7 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 }
 
 func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
-	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
+	state := newTestState13(true)
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 	cfg.ClientHelloMessageHook = func(ch handshake.MessageClientHello) handshake.Message {
@@ -164,7 +170,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 }
 
 func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testing.T) {
-	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
+	state := newTestState13(true)
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
@@ -198,7 +204,7 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 }
 
 func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
-	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
+	state := newTestState13(true)
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
@@ -211,10 +217,8 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 
 func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &dtlsstate.State{
-		LocalVersion: protocol.Version1_3,
-		CipherSuite:  cfg.LocalCipherSuites[0],
-	}
+	state := newTestState13(false)
+	state.CipherSuite = cfg.LocalCipherSuites[0]
 	cache := dtlsflight.NewCache()
 
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight2, nil, nil)
@@ -231,7 +235,7 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 
 func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
+	state := newTestState13(true)
 	cache := dtlsflight.NewCache()
 
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, nil, nil)
@@ -252,10 +256,8 @@ func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 
 func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscript(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := &dtlsstate.State{
-		LocalVersion: protocol.Version1_3,
-		CipherSuite:  cfg.LocalCipherSuites[0],
-	}
+	state := newTestState13(false)
+	state.CipherSuite = cfg.LocalCipherSuites[0]
 	cache := dtlsflight.NewCache()
 	transcript := NewTranscript()
 	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
@@ -287,13 +289,11 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	keypair, err := elliptic.GenerateKeypair(group)
 	require.NoError(t, err)
 
-	state := &dtlsstate.State{
-		LocalVersion:    protocol.Version1_3,
-		CipherSuite:     cfg.LocalCipherSuites[0],
-		LocalKeypair:    keypair,
-		LocalRandom:     handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
-		PreMasterSecret: []byte{0x01, 0x02, 0x03},
-	}
+	state := newTestState13(false)
+	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.LocalKeypair = keypair
+	state.LocalRandom = handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}}
+	state.KeyAgreementSecret = []byte{0x01, 0x02, 0x03}
 	transcript := NewTranscript()
 	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
@@ -323,11 +323,11 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 
 	expectedSecrets, err := deriveHandshakeTrafficSecrets(
 		state.CipherSuite.HashFunc(),
-		state.PreMasterSecret,
+		state.KeyAgreementSecret,
 		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, expectedSecrets, state.HandshakeTrafficSecrets13)
+	assert.Equal(t, expectedSecrets, state.KeySchedule.HandshakeTraffic)
 	assert.True(t, state.CipherSuite.IsInitialized())
 	assert.True(t, conn.setLocalEpochCalled)
 	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
@@ -437,8 +437,8 @@ func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {
 }
 
 type noHRRFlight13Fixture struct {
-	clientState   *dtlsstate.State
-	serverState   *dtlsstate.State
+	clientState   *dtlsstate.State13
+	serverState   *dtlsstate.State13
 	cfg           *dtlsconfig.HandshakeConfig
 	clientHello   []*dtlsflight.Packet
 	transcript    *Transcript
@@ -452,7 +452,7 @@ func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
 	cfg.InsecureSkipHelloVerify = true
 
 	clientState, clientHello, transcript := newFlight13ClientHelloFixture(t, cfg)
-	serverState := &dtlsstate.State{LocalVersion: protocol.Version1_3}
+	serverState := newTestState13(false)
 	serverCache := dtlsflight.NewCache()
 
 	_, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight0, &handshakeContext13{
@@ -504,10 +504,10 @@ func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
 func newFlight13ClientHelloFixture(
 	t *testing.T,
 	cfg *dtlsconfig.HandshakeConfig,
-) (*dtlsstate.State, []*dtlsflight.Packet, *Transcript) {
+) (*dtlsstate.State13, []*dtlsflight.Packet, *Transcript) {
 	t.Helper()
 
-	clientState := &dtlsstate.State{IsClient: true, LocalVersion: protocol.Version1_3}
+	clientState := newTestState13(true)
 	clientHello, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
 		state: clientState,
 		cache: dtlsflight.NewCache(),

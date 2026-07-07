@@ -23,14 +23,14 @@ const (
 type flightParser func(
 	context.Context,
 	dtlsflight.Conn,
-	*dtlsstate.State,
+	*dtlsstate.State12,
 	*dtlsflight.Cache,
 	*dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error)
 
 type Generator func(
 	dtlsflight.Conn,
-	*dtlsstate.State,
+	*dtlsstate.State12,
 	*dtlsflight.Cache,
 	*dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error)
@@ -91,7 +91,7 @@ func Parse(
 	ctx context.Context,
 	f Flight,
 	conn dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error, bool) {

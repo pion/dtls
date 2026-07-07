@@ -334,8 +334,8 @@ func applyFlight3ServerKeyShare(
 	if err != nil {
 		return newFlightParseFailure(alert.InternalError, err)
 	}
-	flightCtx.state.PreMasterSecret = preMasterSecret
-	flightCtx.state.NamedCurve = serverShare.Group
+	flightCtx.state.KeyAgreementSecret = preMasterSecret
+	flightCtx.state.SelectedGroup = serverShare.Group
 	flightCtx.state.RemoteKeyEntries = &[]extension.KeyShareEntry{*serverShare}
 
 	return nil
@@ -427,7 +427,7 @@ func flight1Generate(
 	if len(cfg.LocalSignatureSchemes) < 1 {
 		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
-	state.NamedCurve = cfg.EllipticCurves[0]
+	state.SelectedGroup = cfg.EllipticCurves[0]
 	state.Cookie = nil
 
 	if err := state.LocalRandom.Populate(); err != nil {
@@ -579,7 +579,7 @@ func flight3Generate(
 		RenegotiatedConnection: 0,
 	})
 
-	if flightCtx.state.NamedCurve != 0 {
+	if flightCtx.state.SelectedGroup != 0 {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
 				EllipticCurves: flightCtx.cfg.EllipticCurves,

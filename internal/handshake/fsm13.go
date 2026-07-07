@@ -71,7 +71,7 @@ type fsm13 struct {
 	flights            []*dtlsflight.Packet
 	retransmit         bool
 	retransmitInterval time.Duration
-	state              *dtlsstate.State
+	state              *dtlsstate.State13
 	cache              *dtlsflight.Cache
 	cfg                *dtlsconfig.HandshakeConfig
 	transcript         *Transcript
@@ -79,7 +79,7 @@ type fsm13 struct {
 }
 
 func NewFSM13(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight13.Flight,
@@ -89,7 +89,7 @@ func NewFSM13(
 }
 
 func newFSM13(
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight13.Flight,
@@ -308,7 +308,8 @@ func (s *fsm13) commitPreparedFlights(conn Conn) error { //nolint:cyclop,nestif
 		); err != nil {
 			return err
 		}
-		if len(s.state.HandshakeTrafficSecrets13.Client) == 0 && len(s.state.HandshakeTrafficSecrets13.Server) == 0 {
+		secrets := s.state.KeySchedule.HandshakeTraffic
+		if len(secrets.Client) == 0 && len(secrets.Server) == 0 {
 			if err := DeriveAndStoreHandshakeTrafficSecrets(s.state, s.transcript); err != nil {
 				return err
 			}
@@ -362,7 +363,7 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
 					return AppendVerifiedInboundHandshakeCacheItems(s.transcript, cipherSuite, items)
 				},
-				func(state *dtlsstate.State) error {
+				func(state *dtlsstate.State13) error {
 					return DeriveAndStoreHandshakeTrafficSecrets(state, s.transcript)
 				},
 				InitHandshakeRecordProtection,

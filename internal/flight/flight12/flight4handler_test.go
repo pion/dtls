@@ -12,7 +12,6 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
-	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -55,9 +54,8 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 	defer report()
 
 	mockConn := &flight4TestMockFlightConn{}
-	state := &dtlsstate.State{
-		CipherSuite: &flight4TestMockCipherSuite{t: t},
-	}
+	state := newTestState12()
+	state.CipherSuite = &flight4TestMockCipherSuite{t: t}
 	cache := dtlsflight.NewCache()
 	cfg := &dtlsconfig.HandshakeConfig{}
 
@@ -135,10 +133,9 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 	assert.NoError(t, err)
 
 	mockConn := &flight4TestMockFlightConn{}
-	state := &dtlsstate.State{
-		CipherSuite:  &flight4TestMockCipherSuite{t: t},
-		LocalKeypair: localKeypair,
-	}
+	state := newTestState12()
+	state.CipherSuite = &flight4TestMockCipherSuite{t: t}
+	state.LocalKeypair = localKeypair
 
 	cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
 	assert.NoError(t, err)

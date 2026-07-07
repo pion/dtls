@@ -35,19 +35,19 @@ type contextFlightGenerator func(dtlsflight.Conn, *handshakeContext) ([]*dtlsfli
 
 type Generator func(
 	dtlsflight.Conn,
-	*dtlsstate.State,
+	*dtlsstate.State13,
 	*dtlsflight.Cache,
 	*dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error)
 
 type InboundHandshakeHandler func(dtlsconfig.CipherSuite, []*dtlsflight.HandshakeCacheItem) error
 
-type HandshakeTrafficSecretDeriver func(*dtlsstate.State) error
+type HandshakeTrafficSecretDeriver func(*dtlsstate.State13) error
 
-type HandshakeRecordProtectionInitializer func(*dtlsstate.State) error
+type HandshakeRecordProtectionInitializer func(*dtlsstate.State13) error
 
 type handshakeContext struct {
-	state                                *dtlsstate.State
+	state                                *dtlsstate.State13
 	cache                                *dtlsflight.Cache
 	cfg                                  *dtlsconfig.HandshakeConfig
 	inboundHandshakeHandler              InboundHandshakeHandler
@@ -73,7 +73,7 @@ func getFlightParser(f Flight) (flightParser, bool) { //nolint:cyclop
 func adaptFlightGenerator(gen contextFlightGenerator) Generator {
 	return func(
 		conn dtlsflight.Conn,
-		state *dtlsstate.State,
+		state *dtlsstate.State13,
 		cache *dtlsflight.Cache,
 		cfg *dtlsconfig.HandshakeConfig,
 	) ([]*dtlsflight.Packet, *alert.Alert, error) {
@@ -103,7 +103,7 @@ func Parse(
 	ctx context.Context,
 	f Flight,
 	conn dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State13,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	inboundHandshakeHandler InboundHandshakeHandler,

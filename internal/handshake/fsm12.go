@@ -56,14 +56,14 @@ type fsm12 struct {
 	flights            []*dtlsflight.Packet
 	retransmit         bool
 	retransmitInterval time.Duration
-	state              *dtlsstate.State
+	state              *dtlsstate.State12
 	cache              *dtlsflight.Cache
 	cfg                *dtlsconfig.HandshakeConfig
 	closed             chan struct{}
 }
 
 func NewFSM12(
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight12.Flight,
@@ -73,7 +73,7 @@ func NewFSM12(
 }
 
 func newFSM12(
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight12.Flight,

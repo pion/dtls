@@ -22,7 +22,7 @@ import (
 func flight4bParse(
 	_ context.Context,
 	_ dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
@@ -60,7 +60,7 @@ func flight4bParse(
 //nolint:cyclop
 func flight4bGenerate(
 	_ dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {

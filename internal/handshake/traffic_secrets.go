@@ -28,29 +28,29 @@ const (
 func deriveHandshakeTrafficSecrets(
 	hashFunc func() hash.Hash,
 	preMasterSecret, transcriptHash []byte,
-) (dtlsstate.HandshakeTrafficSecrets13, error) {
+) (dtlsstate.HandshakeTrafficSecrets, error) {
 	hashSize, err := hashSize13(hashFunc)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets13{}, err
+		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
 	if len(preMasterSecret) == 0 || len(transcriptHash) != hashSize {
-		return dtlsstate.HandshakeTrafficSecrets13{}, dtlserrors.ErrLengthMismatch
+		return dtlsstate.HandshakeTrafficSecrets{}, dtlserrors.ErrLengthMismatch
 	}
 
 	zeroSecret := make([]byte, hashSize)
 	earlySecret, err := keyschedule.HkdfExtract(hashFunc, nil, zeroSecret)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets13{}, err
+		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
 
 	derivedSecret, err := keyschedule.DeriveSecret(hashFunc, earlySecret, derivedSecretLabel13, nil)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets13{}, err
+		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
 
 	handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedSecret, preMasterSecret)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets13{}, err
+		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
 
 	clientSecret, err := keyschedule.HkdfExpandLabel(
@@ -61,7 +61,7 @@ func deriveHandshakeTrafficSecrets(
 		hashSize,
 	)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets13{}, err
+		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
 
 	serverSecret, err := keyschedule.HkdfExpandLabel(
@@ -72,10 +72,10 @@ func deriveHandshakeTrafficSecrets(
 		hashSize,
 	)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets13{}, err
+		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
 
-	return dtlsstate.HandshakeTrafficSecrets13{
+	return dtlsstate.HandshakeTrafficSecrets{
 		Client: clientSecret,
 		Server: serverSecret,
 	}, nil
@@ -83,7 +83,7 @@ func deriveHandshakeTrafficSecrets(
 
 // DeriveAndStoreHandshakeTrafficSecrets derives DTLS 1.3 handshake traffic
 // secrets and stores them in state.
-func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State, transcript *Transcript) error {
+func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript *Transcript) error {
 	if state == nil || state.CipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -101,13 +101,13 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State, transcript *T
 
 	secrets, err := deriveHandshakeTrafficSecrets(
 		state.CipherSuite.HashFunc(),
-		state.PreMasterSecret,
+		state.KeyAgreementSecret,
 		transcriptHash,
 	)
 	if err != nil {
 		return err
 	}
-	state.HandshakeTrafficSecrets13 = secrets
+	state.KeySchedule.HandshakeTraffic = secrets
 
 	return nil
 }

@@ -358,6 +358,7 @@ func flightTestPipe(
 	chB := make(chan recvHandshakeState)
 
 	return &flightTestConn{
+			state:          dtlsstate.NewState12(false),
 			handshakeCache: ca,
 			otherEndCache:  cb,
 			recv:           chA,
@@ -367,6 +368,7 @@ func flightTestPipe(
 			retransmit:     clientEndpoint.Retransmit,
 			delay:          clientEndpoint.Delay,
 		}, &flightTestConn{
+			state:          dtlsstate.NewState12(false),
 			handshakeCache: cb,
 			otherEndCache:  ca,
 			recv:           chB,

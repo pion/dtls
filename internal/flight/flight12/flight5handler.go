@@ -26,7 +26,7 @@ import (
 func flight5Parse(
 	_ context.Context,
 	conn dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
@@ -77,7 +77,7 @@ func flight5Parse(
 //nolint:gocognit,cyclop,maintidx
 func flight5Generate(
 	conn dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
@@ -317,7 +317,7 @@ func flight5Generate(
 
 //nolint:gocognit,cyclop
 func initializeCipherSuite(
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	handshakeKeyExchange *handshake.MessageServerKeyExchange,

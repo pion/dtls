@@ -25,7 +25,7 @@ import (
 func flight3Parse(
 	ctx context.Context,
 	conn dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
@@ -186,7 +186,7 @@ func flight3Parse(
 func handleResumption(
 	ctx context.Context,
 	c dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
@@ -233,7 +233,7 @@ func handleResumption(
 //nolint:cyclop
 func handleServerKeyExchange(
 	_ dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	cfg *dtlsconfig.HandshakeConfig,
 	keyExchangeMessage *handshake.MessageServerKeyExchange,
 ) (*alert.Alert, error) {
@@ -290,7 +290,7 @@ func handleServerKeyExchange(
 
 func flight3Generate(
 	_ dtlsflight.Conn,
-	state *dtlsstate.State,
+	state *dtlsstate.State12,
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {

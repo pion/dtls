@@ -18,6 +18,10 @@ import (
 // ErrConnClosed indicates that the connection is closed.
 var ErrConnClosed = dtlserrors.ErrConnClosed //nolint:gochecknoglobals
 
+// ErrStateSerializationUnsupported indicates that the negotiated DTLS version
+// cannot be represented by the public DTLS 1.2-shaped State snapshot.
+var ErrStateSerializationUnsupported = errors.New("dtls: state serialization unsupported for this protocol version") //nolint:gochecknoglobals,lll
+
 // errInvalidCipherSuite indicates an attempt at using an unsupported cipher suite.
 type invalidCipherSuiteError struct {
 	id CipherSuiteID
