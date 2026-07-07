@@ -94,7 +94,7 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State, transcript *T
 		return err
 	}
 
-	transcriptHash, err := transcript.sum()
+	transcriptHash, err := transcript.SnapshotHash()
 	if err != nil {
 		return err
 	}
@@ -112,9 +112,9 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State, transcript *T
 	return nil
 }
 
-// certificateVerifyInputFromTranscript returns the TLS 1.3 CertificateVerify
-// input for the current transcript hash.
-func certificateVerifyInputFromTranscript(
+// CertificateVerifyInputFromTranscript returns the TLS 1.3 CertificateVerify
+// input for the current transcript snapshot.
+func CertificateVerifyInputFromTranscript(
 	isClient bool,
 	transcript *Transcript,
 ) ([]byte, error) {
@@ -122,12 +122,21 @@ func certificateVerifyInputFromTranscript(
 		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 
-	transcriptHash, err := transcript.sum()
+	transcriptHash, err := transcript.SnapshotHash()
 	if err != nil {
 		return nil, err
 	}
 
 	return certificateVerifyInput(isClient, transcriptHash), nil
+}
+
+// certificateVerifyInputFromTranscript returns the TLS 1.3 CertificateVerify
+// input for the current transcript hash.
+func certificateVerifyInputFromTranscript(
+	isClient bool,
+	transcript *Transcript,
+) ([]byte, error) {
+	return CertificateVerifyInputFromTranscript(isClient, transcript)
 }
 
 // certificateVerifyInput returns the TLS 1.3 CertificateVerify input for a
@@ -158,9 +167,9 @@ func finishedKey(hashFunc func() hash.Hash, baseKey []byte) ([]byte, error) {
 	return keyschedule.HkdfExpandLabel(hashFunc, baseKey, finishedLabel13, nil, hashSize)
 }
 
-// finishedVerifyDataFromTranscript returns verify_data for the current
-// transcript hash.
-func finishedVerifyDataFromTranscript(
+// FinishedVerifyDataFromTranscript returns verify_data for the current
+// transcript snapshot.
+func FinishedVerifyDataFromTranscript(
 	hashFunc func() hash.Hash,
 	baseKey []byte,
 	transcript *Transcript,
@@ -169,12 +178,22 @@ func finishedVerifyDataFromTranscript(
 		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 
-	transcriptHash, err := transcript.sum()
+	transcriptHash, err := transcript.SnapshotHash()
 	if err != nil {
 		return nil, err
 	}
 
 	return finishedVerifyData(hashFunc, baseKey, transcriptHash)
+}
+
+// finishedVerifyDataFromTranscript returns verify_data for the current
+// transcript hash.
+func finishedVerifyDataFromTranscript(
+	hashFunc func() hash.Hash,
+	baseKey []byte,
+	transcript *Transcript,
+) ([]byte, error) {
+	return FinishedVerifyDataFromTranscript(hashFunc, baseKey, transcript)
 }
 
 // finishedVerifyData returns TLS 1.3 Finished verify_data.
@@ -211,6 +230,27 @@ func verifyFinishedData(hashFunc func() hash.Hash, baseKey, transcriptHash, veri
 	}
 
 	return nil
+}
+
+// VerifyFinishedDataFromTranscript verifies TLS 1.3 Finished verify_data
+// against the current transcript snapshot. It does not commit the Finished
+// message to the transcript.
+func VerifyFinishedDataFromTranscript(
+	hashFunc func() hash.Hash,
+	baseKey []byte,
+	transcript *Transcript,
+	verifyData []byte,
+) error {
+	if transcript == nil {
+		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+
+	transcriptHash, err := transcript.SnapshotHash()
+	if err != nil {
+		return err
+	}
+
+	return verifyFinishedData(hashFunc, baseKey, transcriptHash, verifyData)
 }
 
 func hashSize13(hashFunc func() hash.Hash) (int, error) {

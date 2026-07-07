@@ -152,19 +152,22 @@ func (t *Transcript) appendCanonical(id transcriptMessageID, message []byte) err
 	return err
 }
 
-// sum returns the current transcript hash.
-func (t *Transcript) sum() ([]byte, error) {
-	if t.h == nil {
+// SnapshotHash returns the transcript hash for all messages committed so far.
+//
+// CertificateVerify and Finished verification must call this before committing
+// the message being verified.
+func (t *Transcript) SnapshotHash() ([]byte, error) {
+	if t == nil || t.h == nil {
 		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 
 	return t.h.Sum(nil), nil
 }
 
-// sumWithSuffix returns the transcript hash with suffix appended, without
-// mutating the transcript.
-func (t *Transcript) sumWithSuffix(suffix []byte) ([]byte, error) {
-	if t.h == nil {
+// SnapshotHashWithSuffix returns the transcript hash with suffix appended,
+// without mutating the transcript.
+func (t *Transcript) SnapshotHashWithSuffix(suffix []byte) ([]byte, error) {
+	if t == nil || t.h == nil {
 		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 
@@ -180,6 +183,17 @@ func (t *Transcript) sumWithSuffix(suffix []byte) ([]byte, error) {
 	}
 
 	return h.Sum(nil), nil
+}
+
+// sum returns the current transcript hash.
+func (t *Transcript) sum() ([]byte, error) {
+	return t.SnapshotHash()
+}
+
+// sumWithSuffix returns the transcript hash with suffix appended, without
+// mutating the transcript.
+func (t *Transcript) sumWithSuffix(suffix []byte) ([]byte, error) {
+	return t.SnapshotHashWithSuffix(suffix)
 }
 
 func (t *Transcript) hasInitialClientHello() bool {

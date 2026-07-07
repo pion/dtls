@@ -5,14 +5,20 @@ package dtlshandshake
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/hmac"
 	"crypto/sha256"
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
+	dtlshash "github.com/pion/dtls/v3/pkg/crypto/hash"
+	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -145,6 +151,45 @@ func TestHandshakeTranscript13DuplicateHandling(t *testing.T) {
 	assert.Equal(t, hashTranscript13(clientHello, serverHello), sum)
 }
 
+func TestAppendVerifiedInboundHandshake13DuplicateHandling(t *testing.T) {
+	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	rawClientHello := rawHandshakeMessage13(t, 0, transcriptClientHelloMessage13([]byte{0x01}))
+	changedClientHello := rawHandshakeMessage13(t, 0, transcriptClientHelloMessage13([]byte{0x02}))
+
+	transcript := NewTranscript()
+	require.NoError(t, transcript.AppendVerifiedInbound(true, cipherSuite, rawClientHello))
+	beforeBytes := transcript.Bytes()
+	beforePending := transcript.pendingMessages()
+
+	require.NoError(t, transcript.AppendVerifiedInbound(true, cipherSuite, rawClientHello))
+	assert.Equal(t, beforeBytes, transcript.Bytes())
+	assert.Equal(t, beforePending, transcript.pendingMessages())
+	assert.Len(t, transcript.messageOrder(), 1)
+
+	err := transcript.AppendVerifiedInbound(true, cipherSuite, changedClientHello)
+	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMessageChanged)
+	assert.Equal(t, beforeBytes, transcript.Bytes())
+	assert.Equal(t, beforePending, transcript.pendingMessages())
+	assert.Len(t, transcript.messageOrder(), 1)
+}
+
+func TestAppendVerifiedInboundHandshakeCacheItems13RequiresExplicitAuthentication(t *testing.T) {
+	transcript := NewTranscript()
+	rawFinished := rawHandshakeMessage13(t, 0, &handshake.MessageFinished{VerifyData: []byte{0x01}})
+
+	err := AppendVerifiedInboundHandshakeCacheItems(transcript, nil, []*dtlsflight.HandshakeCacheItem{
+		{
+			Typ:             handshake.TypeFinished,
+			MessageSequence: 0,
+			Data:            rawFinished,
+		},
+	})
+	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptExplicitAuthenticationRequired)
+	assert.Empty(t, transcript.Bytes())
+	assert.Empty(t, transcript.pendingMessages())
+	assert.Empty(t, transcript.messageOrder())
+}
+
 func TestHandshakeTranscript13RejectsInvalidCanonicalMessage(t *testing.T) {
 	transcript := NewTranscript()
 
@@ -178,6 +223,32 @@ func TestHandshakeTranscript13HelloRetryRequest(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, sum)
 	assert.Equal(t, "MessageHash", handshake.TypeMessageHash.String())
+}
+
+func TestAppendVerifiedInboundHandshake13HelloRetryRequest(t *testing.T) {
+	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	rawClientHello := rawHandshakeMessage13(t, 0, transcriptClientHelloMessage13([]byte{0x01}))
+	rawHelloRetryRequest := rawHelloRetryRequest13(t, cipherSuite, 0)
+	clientHello, err := canonicalHandshake(rawClientHello)
+	require.NoError(t, err)
+	helloRetryRequest, err := canonicalHandshake(rawHelloRetryRequest)
+	require.NoError(t, err)
+
+	transcript := NewTranscript()
+	require.NoError(t, transcript.AppendVerifiedInbound(true, cipherSuite, rawClientHello))
+	require.NoError(t, transcript.AppendVerifiedInbound(false, cipherSuite, rawHelloRetryRequest))
+
+	clientHelloHash := hashTranscript13(clientHello)
+	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHelloHash)
+	expectedTranscript := append(append([]byte(nil), messageHash...), helloRetryRequest...)
+	assert.Equal(t, expectedTranscript, transcript.Bytes())
+
+	sum, err := transcript.SnapshotHash()
+	require.NoError(t, err)
+	assert.Equal(t, hashTranscript13(messageHash, helloRetryRequest), sum)
+	require.Len(t, transcript.messageOrder(), 2)
+	assert.Equal(t, handshake.TypeClientHello, transcript.messageOrder()[0].Type)
+	assert.Equal(t, handshake.TypeServerHello, transcript.messageOrder()[1].Type)
 }
 
 func TestHandshakeTranscript13HelloRetryRequestBinderFork(t *testing.T) {
@@ -460,6 +531,106 @@ func TestFinishedVerifyData13(t *testing.T) {
 		dtlserrors.ErrVerifyDataMismatch)
 }
 
+func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
+	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	signer, ok := cert.PrivateKey.(crypto.Signer)
+	require.True(t, ok)
+
+	transcript := NewTranscript()
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient},
+		canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer},
+		canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer, Seq: 1},
+		canonicalTranscriptHandshake13(handshake.TypeCertificate, []byte{0x03})))
+	require.NoError(t, selectHashIfReady(transcript, cipherSuite))
+
+	beforeBytes := transcript.Bytes()
+	beforeHash, err := transcript.SnapshotHash()
+	require.NoError(t, err)
+
+	verifyInput, err := CertificateVerifyInputFromTranscript(false, transcript)
+	require.NoError(t, err)
+	certVerifySignature, err := dtlscrypto.GenerateCertificateVerify(
+		verifyInput,
+		signer,
+		dtlshash.SHA256,
+		signature.ECDSA,
+	)
+	require.NoError(t, err)
+
+	badSignature := append([]byte(nil), certVerifySignature...)
+	badSignature[len(badSignature)-1] ^= 0xff
+	err = dtlscrypto.VerifyCertificateVerify(
+		verifyInput,
+		dtlshash.SHA256,
+		signature.ECDSA,
+		badSignature,
+		cert.Certificate,
+	)
+	require.ErrorIs(t, err, dtlserrors.ErrKeySignatureMismatch)
+
+	afterHash, err := transcript.SnapshotHash()
+	require.NoError(t, err)
+	assert.Equal(t, beforeBytes, transcript.Bytes())
+	assert.Equal(t, beforeHash, afterHash)
+
+	require.NoError(t, dtlscrypto.VerifyCertificateVerify(
+		verifyInput,
+		dtlshash.SHA256,
+		signature.ECDSA,
+		certVerifySignature,
+		cert.Certificate,
+	))
+	rawCertificateVerify := rawHandshakeMessage13(t, 2, &handshake.MessageCertificateVerify{
+		HashAlgorithm:      dtlshash.SHA256,
+		SignatureAlgorithm: signature.ECDSA,
+		Signature:          certVerifySignature,
+	})
+	require.NoError(t, transcript.AppendVerifiedInbound(false, cipherSuite, rawCertificateVerify))
+	certificateVerify, err := canonicalHandshake(rawCertificateVerify)
+	require.NoError(t, err)
+	assert.Equal(t, append(append([]byte(nil), beforeBytes...), certificateVerify...), transcript.Bytes())
+}
+
+func TestFinishedFailureDoesNotPoisonTranscript13(t *testing.T) {
+	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	baseKey := bytes.Repeat([]byte{0x44}, sha256.Size)
+
+	transcript := NewTranscript()
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient},
+		canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer},
+		canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})))
+	require.NoError(t, selectHashIfReady(transcript, cipherSuite))
+
+	beforeBytes := transcript.Bytes()
+	beforeHash, err := transcript.SnapshotHash()
+	require.NoError(t, err)
+
+	verifyData, err := FinishedVerifyDataFromTranscript(sha256.New, baseKey, transcript)
+	require.NoError(t, err)
+	badVerifyData := append([]byte(nil), verifyData...)
+	badVerifyData[0] ^= 0xff
+
+	err = VerifyFinishedDataFromTranscript(sha256.New, baseKey, transcript, badVerifyData)
+	require.ErrorIs(t, err, dtlserrors.ErrVerifyDataMismatch)
+
+	afterHash, err := transcript.SnapshotHash()
+	require.NoError(t, err)
+	assert.Equal(t, beforeBytes, transcript.Bytes())
+	assert.Equal(t, beforeHash, afterHash)
+
+	require.NoError(t, VerifyFinishedDataFromTranscript(sha256.New, baseKey, transcript, verifyData))
+	rawFinished := rawHandshakeMessage13(t, 2, &handshake.MessageFinished{VerifyData: verifyData})
+	require.NoError(t, transcript.AppendVerifiedInbound(false, cipherSuite, rawFinished))
+	finished, err := canonicalHandshake(rawFinished)
+	require.NoError(t, err)
+	assert.Equal(t, append(append([]byte(nil), beforeBytes...), finished...), transcript.Bytes())
+}
+
 func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 	state := &dtlsstate.State{
@@ -540,6 +711,54 @@ func makeRawHandshake13(tb testing.TB, header handshake.Header, body []byte) []b
 	assert.NoError(tb, err)
 
 	return append(rawHeader, body...)
+}
+
+func rawHandshakeMessage13(tb testing.TB, seq uint16, message handshake.Message) []byte {
+	tb.Helper()
+
+	body, err := message.Marshal()
+	require.NoError(tb, err)
+
+	return makeRawHandshake13(tb, handshake.Header{
+		Type:            message.Type(),
+		Length:          uint32(len(body)), //nolint:gosec // G115
+		MessageSequence: seq,
+		FragmentLength:  uint32(len(body)), //nolint:gosec // G115
+	}, body)
+}
+
+func transcriptClientHelloMessage13(sessionID []byte) *handshake.MessageClientHello {
+	return &handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		SessionID:          sessionID,
+		CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+		CompressionMethods: []*protocol.CompressionMethod{{}},
+	}
+}
+
+func rawHelloRetryRequest13(
+	tb testing.TB,
+	cipherSuite ciphersuite.CipherSuite,
+	seq uint16,
+) []byte {
+	tb.Helper()
+
+	random := handshake.Random{}
+	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
+	cipherSuiteID := uint16(cipherSuite.ID())
+
+	return rawHandshakeMessage13(tb, seq, &handshake.MessageServerHello{
+		Version:           protocol.Version1_2,
+		Random:            random,
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: &protocol.CompressionMethod{},
+		Extensions: []extension.Extension{
+			&extension.SupportedVersions{
+				Versions:        []protocol.Version{protocol.Version1_3},
+				SelectedVersion: true,
+			},
+		},
+	})
 }
 
 func canonicalTranscriptHandshake13(typ handshake.Type, body []byte) []byte {

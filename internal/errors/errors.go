@@ -146,6 +146,9 @@ var ( //nolint:gochecknoglobals,lll
 	ErrHandshakeTranscriptMessageChanged = stderrors.New(
 		"DTLS 1.3 handshake transcript message changed during retransmission",
 	)
+	ErrHandshakeTranscriptExplicitAuthenticationRequired = stderrors.New(
+		"DTLS 1.3 handshake transcript message requires explicit authentication before commit",
+	)
 	ErrHandshakeTranscriptHelloRetryRequestInvalid = stderrors.New(
 		"invalid DTLS 1.3 HelloRetryRequest transcript transition",
 	)

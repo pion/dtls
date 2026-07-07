@@ -81,7 +81,7 @@ func flight13ParseForTestWithConn(
 		flightCtx.cache,
 		flightCtx.cfg,
 		func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
-			return dtlshandshake.AppendInboundHandshakeCacheItems(flightCtx.transcript, cipherSuite, items)
+			return dtlshandshake.AppendVerifiedInboundHandshakeCacheItems(flightCtx.transcript, cipherSuite, items)
 		},
 		func(state *dtlsstate.State) error {
 			return dtlshandshake.DeriveAndStoreHandshakeTrafficSecrets(state, flightCtx.transcript)

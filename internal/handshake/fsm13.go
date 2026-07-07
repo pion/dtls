@@ -360,7 +360,7 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				s.cache,
 				s.cfg,
 				func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
-					return AppendInboundHandshakeCacheItems(s.transcript, cipherSuite, items)
+					return AppendVerifiedInboundHandshakeCacheItems(s.transcript, cipherSuite, items)
 				},
 				func(state *dtlsstate.State) error {
 					return DeriveAndStoreHandshakeTrafficSecrets(state, s.transcript)
@@ -491,7 +491,52 @@ func appendOutboundHandshake13(
 	return appendHandshake13(transcript, sender, cipherSuite, h.Header.MessageSequence, h.Message, canonical)
 }
 
-func AppendInboundHandshakeCacheItems(
+// AppendVerifiedInbound appends an inbound handshake message to the transcript
+// after the caller has validated and accepted it. For CertificateVerify and
+// Finished, callers must authenticate the message against SnapshotHash before
+// calling this method.
+func (t *Transcript) AppendVerifiedInbound(
+	isClient bool,
+	cipherSuite dtlsconfig.CipherSuite,
+	raw []byte,
+) error {
+	if t == nil {
+		return nil
+	}
+
+	canonical, err := canonicalHandshake(raw)
+	if err != nil {
+		return err
+	}
+
+	var keyExchangeAlgorithm types.KeyExchangeAlgorithm
+	if cipherSuite != nil {
+		keyExchangeAlgorithm = cipherSuite.KeyExchangeAlgorithm()
+	}
+
+	h := &handshake.Handshake{
+		KeyExchangeAlgorithm: keyExchangeAlgorithm,
+	}
+	if err := h.Unmarshal(raw); err != nil {
+		return err
+	}
+
+	return appendHandshake13(
+		t,
+		transcriptSenderForSide13(isClient),
+		cipherSuite,
+		h.Header.MessageSequence,
+		h.Message,
+		canonical,
+	)
+}
+
+// AppendVerifiedInboundHandshakeCacheItems appends inbound cache items to the
+// transcript after the caller has validated and accepted each item.
+//
+// Messages that require explicit authentication, such as CertificateVerify and
+// Finished, must be verified first and then appended with AppendVerifiedInbound.
+func AppendVerifiedInboundHandshakeCacheItems(
 	transcript *Transcript,
 	cipherSuite dtlsconfig.CipherSuite,
 	items []*dtlsflight.HandshakeCacheItem,
@@ -500,36 +545,20 @@ func AppendInboundHandshakeCacheItems(
 		return nil
 	}
 
-	var keyExchangeAlgorithm types.KeyExchangeAlgorithm
-	if cipherSuite != nil {
-		keyExchangeAlgorithm = cipherSuite.KeyExchangeAlgorithm()
-	}
 	for _, item := range items {
-		canonical, err := canonicalHandshake(item.Data)
-		if err != nil {
-			return err
+		if requiresExplicitAuthenticationBeforeTranscriptCommit(item.Typ) {
+			return dtlserrors.ErrHandshakeTranscriptExplicitAuthenticationRequired
 		}
-
-		h := &handshake.Handshake{
-			KeyExchangeAlgorithm: keyExchangeAlgorithm,
-		}
-		if err := h.Unmarshal(item.Data); err != nil {
-			return err
-		}
-
-		if err := appendHandshake13(
-			transcript,
-			transcriptSenderForSide13(item.IsClient),
-			cipherSuite,
-			h.Header.MessageSequence,
-			h.Message,
-			canonical,
-		); err != nil {
+		if err := transcript.AppendVerifiedInbound(item.IsClient, cipherSuite, item.Data); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func requiresExplicitAuthenticationBeforeTranscriptCommit(typ handshake.Type) bool {
+	return typ == handshake.TypeCertificateVerify || typ == handshake.TypeFinished
 }
 
 func appendHandshake13(
