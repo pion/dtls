@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite"
 	"github.com/pion/dtls/v3/internal/closer"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -1113,17 +1114,15 @@ func (c *Conn) compactRawPackets(rawPackets [][]byte) [][]byte {
 
 func (c *Conn) processPacket(pkt *dtlsflight.Packet) ([]byte, error) { //nolint:cyclop
 	epoch := pkt.Record.Header.Epoch
-	for len(c.state.LocalSequenceNumber) <= int(epoch) {
-		c.state.LocalSequenceNumber = append(c.state.LocalSequenceNumber, uint64(0))
-	}
-	seq := atomic.AddUint64(&c.state.LocalSequenceNumber[epoch], 1) - 1
-	if seq > recordlayer.MaxSequenceNumber {
-		// RFC 6347 Section 4.1.0
-		// The implementation must either abandon an association or rehandshake
-		// prior to allowing the sequence number to wrap.
-		return nil, dtlserrors.ErrSequenceNumberOverflow
+	seq, err := c.nextLocalSequenceNumber(epoch)
+	if err != nil {
+		return nil, err
 	}
 	pkt.Record.Header.SequenceNumber = seq
+
+	if c.state.LocalVersion.Equal(protocol.Version1_3) && pkt.ShouldEncrypt {
+		return c.processProtectedPacket(pkt, seq)
+	}
 
 	var rawPacket []byte
 	if pkt.ShouldWrapCID { //nolint:nestif
@@ -1176,8 +1175,93 @@ func (c *Conn) processPacket(pkt *dtlsflight.Packet) ([]byte, error) { //nolint:
 	return rawPacket, nil
 }
 
+func (c *Conn) nextLocalSequenceNumber(epoch uint16) (uint64, error) {
+	for len(c.state.LocalSequenceNumber) <= int(epoch) {
+		c.state.LocalSequenceNumber = append(c.state.LocalSequenceNumber, uint64(0))
+	}
+	seq := atomic.AddUint64(&c.state.LocalSequenceNumber[epoch], 1) - 1
+	if seq > recordlayer.MaxSequenceNumber {
+		// RFC 6347 Section 4.1.0
+		// The implementation must either abandon an association or rehandshake
+		// prior to allowing the sequence number to wrap.
+		return 0, dtlserrors.ErrSequenceNumberOverflow
+	}
+
+	return seq, nil
+}
+
+// processProtectedPacket writes a DTLS 1.3 protected record. The helpers below
+// keep the AEAD plaintext at the DTLSInnerPlaintext content level: handshake
+// header plus body for handshake records, and alert bytes for alert records.
+// They intentionally do not pass a marshaled record-layer header as plaintext;
+// application data, ACK, and CID protected writes are left for their own
+// integrations.
+func (c *Conn) processProtectedPacket(pkt *dtlsflight.Packet, seq uint64) ([]byte, error) {
+	if pkt.ShouldWrapCID {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	epoch := pkt.Record.Header.Epoch
+	contentType, plaintext, err := marshalRecordContent(pkt.Record.Content)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.sealRecordContent(epoch, seq, contentType, plaintext)
+}
+
+func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byte, error) {
+	switch content.(type) {
+	case *handshake.Handshake, *alert.Alert:
+	default:
+		return 0, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	plaintext, err := content.Marshal()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return content.ContentType(), plaintext, nil
+}
+
+func (c *Conn) sealRecordContent(
+	epoch uint16,
+	seq uint64,
+	contentType protocol.ContentType,
+	plaintext []byte,
+) ([]byte, error) {
+	tls13CipherSuite, ok := c.state.CipherSuite.(ciphersuite.CipherSuiteTLS13)
+	if !ok || !tls13CipherSuite.IsInitialized() {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	header := recordlayer.UnifiedHeader{
+		EpochLow:       uint8(epoch & 0x3),
+		SequenceNumber: uint16(seq & 0xffff), //nolint:gosec // G115
+		SeqBit:         true,
+		LengthBit:      true,
+	}
+
+	ciphertext, err := tls13CipherSuite.Seal(
+		header,
+		seq,
+		contentType,
+		plaintext,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return ciphertext.Marshal()
+}
+
 //nolint:cyclop
 func (c *Conn) processHandshakePacket(pkt *dtlsflight.Packet, dtlsHandshake *handshake.Handshake) ([][]byte, error) {
+	if c.state.LocalVersion.Equal(protocol.Version1_3) && pkt.ShouldEncrypt {
+		return c.processProtectedHandshakePacket(pkt, dtlsHandshake)
+	}
+
 	rawPackets := make([][]byte, 0)
 
 	handshakeFragments, err := c.fragmentHandshake(dtlsHandshake)
@@ -1185,14 +1269,11 @@ func (c *Conn) processHandshakePacket(pkt *dtlsflight.Packet, dtlsHandshake *han
 		return nil, err
 	}
 	epoch := pkt.Record.Header.Epoch
-	for len(c.state.LocalSequenceNumber) <= int(epoch) {
-		c.state.LocalSequenceNumber = append(c.state.LocalSequenceNumber, uint64(0))
-	}
 
 	for _, handshakeFragment := range handshakeFragments {
-		seq := atomic.AddUint64(&c.state.LocalSequenceNumber[epoch], 1) - 1
-		if seq > recordlayer.MaxSequenceNumber {
-			return nil, dtlserrors.ErrSequenceNumberOverflow
+		seq, err := c.nextLocalSequenceNumber(epoch)
+		if err != nil {
+			return nil, err
 		}
 
 		var rawPacket []byte
@@ -1244,6 +1325,51 @@ func (c *Conn) processHandshakePacket(pkt *dtlsflight.Packet, dtlsHandshake *han
 			if err != nil {
 				return nil, err
 			}
+		}
+
+		rawPackets = append(rawPackets, rawPacket)
+	}
+
+	return rawPackets, nil
+}
+
+func (c *Conn) processProtectedHandshakePacket(
+	pkt *dtlsflight.Packet,
+	dtlsHandshake *handshake.Handshake,
+) ([][]byte, error) {
+	if pkt == nil || pkt.Record == nil || dtlsHandshake == nil {
+		// todo:  this is a temporary error until we handle this in a better way.
+		// nolint:godox
+		return nil, dtlserrors.ErrInvalidPacket
+	}
+	if pkt.ShouldWrapCID {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	handshakeFragments, err := c.fragmentHandshake(dtlsHandshake)
+	if err != nil {
+		return nil, err
+	}
+
+	rawPackets := make([][]byte, 0, len(handshakeFragments))
+	epoch := pkt.Record.Header.Epoch
+	for _, handshakeFragment := range handshakeFragments {
+		seq, err := c.nextLocalSequenceNumber(epoch)
+		if err != nil {
+			return nil, err
+		}
+		pkt.Record.Header.ContentType = protocol.ContentTypeHandshake
+		pkt.Record.Header.ContentLen = uint16(len(handshakeFragment)) //nolint:gosec // G115
+		pkt.Record.Header.SequenceNumber = seq
+
+		rawPacket, err := c.sealRecordContent(
+			epoch,
+			seq,
+			protocol.ContentTypeHandshake,
+			handshakeFragment,
+		)
+		if err != nil {
+			return nil, err
 		}
 
 		rawPackets = append(rawPackets, rawPacket)

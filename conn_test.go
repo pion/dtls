@@ -3928,3 +3928,116 @@ func testDTLSDualStack(t *testing.T, clientOpts []ClientOption, serverOpts []Ser
 	assert.NoError(t, server.Close())
 	assert.NoError(t, client.Close())
 }
+
+func TestProcessProtectedPacketWritesDTLS13HandshakeRecord(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithWriteProtection(t)
+	dtlsHandshake := &handshake.Handshake{
+		Message: &handshake.MessageEncryptedExtensions{},
+	}
+	expectedPlaintext, err := dtlsHandshake.Marshal()
+	assert.NoError(t, err)
+
+	rawPacket, err := conn.processPacket(&dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+				Epoch:   dtlsflight13.EpochHandshake,
+			},
+			Content: dtlsHandshake,
+		},
+		ShouldEncrypt: true,
+	})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, rawPacket)
+	assert.True(t, protocol.IsDTLS13Ciphertext(protocol.ContentType(rawPacket[0])))
+
+	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket, 0)
+	assert.Equal(t, protocol.ContentTypeHandshake, innerPlaintext.RealType)
+	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
+}
+
+func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithWriteProtection(t)
+	dtlsHandshake := &handshake.Handshake{
+		Message: &handshake.MessageEncryptedExtensions{},
+	}
+	expectedPlaintext, err := dtlsHandshake.Marshal()
+	assert.NoError(t, err)
+
+	rawPackets, err := conn.processHandshakePacket(&dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+				Epoch:   dtlsflight13.EpochHandshake,
+			},
+			Content: dtlsHandshake,
+		},
+		ShouldEncrypt: true,
+	}, dtlsHandshake)
+	assert.NoError(t, err)
+	assert.Len(t, rawPackets, 1)
+	assert.True(t, protocol.IsDTLS13Ciphertext(protocol.ContentType(rawPackets[0][0])))
+
+	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPackets[0], 0)
+	assert.Equal(t, protocol.ContentTypeHandshake, innerPlaintext.RealType)
+	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
+}
+
+func TestProcessProtectedPacketRejectsApplicationData(t *testing.T) {
+	conn, _ := newTestConnWithWriteProtection(t)
+
+	_, err := conn.processPacket(&dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+				Epoch:   dtlsflight13.EpochHandshake,
+			},
+			Content: &protocol.ApplicationData{Data: []byte("not yet")},
+		},
+		ShouldEncrypt: true,
+	})
+	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+}
+
+func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.CipherSuiteTLS13) {
+	t.Helper()
+
+	localCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	clientSecret := bytes.Repeat([]byte{0x11}, localCipherSuite.HashFunc()().Size())
+	serverSecret := bytes.Repeat([]byte{0x22}, localCipherSuite.HashFunc()().Size())
+	assert.NoError(t, localCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
+
+	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	assert.NoError(t, peerCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
+
+	return &Conn{
+		handshakeCache:          dtlsflight.NewCache(),
+		maximumTransmissionUnit: defaultMTU,
+		state: dtlsstate.State{
+			IsClient:     true,
+			LocalVersion: protocol.Version1_3,
+			CipherSuite:  localCipherSuite,
+		},
+	}, peerCipherSuite
+}
+
+func openTestProtectedRecord(
+	t *testing.T,
+	cipherSuite ciphersuite.CipherSuiteTLS13,
+	rawPacket []byte,
+	sequenceNumber uint64,
+) recordlayer.InnerPlaintext {
+	t.Helper()
+
+	var ciphertext recordlayer.CiphertextRecord13
+	assert.NoError(t, ciphertext.Unmarshal(rawPacket))
+
+	innerPlaintext, err := cipherSuite.Open(
+		ciphertext.Header,
+		sequenceNumber,
+		ciphertext.EncryptedRecord,
+	)
+	assert.NoError(t, err)
+
+	return innerPlaintext
+}

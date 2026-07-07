@@ -33,6 +33,7 @@ var ( //nolint:gochecknoglobals,lll
 	ErrDeadlineExceeded   = context.DeadlineExceeded //nolint:lll
 	ErrInvalidContentType = errInvalidContentType    //nolint:lll
 	ErrBufferTooSmall     = errBufferTooSmall        //nolint:lll
+	ErrInvalidPacket      = stderrors.New("invalid packet")
 
 	ErrContextUnsupported           = stderrors.New("context is not supported for ExportKeyingMaterial")
 	ErrHandshakeInProgress          = stderrors.New("handshake is in progress") //nolint:lll
