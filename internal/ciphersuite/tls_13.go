@@ -28,6 +28,10 @@ type CipherSuiteTLS13 interface {
 		sequenceNumber uint64,
 		encryptedRecord []byte,
 	) (recordlayer.InnerPlaintext, error)
+	UnmaskSequenceNumber(
+		header recordlayer.UnifiedHeader,
+		encryptedRecord []byte,
+	) (recordlayer.UnifiedHeader, error)
 }
 
 // TLS13CipherSuite provides behavior common to TLS 1.3 cipher suites. TLS 1.3
@@ -126,6 +130,23 @@ func (c *TLS13CipherSuite) Open(
 	}
 
 	return protection.open(clearHeader, sequenceNumber, encryptedRecord)
+}
+
+func (c *TLS13CipherSuite) UnmaskSequenceNumber(
+	header recordlayer.UnifiedHeader,
+	encryptedRecord []byte,
+) (recordlayer.UnifiedHeader, error) {
+	protection, ok := c.getRecordProtection13()
+	if !ok {
+		return recordlayer.UnifiedHeader{}, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	clearHeader := header
+	if err := protection.unmaskRemoteSequenceNumber(&clearHeader, encryptedRecord); err != nil {
+		return recordlayer.UnifiedHeader{}, err
+	}
+
+	return clearHeader, nil
 }
 
 func (c *TLS13CipherSuite) Init(_, _, _ []byte, _ bool) error {

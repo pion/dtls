@@ -3999,6 +3999,68 @@ func TestProcessProtectedPacketRejectsApplicationData(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
 }
 
+func TestOpenCiphertextRecordHandshake(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithReadProtection(t)
+	expectedPlaintext := encryptedExtensionsHandshake(t)
+	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, expectedPlaintext)
+
+	innerPlaintext, sequenceNumber, err := conn.openCiphertextRecord(record)
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(0), sequenceNumber)
+	assert.Equal(t, protocol.ContentTypeHandshake, innerPlaintext.RealType)
+	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
+}
+
+func TestOpenCiphertextRecordFailsWithWrongSequenceNumber(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithReadProtection(t)
+	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
+	conn.updateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
+
+	_, _, err := conn.openCiphertextRecord(record)
+	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+}
+
+func TestOpenCiphertextRecordFailsWithWrongEpoch(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithReadProtection(t)
+	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
+	record.Header.EpochLow ^= 0x01
+
+	_, _, err := conn.openCiphertextRecord(record)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidEpoch)
+}
+
+func TestOpenCiphertextRecordFailsWithTamperedCiphertext(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithReadProtection(t)
+	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
+	record.EncryptedRecord[0] ^= 0x80
+
+	_, _, err := conn.openCiphertextRecord(record)
+	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+}
+
+func TestOpenCiphertextRecordDispatchesInnerHandshake(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithReadProtection(t)
+	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
+	rawPacket, err := record.Marshal()
+	assert.NoError(t, err)
+
+	isHandshake, isRetransmit, dtlsAlert, err := conn.handleIncomingPacket(context.Background(), rawPacket, nil, true)
+	assert.NoError(t, err)
+	assert.Nil(t, dtlsAlert)
+	assert.True(t, isHandshake)
+	assert.False(t, isRetransmit)
+
+	_, messages, ok := conn.handshakeCache.FullPullMap(0, conn.state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{
+			Typ:      handshake.TypeEncryptedExtensions,
+			Epoch:    dtlsflight13.EpochHandshake,
+			IsClient: false,
+		},
+	)
+	assert.True(t, ok)
+	assert.IsType(t, &handshake.MessageEncryptedExtensions{}, messages[handshake.TypeEncryptedExtensions])
+}
+
 func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.CipherSuiteTLS13) {
 	t.Helper()
 
@@ -4019,6 +4081,65 @@ func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.CipherSuit
 			CipherSuite:  localCipherSuite,
 		},
 	}, peerCipherSuite
+}
+
+func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.CipherSuiteTLS13) {
+	t.Helper()
+
+	localCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	clientSecret := bytes.Repeat([]byte{0x11}, localCipherSuite.HashFunc()().Size())
+	serverSecret := bytes.Repeat([]byte{0x22}, localCipherSuite.HashFunc()().Size())
+	assert.NoError(t, localCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
+
+	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	assert.NoError(t, peerCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
+
+	conn := &Conn{
+		fragmentBuffer:          newFragmentBuffer(),
+		handshakeCache:          dtlsflight.NewCache(),
+		maximumTransmissionUnit: defaultMTU,
+		replayProtectionWindow:  defaultReplayProtectionWindow,
+		log:                     logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		state: dtlsstate.State{
+			IsClient:     true,
+			LocalVersion: protocol.Version1_3,
+			CipherSuite:  localCipherSuite,
+		},
+	}
+	conn.setRemoteEpoch(dtlsflight13.EpochHandshake)
+
+	return conn, peerCipherSuite
+}
+
+func encryptedExtensionsHandshake(t *testing.T) []byte {
+	t.Helper()
+
+	raw, err := (&handshake.Handshake{
+		Message: &handshake.MessageEncryptedExtensions{},
+	}).Marshal()
+	assert.NoError(t, err)
+
+	return raw
+}
+
+func sealTestProtectedHandshakeRecord(
+	t *testing.T,
+	cipherSuite ciphersuite.CipherSuiteTLS13,
+	plaintext []byte,
+) recordlayer.CiphertextRecord13 {
+	t.Helper()
+
+	record, err := cipherSuite.Seal(
+		recordlayer.UnifiedHeader{
+			EpochLow: uint8(dtlsflight13.EpochHandshake & recordlayer.TwoLowBitsMask),
+		},
+		0,
+		protocol.ContentTypeHandshake,
+		plaintext,
+	)
+	assert.NoError(t, err)
+
+	return record
 }
 
 func openTestProtectedRecord(

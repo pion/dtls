@@ -26,6 +26,7 @@ type HandshakeTrafficSecrets13 struct {
 type State struct {
 	LocalEpoch, RemoteEpoch   atomic.Value
 	LocalSequenceNumber       []uint64 // uint48
+	RemoteSequenceNumber      []uint64
 	LocalRandom, RemoteRandom handshake.Random
 	MasterSecret              []byte
 	CipherSuite               ciphersuite.CipherSuite // nil if a cipherSuite hasn't been chosen
