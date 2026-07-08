@@ -27,13 +27,13 @@ const (
 // handshake traffic secrets from the ECDHE secret and transcript hash.
 func deriveHandshakeTrafficSecrets(
 	hashFunc func() hash.Hash,
-	preMasterSecret, transcriptHash []byte,
+	keyAgreementSecret, transcriptHash []byte,
 ) (dtlsstate.HandshakeTrafficSecrets, error) {
 	hashSize, err := hashSize13(hashFunc)
 	if err != nil {
 		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
-	if len(preMasterSecret) == 0 || len(transcriptHash) != hashSize {
+	if len(keyAgreementSecret) == 0 || len(transcriptHash) != hashSize {
 		return dtlsstate.HandshakeTrafficSecrets{}, dtlserrors.ErrLengthMismatch
 	}
 
@@ -48,7 +48,7 @@ func deriveHandshakeTrafficSecrets(
 		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
 
-	handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedSecret, preMasterSecret)
+	handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedSecret, keyAgreementSecret)
 	if err != nil {
 		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}

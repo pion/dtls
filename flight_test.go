@@ -185,7 +185,7 @@ func hashTranscript13(messages ...[]byte) []byte {
 
 func deriveHandshakeTrafficSecrets13(
 	hashFunc func() hash.Hash,
-	preMasterSecret, transcriptHash []byte,
+	keyAgreementSecret, transcriptHash []byte,
 ) (dtlsstate.TrafficSecrets, error) {
 	hashSize := hashFunc().Size()
 	zeroSecret := make([]byte, hashSize)
@@ -199,7 +199,7 @@ func deriveHandshakeTrafficSecrets13(
 		return dtlsstate.TrafficSecrets{}, err
 	}
 
-	handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedSecret, preMasterSecret)
+	handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedSecret, keyAgreementSecret)
 	if err != nil {
 		return dtlsstate.TrafficSecrets{}, err
 	}
@@ -999,11 +999,11 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 
 	clientKeypair := state.LocalKeypairs[group]
 	require.NotNil(t, clientKeypair)
-	preMasterSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
 	secrets, err := deriveHandshakeTrafficSecrets13(
 		cfg.LocalCipherSuites[0].HashFunc(),
-		preMasterSecret,
+		keyAgreementSecret,
 		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
 	)
 	require.NoError(t, err)

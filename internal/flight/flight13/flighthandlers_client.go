@@ -330,11 +330,11 @@ func applyFlight3ServerKeyShare(
 		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareUnknownGroup)
 	}
 
-	preMasterSecret, err := prf.PreMasterSecret(serverShare.KeyExchange, localKeypair.PrivateKey, serverShare.Group)
+	keyAgreementSecret, err := prf.PreMasterSecret(serverShare.KeyExchange, localKeypair.PrivateKey, serverShare.Group)
 	if err != nil {
 		return newFlightParseFailure(alert.InternalError, err)
 	}
-	flightCtx.state.KeyAgreementSecret = preMasterSecret
+	flightCtx.state.KeyAgreementSecret = keyAgreementSecret
 	flightCtx.state.SelectedGroup = serverShare.Group
 	flightCtx.state.RemoteKeyEntries = &[]extension.KeyShareEntry{*serverShare}
 

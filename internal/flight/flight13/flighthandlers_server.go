@@ -373,7 +373,7 @@ func generateClientKeyShareSecret(
 		state.LocalKeypair = keypair
 	}
 
-	preMasterSecret, err := prf.PreMasterSecret(
+	keyAgreementSecret, err := prf.PreMasterSecret(
 		selectedEntry.KeyExchange,
 		state.LocalKeypair.PrivateKey,
 		state.SelectedGroup,
@@ -381,7 +381,7 @@ func generateClientKeyShareSecret(
 	if err != nil {
 		return newClientHelloExtensionFailure(alert.IllegalParameter, err)
 	}
-	state.KeyAgreementSecret = preMasterSecret
+	state.KeyAgreementSecret = keyAgreementSecret
 
 	return nil
 }

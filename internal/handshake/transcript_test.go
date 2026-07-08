@@ -338,19 +338,19 @@ func TestHandshakeTranscript13HelloRetryRequestErrors(t *testing.T) {
 }
 
 func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
-	preMasterSecret := bytes.Repeat([]byte{0x42}, sha256.Size)
+	keyAgreementSecret := bytes.Repeat([]byte{0x42}, sha256.Size)
 
 	clientHello := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})
 	serverHello := canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})
 	noHRRTranscriptHash := hashTranscript13(clientHello, serverHello)
 
-	noHRRSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, preMasterSecret, noHRRTranscriptHash)
+	noHRRSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, keyAgreementSecret, noHRRTranscriptHash)
 	require.NoError(t, err)
 	require.Len(t, noHRRSecrets.Client, sha256.Size)
 	require.Len(t, noHRRSecrets.Server, sha256.Size)
 	assert.NotEqual(t, noHRRSecrets.Client, noHRRSecrets.Server)
 
-	again, err := deriveHandshakeTrafficSecrets(sha256.New, preMasterSecret, noHRRTranscriptHash)
+	again, err := deriveHandshakeTrafficSecrets(sha256.New, keyAgreementSecret, noHRRTranscriptHash)
 	require.NoError(t, err)
 	assert.Equal(t, noHRRSecrets, again)
 
@@ -361,12 +361,12 @@ func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
 	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, hashTranscript13(clientHello1))
 	hrrTranscriptHash := hashTranscript13(messageHash, helloRetryRequest, clientHello2, serverHello2)
 
-	hrrSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, preMasterSecret, hrrTranscriptHash)
+	hrrSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, keyAgreementSecret, hrrTranscriptHash)
 	require.NoError(t, err)
 	assert.NotEqual(t, noHRRSecrets.Client, hrrSecrets.Client)
 	assert.NotEqual(t, noHRRSecrets.Server, hrrSecrets.Server)
 
-	changedSecret := append([]byte(nil), preMasterSecret...)
+	changedSecret := append([]byte(nil), keyAgreementSecret...)
 	changedSecret[0] ^= 0xff
 	changedSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, changedSecret, noHRRTranscriptHash)
 	require.NoError(t, err)
