@@ -22,6 +22,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -411,6 +412,140 @@ func TestInitHandshakeRecordProtection13(t *testing.T) {
 	require.NoError(t, InitHandshakeRecordProtection(state))
 	assert.True(t, state.CipherSuite.IsInitialized())
 	require.NoError(t, InitHandshakeRecordProtection(state))
+}
+
+func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
+	cipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	secretLen := cipherSuite.HashFunc()().Size()
+	handshakeSecrets := dtlsstate.TrafficSecrets{
+		Client: bytes.Repeat([]byte{0x11}, secretLen),
+		Server: bytes.Repeat([]byte{0x22}, secretLen),
+	}
+	applicationSecrets := dtlsstate.TrafficSecrets{
+		Client: bytes.Repeat([]byte{0x33}, secretLen),
+		Server: bytes.Repeat([]byte{0x44}, secretLen),
+	}
+	state := newTestState13(true)
+	state.CipherSuite = cipherSuite
+	state.KeySchedule.HandshakeTraffic = handshakeSecrets
+	state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
+	state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
+
+	require.NoError(t, InitHandshakeRecordProtection(state))
+	require.True(t, state.CipherSuite.IsInitialized())
+	require.NoError(t, InitApplicationRecordProtection(state))
+
+	clientSuite, ok := state.CipherSuite.(ciphersuite.CipherSuiteTLS13)
+	require.True(t, ok)
+	serverApplicationSuite := ciphersuite.NewTLSAes128GcmSha256()
+	require.NoError(t, serverApplicationSuite.InitFromTrafficSecrets(
+		applicationSecrets.Client,
+		applicationSecrets.Server,
+		false,
+	))
+	serverHandshakeSuite := ciphersuite.NewTLSAes128GcmSha256()
+	require.NoError(t, serverHandshakeSuite.InitFromTrafficSecrets(
+		handshakeSecrets.Client,
+		handshakeSecrets.Server,
+		false,
+	))
+
+	sequenceNumber := uint64(0x0102030405061234)
+	record, err := clientSuite.Seal(
+		recordlayer.UnifiedHeader{SequenceNumber: uint16(sequenceNumber), EpochLow: 2}, //nolint:gosec // G115
+		sequenceNumber,
+		protocol.ContentTypeApplicationData,
+		[]byte("application traffic after finished"),
+	)
+	require.NoError(t, err)
+
+	innerPlaintext, err := serverApplicationSuite.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("application traffic after finished"), innerPlaintext.Content)
+	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+
+	_, err = serverHandshakeSuite.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+	assert.Error(t, err)
+}
+
+func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
+	applicationSecrets := dtlsstate.TrafficSecrets{
+		Client: bytes.Repeat([]byte{0x33}, sha256.Size),
+		Server: bytes.Repeat([]byte{0x44}, sha256.Size),
+	}
+
+	tests := []struct {
+		name  string
+		state *dtlsstate.State13
+		err   error
+	}{
+		{
+			name: "nil state",
+			err:  dtlserrors.ErrCipherSuiteNotSet,
+		},
+		{
+			name:  "missing cipher suite",
+			state: newTestState13(false),
+			err:   dtlserrors.ErrCipherSuiteNotSet,
+		},
+		{
+			name: "not tls 13",
+			state: func() *dtlsstate.State13 {
+				state := newTestState13(false)
+				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+				state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
+				state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
+
+				return state
+			}(),
+			err: dtlserrors.ErrInvalidCipherSuite,
+		},
+		{
+			name: "missing client application secret",
+			state: func() *dtlsstate.State13 {
+				state := newTestState13(false)
+				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
+
+				return state
+			}(),
+			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+		},
+		{
+			name: "missing server application secret",
+			state: func() *dtlsstate.State13 {
+				state := newTestState13(false)
+				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
+
+				return state
+			}(),
+			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+		},
+		{
+			name: "handshake protection initialized without application secrets",
+			state: func() *dtlsstate.State13 {
+				state := newTestState13(false)
+				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
+					Client: bytes.Repeat([]byte{0x11}, sha256.Size),
+					Server: bytes.Repeat([]byte{0x22}, sha256.Size),
+				}
+				require.NoError(t, InitHandshakeRecordProtection(state))
+				require.True(t, state.CipherSuite.IsInitialized())
+
+				return state
+			}(),
+			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := InitApplicationRecordProtection(test.state)
+			require.ErrorIs(t, err, test.err)
+		})
+	}
 }
 
 func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {

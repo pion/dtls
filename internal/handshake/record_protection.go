@@ -10,6 +10,31 @@ import (
 )
 
 func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
+	if state == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+
+	return initRecordProtectionFromTrafficSecrets(state, state.KeySchedule.HandshakeTraffic, false)
+}
+
+// InitApplicationRecordProtection installs DTLS 1.3 application record
+// protection from the stored application traffic secrets.
+func InitApplicationRecordProtection(state *dtlsstate.State13) error {
+	if state == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+
+	return initRecordProtectionFromTrafficSecrets(state, dtlsstate.TrafficSecrets{
+		Client: state.KeySchedule.ClientApplicationTrafficSecret0,
+		Server: state.KeySchedule.ServerApplicationTrafficSecret0,
+	}, true)
+}
+
+func initRecordProtectionFromTrafficSecrets(
+	state *dtlsstate.State13,
+	secrets dtlsstate.TrafficSecrets,
+	allowReinitialize bool,
+) error {
 	if state == nil || state.CipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -18,11 +43,10 @@ func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
 	if !ok {
 		return dtlserrors.ErrInvalidCipherSuite
 	}
-	if tls13CipherSuite.IsInitialized() {
+	if !allowReinitialize && tls13CipherSuite.IsInitialized() {
 		return nil
 	}
 
-	secrets := state.KeySchedule.HandshakeTraffic
 	if len(secrets.Client) == 0 || len(secrets.Server) == 0 {
 		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
