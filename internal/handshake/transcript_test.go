@@ -465,6 +465,73 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 			assert.Equal(t, expectedServerHandshakeSecret, schedule.HandshakeTrafficSecrets.Server)
 			assert.Equal(t, expectedMasterSecret, schedule.MasterSecret)
 
+			applicationTranscriptHash := bytes.Repeat([]byte{test.hashByte + 1}, test.hashSize)
+			applicationSecrets, err := deriveApplicationTrafficSecrets(
+				hashFunc,
+				schedule.MasterSecret,
+				applicationTranscriptHash,
+			)
+			require.NoError(t, err)
+			require.Len(t, applicationSecrets.Client, test.hashSize)
+			require.Len(t, applicationSecrets.Server, test.hashSize)
+			assert.NotEqual(t, applicationSecrets.Client, applicationSecrets.Server)
+			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Client, applicationSecrets.Client)
+			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Server, applicationSecrets.Server)
+
+			expectedClientApplicationSecret, err := keyschedule.HkdfExpandLabel(
+				hashFunc,
+				schedule.MasterSecret,
+				clientApplicationTrafficLabel,
+				applicationTranscriptHash,
+				test.hashSize,
+			)
+			require.NoError(t, err)
+			expectedServerApplicationSecret, err := keyschedule.HkdfExpandLabel(
+				hashFunc,
+				schedule.MasterSecret,
+				serverApplicationTrafficLabel,
+				applicationTranscriptHash,
+				test.hashSize,
+			)
+			require.NoError(t, err)
+			exporterMasterSecret, err := deriveExporterMasterSecret(
+				hashFunc,
+				schedule.MasterSecret,
+				applicationTranscriptHash,
+			)
+			require.NoError(t, err)
+			expectedExporterMasterSecret, err := keyschedule.HkdfExpandLabel(
+				hashFunc,
+				schedule.MasterSecret,
+				exporterMasterSecretLabel,
+				applicationTranscriptHash,
+				test.hashSize,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, expectedClientApplicationSecret, applicationSecrets.Client)
+			assert.Equal(t, expectedServerApplicationSecret, applicationSecrets.Server)
+			assert.Equal(t, expectedExporterMasterSecret, exporterMasterSecret)
+
+			resumptionTranscriptHash := bytes.Repeat([]byte{test.hashByte + 2}, test.hashSize)
+			resumptionMasterSecret, err := deriveResumptionMasterSecret(
+				hashFunc,
+				schedule.MasterSecret,
+				resumptionTranscriptHash,
+			)
+			require.NoError(t, err)
+			require.Len(t, resumptionMasterSecret, test.hashSize)
+			assert.NotEqual(t, exporterMasterSecret, resumptionMasterSecret)
+
+			changedResumptionTranscriptHash := append([]byte(nil), resumptionTranscriptHash...)
+			changedResumptionTranscriptHash[0] ^= 0xff
+			changedResumptionMasterSecret, err := deriveResumptionMasterSecret(
+				hashFunc,
+				schedule.MasterSecret,
+				changedResumptionTranscriptHash,
+			)
+			require.NoError(t, err)
+			assert.NotEqual(t, resumptionMasterSecret, changedResumptionMasterSecret)
+
 			changedHandshakeTranscriptHash := append([]byte(nil), handshakeTranscriptHash...)
 			changedHandshakeTranscriptHash[0] ^= 0xff
 			changedSchedule, err := deriveHandshakeKeySchedule(
@@ -476,6 +543,24 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Client, changedSchedule.HandshakeTrafficSecrets.Client)
 			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Server, changedSchedule.HandshakeTrafficSecrets.Server)
 			assert.Equal(t, schedule.MasterSecret, changedSchedule.MasterSecret)
+
+			changedApplicationTranscriptHash := append([]byte(nil), applicationTranscriptHash...)
+			changedApplicationTranscriptHash[0] ^= 0xff
+			changedApplicationSecrets, err := deriveApplicationTrafficSecrets(
+				hashFunc,
+				schedule.MasterSecret,
+				changedApplicationTranscriptHash,
+			)
+			require.NoError(t, err)
+			changedExporterMasterSecret, err := deriveExporterMasterSecret(
+				hashFunc,
+				schedule.MasterSecret,
+				changedApplicationTranscriptHash,
+			)
+			require.NoError(t, err)
+			assert.NotEqual(t, applicationSecrets.Client, changedApplicationSecrets.Client)
+			assert.NotEqual(t, applicationSecrets.Server, changedApplicationSecrets.Server)
+			assert.NotEqual(t, exporterMasterSecret, changedExporterMasterSecret)
 
 			changedPreMasterSecret := append([]byte(nil), preMasterSecret...)
 			changedPreMasterSecret[0] ^= 0xff
@@ -490,6 +575,29 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Server,
 				changedPreMasterSchedule.HandshakeTrafficSecrets.Server)
 			assert.NotEqual(t, schedule.MasterSecret, changedPreMasterSchedule.MasterSecret)
+
+			changedPreMasterApplicationSecrets, err := deriveApplicationTrafficSecrets(
+				hashFunc,
+				changedPreMasterSchedule.MasterSecret,
+				applicationTranscriptHash,
+			)
+			require.NoError(t, err)
+			changedPreMasterExporterMasterSecret, err := deriveExporterMasterSecret(
+				hashFunc,
+				changedPreMasterSchedule.MasterSecret,
+				applicationTranscriptHash,
+			)
+			require.NoError(t, err)
+			changedPreMasterResumptionMasterSecret, err := deriveResumptionMasterSecret(
+				hashFunc,
+				changedPreMasterSchedule.MasterSecret,
+				resumptionTranscriptHash,
+			)
+			require.NoError(t, err)
+			assert.NotEqual(t, applicationSecrets.Client, changedPreMasterApplicationSecrets.Client)
+			assert.NotEqual(t, applicationSecrets.Server, changedPreMasterApplicationSecrets.Server)
+			assert.NotEqual(t, exporterMasterSecret, changedPreMasterExporterMasterSecret)
+			assert.NotEqual(t, resumptionMasterSecret, changedPreMasterResumptionMasterSecret)
 		})
 	}
 }

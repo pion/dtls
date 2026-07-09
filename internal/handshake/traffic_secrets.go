@@ -13,10 +13,14 @@ import (
 )
 
 const (
-	clientHandshakeTrafficLabel = "c hs traffic"
-	serverHandshakeTrafficLabel = "s hs traffic"
-	derivedSecretLabel          = "derived"
-	finishedLabel               = "finished"
+	clientHandshakeTrafficLabel   = "c hs traffic"
+	serverHandshakeTrafficLabel   = "s hs traffic"
+	clientApplicationTrafficLabel = "c ap traffic"
+	serverApplicationTrafficLabel = "s ap traffic"
+	exporterMasterSecretLabel     = "exp master"
+	resumptionMasterSecretLabel   = "res master"
+	derivedSecretLabel            = "derived"
+	finishedLabel                 = "finished"
 
 	serverCertificateVerifyContext13 = "TLS 1.3, server CertificateVerify\x00"
 	clientCertificateVerifyContext13 = "TLS 1.3, client CertificateVerify\x00"
@@ -150,6 +154,53 @@ func deriveTrafficSecret(
 	return keyschedule.HkdfExpandLabel(hashFunc, baseSecret, label, transcriptHash, hashSize)
 }
 
+func deriveApplicationTrafficSecrets(
+	hashFunc func() hash.Hash,
+	masterSecret, transcriptHash []byte,
+) (dtlsstate.TrafficSecrets, error) {
+	clientSecret, err := deriveTrafficSecret(
+		hashFunc,
+		masterSecret,
+		clientApplicationTrafficLabel,
+		transcriptHash,
+	)
+	if err != nil {
+		return dtlsstate.TrafficSecrets{}, err
+	}
+
+	serverSecret, err := deriveTrafficSecret(
+		hashFunc,
+		masterSecret,
+		serverApplicationTrafficLabel,
+		transcriptHash,
+	)
+	if err != nil {
+		return dtlsstate.TrafficSecrets{}, err
+	}
+
+	return dtlsstate.TrafficSecrets{
+		Client: clientSecret,
+		Server: serverSecret,
+	}, nil
+}
+
+func deriveMasterSecretFromKeyAgreementSecret(hashFunc func() hash.Hash, keyAgreementSecret []byte) ([]byte, error) {
+	handshakeSecret, err := deriveHandshakeSecret(hashFunc, keyAgreementSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	return deriveMasterSecret(hashFunc, handshakeSecret)
+}
+
+func deriveExporterMasterSecret(hashFunc func() hash.Hash, masterSecret, transcriptHash []byte) ([]byte, error) {
+	return deriveTrafficSecret(hashFunc, masterSecret, exporterMasterSecretLabel, transcriptHash)
+}
+
+func deriveResumptionMasterSecret(hashFunc func() hash.Hash, masterSecret, transcriptHash []byte) ([]byte, error) {
+	return deriveTrafficSecret(hashFunc, masterSecret, resumptionMasterSecretLabel, transcriptHash)
+}
+
 // DeriveAndStoreHandshakeTrafficSecrets derives DTLS 1.3 handshake traffic
 // secrets and stores them in state.
 func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript *Transcript) error {
@@ -180,6 +231,114 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript 
 	state.KeySchedule.MasterSecret = secrets.MasterSecret
 
 	return nil
+}
+
+// DeriveAndStoreApplicationTrafficSecrets derives DTLS 1.3 application
+// traffic and exporter master secrets from the current transcript snapshot.
+// The caller is responsible for invoking it with the transcript through server
+// Finished.
+func DeriveAndStoreApplicationTrafficSecrets(state *dtlsstate.State13, transcript *Transcript) error {
+	if state == nil || state.CipherSuite == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+	if transcript == nil {
+		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+	if err := selectHashIfReady(transcript, state.CipherSuite); err != nil {
+		return err
+	}
+
+	transcriptHash, err := transcript.SnapshotHash()
+	if err != nil {
+		return err
+	}
+
+	masterSecret, err := ensureMasterSecret(state)
+	if err != nil {
+		return err
+	}
+
+	secrets, err := deriveApplicationTrafficSecrets(
+		state.CipherSuite.HashFunc(),
+		masterSecret,
+		transcriptHash,
+	)
+	if err != nil {
+		return err
+	}
+
+	exporterMasterSecret, err := deriveExporterMasterSecret(
+		state.CipherSuite.HashFunc(),
+		masterSecret,
+		transcriptHash,
+	)
+	if err != nil {
+		return err
+	}
+
+	state.KeySchedule.ClientApplicationTrafficSecret0 = secrets.Client
+	state.KeySchedule.ServerApplicationTrafficSecret0 = secrets.Server
+	state.KeySchedule.ExporterMasterSecret = exporterMasterSecret
+
+	return nil
+}
+
+// DeriveAndStoreResumptionMasterSecret derives the DTLS 1.3 resumption master
+// secret from the current transcript snapshot. The caller is responsible for
+// invoking it with the transcript through client Finished.
+func DeriveAndStoreResumptionMasterSecret(state *dtlsstate.State13, transcript *Transcript) error {
+	if state == nil || state.CipherSuite == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+	if transcript == nil {
+		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+	if err := selectHashIfReady(transcript, state.CipherSuite); err != nil {
+		return err
+	}
+
+	transcriptHash, err := transcript.SnapshotHash()
+	if err != nil {
+		return err
+	}
+
+	masterSecret, err := ensureMasterSecret(state)
+	if err != nil {
+		return err
+	}
+
+	state.KeySchedule.ResumptionMasterSecret, err = deriveResumptionMasterSecret(
+		state.CipherSuite.HashFunc(),
+		masterSecret,
+		transcriptHash,
+	)
+
+	return err
+}
+
+func ensureMasterSecret(state *dtlsstate.State13) ([]byte, error) {
+	hashSize, err := hashSize13(state.CipherSuite.HashFunc())
+	if err != nil {
+		return nil, err
+	}
+	if len(state.KeySchedule.MasterSecret) != 0 {
+		if len(state.KeySchedule.MasterSecret) != hashSize {
+			return nil, dtlserrors.ErrLengthMismatch
+		}
+
+		return state.KeySchedule.MasterSecret, nil
+	}
+
+	masterSecret, err := deriveMasterSecretFromKeyAgreementSecret(
+		state.CipherSuite.HashFunc(),
+		state.KeyAgreementSecret,
+	)
+	if err != nil {
+		return nil, err
+	}
+	state.KeySchedule.MasterSecret = masterSecret
+
+	return masterSecret, nil
 }
 
 // CertificateVerifyInputFromTranscript returns the TLS 1.3 CertificateVerify
