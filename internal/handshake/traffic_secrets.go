@@ -341,6 +341,32 @@ func ensureMasterSecret(state *dtlsstate.State13) ([]byte, error) {
 	return masterSecret, nil
 }
 
+// ClientHandshakeFinishedBaseKey returns the client handshake traffic secret,
+// which is the TLS 1.3 Finished base key for the client's Finished message.
+func ClientHandshakeFinishedBaseKey(state *dtlsstate.State13) ([]byte, error) {
+	if state == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotSet
+	}
+	if len(state.KeySchedule.HandshakeTraffic.Client) == 0 {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+
+	return state.KeySchedule.HandshakeTraffic.Client, nil
+}
+
+// ServerHandshakeFinishedBaseKey returns the server handshake traffic secret,
+// which is the TLS 1.3 Finished base key for the server's Finished message.
+func ServerHandshakeFinishedBaseKey(state *dtlsstate.State13) ([]byte, error) {
+	if state == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotSet
+	}
+	if len(state.KeySchedule.HandshakeTraffic.Server) == 0 {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+
+	return state.KeySchedule.HandshakeTraffic.Server, nil
+}
+
 // CertificateVerifyInputFromTranscript returns the TLS 1.3 CertificateVerify
 // input for the current transcript snapshot.
 func CertificateVerifyInputFromTranscript(
@@ -462,8 +488,7 @@ func verifyFinishedData(hashFunc func() hash.Hash, baseKey, transcriptHash, veri
 }
 
 // VerifyFinishedDataFromTranscript verifies TLS 1.3 Finished verify_data
-// against the current transcript snapshot. It does not commit the Finished
-// message to the transcript.
+// against the current transcript snapshot.
 func VerifyFinishedDataFromTranscript(
 	hashFunc func() hash.Hash,
 	baseKey []byte,

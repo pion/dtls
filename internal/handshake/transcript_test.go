@@ -865,6 +865,29 @@ func TestCertificateVerifyInput13ServerAndClient(t *testing.T) {
 	assert.NotEqual(t, serverInput, clientInput)
 }
 
+func TestHandshakeFinishedBaseKeys13(t *testing.T) {
+	clientSecret := bytes.Repeat([]byte{0x11}, sha256.Size)
+	serverSecret := bytes.Repeat([]byte{0x22}, sha256.Size)
+	state := newTestState13(false)
+	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
+		Client: clientSecret,
+		Server: serverSecret,
+	}
+
+	clientBaseKey, err := ClientHandshakeFinishedBaseKey(state)
+	require.NoError(t, err)
+	assert.Equal(t, clientSecret, clientBaseKey)
+
+	serverBaseKey, err := ServerHandshakeFinishedBaseKey(state)
+	require.NoError(t, err)
+	assert.Equal(t, serverSecret, serverBaseKey)
+
+	_, err = ClientHandshakeFinishedBaseKey(newTestState13(false))
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+	_, err = ServerHandshakeFinishedBaseKey(newTestState13(false))
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+}
+
 func TestFinishedVerifyData13(t *testing.T) {
 	baseKey := bytes.Repeat([]byte{0x11}, sha256.Size)
 	transcriptHash := bytes.Repeat([]byte{0x22}, sha256.Size)
