@@ -8,6 +8,7 @@ import (
 	"crypto"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/sha512"
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
@@ -17,6 +18,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
 	dtlshash "github.com/pion/dtls/v3/pkg/crypto/hash"
+	"github.com/pion/dtls/v3/pkg/crypto/keyschedule"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -375,6 +377,123 @@ func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
 	assert.NotEqual(t, noHRRSecrets.Server, changedSecrets.Server)
 }
 
+func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
+	tests := []struct {
+		name        string
+		cipherSuite ciphersuite.ID
+		hashSize    int
+		secretByte  byte
+		hashByte    byte
+	}{
+		{
+			name:        "sha256",
+			cipherSuite: ciphersuite.TLS_AES_128_GCM_SHA256,
+			hashSize:    sha256.Size,
+			secretByte:  0x31,
+			hashByte:    0x41,
+		},
+		{
+			name:        "chacha20_sha256",
+			cipherSuite: ciphersuite.TLS_CHACHA20_POLY1305_SHA256,
+			hashSize:    sha256.Size,
+			secretByte:  0x33,
+			hashByte:    0x43,
+		},
+		{
+			name:        "sha384",
+			cipherSuite: ciphersuite.TLS_AES_256_GCM_SHA384,
+			hashSize:    sha512.Size384,
+			secretByte:  0x32,
+			hashByte:    0x42,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cipherSuite := ciphersuite.ForID(test.cipherSuite, nil)
+			require.NotNil(t, cipherSuite)
+			hashFunc := cipherSuite.HashFunc()
+			require.Equal(t, test.hashSize, hashFunc().Size())
+
+			preMasterSecret := bytes.Repeat([]byte{test.secretByte}, test.hashSize)
+			handshakeTranscriptHash := bytes.Repeat([]byte{test.hashByte}, test.hashSize)
+			schedule, err := deriveHandshakeKeySchedule(hashFunc, preMasterSecret, handshakeTranscriptHash)
+			require.NoError(t, err)
+			require.Len(t, schedule.HandshakeTrafficSecrets.Client, test.hashSize)
+			require.Len(t, schedule.HandshakeTrafficSecrets.Server, test.hashSize)
+			require.Len(t, schedule.MasterSecret, test.hashSize)
+			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Client, schedule.HandshakeTrafficSecrets.Server)
+
+			zeroSecret := make([]byte, test.hashSize)
+			earlySecret, err := keyschedule.HkdfExtract(hashFunc, nil, zeroSecret)
+			require.NoError(t, err)
+			derivedEarlySecret, err := keyschedule.DeriveSecret(
+				hashFunc,
+				earlySecret,
+				derivedSecretLabel,
+				nil,
+			)
+			require.NoError(t, err)
+			handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedEarlySecret, preMasterSecret)
+			require.NoError(t, err)
+			expectedClientHandshakeSecret, err := keyschedule.HkdfExpandLabel(
+				hashFunc,
+				handshakeSecret,
+				clientHandshakeTrafficLabel,
+				handshakeTranscriptHash,
+				test.hashSize,
+			)
+			require.NoError(t, err)
+			expectedServerHandshakeSecret, err := keyschedule.HkdfExpandLabel(
+				hashFunc,
+				handshakeSecret,
+				serverHandshakeTrafficLabel,
+				handshakeTranscriptHash,
+				test.hashSize,
+			)
+			require.NoError(t, err)
+			derivedHandshakeSecret, err := keyschedule.DeriveSecret(
+				hashFunc,
+				handshakeSecret,
+				derivedSecretLabel,
+				nil,
+			)
+			require.NoError(t, err)
+			expectedMasterSecret, err := keyschedule.HkdfExtract(hashFunc, derivedHandshakeSecret, zeroSecret)
+			require.NoError(t, err)
+			assert.Equal(t, expectedClientHandshakeSecret, schedule.HandshakeTrafficSecrets.Client)
+			assert.Equal(t, expectedServerHandshakeSecret, schedule.HandshakeTrafficSecrets.Server)
+			assert.Equal(t, expectedMasterSecret, schedule.MasterSecret)
+
+			changedHandshakeTranscriptHash := append([]byte(nil), handshakeTranscriptHash...)
+			changedHandshakeTranscriptHash[0] ^= 0xff
+			changedSchedule, err := deriveHandshakeKeySchedule(
+				hashFunc,
+				preMasterSecret,
+				changedHandshakeTranscriptHash,
+			)
+			require.NoError(t, err)
+			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Client, changedSchedule.HandshakeTrafficSecrets.Client)
+			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Server, changedSchedule.HandshakeTrafficSecrets.Server)
+			assert.Equal(t, schedule.MasterSecret, changedSchedule.MasterSecret)
+
+			changedPreMasterSecret := append([]byte(nil), preMasterSecret...)
+			changedPreMasterSecret[0] ^= 0xff
+			changedPreMasterSchedule, err := deriveHandshakeKeySchedule(
+				hashFunc,
+				changedPreMasterSecret,
+				handshakeTranscriptHash,
+			)
+			require.NoError(t, err)
+			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Client,
+				changedPreMasterSchedule.HandshakeTrafficSecrets.Client)
+			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Server,
+				changedPreMasterSchedule.HandshakeTrafficSecrets.Server)
+			assert.NotEqual(t, schedule.MasterSecret, changedPreMasterSchedule.MasterSecret)
+		})
+	}
+}
+
 func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 	state := newTestState13(false)
@@ -396,6 +515,7 @@ func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 	assert.Equal(t, expected, state.KeySchedule.HandshakeTraffic)
 	assert.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Client)
 	assert.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Server)
+	assert.NotEmpty(t, state.KeySchedule.MasterSecret)
 }
 
 func TestInitHandshakeRecordProtection13(t *testing.T) {

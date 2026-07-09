@@ -13,15 +13,20 @@ import (
 )
 
 const (
-	clientHandshakeTrafficLabel13 = "c hs traffic"
-	serverHandshakeTrafficLabel13 = "s hs traffic"
-	derivedSecretLabel13          = "derived"
-	finishedLabel13               = "finished"
+	clientHandshakeTrafficLabel = "c hs traffic"
+	serverHandshakeTrafficLabel = "s hs traffic"
+	derivedSecretLabel          = "derived"
+	finishedLabel               = "finished"
 
 	serverCertificateVerifyContext13 = "TLS 1.3, server CertificateVerify\x00"
 	clientCertificateVerifyContext13 = "TLS 1.3, client CertificateVerify\x00"
 	certificateVerifyPaddingLen13    = 64
 )
+
+type handshakeKeySchedule struct {
+	HandshakeTrafficSecrets dtlsstate.TrafficSecrets
+	MasterSecret            []byte
+}
 
 // deriveHandshakeTrafficSecrets derives the DTLS 1.3 client and server
 // handshake traffic secrets from the ECDHE secret and transcript hash.
@@ -29,56 +34,120 @@ func deriveHandshakeTrafficSecrets(
 	hashFunc func() hash.Hash,
 	keyAgreementSecret, transcriptHash []byte,
 ) (dtlsstate.HandshakeTrafficSecrets, error) {
-	hashSize, err := hashSize13(hashFunc)
+	secrets, err := deriveHandshakeKeySchedule(hashFunc, keyAgreementSecret, transcriptHash)
 	if err != nil {
 		return dtlsstate.HandshakeTrafficSecrets{}, err
 	}
+
+	return secrets.HandshakeTrafficSecrets, nil
+}
+
+func deriveHandshakeKeySchedule(
+	hashFunc func() hash.Hash,
+	keyAgreementSecret, transcriptHash []byte,
+) (handshakeKeySchedule, error) {
+	hashSize, err := hashSize13(hashFunc)
+	if err != nil {
+		return handshakeKeySchedule{}, err
+	}
 	if len(keyAgreementSecret) == 0 || len(transcriptHash) != hashSize {
-		return dtlsstate.HandshakeTrafficSecrets{}, dtlserrors.ErrLengthMismatch
+		return handshakeKeySchedule{}, dtlserrors.ErrLengthMismatch
+	}
+
+	handshakeSecret, err := deriveHandshakeSecret(hashFunc, keyAgreementSecret)
+	if err != nil {
+		return handshakeKeySchedule{}, err
+	}
+
+	clientSecret, err := deriveTrafficSecret(
+		hashFunc,
+		handshakeSecret,
+		clientHandshakeTrafficLabel,
+		transcriptHash,
+	)
+	if err != nil {
+		return handshakeKeySchedule{}, err
+	}
+
+	serverSecret, err := deriveTrafficSecret(
+		hashFunc,
+		handshakeSecret,
+		serverHandshakeTrafficLabel,
+		transcriptHash,
+	)
+	if err != nil {
+		return handshakeKeySchedule{}, err
+	}
+
+	masterSecret, err := deriveMasterSecret(hashFunc, handshakeSecret)
+	if err != nil {
+		return handshakeKeySchedule{}, err
+	}
+
+	return handshakeKeySchedule{
+		HandshakeTrafficSecrets: dtlsstate.TrafficSecrets{
+			Client: clientSecret,
+			Server: serverSecret,
+		},
+		MasterSecret: masterSecret,
+	}, nil
+}
+
+func deriveHandshakeSecret(hashFunc func() hash.Hash, keyAgreementSecret []byte) ([]byte, error) {
+	hashSize, err := hashSize13(hashFunc)
+	if err != nil {
+		return nil, err
+	}
+	if len(keyAgreementSecret) == 0 {
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
 	zeroSecret := make([]byte, hashSize)
 	earlySecret, err := keyschedule.HkdfExtract(hashFunc, nil, zeroSecret)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets{}, err
+		return nil, err
 	}
 
-	derivedSecret, err := keyschedule.DeriveSecret(hashFunc, earlySecret, derivedSecretLabel13, nil)
+	derivedSecret, err := keyschedule.DeriveSecret(hashFunc, earlySecret, derivedSecretLabel, nil)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets{}, err
+		return nil, err
 	}
 
-	handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedSecret, keyAgreementSecret)
+	return keyschedule.HkdfExtract(hashFunc, derivedSecret, keyAgreementSecret)
+}
+
+func deriveMasterSecret(hashFunc func() hash.Hash, handshakeSecret []byte) ([]byte, error) {
+	hashSize, err := hashSize13(hashFunc)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets{}, err
+		return nil, err
+	}
+	if len(handshakeSecret) != hashSize {
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
-	clientSecret, err := keyschedule.HkdfExpandLabel(
-		hashFunc,
-		handshakeSecret,
-		clientHandshakeTrafficLabel13,
-		transcriptHash,
-		hashSize,
-	)
+	derivedSecret, err := keyschedule.DeriveSecret(hashFunc, handshakeSecret, derivedSecretLabel, nil)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets{}, err
+		return nil, err
 	}
 
-	serverSecret, err := keyschedule.HkdfExpandLabel(
-		hashFunc,
-		handshakeSecret,
-		serverHandshakeTrafficLabel13,
-		transcriptHash,
-		hashSize,
-	)
+	return keyschedule.HkdfExtract(hashFunc, derivedSecret, make([]byte, hashSize))
+}
+
+func deriveTrafficSecret(
+	hashFunc func() hash.Hash,
+	baseSecret []byte,
+	label string,
+	transcriptHash []byte,
+) ([]byte, error) {
+	hashSize, err := hashSize13(hashFunc)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets{}, err
+		return nil, err
+	}
+	if len(baseSecret) != hashSize || len(transcriptHash) != hashSize {
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
-	return dtlsstate.HandshakeTrafficSecrets{
-		Client: clientSecret,
-		Server: serverSecret,
-	}, nil
+	return keyschedule.HkdfExpandLabel(hashFunc, baseSecret, label, transcriptHash, hashSize)
 }
 
 // DeriveAndStoreHandshakeTrafficSecrets derives DTLS 1.3 handshake traffic
@@ -99,7 +168,7 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript 
 		return err
 	}
 
-	secrets, err := deriveHandshakeTrafficSecrets(
+	secrets, err := deriveHandshakeKeySchedule(
 		state.CipherSuite.HashFunc(),
 		state.KeyAgreementSecret,
 		transcriptHash,
@@ -107,7 +176,8 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript 
 	if err != nil {
 		return err
 	}
-	state.KeySchedule.HandshakeTraffic = secrets
+	state.KeySchedule.HandshakeTraffic = secrets.HandshakeTrafficSecrets
+	state.KeySchedule.MasterSecret = secrets.MasterSecret
 
 	return nil
 }
@@ -164,7 +234,7 @@ func finishedKey(hashFunc func() hash.Hash, baseKey []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return keyschedule.HkdfExpandLabel(hashFunc, baseKey, finishedLabel13, nil, hashSize)
+	return keyschedule.HkdfExpandLabel(hashFunc, baseKey, finishedLabel, nil, hashSize)
 }
 
 // FinishedVerifyDataFromTranscript returns verify_data for the current
