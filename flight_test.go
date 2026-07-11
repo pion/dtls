@@ -2069,7 +2069,7 @@ func TestFlight13_4Generate(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Nil(t, dtlsAlert)
-		require.Len(t, pkts, 2)
+		require.Len(t, pkts, 3)
 		assert.Equal(t, uint16(0), pkts[0].Record.Header.Epoch)
 		assert.False(t, pkts[0].ShouldEncrypt)
 
@@ -2101,6 +2101,14 @@ func TestFlight13_4Generate(t *testing.T) {
 		encryptedExtensions, ok := encryptedExtensionsHandshake.Message.(*handshake.MessageEncryptedExtensions)
 		require.True(t, ok)
 		assert.Empty(t, encryptedExtensions.Extensions)
+
+		finishedHandshake, ok := pkts[2].Record.Content.(*handshake.Handshake)
+		require.True(t, ok)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[2].Record.Header.Epoch)
+		assert.True(t, pkts[2].ShouldEncrypt)
+		assert.False(t, pkts[2].ResetLocalSequenceNumber)
+		_, ok = finishedHandshake.Message.(*handshake.MessageFinished)
+		require.True(t, ok)
 	})
 
 	t.Run("RejectsWithoutCipherSuite", func(t *testing.T) {
@@ -2145,13 +2153,16 @@ func TestFlight13ServerFlight4UsesHandshakeEpoch(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
-	require.Len(t, pkts, 2)
+	require.Len(t, pkts, 3)
 
 	assert.Equal(t, uint16(0), pkts[0].Record.Header.Epoch)
 	assert.False(t, pkts[0].ShouldEncrypt)
 	assert.Equal(t, dtlsflight13.EpochHandshake, pkts[1].Record.Header.Epoch)
 	assert.True(t, pkts[1].ShouldEncrypt)
 	assert.True(t, pkts[1].ResetLocalSequenceNumber)
+	assert.Equal(t, dtlsflight13.EpochHandshake, pkts[2].Record.Header.Epoch)
+	assert.True(t, pkts[2].ShouldEncrypt)
+	assert.False(t, pkts[2].ResetLocalSequenceNumber)
 }
 
 func pushClientHello13(

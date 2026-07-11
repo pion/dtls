@@ -291,38 +291,20 @@ func (s *fsm13) commitPreparedFlights(conn Conn) error { //nolint:cyclop,nestif
 	}
 
 	if protectedFlightStart == len(s.flights) { //nolint:nestif
-		if err := AppendOutboundHandshakeFlight(
-			s.transcript,
-			s.state.IsClient,
-			s.state.CipherSuite,
-			s.flights,
-		); err != nil {
+		if err := s.appendCommittedOutboundHandshakeFlight(s.flights); err != nil {
 			return err
 		}
 	} else {
-		if err := AppendOutboundHandshakeFlight(
-			s.transcript,
-			s.state.IsClient,
-			s.state.CipherSuite,
-			s.flights[:protectedFlightStart],
-		); err != nil {
+		if err := s.appendCommittedOutboundHandshakeFlight(s.flights[:protectedFlightStart]); err != nil {
 			return err
 		}
-		secrets := s.state.KeySchedule.HandshakeTraffic
-		if len(secrets.Client) == 0 && len(secrets.Server) == 0 {
-			if err := DeriveAndStoreHandshakeTrafficSecrets(s.state, s.transcript); err != nil {
-				return err
-			}
+		if err := s.ensureHandshakeTrafficSecrets(); err != nil {
+			return err
 		}
 		if err := InitHandshakeRecordProtection(s.state); err != nil {
 			return err
 		}
-		if err := AppendOutboundHandshakeFlight(
-			s.transcript,
-			s.state.IsClient,
-			s.state.CipherSuite,
-			s.flights[protectedFlightStart:],
-		); err != nil {
+		if err := s.appendCommittedOutboundHandshakeFlight(s.flights[protectedFlightStart:]); err != nil {
 			return err
 		}
 	}
@@ -331,6 +313,66 @@ func (s *fsm13) commitPreparedFlights(conn Conn) error { //nolint:cyclop,nestif
 		s.cfg.Log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", sideString(s.state.IsClient), nextEpoch)
 		conn.SetLocalEpoch(nextEpoch)
 	}
+
+	return nil
+}
+
+func (s *fsm13) ensureHandshakeTrafficSecrets() error {
+	secrets := s.state.KeySchedule.HandshakeTraffic
+	if len(secrets.Client) == 0 && len(secrets.Server) == 0 {
+		return DeriveAndStoreHandshakeTrafficSecrets(s.state, s.transcript)
+	}
+
+	return selectHashIfReady(s.transcript, s.state.CipherSuite)
+}
+
+func (s *fsm13) appendCommittedOutboundHandshakeFlight(pkts []*dtlsflight.Packet) error {
+	for _, p := range pkts {
+		if err := s.populateOutboundFinished(p); err != nil {
+			return err
+		}
+		if err := AppendOutboundHandshakeFlight(
+			s.transcript,
+			s.state.IsClient,
+			s.state.CipherSuite,
+			[]*dtlsflight.Packet{p},
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *fsm13) populateOutboundFinished(p *dtlsflight.Packet) error {
+	if p == nil || p.Record == nil {
+		return nil
+	}
+	h, ok := p.Record.Content.(*handshake.Handshake)
+	if !ok {
+		return nil
+	}
+	finished, ok := h.Message.(*handshake.MessageFinished)
+	if !ok || len(finished.VerifyData) != 0 {
+		return nil
+	}
+	if s.state.CipherSuite == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+
+	baseKey, err := ServerHandshakeFinishedBaseKey(s.state)
+	if s.state.IsClient {
+		baseKey, err = ClientHandshakeFinishedBaseKey(s.state)
+	}
+	if err != nil {
+		return err
+	}
+
+	verifyData, err := FinishedVerifyDataFromTranscript(s.state.CipherSuite.HashFunc(), baseKey, s.transcript)
+	if err != nil {
+		return err
+	}
+	finished.VerifyData = verifyData
 
 	return nil
 }

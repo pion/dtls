@@ -544,5 +544,17 @@ func flight4Generate(
 			ShouldEncrypt:            true,
 			ResetLocalSequenceNumber: true,
 		},
+		{
+			Record: &recordlayer.RecordLayer{
+				Header: recordlayer.Header{
+					Version: protocol.Version1_2,
+					Epoch:   EpochHandshake,
+				},
+				Content: &handshake.Handshake{
+					Message: &handshake.MessageFinished{},
+				},
+			},
+			ShouldEncrypt: true,
+		},
 	}, nil, nil
 }
