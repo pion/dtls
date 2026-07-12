@@ -176,7 +176,7 @@ type connConfigValues struct {
 
 type connConfigCallbacks struct {
 	customCipherSuites   func() []dtlsconfig.CipherSuite
-	verifyConnection     func(*dtlsstate.State) error
+	verifyConnection     func(dtlsstate.Active) error
 	getCertificate       func(*dtlsconfig.ClientHelloInfo) (*tls.Certificate, error)
 	getClientCertificate func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error)
 }
@@ -406,13 +406,13 @@ func adaptCustomCipherSuites(customCipherSuites func() []CipherSuite) func() []d
 	}
 }
 
-func adaptVerifyConnection(verifyConnection func(*State) error) func(*dtlsstate.State) error {
+func adaptVerifyConnection(verifyConnection func(*State) error) func(dtlsstate.Active) error {
 	if verifyConnection == nil {
 		return nil
 	}
 
-	return func(state *dtlsstate.State) error {
-		stateSnapshot, err := generateState(state)
+	return func(state dtlsstate.Active) error {
+		stateSnapshot, err := generateStateForVerifyConnection(state)
 		if err != nil {
 			return err
 		}

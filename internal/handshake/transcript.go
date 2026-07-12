@@ -5,7 +5,6 @@
 package dtlshandshake
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"errors"
 	"hash"
@@ -288,7 +287,7 @@ func (t *Transcript) clone() (*Transcript, error) {
 
 	out := &Transcript{
 		newHash:           t.newHash,
-		pending:           cloneByteSlices(t.pending),
+		pending:           util.CloneByteSlices(t.pending),
 		transcript:        append([]byte(nil), t.transcript...),
 		seen:              make(map[transcriptMessageID]seenTranscriptMessage13, len(t.seen)),
 		order:             append([]transcriptMessage(nil), t.order...),
@@ -328,27 +327,9 @@ func (t *Transcript) replaceWith(src *Transcript) error {
 	return nil
 }
 
-func cloneByteSlices(in [][]byte) [][]byte {
-	if in == nil {
-		return nil
-	}
-
-	out := make([][]byte, len(in))
-	for i := range in {
-		out[i] = bytes.Clone(in[i])
-	}
-
-	return out
-}
-
 // pending returns the messages waiting for hash selection.
 func (t *Transcript) pendingMessages() [][]byte {
-	pending := make([][]byte, 0, len(t.pending))
-	for _, message := range t.pending {
-		pending = append(pending, append([]byte(nil), message...))
-	}
-
-	return pending
+	return util.CloneByteSlices(t.pending)
 }
 
 // Bytes returns the canonical transcript bytes.

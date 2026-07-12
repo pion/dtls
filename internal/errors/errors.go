@@ -54,7 +54,8 @@ var ( //nolint:gochecknoglobals,lll
 	ErrCookieMismatch                       = stderrors.New("client+server cookie does not match")       //nolint:lll
 	ErrIdentityNoPSK                        = stderrors.New("PSK Identity Hint provided but PSK is nil") //nolint:lll
 	ErrInvalidCertificate                   = errInvalidCertificate                                      //nolint:lll
-	ErrInvalidCipherSuite                   = stderrors.New("invalid or unknown cipher suite")           //nolint:lll
+	ErrCertificateVerificationFailed        = stderrors.New("certificate verification failed")
+	ErrInvalidCipherSuite                   = stderrors.New("invalid or unknown cipher suite") //nolint:lll
 	ErrInvalidClientAuthType                = stderrors.New("invalid client auth type")
 	ErrInvalidClientHello                   = stderrors.New("invalid ClientHello") //nolint:lll
 	ErrMissingClientHelloExtension          = stderrors.New("DTLS 1.3 ClientHello missing mandatory extension")

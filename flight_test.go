@@ -5,8 +5,12 @@ package dtls
 
 import (
 	"context"
+	"crypto"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"hash"
 	"testing"
 	"time"
@@ -17,11 +21,15 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
+	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	dtlshash "github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/keyschedule"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
+	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -34,7 +42,12 @@ import (
 
 const tlsHandshakeHeaderLength13 = 4
 
-var testCurves13 = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384} //nolint:gochecknoglobals
+var (
+	//nolint:gochecknoglobals
+	testCurves13                            = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384}
+	errFlight13ConnectionCallbackRejected   = errors.New("connection callback rejected")
+	errFlight13ServerIdentityCallbackReject = errors.New("identity callback rejected")
+)
 
 type Flight = dtlsflight13.Flight
 
@@ -363,6 +376,148 @@ func (f flight13ProtectedServerFlightFixture) cacheWithFinished(rawFinished []by
 	cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
 
 	return cache
+}
+
+type flight13ProtectedServerCertificateFlight struct {
+	cache                      *dtlsflight.Cache
+	certificateCanonical       []byte
+	certificateVerifyCanonical []byte
+	finishedCanonical          []byte
+}
+
+func (f flight13ProtectedServerFlightFixture) cacheWithCertificate(
+	t *testing.T,
+	certificate tls.Certificate,
+) flight13ProtectedServerCertificateFlight {
+	t.Helper()
+
+	rawCertificate := marshalCertificate13(t, 2, certificate.Certificate)
+	certificateCanonical, err := canonicalHandshake13(rawCertificate)
+	require.NoError(t, err)
+
+	signer, ok := certificate.PrivateKey.(crypto.Signer)
+	require.True(t, ok)
+	rawCertificateVerify := marshalServerCertificateVerify13(
+		t,
+		3,
+		signer,
+		f.clientHelloCanonical,
+		f.serverHelloCanonical,
+		f.encryptedExtensionsCanonical,
+		certificateCanonical,
+	)
+	certificateVerifyCanonical, err := canonicalHandshake13(rawCertificateVerify)
+	require.NoError(t, err)
+
+	f.state.CipherSuite = f.cfg.LocalCipherSuites[0]
+	f.state.KeySchedule.HandshakeTraffic = f.handshakeSecrets
+	rawFinished := marshalServerFinished13(
+		t,
+		f.state,
+		4,
+		f.clientHelloCanonical,
+		f.serverHelloCanonical,
+		f.encryptedExtensionsCanonical,
+		certificateCanonical,
+		certificateVerifyCanonical,
+	)
+	f.state.CipherSuite = nil
+	f.state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
+	finishedCanonical, err := canonicalHandshake13(rawFinished)
+	require.NoError(t, err)
+
+	cache := dtlsflight.NewCache()
+	cache.Push(f.rawServerHello, f.cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+	cache.Push(f.rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawCertificate, dtlsflight13.EpochHandshake, 2, handshake.TypeCertificate, false)
+	cache.Push(rawCertificateVerify, dtlsflight13.EpochHandshake, 3, handshake.TypeCertificateVerify, false)
+	cache.Push(rawFinished, dtlsflight13.EpochHandshake, 4, handshake.TypeFinished, false)
+
+	return flight13ProtectedServerCertificateFlight{
+		cache:                      cache,
+		certificateCanonical:       certificateCanonical,
+		certificateVerifyCanonical: certificateVerifyCanonical,
+		finishedCanonical:          finishedCanonical,
+	}
+}
+
+func marshalCertificate13(t *testing.T, seq uint16, rawCertificates [][]byte) []byte {
+	t.Helper()
+
+	entries := make([]handshake.CertificateEntry13, 0, len(rawCertificates))
+	for _, rawCertificate := range rawCertificates {
+		entries = append(entries, handshake.CertificateEntry13{
+			CertificateData: rawCertificate,
+		})
+	}
+
+	raw, err := (&handshake.Handshake{
+		Header: handshake.Header{MessageSequence: seq},
+		Message: &handshake.MessageCertificate13{
+			CertificateList: entries,
+		},
+	}).Marshal()
+	require.NoError(t, err)
+
+	return raw
+}
+
+func marshalServerCertificateVerify13(
+	t *testing.T,
+	seq uint16,
+	signer crypto.Signer,
+	transcriptMessages ...[]byte,
+) []byte {
+	t.Helper()
+
+	signatureBytes, err := dtlscrypto.GenerateCertificateVerify(
+		serverCertificateVerifyInput13(t, transcriptMessages...),
+		signer,
+		dtlshash.SHA256,
+		signature.ECDSA,
+	)
+	require.NoError(t, err)
+
+	raw, err := (&handshake.Handshake{
+		Header: handshake.Header{MessageSequence: seq},
+		Message: &handshake.MessageCertificateVerify{
+			HashAlgorithm:      dtlshash.SHA256,
+			SignatureAlgorithm: signature.ECDSA,
+			Signature:          signatureBytes,
+		},
+	}).Marshal()
+	require.NoError(t, err)
+
+	return raw
+}
+
+func serverCertificateVerifyInput13(t *testing.T, transcriptMessages ...[]byte) []byte {
+	t.Helper()
+
+	transcriptHash := hashTranscript13(transcriptMessages...)
+	out := make([]byte, 64, 64+len("TLS 1.3, server CertificateVerify\x00")+len(transcriptHash))
+	for i := range out {
+		out[i] = 0x20
+	}
+	out = append(out, []byte("TLS 1.3, server CertificateVerify\x00")...)
+	out = append(out, transcriptHash...)
+
+	return out
+}
+
+func flight13RootCAsForCertificate(t *testing.T, certificate tls.Certificate) *x509.CertPool {
+	t.Helper()
+
+	leaf := certificate.Leaf
+	if leaf == nil {
+		var err error
+		leaf, err = x509.ParseCertificate(certificate.Certificate[0])
+		require.NoError(t, err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(leaf)
+
+	return pool
 }
 
 func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
@@ -1529,6 +1684,240 @@ func TestFlight13_3ParseRejectsInvalidServerFinished(t *testing.T) {
 			assert.Equal(t, alert.HandshakeFailure, dtlsAlert.Description)
 			assert.Zero(t, nextFlight)
 			assert.Equal(t, 1, fixture.state.HandshakeRecvSequence)
+
+			expectedTranscript := append(append([]byte(nil), fixture.clientHelloCanonical...), fixture.serverHelloCanonical...)
+			assert.Equal(t, expectedTranscript, fixture.transcript.Bytes())
+		})
+	}
+}
+
+func TestFlight13_3ParseRunsVerifyConnectionWithoutServerCertificate(t *testing.T) {
+	fixture := newFlight13ProtectedServerFlightFixture(t)
+	var verifyConnectionCalled bool
+	fixture.cfg.VerifyConnection = adaptVerifyConnection(func(state *State) error {
+		verifyConnectionCalled = true
+		assert.Nil(t, state.PeerCertificates)
+		assert.Equal(t, fixture.cfg.LocalCipherSuites[0].ID(), state.CipherSuiteID)
+
+		return nil
+	})
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
+		state:      fixture.state,
+		cache:      fixture.cacheWithFinished(fixture.rawFinished),
+		cfg:        fixture.cfg,
+		transcript: fixture.transcript,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, Flight5, nextFlight)
+	assert.True(t, verifyConnectionCalled)
+	assert.Nil(t, fixture.state.PeerCertificates)
+}
+
+func TestFlight13_3ParseRejectsVerifyConnectionErrorWithoutServerCertificate(t *testing.T) {
+	fixture := newFlight13ProtectedServerFlightFixture(t)
+	callbackErr := errFlight13ConnectionCallbackRejected
+	fixture.cfg.VerifyConnection = adaptVerifyConnection(func(*State) error {
+		return callbackErr
+	})
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
+		state:      fixture.state,
+		cache:      fixture.cacheWithFinished(fixture.rawFinished),
+		cfg:        fixture.cfg,
+		transcript: fixture.transcript,
+	})
+
+	require.ErrorIs(t, err, dtlserrors.ErrCertificateVerificationFailed)
+	require.ErrorIs(t, err, callbackErr)
+	require.NotNil(t, dtlsAlert)
+	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
+	assert.Equal(t, alert.BadCertificate, dtlsAlert.Description)
+	assert.Zero(t, nextFlight)
+	assert.Nil(t, fixture.state.PeerCertificates)
+
+	expectedTranscript := append(append([]byte(nil), fixture.clientHelloCanonical...), fixture.serverHelloCanonical...)
+	assert.Equal(t, expectedTranscript, fixture.transcript.Bytes())
+}
+
+func TestFlight13_3ParseValidatesServerCertificate(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSignedWithDNS("server.test")
+	require.NoError(t, err)
+
+	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture.cfg.RootCAs = flight13RootCAsForCertificate(t, certificate)
+	fixture.cfg.ServerName = "server.test"
+
+	var verifyPeerCalled bool
+	fixture.cfg.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		verifyPeerCalled = true
+		require.Equal(t, certificate.Certificate, rawCerts)
+		require.Len(t, verifiedChains, 1)
+		require.NotEmpty(t, verifiedChains[0])
+		assert.Equal(t, certificate.Leaf.Raw, verifiedChains[0][0].Raw)
+
+		return nil
+	}
+
+	var verifyConnectionCalled bool
+	fixture.cfg.VerifyConnection = adaptVerifyConnection(func(state *State) error {
+		verifyConnectionCalled = true
+		require.Equal(t, certificate.Certificate, state.PeerCertificates)
+		assert.Equal(t, fixture.cfg.LocalCipherSuites[0].ID(), state.CipherSuiteID)
+		state.PeerCertificates[0][0] ^= 0xff
+
+		return nil
+	})
+
+	certificateFlight := fixture.cacheWithCertificate(t, certificate)
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
+		state:      fixture.state,
+		cache:      certificateFlight.cache,
+		cfg:        fixture.cfg,
+		transcript: fixture.transcript,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, Flight5, nextFlight)
+	assert.True(t, verifyPeerCalled)
+	assert.True(t, verifyConnectionCalled)
+	assert.Equal(t, certificate.Certificate, fixture.state.PeerCertificates)
+
+	expectedTranscript := append([]byte(nil), fixture.clientHelloCanonical...)
+	for _, message := range [][]byte{
+		fixture.serverHelloCanonical,
+		fixture.encryptedExtensionsCanonical,
+		certificateFlight.certificateCanonical,
+		certificateFlight.certificateVerifyCanonical,
+		certificateFlight.finishedCanonical,
+	} {
+		expectedTranscript = append(expectedTranscript, message...)
+	}
+	assert.Equal(t, expectedTranscript, fixture.transcript.Bytes())
+}
+
+func TestFlight13_3ParseRejectsWrongServerName(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSignedWithDNS("server.test")
+	require.NoError(t, err)
+
+	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture.cfg.RootCAs = flight13RootCAsForCertificate(t, certificate)
+	fixture.cfg.ServerName = "wrong.test"
+	certificateFlight := fixture.cacheWithCertificate(t, certificate)
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
+		state:      fixture.state,
+		cache:      certificateFlight.cache,
+		cfg:        fixture.cfg,
+		transcript: fixture.transcript,
+	})
+
+	require.ErrorIs(t, err, dtlserrors.ErrCertificateVerificationFailed)
+	var hostnameErr x509.HostnameError
+	assert.True(t, errors.As(err, &hostnameErr))
+	require.NotNil(t, dtlsAlert)
+	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
+	assert.Equal(t, alert.BadCertificate, dtlsAlert.Description)
+	assert.Zero(t, nextFlight)
+	assert.Nil(t, fixture.state.PeerCertificates)
+	assert.Equal(t, 1, fixture.state.HandshakeRecvSequence)
+
+	expectedTranscript := append(append([]byte(nil), fixture.clientHelloCanonical...), fixture.serverHelloCanonical...)
+	assert.Equal(t, expectedTranscript, fixture.transcript.Bytes())
+}
+
+func TestFlight13_3ParseInsecureSkipVerifyStillRunsCertificateCallback(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSignedWithDNS("server.test")
+	require.NoError(t, err)
+
+	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture.cfg.InsecureSkipVerify = true
+	fixture.cfg.ServerName = "wrong.test"
+
+	var verifyPeerCalled bool
+	fixture.cfg.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		verifyPeerCalled = true
+		assert.Equal(t, certificate.Certificate, rawCerts)
+		assert.Nil(t, verifiedChains)
+
+		return nil
+	}
+	var verifyConnectionCalled bool
+	fixture.cfg.VerifyConnection = adaptVerifyConnection(func(state *State) error {
+		verifyConnectionCalled = true
+		assert.Equal(t, certificate.Certificate, state.PeerCertificates)
+
+		return nil
+	})
+
+	certificateFlight := fixture.cacheWithCertificate(t, certificate)
+	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
+		state:      fixture.state,
+		cache:      certificateFlight.cache,
+		cfg:        fixture.cfg,
+		transcript: fixture.transcript,
+	})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, Flight5, nextFlight)
+	assert.True(t, verifyPeerCalled)
+	assert.True(t, verifyConnectionCalled)
+	assert.Equal(t, certificate.Certificate, fixture.state.PeerCertificates)
+}
+
+func TestFlight13_3ParseRejectsServerIdentityCallbackErrors(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSignedWithDNS("server.test")
+	require.NoError(t, err)
+	callbackErr := errFlight13ServerIdentityCallbackReject
+
+	tests := []struct {
+		name      string
+		configure func(*dtlsconfig.HandshakeConfig)
+	}{
+		{
+			name: "VerifyPeerCertificate",
+			configure: func(cfg *dtlsconfig.HandshakeConfig) {
+				cfg.VerifyPeerCertificate = func([][]byte, [][]*x509.Certificate) error {
+					return callbackErr
+				}
+			},
+		},
+		{
+			name: "VerifyConnection",
+			configure: func(cfg *dtlsconfig.HandshakeConfig) {
+				cfg.VerifyConnection = adaptVerifyConnection(func(*State) error {
+					return callbackErr
+				})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFlight13ProtectedServerFlightFixture(t)
+			fixture.cfg.RootCAs = flight13RootCAsForCertificate(t, certificate)
+			fixture.cfg.ServerName = "server.test"
+			test.configure(fixture.cfg)
+			certificateFlight := fixture.cacheWithCertificate(t, certificate)
+
+			nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
+				state:      fixture.state,
+				cache:      certificateFlight.cache,
+				cfg:        fixture.cfg,
+				transcript: fixture.transcript,
+			})
+
+			require.ErrorIs(t, err, dtlserrors.ErrCertificateVerificationFailed)
+			require.ErrorIs(t, err, callbackErr)
+			require.NotNil(t, dtlsAlert)
+			assert.Equal(t, alert.Fatal, dtlsAlert.Level)
+			assert.Equal(t, alert.BadCertificate, dtlsAlert.Description)
+			assert.Zero(t, nextFlight)
+			assert.Nil(t, fixture.state.PeerCertificates)
 
 			expectedTranscript := append(append([]byte(nil), fixture.clientHelloCanonical...), fixture.serverHelloCanonical...)
 			assert.Equal(t, expectedTranscript, fixture.transcript.Bytes())

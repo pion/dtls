@@ -102,7 +102,7 @@ type HandshakeConfig struct {
 	LocalCertificates             []tls.Certificate
 	InsecureSkipVerify            bool
 	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
-	VerifyConnection              func(*internalstate.State) error
+	VerifyConnection              func(internalstate.Active) error
 	HasSessionStore               bool
 	GetSession                    func(key []byte) (id, secret []byte, err error)
 	SetSession                    func(key, id, secret []byte) error

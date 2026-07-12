@@ -10,6 +10,7 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	dtlsutil "github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -81,6 +82,52 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 		IdentityHint:          internalState.IdentityHint,
 		SessionID:             internalState.SessionID,
 		NegotiatedProtocol:    internalState.NegotiatedProtocol,
+	}, nil
+}
+
+func generateStateForVerifyConnection(active dtlsstate.Active) (*State, error) {
+	switch state := active.(type) {
+	case *dtlsstate.State:
+		return generateState(state)
+	case *dtlsstate.State13:
+		return generateState13(state)
+	default:
+		return nil, dtlserrors.ErrInvalidProtocolVersionState
+	}
+}
+
+func generateState13(internalState *dtlsstate.State13) (*State, error) {
+	if internalState.CipherSuite == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotSet
+	}
+
+	common := internalState.CommonFields()
+	if common == nil {
+		return nil, dtlserrors.ErrInvalidProtocolVersionState
+	}
+
+	epoch := common.GetLocalEpoch()
+	var sequenceNumber uint64
+	if int(epoch) < len(common.LocalSequenceNumber) {
+		sequenceNumber = atomic.LoadUint64(&common.LocalSequenceNumber[epoch])
+	}
+
+	return &State{
+		localEpoch:            common.GetLocalEpoch(),
+		remoteEpoch:           common.GetRemoteEpoch(),
+		localRandom:           common.LocalRandom,
+		remoteRandom:          common.RemoteRandom,
+		sequenceNumber:        sequenceNumber,
+		srtpProtectionProfile: common.GetSRTPProtectionProfile(),
+		localConnectionID:     bytes.Clone(common.GetLocalConnectionID()),
+		remoteConnectionID:    bytes.Clone(common.RemoteConnectionID),
+		isClient:              common.IsClient,
+		version:               protocol.Version1_3,
+		CipherSuiteID:         internalState.CipherSuite.ID(),
+		PeerCertificates:      dtlsutil.CloneByteSlices(common.PeerCertificates),
+		IdentityHint:          bytes.Clone(common.IdentityHint),
+		SessionID:             bytes.Clone(common.SessionID),
+		NegotiatedProtocol:    common.NegotiatedProtocol,
 	}, nil
 }
 

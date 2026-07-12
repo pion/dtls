@@ -4,11 +4,20 @@
 package dtlshandshake
 
 import (
+	"bytes"
+	"crypto/x509"
+	"fmt"
+
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/internal/util"
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -87,7 +96,7 @@ func (f *protectedHandshakeFlight13) process(item *dtlsflight.HandshakeCacheItem
 
 func (f *protectedHandshakeFlight13) processCertificate(
 	item *dtlsflight.HandshakeCacheItem,
-	h *handshake.Handshake,
+	parsedHandshake *handshake.Handshake,
 	certificate *handshake.MessageCertificate13,
 ) error {
 	f.hasCertificate = true
@@ -96,12 +105,12 @@ func (f *protectedHandshakeFlight13) processCertificate(
 		return dtlserrors.ErrInvalidCertificate
 	}
 
-	return f.append(item, h)
+	return f.append(item, parsedHandshake)
 }
 
 func (f *protectedHandshakeFlight13) processCertificateVerify(
 	item *dtlsflight.HandshakeCacheItem,
-	h *handshake.Handshake,
+	parsedHandshake *handshake.Handshake,
 	verify *handshake.MessageCertificateVerify,
 ) error {
 	if !f.hasCertificate {
@@ -110,14 +119,17 @@ func (f *protectedHandshakeFlight13) processCertificateVerify(
 	if err := verifyServerCertificateVerify13(f.transcript, f.cfg, verify, f.peerCertificates); err != nil {
 		return err
 	}
+	if err := f.verifyServerIdentity(); err != nil {
+		return err
+	}
 	f.hasCertificateVerify = true
 
-	return f.append(item, h)
+	return f.append(item, parsedHandshake)
 }
 
 func (f *protectedHandshakeFlight13) processFinished(
 	item *dtlsflight.HandshakeCacheItem,
-	h *handshake.Handshake,
+	parsedHandshake *handshake.Handshake,
 	finished *handshake.MessageFinished,
 ) error {
 	if f.hasCertificate && !f.hasCertificateVerify {
@@ -126,20 +138,23 @@ func (f *protectedHandshakeFlight13) processFinished(
 	if err := verifyServerFinished13(f.transcript, f.state, f.cipherSuite, finished); err != nil {
 		return err
 	}
+	if err := f.verifyConnection(); err != nil {
+		return err
+	}
 	f.hasFinished = true
 
-	return f.append(item, h)
+	return f.append(item, parsedHandshake)
 }
 
 func (f *protectedHandshakeFlight13) append(
 	item *dtlsflight.HandshakeCacheItem,
-	h *handshake.Handshake,
+	parsedHandshake *handshake.Handshake,
 ) error {
 	return appendParsedInboundHandshake13(
 		f.transcript,
 		item.IsClient,
 		f.cipherSuite,
-		h,
+		parsedHandshake,
 		item.Data,
 	)
 }
@@ -202,6 +217,132 @@ func rawCertificatesFromCertificate13(certificate *handshake.MessageCertificate1
 	}
 
 	return out
+}
+
+func (f *protectedHandshakeFlight13) verifyServerIdentity() error {
+	var chains [][]*x509.Certificate
+	var err error
+	if !f.cfg.InsecureSkipVerify {
+		certAlgs := f.cfg.LocalCertSignatureSchemes
+		if len(certAlgs) == 0 {
+			certAlgs = f.cfg.LocalSignatureSchemes
+		}
+		chains, err = dtlscrypto.VerifyServerCert(
+			f.peerCertificates, f.cfg.RootCAs, f.cfg.ServerName, certAlgs,
+		)
+		if err != nil {
+			return certificateVerificationError(err)
+		}
+	}
+	if f.cfg.VerifyPeerCertificate != nil {
+		if err = f.cfg.VerifyPeerCertificate(f.peerCertificates, chains); err != nil {
+			return certificateVerificationError(err)
+		}
+	}
+
+	return nil
+}
+
+func (f *protectedHandshakeFlight13) verifyConnection() error {
+	if f.cfg.VerifyConnection != nil {
+		if err := f.cfg.VerifyConnection(cloneState13ForVerifyConnection(f.state, f.peerCertificates)); err != nil {
+			return certificateVerificationError(err)
+		}
+	}
+
+	return nil
+}
+
+func certificateVerificationError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %w", dtlserrors.ErrCertificateVerificationFailed, err)
+}
+
+func cloneState13ForVerifyConnection(state *dtlsstate.State13, peerCertificates [][]byte) *dtlsstate.State13 {
+	common := &dtlsstate.Common{
+		PeerCertificates: util.CloneByteSlices(peerCertificates),
+		LocalVersion:     protocol.Version1_3,
+	}
+	if state == nil || state.Common == nil {
+		return &dtlsstate.State13{Common: common}
+	}
+
+	common.LocalSequenceNumber = append([]uint64(nil), state.LocalSequenceNumber...)
+	common.RemoteSequenceNumber = append([]uint64(nil), state.RemoteSequenceNumber...)
+	common.LocalRandom = state.LocalRandom
+	common.RemoteRandom = state.RemoteRandom
+	common.CipherSuite = state.CipherSuite
+	common.IdentityHint = bytes.Clone(state.IdentityHint)
+	common.SessionID = bytes.Clone(state.SessionID)
+	common.NegotiatedProtocol = state.NegotiatedProtocol
+	common.RemoteSRTPMasterKeyIdentifier = bytes.Clone(state.RemoteSRTPMasterKeyIdentifier)
+	common.RemoteConnectionID = bytes.Clone(state.RemoteConnectionID)
+	common.IsClient = state.IsClient
+	common.ServerName = state.ServerName
+	common.PeerSupportedProtocols = append([]string(nil), state.PeerSupportedProtocols...)
+	common.RemoteVersions = append([]protocol.Version(nil), state.RemoteVersions...)
+	if !state.LocalVersion.Equal(protocol.Version{}) {
+		common.LocalVersion = state.LocalVersion
+	}
+	if localEpoch, ok := state.LocalEpoch.Load().(uint16); ok {
+		common.LocalEpoch.Store(localEpoch)
+	}
+	if remoteEpoch, ok := state.RemoteEpoch.Load().(uint16); ok {
+		common.RemoteEpoch.Store(remoteEpoch)
+	}
+	if profile, ok := state.SRTPProtectionProfile.Load().(extension.SRTPProtectionProfile); ok {
+		common.SRTPProtectionProfile.Store(profile)
+	}
+	if localCID := state.GetLocalConnectionID(); localCID != nil {
+		common.SetLocalConnectionID(bytes.Clone(localCID))
+	}
+	var remoteKeyEntries *[]extension.KeyShareEntry
+	if state.RemoteKeyEntries != nil {
+		entries := append([]extension.KeyShareEntry(nil), (*state.RemoteKeyEntries)...)
+		remoteKeyEntries = &entries
+	}
+
+	return &dtlsstate.State13{
+		Common:                common,
+		KeySchedule:           cloneKeySchedule13(state.KeySchedule),
+		KeyAgreementSecret:    bytes.Clone(state.KeyAgreementSecret),
+		SelectedGroup:         state.SelectedGroup,
+		LocalKeyEntries:       append([]extension.KeyShareEntry(nil), state.LocalKeyEntries...),
+		RemoteKeyEntries:      remoteKeyEntries,
+		RemoteGroups:          append([]elliptic.Curve(nil), state.RemoteGroups...),
+		Cookie:                bytes.Clone(state.Cookie),
+		HandshakeSendSequence: state.HandshakeSendSequence,
+		HandshakeRecvSequence: state.HandshakeRecvSequence,
+		RemoteSignatureSchemes: append(
+			[]signaturehash.Algorithm(nil), state.RemoteSignatureSchemes...,
+		),
+		RemoteCertSignatureSchemes: append(
+			[]signaturehash.Algorithm(nil), state.RemoteCertSignatureSchemes...,
+		),
+	}
+}
+
+func cloneKeySchedule13(in dtlsstate.KeySchedule) dtlsstate.KeySchedule {
+	return dtlsstate.KeySchedule{
+		EarlySecret:                     bytes.Clone(in.EarlySecret),
+		HandshakeSecret:                 bytes.Clone(in.HandshakeSecret),
+		MasterSecret:                    bytes.Clone(in.MasterSecret),
+		HandshakeTraffic:                cloneTrafficSecrets13(in.HandshakeTraffic),
+		ClientApplicationTrafficSecret0: bytes.Clone(in.ClientApplicationTrafficSecret0),
+		ServerApplicationTrafficSecret0: bytes.Clone(in.ServerApplicationTrafficSecret0),
+		ExporterMasterSecret:            bytes.Clone(in.ExporterMasterSecret),
+		ResumptionMasterSecret:          bytes.Clone(in.ResumptionMasterSecret),
+	}
+}
+
+func cloneTrafficSecrets13(in dtlsstate.TrafficSecrets) dtlsstate.TrafficSecrets {
+	return dtlsstate.TrafficSecrets{
+		Client: bytes.Clone(in.Client),
+		Server: bytes.Clone(in.Server),
+	}
 }
 
 func verifyServerCertificateVerify13(

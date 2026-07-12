@@ -5,6 +5,7 @@
 package util // nolint:revive
 
 import (
+	"bytes"
 	"encoding/binary"
 )
 
@@ -41,4 +42,18 @@ func Max(a, b int) int {
 	}
 
 	return b
+}
+
+// CloneByteSlices returns a deep copy of in, preserving nil.
+func CloneByteSlices(in [][]byte) [][]byte {
+	if in == nil {
+		return nil
+	}
+
+	out := make([][]byte, len(in))
+	for i := range in {
+		out[i] = bytes.Clone(in[i])
+	}
+
+	return out
 }
