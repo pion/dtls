@@ -384,6 +384,9 @@ func flight3PullProtectedFlight(
 ) (int, []*dtlsflight.HandshakeCacheItem, bool, *flightParseFailure) {
 	rules := []dtlsflight.HandshakeCachePullRule{
 		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false, Optional: false},
+		{Typ: handshake.TypeCertificateRequest, Epoch: EpochHandshake, IsClient: false, Optional: true},
+		{Typ: handshake.TypeCertificate, Epoch: EpochHandshake, IsClient: false, Optional: true},
+		{Typ: handshake.TypeCertificateVerify, Epoch: EpochHandshake, IsClient: false, Optional: true},
 		{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false, Optional: false},
 	}
 	pulled := flightCtx.cache.Pull(rules...)
@@ -452,6 +455,12 @@ func unmarshalFlight3ProtectedHandshakeMessage(typ handshake.Type, body []byte) 
 	switch typ {
 	case handshake.TypeEncryptedExtensions:
 		msg = &handshake.MessageEncryptedExtensions{}
+	case handshake.TypeCertificateRequest:
+		msg = &handshake.MessageCertificateRequest13{}
+	case handshake.TypeCertificate:
+		msg = &handshake.MessageCertificate13{}
+	case handshake.TypeCertificateVerify:
+		msg = &handshake.MessageCertificateVerify{}
 	case handshake.TypeFinished:
 		msg = &handshake.MessageFinished{}
 	default:
@@ -476,11 +485,23 @@ func handleFlight3ProtectedHandshake(
 }
 
 func protectedFlightParseFailure(err error) *flightParseFailure {
-	if errors.Is(err, dtlserrors.ErrVerifyDataMismatch) {
+	switch {
+	case errors.Is(err, dtlserrors.ErrVerifyDataMismatch):
 		return newFlightParseFailure(alert.HandshakeFailure, err)
+	case errors.Is(err, dtlserrors.ErrCertificateVerifyNoCertificate):
+		return newFlightParseFailure(alert.NoCertificate, err)
+	case errors.Is(err, dtlserrors.ErrKeySignatureMismatch),
+		errors.Is(err, dtlserrors.ErrInvalidCertificate),
+		errors.Is(err, dtlserrors.ErrClientCertificateNotVerified),
+		errors.Is(err, dtlserrors.ErrInvalidCertificateOID),
+		errors.Is(err, dtlserrors.ErrInvalidCertificateSignatureAlgorithm),
+		errors.Is(err, dtlserrors.ErrNotAcceptableCertificateChain):
+		return newFlightParseFailure(alert.BadCertificate, err)
+	case errors.Is(err, dtlserrors.ErrNoAvailableSignatureSchemes):
+		return newFlightParseFailure(alert.InsufficientSecurity, err)
+	default:
+		return newFlightParseFailure(alert.InternalError, err)
 	}
-
-	return newFlightParseFailure(alert.InternalError, err)
 }
 
 func handleFlight3InboundHandshake(
