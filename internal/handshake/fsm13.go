@@ -405,6 +405,15 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
 					return AppendVerifiedInboundHandshakeCacheItems(s.transcript, cipherSuite, items)
 				},
+				func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+					return VerifyAndAppendProtectedHandshakeCacheItems13(
+						s.transcript,
+						s.state,
+						s.cfg,
+						cipherSuite,
+						items,
+					)
+				},
 				func(state *dtlsstate.State13) error {
 					return DeriveAndStoreHandshakeTrafficSecrets(state, s.transcript)
 				},

@@ -438,11 +438,11 @@ func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
-	assert.Equal(t, 2, fixture.clientState.HandshakeRecvSequence)
+	assert.Equal(t, 3, fixture.clientState.HandshakeRecvSequence)
 	assert.True(t, fixture.clientState.CipherSuite.IsInitialized())
 	assert.Equal(t, dtlsflight13.EpochHandshake, fixture.clientState.GetRemoteEpoch())
 	assertFlight13RecvDoneClosed(t, recvState)
-	assertFlight13ClientTranscriptThroughEncryptedExtensions(t, fsm.transcript)
+	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
 }
 
 func TestHandshakeFSM13NoHRRReachesFlight5AfterEncryptedExtensions(t *testing.T) {
@@ -468,9 +468,9 @@ func TestHandshakeFSM13NoHRRReachesFlight5AfterEncryptedExtensions(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
-	assert.Equal(t, 2, fixture.clientState.HandshakeRecvSequence)
+	assert.Equal(t, 3, fixture.clientState.HandshakeRecvSequence)
 	assertFlight13RecvDoneClosed(t, recvState)
-	assertFlight13ClientTranscriptThroughEncryptedExtensions(t, fsm.transcript)
+	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
 }
 
 func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {
@@ -524,19 +524,21 @@ func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 	require.True(t, ok)
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	require.Equal(t, dtlsflight13.Flight4, nextFlight)
 
-	serverFlight4, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight4, &handshakeContext13{
-		state: serverState,
-		cache: serverCache,
-		cfg:   cfg,
-	})
+	serverTranscript := NewTranscript()
+	require.NoError(t, AppendOutboundHandshakeFlight(serverTranscript, true, nil, clientHello))
+	serverFSM, err := newFSM13(serverState, serverCache, cfg, dtlsflight13.Flight4, nil, serverTranscript)
 	require.NoError(t, err)
-	require.Nil(t, dtlsAlert)
+	nextState, err := serverFSM.prepare(context.Background(), &flightTestConn{})
+	require.NoError(t, err)
+	require.Equal(t, StateSending, nextState)
+	serverFlight4 := serverFSM.flights
 	require.Len(t, serverFlight4, 3)
 	setFlight13HandshakeSequence(t, serverFlight4[0], 0)
 	setFlight13HandshakeSequence(t, serverFlight4[1], 1)
@@ -617,14 +619,15 @@ func assertFlight13RecvDoneClosed(t *testing.T, state RecvHandshakeState) {
 	}
 }
 
-func assertFlight13ClientTranscriptThroughEncryptedExtensions(t *testing.T, transcript *Transcript) {
+func assertFlight13ClientTranscriptThroughServerFinished(t *testing.T, transcript *Transcript) {
 	t.Helper()
 
-	require.Len(t, transcript.messageOrder(), 3)
+	require.Len(t, transcript.messageOrder(), 4)
 	assert.Equal(t, []transcriptMessage{
 		{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 0}, Type: handshake.TypeClientHello},
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 0}, Type: handshake.TypeServerHello},
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 1}, Type: handshake.TypeEncryptedExtensions},
+		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 2}, Type: handshake.TypeFinished},
 	}, transcript.messageOrder())
 }
 

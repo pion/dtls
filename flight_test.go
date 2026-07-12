@@ -5,6 +5,7 @@ package dtls
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"hash"
 	"testing"
@@ -88,6 +89,15 @@ func flight13ParseForTestWithConn(
 		flightCtx.cfg,
 		func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
 			return dtlshandshake.AppendVerifiedInboundHandshakeCacheItems(flightCtx.transcript, cipherSuite, items)
+		},
+		func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+			return dtlshandshake.VerifyAndAppendProtectedHandshakeCacheItems13(
+				flightCtx.transcript,
+				flightCtx.state,
+				flightCtx.cfg,
+				cipherSuite,
+				items,
+			)
 		},
 		func(state *dtlsstate.State13) error {
 			return dtlshandshake.DeriveAndStoreHandshakeTrafficSecrets(state, flightCtx.transcript)
@@ -214,6 +224,145 @@ func deriveHandshakeTrafficSecrets13(
 	}
 
 	return dtlsstate.TrafficSecrets{Client: clientSecret, Server: serverSecret}, nil
+}
+
+func finishedVerifyData13(
+	t *testing.T,
+	hashFunc func() hash.Hash,
+	baseKey, transcriptHash []byte,
+) []byte {
+	t.Helper()
+
+	finishedKey, err := keyschedule.HkdfExpandLabel(hashFunc, baseKey, "finished", nil, hashFunc().Size())
+	require.NoError(t, err)
+
+	mac := hmac.New(hashFunc, finishedKey)
+	_, err = mac.Write(transcriptHash)
+	require.NoError(t, err)
+
+	return mac.Sum(nil)
+}
+
+func marshalFinished13(t *testing.T, seq uint16, verifyData []byte) []byte {
+	t.Helper()
+
+	raw, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: seq},
+		Message: &handshake.MessageFinished{VerifyData: verifyData},
+	}).Marshal()
+	require.NoError(t, err)
+
+	return raw
+}
+
+func marshalServerFinished13(
+	t *testing.T,
+	state *dtlsstate.State13,
+	seq uint16,
+	transcriptMessages ...[]byte,
+) []byte {
+	t.Helper()
+
+	verifyData := finishedVerifyData13(
+		t,
+		state.CipherSuite.HashFunc(),
+		state.KeySchedule.HandshakeTraffic.Server,
+		hashTranscript13(transcriptMessages...),
+	)
+
+	return marshalFinished13(t, seq, verifyData)
+}
+
+type flight13ProtectedServerFlightFixture struct {
+	cfg                          *dtlsconfig.HandshakeConfig
+	state                        *dtlsstate.State13
+	transcript                   *dtlshandshake.Transcript
+	clientHelloCanonical         []byte
+	serverHelloCanonical         []byte
+	encryptedExtensionsCanonical []byte
+	rawServerHello               []byte
+	rawEncryptedExtensions       []byte
+	rawFinished                  []byte
+	handshakeSecrets             dtlsstate.TrafficSecrets
+}
+
+func newFlight13ProtectedServerFlightFixture(t *testing.T) flight13ProtectedServerFlightFixture {
+	t.Helper()
+
+	cfg := testHandshakeConfig13(t)
+	state := newTestState13(true)
+	transcript := dtlshandshake.NewTranscript()
+	clientHello, _, err := flight13GenerateForTest(t, Flight1, &handshakeTestContext13{state: state, cfg: cfg})
+	require.NoError(t, err)
+	appended, err := dtlshandshake.AppendClientHelloInitialFlights(transcript, clientHello)
+	require.NoError(t, err)
+	require.True(t, appended)
+	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello[0])
+
+	group := cfg.EllipticCurves[0]
+	serverKeypair, err := elliptic.GenerateKeypair(group)
+	require.NoError(t, err)
+	rawServerHello := marshalServerHello(t, cfg, handshake.Random{
+		RandomBytes: [handshake.RandomBytesLength]byte{0x01},
+	}, []extension.Extension{
+		&extension.SupportedVersions{Versions: []protocol.Version{protocol.Version1_3}, SelectedVersion: true},
+		&extension.KeyShare{ServerShare: &extension.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+	})
+	serverHelloCanonical, err := canonicalHandshake13(rawServerHello)
+	require.NoError(t, err)
+
+	rawEncryptedExtensions, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: 1},
+		Message: &handshake.MessageEncryptedExtensions{},
+	}).Marshal()
+	require.NoError(t, err)
+	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
+	require.NoError(t, err)
+
+	clientKeypair := state.LocalKeypairs[group]
+	require.NotNil(t, clientKeypair)
+	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	require.NoError(t, err)
+	handshakeSecrets, err := deriveHandshakeTrafficSecrets13(
+		cfg.LocalCipherSuites[0].HashFunc(),
+		keyAgreementSecret,
+		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
+	)
+	require.NoError(t, err)
+	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.KeySchedule.HandshakeTraffic = handshakeSecrets
+	rawFinished := marshalServerFinished13(
+		t,
+		state,
+		2,
+		clientHelloCanonical,
+		serverHelloCanonical,
+		encryptedExtensionsCanonical,
+	)
+	state.CipherSuite = nil
+	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
+
+	return flight13ProtectedServerFlightFixture{
+		cfg:                          cfg,
+		state:                        state,
+		transcript:                   transcript,
+		clientHelloCanonical:         clientHelloCanonical,
+		serverHelloCanonical:         serverHelloCanonical,
+		encryptedExtensionsCanonical: encryptedExtensionsCanonical,
+		rawServerHello:               rawServerHello,
+		rawEncryptedExtensions:       rawEncryptedExtensions,
+		rawFinished:                  rawFinished,
+		handshakeSecrets:             handshakeSecrets,
+	}
+}
+
+func (f flight13ProtectedServerFlightFixture) cacheWithFinished(rawFinished []byte) *dtlsflight.Cache {
+	cache := dtlsflight.NewCache()
+	cache.Push(f.rawServerHello, f.cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+	cache.Push(f.rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
+
+	return cache
 }
 
 func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
@@ -869,7 +1018,32 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
+	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
+	require.NoError(t, err)
+	clientKeypair := state.LocalKeypairs[group]
+	require.NotNil(t, clientKeypair)
+	expected, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	require.NoError(t, err)
+	expectedSecrets, err := deriveHandshakeTrafficSecrets13(
+		cfg.LocalCipherSuites[0].HashFunc(),
+		expected,
+		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
+	)
+	require.NoError(t, err)
+	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.KeySchedule.HandshakeTraffic = expectedSecrets
+	rawFinished := marshalServerFinished13(
+		t,
+		state,
+		2,
+		clientHelloCanonical,
+		serverHelloCanonical,
+		encryptedExtensionsCanonical,
+	)
+	state.CipherSuite = nil
+	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
 	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
 		state:      state,
 		cache:      cache,
@@ -891,17 +1065,8 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.Len(t, *state.RemoteKeyEntries, 1)
 	assert.Equal(t, group, (*state.RemoteKeyEntries)[0].Group)
 
-	clientKeypair := state.LocalKeypairs[group]
-	require.NotNil(t, clientKeypair)
-	expected, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
-	require.NoError(t, err)
 	assert.Equal(t, expected, state.KeyAgreementSecret)
 	assert.NotEmpty(t, state.KeyAgreementSecret)
-	transcriptHash := hashTranscript13(clientHelloCanonical, serverHelloCanonical)
-	expectedSecrets, err := deriveHandshakeTrafficSecrets13(
-		state.CipherSuite.HashFunc(), expected, transcriptHash,
-	)
-	require.NoError(t, err)
 	assert.Equal(t, expectedSecrets, state.KeySchedule.HandshakeTraffic)
 	assert.NotEqual(t, state.KeySchedule.HandshakeTraffic.Client, state.KeySchedule.HandshakeTraffic.Server)
 	assert.True(t, state.CipherSuite.IsInitialized())
@@ -926,11 +1091,38 @@ func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(
 		&extension.SupportedVersions{Versions: []protocol.Version{protocol.Version1_3}, SelectedVersion: true},
 		&extension.KeyShare{ServerShare: &extension.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
 	})
+	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello[0])
+	serverHelloCanonical, err := canonicalHandshake13(rawServerHello)
+	require.NoError(t, err)
 	rawEncryptedExtensions, err := (&handshake.Handshake{
 		Header:  handshake.Header{MessageSequence: 1},
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
+	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
+	require.NoError(t, err)
+	clientKeypair := state.LocalKeypairs[group]
+	require.NotNil(t, clientKeypair)
+	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	require.NoError(t, err)
+	secrets, err := deriveHandshakeTrafficSecrets13(
+		cfg.LocalCipherSuites[0].HashFunc(),
+		keyAgreementSecret,
+		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
+	)
+	require.NoError(t, err)
+	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.KeySchedule.HandshakeTraffic = secrets
+	rawFinished := marshalServerFinished13(
+		t,
+		state,
+		2,
+		clientHelloCanonical,
+		serverHelloCanonical,
+		encryptedExtensionsCanonical,
+	)
+	state.CipherSuite = nil
+	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
@@ -941,6 +1133,7 @@ func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(
 			assert.True(t, state.CipherSuite.IsInitialized())
 			assert.Equal(t, dtlsflight13.EpochHandshake, state.GetRemoteEpoch())
 			cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
+			cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
 
 			return nil
 		},
@@ -958,7 +1151,7 @@ func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(
 	require.Nil(t, dtlsAlert)
 	assert.True(t, drained)
 	assert.Equal(t, Flight5, nextFlight)
-	assert.Equal(t, 2, state.HandshakeRecvSequence)
+	assert.Equal(t, 3, state.HandshakeRecvSequence)
 }
 
 func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T) {
@@ -1015,10 +1208,30 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 		Message: &handshake.MessageEncryptedExtensions{},
 	}).Marshal()
 	require.NoError(t, err)
-	protectedRecord := sealTestProtectedHandshakeRecord(t, peerCipherSuite, rawEncryptedExtensions)
-	protectedRaw, err := protectedRecord.Marshal()
+	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
 	require.NoError(t, err)
-	conn.encryptedPackets = []addrPkt{{data: protectedRaw}}
+	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.KeySchedule.HandshakeTraffic = secrets
+	rawFinished := marshalServerFinished13(
+		t,
+		state,
+		2,
+		clientHelloCanonical,
+		serverHelloCanonical,
+		encryptedExtensionsCanonical,
+	)
+	state.CipherSuite = nil
+	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
+
+	protectedEncryptedExtensions := sealTestProtectedHandshakeRecordWithSequence(
+		t, peerCipherSuite, rawEncryptedExtensions, 0,
+	)
+	protectedEncryptedExtensionsRaw, err := protectedEncryptedExtensions.Marshal()
+	require.NoError(t, err)
+	protectedFinished := sealTestProtectedHandshakeRecordWithSequence(t, peerCipherSuite, rawFinished, 1)
+	protectedFinishedRaw, err := protectedFinished.Marshal()
+	require.NoError(t, err)
+	conn.encryptedPackets = []addrPkt{{data: protectedEncryptedExtensionsRaw}, {data: protectedFinishedRaw}}
 
 	nextFlight, dtlsAlert, err := flight13ParseForTestWithConn(
 		t, Flight3, context.Background(), adaptFlightConn(conn), &handshakeTestContext13{
@@ -1031,7 +1244,7 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, Flight5, nextFlight)
-	assert.Equal(t, 2, state.HandshakeRecvSequence)
+	assert.Equal(t, 3, state.HandshakeRecvSequence)
 
 	items := cache.Pull(dtlsflight.HandshakeCachePullRule{
 		Typ:      handshake.TypeEncryptedExtensions,
@@ -1082,6 +1295,31 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
 	require.NoError(t, err)
+	clientKeypair := state.LocalKeypairs[group]
+	require.NotNil(t, clientKeypair)
+	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	require.NoError(t, err)
+	secrets, err := deriveHandshakeTrafficSecrets13(
+		cfg.LocalCipherSuites[0].HashFunc(),
+		keyAgreementSecret,
+		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
+	)
+	require.NoError(t, err)
+	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.KeySchedule.HandshakeTraffic = secrets
+	rawFinished := marshalServerFinished13(
+		t,
+		state,
+		2,
+		clientHelloCanonical,
+		serverHelloCanonical,
+		encryptedExtensionsCanonical,
+	)
+	finishedCanonical, err := canonicalHandshake13(rawFinished)
+	require.NoError(t, err)
+	state.CipherSuite = nil
+	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
+	cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight1, context.Background(), &handshakeTestContext13{
 		state:      state,
 		cache:      cache,
@@ -1092,8 +1330,8 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, Flight5, nextFlight)
-	expectedTranscript := append(append(append([]byte(nil), clientHelloCanonical...), serverHelloCanonical...),
-		encryptedExtensionsCanonical...)
+	expectedTranscript := append(append(append(append([]byte(nil), clientHelloCanonical...), serverHelloCanonical...),
+		encryptedExtensionsCanonical...), finishedCanonical...)
 	assert.Equal(t, expectedTranscript, transcript.Bytes())
 }
 
@@ -1173,6 +1411,36 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
 	require.NoError(t, err)
 
+	clientHello1Hash := hashTranscript13(clientHello1Canonical)
+	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHello1Hash)
+	clientKeypair := state.LocalKeypairs[group]
+	require.NotNil(t, clientKeypair)
+	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
+	require.NoError(t, err)
+	secrets, err := deriveHandshakeTrafficSecrets13(
+		cfg.LocalCipherSuites[0].HashFunc(),
+		keyAgreementSecret,
+		hashTranscript13(messageHash, helloRetryRequestCanonical, clientHello2Canonical, serverHelloCanonical),
+	)
+	require.NoError(t, err)
+	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.KeySchedule.HandshakeTraffic = secrets
+	rawFinished := marshalServerFinished13(
+		t,
+		state,
+		3,
+		messageHash,
+		helloRetryRequestCanonical,
+		clientHello2Canonical,
+		serverHelloCanonical,
+		encryptedExtensionsCanonical,
+	)
+	finishedCanonical, err := canonicalHandshake13(rawFinished)
+	require.NoError(t, err)
+	state.CipherSuite = nil
+	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
+	cache.Push(rawFinished, dtlsflight13.EpochHandshake, 3, handshake.TypeFinished, false)
+
 	nextFlight, dtlsAlert, err = flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
 		state:      state,
 		cache:      cache,
@@ -1183,11 +1451,89 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, Flight5, nextFlight)
 
-	clientHello1Hash := hashTranscript13(clientHello1Canonical)
-	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHello1Hash)
 	expectedTranscript := append(append(append(append(append([]byte(nil), messageHash...), helloRetryRequestCanonical...),
 		clientHello2Canonical...), serverHelloCanonical...), encryptedExtensionsCanonical...)
+	expectedTranscript = append(expectedTranscript, finishedCanonical...)
 	assert.Equal(t, expectedTranscript, transcript.Bytes())
+}
+
+func TestFlight13_3ParseRejectsInvalidServerFinished(t *testing.T) {
+	tests := []struct {
+		name     string
+		finished func(t *testing.T, f flight13ProtectedServerFlightFixture) []byte
+	}{
+		{
+			name: "tampered Finished",
+			finished: func(t *testing.T, f flight13ProtectedServerFlightFixture) []byte {
+				t.Helper()
+
+				raw := append([]byte(nil), f.rawFinished...)
+				raw[len(raw)-1] ^= 0xff
+
+				return raw
+			},
+		},
+		{
+			name: "wrong transcript",
+			finished: func(t *testing.T, f flight13ProtectedServerFlightFixture) []byte {
+				t.Helper()
+
+				verifyData := finishedVerifyData13(
+					t,
+					f.cfg.LocalCipherSuites[0].HashFunc(),
+					f.handshakeSecrets.Server,
+					hashTranscript13(f.clientHelloCanonical, f.serverHelloCanonical),
+				)
+
+				return marshalFinished13(t, 2, verifyData)
+			},
+		},
+		{
+			name: "wrong handshake traffic secret",
+			finished: func(t *testing.T, f flight13ProtectedServerFlightFixture) []byte {
+				t.Helper()
+
+				wrongSecret := append([]byte(nil), f.handshakeSecrets.Server...)
+				wrongSecret[0] ^= 0xff
+				verifyData := finishedVerifyData13(
+					t,
+					f.cfg.LocalCipherSuites[0].HashFunc(),
+					wrongSecret,
+					hashTranscript13(
+						f.clientHelloCanonical,
+						f.serverHelloCanonical,
+						f.encryptedExtensionsCanonical,
+					),
+				)
+
+				return marshalFinished13(t, 2, verifyData)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFlight13ProtectedServerFlightFixture(t)
+			cache := fixture.cacheWithFinished(test.finished(t, fixture))
+
+			nextFlight, dtlsAlert, err := flight13ParseForTest(t, Flight3, context.Background(), &handshakeTestContext13{
+				state:      fixture.state,
+				cache:      cache,
+				cfg:        fixture.cfg,
+				transcript: fixture.transcript,
+			})
+
+			require.ErrorIs(t, err, dtlserrors.ErrVerifyDataMismatch)
+			require.NotNil(t, dtlsAlert)
+			assert.Equal(t, alert.Fatal, dtlsAlert.Level)
+			assert.Equal(t, alert.HandshakeFailure, dtlsAlert.Description)
+			assert.Zero(t, nextFlight)
+			assert.Equal(t, 1, fixture.state.HandshakeRecvSequence)
+
+			expectedTranscript := append(append([]byte(nil), fixture.clientHelloCanonical...), fixture.serverHelloCanonical...)
+			assert.Equal(t, expectedTranscript, fixture.transcript.Bytes())
+		})
+	}
 }
 
 func TestFlight13_3ParseKeepsReadingWithoutServerHello(t *testing.T) {

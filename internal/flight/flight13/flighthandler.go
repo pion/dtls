@@ -42,6 +42,8 @@ type Generator func(
 
 type InboundHandshakeHandler func(dtlsconfig.CipherSuite, []*dtlsflight.HandshakeCacheItem) error
 
+type ProtectedHandshakeHandler func(dtlsconfig.CipherSuite, []*dtlsflight.HandshakeCacheItem) error
+
 type HandshakeTrafficSecretDeriver func(*dtlsstate.State13) error
 
 type HandshakeRecordProtectionInitializer func(*dtlsstate.State13) error
@@ -51,6 +53,7 @@ type handshakeContext struct {
 	cache                                *dtlsflight.Cache
 	cfg                                  *dtlsconfig.HandshakeConfig
 	inboundHandshakeHandler              InboundHandshakeHandler
+	protectedHandshakeHandler            ProtectedHandshakeHandler
 	handshakeTrafficSecretDeriver        HandshakeTrafficSecretDeriver
 	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer
 }
@@ -107,6 +110,7 @@ func Parse(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	inboundHandshakeHandler InboundHandshakeHandler,
+	protectedHandshakeHandler ProtectedHandshakeHandler,
 	handshakeTrafficSecretDeriver HandshakeTrafficSecretDeriver,
 	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer,
 ) (Flight, *alert.Alert, error, bool) {
@@ -120,6 +124,7 @@ func Parse(
 		cache:                                cache,
 		cfg:                                  cfg,
 		inboundHandshakeHandler:              inboundHandshakeHandler,
+		protectedHandshakeHandler:            protectedHandshakeHandler,
 		handshakeTrafficSecretDeriver:        handshakeTrafficSecretDeriver,
 		handshakeRecordProtectionInitializer: handshakeRecordProtectionInitializer,
 	})

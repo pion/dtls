@@ -5,9 +5,11 @@
 package dtlshandshake
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"errors"
 	"hash"
+	"maps"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
@@ -277,6 +279,66 @@ func (t *Transcript) hasCanonical(id transcriptMessageID, message []byte) (bool,
 	}
 
 	return false, dtlserrors.ErrHandshakeTranscriptMessageChanged
+}
+
+func (t *Transcript) clone() (*Transcript, error) {
+	if t == nil {
+		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+
+	out := &Transcript{
+		newHash:           t.newHash,
+		pending:           cloneByteSlices(t.pending),
+		transcript:        append([]byte(nil), t.transcript...),
+		seen:              make(map[transcriptMessageID]seenTranscriptMessage13, len(t.seen)),
+		order:             append([]transcriptMessage(nil), t.order...),
+		helloRetryApplied: t.helloRetryApplied,
+	}
+	maps.Copy(out.seen, t.seen)
+	if t.h == nil {
+		return out, nil
+	}
+
+	if out.newHash == nil {
+		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+	out.h = out.newHash()
+	if out.h == nil {
+		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+	if _, err := out.h.Write(out.transcript); err != nil {
+		return nil, err
+	}
+	out.pending = nil
+
+	return out, nil
+}
+
+func (t *Transcript) replaceWith(src *Transcript) error {
+	if t == nil || src == nil {
+		return nil
+	}
+
+	clone, err := src.clone()
+	if err != nil {
+		return err
+	}
+	*t = *clone
+
+	return nil
+}
+
+func cloneByteSlices(in [][]byte) [][]byte {
+	if in == nil {
+		return nil
+	}
+
+	out := make([][]byte, len(in))
+	for i := range in {
+		out[i] = bytes.Clone(in[i])
+	}
+
+	return out
 }
 
 // pending returns the messages waiting for hash selection.
