@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,7 +32,7 @@ import (
 
 const (
 	receiveMTU           = 8192
-	defaultListenBacklog = 128 // same as Linux default
+	defaultListenBacklog = 8192 // same as Linux default
 )
 
 // Typed errors.
@@ -42,7 +43,8 @@ var (
 
 // listener augments a connection-oriented Listener over a UDP PacketConn.
 type listener struct {
-	pConn *net.UDPConn
+	pConns []*net.UDPConn
+	iConns atomic.Uint32
 
 	accepting      atomic.Value // bool
 	acceptCh       chan *PacketConn
@@ -51,16 +53,21 @@ type listener struct {
 	acceptFilter   func([]byte) bool
 	datagramRouter func([]byte) (string, bool)
 	connIdentifier func([]byte) (string, bool)
+	onConnAttempt  func(net.Addr) error
 
-	connLock sync.Mutex
-	conns    map[string]*PacketConn
-	connWG   sync.WaitGroup
+	conns  sync.Map //map[string]*PacketConn
+	nConns atomic.Int64
+	connWG sync.WaitGroup
 
 	readWG   sync.WaitGroup
 	errClose atomic.Value // error
 
 	readDoneCh chan struct{}
 	errRead    atomic.Value // error
+}
+
+func (l *listener) nextSock() *net.UDPConn {
+	return l.pConns[l.iConns.Add(1)%uint32(len(l.pConns))]
 }
 
 // Accept waits for and returns the next connection to the listener.
@@ -89,7 +96,6 @@ func (l *listener) Close() error {
 		l.accepting.Store(false)
 		close(l.doneCh)
 
-		l.connLock.Lock()
 		// Close unaccepted connections
 	lclose:
 		for {
@@ -99,31 +105,23 @@ func (l *listener) Close() error {
 				// If we have an alternate identifier, remove it from the connection
 				// map.
 				if id := c.id.Load(); id != nil {
-					delete(l.conns, id.(string)) //nolint:forcetypeassert
+					l.conns.Delete(id)
+					l.nConns.Add(-1)
 				}
-				// If we haven't already removed the remote address, remove it
-				// from the connection map.
-				if c.rmraddr.Load() == nil {
-					delete(l.conns, c.raddr.String())
-					c.rmraddr.Store(true)
-				}
+				l.conns.Delete(c.raddr.String())
+				l.nConns.Add(-1)
 			default:
 				break lclose
 			}
 		}
-		nConns := len(l.conns)
-		l.connLock.Unlock()
+		l.conns.Clear()
 
 		l.connWG.Done()
 
-		if nConns == 0 {
-			// Wait if this is the final connection.
-			l.readWG.Wait()
-			if errClose, ok := l.errClose.Load().(error); ok {
-				err = errClose
-			}
-		} else {
-			err = nil
+		// Wait if this is the final connection.
+		l.readWG.Wait()
+		if errClose, ok := l.errClose.Load().(error); ok {
+			err = errClose
 		}
 	})
 
@@ -132,7 +130,7 @@ func (l *listener) Close() error {
 
 // Addr returns the listener's network address.
 func (l *listener) Addr() net.Addr {
-	return l.pConn.LocalAddr()
+	return l.pConns[0].LocalAddr()
 }
 
 // ListenConfig stores options for listening to an address.
@@ -148,6 +146,10 @@ type ListenConfig struct {
 	// AcceptFilter determines whether the new conn should be made for
 	// the incoming packet. If not set, any packet creates new conn.
 	AcceptFilter func([]byte) bool
+
+	// OnConnAttempt determines whether the new conn should be made for
+	// the incoming packet. If not set, any packet creates new conn.
+	OnConnAttempt func(net.Addr) error
 
 	// DatagramRouter routes an incoming datagram to a connection by extracting
 	// an identifier from the its paylod
@@ -174,21 +176,25 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 	if laddr != nil {
 		laddrStr = laddr.String()
 	}
-	innerConn, err := lc.ListenConfig.ListenPacket(context.Background(), network, laddrStr)
-	if err != nil {
-		return nil, err
-	}
-	conn, ok := innerConn.(*net.UDPConn)
-	if !ok {
-		return nil, errors.New("listen packet not a *net.UDPConn") //nolint:err113
+	var conns []*net.UDPConn
+	for range runtime.NumCPU() {
+		innerConn, err := lc.ListenConfig.ListenPacket(context.Background(), network, laddrStr)
+		if err != nil {
+			return nil, err
+		}
+		conn, ok := innerConn.(*net.UDPConn)
+		if !ok {
+			return nil, errors.New("listen packet not a *net.UDPConn") //nolint:err113
+		}
+		conns = append(conns, conn)
 	}
 
 	packetListener := &listener{
-		pConn:          conn,
+		pConns:         conns,
 		acceptCh:       make(chan *PacketConn, lc.Backlog),
-		conns:          make(map[string]*PacketConn),
 		doneCh:         make(chan struct{}),
 		acceptFilter:   lc.AcceptFilter,
+		onConnAttempt:  lc.OnConnAttempt,
 		datagramRouter: lc.DatagramRouter,
 		connIdentifier: lc.ConnectionIdentifier,
 		readDoneCh:     make(chan struct{}),
@@ -198,11 +204,15 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 	packetListener.connWG.Add(1)
 	packetListener.readWG.Add(2) // wait readLoop and Close execution routine
 
-	go packetListener.readLoop()
+	for _, conn := range packetListener.pConns {
+		go packetListener.readLoop(conn)
+	}
 	go func() {
 		packetListener.connWG.Wait()
-		if err := packetListener.pConn.Close(); err != nil {
-			packetListener.errClose.Store(err)
+		for _, conn := range packetListener.pConns {
+			if err := conn.Close(); err != nil {
+				packetListener.errClose.Store(err)
+			}
 		}
 		packetListener.readWG.Done()
 	}()
@@ -217,14 +227,13 @@ func Listen(network string, laddr *net.UDPAddr) (dtlsnet.PacketListener, error) 
 
 // readLoop dispatches packets to the proper connection, creating a new one if
 // necessary, until all connections are closed.
-func (l *listener) readLoop() {
+func (l *listener) readLoop(conn *net.UDPConn) {
 	defer l.readWG.Done()
 	defer close(l.readDoneCh)
 
-	buf := make([]byte, receiveMTU)
-
+	var buf [64 * 1024]byte
 	for {
-		n, raddr, err := l.pConn.ReadFrom(buf)
+		n, raddr, err := conn.ReadFrom(buf[:])
 		if err != nil {
 			l.errRead.Store(err)
 
@@ -242,21 +251,24 @@ func (l *listener) readLoop() {
 
 // getConn gets an existing connection or creates a new one.
 func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error) { //nolint:cyclop
-	l.connLock.Lock()
-	defer l.connLock.Unlock()
 	// If we have a custom resolver, use it.
 	if l.datagramRouter != nil {
 		if id, ok := l.datagramRouter(buf); ok {
-			if conn, ok := l.conns[id]; ok {
-				return conn, true, nil
+			if conn, ok := l.conns.Load(id); ok {
+				return conn.(*PacketConn), true, nil
 			}
 		}
 	}
 
 	// If we don't have a custom resolver, or we were unable to find an
 	// associated connection, fall back to remote address.
-	conn, ok := l.conns[raddr.String()]
+	conn, ok := l.conns.Load(raddr.String())
 	if !ok {
+		if l.onConnAttempt != nil {
+			if err := l.onConnAttempt(raddr); err != nil {
+				return nil, false, nil
+			}
+		}
 		if isAccepting, ok := l.accepting.Load().(bool); !isAccepting || !ok {
 			return nil, false, ErrClosedListener
 		}
@@ -265,16 +277,19 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 				return nil, false, nil
 			}
 		}
-		conn = l.newPacketConn(raddr)
-		select {
-		case l.acceptCh <- conn:
-			l.conns[raddr.String()] = conn
-		default:
-			return nil, false, ErrListenQueueExceeded
+		conn, ok = l.conns.LoadOrStore(raddr.String(), l.newPacketConn(raddr))
+		if !ok {
+			select {
+			case l.acceptCh <- conn.(*PacketConn):
+				l.nConns.Add(1)
+			default:
+				l.conns.Delete(raddr.String())
+				return nil, false, ErrListenQueueExceeded
+			}
 		}
 	}
 
-	return conn, true, nil
+	return conn.(*PacketConn), true, nil
 }
 
 // PacketConn is a net.PacketConn implementation that is able to dictate its
@@ -284,9 +299,8 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 type PacketConn struct {
 	listener *listener
 
-	raddr   net.Addr
-	rmraddr atomic.Value // bool
-	id      atomic.Value // string
+	raddr net.Addr
+	id    atomic.Value // string
 
 	buffer *idtlsnet.PacketBuffer
 
@@ -324,9 +338,7 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 			candidate, ok := c.listener.connIdentifier(payload)
 			// If we have an identifier, add entry to connection map.
 			if ok {
-				c.listener.connLock.Lock()
-				c.listener.conns[candidate] = c
-				c.listener.connLock.Unlock()
+				c.listener.conns.Store(candidate, c)
 				c.id.Store(candidate)
 			}
 		}
@@ -344,11 +356,8 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 		// resulting in the remote address entry being dropped prior to the
 		// "real" client transitioning to sending using the alternate
 		// identifier.
-		if id != nil && c.rmraddr.Load() == nil && addr.String() != c.raddr.String() {
-			c.listener.connLock.Lock()
-			delete(c.listener.conns, c.raddr.String())
-			c.rmraddr.Store(true)
-			c.listener.connLock.Unlock()
+		if id != nil && addr.String() != c.raddr.String() {
+			c.listener.conns.Delete(c.raddr.String())
 		}
 	}
 
@@ -358,7 +367,7 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 	default:
 	}
 
-	return c.listener.pConn.WriteTo(payload, addr)
+	return c.listener.nextSock().WriteTo(payload, addr)
 }
 
 // Close closes the conn and releases any Read calls.
@@ -367,22 +376,17 @@ func (c *PacketConn) Close() error {
 	c.doneOnce.Do(func() {
 		c.listener.connWG.Done()
 		close(c.doneCh)
-		c.listener.connLock.Lock()
 		// If we have an alternate identifier, remove it from the connection
 		// map.
 		if id := c.id.Load(); id != nil {
-			delete(c.listener.conns, id.(string)) //nolint:forcetypeassert
+			c.listener.conns.Delete(id) //nolint:forcetypeassert
+			c.listener.nConns.Add(-1)
 		}
-		// If we haven't already removed the remote address, remove it from the
-		// connection map.
-		if c.rmraddr.Load() == nil {
-			delete(c.listener.conns, c.raddr.String())
-			c.rmraddr.Store(true)
-		}
-		nConns := len(c.listener.conns)
-		c.listener.connLock.Unlock()
+		c.listener.conns.Delete(c.raddr.String())
+		c.listener.nConns.Add(-1)
 
-		if isAccepting, ok := c.listener.accepting.Load().(bool); nConns == 0 && !isAccepting && ok {
+		if isAccepting, ok := c.listener.accepting.Load().(bool); c.listener.nConns.Load() == 0 &&
+			!isAccepting && ok {
 			// Wait if this is the final connection
 			c.listener.readWG.Wait()
 			if errClose, ok := c.listener.errClose.Load().(error); ok {
@@ -402,7 +406,7 @@ func (c *PacketConn) Close() error {
 
 // LocalAddr implements net.PacketConn.LocalAddr.
 func (c *PacketConn) LocalAddr() net.Addr {
-	return c.listener.pConn.LocalAddr()
+	return c.listener.nextSock().LocalAddr()
 }
 
 // SetDeadline implements net.PacketConn.SetDeadline.

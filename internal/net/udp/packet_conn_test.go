@@ -354,7 +354,7 @@ func TestConnClose(t *testing.T) { //nolint:cyclop
 		// Close l.pConn to inject error.
 		listener, ok := udpListener.(*listener)
 		assert.True(t, ok)
-		assert.NoError(t, listener.pConn.Close())
+		assert.NoError(t, listener.nextSock().Close())
 		assert.NoError(t, cb.Close())
 		assert.NoError(t, ca.Close())
 		assert.Error(t, udpListener.Close())
@@ -370,7 +370,7 @@ func TestConnClose(t *testing.T) { //nolint:cyclop
 		// Close l.pConn to inject error.
 		listener, ok := l.(*listener)
 		assert.True(t, ok)
-		assert.NoError(t, listener.pConn.Close())
+		assert.NoError(t, listener.nextSock().Close())
 		assert.NoError(t, cb.Close())
 		assert.NoError(t, l.Close())
 		assert.Error(t, ca.Close())

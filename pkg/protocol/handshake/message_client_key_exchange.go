@@ -30,25 +30,67 @@ func (m MessageClientKeyExchange) Type() Type {
 }
 
 // Marshal encodes the Handshake.
-func (m *MessageClientKeyExchange) Marshal() (out []byte, err error) {
+func (m *MessageClientKeyExchange) Marshal() ([]byte, error) {
 	if m.IdentityHint == nil && m.PublicKey == nil {
 		return nil, errInvalidClientKeyExchange
-	}
-
-	if m.IdentityHint != nil {
-		out = append([]byte{0x00, 0x00}, m.IdentityHint...)
-		binary.BigEndian.PutUint16(out, uint16(len(out)-2)) //nolint:gosec // G115
 	}
 
 	if m.PublicKey != nil {
 		if len(m.PublicKey) > 255 {
 			return nil, errPublicKeyTooLong
 		}
-		out = append(out, byte(len(m.PublicKey))) //nolint:gosec // G115: public key length is validated to be <= 255 above.
-		out = append(out, m.PublicKey...)
 	}
 
-	return out, nil
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalSize returns the size required for MarshalTo.
+func (m *MessageClientKeyExchange) MarshalSize() int {
+	total := 0
+	if m.IdentityHint != nil {
+		total += 2
+		total += len(m.IdentityHint)
+	}
+
+	if m.PublicKey != nil {
+		total += 1
+		total += len(m.PublicKey)
+	}
+
+	return total
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageClientKeyExchange) MarshalTo(out []byte) (int, error) {
+	if m.IdentityHint == nil && m.PublicKey == nil {
+		return 0, errInvalidClientKeyExchange
+	}
+
+	if len(out) < m.MarshalSize() {
+		return 0, errBufferTooSmall
+	}
+
+	offset := 0
+	if m.IdentityHint != nil {
+		binary.BigEndian.PutUint16(out[offset:], uint16(len(m.IdentityHint))) //nolint:gosec // G115
+		offset += 2
+		n := copy(out[offset:], m.IdentityHint)
+		offset += n
+	}
+
+	if m.PublicKey != nil {
+		if len(m.PublicKey) > 255 {
+			return 0, errPublicKeyTooLong
+		}
+		out[offset] = byte(len(m.PublicKey)) //nolint:gosec // G115: public key length is validated to be <= 255 above.
+		offset += 1
+		copy(out[offset:], m.PublicKey)
+	}
+
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal populates the message from encoded data.
