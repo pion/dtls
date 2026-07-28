@@ -5,6 +5,7 @@ package flight
 
 import (
 	"context"
+	"crypto"
 
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
@@ -20,6 +21,10 @@ type Packet struct {
 	ShouldEncrypt            bool
 	ShouldWrapCID            bool
 	ResetLocalSequenceNumber bool
+
+	// CertificateVerifySigner is local-only metadata used to populate an
+	// outbound CertificateVerify after the handshake messages have been committed.
+	CertificateVerifySigner crypto.Signer
 }
 
 type HandshakeCacheItem struct {

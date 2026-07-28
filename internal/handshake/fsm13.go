@@ -12,6 +12,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
+	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -328,6 +329,9 @@ func (s *fsm13) ensureHandshakeTrafficSecrets() error {
 
 func (s *fsm13) appendCommittedOutboundHandshakeFlight(pkts []*dtlsflight.Packet) error {
 	for _, p := range pkts {
+		if err := s.populateOutboundCertificateVerify(p); err != nil {
+			return err
+		}
 		if err := s.populateOutboundFinished(p); err != nil {
 			return err
 		}
@@ -342,6 +346,36 @@ func (s *fsm13) appendCommittedOutboundHandshakeFlight(pkts []*dtlsflight.Packet
 	}
 
 	return nil
+}
+
+func (s *fsm13) populateOutboundCertificateVerify(pkt *dtlsflight.Packet) error {
+	if pkt == nil || pkt.Record == nil {
+		return nil
+	}
+	h, ok := pkt.Record.Content.(*handshake.Handshake)
+	if !ok {
+		return nil
+	}
+	certificateVerify, ok := h.Message.(*handshake.MessageCertificateVerify)
+	if !ok || len(certificateVerify.Signature) != 0 {
+		return nil
+	}
+	if pkt.CertificateVerifySigner == nil {
+		return dtlserrors.ErrInvalidPrivateKey
+	}
+
+	input, err := CertificateVerifyInputFromTranscript(true, s.transcript)
+	if err != nil {
+		return err
+	}
+	certificateVerify.Signature, err = dtlscrypto.GenerateCertificateVerify(
+		input,
+		pkt.CertificateVerifySigner,
+		certificateVerify.HashAlgorithm,
+		certificateVerify.SignatureAlgorithm,
+	)
+
+	return err
 }
 
 func (s *fsm13) populateOutboundFinished(p *dtlsflight.Packet) error {

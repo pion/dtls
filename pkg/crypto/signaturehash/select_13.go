@@ -7,6 +7,7 @@ import (
 	"crypto"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/pkg/crypto/signature"
 )
 
 // selectSignatureScheme13 returns most preferred and compatible scheme.
@@ -19,6 +20,11 @@ func selectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey, is1
 	for _, ss := range sigs {
 		// Skip PSS schemes for DTLS 1.2 (PSS is only supported in DTLS 1.3)
 		if !is13 && ss.Signature.IsPSS() {
+			continue
+		}
+		// TLS 1.3 CertificateVerify signatures made with RSA keys must use
+		// RSASSA-PSS!
+		if is13 && ss.Signature == signature.RSA {
 			continue
 		}
 		// Skip schemes understood but not supported by pion/dtls.

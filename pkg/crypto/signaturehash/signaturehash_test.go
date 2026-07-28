@@ -207,10 +207,10 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 		expectedError  error
 	}{
 		{
-			name: "DTLS 1.3 with RSA key selects PSS",
+			name: "DTLS 1.3 with RSA key skips PKCS#1 v1.5 and selects PSS",
 			schemes: []Algorithm{
-				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
 				{hash.SHA256, signature.RSA},
+				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
 			},
 			privateKey:     rsaKey,
 			is13:           true,
@@ -262,7 +262,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 			expectedError:  nil,
 		},
 		{
-			name: "DTLS 1.3 with RSA key and only RSA_PSS_PSS schemes falls back to PKCS#1 v1.5",
+			name: "DTLS 1.3 with RSA key rejects PKCS#1 v1.5 fallback",
 			schemes: []Algorithm{
 				{hash.SHA256, signature.RSA_PSS_PSS_SHA256},
 				{hash.SHA384, signature.RSA_PSS_PSS_SHA384},
@@ -270,8 +270,8 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 			},
 			privateKey:     rsaKey,
 			is13:           true,
-			expectedSigAlg: signature.RSA,
-			expectedError:  nil,
+			expectedSigAlg: 0,
+			expectedError:  dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes,
 		},
 		{
 			name: "DTLS 1.3 with RSA key and only RSA_PSS_PSS schemes fails if no fallback",
