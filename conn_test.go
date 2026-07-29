@@ -3737,8 +3737,10 @@ func TestCloseWithoutHandshake(t *testing.T) {
 	assert.NoError(t, server.Close())
 }
 
-// WIP! Tests if DTLS 1.3 handshake flow is enabled and the correct error is returned.
-func TestDTLS13Enabled(t *testing.T) {
+func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(10 * time.Second).Stop()
+
 	ca, cb := dpipe.Pipe()
 
 	// Setup client
@@ -3761,18 +3763,6 @@ func TestDTLS13Enabled(t *testing.T) {
 	_, ok := client.ConnectionState()
 	assert.False(t, ok)
 
-	ctxClient, cancelClient := context.WithTimeout(context.Background(), 250*time.Millisecond)
-	defer cancelClient()
-	errorChannel := make(chan error)
-	go func() {
-		errC := client.HandshakeContext(ctxClient)
-		errorChannel <- errC
-	}()
-
-	err = <-errorChannel
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
-
 	// Setup server
 	serverCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
@@ -3793,15 +3783,122 @@ func TestDTLS13Enabled(t *testing.T) {
 	_, ok = server.ConnectionState()
 	assert.False(t, ok)
 
-	ctxServer, cancelServer := context.WithTimeout(context.Background(), 250*time.Millisecond)
-	defer cancelServer()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errorChannel := make(chan error, 2)
 	go func() {
-		errS := server.HandshakeContext(ctxServer)
-		errorChannel <- errS
+		errorChannel <- client.HandshakeContext(ctx)
 	}()
-	err = <-errorChannel
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	go func() {
+		errorChannel <- server.HandshakeContext(ctx)
+	}()
+	require.NoError(t, <-errorChannel)
+	require.NoError(t, <-errorChannel)
+
+	_, ok = client.ConnectionState()
+	require.True(t, ok)
+	_, ok = server.ConnectionState()
+	require.True(t, ok)
+
+	require.NoError(t, client.SetReadDeadline(time.Now().Add(time.Second)))
+	require.NoError(t, server.SetReadDeadline(time.Now().Add(time.Second)))
+
+	clientPayload := []byte("client to server")
+	n, err := client.Write(clientPayload)
+	require.NoError(t, err)
+	require.Equal(t, len(clientPayload), n)
+	buf := make([]byte, 64)
+	n, err = server.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, clientPayload, buf[:n])
+
+	serverPayload := []byte("server to client")
+	n, err = server.Write(serverPayload)
+	require.NoError(t, err)
+	require.Equal(t, len(serverPayload), n)
+	n, err = client.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, serverPayload, buf[:n])
+}
+
+func TestDTLS13RetransmittedClientFinalFlight(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(10 * time.Second).Stop()
+
+	ca, cb := dpipe.Pipe()
+	var duplicated atomic.Bool
+	duplicateWriteErr := make(chan error, 1)
+	caDuplicateFinal := &connWithCallback{
+		Conn: ca,
+		onWrite: func(raw []byte) {
+			if len(raw) == 0 ||
+				!protocol.IsDTLS13Ciphertext(protocol.ContentType(raw[0])) ||
+				!duplicated.CompareAndSwap(false, true) {
+				return
+			}
+			if _, err := ca.Write(append([]byte(nil), raw...)); err != nil {
+				duplicateWriteErr <- err
+			}
+		},
+	}
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	client, err := ClientWithOptions(
+		dtlsnet.PacketConnFromConn(caDuplicateFinal),
+		caDuplicateFinal.RemoteAddr(),
+		WithCertificates(clientCert),
+		WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+	)
+	require.NoError(t, err)
+	defer func() {
+		_ = client.Close()
+	}()
+
+	serverCert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	server, err := ServerWithOptions(
+		dtlsnet.PacketConnFromConn(cb),
+		cb.RemoteAddr(),
+		WithCertificates(serverCert),
+		WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+	)
+	require.NoError(t, err)
+	defer func() {
+		_ = server.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errorChannel := make(chan error, 2)
+	go func() {
+		errorChannel <- client.HandshakeContext(ctx)
+	}()
+	go func() {
+		errorChannel <- server.HandshakeContext(ctx)
+	}()
+	require.NoError(t, <-errorChannel)
+	require.NoError(t, <-errorChannel)
+	require.True(t, duplicated.Load())
+	select {
+	case err = <-duplicateWriteErr:
+		require.NoError(t, err)
+	default:
+	}
+
+	payload := []byte("application data after retransmit")
+	_, err = client.Write(payload)
+	require.NoError(t, err)
+	require.NoError(t, server.SetReadDeadline(time.Now().Add(time.Second)))
+	buf := make([]byte, len(payload))
+	n, err := io.ReadFull(server, buf)
+	require.NoError(t, err)
+	assert.Equal(t, len(payload), n)
+	assert.Equal(t, payload, buf)
 }
 
 // WIP! Tests if the dual stack mode client managed to negotiate a version successfully.
@@ -4016,20 +4113,25 @@ func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
 
-func TestProcessProtectedPacketRejectsApplicationData(t *testing.T) {
-	conn, _ := newTestConnWithWriteProtection(t)
+func TestProcessProtectedPacketWritesApplicationData(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithWriteProtection(t)
+	payload := []byte("application data")
 
-	_, err := conn.processPacket(&dtlsflight.Packet{
+	rawPacket, err := conn.processPacket(&dtlsflight.Packet{
 		Record: &recordlayer.RecordLayer{
 			Header: recordlayer.Header{
 				Version: protocol.Version1_2,
-				Epoch:   dtlsflight13.EpochHandshake,
+				Epoch:   dtlsflight13.EpochApplication,
 			},
-			Content: &protocol.ApplicationData{Data: []byte("not yet")},
+			Content: &protocol.ApplicationData{Data: payload},
 		},
 		ShouldEncrypt: true,
 	})
-	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+	require.NoError(t, err)
+
+	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket, 0)
+	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+	assert.Equal(t, payload, innerPlaintext.Content)
 }
 
 func TestOpenCiphertextRecordHandshake(t *testing.T) {

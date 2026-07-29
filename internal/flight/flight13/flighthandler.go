@@ -68,6 +68,8 @@ func getFlightParser(f Flight) (flightParser, bool) { //nolint:cyclop
 		return flight2Parse, true
 	case Flight3:
 		return flight3Parse, true
+	case Flight4:
+		return flight4Parse, true
 	default:
 		return nil, false
 	}

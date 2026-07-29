@@ -323,6 +323,60 @@ func flight2Parse(
 	return Flight4, nil, nil
 }
 
+// flight4Parse processes the client's protected final flight. The parser is
+// keyed by the server's current flight (Flight 4), even tho the messages on
+// the wire are the client's Flight 5.
+func flight4Parse(
+	_ context.Context,
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) (Flight, *alert.Alert, error) {
+	rules := []dtlsflight.HandshakeCachePullRule{
+		{Typ: handshake.TypeCertificate, Epoch: EpochHandshake, IsClient: true, Optional: true},
+		{Typ: handshake.TypeCertificateVerify, Epoch: EpochHandshake, IsClient: true, Optional: true},
+		{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: true, Optional: false},
+	}
+	pulled := flightCtx.cache.Pull(rules...)
+	if pulled[len(pulled)-1] == nil {
+		return 0, nil, nil
+	}
+
+	seq := flightCtx.state.HandshakeRecvSequence
+	items := make([]*dtlsflight.HandshakeCacheItem, 0, len(pulled))
+	for i, item := range pulled {
+		if item == nil {
+			continue
+		}
+		if failure := validateFlight3ProtectedHandshakeItem(
+			item,
+			rules[i].Typ,
+			uint16(seq), //nolint:gosec // G115
+		); failure != nil {
+			if failure.err == nil {
+				return 0, nil, nil
+			}
+
+			return 0, failure.alert, failure.err
+		}
+		seq++
+		items = append(items, item)
+	}
+
+	if flightCtx.protectedHandshakeHandler == nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
+			dtlserrors.ErrHandshakeTranscriptHashNotSelected
+	}
+	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
+		failure := protectedFlightParseFailure(err)
+
+		return 0, failure.alert, failure.err
+	}
+	flightCtx.state.HandshakeRecvSequence = seq
+
+	// Returning the current flight marks the server's last receive flight.
+	return Flight4, nil, nil
+}
+
 func clientHelloCookie(extensions []extension.Extension) []byte {
 	for _, ext := range extensions {
 		if cookieExt, ok := ext.(*extension.CookieExt); ok {

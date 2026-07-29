@@ -269,6 +269,11 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (State, error) {
 	if err := s.commitPreparedFlights(conn); err != nil {
 		return StateErrored, err
 	}
+	if !s.state.IsClient && s.currentFlight == dtlsflight13.Flight4 {
+		if err := DeriveAndStoreApplicationTrafficSecrets(s.state, s.transcript); err != nil {
+			return StateErrored, err
+		}
+	}
 
 	return StateSending, nil
 }
@@ -415,6 +420,19 @@ func (s *fsm13) send(ctx context.Context, c Conn) (State, error) {
 	if err := c.WritePackets(ctx, s.flights); err != nil {
 		return StateErrored, err
 	}
+	if !s.state.IsClient && s.currentFlight == dtlsflight13.Flight4 {
+		s.state.RemoteEpoch.Store(dtlsflight13.EpochHandshake)
+		if err := c.HandleQueuedPackets(ctx); err != nil {
+			return StateErrored, err
+		}
+	}
+	if s.state.IsClient && s.currentFlight == dtlsflight13.Flight5 {
+		if err := s.activateApplicationRecordProtection(ctx, c); err != nil {
+			return StateErrored, err
+		}
+
+		return StateFinished, nil
+	}
 
 	return StateWaiting, nil
 }
@@ -474,6 +492,20 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 			if nextFlight == 0 {
 				break
 			}
+			if s.state.IsClient && nextFlight == dtlsflight13.Flight5 {
+				if err := DeriveAndStoreApplicationTrafficSecrets(s.state, s.transcript); err != nil {
+					return StateErrored, err
+				}
+			}
+			if !s.state.IsClient &&
+				s.currentFlight == dtlsflight13.Flight4 &&
+				nextFlight == dtlsflight13.Flight4 {
+				if err := s.activateApplicationRecordProtection(ctx, conn); err != nil {
+					return StateErrored, err
+				}
+
+				return StateFinished, nil
+			}
 			s.cfg.Log.Tracef(
 				"[handshake13:%s] %s -> %s",
 				sideString(s.state.IsClient),
@@ -506,7 +538,25 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 }
 
 func (s *fsm13) finish(ctx context.Context, c Conn) (State, error) {
-	return StateErrored, dtlserrors.ErrStateUnimplemented13
+	select {
+	case state := <-c.RecvHandshake():
+		close(state.Done)
+
+		// avoid committing a second time.
+		return StateFinished, nil
+	case <-ctx.Done():
+		return StateErrored, ctx.Err()
+	}
+}
+
+func (s *fsm13) activateApplicationRecordProtection(ctx context.Context, c Conn) error {
+	if err := InitApplicationRecordProtection(s.state); err != nil {
+		return err
+	}
+	c.SetLocalEpoch(dtlsflight13.EpochApplication)
+	s.state.RemoteEpoch.Store(dtlsflight13.EpochApplication)
+
+	return c.HandleQueuedPackets(ctx)
 }
 
 func transcriptSenderForSide13(isClient bool) transcriptSender {

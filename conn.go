@@ -940,11 +940,7 @@ func (c *Conn) Close() error {
 func (c *Conn) ConnectionState() (State, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	state12, err := dtlsstate.As12(c.state)
-	if err != nil {
-		return State{}, false
-	}
-	state, err := generateState(state12)
+	state, err := generateStateForVerifyConnection(c.state)
 	if err != nil {
 		return State{}, false
 	}
@@ -1240,7 +1236,7 @@ func (c *Conn) processProtectedPacket(pkt *dtlsflight.Packet, seq uint64) ([]byt
 
 func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byte, error) {
 	switch content.(type) {
-	case *handshake.Handshake, *alert.Alert:
+	case *handshake.Handshake, *alert.Alert, *protocol.ApplicationData:
 	default:
 		return 0, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
@@ -1796,7 +1792,7 @@ func (c *Conn) prepareInnerPlaintextRecord(
 	markPacketAsValid func() bool,
 ) (incomingPacketState, bool) {
 	switch innerPlaintext.RealType {
-	case protocol.ContentTypeHandshake, protocol.ContentTypeAlert:
+	case protocol.ContentTypeHandshake, protocol.ContentTypeAlert, protocol.ContentTypeApplicationData:
 		plaintext, header, err := marshalInnerPlaintextRecord(remoteEpoch, sequenceNumber, innerPlaintext)
 		if err != nil {
 			c.log.Debugf("converting ciphertext record to inner plaintext failed: %s", err)
@@ -1809,7 +1805,7 @@ func (c *Conn) prepareInnerPlaintextRecord(
 			header:            header,
 			markPacketAsValid: markPacketAsValid,
 		}, true
-	case protocol.ContentTypeACK, protocol.ContentTypeApplicationData:
+	case protocol.ContentTypeACK:
 		_ = markPacketAsValid()
 
 		return incomingPacketState{}, false

@@ -493,6 +493,8 @@ func protectedFlightParseFailure(err error) *flightParseFailure {
 		return newFlightParseFailure(alert.HandshakeFailure, err)
 	case errors.Is(err, dtlserrors.ErrCertificateVerifyNoCertificate):
 		return newFlightParseFailure(alert.NoCertificate, err)
+	case errors.Is(err, dtlserrors.ErrClientCertificateRequired):
+		return newFlightParseFailure(alert.CertificateRequired, err)
 	case errors.Is(err, dtlserrors.ErrKeySignatureMismatch),
 		errors.Is(err, dtlserrors.ErrInvalidCertificate),
 		errors.Is(err, dtlserrors.ErrCertificateVerificationFailed),

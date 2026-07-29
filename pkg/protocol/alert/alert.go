@@ -62,6 +62,7 @@ const (
 	NoRenegotiation        Description = 100
 	MissingExtension       Description = 109
 	UnsupportedExtension   Description = 110
+	CertificateRequired    Description = 116
 	NoApplicationProtocol  Description = 120
 )
 
@@ -119,6 +120,8 @@ func (d Description) String() string { //nolint:cyclop
 		return "MissingExtension"
 	case UnsupportedExtension:
 		return "UnsupportedExtension"
+	case CertificateRequired:
+		return "CertificateRequired"
 	case NoApplicationProtocol:
 		return "NoApplicationProtocol"
 	default:

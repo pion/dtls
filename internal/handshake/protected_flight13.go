@@ -22,7 +22,7 @@ import (
 )
 
 // VerifyAndAppendProtectedHandshakeCacheItems13 verifies a DTLS 1.3 protected
-// server flight and commits it to the transcript only after Finished verifies.
+// peer flight and commits it to the transcript only after Finished verifies.
 func VerifyAndAppendProtectedHandshakeCacheItems13(
 	transcript *Transcript,
 	state *dtlsstate.State13,
@@ -57,7 +57,7 @@ func VerifyAndAppendProtectedHandshakeCacheItems13(
 	if err := transcript.replaceWith(working); err != nil {
 		return err
 	}
-	if flight.hasCertificate {
+	if len(flight.peerCertificates) != 0 {
 		state.PeerCertificates = flight.peerCertificates
 	}
 
@@ -102,6 +102,10 @@ func (f *protectedHandshakeFlight13) processCertificate(
 	f.hasCertificate = true
 	f.peerCertificates = rawCertificatesFromCertificate13(certificate)
 	if len(f.peerCertificates) == 0 {
+		if item.IsClient {
+			return f.append(item, parsedHandshake)
+		}
+
 		return dtlserrors.ErrInvalidCertificate
 	}
 
@@ -116,10 +120,19 @@ func (f *protectedHandshakeFlight13) processCertificateVerify(
 	if !f.hasCertificate {
 		return dtlserrors.ErrCertificateVerifyNoCertificate
 	}
-	if err := verifyServerCertificateVerify13(f.transcript, f.cfg, verify, f.peerCertificates); err != nil {
+	if len(f.peerCertificates) == 0 {
+		return dtlserrors.ErrCertificateVerifyNoCertificate
+	}
+	if err := verifyPeerCertificateVerify13(
+		f.transcript,
+		f.cfg,
+		verify,
+		f.peerCertificates,
+		item.IsClient,
+	); err != nil {
 		return err
 	}
-	if err := f.verifyServerIdentity(); err != nil {
+	if err := f.verifyPeerIdentity(item.IsClient); err != nil {
 		return err
 	}
 	f.hasCertificateVerify = true
@@ -132,10 +145,19 @@ func (f *protectedHandshakeFlight13) processFinished(
 	parsedHandshake *handshake.Handshake,
 	finished *handshake.MessageFinished,
 ) error {
-	if f.hasCertificate && !f.hasCertificateVerify {
+	if len(f.peerCertificates) != 0 && !f.hasCertificateVerify {
 		return dtlserrors.ErrClientCertificateNotVerified
 	}
-	if err := verifyServerFinished13(f.transcript, f.state, f.cipherSuite, finished); err != nil {
+	if item.IsClient && clientCertificateRequired13(f.cfg) && len(f.peerCertificates) == 0 {
+		return dtlserrors.ErrClientCertificateRequired
+	}
+	if err := verifyPeerFinished13(
+		f.transcript,
+		f.state,
+		f.cipherSuite,
+		finished,
+		item.IsClient,
+	); err != nil {
 		return err
 	}
 	if err := f.verifyConnection(); err != nil {
@@ -243,6 +265,41 @@ func (f *protectedHandshakeFlight13) verifyServerIdentity() error {
 	return nil
 }
 
+func (f *protectedHandshakeFlight13) verifyPeerIdentity(isClient bool) error {
+	if !isClient {
+		return f.verifyServerIdentity()
+	}
+
+	var chains [][]*x509.Certificate
+	var err error
+	if f.cfg.ClientAuth >= dtlsconfig.VerifyClientCertIfGiven {
+		certAlgs := f.cfg.LocalCertSignatureSchemes
+		if len(certAlgs) == 0 {
+			certAlgs = f.cfg.LocalSignatureSchemes
+		}
+		chains, err = dtlscrypto.VerifyClientCert(f.peerCertificates, f.cfg.ClientCAs, certAlgs)
+		if err != nil {
+			return certificateVerificationError(err)
+		}
+	}
+	if f.cfg.VerifyPeerCertificate != nil {
+		if err = f.cfg.VerifyPeerCertificate(f.peerCertificates, chains); err != nil {
+			return certificateVerificationError(err)
+		}
+	}
+
+	return nil
+}
+
+func clientCertificateRequired13(cfg *dtlsconfig.HandshakeConfig) bool {
+	if cfg == nil {
+		return false
+	}
+
+	return cfg.ClientAuth == dtlsconfig.RequireAnyClientCert ||
+		cfg.ClientAuth == dtlsconfig.RequireAndVerifyClientCert
+}
+
 func (f *protectedHandshakeFlight13) verifyConnection() error {
 	if f.cfg.VerifyConnection != nil {
 		if err := f.cfg.VerifyConnection(cloneState13ForVerifyConnection(f.state, f.peerCertificates)); err != nil {
@@ -345,11 +402,12 @@ func cloneTrafficSecrets13(in dtlsstate.TrafficSecrets) dtlsstate.TrafficSecrets
 	}
 }
 
-func verifyServerCertificateVerify13(
+func verifyPeerCertificateVerify13(
 	transcript *Transcript,
 	cfg *dtlsconfig.HandshakeConfig,
 	verify *handshake.MessageCertificateVerify,
 	peerCertificates [][]byte,
+	isClient bool,
 ) error {
 	if cfg == nil {
 		return dtlserrors.ErrNoAvailableSignatureSchemes
@@ -366,7 +424,7 @@ func verifyServerCertificateVerify13(
 		return dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 
-	input, err := CertificateVerifyInputFromTranscript(false, transcript)
+	input, err := CertificateVerifyInputFromTranscript(isClient, transcript)
 	if err != nil {
 		return err
 	}
@@ -380,17 +438,21 @@ func verifyServerCertificateVerify13(
 	)
 }
 
-func verifyServerFinished13(
+func verifyPeerFinished13(
 	transcript *Transcript,
 	state *dtlsstate.State13,
 	cipherSuite dtlsconfig.CipherSuite,
 	finished *handshake.MessageFinished,
+	isClient bool,
 ) error {
 	if state == nil || cipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
 
 	baseKey, err := ServerHandshakeFinishedBaseKey(state)
+	if isClient {
+		baseKey, err = ClientHandshakeFinishedBaseKey(state)
+	}
 	if err != nil {
 		return err
 	}

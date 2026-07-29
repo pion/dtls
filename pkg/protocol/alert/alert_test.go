@@ -45,3 +45,8 @@ func TestAlert(t *testing.T) {
 		assert.Equal(t, test.Data, data)
 	}
 }
+
+func TestCertificateRequiredDescription(t *testing.T) {
+	assert.Equal(t, Description(116), CertificateRequired)
+	assert.Equal(t, "CertificateRequired", CertificateRequired.String())
+}
