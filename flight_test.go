@@ -7,6 +7,8 @@ import (
 	"context"
 	"crypto"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -540,6 +542,66 @@ func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 		LocalCertSignatureSchemes:   nil,
 		LocalSRTPProtectionProfiles: nil,
 	}
+}
+
+func TestFlight13_5GenerateSelectsClientCertificateBySignatureScheme(t *testing.T) {
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	rsaCertificate, err := selfsign.SelfSign(rsaKey)
+	require.NoError(t, err)
+	ecdsaCertificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+
+	ecdsaSHA256 := signaturehash.Algorithm{
+		Hash:      dtlshash.SHA256,
+		Signature: signature.ECDSA,
+	}
+	rawRequest, err := (&handshake.Handshake{
+		Message: &handshake.MessageCertificateRequest13{
+			CertificateRequestContext: []byte("request"),
+			Extensions: []extension.Extension{
+				&extension.SupportedSignatureAlgorithms{
+					SignatureHashAlgorithms: []signaturehash.Algorithm{ecdsaSHA256},
+				},
+			},
+		},
+	}).Marshal()
+	require.NoError(t, err)
+
+	cache := dtlsflight.NewCache()
+	cache.Push(
+		rawRequest,
+		dtlsflight13.EpochHandshake,
+		0,
+		handshake.TypeCertificateRequest,
+		false,
+	)
+	cfg := testHandshakeConfig13(t)
+	cfg.LocalCertificates = []tls.Certificate{rsaCertificate, ecdsaCertificate}
+
+	packets, dtlsAlert, err := flight13GenerateForTest(t, Flight5, &handshakeTestContext13{
+		state: newTestState13(true),
+		cache: cache,
+		cfg:   cfg,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, packets, 3)
+
+	certificateHandshake, ok := packets[0].Record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	certificateMessage, ok := certificateHandshake.Message.(*handshake.MessageCertificate13)
+	require.True(t, ok)
+	require.Len(t, certificateMessage.CertificateList, 1)
+	assert.Equal(t, ecdsaCertificate.Certificate[0], certificateMessage.CertificateList[0].CertificateData)
+
+	verifyHandshake, ok := packets[1].Record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	verifyMessage, ok := verifyHandshake.Message.(*handshake.MessageCertificateVerify)
+	require.True(t, ok)
+	assert.Equal(t, ecdsaSHA256.Hash, verifyMessage.HashAlgorithm)
+	assert.Equal(t, ecdsaSHA256.Signature, verifyMessage.SignatureAlgorithm)
+	assert.Same(t, ecdsaCertificate.PrivateKey, packets[1].CertificateVerifySigner)
 }
 
 type rawExtension struct {

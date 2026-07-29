@@ -56,11 +56,21 @@ type ClientHelloInfo struct {
 }
 
 type CertificateRequestInfo struct {
-	AcceptableCAs [][]byte
+	AcceptableCAs    [][]byte
+	SignatureSchemes []signaturehash.Algorithm
 }
 
-func (cri *CertificateRequestInfo) SupportsCertificate(c *tls.Certificate) error {
-	return SupportsCertificate(cri.AcceptableCAs, c)
+func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certificate) error {
+	if len(cri.SignatureSchemes) > 0 {
+		if _, err := signaturehash.SelectSignatureScheme13(
+			cri.SignatureSchemes,
+			certificate.PrivateKey,
+		); err != nil {
+			return err
+		}
+	}
+
+	return SupportsCertificate(cri.AcceptableCAs, certificate)
 }
 
 func SupportsCertificate(acceptableCAs [][]byte, c *tls.Certificate) error {

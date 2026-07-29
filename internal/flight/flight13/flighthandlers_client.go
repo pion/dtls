@@ -916,7 +916,9 @@ func flight5ClientCertificate(
 	cfg *dtlsconfig.HandshakeConfig,
 	request *handshake.MessageCertificateRequest13,
 ) (*tls.Certificate, error) {
-	requestInfo := &dtlsconfig.CertificateRequestInfo{}
+	requestInfo := &dtlsconfig.CertificateRequestInfo{
+		SignatureSchemes: certificateRequestSignatureSchemes(request),
+	}
 	for _, ext := range request.Extensions {
 		if authorities, ok := ext.(*extension.CertificateAuthorities); ok {
 			requestInfo.AcceptableCAs = authorities.Authorities

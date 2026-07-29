@@ -445,7 +445,16 @@ func adaptGetClientCertificate(
 	}
 
 	return func(info *dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
-		return getClientCertificate(&CertificateRequestInfo{AcceptableCAs: info.AcceptableCAs})
+		signatureSchemes := make([]tls.SignatureScheme, 0, len(info.SignatureSchemes))
+		for _, algorithm := range info.SignatureSchemes {
+			raw := algorithm.Marshal()
+			signatureSchemes = append(signatureSchemes, tls.SignatureScheme(uint16(raw[0])<<8|uint16(raw[1])))
+		}
+
+		return getClientCertificate(&CertificateRequestInfo{
+			AcceptableCAs:    info.AcceptableCAs,
+			SignatureSchemes: signatureSchemes,
+		})
 	}
 }
 

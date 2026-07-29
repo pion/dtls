@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -35,6 +36,10 @@ type CertificateRequestInfo struct {
 	// that the server wishes the returned certificate to be signed by. An
 	// empty slice indicates that the server has no preference.
 	AcceptableCAs [][]byte
+
+	// SignatureSchemes lists the signature schemes that the server is
+	// willing to verify.
+	SignatureSchemes []tls.SignatureScheme
 }
 
 // SupportsCertificate returns nil if the provided certificate is supported by
@@ -42,6 +47,18 @@ type CertificateRequestInfo struct {
 // describing the reason for the incompatibility.
 // NOTE: original src:
 // https://github.com/golang/go/blob/29b9a328d268d53833d2cc063d1d8b4bf6852675/src/crypto/tls/common.go#L1273
-func (cri *CertificateRequestInfo) SupportsCertificate(c *tls.Certificate) error {
-	return dtlsconfig.SupportsCertificate(cri.AcceptableCAs, c)
+func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certificate) error {
+	var signatureSchemes []signaturehash.Algorithm
+	if len(cri.SignatureSchemes) > 0 {
+		var err error
+		signatureSchemes, err = signaturehash.ParseSignatureSchemes(cri.SignatureSchemes, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	return (&dtlsconfig.CertificateRequestInfo{
+		AcceptableCAs:    cri.AcceptableCAs,
+		SignatureSchemes: signatureSchemes,
+	}).SupportsCertificate(certificate)
 }
