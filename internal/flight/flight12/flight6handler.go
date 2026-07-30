@@ -58,19 +58,7 @@ func flight6Generate(
 		})
 
 	if len(state.LocalVerifyData) == 0 {
-		//nolint:dupl
-		plainText := cache.PullAndMerge(
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},         //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},        //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},        //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},    //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},         //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateVerify, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false},        //nolint:lll
-		)
+		plainText := cache.PullAndMerge(handshakeRulesThroughClientFinished(cfg.InitialEpoch)...)
 
 		var err error
 		state.LocalVerifyData, err = prf.VerifyDataServer(state.MasterSecret, plainText, state.CipherSuite.HashFunc())

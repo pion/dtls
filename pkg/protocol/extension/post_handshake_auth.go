@@ -1,17 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package extension //nolint:dupl
-
-import (
-	"encoding/binary"
-
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-)
-
-const (
-	postHandshakeAuthHeaderSize = 4
-)
+package extension
 
 // PostHandshakeAuth defines a DTLS 1.3 extension that is used to indicate
 // that a client is willing to perform post-handshake authentication.
@@ -28,16 +18,7 @@ func (p PostHandshakeAuth) TypeValue() TypeValue {
 
 // Marshal encodes the extension.
 func (p *PostHandshakeAuth) Marshal() ([]byte, error) {
-	if !p.Enabled {
-		return []byte{}, nil
-	}
-
-	out := make([]byte, postHandshakeAuthHeaderSize)
-
-	binary.BigEndian.PutUint16(out, uint16(p.TypeValue()))
-	binary.BigEndian.PutUint16(out[2:], uint16(0))
-
-	return out, nil
+	return marshalEmptyExtension(p.TypeValue(), p.Enabled)
 }
 
 // Unmarshal populates the extension from encoded data.
@@ -51,8 +32,8 @@ func (p *PostHandshakeAuth) Unmarshal(data []byte) error {
 }
 
 func (p *PostHandshakeAuth) unmarshalPayload(data []byte) error {
-	if len(data) != 0 {
-		return dtlserrors.ErrLengthMismatch
+	if err := unmarshalEmptyExtensionPayload(data); err != nil {
+		return err
 	}
 	p.Enabled = true
 

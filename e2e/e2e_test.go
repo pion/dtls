@@ -334,9 +334,13 @@ func withConnectionIDGenerator(g func() []byte) dtlsTestOpts {
 //   - Assert that you can send messages both ways
 //   - Assert that Close() on both ends work
 //   - Assert that no Goroutines are leaked
-//
-//nolint:dupl
-func testPionE2ESimple(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
+func testPionE2EWithCipherSuites(
+	t *testing.T,
+	server, client func(*comm),
+	cipherSuites []dtls.CipherSuiteID,
+	makeCert func(*testing.T) tls.Certificate,
+	opts ...dtlsTestOpts,
+) {
 	t.Helper()
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
@@ -344,183 +348,87 @@ func testPionE2ESimple(t *testing.T, server, client func(*comm), opts ...dtlsTes
 	report := test.CheckRoutines(t)
 	defer report()
 
-	for _, cipherSuite := range []dtls.CipherSuiteID{
+	for _, cipherSuite := range cipherSuites {
+		t.Run(cipherSuite.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeLimit)
+			defer cancel()
+
+			cert := makeCert(t)
+
+			clientOpts := []dtls.ClientOption{
+				dtls.WithCertificates(cert),
+				dtls.WithCipherSuites(cipherSuite),
+				dtls.WithInsecureSkipVerify(true),
+			}
+			serverOpts := []dtls.ServerOption{
+				dtls.WithCertificates(cert),
+				dtls.WithCipherSuites(cipherSuite),
+				dtls.WithInsecureSkipVerify(true),
+			}
+			for _, o := range opts {
+				clientOpts = append(clientOpts, o.clientOpts...)
+				serverOpts = append(serverOpts, o.serverOpts...)
+			}
+			serverPort := randomPort(t)
+			comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
+			comm.setOpenSSLInfo(
+				[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
+				[]tls.Certificate{cert}, []tls.Certificate{cert},
+				nil, nil, nil, nil, true)
+			defer comm.cleanup(t)
+			comm.assert(t)
+		})
+	}
+}
+
+func selfSignedECDSACert(t *testing.T) tls.Certificate {
+	t.Helper()
+	cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
+	assert.NoError(t, err)
+
+	return cert
+}
+
+func selfSignedRSACert(t *testing.T) tls.Certificate {
+	t.Helper()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	assert.NoError(t, err)
+	cert, err := selfsign.SelfSign(priv)
+	assert.NoError(t, err)
+
+	return cert
+}
+
+func testPionE2ESimple(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
+	t.Helper()
+	testPionE2EWithCipherSuites(t, server, client, []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-	} {
-		t.Run(cipherSuite.String(), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeLimit)
-			defer cancel()
-
-			cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
-			assert.NoError(t, err)
-
-			clientOpts := []dtls.ClientOption{
-				dtls.WithCertificates(cert),
-				dtls.WithCipherSuites(cipherSuite),
-				dtls.WithInsecureSkipVerify(true),
-			}
-			serverOpts := []dtls.ServerOption{
-				dtls.WithCertificates(cert),
-				dtls.WithCipherSuites(cipherSuite),
-				dtls.WithInsecureSkipVerify(true),
-			}
-			for _, o := range opts {
-				clientOpts = append(clientOpts, o.clientOpts...)
-				serverOpts = append(serverOpts, o.serverOpts...)
-			}
-			serverPort := randomPort(t)
-			comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
-			comm.setOpenSSLInfo(
-				[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
-				[]tls.Certificate{cert}, []tls.Certificate{cert},
-				nil, nil, nil, nil, true)
-			defer comm.cleanup(t)
-			comm.assert(t)
-		})
-	}
+	}, selfSignedECDSACert, opts...)
 }
 
-//nolint:dupl
 func testPionE2ESimpleRSA(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	lim := test.TimeOut(time.Second * 30)
-	defer lim.Stop()
-
-	report := test.CheckRoutines(t)
-	defer report()
-
-	for _, cipherSuite := range []dtls.CipherSuiteID{
+	testPionE2EWithCipherSuites(t, server, client, []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 		dtls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-	} {
-		t.Run(cipherSuite.String(), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeLimit)
-			defer cancel()
-
-			priv, err := rsa.GenerateKey(rand.Reader, 2048)
-			assert.NoError(t, err)
-			cert, err := selfsign.SelfSign(priv)
-			assert.NoError(t, err)
-
-			clientOpts := []dtls.ClientOption{
-				dtls.WithCertificates(cert),
-				dtls.WithCipherSuites(cipherSuite),
-				dtls.WithInsecureSkipVerify(true),
-			}
-			serverOpts := []dtls.ServerOption{
-				dtls.WithCertificates(cert),
-				dtls.WithCipherSuites(cipherSuite),
-				dtls.WithInsecureSkipVerify(true),
-			}
-			for _, o := range opts {
-				clientOpts = append(clientOpts, o.clientOpts...)
-				serverOpts = append(serverOpts, o.serverOpts...)
-			}
-			serverPort := randomPort(t)
-			comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
-			comm.setOpenSSLInfo(
-				[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
-				[]tls.Certificate{cert}, []tls.Certificate{cert},
-				nil, nil, nil, nil, true)
-			defer comm.cleanup(t)
-			comm.assert(t)
-		})
-	}
+	}, selfSignedRSACert, opts...)
 }
 
-//nolint:dupl
 func testPionE2EChaCha20Poly1305(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	lim := test.TimeOut(time.Second * 30)
-	defer lim.Stop()
-
-	report := test.CheckRoutines(t)
-	defer report()
-
-	for _, cipherSuite := range []dtls.CipherSuiteID{
+	testPionE2EWithCipherSuites(t, server, client, []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-	} {
-		t.Run(cipherSuite.String(), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeLimit)
-			defer cancel()
-
-			cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")
-			assert.NoError(t, err)
-
-			clientOpts := []dtls.ClientOption{
-				dtls.WithCertificates(cert),
-				dtls.WithCipherSuites(cipherSuite),
-				dtls.WithInsecureSkipVerify(true),
-			}
-			serverOpts := []dtls.ServerOption{
-				dtls.WithCertificates(cert),
-				dtls.WithCipherSuites(cipherSuite),
-				dtls.WithInsecureSkipVerify(true),
-			}
-			for _, o := range opts {
-				clientOpts = append(clientOpts, o.clientOpts...)
-				serverOpts = append(serverOpts, o.serverOpts...)
-			}
-			serverPort := randomPort(t)
-			comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
-			comm.setOpenSSLInfo(
-				[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
-				[]tls.Certificate{cert}, []tls.Certificate{cert},
-				nil, nil, nil, nil, true)
-			defer comm.cleanup(t)
-			comm.assert(t)
-		})
-	}
+	}, selfSignedECDSACert, opts...)
 }
 
-//nolint:dupl
 func testPionE2EChaCha20Poly1305RSA(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	lim := test.TimeOut(time.Second * 30)
-	defer lim.Stop()
-
-	report := test.CheckRoutines(t)
-	defer report()
-
-	for _, cipherSuite := range []dtls.CipherSuiteID{
+	testPionE2EWithCipherSuites(t, server, client, []dtls.CipherSuiteID{
 		dtls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-	} {
-		t.Run(cipherSuite.String(), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), testTimeLimit)
-			defer cancel()
-
-			priv, err := rsa.GenerateKey(rand.Reader, 2048)
-			assert.NoError(t, err)
-			cert, err := selfsign.SelfSign(priv)
-			assert.NoError(t, err)
-
-			clientOpts := []dtls.ClientOption{
-				dtls.WithCertificates(cert),
-				dtls.WithCipherSuites(cipherSuite),
-				dtls.WithInsecureSkipVerify(true),
-			}
-			serverOpts := []dtls.ServerOption{
-				dtls.WithCertificates(cert),
-				dtls.WithCipherSuites(cipherSuite),
-				dtls.WithInsecureSkipVerify(true),
-			}
-			for _, o := range opts {
-				clientOpts = append(clientOpts, o.clientOpts...)
-				serverOpts = append(serverOpts, o.serverOpts...)
-			}
-			serverPort := randomPort(t)
-			comm := newComm(ctx, clientOpts, serverOpts, serverPort, server, client)
-			comm.setOpenSSLInfo(
-				[]dtls.CipherSuiteID{cipherSuite}, []dtls.CipherSuiteID{cipherSuite},
-				[]tls.Certificate{cert}, []tls.Certificate{cert},
-				nil, nil, nil, nil, true)
-			defer comm.cleanup(t)
-			comm.assert(t)
-		})
-	}
+	}, selfSignedRSACert, opts...)
 }
 
 func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
@@ -1354,11 +1262,16 @@ func createCertChain(t *testing.T, leafKeyType string) (tls.Certificate, *x509.C
 	return tlsCert, rootCAs
 }
 
-// TestCertificateSignatureSchemesServerCertRejected tests that client rejects
-// server certificate when it uses a disallowed signature algorithm.
-//
-//nolint:dupl
-func TestCertificateSignatureSchemesServerCertRejected(t *testing.T) {
+// assertHandshakeFailsWithOpts runs a DTLS handshake that is expected to fail
+// on both the client and server sides.
+func assertHandshakeFailsWithOpts(
+	t *testing.T,
+	clientOpts []dtls.ClientOption,
+	serverOpts []dtls.ServerOption,
+	clientErrMsg string,
+) {
+	t.Helper()
+
 	lim := test.TimeOut(time.Second * 30)
 	defer lim.Stop()
 
@@ -1368,6 +1281,68 @@ func TestCertificateSignatureSchemesServerCertRejected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	serverPort := randomPort(t)
+
+	serverReady := make(chan struct{})
+	serverDone := make(chan error, 1)
+
+	go func() {
+		listener, listenerErr := dtls.ListenWithOptions("udp",
+			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
+			serverOpts...,
+		)
+		if listenerErr != nil {
+			serverDone <- listenerErr
+
+			return
+		}
+		defer func() { _ = listener.Close() }()
+
+		serverReady <- struct{}{}
+		serverConn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+
+			return
+		}
+		defer func() { _ = serverConn.Close() }()
+
+		var handshakeErr error
+		if dtlsConn, ok := serverConn.(*dtls.Conn); ok {
+			handshakeErr = dtlsConn.HandshakeContext(ctx)
+		}
+		serverDone <- handshakeErr
+	}()
+
+	select {
+	case <-serverReady:
+	case <-time.After(time.Second):
+		assert.FailNow(t, "server not ready in time")
+	}
+
+	conn, err := dtls.DialWithOptions("udp",
+		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
+		clientOpts...,
+	)
+
+	if err == nil && conn != nil {
+		err = conn.HandshakeContext(ctx)
+		_ = conn.Close()
+	}
+
+	assert.Error(t, err, clientErrMsg)
+
+	select {
+	case serverErr := <-serverDone:
+		assert.Error(t, serverErr)
+	case <-time.After(2 * time.Second):
+		t.Log("server did not complete in time")
+	}
+}
+
+// TestCertificateSignatureSchemesServerCertRejected tests that client rejects
+// server certificate when it uses a disallowed signature algorithm.
+func TestCertificateSignatureSchemesServerCertRejected(t *testing.T) {
 	// Server uses P-256 ECDSA certificate chain
 	serverCert, serverRootCAs := createCertChain(t, "ecdsa-p256")
 
@@ -1376,7 +1351,6 @@ func TestCertificateSignatureSchemesServerCertRejected(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Client only allows P-384 and P-521, but server leaf cert is P-256
-	// This should cause the handshake to fail
 	clientOpts := []dtls.ClientOption{
 		dtls.WithCertificates(clientCert),
 		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
@@ -1393,86 +1367,15 @@ func TestCertificateSignatureSchemesServerCertRejected(t *testing.T) {
 		dtls.WithInsecureSkipVerify(true),
 	}
 
-	serverPort := randomPort(t)
-
-	// Start server
-	serverReady := make(chan struct{})
-	serverDone := make(chan error, 1)
-	var serverConn net.Conn
-
-	go func() {
-		listener, listenerErr := dtls.ListenWithOptions("udp",
-			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
-			serverOpts...,
-		)
-		if listenerErr != nil {
-			serverDone <- listenerErr
-
-			return
-		}
-		defer func() { _ = listener.Close() }()
-
-		serverReady <- struct{}{}
-		var acceptErr error
-		serverConn, acceptErr = listener.Accept()
-		if acceptErr != nil {
-			serverDone <- acceptErr
-
-			return
-		}
-		defer func() { _ = serverConn.Close() }()
-
-		// Try to do handshake
-		var handshakeErr error
-		if dtlsConn, ok := serverConn.(*dtls.Conn); ok {
-			handshakeErr = dtlsConn.HandshakeContext(ctx)
-		}
-		serverDone <- handshakeErr
-	}()
-
-	// Wait for server to be ready
-	select {
-	case <-serverReady:
-	case <-time.After(time.Second):
-		assert.FailNow(t, "server not ready in time")
-	}
-
-	// Client should fail to connect
-	conn, err := dtls.DialWithOptions("udp",
-		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
-		clientOpts...,
+	assertHandshakeFailsWithOpts(
+		t, clientOpts, serverOpts,
+		"expected handshake to fail with disallowed signature scheme",
 	)
-
-	if err == nil && conn != nil {
-		err = conn.HandshakeContext(ctx)
-		_ = conn.Close()
-	}
-
-	// We expect the handshake to fail due to invalid certificate signature algorithm
-	assert.Error(t, err, "expected handshake to fail with disallowed signature scheme")
-
-	// Wait for server to complete
-	select {
-	case serverErr := <-serverDone:
-		// Server should also see an error
-		assert.Error(t, serverErr)
-	case <-time.After(2 * time.Second):
-		t.Log("server did not complete in time")
-	}
 }
 
 // TestCertificateSignatureSchemesClientCertRejected tests that server rejects
 // client certificate when it uses a disallowed signature algorithm.
 func TestCertificateSignatureSchemesClientCertRejected(t *testing.T) {
-	lim := test.TimeOut(time.Second * 30)
-	defer lim.Stop()
-
-	report := test.CheckRoutines(t)
-	defer report()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	// Server uses self-signed cert (client won't validate)
 	serverCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
@@ -1480,7 +1383,6 @@ func TestCertificateSignatureSchemesClientCertRejected(t *testing.T) {
 	// Client uses P-256 ECDSA certificate chain
 	clientCert, clientRootCAs := createCertChain(t, "ecdsa-p256")
 
-	// Client allows P-256 for server cert (won't validate anyway)
 	clientOpts := []dtls.ClientOption{
 		dtls.WithCertificates(clientCert),
 		dtls.WithCipherSuites(dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
@@ -1488,7 +1390,6 @@ func TestCertificateSignatureSchemesClientCertRejected(t *testing.T) {
 	}
 
 	// Server only allows P-384 and P-521 for client cert, but client uses P-256
-	// This should cause the handshake to fail
 	serverOpts := []dtls.ServerOption{
 		dtls.WithClientCAs(clientRootCAs),
 		dtls.WithCertificates(serverCert),
@@ -1500,88 +1401,15 @@ func TestCertificateSignatureSchemesClientCertRejected(t *testing.T) {
 		),
 	}
 
-	serverPort := randomPort(t)
-
-	// Start server
-	serverReady := make(chan struct{})
-	serverDone := make(chan error, 1)
-	var serverConn net.Conn
-
-	go func() {
-		listener, listenerErr := dtls.ListenWithOptions("udp",
-			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
-			serverOpts...,
-		)
-		if listenerErr != nil {
-			serverDone <- listenerErr
-
-			return
-		}
-		defer func() { _ = listener.Close() }()
-
-		serverReady <- struct{}{}
-		var acceptErr error
-		serverConn, acceptErr = listener.Accept()
-		if acceptErr != nil {
-			serverDone <- acceptErr
-
-			return
-		}
-		defer func() { _ = serverConn.Close() }()
-
-		// Try to do handshake
-		var handshakeErr error
-		if dtlsConn, ok := serverConn.(*dtls.Conn); ok {
-			handshakeErr = dtlsConn.HandshakeContext(ctx)
-		}
-		serverDone <- handshakeErr
-	}()
-
-	// Wait for server to be ready
-	select {
-	case <-serverReady:
-	case <-time.After(time.Second):
-		assert.FailNow(t, "server not ready in time")
-	}
-
-	// Client tries to connect
-	conn, err := dtls.DialWithOptions("udp",
-		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
-		clientOpts...,
+	assertHandshakeFailsWithOpts(
+		t, clientOpts, serverOpts,
+		"expected handshake to fail with disallowed client cert signature scheme",
 	)
-
-	if err == nil && conn != nil {
-		err = conn.HandshakeContext(ctx)
-		_ = conn.Close()
-	}
-
-	// We expect the handshake to fail due to invalid client certificate signature algorithm
-	assert.Error(t, err, "expected handshake to fail with disallowed client cert signature scheme")
-
-	// Wait for server to complete
-	select {
-	case serverErr := <-serverDone:
-		// Server should also see an error (certificate validation failed)
-		assert.Error(t, serverErr)
-	case <-time.After(2 * time.Second):
-		t.Log("server did not complete in time")
-	}
 }
 
 // TestCertificateSignatureSchemesRSAMismatch tests that connections fail when
 // RSA certificate is presented but only ECDSA schemes are allowed.
-//
-//nolint:dupl
 func TestCertificateSignatureSchemesRSAMismatch(t *testing.T) {
-	lim := test.TimeOut(time.Second * 30)
-	defer lim.Stop()
-
-	report := test.CheckRoutines(t)
-	defer report()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	// Server uses RSA certificate chain
 	serverCert, serverRootCAs := createCertChain(t, "rsa")
 
@@ -1590,7 +1418,6 @@ func TestCertificateSignatureSchemesRSAMismatch(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Client only allows ECDSA, but server uses RSA
-	// This should cause the handshake to fail
 	clientOpts := []dtls.ClientOption{
 		dtls.WithCertificates(clientCert),
 		dtls.WithCipherSuites(dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
@@ -1607,70 +1434,8 @@ func TestCertificateSignatureSchemesRSAMismatch(t *testing.T) {
 		dtls.WithInsecureSkipVerify(true),
 	}
 
-	serverPort := randomPort(t)
-
-	// Start server
-	serverReady := make(chan struct{})
-	serverDone := make(chan error, 1)
-	var serverConn net.Conn
-
-	go func() {
-		listener, listenerErr := dtls.ListenWithOptions("udp",
-			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
-			serverOpts...,
-		)
-		if listenerErr != nil {
-			serverDone <- listenerErr
-
-			return
-		}
-		defer func() { _ = listener.Close() }()
-
-		serverReady <- struct{}{}
-		var acceptErr error
-		serverConn, acceptErr = listener.Accept()
-		if acceptErr != nil {
-			serverDone <- acceptErr
-
-			return
-		}
-		defer func() { _ = serverConn.Close() }()
-
-		// Try to do handshake
-		var handshakeErr error
-		if dtlsConn, ok := serverConn.(*dtls.Conn); ok {
-			handshakeErr = dtlsConn.HandshakeContext(ctx)
-		}
-		serverDone <- handshakeErr
-	}()
-
-	// Wait for server to be ready
-	select {
-	case <-serverReady:
-	case <-time.After(time.Second):
-		assert.FailNow(t, "server not ready in time")
-	}
-
-	// Client should fail to connect
-	conn, err := dtls.DialWithOptions("udp",
-		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
-		clientOpts...,
+	assertHandshakeFailsWithOpts(
+		t, clientOpts, serverOpts,
+		"expected handshake to fail with RSA cert but ECDSA-only schemes",
 	)
-
-	if err == nil && conn != nil {
-		err = conn.HandshakeContext(ctx)
-		_ = conn.Close()
-	}
-
-	// We expect the handshake to fail due to RSA cert with ECDSA-only schemes
-	assert.Error(t, err, "expected handshake to fail with RSA cert but ECDSA-only schemes")
-
-	// Wait for server to complete
-	select {
-	case serverErr := <-serverDone:
-		// Server should also see an error
-		assert.Error(t, serverErr)
-	case <-time.After(2 * time.Second):
-		t.Log("server did not complete in time")
-	}
 }

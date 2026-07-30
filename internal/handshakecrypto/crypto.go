@@ -135,8 +135,76 @@ func GenerateKeySignature(
 	return nil, dtlserrors.ErrKeySignatureGenerateUnimplemented
 }
 
-//nolint:dupl,cyclop
 func VerifyKeySignature(
+	message, remoteKeySignature []byte,
+	hashAlgorithm hash.Algorithm,
+	signatureAlgorithm signature.Algorithm,
+	rawCertificates [][]byte,
+) error {
+	return verifyCertificateSignature(
+		message, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates,
+	)
+}
+
+// GenerateCertificateVerify signs a certificate verify message.
+// If the server has sent a CertificateRequest message, the client MUST send the Certificate
+// message.  The ClientKeyExchange message is now sent, and the content
+// of that message will depend on the public key algorithm selected
+// between the ClientHello and the ServerHello.  If the client has sent
+// a certificate with signing ability, a digitally-signed
+// CertificateVerify message is sent to explicitly verify possession of
+// the private key in the certificate.
+// https://tools.ietf.org/html/rfc5246#section-7.3
+func GenerateCertificateVerify(
+	handshakeBodies []byte,
+	signer crypto.Signer,
+	hashAlgorithm hash.Algorithm,
+	signatureAlgorithm signature.Algorithm,
+) ([]byte, error) {
+	if _, ok := signer.Public().(ed25519.PublicKey); ok {
+		// https://pkg.go.dev/crypto/ed25519#PrivateKey.Sign
+		// Sign signs the given message with priv. Ed25519 performs two passes over
+		// messages to be signed and therefore cannot handle pre-hashed messages.
+		return signer.Sign(rand.Reader, handshakeBodies, crypto.Hash(0))
+	}
+
+	hashed := hashAlgorithm.Digest(handshakeBodies)
+
+	switch signer.Public().(type) {
+	case *ecdsa.PublicKey:
+		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
+	case *rsa.PublicKey:
+		// Use RSA-PSS if the signature algorithm is PSS
+		if signatureAlgorithm.IsPSS() {
+			pssOpts := &rsa.PSSOptions{
+				SaltLength: rsa.PSSSaltLengthEqualsHash,
+				Hash:       hashAlgorithm.CryptoHash(),
+			}
+
+			return signer.Sign(rand.Reader, hashed, pssOpts)
+		}
+
+		// Otherwise use PKCS#1 v1.5
+		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
+	}
+
+	return nil, dtlserrors.ErrInvalidSignatureAlgorithm
+}
+
+func VerifyCertificateVerify(
+	handshakeBodies []byte,
+	hashAlgorithm hash.Algorithm,
+	signatureAlgorithm signature.Algorithm,
+	remoteKeySignature []byte,
+	rawCertificates [][]byte,
+) error {
+	return verifyCertificateSignature(
+		handshakeBodies, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates,
+	)
+}
+
+//nolint:cyclop
+func verifyCertificateSignature(
 	message, remoteKeySignature []byte,
 	hashAlgorithm hash.Algorithm,
 	signatureAlgorithm signature.Algorithm,
@@ -194,120 +262,6 @@ func VerifyKeySignature(
 
 		// Otherwise use PKCS#1 v1.5
 		if rsa.VerifyPKCS1v15(pubKey, hashAlgorithm.CryptoHash(), hashed, remoteKeySignature) != nil {
-			return dtlserrors.ErrKeySignatureMismatch
-		}
-
-		return nil
-	}
-
-	return dtlserrors.ErrKeySignatureVerifyUnimplemented
-}
-
-// GenerateCertificateVerify signs a certificate verify message.
-// If the server has sent a CertificateRequest message, the client MUST send the Certificate
-// message.  The ClientKeyExchange message is now sent, and the content
-// of that message will depend on the public key algorithm selected
-// between the ClientHello and the ServerHello.  If the client has sent
-// a certificate with signing ability, a digitally-signed
-// CertificateVerify message is sent to explicitly verify possession of
-// the private key in the certificate.
-// https://tools.ietf.org/html/rfc5246#section-7.3
-func GenerateCertificateVerify(
-	handshakeBodies []byte,
-	signer crypto.Signer,
-	hashAlgorithm hash.Algorithm,
-	signatureAlgorithm signature.Algorithm,
-) ([]byte, error) {
-	if _, ok := signer.Public().(ed25519.PublicKey); ok {
-		// https://pkg.go.dev/crypto/ed25519#PrivateKey.Sign
-		// Sign signs the given message with priv. Ed25519 performs two passes over
-		// messages to be signed and therefore cannot handle pre-hashed messages.
-		return signer.Sign(rand.Reader, handshakeBodies, crypto.Hash(0))
-	}
-
-	hashed := hashAlgorithm.Digest(handshakeBodies)
-
-	switch signer.Public().(type) {
-	case *ecdsa.PublicKey:
-		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
-	case *rsa.PublicKey:
-		// Use RSA-PSS if the signature algorithm is PSS
-		if signatureAlgorithm.IsPSS() {
-			pssOpts := &rsa.PSSOptions{
-				SaltLength: rsa.PSSSaltLengthEqualsHash,
-				Hash:       hashAlgorithm.CryptoHash(),
-			}
-
-			return signer.Sign(rand.Reader, hashed, pssOpts)
-		}
-
-		// Otherwise use PKCS#1 v1.5
-		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
-	}
-
-	return nil, dtlserrors.ErrInvalidSignatureAlgorithm
-}
-
-//nolint:dupl,cyclop
-func VerifyCertificateVerify(
-	handshakeBodies []byte,
-	hashAlgorithm hash.Algorithm,
-	signatureAlgorithm signature.Algorithm,
-	remoteKeySignature []byte,
-	rawCertificates [][]byte,
-) error {
-	if len(rawCertificates) == 0 {
-		return dtlserrors.ErrLengthMismatch
-	}
-	certificate, err := x509.ParseCertificate(rawCertificates[0])
-	if err != nil {
-		return err
-	}
-
-	// Validate that the signature algorithm matches the certificate's OID
-	if err := validateSignatureAlgOID(certificate, signatureAlgorithm); err != nil {
-		return err
-	}
-
-	switch pubKey := certificate.PublicKey.(type) {
-	case ed25519.PublicKey:
-		if ok := ed25519.Verify(pubKey, handshakeBodies, remoteKeySignature); !ok {
-			return dtlserrors.ErrKeySignatureMismatch
-		}
-
-		return nil
-	case *ecdsa.PublicKey:
-		ecdsaSig := &ecdsaSignature{}
-		if _, err := asn1.Unmarshal(remoteKeySignature, ecdsaSig); err != nil {
-			return err
-		}
-		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
-			return dtlserrors.ErrInvalidECDSASignature
-		}
-		hash := hashAlgorithm.Digest(handshakeBodies)
-		if !ecdsa.Verify(pubKey, hash, ecdsaSig.R, ecdsaSig.S) {
-			return dtlserrors.ErrKeySignatureMismatch
-		}
-
-		return nil
-	case *rsa.PublicKey:
-		hash := hashAlgorithm.Digest(handshakeBodies)
-
-		// Use RSA-PSS verification if the signature algorithm is PSS
-		if signatureAlgorithm.IsPSS() {
-			pssOpts := &rsa.PSSOptions{
-				SaltLength: rsa.PSSSaltLengthEqualsHash,
-				Hash:       hashAlgorithm.CryptoHash(),
-			}
-			if err := rsa.VerifyPSS(pubKey, hashAlgorithm.CryptoHash(), hash, remoteKeySignature, pssOpts); err != nil {
-				return dtlserrors.ErrKeySignatureMismatch
-			}
-
-			return nil
-		}
-
-		// Otherwise use PKCS#1 v1.5
-		if rsa.VerifyPKCS1v15(pubKey, hashAlgorithm.CryptoHash(), hash, remoteKeySignature) != nil {
 			return dtlserrors.ErrKeySignatureMismatch
 		}
 

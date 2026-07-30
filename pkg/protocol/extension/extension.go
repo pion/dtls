@@ -69,6 +69,26 @@ func extensionPayload(data []byte, expected TypeValue) ([]byte, error) {
 	return data[4:], nil
 }
 
+// marshalEmptyExtension encodes a flag-style extension with an empty payload.
+func marshalEmptyExtension(tv TypeValue, enabled bool) ([]byte, error) {
+	if !enabled {
+		return []byte{}, nil
+	}
+
+	out := make([]byte, 4)
+	binary.BigEndian.PutUint16(out, uint16(tv))
+
+	return out, nil
+}
+
+func unmarshalEmptyExtensionPayload(data []byte) error {
+	if len(data) != 0 {
+		return dtlserrors.ErrLengthMismatch
+	}
+
+	return nil
+}
+
 // Unmarshal many extensions at once.
 func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 	switch {

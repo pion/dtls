@@ -201,43 +201,38 @@ func canonicalClientHelloInitialFlight13(p *dtlsflight.Packet) (uint16, []byte, 
 	return hand.Header.MessageSequence, canonical, true, nil
 }
 
-//nolint:dupl
 func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) error {
-	state := initialState
-	defer func() {
-		close(s.closed)
-	}()
-	for {
-		s.cfg.Log.Tracef("[handshake13:%s] %s: %s", sideString(s.state.IsClient), s.currentFlight.String(), state.String())
-		// nolint:godox
-		// TODO:: refactor callback, see discussion in https://github.com/pion/dtls/pull/738#discussion_r3131501159
-		if s.cfg.OnFlightState13 != nil {
-			s.cfg.OnFlightState13(uint8(s.currentFlight), uint8(state))
-		}
-		var err error
-		switch state {
-		case StatePreparing:
-			state, err = s.prepare(ctx, conn)
-		case StateSending:
-			state, err = s.send(ctx, conn)
-		case StateWaiting:
-			state, err = s.wait(ctx, conn)
-		case StateFinished:
-			state, err = s.finish(ctx, conn)
-		default:
-			return dtlserrors.ErrInvalidFSMTransition
-		}
-		if err != nil {
-			return err
-		}
-	}
+	return runHandshakeFSM(
+		ctx,
+		conn,
+		initialState,
+		s.closed,
+		func(state State) {
+			s.cfg.Log.Tracef(
+				"[handshake13:%s] %s: %s",
+				sideString(s.state.IsClient),
+				s.currentFlight.String(),
+				state.String(),
+			)
+		},
+		func(state State) {
+			// nolint:godox
+			// TODO:: refactor callback, see discussion in https://github.com/pion/dtls/pull/738#discussion_r3131501159
+			if s.cfg.OnFlightState13 != nil {
+				s.cfg.OnFlightState13(uint8(s.currentFlight), uint8(state))
+			}
+		},
+		s.prepare,
+		s.send,
+		s.wait,
+		s.finish,
+	)
 }
 
 func (s *fsm13) Done() <-chan struct{} {
 	return s.closed
 }
 
-//nolint:dupl
 func (s *fsm13) prepare(ctx context.Context, conn Conn) (State, error) {
 	s.flights = nil
 	// Prepare flights
@@ -254,14 +249,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (State, error) {
 		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
 		s.retransmit = retransmit
 	}
-	if dtlsAlert != nil {
-		if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
-			if err == nil {
-				err = alertErr
-			}
-		}
-	}
-	if err != nil {
+	if err = notifyAlert(ctx, conn, dtlsAlert, err); err != nil {
 		return StateErrored, err
 	}
 

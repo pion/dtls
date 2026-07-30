@@ -1,17 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package extension // nolint:dupl
-
-import (
-	"encoding/binary"
-
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-)
-
-const (
-	useExtendedMasterSecretHeaderSize = 4
-)
+package extension
 
 // UseExtendedMasterSecret defines a TLS extension that contextually binds the
 // master secret to a log of the full handshake that computes it, thus
@@ -27,16 +17,7 @@ func (u UseExtendedMasterSecret) TypeValue() TypeValue {
 
 // Marshal encodes the extension.
 func (u *UseExtendedMasterSecret) Marshal() ([]byte, error) {
-	if !u.Supported {
-		return []byte{}, nil
-	}
-
-	out := make([]byte, useExtendedMasterSecretHeaderSize)
-
-	binary.BigEndian.PutUint16(out, uint16(u.TypeValue()))
-	binary.BigEndian.PutUint16(out[2:], uint16(0)) // length
-
-	return out, nil
+	return marshalEmptyExtension(u.TypeValue(), u.Supported)
 }
 
 // Unmarshal populates the extension from encoded data.
@@ -50,8 +31,8 @@ func (u *UseExtendedMasterSecret) Unmarshal(data []byte) error {
 }
 
 func (u *UseExtendedMasterSecret) unmarshalPayload(data []byte) error {
-	if len(data) != 0 {
-		return dtlserrors.ErrLengthMismatch
+	if err := unmarshalEmptyExtensionPayload(data); err != nil {
+		return err
 	}
 	u.Supported = true
 
