@@ -100,7 +100,7 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 	}
 
 	for offset := 2; offset < len(buf); {
-		bufView := buf[offset:] //nolint:gosec // offset bounded by loop condition
+		bufView := buf[offset:]
 		if len(bufView) < 4 {
 			return nil, dtlserrors.ErrBufferTooSmall
 		}

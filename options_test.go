@@ -568,7 +568,7 @@ func TestOptionImmutability(t *testing.T) {
 	})
 
 	t.Run("SupportedProtocols", func(t *testing.T) {
-		protocols := []string{"h2", "http/1.1"} //nolint:goconst
+		protocols := []string{"h2", "http/1.1"}
 		client, err := newOptionsClient(t, WithSupportedProtocols(protocols...))
 		require.NoError(t, err)
 

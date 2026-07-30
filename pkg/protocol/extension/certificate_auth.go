@@ -48,7 +48,7 @@ func (c *CertificateAuthorities) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the extension from encoded data.
-func (c *CertificateAuthorities) Unmarshal(data []byte) error { //nolint:cyclop
+func (c *CertificateAuthorities) Unmarshal(data []byte) error {
 	payload, err := extensionPayload(data, c.TypeValue())
 	if err != nil {
 		return err
@@ -57,7 +57,7 @@ func (c *CertificateAuthorities) Unmarshal(data []byte) error { //nolint:cyclop
 	return c.unmarshalPayload(payload)
 }
 
-func (c *CertificateAuthorities) unmarshalPayload(data []byte) error { //nolint:cyclop
+func (c *CertificateAuthorities) unmarshalPayload(data []byte) error {
 	extData := cryptobyte.String(data)
 
 	var auths cryptobyte.String

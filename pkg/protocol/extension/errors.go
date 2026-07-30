@@ -8,4 +8,4 @@ import (
 )
 
 // ErrALPNInvalidFormat is raised when the ALPN format is invalid.
-var ErrALPNInvalidFormat = dtlserrors.ErrALPNInvalidFormat //nolint:gochecknoglobals
+var ErrALPNInvalidFormat = dtlserrors.ErrALPNInvalidFormat

@@ -58,7 +58,7 @@ type handshakeContext struct {
 	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer
 }
 
-func getFlightParser(f Flight) (flightParser, bool) { //nolint:cyclop
+func getFlightParser(f Flight) (flightParser, bool) {
 	switch f {
 	case Flight0:
 		return flight0Parse, true
@@ -86,7 +86,7 @@ func adaptFlightGenerator(gen contextFlightGenerator) Generator {
 	}
 }
 
-func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) { //nolint:cyclop
+func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) {
 	switch f {
 	case Flight0:
 		return adaptFlightGenerator(flight0Generate), true, true

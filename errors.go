@@ -16,7 +16,7 @@ import (
 )
 
 // ErrConnClosed indicates that the connection is closed.
-var ErrConnClosed = dtlserrors.ErrConnClosed //nolint:gochecknoglobals
+var ErrConnClosed = dtlserrors.ErrConnClosed
 
 // ErrStateSerializationUnsupported indicates that the negotiated DTLS version
 // cannot be represented by the public DTLS 1.2-shaped State snapshot.
@@ -75,7 +75,7 @@ func netError(err error) error {
 		se      *os.SyscallError
 	)
 
-	if errors.As(err, &opError) { //nolint:nestif
+	if errors.As(err, &opError) {
 		if errors.As(opError, &se) {
 			if isOpErrorTemporary(se) {
 				return temporaryNetworkError{err: err}

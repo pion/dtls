@@ -50,7 +50,7 @@ type vector struct {
 	Nonce             []byte
 }
 
-func TestRFC3610Vectors(t *testing.T) { //nolint:maintidx
+func TestRFC3610Vectors(t *testing.T) {
 	cases := []vector{
 		// Vectors 1-12
 		{

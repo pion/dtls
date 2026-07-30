@@ -213,7 +213,7 @@ func TestListenerAcceptFilter(t *testing.T) {
 	}
 }
 
-func TestListenerConcurrent(t *testing.T) { //nolint:gocyclo
+func TestListenerConcurrent(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -328,7 +328,7 @@ func getConfig() (string, *net.UDPAddr) {
 	return "udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
 }
 
-func TestConnClose(t *testing.T) { //nolint:cyclop
+func TestConnClose(t *testing.T) {
 	lim := test.TimeOut(time.Second * 5)
 	defer lim.Stop()
 

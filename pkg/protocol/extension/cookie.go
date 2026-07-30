@@ -39,7 +39,7 @@ func (c *CookieExt) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the extension from encoded data.
-func (c *CookieExt) Unmarshal(data []byte) error { //nolint:cyclop
+func (c *CookieExt) Unmarshal(data []byte) error {
 	payload, err := extensionPayload(data, c.TypeValue())
 	if err != nil {
 		return err
@@ -48,7 +48,7 @@ func (c *CookieExt) Unmarshal(data []byte) error { //nolint:cyclop
 	return c.unmarshalPayload(payload)
 }
 
-func (c *CookieExt) unmarshalPayload(data []byte) error { //nolint:cyclop
+func (c *CookieExt) unmarshalPayload(data []byte) error {
 	extData := cryptobyte.String(data)
 
 	var cookie cryptobyte.String

@@ -299,7 +299,6 @@ func filterCipherSuitesForVersions(
 	return filtered
 }
 
-//nolint:cyclop
 func parseCipherSuites(
 	userSelectedSuites []CipherSuiteID,
 	customCipherSuites func() []CipherSuite,

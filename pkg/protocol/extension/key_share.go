@@ -84,7 +84,7 @@ func (k *KeyShare) Marshal() ([]byte, error) { //nolint:cyclop
 }
 
 // Unmarshal decodes the extension.
-func (k *KeyShare) Unmarshal(data []byte) error { //nolint:cyclop
+func (k *KeyShare) Unmarshal(data []byte) error {
 	payload, err := extensionPayload(data, k.TypeValue())
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func (k *KeyShare) unmarshalPayload(data []byte) error { //nolint:cyclop
 	peek := extData
 	var vecLen uint16
 	// ClientHello: client_shares is a uint16-length-prefixed vector.
-	if peek.ReadUint16(&vecLen) && int(vecLen) == len(peek) { //nolint:nestif
+	if peek.ReadUint16(&vecLen) && int(vecLen) == len(peek) {
 		seenGroups := map[elliptic.Curve]struct{}{}
 		for !peek.Empty() {
 			var entry KeyShareEntry

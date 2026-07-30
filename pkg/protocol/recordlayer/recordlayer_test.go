@@ -168,9 +168,9 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 
 		for i := range all {
 			if len(all[i]) > 1<<14 {
-				all[i] = all[i][:1<<14] //nolint:gosec // i is bounded by range over all slice
+				all[i] = all[i][:1<<14]
 			}
-			if len(all[i]) == 0 { //nolint:gosec // i is bounded by range over all slice
+			if len(all[i]) == 0 {
 				all[i] = []byte{0} // ensure a non-empty record
 			}
 		}
@@ -182,10 +182,10 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 				Header: Header{
 					ContentType:    protocol.ContentTypeApplicationData,
 					Version:        protocol.Version1_2,
-					Epoch:          uint16(i),                //nolint:gosec // G115: i is bounded (<= 4)
-					SequenceNumber: uint64(1000) + uint64(i), //nolint:gosec // G115: i is bounded (<= 4)
+					Epoch:          uint16(i),
+					SequenceNumber: uint64(1000) + uint64(i),
 				},
-				Content: &protocol.ApplicationData{Data: all[i]}, //nolint:gosec // no out of range access.
+				Content: &protocol.ApplicationData{Data: all[i]},
 			}
 			raw, err := rl.Marshal()
 			require.NoError(t, err)

@@ -86,7 +86,7 @@ func (m *MessageCertificate13) Marshal() ([]byte, error) {
 			return nil, dtlserrors.ErrInvalidCertificateEntry
 		}
 		certDataLenBytes := make([]byte, cert13CertLengthFieldSize)
-		util.PutBigEndianUint24(certDataLenBytes, uint32(certDataLen)) //nolint:gosec // G115
+		util.PutBigEndianUint24(certDataLenBytes, uint32(certDataLen))
 		certificateList = append(certificateList, certDataLenBytes...)
 		certificateList = append(certificateList, entry.CertificateData...)
 

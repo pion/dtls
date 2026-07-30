@@ -138,7 +138,7 @@ const (
 )
 
 func ForID(id ID, customCiphers func() []CipherSuite) CipherSuite { //nolint:cyclop
-	switch id { //nolint:exhaustive
+	switch id {
 	case TLS_AES_128_GCM_SHA256:
 		return NewTLSAes128GcmSha256()
 	case TLS_AES_256_GCM_SHA384:
@@ -193,7 +193,7 @@ func ForID(id ID, customCiphers func() []CipherSuite) CipherSuite { //nolint:cyc
 }
 
 func SupportedVersions(id ID) []protocol.Version {
-	switch id { //nolint:exhaustive
+	switch id {
 	case TLS_AES_128_GCM_SHA256,
 		TLS_AES_256_GCM_SHA384,
 		TLS_CHACHA20_POLY1305_SHA256:

@@ -98,7 +98,7 @@ func (c *TLS13CipherSuite) Seal(
 		return recordlayer.CiphertextRecord13{}, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
-	header.SequenceNumber = uint16(sequenceNumber & 0xffff) //nolint:gosec // G115
+	header.SequenceNumber = uint16(sequenceNumber & 0xffff)
 	record, err := protection.seal(header, sequenceNumber, contentType, plaintext)
 	if err != nil {
 		return recordlayer.CiphertextRecord13{}, err

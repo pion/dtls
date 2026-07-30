@@ -194,7 +194,7 @@ func examinePadding(payload []byte) (toRemove int, good byte) {
 		256, len(payload))
 
 	for i := range toCheck {
-		t := uint(paddingLen) - uint(i) //nolint:gosec //G115
+		t := uint(paddingLen) - uint(i)
 		// if i <= paddingLen then the MSB of t is zero
 		mask := byte(int32(^t) >> 31) //nolint:gosec //G115
 		b := payload[len(payload)-1-i]

@@ -59,7 +59,7 @@ func (o *OIDFilters) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the extension from encoded data.
-func (o *OIDFilters) Unmarshal(data []byte) error { //nolint:cyclop
+func (o *OIDFilters) Unmarshal(data []byte) error {
 	payload, err := extensionPayload(data, o.TypeValue())
 	if err != nil {
 		return err
@@ -68,7 +68,7 @@ func (o *OIDFilters) Unmarshal(data []byte) error { //nolint:cyclop
 	return o.unmarshalPayload(payload)
 }
 
-func (o *OIDFilters) unmarshalPayload(data []byte) error { //nolint:cyclop
+func (o *OIDFilters) unmarshalPayload(data []byte) error {
 	extData := cryptobyte.String(data)
 
 	var filterList cryptobyte.String

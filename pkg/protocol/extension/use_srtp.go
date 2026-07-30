@@ -41,7 +41,7 @@ func (u *UseSRTP) Marshal() ([]byte, error) {
 	out := make([]byte, 4+extensionDataLen)
 
 	binary.BigEndian.PutUint16(out, uint16(u.TypeValue()))
-	//nolint:gosec // G115
+
 	binary.BigEndian.PutUint16(
 		out[2:],
 		uint16(extensionDataLen),

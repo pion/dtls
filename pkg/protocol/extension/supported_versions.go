@@ -78,7 +78,7 @@ func (s *SupportedVersions) Marshal() ([]byte, error) {
 
 // Unmarshal parses either the ClientHello list or the ServerHello/HelloRetryRequest single value.
 // Any version not recognized is discarded.
-func (s *SupportedVersions) Unmarshal(data []byte) error { //nolint:cyclop
+func (s *SupportedVersions) Unmarshal(data []byte) error {
 	payload, err := extensionPayload(data, s.TypeValue())
 	if err != nil {
 		return err

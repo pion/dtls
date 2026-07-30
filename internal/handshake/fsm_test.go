@@ -558,7 +558,7 @@ func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
 		hs, ok := pkt.Record.Content.(*handshake.Handshake)
 		require.True(t, ok)
 		assert.Equal(t, expectedTypes[i], hs.Message.Type())
-		assert.Equal(t, uint16(i+1), hs.Header.MessageSequence) //nolint:gosec // bounded test index
+		assert.Equal(t, uint16(i+1), hs.Header.MessageSequence)
 	}
 
 	certificateHandshake := fsm.flights[0].Record.Content.(*handshake.Handshake)  //nolint:forcetypeassert

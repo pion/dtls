@@ -1528,7 +1528,7 @@ func TestExtendedMasterSecret(t *testing.T) {
 	}
 }
 
-func TestServerCertificate(t *testing.T) { //nolint:cyclop
+func TestServerCertificate(t *testing.T) {
 	// Check for leaking routines
 	report := test.CheckRoutines(t)
 	defer report()
@@ -1952,7 +1952,7 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 	}
 }
 
-func TestServerTimeout(t *testing.T) { //nolint:cyclop
+func TestServerTimeout(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -2073,7 +2073,7 @@ func TestServerTimeout(t *testing.T) { //nolint:cyclop
 	}
 }
 
-func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
+func TestProtocolVersionValidation(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -2489,12 +2489,12 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 
 		record := &recordlayer.RecordLayer{
 			Header: recordlayer.Header{
-				SequenceNumber: uint64(i), //nolint:gosec // G101
+				SequenceNumber: uint64(i),
 				Version:        protocol.Version1_2,
 			},
 			Content: &handshake.Handshake{
 				Header: handshake.Header{
-					MessageSequence: uint16(i), //nolint:gosec // G115
+					MessageSequence: uint16(i),
 				},
 				Message: &handshake.MessageHelloVerifyRequest{
 					Version: protocol.Version1_2,
@@ -2548,7 +2548,7 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 
 // Assert that a DTLS Server only responds with RenegotiationInfo if a ClientHello contained that
 // extension according to RFC5746 section 3.6, RFC5246 section 7.4.1.4 and RFC5746 section 4.2.
-func TestRenegotationInfo(t *testing.T) { //nolint:cyclop
+func TestRenegotationInfo(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(10 * time.Second)
 	defer lim.Stop()
@@ -2668,7 +2668,7 @@ func TestServerNameIndicationExtension(t *testing.T) {
 	}{
 		{
 			Name:       "Server name is a valid hostname",
-			serverName: "example.com", //nolint:goconst
+			serverName: "example.com",
 			Expected:   []byte("example.com"),
 			IncludeSNI: true,
 		},
@@ -2725,7 +2725,7 @@ func TestServerNameIndicationExtension(t *testing.T) {
 	}
 }
 
-func TestALPNExtension(t *testing.T) { //nolint:maintidx
+func TestALPNExtension(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -2745,9 +2745,9 @@ func TestALPNExtension(t *testing.T) { //nolint:maintidx
 	}{
 		{
 			Name:                   "Negotiate a protocol",
-			ClientProtocolNameList: []string{"http/1.1", "spd/1"}, //nolint:goconst
+			ClientProtocolNameList: []string{"http/1.1", "spd/1"},
 			ServerProtocolNameList: []string{"spd/1"},
-			ExpectedProtocol:       "spd/1", //nolint:goconst
+			ExpectedProtocol:       "spd/1",
 			ExpectAlertFromClient:  false,
 			ExpectAlertFromServer:  false,
 			Alert:                  0,
@@ -2765,7 +2765,7 @@ func TestALPNExtension(t *testing.T) { //nolint:maintidx
 			Name:                   "Negotiate with higher server precedence",
 			ClientProtocolNameList: []string{"http/1.1", "spd/1", "http/3"},
 			ServerProtocolNameList: []string{"ssh/2", "http/3", "spd/1"},
-			ExpectedProtocol:       "http/3", //nolint:goconst
+			ExpectedProtocol:       "http/3",
 			ExpectAlertFromClient:  false,
 			ExpectAlertFromServer:  false,
 			Alert:                  0,
@@ -3131,7 +3131,7 @@ func (ms *memSessStore) Del(key []byte) error {
 // Assert that the server only uses CipherSuites with a hash+signature that matches
 // the certificate. As specified in rfc5246#section-7.4.3
 // .
-func TestCipherSuiteMatchesCertificateType(t *testing.T) { //nolint:cyclop
+func TestCipherSuiteMatchesCertificateType(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -3225,7 +3225,7 @@ func TestMultipleServerCertificates(t *testing.T) {
 		ExpectedDNSName   string
 	}{
 		{
-			"foo", //nolint:goconst
+			"foo",
 			"foo",
 		},
 		{

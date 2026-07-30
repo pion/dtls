@@ -12,7 +12,7 @@ import (
 
 func TestALPN(t *testing.T) {
 	extension := ALPN{
-		ProtocolNameList: []string{"http/1.1", "spdy/1", "spdy/2", "spdy/3"}, //nolint:goconst
+		ProtocolNameList: []string{"http/1.1", "spdy/1", "spdy/2", "spdy/3"},
 	}
 
 	raw, err := extension.Marshal()
@@ -24,7 +24,7 @@ func TestALPN(t *testing.T) {
 }
 
 func TestALPNProtocolSelection(t *testing.T) {
-	selectedProtocol, err := ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{"spd/1"}) //nolint:goconst
+	selectedProtocol, err := ALPNProtocolSelection([]string{"http/1.1", "spd/1"}, []string{"spd/1"})
 	assert.NoError(t, err)
 	assert.Equal(t, "spd/1", selectedProtocol)
 

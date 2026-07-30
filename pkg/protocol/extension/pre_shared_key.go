@@ -84,7 +84,7 @@ func (p *PreSharedKey) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the extension from encoded data.
-func (p *PreSharedKey) Unmarshal(data []byte) error { //nolint:cyclop
+func (p *PreSharedKey) Unmarshal(data []byte) error {
 	payload, err := extensionPayload(data, p.TypeValue())
 	if err != nil {
 		return err

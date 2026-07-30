@@ -60,7 +60,7 @@ func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
 		casLength += len(ca) + 2
 	}
 	out = append(out, []byte{0x00, 0x00}...)
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(casLength)) //nolint:gosec //G115
+	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(casLength))
 	if casLength > 0 {
 		for _, ca := range m.CertificateAuthoritiesNames {
 			out = append(out, []byte{0x00, 0x00}...)

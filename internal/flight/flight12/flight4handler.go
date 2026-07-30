@@ -218,7 +218,7 @@ func flight4Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeAnonymous { //nolint:nestif
+	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeAnonymous {
 		if cfg.VerifyConnection != nil {
 			if err := cfg.VerifyConnection(state); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err

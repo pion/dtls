@@ -50,7 +50,7 @@ func TestSupportedEllipticCurves(t *testing.T) {
 			h := &handshake.Handshake{}
 			_ = h.Unmarshal(messages[i][recordlayer.FixedHeaderSize:])
 
-			if h.Header.Type == handshake.TypeClientHello { //nolint:nestif
+			if h.Header.Type == handshake.TypeClientHello {
 				clientHello := &handshake.MessageClientHello{}
 				msg, err := h.Message.Marshal()
 

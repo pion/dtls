@@ -621,7 +621,7 @@ func (c *Conn) Handshake() error {
 //
 // Most uses of this package need not call HandshakeContext explicitly: the
 // first [Conn.Read] or [Conn.Write] will call it automatically.
-func (c *Conn) HandshakeContext(ctx context.Context) error { //nolint:cyclop
+func (c *Conn) HandshakeContext(ctx context.Context) error {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
@@ -924,7 +924,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 
 // Close closes the connection.
 func (c *Conn) Close() error {
-	err := c.close(true) //nolint:contextcheck
+	err := c.close(true)
 	c.closeLock.Lock()
 	handshakeDone := c.handshakeDone
 	c.closeLock.Unlock()
@@ -1161,7 +1161,7 @@ func (c *Conn) processPacket(pkt *dtlsflight.Packet) ([]byte, error) { //nolint:
 			Content:  content,
 			RealType: pkt.Record.Header.ContentType,
 		}
-		rawInner, err := inner.Marshal() //nolint:govet
+		rawInner, err := inner.Marshal()
 		if err != nil {
 			return nil, err
 		}
@@ -1262,7 +1262,7 @@ func (c *Conn) sealRecordContent(
 
 	header := recordlayer.UnifiedHeader{
 		EpochLow:       uint8(epoch & 0x3),
-		SequenceNumber: uint16(seq & 0xffff), //nolint:gosec // G115
+		SequenceNumber: uint16(seq & 0xffff),
 		SeqBit:         true,
 		LengthBit:      true,
 	}
@@ -1426,7 +1426,7 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 			Type:            dtlsHandshake.Header.Type,
 			Length:          dtlsHandshake.Header.Length,
 			MessageSequence: dtlsHandshake.Header.MessageSequence,
-			FragmentOffset:  uint32(offset),             //nolint:gosec // G115
+			FragmentOffset:  uint32(offset),
 			FragmentLength:  uint32(contentFragmentLen), //nolint:gosec // G115
 		}
 
@@ -2047,7 +2047,7 @@ func (c *Conn) validateLegacyCID(header *recordlayer.Header) bool {
 
 func (c *Conn) unpackLegacyCIDPacket(header *recordlayer.Header, buf []byte) ([]byte, bool) {
 	ip := &recordlayer.InnerPlaintext{}
-	if err := ip.Unmarshal(buf[header.Size():]); err != nil { //nolint:govet
+	if err := ip.Unmarshal(buf[header.Size():]); err != nil {
 		c.log.Debugf("unpacking inner plaintext failed: %s", err)
 
 		return nil, false
@@ -2190,7 +2190,7 @@ func (c *Conn) syncFragmentBufferHandshakeSequence() {
 		return
 	}
 
-	c.fragmentBuffer.advanceTo(uint16(handshakeRecvSequence)) //nolint:gosec // G115 checked above.
+	c.fragmentBuffer.advanceTo(uint16(handshakeRecvSequence))
 }
 
 func (c *Conn) handshakeRecvSequence() int {

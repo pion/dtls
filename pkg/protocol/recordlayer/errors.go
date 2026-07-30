@@ -10,4 +10,4 @@ import (
 
 // ErrInvalidPacketLength is returned when the packet length too small
 // or declared length do not match.
-var ErrInvalidPacketLength = dtlserrors.ErrInvalidPacketLength //nolint:gochecknoglobals
+var ErrInvalidPacketLength = dtlserrors.ErrInvalidPacketLength

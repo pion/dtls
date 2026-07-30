@@ -50,7 +50,7 @@ func (p *PskKeyExchangeModes) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the extension from encoded data.
-func (p *PskKeyExchangeModes) Unmarshal(data []byte) error { //nolint:cyclop
+func (p *PskKeyExchangeModes) Unmarshal(data []byte) error {
 	payload, err := extensionPayload(data, p.TypeValue())
 	if err != nil {
 		return err
@@ -59,7 +59,7 @@ func (p *PskKeyExchangeModes) Unmarshal(data []byte) error { //nolint:cyclop
 	return p.unmarshalPayload(payload)
 }
 
-func (p *PskKeyExchangeModes) unmarshalPayload(data []byte) error { //nolint:cyclop
+func (p *PskKeyExchangeModes) unmarshalPayload(data []byte) error {
 	extData := cryptobyte.String(data)
 
 	var strModes cryptobyte.String

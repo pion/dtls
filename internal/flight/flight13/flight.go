@@ -14,7 +14,7 @@ const (
 	Flight5
 )
 
-func (f Flight) String() string { //nolint:cyclop
+func (f Flight) String() string {
 	switch f {
 	case Flight0:
 		return "Flight 0"

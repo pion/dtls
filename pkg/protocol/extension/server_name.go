@@ -43,7 +43,7 @@ func (s *ServerName) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the extension from encoded data.
-func (s *ServerName) Unmarshal(data []byte) error { //nolint:cyclop
+func (s *ServerName) Unmarshal(data []byte) error {
 	payload, err := extensionPayload(data, s.TypeValue())
 	if err != nil {
 		return err

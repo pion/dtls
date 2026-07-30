@@ -664,7 +664,7 @@ func TestTLS13CipherSuiteSeal(t *testing.T) {
 			serverProtection := requireRecordProtection13(t, serverSuite)
 			mask, err := serverProtection.remote.sequenceNumberMask(record.EncryptedRecord)
 			require.NoError(t, err)
-			expectedHeaderSequenceNumber := uint16(sequenceNumber & 0xffff) //nolint:gosec // G115
+			expectedHeaderSequenceNumber := uint16(sequenceNumber & 0xffff)
 			expectedMaskedSequenceNumber := expectedHeaderSequenceNumber ^ (uint16(mask[0])<<8 | uint16(mask[1]))
 			assert.Equal(t, expectedMaskedSequenceNumber, record.Header.SequenceNumber)
 

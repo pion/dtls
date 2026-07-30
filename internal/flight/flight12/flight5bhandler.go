@@ -44,7 +44,7 @@ func flight5bGenerate(
 	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error) { //nolint:gocognit
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	var pkts []*dtlsflight.Packet
 
 	pkts = append(pkts,
