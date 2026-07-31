@@ -14,8 +14,10 @@ import (
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 // [RFC9147 Section-5.8.1]
@@ -524,6 +526,9 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				if err := s.activateApplicationRecordProtection(ctx, conn); err != nil {
 					return StateErrored, err
 				}
+				if err := s.sendACK(ctx, conn, state.Records); err != nil {
+					return StateErrored, err
+				}
 
 				return StateFinished, nil
 			}
@@ -588,6 +593,22 @@ func (s *fsm13) activateApplicationRecordProtection(ctx context.Context, c Conn)
 	s.state.RemoteEpoch.Store(dtlsflight13.EpochApplication)
 
 	return c.HandleQueuedPackets(ctx)
+}
+
+func (s *fsm13) sendACK(ctx context.Context, c Conn, records []protocol.RecordNumber) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	epoch := s.state.GetLocalEpoch()
+
+	return c.WritePackets(ctx, []*dtlsflight.Packet{{
+		Record: &recordlayer.RecordLayer{
+			Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: epoch},
+			Content: &protocol.ACK{Records: records},
+		},
+		ShouldEncrypt: true,
+	}})
 }
 
 func transcriptSenderForSide13(isClient bool) transcriptSender {
