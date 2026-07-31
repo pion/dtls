@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package flight_test
 
 import (
 	"testing"
@@ -129,10 +129,10 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 }
 
 func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
-	cipherSuiteID := uint16(TLS_AES_128_GCM_SHA256)
+	cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
 	rawClientHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
-		CipherSuiteIDs:     []uint16{uint16(TLS_AES_128_GCM_SHA256)},
+		CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	})
 	rawServerHello := marshalHandshakeCacheTestMessage(t, 1, &handshake.MessageServerHello{
