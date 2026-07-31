@@ -17,6 +17,7 @@ import (
 	"github.com/pion/transport/v4/dpipe"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Assert that SupportedEllipticCurves is only sent when a ECC CipherSuite is available.
@@ -32,14 +33,18 @@ func TestSupportedEllipticCurves(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	expectedCurves := defaultCurves
+	expectedCurves := append([]elliptic.Curve(nil), defaultCurves...)
 	var actualCurves []elliptic.Curve
 
 	rand.Shuffle(len(expectedCurves), func(i, j int) {
 		expectedCurves[i], expectedCurves[j] = expectedCurves[j], expectedCurves[i]
 	})
 
-	clientErr := make(chan error, 1)
+	type result struct {
+		conn *Conn
+		err  error
+	}
+	clientResult := make(chan result, 1)
 	ca, cb := dpipe.Pipe()
 	caAnalyzer := &connWithCallback{Conn: ca}
 	caAnalyzer.onWrite = func(in []byte) {
@@ -69,7 +74,7 @@ func TestSupportedEllipticCurves(t *testing.T) {
 	}
 
 	go func() {
-		if client, err := testClient(
+		client, err := testClient(
 			ctx,
 			dtlsnet.PacketConnFromConn(caAnalyzer),
 			caAnalyzer.RemoteAddr(),
@@ -78,19 +83,18 @@ func TestSupportedEllipticCurves(t *testing.T) {
 				WithEllipticCurves(expectedCurves...),
 			},
 			false,
-		); err != nil {
-			clientErr <- err
-		} else {
-			clientErr <- client.Close() // nolint:errcheck,contextcheck
-		}
+		)
+		clientResult <- result{conn: client, err: err}
 	}()
 
 	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
 		WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 	}, true)
-	assert.NoError(t, err)
+	client := <-clientResult
+	require.NoError(t, err)
+	require.NoError(t, client.err)
 	assert.NoError(t, server.Close())
-	assert.NoError(t, <-clientErr)
+	assert.NoError(t, client.conn.Close())
 
 	for i := range expectedCurves {
 		assert.Equal(t, expectedCurves[i], actualCurves[i], "curves in SupportedEllipticCurves mismatch")
