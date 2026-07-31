@@ -133,12 +133,12 @@ func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
 	rawClientHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		CipherSuiteIDs:     []uint16{uint16(TLS_AES_128_GCM_SHA256)},
-		CompressionMethods: defaultCompressionMethods(),
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	})
 	rawServerHello := marshalHandshakeCacheTestMessage(t, 1, &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
 		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: defaultCompressionMethods()[0],
+		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 	})
 
 	cache := dtlsflight.NewCache()

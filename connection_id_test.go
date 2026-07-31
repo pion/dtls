@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -192,7 +193,7 @@ func TestCIDConnIdentifier(t *testing.T) {
 				Random:            handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: [28]byte{}},
 				SessionID:         []byte("hello"),
 				CipherSuiteID:     &cs,
-				CompressionMethod: defaultCompressionMethods()[0],
+				CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 				Extensions: []extension.Extension{
 					&extension.ConnectionID{
 						CID: cid,

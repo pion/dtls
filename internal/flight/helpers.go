@@ -7,14 +7,7 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
-	"github.com/pion/dtls/v3/pkg/protocol"
 )
-
-func DefaultCompressionMethods() []*protocol.CompressionMethod {
-	return []*protocol.CompressionMethod{
-		{},
-	}
-}
 
 func FindMatchingSRTPProfile(a, b []dtlsconfig.SRTPProtectionProfile) (dtlsconfig.SRTPProtectionProfile, bool) {
 	for _, p1 := range a {

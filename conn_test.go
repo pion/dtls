@@ -218,7 +218,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 							Version:            protocol.Version1_2,
 							Cookie:             make([]byte, 64),
 							CipherSuiteIDs:     cipherSuiteIDs(defaultCipherSuites()),
-							CompressionMethods: defaultCompressionMethods(),
+							CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 						},
 					},
 				},
@@ -350,7 +350,7 @@ func sendClientHello(
 				Version:            protocol.Version1_2,
 				Cookie:             cookie,
 				CipherSuiteIDs:     cipherSuites,
-				CompressionMethods: defaultCompressionMethods(),
+				CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 				Extensions:         extensions,
 			},
 		},
@@ -2008,7 +2008,7 @@ func TestServerTimeout(t *testing.T) {
 				Cookie:             cookie,
 				Random:             random,
 				CipherSuiteIDs:     cipherSuiteIDs(cipherSuites),
-				CompressionMethods: defaultCompressionMethods(),
+				CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 				Extensions:         extensions,
 			},
 		},
@@ -2115,7 +2115,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								Cookie:             cookie,
 								Random:             random,
 								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
-								CompressionMethods: defaultCompressionMethods(),
+								CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 							},
 						},
 					},
@@ -2133,7 +2133,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								Cookie:             cookie,
 								Random:             random,
 								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
-								CompressionMethods: defaultCompressionMethods(),
+								CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 							},
 						},
 					},
@@ -2151,7 +2151,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								Cookie:             cookie,
 								Random:             random,
 								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
-								CompressionMethods: defaultCompressionMethods(),
+								CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 							},
 						},
 					},
@@ -2240,7 +2240,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 
 									return &id
 								}(),
-								CompressionMethod: defaultCompressionMethods()[0],
+								CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 							},
 						},
 					},
@@ -2337,7 +2337,7 @@ func marshalVersionNegotiationServerHello13(
 		Version:           protocol.Version1_2,
 		Random:            random,
 		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: defaultCompressionMethods()[0],
+		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 		Extensions:        extensions,
 	}
 	rawServerHello, err := (&handshake.Handshake{Message: serverHello}).Marshal()
@@ -3961,7 +3961,7 @@ func TestDTLSDualStackClientRejectsNonClientHelloBeforeWrite(t *testing.T) {
 			return &handshake.MessageServerHello{
 				Version:           protocol.Version1_2,
 				CipherSuiteID:     &cipherSuiteID,
-				CompressionMethod: defaultCompressionMethods()[0],
+				CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 			}
 		}),
 	)
