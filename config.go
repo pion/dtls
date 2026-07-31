@@ -10,6 +10,7 @@ import (
 	"crypto/rsa"
 	"slices"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -78,7 +79,7 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 		}
 	}
 
-	minVersion, maxVersion := normalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
+	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
 	if err := validateEllipticCurveVersions(config.EllipticCurves, minVersion, maxVersion); err != nil {
 		return err
 	}

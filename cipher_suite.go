@@ -13,6 +13,7 @@ import (
 	"hash"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -237,7 +238,7 @@ func configCipherSuiteIDs(cipherSuites []ciphersuite.CipherSuite) []uint16 {
 
 func defaultCipherSuitesForVersions(minVersion, maxVersion protocol.Version) []CipherSuite {
 	cipherSuites := []CipherSuite{}
-	for _, version := range supportedVersionsRange(minVersion, maxVersion) {
+	for _, version := range dtlsconfig.SupportedVersionsRange(minVersion, maxVersion) {
 		switch {
 		case version.Equal(protocol.Version1_3):
 			cipherSuites = append(cipherSuites, defaultCipherSuites13()...)
@@ -262,7 +263,7 @@ func cipherSuiteIDSupportsVersion(id CipherSuiteID, version protocol.Version) bo
 }
 
 func cipherSuiteIDSupportsVersions(id CipherSuiteID, minVersion, maxVersion protocol.Version) bool {
-	for _, version := range supportedVersionsRange(minVersion, maxVersion) {
+	for _, version := range dtlsconfig.SupportedVersionsRange(minVersion, maxVersion) {
 		if cipherSuiteIDSupportsVersion(id, version) {
 			return true
 		}

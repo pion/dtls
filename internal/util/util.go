@@ -57,3 +57,16 @@ func CloneByteSlices(in [][]byte) [][]byte {
 
 	return out
 }
+
+// SplitBytes splits bytes into chunks no larger than splitLen.
+func SplitBytes(bytes []byte, splitLen int) [][]byte {
+	splitBytes := make([][]byte, 0)
+	numBytes := len(bytes)
+	for i := 0; i < numBytes; i += splitLen {
+		j := min(i+splitLen, numBytes)
+
+		splitBytes = append(splitBytes, bytes[i:j])
+	}
+
+	return splitBytes
+}

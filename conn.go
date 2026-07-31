@@ -25,6 +25,7 @@ import (
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -258,7 +259,7 @@ func createConn(
 }
 
 func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
-	minVersion, maxVersion := normalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
+	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
 	cipherSuites, err := parseCipherSuitesForVersions(
 		config.CipherSuites,
 		config.customCipherSuites,
@@ -1411,7 +1412,7 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 
 	fragmentedHandshakes := make([][]byte, 0)
 
-	contentFragments := splitBytes(content, c.maximumTransmissionUnit)
+	contentFragments := util.SplitBytes(content, c.maximumTransmissionUnit)
 	if len(contentFragments) == 0 {
 		contentFragments = [][]byte{
 			{},
@@ -2325,7 +2326,7 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 		remote = []protocol.Version{ch.Version}
 	}
 
-	chosen, ok := selectVersion(remote, c.handshakeConfig.MinVersion, c.handshakeConfig.MaxVersion)
+	chosen, ok := dtlsconfig.SelectVersion(remote, c.handshakeConfig.MinVersion, c.handshakeConfig.MaxVersion)
 	if !ok {
 		return false, dtlserrors.ErrNoCommonProtocolVersion
 	}
@@ -2407,7 +2408,7 @@ func remoteVersionsFromHelloRetryRequest(
 }
 
 func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
-	chosen, ok := selectVersion(remote, c.handshakeConfig.MinVersion, c.handshakeConfig.MaxVersion)
+	chosen, ok := dtlsconfig.SelectVersion(remote, c.handshakeConfig.MinVersion, c.handshakeConfig.MaxVersion)
 	if !ok {
 		return dtlserrors.ErrNoCommonProtocolVersion
 	}

@@ -2836,7 +2836,7 @@ func TestFlight13_2Generate(t *testing.T) {
 
 		supportedVersions, ok := findSupportedVersions(serverHello.Extensions)
 		require.True(t, ok)
-		assert.Equal(t, supportedVersionsRange(cfg.MinVersion, cfg.MaxVersion), supportedVersions.Versions)
+		assert.Equal(t, dtlsconfig.SupportedVersionsRange(cfg.MinVersion, cfg.MaxVersion), supportedVersions.Versions)
 
 		keyShare, ok := findKeyShare(serverHello.Extensions)
 		require.True(t, ok)

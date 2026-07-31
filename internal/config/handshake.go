@@ -257,24 +257,3 @@ func (c *HandshakeConfig) GetClientCertificate(cri *CertificateRequestInfo) (*tl
 
 	return new(tls.Certificate), nil
 }
-
-func SupportedVersionsRange(minVersion, maxVersion protocol.Version) []protocol.Version {
-	ordered := []protocol.Version{protocol.Version1_3, protocol.Version1_2}
-	out := make([]protocol.Version, 0, len(ordered))
-	for _, v := range ordered {
-		if versionAtLeast(v, minVersion) && versionAtMost(v, maxVersion) {
-			out = append(out, v)
-		}
-	}
-
-	return out
-}
-
-func versionAtLeast(v, lo protocol.Version) bool {
-	// DTLS encodes newer versions as numerically smaller Minor bytes
-	return v.Minor <= lo.Minor
-}
-
-func versionAtMost(v, hi protocol.Version) bool {
-	return v.Minor >= hi.Minor
-}
