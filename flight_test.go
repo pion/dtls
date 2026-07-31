@@ -22,6 +22,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
+	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
@@ -1376,7 +1377,7 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 	cache := dtlsflight.NewCache()
 	commonState := &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3}
 	conn := &Conn{
-		fragmentBuffer:          newFragmentBuffer(),
+		fragmentBuffer:          dtlsfragmentbuffer.New(),
 		handshakeCache:          cache,
 		maximumTransmissionUnit: defaultMTU,
 		replayProtectionWindow:  defaultReplayProtectionWindow,

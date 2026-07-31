@@ -23,6 +23,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight12 "github.com/pion/dtls/v3/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
+	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
@@ -190,11 +191,11 @@ type connSessionCallbacks struct {
 
 // Conn represents a DTLS connection.
 type Conn struct {
-	lock           sync.RWMutex      // Internal lock (must not be public)
-	nextConn       netctx.PacketConn // Embedded Conn, typically a udpconn we read/write from
-	fragmentBuffer *fragmentBuffer   // out-of-order and missing fragment handling
-	handshakeCache *dtlsflight.Cache // caching of handshake messages for verifyData generation
-	decrypted      chan any          // Decrypted Application Data or error, pull by calling `Read`
+	lock           sync.RWMutex                       // Internal lock (must not be public)
+	nextConn       netctx.PacketConn                  // Embedded Conn, typically a udpconn we read/write from
+	fragmentBuffer *dtlsfragmentbuffer.FragmentBuffer // out-of-order and missing fragment handling
+	handshakeCache *dtlsflight.Cache                  // caching of handshake messages for verifyData generation
+	decrypted      chan any                           // Decrypted Application Data or error, pull by calling `Read`
 	rAddr          net.Addr
 	state          dtlsstate.Active // active DTLS version state
 
@@ -577,7 +578,7 @@ func newConn(
 		rAddr:                   rAddr,
 		nextConn:                netctx.NewPacketConn(nextConn),
 		handshakeConfig:         handshakeConfig,
-		fragmentBuffer:          newFragmentBuffer(),
+		fragmentBuffer:          dtlsfragmentbuffer.New(),
 		handshakeCache:          dtlsflight.NewCache(),
 		maximumTransmissionUnit: configValues.maximumTransmissionUnit,
 		paddingLengthGenerator:  configValues.paddingLengthGenerator,
@@ -2090,7 +2091,7 @@ func (c *Conn) handleIncomingPacket(
 	markPacketAsValid := prepared.markPacketAsValid
 
 	c.syncFragmentBufferHandshakeSequence()
-	isHandshake, isRetransmit, err := c.fragmentBuffer.push(append([]byte{}, buf...))
+	isHandshake, isRetransmit, err := c.fragmentBuffer.Push(append([]byte{}, buf...))
 	if err != nil {
 		// Decode error must be silently discarded
 		// [RFC6347 Section-4.1.2.7]
@@ -2100,7 +2101,7 @@ func (c *Conn) handleIncomingPacket(
 	} else if isHandshake {
 		markPacketAsValid()
 
-		for out, epoch := c.fragmentBuffer.pop(); out != nil; out, epoch = c.fragmentBuffer.pop() {
+		for out, epoch := c.fragmentBuffer.Pop(); out != nil; out, epoch = c.fragmentBuffer.Pop() {
 			header := &handshake.Header{}
 			if err := header.Unmarshal(out); err != nil {
 				c.log.Debugf("%s: handshake parse failed: %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), err)
@@ -2191,7 +2192,7 @@ func (c *Conn) syncFragmentBufferHandshakeSequence() {
 		return
 	}
 
-	c.fragmentBuffer.advanceTo(uint16(handshakeRecvSequence))
+	c.fragmentBuffer.AdvanceTo(uint16(handshakeRecvSequence))
 }
 
 func (c *Conn) handshakeRecvSequence() int {

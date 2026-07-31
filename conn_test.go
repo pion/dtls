@@ -29,6 +29,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
+	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
@@ -3489,7 +3490,7 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T) {
 	commonState := &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3}
 	conn := &Conn{
-		fragmentBuffer:         newFragmentBuffer(),
+		fragmentBuffer:         dtlsfragmentbuffer.New(),
 		handshakeCache:         dtlsflight.NewCache(),
 		log:                    logging.NewDefaultLoggerFactory().NewLogger("dtls"),
 		replayProtectionWindow: defaultReplayProtectionWindow,
@@ -3613,20 +3614,20 @@ func TestOnConnectionAttempt(t *testing.T) {
 }
 
 func TestFragmentBuffer_Retransmission(t *testing.T) {
-	fragmentBuffer := newFragmentBuffer()
+	fragmentBuffer := dtlsfragmentbuffer.New()
 	frag := []byte{
 		0x16, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x30, 0x03, 0x00,
 		0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xfe, 0xff, 0x01, 0x01,
 	}
 
-	_, isRetransmission, err := fragmentBuffer.push(frag)
+	_, isRetransmission, err := fragmentBuffer.Push(frag)
 	assert.NoError(t, err)
 	assert.False(t, isRetransmission)
 
-	v, _ := fragmentBuffer.pop()
+	v, _ := fragmentBuffer.Pop()
 	assert.NotNil(t, v)
 
-	_, isRetransmission, err = fragmentBuffer.push(frag)
+	_, isRetransmission, err = fragmentBuffer.Push(frag)
 	assert.NoError(t, err)
 	assert.True(t, isRetransmission)
 }
@@ -4263,7 +4264,7 @@ func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.CipherSuite
 	}
 
 	conn := &Conn{
-		fragmentBuffer:          newFragmentBuffer(),
+		fragmentBuffer:          dtlsfragmentbuffer.New(),
 		handshakeCache:          dtlsflight.NewCache(),
 		maximumTransmissionUnit: defaultMTU,
 		replayProtectionWindow:  defaultReplayProtectionWindow,

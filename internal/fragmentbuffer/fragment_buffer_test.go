@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+package fragmentbuffer
 
 import (
 	"testing"
@@ -139,29 +139,29 @@ func TestFragmentBuffer(t *testing.T) {
 			Epoch:    0,
 		},
 	} {
-		fragmentBuffer := newFragmentBuffer()
+		fragmentBuffer := New()
 		for _, frag := range test.In {
-			status, _, err := fragmentBuffer.push(frag)
+			status, _, err := fragmentBuffer.Push(frag)
 			assert.NoError(t, err)
 			assert.Truef(t, status, "fragmentBuffer didn't accept fragments for '%s'", test.Name)
 		}
 
 		for _, expected := range test.Expected {
-			out, epoch := fragmentBuffer.pop()
+			out, epoch := fragmentBuffer.Pop()
 			assert.Equalf(t, expected, out, "fragmentBuffer '%s' pop should return expected output", test.Name)
 			assert.Equalf(t, test.Epoch, epoch, "fragmentBuffer returend wrong epoch")
 		}
 
-		frag, _ := fragmentBuffer.pop()
+		frag, _ := fragmentBuffer.Pop()
 		assert.Nilf(t, frag, "fragmentBuffer '%s' pop should return nil when no more fragments are available", test.Name)
 	}
 }
 
 func TestFragmentBuffer_Overflow(t *testing.T) {
-	fragmentBuffer := newFragmentBuffer()
+	fragmentBuffer := New()
 
 	// Push a buffer that doesn't exceed size limits
-	_, _, err := fragmentBuffer.push([]byte{
+	_, _, err := fragmentBuffer.Push([]byte{
 		0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03,
 		0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xfe, 0xff, 0x00,
 	})
@@ -169,15 +169,15 @@ func TestFragmentBuffer_Overflow(t *testing.T) {
 
 	// Allocate a buffer that exceeds cache size
 	largeBuffer := make([]byte, fragmentBufferMaxSize)
-	_, _, err = fragmentBuffer.push(largeBuffer)
+	_, _, err = fragmentBuffer.Push(largeBuffer)
 	assert.ErrorIs(t, err, dtlserrors.ErrFragmentBufferOverflow, "Pushing a large buffer should return an overflow error")
 }
 
 func TestFragmentBuffer_TooSmall(t *testing.T) {
-	fragmentBuffer := newFragmentBuffer()
+	fragmentBuffer := New()
 
 	// Push a buffer that is smaller than fragment length
-	_, _, err := fragmentBuffer.push([]byte{
+	_, _, err := fragmentBuffer.Push([]byte{
 		0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03,
 		0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xfe, 0xff, 0x00,
 	})
@@ -186,16 +186,16 @@ func TestFragmentBuffer_TooSmall(t *testing.T) {
 }
 
 func TestFragmentBuffer_UnmarshalInvalid(t *testing.T) {
-	fragmentBuffer := newFragmentBuffer()
+	fragmentBuffer := New()
 
 	// Push a buffer with partial record layer header
-	_, _, err := fragmentBuffer.push([]byte{
+	_, _, err := fragmentBuffer.Push([]byte{
 		0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	})
 	assert.Error(t, err, "Pushing a buffer with partial record layer header should return an error")
 
 	// Push a buffer with partial handshake header
-	_, _, err = fragmentBuffer.push([]byte{
+	_, _, err = fragmentBuffer.Push([]byte{
 		0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03,
 	})
 	assert.Error(t, err, "Pushing a buffer with partial handshake header should return an error")

@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package dtls
+// Package fragmentbuffer reassembles fragmented DTLS handshake messages.
+package fragmentbuffer
 
 import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -28,7 +29,8 @@ type fragments struct {
 	handshakeLength  uint32
 }
 
-type fragmentBuffer struct {
+// FragmentBuffer stores and reassembles fragmented DTLS handshake messages.
+type FragmentBuffer struct {
 	// map of MessageSequenceNumbers that hold slices of fragments
 	cache map[uint16]*fragments
 
@@ -38,16 +40,18 @@ type fragmentBuffer struct {
 	totalFragmentCount int
 }
 
-func newFragmentBuffer() *fragmentBuffer {
-	return &fragmentBuffer{cache: map[uint16]*fragments{}}
+// New creates an empty FragmentBuffer.
+func New() *FragmentBuffer {
+	return &FragmentBuffer{cache: map[uint16]*fragments{}}
 }
 
 // current total size of buffer.
-func (f *fragmentBuffer) size() int {
+func (f *FragmentBuffer) size() int {
 	return f.totalBufferSize
 }
 
-func (f *fragmentBuffer) advanceTo(messageSequence uint16) {
+// AdvanceTo discards fragments for message sequences before messageSequence.
+func (f *FragmentBuffer) AdvanceTo(messageSequence uint16) {
 	if messageSequence <= f.currentMessageSequenceNumber {
 		return
 	}
@@ -64,10 +68,10 @@ func (f *fragmentBuffer) advanceTo(messageSequence uint16) {
 	f.currentMessageSequenceNumber = messageSequence
 }
 
-// Attempts to push a DTLS packet to the fragmentBuffer
+// Push attempts to add a DTLS packet to the fragment buffer.
 // when it returns true it means the fragmentBuffer has inserted and the buffer shouldn't be handled
 // when an error returns it is fatal, and the DTLS connection should be stopped.
-func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err error) { //nolint:cyclop
+func (f *FragmentBuffer) Push(buf []byte) (isHandshake, isRetransmit bool, err error) {
 	if f.size()+len(buf) >= fragmentBufferMaxSize || f.totalFragmentCount >= fragmentBufferMaxCount {
 		return false, false, dtlserrors.ErrFragmentBufferOverflow
 	}
@@ -82,8 +86,20 @@ func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err e
 		return false, false, nil
 	}
 
-	frag := new(fragment)
-	for buf = buf[recordlayer.FixedHeaderSize:]; len(buf) != 0; frag = new(fragment) { //nolint:gosec // G602
+	headerSize := recordLayerHeader.Size()
+	if len(buf) < headerSize {
+		return false, false, dtlserrors.ErrBufferTooSmall
+	}
+
+	return f.pushHandshakeFragments(recordLayerHeader, buf[headerSize:])
+}
+
+func (f *FragmentBuffer) pushHandshakeFragments(
+	recordLayerHeader recordlayer.Header,
+	buf []byte,
+) (isHandshake, isRetransmit bool, err error) {
+	for len(buf) != 0 {
+		frag := new(fragment)
 		if err := frag.handshakeHeader.Unmarshal(buf); err != nil {
 			return false, false, err
 		}
@@ -126,7 +142,8 @@ func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err e
 	return true, isRetransmit, nil
 }
 
-func (f *fragmentBuffer) pop() (content []byte, epoch uint16) {
+// Pop returns the next complete handshake message and its record epoch.
+func (f *FragmentBuffer) Pop() (content []byte, epoch uint16) {
 	frags, ok := f.cache[f.currentMessageSequenceNumber]
 	if !ok {
 		return nil, 0
