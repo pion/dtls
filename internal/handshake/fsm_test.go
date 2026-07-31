@@ -131,6 +131,30 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 	assert.Same(t, fsm.transcript, flightCtx.transcript)
 }
 
+func TestHandshakeFSM13SendACKUsesCurrentEpoch(t *testing.T) {
+	state := newTestState13(true)
+	state.LocalEpoch.Store(dtlsflight13.EpochApplication)
+	conn := &flightTestConn{}
+	fsm := &fsm13{state: state}
+	records := []protocol.RecordNumber{{Epoch: 2, SequenceNumber: 7}}
+
+	require.NoError(t, fsm.sendACK(context.Background(), conn, records))
+	require.Len(t, conn.writtenPackets, 1)
+	assert.True(t, conn.writtenPackets[0].ShouldEncrypt)
+	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Record.Header.Epoch)
+	ack, ok := conn.writtenPackets[0].Record.Content.(*protocol.ACK)
+	require.True(t, ok)
+	assert.Equal(t, records, ack.Records)
+}
+
+func TestHandshakeFSM13DoesNotSendEmptyACK(t *testing.T) {
+	conn := &flightTestConn{}
+	fsm := &fsm13{state: newTestState13(false)}
+
+	require.NoError(t, fsm.sendACK(context.Background(), conn, nil))
+	assert.Empty(t, conn.writtenPackets)
+}
+
 func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	state := newTestState13(true)
 	cache := dtlsflight.NewCache()

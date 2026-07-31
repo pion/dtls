@@ -220,7 +220,8 @@ type Conn struct {
 	nextConn       netctx.PacketConn                  // Embedded Conn, typically a udpconn we read/write from
 	fragmentBuffer *dtlsfragmentbuffer.FragmentBuffer // out-of-order and missing fragment handling
 	handshakeCache *dtlsflight.Cache                  // caching of handshake messages for verifyData generation
-	decrypted      chan any                           // Decrypted Application Data or error, pull by calling `Read`
+	pendingACKs    []protocol.RecordNumber
+	decrypted      chan any // Decrypted Application Data or error, pull by calling `Read`
 	rAddr          net.Addr
 	state          dtlsstate.Active // active DTLS version state
 
@@ -1263,7 +1264,7 @@ func (c *Conn) processProtectedPacket(pkt *dtlsflight.Packet, seq uint64) ([]byt
 
 func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byte, error) {
 	switch content.(type) {
-	case *handshake.Handshake, *alert.Alert, *protocol.ApplicationData:
+	case *handshake.Handshake, *alert.Alert, *protocol.ApplicationData, *protocol.ACK:
 	default:
 		return 0, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
@@ -1528,6 +1529,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 		s := dtlshandshake.RecvHandshakeState{
 			Done:         make(chan struct{}),
 			IsRetransmit: isRetransmit,
+			Records:      c.takePendingACKs(),
 		}
 		select {
 		case c.handshakeRecv <- s:
@@ -1539,6 +1541,16 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 	}
 
 	return nil
+}
+
+func (c *Conn) takePendingACKs() []protocol.RecordNumber {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	records := c.pendingACKs
+	c.pendingACKs = nil
+
+	return records
 }
 
 func (c *Conn) handleQueuedPackets(ctx context.Context) error {
@@ -2136,6 +2148,14 @@ func (c *Conn) handleIncomingPacket(
 		return false, false, nil, nil
 	} else if isHandshake {
 		markPacketAsValid()
+		if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
+			header.Epoch >= dtlsflight13.EpochHandshake {
+			c.lock.Lock()
+			c.pendingACKs = append(c.pendingACKs, protocol.RecordNumber{
+				Epoch: uint64(header.Epoch), SequenceNumber: header.SequenceNumber,
+			})
+			c.lock.Unlock()
+		}
 
 		for out, epoch := c.fragmentBuffer.Pop(); out != nil; out, epoch = c.fragmentBuffer.Pop() {
 			header := &handshake.Header{}

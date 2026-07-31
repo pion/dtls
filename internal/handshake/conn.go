@@ -7,6 +7,7 @@ import (
 	"context"
 
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
 
@@ -14,6 +15,7 @@ import (
 type RecvHandshakeState struct {
 	Done         chan struct{}
 	IsRetransmit bool
+	Records      []protocol.RecordNumber
 }
 
 // FSM is the common DTLS handshake FSM interface.

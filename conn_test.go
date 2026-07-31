@@ -3964,6 +3964,76 @@ func TestDTLS13RetransmittedClientFinalFlight(t *testing.T) {
 	assert.Equal(t, payload, buf)
 }
 
+func TestDTLS13ServerSendsFinalACK(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(10 * time.Second).Stop()
+
+	ca, cb := dpipe.Pipe()
+	var applicationEpochWrites atomic.Int32
+	ackRecord := make(chan []byte, 1)
+	serverTransport := &connWithCallback{
+		Conn: cb,
+		onWrite: func(raw []byte) {
+			if len(raw) > 0 &&
+				protocol.IsDTLS13Ciphertext(protocol.ContentType(raw[0])) &&
+				raw[0]&recordlayer.TwoLowBitsMask == byte(dtlsflight13.EpochApplication) {
+				applicationEpochWrites.Add(1)
+				select {
+				case ackRecord <- append([]byte(nil), raw...):
+				default:
+				}
+			}
+		},
+	}
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	client, err := ClientWithOptions(
+		dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
+		WithCertificates(clientCert), WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	serverCert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	server, err := ServerWithOptions(
+		dtlsnet.PacketConnFromConn(serverTransport), serverTransport.RemoteAddr(),
+		WithCertificates(serverCert), WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3),
+	)
+	require.NoError(t, err)
+	defer func() { _ = server.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errs := make(chan error, 2)
+	go func() { errs <- client.HandshakeContext(ctx) }()
+	go func() { errs <- server.HandshakeContext(ctx) }()
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+	assert.Equal(t, int32(1), applicationEpochWrites.Load())
+
+	var rawACK []byte
+	select {
+	case rawACK = <-ackRecord:
+	case <-time.After(time.Second):
+		require.FailNow(t, "server did not write an application-epoch ACK")
+	}
+	var ciphertext recordlayer.CiphertextRecord13
+	require.NoError(t, ciphertext.Unmarshal(rawACK))
+	clientCipherSuite, ok := dtlsstate.CommonState(client.state).CipherSuite.(ciphersuite.CipherSuiteTLS13)
+	require.True(t, ok)
+	innerPlaintext, err := clientCipherSuite.Open(ciphertext.Header, 0, ciphertext.EncryptedRecord)
+	require.NoError(t, err)
+	require.Equal(t, protocol.ContentTypeACK, innerPlaintext.RealType)
+	var ack protocol.ACK
+	require.NoError(t, ack.Unmarshal(innerPlaintext.Content))
+	require.NotEmpty(t, ack.Records)
+	assert.Equal(t, uint64(dtlsflight13.EpochHandshake), ack.Records[0].Epoch)
+}
+
 func TestHandshakeCancellationWhilePostSetupBlocks(t *testing.T) {
 	defer test.CheckRoutines(t)()
 
@@ -4197,7 +4267,7 @@ func TestProcessProtectedPacketWritesDTLS13HandshakeRecord(t *testing.T) {
 	assert.NotEmpty(t, rawPacket)
 	assert.True(t, protocol.IsDTLS13Ciphertext(protocol.ContentType(rawPacket[0])))
 
-	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket, 0)
+	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket)
 	assert.Equal(t, protocol.ContentTypeHandshake, innerPlaintext.RealType)
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
@@ -4224,7 +4294,7 @@ func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
 	assert.Len(t, rawPackets, 1)
 	assert.True(t, protocol.IsDTLS13Ciphertext(protocol.ContentType(rawPackets[0][0])))
 
-	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPackets[0], 0)
+	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPackets[0])
 	assert.Equal(t, protocol.ContentTypeHandshake, innerPlaintext.RealType)
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
@@ -4245,9 +4315,28 @@ func TestProcessProtectedPacketWritesApplicationData(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket, 0)
+	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket)
 	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
 	assert.Equal(t, payload, innerPlaintext.Content)
+}
+
+func TestProcessProtectedPacketWritesACK(t *testing.T) {
+	conn, peerCipherSuite := newTestConnWithWriteProtection(t)
+	ack := &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2, SequenceNumber: 9}}}
+	expected, err := ack.Marshal()
+	require.NoError(t, err)
+
+	rawPacket, err := conn.processPacket(&dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: dtlsflight13.EpochApplication},
+			Content: ack,
+		},
+		ShouldEncrypt: true,
+	})
+	require.NoError(t, err)
+	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket)
+	assert.Equal(t, protocol.ContentTypeACK, innerPlaintext.RealType)
+	assert.Equal(t, expected, innerPlaintext.Content)
 }
 
 func TestOpenCiphertextRecordHandshake(t *testing.T) {
@@ -4456,7 +4545,6 @@ func openTestProtectedRecord(
 	t *testing.T,
 	cipherSuite ciphersuite.CipherSuiteTLS13,
 	rawPacket []byte,
-	sequenceNumber uint64,
 ) recordlayer.InnerPlaintext {
 	t.Helper()
 
@@ -4465,7 +4553,7 @@ func openTestProtectedRecord(
 
 	innerPlaintext, err := cipherSuite.Open(
 		ciphertext.Header,
-		sequenceNumber,
+		0,
 		ciphertext.EncryptedRecord,
 	)
 	assert.NoError(t, err)
