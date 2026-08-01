@@ -392,6 +392,135 @@ func TestHandshakeFSM13SendsFlight4ProtectedRecords(t *testing.T) {
 	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
 }
 
+func TestHandshakeFSM13ServerFlight4KeepsReaderPausedThroughQueueDrain(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.InsecureSkipHelloVerify = true
+	_, clientHello, _ := newFlight13ClientHelloFixture(t, cfg)
+	serverState := newTestState13(false)
+	cache := dtlsflight.NewCache()
+	fsm, err := newFSM13(serverState, cache, cfg, dtlsflight13.Flight0, nil, nil)
+	require.NoError(t, err)
+	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+
+	nextState, err := fsm.prepare(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateSending, nextState)
+	nextState, err = fsm.send(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateWaiting, nextState)
+
+	pushFlight13HandshakePacketsToCache(t, cache, clientHello, true)
+	recvState := RecvHandshakeState{Done: make(chan struct{})}
+	conn.recvHandshake <- recvState
+	nextState, err = fsm.wait(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StatePreparing, nextState)
+	require.Equal(t, dtlsflight13.Flight4, fsm.currentFlight)
+	assertFlight13RecvDoneOpen(t, recvState)
+
+	queueDrains := 0
+	conn.writePackets = func(context.Context, []*dtlsflight.Packet) error {
+		assertFlight13RecvDoneOpen(t, recvState)
+
+		return nil
+	}
+	conn.handleQueuedPackets = func(context.Context) error {
+		queueDrains++
+		assertFlight13RecvDoneOpen(t, recvState)
+
+		return nil
+	}
+	nextState, err = fsm.prepare(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateSending, nextState)
+	assertFlight13RecvDoneOpen(t, recvState)
+	nextState, err = fsm.send(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateWaiting, nextState)
+	assertFlight13RecvDoneClosed(t, recvState)
+	assert.Equal(t, 1, queueDrains)
+	assert.Equal(t, dtlsflight13.EpochHandshake, serverState.GetRemoteEpoch())
+
+	conn.writePackets = nil
+	nextState, err = fsm.send(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateWaiting, nextState)
+	assert.Equal(t, 1, queueDrains)
+	assert.Equal(t, dtlsflight13.EpochHandshake, serverState.GetRemoteEpoch())
+}
+
+func TestHandshakeFSM13NonDrainingTransitionReleasesReaderAfterWait(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.InsecureSkipHelloVerify = false
+	_, clientHello, _ := newFlight13ClientHelloFixture(t, cfg)
+	serverState := newTestState13(false)
+	cache := dtlsflight.NewCache()
+	fsm, err := newFSM13(serverState, cache, cfg, dtlsflight13.Flight0, nil, nil)
+	require.NoError(t, err)
+	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+
+	nextState, err := fsm.prepare(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateSending, nextState)
+	nextState, err = fsm.send(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateWaiting, nextState)
+
+	pushFlight13HandshakePacketsToCache(t, cache, clientHello, true)
+	recvState := RecvHandshakeState{Done: make(chan struct{})}
+	conn.recvHandshake <- recvState
+	nextState, err = fsm.wait(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StatePreparing, nextState)
+	require.Equal(t, dtlsflight13.Flight2, fsm.currentFlight)
+	assertFlight13RecvDoneClosed(t, recvState)
+}
+
+func TestHandshakeFSM13ReaderPauseRequiredOnlyForQueueDrainingTransitions(t *testing.T) {
+	tests := []struct {
+		name        string
+		isClient    bool
+		nextFlight  dtlsflight13.Flight
+		remoteEpoch uint16
+		expected    bool
+	}{
+		{
+			name:       "client hello retry",
+			isClient:   true,
+			nextFlight: dtlsflight13.Flight3,
+		},
+		{
+			name:       "client final flight",
+			isClient:   true,
+			nextFlight: dtlsflight13.Flight5,
+			expected:   true,
+		},
+		{
+			name:       "server hello retry",
+			nextFlight: dtlsflight13.Flight2,
+		},
+		{
+			name:       "server protected flight",
+			nextFlight: dtlsflight13.Flight4,
+			expected:   true,
+		},
+		{
+			name:        "server protected flight already activated",
+			nextFlight:  dtlsflight13.Flight4,
+			remoteEpoch: dtlsflight13.EpochHandshake,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := newTestState13(test.isClient)
+			state.RemoteEpoch.Store(test.remoteEpoch)
+			fsm := &fsm13{state: state}
+
+			assert.Equal(t, test.expected, fsm.transitionRequiresReaderPause(test.nextFlight))
+		})
+	}
+}
+
 func TestHandshakeFSM13ServerFlight4NoCertificateMVPGeneratesFinished(t *testing.T) {
 	fixture := newNoHRRFlight13Fixture(t)
 	require.Empty(t, fixture.cfg.LocalCertificates)
@@ -444,8 +573,27 @@ func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
 	assert.Equal(t, 3, fixture.clientState.HandshakeRecvSequence)
 	assert.True(t, fixture.clientState.CipherSuite.IsInitialized())
 	assert.Equal(t, dtlsflight13.EpochHandshake, fixture.clientState.GetRemoteEpoch())
-	assertFlight13RecvDoneClosed(t, recvState)
+	assertFlight13RecvDoneOpen(t, recvState)
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
+
+	conn.writePackets = func(context.Context, []*dtlsflight.Packet) error {
+		assertFlight13RecvDoneOpen(t, recvState)
+
+		return nil
+	}
+	conn.handleQueuedPackets = func(context.Context) error {
+		assertFlight13RecvDoneOpen(t, recvState)
+
+		return nil
+	}
+	nextState, err = fsm.prepare(context.Background(), conn)
+	require.NoError(t, err)
+	assert.Equal(t, StateSending, nextState)
+	assertFlight13RecvDoneOpen(t, recvState)
+	nextState, err = fsm.send(context.Background(), conn)
+	require.NoError(t, err)
+	assert.Equal(t, StateFinished, nextState)
+	assertFlight13RecvDoneClosed(t, recvState)
 }
 
 func TestHandshakeFSM13NoHRRReachesFlight5AfterEncryptedExtensions(t *testing.T) {
@@ -472,8 +620,10 @@ func TestHandshakeFSM13NoHRRReachesFlight5AfterEncryptedExtensions(t *testing.T)
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
 	assert.Equal(t, 3, fixture.clientState.HandshakeRecvSequence)
-	assertFlight13RecvDoneClosed(t, recvState)
+	assertFlight13RecvDoneOpen(t, recvState)
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
+	fsm.releasePendingRecv()
+	assertFlight13RecvDoneClosed(t, recvState)
 }
 
 func TestHandshakeFSM13ClientFlight5GeneratesFinished(t *testing.T) {
@@ -524,6 +674,44 @@ func TestHandshakeFSM13ClientFlight5GeneratesFinished(t *testing.T) {
 	}, fsm.transcript.messageOrder()[4])
 	assert.True(t, conn.setLocalEpochCalled)
 	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
+}
+
+func TestHandshakeFSM13SendErrorReleasesReader(t *testing.T) {
+	tests := []struct {
+		name     string
+		writeErr error
+		queueErr error
+	}{
+		{name: "write", writeErr: context.Canceled},
+		{name: "queue drain", queueErr: context.Canceled},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fsm := clientFSMThroughServerFlight13(t, newNoHRRFlight13Fixture(t))
+			recvState := RecvHandshakeState{Done: fsm.pendingRecvDone}
+			conn := &flightTestConn{
+				writePackets: func(context.Context, []*dtlsflight.Packet) error {
+					assertFlight13RecvDoneOpen(t, recvState)
+
+					return test.writeErr
+				},
+				handleQueuedPackets: func(context.Context) error {
+					assertFlight13RecvDoneOpen(t, recvState)
+
+					return test.queueErr
+				},
+			}
+
+			nextState, err := fsm.prepare(context.Background(), conn)
+			require.NoError(t, err)
+			require.Equal(t, StateSending, nextState)
+			assertFlight13RecvDoneOpen(t, recvState)
+			nextState, err = fsm.send(context.Background(), conn)
+			require.ErrorIs(t, err, context.Canceled)
+			assert.Equal(t, StateErrored, nextState)
+			assertFlight13RecvDoneClosed(t, recvState)
+		})
+	}
 }
 
 func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
@@ -710,6 +898,11 @@ func TestHandshakeFSM13ServerVerifiesClientFinishedAndCompletes(t *testing.T) {
 	serverFSM := serverFSMForClientFlight13(t, fixture, clientFSM.flights, 1)
 	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
 	recvState := RecvHandshakeState{Done: make(chan struct{})}
+	conn.handleQueuedPackets = func(context.Context) error {
+		assertFlight13RecvDoneOpen(t, recvState)
+
+		return nil
+	}
 	conn.recvHandshake <- recvState
 
 	nextState, err = serverFSM.wait(context.Background(), conn)
@@ -910,7 +1103,8 @@ func clientFSMThroughServerFlight13(t *testing.T, fixture noHRRFlight13Fixture) 
 	require.NoError(t, err)
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
-	assertFlight13RecvDoneClosed(t, recvState)
+	assertFlight13RecvDoneOpen(t, recvState)
+	t.Cleanup(fsm.releasePendingRecv)
 
 	return fsm
 }
@@ -1105,6 +1299,16 @@ func assertFlight13RecvDoneClosed(t *testing.T, state RecvHandshakeState) {
 	case <-state.Done:
 	default:
 		assert.Fail(t, "state.Done is not closed")
+	}
+}
+
+func assertFlight13RecvDoneOpen(t *testing.T, state RecvHandshakeState) {
+	t.Helper()
+
+	select {
+	case <-state.Done:
+		assert.Fail(t, "state.Done is closed")
+	default:
 	}
 }
 

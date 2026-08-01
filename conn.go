@@ -75,6 +75,31 @@ type addrPkt struct {
 	data  []byte
 }
 
+// packetQueueWriter owns a recyclable read buffer until a queued packet view
+// takes responsibility for keeping its backing array alive.
+type packetQueueWriter struct {
+	conn                 *Conn
+	recyclableReadBuffer *[]byte
+}
+
+func (w *packetQueueWriter) enqueue(packet addrPkt) bool {
+	if !w.conn.enqueueEncryptedPackets(packet) {
+		return false
+	}
+
+	w.recyclableReadBuffer = nil
+
+	return true
+}
+
+func (w *packetQueueWriter) releaseReadBuffer() {
+	readBuffer := w.recyclableReadBuffer
+	w.recyclableReadBuffer = nil
+	if readBuffer != nil {
+		poolReadBuffer.Put(readBuffer)
+	}
+}
+
 type incomingPacketState struct {
 	buf               []byte
 	header            *recordlayer.Header
@@ -749,7 +774,7 @@ func (c *Conn) prepareDualStackClientHandshakeStart(ctx context.Context) (handsh
 		fsmState: handshakeWaiting,
 		flights:  initialFlights,
 		postSetup: func(ctx context.Context) {
-			go c.primeHandshakeRecv(ctx)
+			c.primeHandshakeRecv(ctx)
 		},
 	}, nil
 }
@@ -1459,7 +1484,8 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 	if !ok {
 		return dtlserrors.ErrFailedToAccessPoolReadBuffer
 	}
-	defer poolReadBuffer.Put(bufptr)
+	queueWriter := packetQueueWriter{conn: c, recyclableReadBuffer: bufptr}
+	defer queueWriter.releaseReadBuffer()
 
 	b := *bufptr
 	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
@@ -1474,9 +1500,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 
 	var hasHandshake, isRetransmit bool
 	for _, p := range pkts {
-		//nolint:godox
-		// TODO: check version
-		hs, rtx, alert, err := c.handleIncomingPacket(ctx, p, rAddr, true)
+		hs, rtx, alert, err := c.handleIncomingPacket(ctx, p, rAddr, &queueWriter)
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 				if err == nil {
@@ -1499,6 +1523,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 			isRetransmit = true
 		}
 	}
+	queueWriter.releaseReadBuffer()
 	if hasHandshake {
 		s := dtlshandshake.RecvHandshakeState{
 			Done:         make(chan struct{}),
@@ -1523,9 +1548,7 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.lock.Unlock()
 
 	for _, p := range pkts {
-		//nolint:godox
-		// TODO: check version
-		_, _, alert, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, false) // don't re-enqueue
+		_, _, alert, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, nil) // don't re-enqueue
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 				if err == nil {
@@ -1549,13 +1572,16 @@ func (c *Conn) enqueueEncryptedPackets(packet addrPkt) bool {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if len(c.encryptedPackets) < maxAppDataPacketQueueSize {
-		c.encryptedPackets = append(c.encryptedPackets, packet)
-
-		return true
+	if len(c.encryptedPackets) >= maxAppDataPacketQueueSize {
+		return false
 	}
 
-	return false
+	// Prevent an append by a queue consumer from overwriting an adjacent record
+	// that shares the same datagram backing array.
+	packet.data = packet.data[:len(packet.data):len(packet.data)]
+	c.encryptedPackets = append(c.encryptedPackets, packet)
+
+	return true
 }
 
 func (c *Conn) maxQueueableFutureEpoch(remoteEpoch uint16) uint16 {
@@ -1740,19 +1766,19 @@ func marshalInnerPlaintextRecord(
 func (c *Conn) prepareIncomingPacket(
 	buf []byte,
 	rAddr net.Addr,
-	enqueue bool,
+	queueWriter *packetQueueWriter,
 ) (incomingPacketState, bool) {
 	if protocol.IsDTLS13Ciphertext(protocol.ContentType(buf[0])) {
-		return c.prepareCiphertextPacket(buf, rAddr, enqueue)
+		return c.prepareCiphertextPacket(buf, rAddr, queueWriter)
 	}
 
-	return c.prepareLegacyPacket(buf, rAddr, enqueue)
+	return c.prepareLegacyPacket(buf, rAddr, queueWriter)
 }
 
 func (c *Conn) prepareCiphertextPacket(
 	buf []byte,
 	rAddr net.Addr,
-	enqueue bool,
+	queueWriter *packetQueueWriter,
 ) (incomingPacketState, bool) {
 	ciphertext, err := c.unmarshalCiphertextRecord(buf)
 	if err != nil {
@@ -1763,12 +1789,17 @@ func (c *Conn) prepareCiphertextPacket(
 
 	remoteEpoch := dtlsstate.CommonState(c.state).GetRemoteEpoch()
 	if ciphertext.Header.EpochLow != uint8(remoteEpoch&recordlayer.TwoLowBitsMask) {
-		c.handleFutureCiphertextPacket(ciphertext.Header.EpochLow, remoteEpoch, rAddr, buf, enqueue)
+		c.handleFutureCiphertextPacket(ciphertext.Header.EpochLow, remoteEpoch, rAddr, buf, queueWriter)
 
 		return incomingPacketState{}, false
 	}
 
-	if c.queueIfCipherSuiteUninitialized(rAddr, buf, enqueue, "handshake not finished, queuing ciphertext packet") {
+	if c.queueIfCipherSuiteUninitialized(
+		rAddr,
+		buf,
+		queueWriter,
+		"handshake not finished, queuing ciphertext packet",
+	) {
 		return incomingPacketState{}, false
 	}
 
@@ -1823,15 +1854,15 @@ func (c *Conn) handleFutureCiphertextPacket(
 	remoteEpoch uint16,
 	rAddr net.Addr,
 	buf []byte,
-	enqueue bool,
+	queueWriter *packetQueueWriter,
 ) {
 	if !c.queueableCiphertextEpoch(epochLow, remoteEpoch) {
 		c.log.Debugf("discarded future ciphertext packet (epoch low: %d)", epochLow)
 
 		return
 	}
-	if enqueue {
-		if ok := c.enqueueEncryptedPackets(addrPkt{rAddr, buf}); ok {
+	if queueWriter != nil {
+		if ok := queueWriter.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
 			c.log.Debug("received ciphertext packet of next epoch, queuing packet")
 		}
 	}
@@ -1864,15 +1895,15 @@ func (c *Conn) protectedReplayMarker(epoch uint16, sequenceNumber uint64) (func(
 func (c *Conn) queueIfCipherSuiteUninitialized(
 	rAddr net.Addr,
 	buf []byte,
-	enqueue bool,
+	queueWriter *packetQueueWriter,
 	message string,
 ) bool {
 	common := dtlsstate.CommonState(c.state)
 	if common.CipherSuite != nil && common.CipherSuite.IsInitialized() {
 		return false
 	}
-	if enqueue {
-		if ok := c.enqueueEncryptedPackets(addrPkt{rAddr, buf}); ok {
+	if queueWriter != nil {
+		if ok := queueWriter.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
 			c.log.Debug(message)
 		}
 	}
@@ -1883,13 +1914,13 @@ func (c *Conn) queueIfCipherSuiteUninitialized(
 func (c *Conn) prepareLegacyPacket(
 	buf []byte,
 	rAddr net.Addr,
-	enqueue bool,
+	queueWriter *packetQueueWriter,
 ) (incomingPacketState, bool) {
 	header, ok := c.unmarshalLegacyHeader(buf)
 	if !ok {
 		return incomingPacketState{}, false
 	}
-	if c.handleFutureLegacyPacket(header, rAddr, buf, enqueue) {
+	if c.handleFutureLegacyPacket(header, rAddr, buf, queueWriter) {
 		return incomingPacketState{}, false
 	}
 
@@ -1901,7 +1932,7 @@ func (c *Conn) prepareLegacyPacket(
 	originalCID := false
 	if header.Epoch != 0 {
 		var decryptOK bool
-		buf, originalCID, decryptOK = c.decryptLegacyPacket(header, buf, rAddr, enqueue)
+		buf, originalCID, decryptOK = c.decryptLegacyPacket(header, buf, rAddr, queueWriter)
 		if !decryptOK {
 			return incomingPacketState{}, false
 		}
@@ -1938,7 +1969,7 @@ func (c *Conn) handleFutureLegacyPacket(
 	header *recordlayer.Header,
 	rAddr net.Addr,
 	buf []byte,
-	enqueue bool,
+	queueWriter *packetQueueWriter,
 ) bool {
 	remoteEpoch := dtlsstate.CommonState(c.state).GetRemoteEpoch()
 	if header.Epoch <= remoteEpoch {
@@ -1951,8 +1982,8 @@ func (c *Conn) handleFutureLegacyPacket(
 
 		return true
 	}
-	if enqueue {
-		if ok := c.enqueueEncryptedPackets(addrPkt{rAddr, buf}); ok {
+	if queueWriter != nil {
+		if ok := queueWriter.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
 			c.log.Debug("received packet of next epoch, queuing packet")
 		}
 	}
@@ -1983,9 +2014,14 @@ func (c *Conn) decryptLegacyPacket(
 	header *recordlayer.Header,
 	buf []byte,
 	rAddr net.Addr,
-	enqueue bool,
+	queueWriter *packetQueueWriter,
 ) ([]byte, bool, bool) {
-	if c.queueIfCipherSuiteUninitialized(rAddr, buf, enqueue, "handshake not finished, queuing packet") {
+	if c.queueIfCipherSuiteUninitialized(
+		rAddr,
+		buf,
+		queueWriter,
+		"handshake not finished, queuing packet",
+	) {
 		return nil, false, false
 	}
 
@@ -2076,13 +2112,13 @@ func (c *Conn) handleIncomingPacket(
 	ctx context.Context,
 	buf []byte,
 	rAddr net.Addr,
-	enqueue bool,
+	queueWriter *packetQueueWriter,
 ) (bool, bool, *alert.Alert, error) {
 	if len(buf) == 0 {
 		return false, false, nil, nil
 	}
 
-	prepared, ok := c.prepareIncomingPacket(buf, rAddr, enqueue)
+	prepared, ok := c.prepareIncomingPacket(buf, rAddr, queueWriter)
 	if !ok {
 		return false, false, nil, nil
 	}
@@ -2134,8 +2170,8 @@ func (c *Conn) handleIncomingPacket(
 	case *protocol.ChangeCipherSpec:
 		common := dtlsstate.CommonState(c.state)
 		if common.CipherSuite == nil || !common.CipherSuite.IsInitialized() {
-			if enqueue {
-				if ok := c.enqueueEncryptedPackets(addrPkt{rAddr, buf}); ok {
+			if queueWriter != nil {
+				if ok := queueWriter.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
 					c.log.Debugf("CipherSuite not initialized, queuing packet")
 				}
 			}
@@ -2488,7 +2524,8 @@ func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
 	if !ok {
 		return dtlserrors.ErrFailedToAccessPoolReadBuffer
 	}
-	defer poolReadBuffer.Put(bufptr)
+	queueWriter := packetQueueWriter{conn: c, recyclableReadBuffer: bufptr}
+	defer queueWriter.releaseReadBuffer()
 
 	b := *bufptr
 	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
@@ -2502,9 +2539,7 @@ func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
 	}
 
 	for _, p := range pkts {
-		// nolint:godox
-		// TODO: check version
-		_, _, alert, err := c.handleIncomingPacket(ctx, p, rAddr, true)
+		_, _, alert, err := c.handleIncomingPacket(ctx, p, rAddr, &queueWriter)
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 				if err == nil {
@@ -2564,10 +2599,6 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 		}
 	}()
 
-	if start.postSetup != nil {
-		start.postSetup(ctxHs)
-	}
-
 	go func() {
 		defer func() {
 			if c.isHandshakeCompletedSuccessfully() {
@@ -2580,6 +2611,9 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 			cancel()
 		}()
 		defer handshakeLoopsFinished.Done()
+		if start.postSetup != nil {
+			start.postSetup(ctxHs)
+		}
 		for {
 			if err := c.readAndBuffer(ctxRead); err != nil { //nolint:nestif
 				var alertErr *alertError
