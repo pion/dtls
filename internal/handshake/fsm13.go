@@ -77,6 +77,7 @@ type fsm13 struct {
 	cfg                *dtlsconfig.HandshakeConfig
 	transcript         *Transcript
 	closed             chan struct{}
+	pendingRecvDone    chan struct{} // keeps the reader paused across a prepare/send transition
 }
 
 func NewFSM13(
@@ -202,6 +203,8 @@ func canonicalClientHelloInitialFlight13(p *dtlsflight.Packet) (uint16, []byte, 
 }
 
 func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) error {
+	defer s.releasePendingRecv()
+
 	return runHandshakeFSM(
 		ctx,
 		conn,
@@ -233,12 +236,17 @@ func (s *fsm13) Done() <-chan struct{} {
 	return s.closed
 }
 
-func (s *fsm13) prepare(ctx context.Context, conn Conn) (State, error) {
+func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err error) {
+	defer func() {
+		if err != nil {
+			s.releasePendingRecv()
+		}
+	}()
+
 	s.flights = nil
 	// Prepare flights
 	var (
 		dtlsAlert *alert.Alert
-		err       error
 		pkts      []*dtlsflight.Packet
 	)
 	gen, retransmit, ok := dtlsflight13.GetGenerator(s.currentFlight)
@@ -404,18 +412,24 @@ func (s *fsm13) populateOutboundFinished(p *dtlsflight.Packet) error {
 	return nil
 }
 
-func (s *fsm13) send(ctx context.Context, c Conn) (State, error) {
-	if err := c.WritePackets(ctx, s.flights); err != nil {
+func (s *fsm13) send(ctx context.Context, conn Conn) (State, error) {
+	defer s.releasePendingRecv()
+
+	if err := conn.WritePackets(ctx, s.flights); err != nil {
 		return StateErrored, err
 	}
-	if !s.state.IsClient && s.currentFlight == dtlsflight13.Flight4 {
+	if !s.state.IsClient &&
+		s.currentFlight == dtlsflight13.Flight4 &&
+		s.state.GetRemoteEpoch() < dtlsflight13.EpochHandshake {
+		// Only the first send advances the epoch and drains packets. A timer
+		// retransmission has no receive-side rendezvous and the reader is active.
 		s.state.RemoteEpoch.Store(dtlsflight13.EpochHandshake)
-		if err := c.HandleQueuedPackets(ctx); err != nil {
+		if err := conn.HandleQueuedPackets(ctx); err != nil {
 			return StateErrored, err
 		}
 	}
 	if s.state.IsClient && s.currentFlight == dtlsflight13.Flight5 {
-		if err := s.activateApplicationRecordProtection(ctx, c); err != nil {
+		if err := s.activateApplicationRecordProtection(ctx, conn); err != nil {
 			return StateErrored, err
 		}
 
@@ -425,12 +439,30 @@ func (s *fsm13) send(ctx context.Context, c Conn) (State, error) {
 	return StateWaiting, nil
 }
 
+func (s *fsm13) transitionRequiresReaderPause(nextFlight dtlsflight13.Flight) bool {
+	if s.state.IsClient {
+		return nextFlight == dtlsflight13.Flight5
+	}
+
+	return nextFlight == dtlsflight13.Flight4 &&
+		s.state.GetRemoteEpoch() < dtlsflight13.EpochHandshake
+}
+
 func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:gocognit,cyclop
+	retainPendingRecv := false
+	defer func() {
+		if !retainPendingRecv {
+			s.releasePendingRecv()
+		}
+	}()
+
 	retransmitTimer := time.NewTimer(s.retransmitInterval)
 	defer retransmitTimer.Stop()
 	for {
 		select {
 		case state := <-conn.RecvHandshake():
+			// Keep the reader paused while this receive state is parsed.
+			s.pendingRecvDone = state.Done
 			if !state.IsRetransmit {
 				s.retransmitInterval = s.cfg.InitialRetransmitInterval
 			}
@@ -459,7 +491,6 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				},
 				InitHandshakeRecordProtection,
 			)
-			close(state.Done)
 			if !ok {
 				if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
 					return StateErrored, alertErr
@@ -478,6 +509,8 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				return StateErrored, err
 			}
 			if nextFlight == 0 {
+				s.releasePendingRecv()
+
 				break
 			}
 			if s.state.IsClient && nextFlight == dtlsflight13.Flight5 {
@@ -500,6 +533,7 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				s.currentFlight.String(),
 				nextFlight.String(),
 			)
+			retainPendingRecv = s.transitionRequiresReaderPause(nextFlight)
 			s.currentFlight = nextFlight
 
 			return StatePreparing, nil
@@ -523,6 +557,15 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 			return StateErrored, ctx.Err()
 		}
 	}
+}
+
+func (s *fsm13) releasePendingRecv() {
+	if s.pendingRecvDone == nil {
+		return
+	}
+
+	close(s.pendingRecvDone)
+	s.pendingRecvDone = nil
 }
 
 func (s *fsm13) finish(ctx context.Context, c Conn) (State, error) {

@@ -44,6 +44,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
 	"github.com/pion/transport/v4/dpipe"
+	"github.com/pion/transport/v4/netctx"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -3487,6 +3488,65 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 	<-done
 }
 
+func TestPacketQueueWriterRetiresReadBufferOnlyWhenQueued(t *testing.T) {
+	readBuffer := []byte{1, 2, 3}
+	conn := &Conn{}
+	writer := packetQueueWriter{conn: conn, recyclableReadBuffer: &readBuffer}
+
+	require.True(t, writer.enqueue(addrPkt{data: readBuffer}))
+	assert.Nil(t, writer.recyclableReadBuffer)
+	require.Len(t, conn.encryptedPackets, 1)
+	assert.Same(t, &readBuffer[0], &conn.encryptedPackets[0].data[0])
+	assert.Equal(t, len(conn.encryptedPackets[0].data), cap(conn.encryptedPackets[0].data))
+
+	rejectedReadBuffer := []byte{4, 5, 6}
+	fullConn := &Conn{encryptedPackets: make([]addrPkt, maxAppDataPacketQueueSize)}
+	rejectedWriter := packetQueueWriter{conn: fullConn, recyclableReadBuffer: &rejectedReadBuffer}
+	assert.False(t, rejectedWriter.enqueue(addrPkt{data: rejectedReadBuffer}))
+	assert.Same(t, &rejectedReadBuffer, rejectedWriter.recyclableReadBuffer)
+}
+
+func TestReadAndBufferNoFSMQueuesWithoutCopy(t *testing.T) {
+	ca, cb := dpipe.Pipe()
+	defer func() {
+		assert.NoError(t, ca.Close())
+		assert.NoError(t, cb.Close())
+	}()
+
+	conn := &Conn{
+		nextConn:       netctx.NewPacketConn(dtlsnet.PacketConnFromConn(cb)),
+		fragmentBuffer: dtlsfragmentbuffer.New(),
+		handshakeCache: dtlsflight.NewCache(),
+		log:            logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		state: &dtlsstate.State13{Common: &dtlsstate.Common{
+			LocalVersion: protocol.Version1_3,
+		}},
+	}
+	rawPacket, err := (&recordlayer.RecordLayer{
+		Header: recordlayer.Header{
+			Version: protocol.Version1_2,
+			Epoch:   dtlsflight13.EpochHandshake,
+		},
+		Content: &handshake.Handshake{
+			Header:  handshake.Header{MessageSequence: 1},
+			Message: &handshake.MessageEncryptedExtensions{},
+		},
+	}).Marshal()
+	require.NoError(t, err)
+
+	writeResult := make(chan error, 1)
+	go func() {
+		_, writeErr := ca.Write(rawPacket)
+		writeResult <- writeErr
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, conn.readAndBufferNoFSM(ctx))
+	require.NoError(t, <-writeResult)
+	require.Len(t, conn.encryptedPackets, 1)
+	assert.Equal(t, rawPacket, conn.encryptedPackets[0].data)
+}
+
 func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T) {
 	commonState := &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3}
 	conn := &Conn{
@@ -3512,16 +3572,18 @@ func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T
 	}).Marshal()
 	assert.NoError(t, err)
 
+	queueWriter := &packetQueueWriter{conn: conn, recyclableReadBuffer: &rawPacket}
 	isHandshake, isRetransmit, dtlsAlert, err := conn.handleIncomingPacket(
 		context.Background(),
 		rawPacket,
 		nil,
-		true,
+		queueWriter,
 	)
 	assert.NoError(t, err)
 	assert.Nil(t, dtlsAlert)
 	assert.False(t, isHandshake)
 	assert.False(t, isRetransmit)
+	assert.Nil(t, queueWriter.recyclableReadBuffer)
 	assert.Len(t, conn.encryptedPackets, 1)
 	assert.Equal(t, rawPacket, conn.encryptedPackets[0].data)
 }
@@ -3902,6 +3964,59 @@ func TestDTLS13RetransmittedClientFinalFlight(t *testing.T) {
 	assert.Equal(t, payload, buf)
 }
 
+func TestHandshakeCancellationWhilePostSetupBlocks(t *testing.T) {
+	defer test.CheckRoutines(t)()
+
+	ca, cb := dpipe.Pipe()
+	defer func() {
+		_ = ca.Close()
+		_ = cb.Close()
+	}()
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	client, err := ClientWithOptions(
+		dtlsnet.PacketConnFromConn(ca),
+		ca.RemoteAddr(),
+		WithCertificates(clientCert),
+		WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+	)
+	require.NoError(t, err)
+	defer func() {
+		_ = client.Close()
+	}()
+
+	postSetupStarted := make(chan struct{})
+	start := client.prepareHandshakeStart13()
+	start.fsmState = handshakeWaiting
+	start.postSetup = func(ctx context.Context) {
+		close(postSetupStarted)
+		<-ctx.Done()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		result <- client.handshake(ctx, start)
+	}()
+
+	select {
+	case <-postSetupStarted:
+	case <-time.After(time.Second):
+		require.FailNow(t, "post-setup hook did not start")
+	}
+	cancel()
+
+	select {
+	case err = <-result:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		require.FailNow(t, "handshake did not observe context cancellation")
+	}
+}
+
 // WIP! Tests if the dual stack mode client managed to negotiate a version successfully.
 func TestDTLSDualStackClient(t *testing.T) {
 	defer test.CheckRoutines(t)()
@@ -4184,7 +4299,10 @@ func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 	rawPacket, err := record.Marshal()
 	assert.NoError(t, err)
 
-	isHandshake, isRetransmit, dtlsAlert, err := conn.handleIncomingPacket(context.Background(), rawPacket, nil, true)
+	queueWriter := &packetQueueWriter{conn: conn}
+	isHandshake, isRetransmit, dtlsAlert, err := conn.handleIncomingPacket(
+		context.Background(), rawPacket, nil, queueWriter,
+	)
 	assert.NoError(t, err)
 	assert.Nil(t, dtlsAlert)
 	assert.True(t, isHandshake)
@@ -4211,7 +4329,7 @@ func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	rawPacket, err := record.Marshal()
 	assert.NoError(t, err)
 
-	prepared, ok := conn.prepareIncomingPacket(rawPacket, nil, true)
+	prepared, ok := conn.prepareIncomingPacket(rawPacket, nil, &packetQueueWriter{conn: conn})
 	assert.True(t, ok)
 	if assert.NotNil(t, prepared.header) {
 		assert.Equal(t, protocol.ContentTypeHandshake, prepared.header.ContentType)
