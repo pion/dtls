@@ -53,6 +53,21 @@ type flightParseFailure struct {
 	err   error
 }
 
+type serverHelloPull struct {
+	nextHandshakeSequence int
+	serverHello           *handshake.MessageServerHello
+	items                 []*dtlsflight.HandshakeCacheItem
+	ready                 bool
+	failure               *flightParseFailure
+}
+
+type protectedFlightPull struct {
+	nextHandshakeSequence int
+	items                 []*dtlsflight.HandshakeCacheItem
+	ready                 bool
+	failure               *flightParseFailure
+}
+
 func newFlightParseFailure(
 	description alert.Description,
 	err error,
@@ -213,56 +228,70 @@ func flight3Parse(
 	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
-	serverHelloSeq, serverHello, items, ok, failure := flight3PullServerHello(flightCtx)
-	if !ok {
+	pull := flight3PullServerHello(flightCtx)
+	if !pull.ready {
 		return 0, nil, nil
 	}
+	if pull.failure != nil {
+		return 0, pull.failure.alert, pull.failure.err
+	}
+
+	failure := processFlight3ServerHello(flightCtx, pull.serverHello)
+	if failure != nil {
+		return 0, failure.alert, failure.err
+	}
+	failure = initializeFlight3HandshakeProtection(
+		ctx,
+		conn,
+		flightCtx,
+		pull.nextHandshakeSequence,
+		pull.items,
+	)
 	if failure != nil {
 		return 0, failure.alert, failure.err
 	}
 
-	failure = processFlight3ServerHello(flightCtx, serverHello)
-	if failure != nil {
-		return 0, failure.alert, failure.err
-	}
-	failure = initializeFlight3HandshakeProtection(ctx, conn, flightCtx, serverHelloSeq, items)
-	if failure != nil {
-		return 0, failure.alert, failure.err
-	}
-
-	seq, items, ok, failure := flight3PullProtectedFlight(flightCtx, serverHelloSeq)
-	if !ok {
+	protectedFlight := flight3PullProtectedFlight(flightCtx, pull.nextHandshakeSequence)
+	if !protectedFlight.ready {
 		return 0, nil, nil
 	}
+	if protectedFlight.failure != nil {
+		return 0, protectedFlight.failure.alert, protectedFlight.failure.err
+	}
+	failure = handleFlight3ProtectedHandshake(flightCtx, protectedFlight.items)
 	if failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	failure = handleFlight3ProtectedHandshake(flightCtx, items)
-	if failure != nil {
-		return 0, failure.alert, failure.err
-	}
-	flightCtx.state.HandshakeRecvSequence = seq
+	flightCtx.state.HandshakeRecvSequence = protectedFlight.nextHandshakeSequence
 
 	return Flight5, nil, nil
 }
 
 func flight3PullServerHello(
 	flightCtx *handshakeContext,
-) (int, *handshake.MessageServerHello, []*dtlsflight.HandshakeCacheItem, bool, *flightParseFailure) {
+) serverHelloPull {
 	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 	)
 	if !ok {
-		return 0, nil, nil, false, nil
+		return serverHelloPull{}
 	}
 
 	serverHello, ok := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello)
 	if !ok {
-		return 0, nil, nil, true, newFlightParseFailure(alert.InternalError, nil)
+		return serverHelloPull{
+			ready:   true,
+			failure: newFlightParseFailure(alert.InternalError, nil),
+		}
 	}
 
-	return seq, serverHello, items, true, nil
+	return serverHelloPull{
+		nextHandshakeSequence: seq,
+		serverHello:           serverHello,
+		items:                 items,
+		ready:                 true,
+	}
 }
 
 func processFlight3ServerHello(
@@ -383,8 +412,8 @@ func initializeFlight3HandshakeProtection(
 
 func flight3PullProtectedFlight(
 	flightCtx *handshakeContext,
-	serverHelloSeq int,
-) (int, []*dtlsflight.HandshakeCacheItem, bool, *flightParseFailure) {
+	nextHandshakeSequence int,
+) protectedFlightPull {
 	rules := []dtlsflight.HandshakeCachePullRule{
 		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false, Optional: false},
 		{Typ: handshake.TypeCertificateRequest, Epoch: EpochHandshake, IsClient: false, Optional: true},
@@ -394,10 +423,10 @@ func flight3PullProtectedFlight(
 	}
 	pulled := flightCtx.cache.Pull(rules...)
 	if pulled[0] == nil || pulled[len(pulled)-1] == nil {
-		return 0, nil, false, nil
+		return protectedFlightPull{}
 	}
 
-	seq := serverHelloSeq
+	seq := nextHandshakeSequence
 	items := make([]*dtlsflight.HandshakeCacheItem, 0, len(pulled))
 	for i, item := range pulled {
 		if item == nil {
@@ -409,16 +438,20 @@ func flight3PullProtectedFlight(
 			uint16(seq), //nolint:gosec // G115
 		); failure != nil {
 			if failure.err == nil {
-				return 0, nil, false, nil
+				return protectedFlightPull{}
 			}
 
-			return 0, nil, true, failure
+			return protectedFlightPull{ready: true, failure: failure}
 		}
 		seq++
 		items = append(items, item)
 	}
 
-	return seq, items, true, nil
+	return protectedFlightPull{
+		nextHandshakeSequence: seq,
+		items:                 items,
+		ready:                 true,
+	}
 }
 
 func validateFlight3ProtectedHandshakeItem(
