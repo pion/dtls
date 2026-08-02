@@ -113,6 +113,20 @@ type packetOutcome struct {
 	responseAlert     *alert.Alert
 }
 
+type datagramProcessingSummary struct {
+	containsHandshake bool
+	retransmit        bool
+}
+
+type readLoopErrorAction uint8
+
+const (
+	readLoopStop readLoopErrorAction = iota
+	readLoopContinue
+	readLoopDeliverAndContinue
+	readLoopCloseAndStop
+)
+
 type handshakeStart struct {
 	flight12  dtlsflight12.Flight
 	flight13  dtlsflight13.Flight
@@ -1468,10 +1482,35 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
-func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocognit
+func (c *Conn) readAndBuffer(ctx context.Context) error {
+	summary, err := c.readAndProcessDatagram(ctx)
+	if err != nil {
+		return err
+	}
+	if !summary.containsHandshake {
+		return nil
+	}
+
+	s := dtlshandshake.RecvHandshakeState{
+		Done:         make(chan struct{}),
+		IsRetransmit: summary.retransmit,
+		Records:      c.takePendingACKs(),
+	}
+	select {
+	case c.handshakeRecv <- s:
+		// If the other party may retransmit the flight,
+		// we should respond even if it not a new message.
+		<-s.Done
+	case <-c.fsm.Done():
+	}
+
+	return nil
+}
+
+func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) {
 	bufptr, ok := poolReadBuffer.Get().(*[]byte)
 	if !ok {
-		return dtlserrors.ErrFailedToAccessPoolReadBuffer
+		return datagramProcessingSummary{}, dtlserrors.ErrFailedToAccessPoolReadBuffer
 	}
 	queueWriter := packetQueueWriter{conn: c, recyclableReadBuffer: bufptr}
 	defer queueWriter.releaseReadBuffer()
@@ -1479,56 +1518,25 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 	b := *bufptr
 	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
 	if err != nil {
-		return netError(err)
+		return datagramProcessingSummary{}, netError(err)
 	}
 
 	pkts, err := c.unpackDatagram(b[:i])
 	if err != nil {
-		return err
+		return datagramProcessingSummary{}, err
 	}
 
-	var hasHandshake, isRetransmit bool
+	var summary datagramProcessingSummary
 	for _, p := range pkts {
-		outcome, err := c.handleIncomingPacket(ctx, p, rAddr, &queueWriter)
-		if outcome.responseAlert != nil {
-			if alertErr := c.notify(ctx, outcome.responseAlert.Level, outcome.responseAlert.Description); alertErr != nil {
-				if err == nil {
-					err = alertErr
-				}
-			}
-		}
-
-		var e *alertError
-		if errors.As(err, &e) && e.IsFatalOrCloseNotify() {
-			return e
-		}
+		outcome, err := c.processIncomingPacket(ctx, p, rAddr, &queueWriter)
 		if err != nil {
-			return err
+			return datagramProcessingSummary{}, err
 		}
-		if outcome.containsHandshake {
-			hasHandshake = true
-		}
-		if outcome.retransmit {
-			isRetransmit = true
-		}
-	}
-	queueWriter.releaseReadBuffer()
-	if hasHandshake {
-		s := dtlshandshake.RecvHandshakeState{
-			Done:         make(chan struct{}),
-			IsRetransmit: isRetransmit,
-			Records:      c.takePendingACKs(),
-		}
-		select {
-		case c.handshakeRecv <- s:
-			// If the other party may retransmit the flight,
-			// we should respond even if it not a new message.
-			<-s.Done
-		case <-c.fsm.Done():
-		}
+		summary.containsHandshake = summary.containsHandshake || outcome.containsHandshake
+		summary.retransmit = summary.retransmit || outcome.retransmit
 	}
 
-	return nil
+	return summary, nil
 }
 
 func (c *Conn) takePendingACKs() []protocol.RecordNumber {
@@ -1548,18 +1556,7 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.lock.Unlock()
 
 	for _, p := range pkts {
-		outcome, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, nil) // don't re-enqueue
-		if outcome.responseAlert != nil {
-			if alertErr := c.notify(ctx, outcome.responseAlert.Level, outcome.responseAlert.Description); alertErr != nil {
-				if err == nil {
-					err = alertErr
-				}
-			}
-		}
-		var e *alertError
-		if errors.As(err, &e) && e.IsFatalOrCloseNotify() {
-			return e
-		}
+		_, err := c.processIncomingPacket(ctx, p.data, p.rAddr, nil) // don't re-enqueue
 		if err != nil {
 			return err
 		}
@@ -2231,6 +2228,28 @@ func (c *Conn) handleIncomingPacket(
 	return packetOutcome{}, nil
 }
 
+func (c *Conn) processIncomingPacket(
+	ctx context.Context,
+	buf []byte,
+	rAddr net.Addr,
+	queueWriter *packetQueueWriter,
+) (packetOutcome, error) {
+	outcome, err := c.handleIncomingPacket(ctx, buf, rAddr, queueWriter)
+	if outcome.responseAlert != nil {
+		responseAlert := outcome.responseAlert
+		if alertErr := c.notify(ctx, responseAlert.Level, responseAlert.Description); alertErr != nil && err == nil {
+			err = alertErr
+		}
+	}
+
+	var receivedAlert *alertError
+	if errors.As(err, &receivedAlert) && receivedAlert.IsFatalOrCloseNotify() {
+		return packetOutcome{}, receivedAlert
+	}
+
+	return outcome, err
+}
+
 func (c *Conn) syncFragmentBufferHandshakeSequence() {
 	handshakeRecvSequence := c.handshakeRecvSequence()
 	if c.fragmentBuffer == nil || handshakeRecvSequence <= 0 ||
@@ -2526,48 +2545,51 @@ func (c *Conn) primeHandshakeRecv(ctx context.Context) {
 }
 
 // readAndBufferNoFSM is a variant of readAndBuffer used during the dual-stack
-// version negotiation phase. It reads a datagram and pushes any handshake
-// fragments into handshakeCache, but does not signal an FSM (there is none
-// yet) or wait for its Done channel.
-func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
-	bufptr, ok := poolReadBuffer.Get().(*[]byte)
-	if !ok {
-		return dtlserrors.ErrFailedToAccessPoolReadBuffer
-	}
-	queueWriter := packetQueueWriter{conn: c, recyclableReadBuffer: bufptr}
-	defer queueWriter.releaseReadBuffer()
+// version negotiation phase. It reads and processes a datagram, but does not
+// signal an FSM (there is none yet) or wait for its Done channel.
+func (c *Conn) readAndBufferNoFSM(ctx context.Context) error {
+	_, err := c.readAndProcessDatagram(ctx)
 
-	b := *bufptr
-	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
-	if err != nil {
-		return netError(err)
-	}
+	return err
+}
 
-	pkts, err := c.unpackDatagram(b[:i])
-	if err != nil {
-		return err
-	}
-
-	for _, p := range pkts {
-		outcome, err := c.handleIncomingPacket(ctx, p, rAddr, &queueWriter)
-		if outcome.responseAlert != nil {
-			if alertErr := c.notify(ctx, outcome.responseAlert.Level, outcome.responseAlert.Description); alertErr != nil {
-				if err == nil {
-					err = alertErr
-				}
-			}
+func (c *Conn) classifyReadLoopError(err error) readLoopErrorAction {
+	var receivedAlert *alertError
+	if errors.As(err, &receivedAlert) {
+		if receivedAlert.IsFatalOrCloseNotify() {
+			return readLoopCloseAndStop
+		}
+		if c.isHandshakeCompletedSuccessfully() {
+			return readLoopDeliverAndContinue
 		}
 
-		var e *alertError
-		if errors.As(err, &e) && e.IsFatalOrCloseNotify() {
-			return e
-		}
-		if err != nil {
-			return err
-		}
+		return readLoopContinue
 	}
 
-	return nil
+	switch {
+	case errors.Is(err, recordlayer.ErrInvalidPacketLength):
+		// Decode error must be silently discarded [RFC6347 Section-4.1.2.7].
+		return readLoopContinue
+	case errors.Is(err, context.Canceled) && !c.isConnectionClosed():
+		return readLoopCloseAndStop
+	case errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, context.Canceled),
+		errors.Is(err, io.EOF),
+		errors.Is(err, net.ErrClosed):
+		return readLoopStop
+	case c.isHandshakeCompletedSuccessfully():
+		return readLoopDeliverAndContinue
+	default:
+		return readLoopStop
+	}
+}
+
+func (c *Conn) deliverReadError(ctx context.Context, err error) {
+	select {
+	case c.decrypted <- err:
+	case <-c.closed.Done():
+	case <-ctx.Done():
+	}
 }
 
 //nolint:gocyclo,cyclop,gocognit,contextcheck
@@ -2625,62 +2647,34 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 			start.postSetup(ctxHs)
 		}
 		for {
-			if err := c.readAndBuffer(ctxRead); err != nil { //nolint:nestif
-				var alertErr *alertError
-				if errors.As(err, &alertErr) {
-					if !alertErr.IsFatalOrCloseNotify() {
-						if c.isHandshakeCompletedSuccessfully() {
-							// Pass the error to Read()
-							select {
-							case c.decrypted <- err:
-							case <-c.closed.Done():
-							case <-ctxRead.Done():
-							}
-						}
-
-						continue // non-fatal alert must not stop read loop
-					}
-				} else {
-					switch {
-					case errors.Is(err, context.DeadlineExceeded),
-						errors.Is(err, context.Canceled),
-						errors.Is(err, io.EOF),
-						errors.Is(err, net.ErrClosed):
-					case errors.Is(err, recordlayer.ErrInvalidPacketLength):
-						// Decode error must be silently discarded
-						// [RFC6347 Section-4.1.2.7]
-						continue
-					default:
-						if c.isHandshakeCompletedSuccessfully() {
-							// Keep read loop and pass the read error to Read()
-							select {
-							case c.decrypted <- err:
-							case <-c.closed.Done():
-							case <-ctxRead.Done():
-							}
-
-							continue // non-fatal alert must not stop read loop
-						}
-					}
-				}
-
-				select {
-				case firstErr <- err:
-				default:
-				}
-
-				if alertErr != nil {
-					if alertErr.IsFatalOrCloseNotify() {
-						_ = c.close(false) //nolint:contextcheck
-					}
-				}
-				if !c.isConnectionClosed() && errors.Is(err, context.Canceled) {
-					c.log.Trace("handshake timeouts - closing underline connection")
-					_ = c.close(false) //nolint:contextcheck
-				}
-
-				return
+			err := c.readAndBuffer(ctxRead)
+			if err == nil {
+				continue
 			}
+
+			action := c.classifyReadLoopError(err)
+			if action == readLoopContinue {
+				continue
+			}
+			if action == readLoopDeliverAndContinue {
+				c.deliverReadError(ctxRead, err)
+
+				continue
+			}
+
+			select {
+			case firstErr <- err:
+			default:
+			}
+
+			if action == readLoopCloseAndStop {
+				if errors.Is(err, context.Canceled) {
+					c.log.Trace("handshake timeouts - closing underlying connection")
+				}
+				_ = c.close(false) //nolint:contextcheck
+			}
+
+			return
 		}
 	}()
 
