@@ -82,6 +82,11 @@ type fsm13 struct {
 	pendingRecvDone    chan struct{} // keeps the reader paused across a prepare/send transition
 }
 
+type receivedFlightTransition struct {
+	state             State
+	retainPendingRecv bool
+}
+
 func NewFSM13(
 	state *dtlsstate.State13,
 	cache *dtlsflight.Cache,
@@ -450,7 +455,7 @@ func (s *fsm13) transitionRequiresReaderPause(nextFlight dtlsflight13.Flight) bo
 		s.state.GetRemoteEpoch() < dtlsflight13.EpochHandshake
 }
 
-func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:gocognit,cyclop
+func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 	retainPendingRecv := false
 	defer func() {
 		if !retainPendingRecv {
@@ -462,88 +467,122 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 	defer retransmitTimer.Stop()
 	for {
 		select {
-		case state := <-conn.RecvHandshake():
-			// Keep the reader paused while this receive state is parsed.
-			s.pendingRecvDone = state.Done
-			if !state.IsRetransmit {
-				s.retransmitInterval = s.cfg.InitialRetransmitInterval
-			}
-
-			nextFlight, dtlsAlert, err, ok := dtlsflight13.Parse(
-				ctx,
-				s.currentFlight,
-				conn,
-				s.parseDependencies(),
-			)
-			if !ok {
-				if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
-					return StateErrored, alertErr
-				}
-
-				return StateErrored, dtlserrors.ErrFlightUnimplemented13
-			}
-			if dtlsAlert != nil {
-				if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
-					if err == nil {
-						err = alertErr
-					}
-				}
-			}
+		case received := <-conn.RecvHandshake():
+			nextFlight, err := s.parseReceivedFlight(ctx, conn, received)
 			if err != nil {
 				return StateErrored, err
 			}
 			if nextFlight == 0 {
 				s.releasePendingRecv()
 
-				break
+				continue
 			}
-			if s.state.IsClient && nextFlight == dtlsflight13.Flight5 {
-				if err := DeriveAndStoreApplicationTrafficSecrets(s.state, s.transcript); err != nil {
-					return StateErrored, err
-				}
-			}
-			if !s.state.IsClient &&
-				s.currentFlight == dtlsflight13.Flight4 &&
-				nextFlight == dtlsflight13.Flight4 {
-				if err := s.activateApplicationRecordProtection(ctx, conn); err != nil {
-					return StateErrored, err
-				}
-				if err := s.sendACK(ctx, conn, state.Records); err != nil {
-					return StateErrored, err
-				}
 
-				return StateFinished, nil
+			transition, err := s.advanceAfterReceivedFlight(ctx, conn, nextFlight, received.Records)
+			if err != nil {
+				return StateErrored, err
 			}
-			s.cfg.Log.Tracef(
-				"[handshake13:%s] %s -> %s",
-				sideString(s.state.IsClient),
-				s.currentFlight.String(),
-				nextFlight.String(),
-			)
-			retainPendingRecv = s.transitionRequiresReaderPause(nextFlight)
-			s.currentFlight = nextFlight
+			retainPendingRecv = transition.retainPendingRecv
 
-			return StatePreparing, nil
+			return transition.state, nil
 
 		case <-retransmitTimer.C:
-			if !s.retransmit {
-				return StateWaiting, nil
-			}
-
-			if !s.cfg.DisableRetransmitBackoff {
-				s.retransmitInterval *= 2
-			}
-			if s.retransmitInterval > time.Second*60 {
-				s.retransmitInterval = time.Second * 60
-			}
-
-			return StateSending, nil
+			return s.handleRetransmitTimeout(), nil
 		case <-ctx.Done():
-			s.retransmitInterval = s.cfg.InitialRetransmitInterval
-
-			return StateErrored, ctx.Err()
+			return s.handleWaitCancellation(ctx.Err())
 		}
 	}
+}
+
+func (s *fsm13) parseReceivedFlight(
+	ctx context.Context,
+	conn Conn,
+	received RecvHandshakeState,
+) (dtlsflight13.Flight, error) {
+	// Keep the reader paused while this receive state is parsed.
+	s.pendingRecvDone = received.Done
+	if !received.IsRetransmit {
+		s.retransmitInterval = s.cfg.InitialRetransmitInterval
+	}
+
+	nextFlight, dtlsAlert, err, ok := dtlsflight13.Parse(
+		ctx,
+		s.currentFlight,
+		conn,
+		s.parseDependencies(),
+	)
+	if !ok {
+		if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
+			return 0, alertErr
+		}
+
+		return 0, dtlserrors.ErrFlightUnimplemented13
+	}
+	if err = notifyAlert(ctx, conn, dtlsAlert, err); err != nil {
+		return 0, err
+	}
+
+	return nextFlight, nil
+}
+
+func (s *fsm13) advanceAfterReceivedFlight(
+	ctx context.Context,
+	conn Conn,
+	nextFlight dtlsflight13.Flight,
+	receivedRecords []protocol.RecordNumber,
+) (receivedFlightTransition, error) {
+	if s.state.IsClient && nextFlight == dtlsflight13.Flight5 {
+		if err := DeriveAndStoreApplicationTrafficSecrets(s.state, s.transcript); err != nil {
+			return receivedFlightTransition{}, err
+		}
+	}
+	if !s.state.IsClient &&
+		s.currentFlight == dtlsflight13.Flight4 &&
+		nextFlight == dtlsflight13.Flight4 {
+		if err := s.activateApplicationRecordProtection(ctx, conn); err != nil {
+			return receivedFlightTransition{}, err
+		}
+		if err := s.sendACK(ctx, conn, receivedRecords); err != nil {
+			return receivedFlightTransition{}, err
+		}
+
+		return receivedFlightTransition{state: StateFinished}, nil
+	}
+
+	s.cfg.Log.Tracef(
+		"[handshake13:%s] %s -> %s",
+		sideString(s.state.IsClient),
+		s.currentFlight.String(),
+		nextFlight.String(),
+	)
+	transition := receivedFlightTransition{
+		state:             StatePreparing,
+		retainPendingRecv: s.transitionRequiresReaderPause(nextFlight),
+	}
+	s.currentFlight = nextFlight
+
+	return transition, nil
+}
+
+func (s *fsm13) handleRetransmitTimeout() State {
+	if !s.retransmit {
+		return StateWaiting
+	}
+
+	if !s.cfg.DisableRetransmitBackoff {
+		s.retransmitInterval *= 2
+	}
+	if s.retransmitInterval > time.Second*60 {
+		s.retransmitInterval = time.Second * 60
+	}
+
+	return StateSending
+}
+
+func (s *fsm13) handleWaitCancellation(err error) (State, error) {
+	s.retransmitInterval = s.cfg.InitialRetransmitInterval
+
+	return StateErrored, err
 }
 
 func (s *fsm13) parseDependencies() dtlsflight13.ParseDependencies {
