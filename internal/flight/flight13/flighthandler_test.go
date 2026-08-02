@@ -20,6 +20,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestProtectedFlightParseFailureClientCertificateRequired(t *testing.T) {
+	failure := protectedFlightParseFailure(dtlserrors.ErrClientCertificateRequired)
+	require.NotNil(t, failure)
+	require.NotNil(t, failure.alert)
+	assert.Equal(t, alert.Fatal, failure.alert.Level)
+	assert.Equal(t, alert.CertificateRequired, failure.alert.Description)
+	assert.ErrorIs(t, failure.err, dtlserrors.ErrClientCertificateRequired)
+}
+
 func TestFlight4GenerateCertificateAuthenticatedFlight(t *testing.T) {
 	flightCtx, certificate := flight4TestContext13(t)
 	certificate.Certificate = append(certificate.Certificate, []byte{0x01, 0x02, 0x03})
