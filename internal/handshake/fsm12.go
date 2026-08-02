@@ -60,6 +60,7 @@ type fsm12 struct {
 	cache              *dtlsflight.Cache
 	cfg                *dtlsconfig.HandshakeConfig
 	closed             chan struct{}
+	establishment      *Establishment
 }
 
 func NewFSM12(
@@ -68,8 +69,9 @@ func NewFSM12(
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight12.Flight,
 	initialFlights []*dtlsflight.Packet,
+	establishment *Establishment,
 ) FSM {
-	return newFSM12(state, cache, cfg, initialFlight, initialFlights)
+	return newFSM12(state, cache, cfg, initialFlight, initialFlights, establishment)
 }
 
 func newFSM12(
@@ -78,6 +80,7 @@ func newFSM12(
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight12.Flight,
 	initialFlights []*dtlsflight.Packet,
+	establishment *Establishment,
 ) *fsm12 {
 	return &fsm12{
 		currentFlight:      initialFlight,
@@ -88,6 +91,7 @@ func newFSM12(
 		cfg:                cfg,
 		retransmitInterval: cfg.InitialRetransmitInterval,
 		closed:             make(chan struct{}),
+		establishment:      establishment,
 	}
 }
 
@@ -97,6 +101,7 @@ func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
 		conn,
 		initialState,
 		s.closed,
+		s.establishment,
 		func(state State) {
 			s.cfg.Log.Tracef(
 				"[handshake:%s] %s: %s",
@@ -104,11 +109,6 @@ func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
 				s.currentFlight.String(),
 				state.String(),
 			)
-		},
-		func(state State) {
-			if s.cfg.OnFlightState != nil {
-				s.cfg.OnFlightState(uint8(s.currentFlight), uint8(state))
-			}
 		},
 		s.prepare,
 		s.send,

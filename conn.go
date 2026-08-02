@@ -230,10 +230,10 @@ type Conn struct {
 	maximumTransmissionUnit int
 	paddingLengthGenerator  func(uint) uint
 
-	handshakeCompletedSuccessfully atomic.Bool
-	handshakeMutex                 sync.Mutex
-	handshakeDone                  chan struct{}
-	writeLock                      sync.Mutex
+	handshakeEstablished *dtlshandshake.Establishment
+	handshakeMutex       sync.Mutex
+	handshakeDone        chan struct{}
+	writeLock            sync.Mutex
 
 	encryptedPackets []addrPkt
 
@@ -619,6 +619,7 @@ func newConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan dtlshandshake.RecvHandshakeState),
+		handshakeEstablished:  dtlshandshake.NewEstablishment(),
 		closed:                closer.NewCloser(),
 		cancelHandshaker:      func() {},
 		cancelHandshakeReader: func() {},
@@ -2302,12 +2303,8 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 	})
 }
 
-func (c *Conn) setHandshakeCompletedSuccessfully() bool {
-	return c.handshakeCompletedSuccessfully.CompareAndSwap(false, true)
-}
-
 func (c *Conn) isHandshakeCompletedSuccessfully() bool {
-	return c.handshakeCompletedSuccessfully.Load()
+	return c.handshakeEstablished.Established()
 }
 
 func (c *Conn) negotiateVersionServer(ctx context.Context) error {
@@ -2594,13 +2591,12 @@ func (c *Conn) deliverReadError(ctx context.Context, err error) {
 
 //nolint:gocyclo,cyclop,gocognit,contextcheck
 func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
-	done := make(chan struct{})
 	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
-		if err := c.setupHandshakeFSM13(start, done); err != nil {
+		if err := c.setupHandshakeFSM13(start); err != nil {
 			return err
 		}
 	} else {
-		if err := c.setupHandshakeFSM12(start, done); err != nil {
+		if err := c.setupHandshakeFSM12(start); err != nil {
 			return err
 		}
 	}
@@ -2691,12 +2687,12 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 		handshakeLoopsFinished.Wait()
 
 		return c.translateHandshakeCtxError(ctx.Err())
-	case <-done:
+	case <-c.handshakeEstablished.Done():
 		return nil
 	}
 }
 
-func (c *Conn) setupHandshakeFSM13(start handshakeStart, done chan struct{}) error {
+func (c *Conn) setupHandshakeFSM13(start handshakeStart) error {
 	state13, err := dtlsstate.As13(c.state)
 	if err != nil {
 		return err
@@ -2707,34 +2703,29 @@ func (c *Conn) setupHandshakeFSM13(start handshakeStart, done chan struct{}) err
 		c.handshakeConfig,
 		start.flight13,
 		start.flights,
+		c.handshakeEstablished,
 	)
 	if err != nil {
 		return err
 	}
 	c.fsm = fsm
-	c.handshakeConfig.OnFlightState13 = func(_ uint8, s uint8) {
-		// The ACK for the last flights has been received and we are in a Finished state.
-		// nolint:godox
-		// TODO: should be moved to FSM.
-		if dtlshandshake.State(s) == dtlshandshake.StateFinished && c.setHandshakeCompletedSuccessfully() {
-			close(done)
-		}
-	}
 
 	return nil
 }
 
-func (c *Conn) setupHandshakeFSM12(start handshakeStart, done chan struct{}) error {
+func (c *Conn) setupHandshakeFSM12(start handshakeStart) error {
 	state12, err := dtlsstate.As12(c.state)
 	if err != nil {
 		return err
 	}
-	c.fsm = dtlshandshake.NewFSM12(state12, c.handshakeCache, c.handshakeConfig, start.flight12, start.flights)
-	c.handshakeConfig.OnFlightState = func(_ uint8, s uint8) {
-		if dtlshandshake.State(s) == dtlshandshake.StateFinished && c.setHandshakeCompletedSuccessfully() {
-			close(done)
-		}
-	}
+	c.fsm = dtlshandshake.NewFSM12(
+		state12,
+		c.handshakeCache,
+		c.handshakeConfig,
+		start.flight12,
+		start.flights,
+		c.handshakeEstablished,
+	)
 
 	return nil
 }

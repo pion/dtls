@@ -79,6 +79,7 @@ type fsm13 struct {
 	cfg                *dtlsconfig.HandshakeConfig
 	transcript         *Transcript
 	closed             chan struct{}
+	establishment      *Establishment
 	pendingRecvDone    chan struct{} // keeps the reader paused across a prepare/send transition
 }
 
@@ -93,8 +94,9 @@ func NewFSM13(
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight13.Flight,
 	initialFlights []*dtlsflight.Packet,
+	establishment *Establishment,
 ) (FSM, error) {
-	return newFSM13(state, cache, cfg, initialFlight, initialFlights, nil)
+	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, initialFlights, nil, establishment)
 }
 
 func newFSM13(
@@ -104,6 +106,20 @@ func newFSM13(
 	initialFlight dtlsflight13.Flight,
 	initialFlights []*dtlsflight.Packet,
 	initialTranscript *Transcript,
+) (*fsm13, error) {
+	return newFSM13WithEstablishment(
+		state, cache, cfg, initialFlight, initialFlights, initialTranscript, NewEstablishment(),
+	)
+}
+
+func newFSM13WithEstablishment(
+	state *dtlsstate.State13,
+	cache *dtlsflight.Cache,
+	cfg *dtlsconfig.HandshakeConfig,
+	initialFlight dtlsflight13.Flight,
+	initialFlights []*dtlsflight.Packet,
+	initialTranscript *Transcript,
+	establishment *Establishment,
 ) (*fsm13, error) {
 	if initialTranscript == nil {
 		initialTranscript = NewTranscript()
@@ -119,6 +135,7 @@ func newFSM13(
 		transcript:         initialTranscript,
 		retransmitInterval: cfg.InitialRetransmitInterval,
 		closed:             make(chan struct{}),
+		establishment:      establishment,
 	}
 	if err := fsm.seedTranscriptFromInitialFlights(); err != nil {
 		return nil, err
@@ -217,6 +234,7 @@ func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) error {
 		conn,
 		initialState,
 		s.closed,
+		s.establishment,
 		func(state State) {
 			s.cfg.Log.Tracef(
 				"[handshake13:%s] %s: %s",
@@ -224,13 +242,6 @@ func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) error {
 				s.currentFlight.String(),
 				state.String(),
 			)
-		},
-		func(state State) {
-			// nolint:godox
-			// TODO:: refactor callback, see discussion in https://github.com/pion/dtls/pull/738#discussion_r3131501159
-			if s.cfg.OnFlightState13 != nil {
-				s.cfg.OnFlightState13(uint8(s.currentFlight), uint8(state))
-			}
 		},
 		s.prepare,
 		s.send,

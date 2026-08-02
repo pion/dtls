@@ -18,8 +18,8 @@ func runHandshakeFSM(
 	conn Conn,
 	initialState State,
 	closed chan struct{},
+	establishment *Establishment,
 	trace func(State),
-	onFlightState func(State),
 	prepare, send, wait, finish fsmStateHandler,
 ) error {
 	state := initialState
@@ -27,8 +27,8 @@ func runHandshakeFSM(
 
 	for {
 		trace(state)
-		if onFlightState != nil {
-			onFlightState(state)
+		if state == StateFinished {
+			establishment.mark()
 		}
 
 		var err error
