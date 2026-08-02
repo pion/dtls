@@ -2851,8 +2851,11 @@ func TestFlight13_2Generate(t *testing.T) {
 }
 
 func TestFlight13_4Generate(t *testing.T) {
-	t.Run("GeneratesServerHelloThenEncryptedExtensions", func(t *testing.T) {
+	t.Run("GeneratesCertificateAuthenticatedServerFlight", func(t *testing.T) {
 		cfg := testHandshakeConfig13(t)
+		certificate, err := selfsign.GenerateSelfSigned()
+		require.NoError(t, err)
+		cfg.LocalCertificates = []tls.Certificate{certificate}
 		group := cfg.EllipticCurves[0]
 		keypair, err := elliptic.GenerateKeypair(group)
 		require.NoError(t, err)
@@ -2860,6 +2863,7 @@ func TestFlight13_4Generate(t *testing.T) {
 		state := newTestState13(false)
 		state.CipherSuite = cfg.LocalCipherSuites[0]
 		state.LocalKeypair = keypair
+		state.RemoteSignatureSchemes = append([]signaturehash.Algorithm(nil), cfg.LocalSignatureSchemes...)
 		state.LocalRandom = handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01, 0x02, 0x03}}
 
 		pkts, dtlsAlert, err := flight13GenerateForTest(
@@ -2867,7 +2871,7 @@ func TestFlight13_4Generate(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Nil(t, dtlsAlert)
-		require.Len(t, pkts, 3)
+		require.Len(t, pkts, 5)
 		assert.Equal(t, uint16(0), pkts[0].Record.Header.Epoch)
 		assert.False(t, pkts[0].ShouldEncrypt)
 
@@ -2900,11 +2904,31 @@ func TestFlight13_4Generate(t *testing.T) {
 		require.True(t, ok)
 		assert.Empty(t, encryptedExtensions.Extensions)
 
-		finishedHandshake, ok := pkts[2].Record.Content.(*handshake.Handshake)
+		certificateHandshake, ok := pkts[2].Record.Content.(*handshake.Handshake)
 		require.True(t, ok)
 		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[2].Record.Header.Epoch)
 		assert.True(t, pkts[2].ShouldEncrypt)
 		assert.False(t, pkts[2].ResetLocalSequenceNumber)
+		certificateMessage, ok := certificateHandshake.Message.(*handshake.MessageCertificate13)
+		require.True(t, ok)
+		assert.Empty(t, certificateMessage.CertificateRequestContext)
+		require.Len(t, certificateMessage.CertificateList, len(certificate.Certificate))
+
+		certificateVerifyHandshake, ok := pkts[3].Record.Content.(*handshake.Handshake)
+		require.True(t, ok)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[3].Record.Header.Epoch)
+		assert.True(t, pkts[3].ShouldEncrypt)
+		assert.False(t, pkts[3].ResetLocalSequenceNumber)
+		certificateVerify, ok := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify)
+		require.True(t, ok)
+		assert.Empty(t, certificateVerify.Signature)
+		assert.NotNil(t, pkts[3].CertificateVerifySigner)
+
+		finishedHandshake, ok := pkts[4].Record.Content.(*handshake.Handshake)
+		require.True(t, ok)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[4].Record.Header.Epoch)
+		assert.True(t, pkts[4].ShouldEncrypt)
+		assert.False(t, pkts[4].ResetLocalSequenceNumber)
 		_, ok = finishedHandshake.Message.(*handshake.MessageFinished)
 		require.True(t, ok)
 	})
@@ -2937,6 +2961,9 @@ func TestFlight13_4Generate(t *testing.T) {
 
 func TestFlight13ServerFlight4UsesHandshakeEpoch(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	cfg.LocalCertificates = []tls.Certificate{certificate}
 	group := cfg.EllipticCurves[0]
 	keypair, err := elliptic.GenerateKeypair(group)
 	require.NoError(t, err)
@@ -2944,6 +2971,7 @@ func TestFlight13ServerFlight4UsesHandshakeEpoch(t *testing.T) {
 	state := newTestState13(false)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	state.LocalKeypair = keypair
+	state.RemoteSignatureSchemes = append([]signaturehash.Algorithm(nil), cfg.LocalSignatureSchemes...)
 	state.LocalRandom = handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}}
 
 	pkts, dtlsAlert, err := flight13GenerateForTest(
@@ -2951,16 +2979,15 @@ func TestFlight13ServerFlight4UsesHandshakeEpoch(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
-	require.Len(t, pkts, 3)
+	require.Len(t, pkts, 5)
 
 	assert.Equal(t, uint16(0), pkts[0].Record.Header.Epoch)
 	assert.False(t, pkts[0].ShouldEncrypt)
-	assert.Equal(t, dtlsflight13.EpochHandshake, pkts[1].Record.Header.Epoch)
-	assert.True(t, pkts[1].ShouldEncrypt)
-	assert.True(t, pkts[1].ResetLocalSequenceNumber)
-	assert.Equal(t, dtlsflight13.EpochHandshake, pkts[2].Record.Header.Epoch)
-	assert.True(t, pkts[2].ShouldEncrypt)
-	assert.False(t, pkts[2].ResetLocalSequenceNumber)
+	for i, pkt := range pkts[1:] {
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Record.Header.Epoch)
+		assert.True(t, pkt.ShouldEncrypt)
+		assert.Equal(t, i == 0, pkt.ResetLocalSequenceNumber)
+	}
 }
 
 func pushClientHello13(

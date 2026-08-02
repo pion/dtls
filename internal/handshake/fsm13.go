@@ -367,7 +367,7 @@ func (s *fsm13) populateOutboundCertificateVerify(pkt *dtlsflight.Packet) error 
 		return dtlserrors.ErrInvalidPrivateKey
 	}
 
-	input, err := CertificateVerifyInputFromTranscript(true, s.transcript)
+	input, err := CertificateVerifyInputFromTranscript(s.state.IsClient, s.transcript)
 	if err != nil {
 		return err
 	}

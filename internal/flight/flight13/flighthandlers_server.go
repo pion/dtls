@@ -6,6 +6,7 @@ package flight13
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/rand"
 	"slices"
 
@@ -16,6 +17,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
+	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -547,14 +549,48 @@ func flight4Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
-	if flightCtx.state.CipherSuite == nil {
+	state := flightCtx.state
+	cfg := flightCtx.cfg
+
+	if state.CipherSuite == nil {
 		return nil, nil, dtlserrors.ErrCipherSuiteUnset
 	}
-	if flightCtx.state.LocalKeypair == nil {
+	if state.LocalKeypair == nil {
 		return nil, nil, dtlserrors.ErrServerKeyShareMissing
 	}
 
-	cipherSuiteID := uint16(flightCtx.state.CipherSuite.ID())
+	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{
+		ServerName:   state.ServerName,
+		CipherSuites: []ciphersuite.ID{state.CipherSuite.ID()},
+		RandomBytes:  state.RemoteRandom.RandomBytes,
+	})
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
+	}
+	if certificate == nil || len(certificate.Certificate) == 0 {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure},
+			dtlserrors.ErrNoCertificates
+	}
+
+	signer, ok := certificate.PrivateKey.(crypto.Signer)
+	if !ok {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure},
+			dtlserrors.ErrInvalidPrivateKey
+	}
+
+	commonSignatureSchemes := make([]signaturehash.Algorithm, 0, len(state.RemoteSignatureSchemes))
+	for _, remote := range state.RemoteSignatureSchemes {
+		if slices.Contains(cfg.LocalSignatureSchemes, remote) {
+			commonSignatureSchemes = append(commonSignatureSchemes, remote)
+		}
+	}
+
+	signatureScheme, err := signaturehash.SelectSignatureScheme13(commonSignatureSchemes, signer)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
+	}
+
+	cipherSuiteID := uint16(state.CipherSuite.ID())
 	serverHelloExtensions := []extension.Extension{
 		&extension.SupportedVersions{
 			Versions:        []protocol.Version{protocol.Version1_3},
@@ -563,52 +599,44 @@ func flight4Generate(
 	}
 	serverHelloExtensions = append(serverHelloExtensions, &extension.KeyShare{
 		ServerShare: &extension.KeyShareEntry{
-			Group:       flightCtx.state.LocalKeypair.Curve,
-			KeyExchange: flightCtx.state.LocalKeypair.PublicKey,
+			Group:       state.LocalKeypair.Curve,
+			KeyExchange: state.LocalKeypair.PublicKey,
 		},
 	})
 
+	serverHello := &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+			},
+			Content: &handshake.Handshake{
+				Message: &handshake.MessageServerHello{
+					Version:           protocol.Version1_2,
+					Random:            state.LocalRandom,
+					CipherSuiteID:     &cipherSuiteID,
+					CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+					Extensions:        serverHelloExtensions,
+				},
+			},
+		},
+	}
+
+	encryptedExtensions := flight5HandshakePacket(&handshake.MessageEncryptedExtensions{})
+	encryptedExtensions.ResetLocalSequenceNumber = true
+
 	return []*dtlsflight.Packet{
-		{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageServerHello{
-						Version:           protocol.Version1_2,
-						Random:            flightCtx.state.LocalRandom,
-						CipherSuiteID:     &cipherSuiteID,
-						CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-						Extensions:        serverHelloExtensions,
-					},
-				},
+		serverHello,
+		encryptedExtensions,
+		flight5HandshakePacket(&handshake.MessageCertificate13{
+			CertificateList: certificateEntries13(certificate.Certificate),
+		}),
+		flight5CertificateVerifyPacket(
+			&handshake.MessageCertificateVerify{
+				HashAlgorithm:      signatureScheme.Hash,
+				SignatureAlgorithm: signatureScheme.Signature,
 			},
-		},
-		{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-					Epoch:   EpochHandshake,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageEncryptedExtensions{},
-				},
-			},
-			ShouldEncrypt:            true,
-			ResetLocalSequenceNumber: true,
-		},
-		{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-					Epoch:   EpochHandshake,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageFinished{},
-				},
-			},
-			ShouldEncrypt: true,
-		},
+			signer,
+		),
+		flight5HandshakePacket(&handshake.MessageFinished{}),
 	}, nil, nil
 }
