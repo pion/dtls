@@ -204,6 +204,10 @@ var ( //nolint:gochecknoglobals,lll
 	ErrMissingSignatureAlgorithmsExtension = stderrors.New(
 		"signature_algorithms extension is required in CertificateRequest",
 	)
+	ErrInvalidKeyUpdate         = stderrors.New("invalid KeyUpdate request")
+	ErrInvalidConnectionIDUsage = stderrors.New("invalid connection ID usage")
+	ErrTicketNonceTooLong       = stderrors.New("ticket nonce must not be longer than 255 bytes")
+	ErrInvalidTicketLength      = stderrors.New("ticket must be between 1 and 65535 bytes")
 
 	ErrInvalidPacketLength        = stderrors.New("packet length and declared length do not match")
 	ErrInvalidCiphertextHeader    = stderrors.New("invalid dtls 1.3 ciphertext header")

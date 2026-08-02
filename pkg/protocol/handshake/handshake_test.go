@@ -51,3 +51,39 @@ func TestHandshakeMessage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, rawHandshakeMessage, raw, "handshakeMessageClientHello marshal")
 }
+
+func TestPostHandshakeMessageDispatch(t *testing.T) {
+	maxEarlyData := uint32(128)
+	tests := map[string]handshake.Message{
+		"NewSessionTicket": &handshake.MessageNewSessionTicket{
+			TicketLifetime: 1,
+			TicketAgeAdd:   2,
+			TicketNonce:    []byte{0x03},
+			Ticket:         []byte{0x04},
+			Extensions: []extension.Extension{
+				&extension.EarlyDataIndication{MaxEarlyData: &maxEarlyData},
+			},
+		},
+		"KeyUpdate": &handshake.MessageKeyUpdate{
+			RequestUpdate: handshake.KeyUpdateRequested,
+		},
+		"NewConnectionID": &handshake.MessageNewConnectionID{
+			CIDs:  [][]byte{{0x05}},
+			Usage: handshake.ConnectionIDSpare,
+		},
+		"RequestConnectionID": &handshake.MessageRequestConnectionID{
+			NumCIDs: 2,
+		},
+	}
+
+	for name, message := range tests {
+		t.Run(name, func(t *testing.T) {
+			encoded, err := (&handshake.Handshake{Message: message}).Marshal()
+			assert.NoError(t, err)
+
+			decoded := &handshake.Handshake{}
+			assert.NoError(t, decoded.Unmarshal(encoded))
+			assert.Equal(t, message, decoded.Message)
+		})
+	}
+}

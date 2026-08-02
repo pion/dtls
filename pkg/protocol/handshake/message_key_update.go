@@ -1,0 +1,52 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package handshake
+
+import dtlserrors "github.com/pion/dtls/v3/internal/errors"
+
+// KeyUpdateRequest indicates whether the recipient should update its sending
+// traffic keys as well.
+type KeyUpdateRequest uint8
+
+// KeyUpdateRequest values.
+const (
+	KeyUpdateNotRequested KeyUpdateRequest = iota
+	KeyUpdateRequested
+)
+
+// MessageKeyUpdate requests an update of DTLS 1.3 application traffic keys.
+//
+// https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.3
+type MessageKeyUpdate struct {
+	RequestUpdate KeyUpdateRequest
+}
+
+// Type returns the Handshake Type.
+func (m MessageKeyUpdate) Type() Type {
+	return TypeKeyUpdate
+}
+
+// Marshal encodes the Handshake.
+func (m *MessageKeyUpdate) Marshal() ([]byte, error) {
+	if m.RequestUpdate != KeyUpdateNotRequested && m.RequestUpdate != KeyUpdateRequested {
+		return nil, dtlserrors.ErrInvalidKeyUpdate
+	}
+
+	return []byte{byte(m.RequestUpdate)}, nil
+}
+
+// Unmarshal populates the message from encoded data.
+func (m *MessageKeyUpdate) Unmarshal(data []byte) error {
+	if len(data) != 1 {
+		return dtlserrors.ErrLengthMismatch
+	}
+
+	requestUpdate := KeyUpdateRequest(data[0])
+	if requestUpdate != KeyUpdateNotRequested && requestUpdate != KeyUpdateRequested {
+		return dtlserrors.ErrInvalidKeyUpdate
+	}
+	m.RequestUpdate = requestUpdate
+
+	return nil
+}

@@ -164,6 +164,8 @@ func Unmarshal(buf []byte) ([]Extension, error) { //nolint:cyclop
 			err = unmarshalAndAppend(extensionData, &PskKeyExchangeModes{})
 		case PreSharedKeyValue:
 			err = unmarshalAndAppend(extensionData, &PreSharedKey{})
+		case EarlyDataIndicationTypeValue:
+			err = unmarshalAndAppend(extensionData, &EarlyDataIndication{})
 		default:
 		}
 

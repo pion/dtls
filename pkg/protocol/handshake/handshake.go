@@ -21,7 +21,10 @@ const (
 	TypeClientHello         Type = 1
 	TypeServerHello         Type = 2
 	TypeHelloVerifyRequest  Type = 3
+	TypeNewSessionTicket    Type = 4
 	TypeEncryptedExtensions Type = 8
+	TypeRequestConnectionID Type = 9
+	TypeNewConnectionID     Type = 10
 	TypeCertificate         Type = 11
 	TypeServerKeyExchange   Type = 12
 	TypeCertificateRequest  Type = 13
@@ -29,6 +32,7 @@ const (
 	TypeCertificateVerify   Type = 15
 	TypeClientKeyExchange   Type = 16
 	TypeFinished            Type = 20
+	TypeKeyUpdate           Type = 24
 
 	// TypeMessageHash is a synthetic TLS 1.3 transcript-only handshake type.
 	TypeMessageHash Type = 254
@@ -57,8 +61,14 @@ func (t Type) String() string { //nolint:cyclop
 		return "ServerHello"
 	case TypeHelloVerifyRequest:
 		return "HelloVerifyRequest"
+	case TypeNewSessionTicket:
+		return "NewSessionTicket"
 	case TypeEncryptedExtensions:
 		return "EncryptedExtensions"
+	case TypeRequestConnectionID:
+		return "RequestConnectionID"
+	case TypeNewConnectionID:
+		return "NewConnectionID"
 	case TypeCertificate:
 		return "TypeCertificate"
 	case TypeServerKeyExchange:
@@ -73,6 +83,8 @@ func (t Type) String() string { //nolint:cyclop
 		return "ClientKeyExchange"
 	case TypeFinished:
 		return "Finished"
+	case TypeKeyUpdate:
+		return "KeyUpdate"
 	case TypeMessageHash:
 		return "MessageHash"
 	}
@@ -151,8 +163,14 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 		h.Message = &MessageHelloVerifyRequest{}
 	case TypeServerHello:
 		h.Message = &MessageServerHello{}
+	case TypeNewSessionTicket:
+		h.Message = &MessageNewSessionTicket{}
 	case TypeEncryptedExtensions:
 		h.Message = &MessageEncryptedExtensions{}
+	case TypeRequestConnectionID:
+		h.Message = &MessageRequestConnectionID{}
+	case TypeNewConnectionID:
+		h.Message = &MessageNewConnectionID{}
 	case TypeCertificate:
 		h.Message = &MessageCertificate{}
 	case TypeServerKeyExchange:
@@ -167,6 +185,8 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 		h.Message = &MessageFinished{}
 	case TypeCertificateVerify:
 		h.Message = &MessageCertificateVerify{}
+	case TypeKeyUpdate:
+		h.Message = &MessageKeyUpdate{}
 	default:
 		return dtlserrors.ErrNotImplemented
 	}
