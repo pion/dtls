@@ -42,8 +42,6 @@ import (
 
 const (
 	initialTickerInterval = time.Second
-	cookieLength          = 20
-	sessionLength         = 32
 	inboundBufferSize     = 8192
 	// Default replay protection window is specified by RFC 6347 Section 4.1.2.6.
 	defaultReplayProtectionWindow = 64
