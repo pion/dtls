@@ -92,7 +92,7 @@ func TestGetCertificate(t *testing.T) {
 				getCertificate = nil
 			}
 
-			cfg := &handshakeConfig{
+			cfg := &dtlsconfig.HandshakeConfig{
 				LocalCertificates:   test.localCertificates,
 				LocalGetCertificate: getCertificate,
 			}

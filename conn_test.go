@@ -30,6 +30,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
+	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
@@ -2312,7 +2313,7 @@ func (e rawExtension13) TypeValue() extension.TypeValue {
 
 func marshalVersionNegotiationHelloRetryRequestServerHello13(
 	t *testing.T,
-	cfg *handshakeConfig,
+	cfg *dtlsconfig.HandshakeConfig,
 	extensions []extension.Extension,
 ) []byte {
 	t.Helper()
@@ -2327,7 +2328,7 @@ func marshalVersionNegotiationHelloRetryRequestServerHello13(
 
 func marshalVersionNegotiationServerHello13(
 	t *testing.T,
-	cfg *handshakeConfig,
+	cfg *dtlsconfig.HandshakeConfig,
 	random handshake.Random,
 	extensions []extension.Extension,
 ) []byte {
@@ -2347,7 +2348,7 @@ func marshalVersionNegotiationServerHello13(
 	return rawServerHello
 }
 
-func testVersionNegotiationHandshakeConfig13(t *testing.T) *handshakeConfig {
+func testVersionNegotiationHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 	t.Helper()
 
 	cipherSuites, err := parseCipherSuitesForVersions(
@@ -2362,7 +2363,7 @@ func testVersionNegotiationHandshakeConfig13(t *testing.T) *handshakeConfig {
 
 	loggerFactory := logging.NewDefaultLoggerFactory()
 
-	return &handshakeConfig{
+	return &dtlsconfig.HandshakeConfig{
 		LocalCipherSuites:           cipherSuites,
 		EllipticCurves:              defaultCurves,
 		InitialRetransmitInterval:   time.Second,
@@ -4060,7 +4061,7 @@ func TestHandshakeCancellationWhilePostSetupBlocks(t *testing.T) {
 
 	postSetupStarted := make(chan struct{})
 	start := client.prepareHandshakeStart13()
-	start.fsmState = handshakeWaiting
+	start.fsmState = dtlshandshake.StateWaiting
 	start.postSetup = func(ctx context.Context) {
 		close(postSetupStarted)
 		<-ctx.Done()

@@ -110,33 +110,15 @@ type incomingPacketState struct {
 type handshakeStart struct {
 	flight12  dtlsflight12.Flight
 	flight13  dtlsflight13.Flight
-	fsmState  handshakeState
+	fsmState  dtlshandshake.State
 	flights   []*dtlsflight.Packet
 	postSetup func(context.Context)
 }
 
-type (
-	handshakeConfig = dtlsconfig.HandshakeConfig
-	handshakeState  = dtlshandshake.State
-)
-
-const (
-	handshakeErrored   = dtlshandshake.StateErrored
-	handshakePreparing = dtlshandshake.StatePreparing
-	handshakeSending   = dtlshandshake.StateSending
-	handshakeWaiting   = dtlshandshake.StateWaiting
-	handshakeFinished  = dtlshandshake.StateFinished
-)
-
-type (
-	recvHandshakeState = dtlshandshake.RecvHandshakeState
-	handshakeFSM       = dtlshandshake.FSM
-)
-
 type handshakeConn interface {
 	notify(ctx context.Context, level alert.Level, desc alert.Description) error
 	writePackets(context.Context, []*dtlsflight.Packet) error
-	recvHandshake() <-chan recvHandshakeState
+	recvHandshake() <-chan dtlshandshake.RecvHandshakeState
 	setLocalEpoch(epoch uint16)
 	handleQueuedPackets(context.Context) error
 	sessionKey() []byte
@@ -154,7 +136,7 @@ func (c handshakeConnAdapter) WritePackets(ctx context.Context, pkts []*dtlsflig
 	return c.writePackets(ctx, pkts)
 }
 
-func (c handshakeConnAdapter) RecvHandshake() <-chan recvHandshakeState {
+func (c handshakeConnAdapter) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
 	return c.recvHandshake()
 }
 
@@ -249,11 +231,11 @@ type Conn struct {
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
-	fsm handshakeFSM
+	fsm dtlshandshake.FSM
 
 	replayProtectionWindow uint
 
-	handshakeConfig *handshakeConfig
+	handshakeConfig *dtlsconfig.HandshakeConfig
 }
 
 // createConn creates a new DTLS connection.
@@ -508,8 +490,8 @@ func newHandshakeConfig(
 	callbacks connConfigCallbacks,
 	sessions connSessionCallbacks,
 	resumeState *dtlsstate.State,
-) *handshakeConfig {
-	handshakeConfig := &handshakeConfig{
+) *dtlsconfig.HandshakeConfig {
+	handshakeConfig := &dtlsconfig.HandshakeConfig{
 		Log:          configValues.logger,
 		InitialEpoch: 0,
 		ResumeState:  resumeState,
@@ -525,7 +507,7 @@ func newHandshakeConfig(
 }
 
 func setHandshakeConfigCrypto(
-	handshakeConfig *handshakeConfig,
+	handshakeConfig *dtlsconfig.HandshakeConfig,
 	config *dtlsConfig,
 	configValues connConfigValues,
 ) {
@@ -542,7 +524,7 @@ func setHandshakeConfigCrypto(
 }
 
 func setHandshakeConfigIdentity(
-	handshakeConfig *handshakeConfig,
+	handshakeConfig *dtlsconfig.HandshakeConfig,
 	config *dtlsConfig,
 	configValues connConfigValues,
 	callbacks connConfigCallbacks,
@@ -558,7 +540,7 @@ func setHandshakeConfigIdentity(
 }
 
 func setHandshakeConfigSession(
-	handshakeConfig *handshakeConfig,
+	handshakeConfig *dtlsconfig.HandshakeConfig,
 	config *dtlsConfig,
 	sessions connSessionCallbacks,
 ) {
@@ -569,7 +551,7 @@ func setHandshakeConfigSession(
 }
 
 func setHandshakeConfigTransport(
-	handshakeConfig *handshakeConfig,
+	handshakeConfig *dtlsconfig.HandshakeConfig,
 	config *dtlsConfig,
 	configValues connConfigValues,
 	callbacks connConfigCallbacks,
@@ -587,7 +569,7 @@ func setHandshakeConfigTransport(
 	handshakeConfig.MaxVersion = configValues.maxVersion
 }
 
-func setHandshakeConfigHooks(handshakeConfig *handshakeConfig, config *dtlsConfig) {
+func setHandshakeConfigHooks(handshakeConfig *dtlsconfig.HandshakeConfig, config *dtlsConfig) {
 	handshakeConfig.ClientHelloMessageHook = config.ClientHelloMessageHook
 	handshakeConfig.ServerHelloMessageHook = config.ServerHelloMessageHook
 	handshakeConfig.CertificateRequestMessageHook = config.CertificateRequestMessageHook
@@ -597,7 +579,7 @@ func newConn(
 	nextConn net.PacketConn,
 	rAddr net.Addr,
 	configValues connConfigValues,
-	handshakeConfig *handshakeConfig,
+	handshakeConfig *dtlsconfig.HandshakeConfig,
 	isClient bool,
 ) *Conn {
 	return &Conn{
@@ -736,20 +718,20 @@ func (c *Conn) prepareHandshakeStart12() handshakeStart {
 		dtlsstate.CommonState(c.state).LocalVersion = protocol.Version1_2
 
 		if isClient {
-			return handshakeStart{flight12: dtlsflight12.Flight5, fsmState: handshakeFinished}
+			return handshakeStart{flight12: dtlsflight12.Flight5, fsmState: dtlshandshake.StateFinished}
 		}
 
-		return handshakeStart{flight12: dtlsflight12.Flight6, fsmState: handshakeFinished}
+		return handshakeStart{flight12: dtlsflight12.Flight6, fsmState: dtlshandshake.StateFinished}
 	}
 
 	state := dtlsstate.Activate12(c.state)
 	c.state = state
 	state.LocalVersion = protocol.Version1_2
 	if isClient {
-		return handshakeStart{flight12: dtlsflight12.Flight1, fsmState: handshakePreparing}
+		return handshakeStart{flight12: dtlsflight12.Flight1, fsmState: dtlshandshake.StatePreparing}
 	}
 
-	return handshakeStart{flight12: dtlsflight12.Flight0, fsmState: handshakePreparing}
+	return handshakeStart{flight12: dtlsflight12.Flight0, fsmState: dtlshandshake.StatePreparing}
 }
 
 func (c *Conn) prepareHandshakeStart13() handshakeStart {
@@ -757,10 +739,10 @@ func (c *Conn) prepareHandshakeStart13() handshakeStart {
 	c.state = state
 	state.LocalVersion = protocol.Version1_3
 	if state.IsClient {
-		return handshakeStart{flight13: dtlsflight13.Flight1, fsmState: handshakePreparing}
+		return handshakeStart{flight13: dtlsflight13.Flight1, fsmState: dtlshandshake.StatePreparing}
 	}
 
-	return handshakeStart{flight13: dtlsflight13.Flight0, fsmState: handshakePreparing}
+	return handshakeStart{flight13: dtlsflight13.Flight0, fsmState: dtlshandshake.StatePreparing}
 }
 
 func (c *Conn) prepareDualStackClientHandshakeStart(ctx context.Context) (handshakeStart, error) {
@@ -772,7 +754,7 @@ func (c *Conn) prepareDualStackClientHandshakeStart(ctx context.Context) (handsh
 	return handshakeStart{
 		flight12: dtlsflight12.Flight1,
 		flight13: dtlsflight13.Flight1,
-		fsmState: handshakeWaiting,
+		fsmState: dtlshandshake.StateWaiting,
 		flights:  initialFlights,
 		postSetup: func(ctx context.Context) {
 			c.primeHandshakeRecv(ctx)
@@ -789,7 +771,7 @@ func (c *Conn) prepareDualStackServerHandshakeStart(ctx context.Context) (handsh
 	return handshakeStart{
 		flight12: dtlsflight12.Flight0,
 		flight13: dtlsflight13.Flight0,
-		fsmState: handshakePreparing,
+		fsmState: dtlshandshake.StatePreparing,
 	}, nil
 }
 
@@ -2732,7 +2714,7 @@ func (c *Conn) setupHandshakeFSM13(start handshakeStart, done chan struct{}) err
 		// The ACK for the last flights has been received and we are in a Finished state.
 		// nolint:godox
 		// TODO: should be moved to FSM.
-		if handshakeState(s) == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
+		if dtlshandshake.State(s) == dtlshandshake.StateFinished && c.setHandshakeCompletedSuccessfully() {
 			close(done)
 		}
 	}
@@ -2747,7 +2729,7 @@ func (c *Conn) setupHandshakeFSM12(start handshakeStart, done chan struct{}) err
 	}
 	c.fsm = dtlshandshake.NewFSM12(state12, c.handshakeCache, c.handshakeConfig, start.flight12, start.flights)
 	c.handshakeConfig.OnFlightState = func(_ uint8, s uint8) {
-		if handshakeState(s) == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
+		if dtlshandshake.State(s) == dtlshandshake.StateFinished && c.setHandshakeCompletedSuccessfully() {
 			close(done)
 		}
 	}

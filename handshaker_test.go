@@ -33,7 +33,7 @@ const nonZeroRetransmitInterval = 100 * time.Millisecond
 // when a key log writer is given.
 func TestWriteKeyLog(t *testing.T) {
 	var buf bytes.Buffer
-	cfg := handshakeConfig{
+	cfg := dtlsconfig.HandshakeConfig{
 		KeyLogWriter: &buf,
 	}
 	cfg.WriteKeyLog("LABEL", []byte{0xAA, 0xBB, 0xCC}, []byte{0xDD, 0xEE, 0xFF})
@@ -44,7 +44,7 @@ func TestWriteKeyLog(t *testing.T) {
 	assert.Equal(t, want, buf.String())
 
 	// no key log writer = no writes
-	cfg = handshakeConfig{}
+	cfg = dtlsconfig.HandshakeConfig{}
 	cfg.WriteKeyLog("LABEL", []byte{0xAA, 0xBB, 0xCC}, []byte{0xDD, 0xEE, 0xFF})
 }
 
@@ -308,7 +308,7 @@ func runHandshakeFSM12ForTest(
 ) {
 	t.Helper()
 
-	cfg := &handshakeConfig{
+	cfg := &dtlsconfig.HandshakeConfig{
 		LocalCipherSuites:     cipherSuites,
 		LocalCertificates:     []tls.Certificate{clientCert},
 		EllipticCurves:        defaultCurves,
@@ -316,7 +316,7 @@ func runHandshakeFSM12ForTest(
 		InsecureSkipVerify:    true,
 		Log:                   logger,
 		OnFlightState: func(_ uint8, state uint8) {
-			if handshakeState(state) == handshakeFinished {
+			if dtlshandshake.State(state) == dtlshandshake.StateFinished {
 				if endpoint.OnFinished != nil {
 					endpoint.OnFinished()
 				}
@@ -327,7 +327,7 @@ func runHandshakeFSM12ForTest(
 	}
 
 	fsm := dtlshandshake.NewFSM12(&conn.state, conn.handshakeCache, cfg, initialFlight, nil)
-	err := fsm.Run(ctx, handshakeConnAdapter{conn}, handshakePreparing)
+	err := fsm.Run(ctx, handshakeConnAdapter{conn}, dtlshandshake.StatePreparing)
 	switch {
 	case errors.Is(err, context.Canceled):
 	case errors.Is(err, context.DeadlineExceeded):
@@ -354,8 +354,8 @@ func flightTestPipe(
 ) (*flightTestConn, *flightTestConn) {
 	ca := dtlsflight.NewCache()
 	cb := dtlsflight.NewCache()
-	chA := make(chan recvHandshakeState)
-	chB := make(chan recvHandshakeState)
+	chA := make(chan dtlshandshake.RecvHandshakeState)
+	chB := make(chan dtlshandshake.RecvHandshakeState)
 
 	return &flightTestConn{
 			state:          dtlsstate.NewState12(false),
@@ -383,7 +383,7 @@ func flightTestPipe(
 type flightTestConn struct {
 	state          dtlsstate.State
 	handshakeCache *dtlsflight.Cache
-	recv           chan recvHandshakeState
+	recv           chan dtlshandshake.RecvHandshakeState
 	done           <-chan struct{}
 	epoch          uint16
 
@@ -393,10 +393,10 @@ type flightTestConn struct {
 	delay time.Duration
 
 	otherEndCache *dtlsflight.Cache
-	otherEndRecv  chan recvHandshakeState
+	otherEndRecv  chan dtlshandshake.RecvHandshakeState
 }
 
-func (c *flightTestConn) recvHandshake() <-chan recvHandshakeState {
+func (c *flightTestConn) recvHandshake() <-chan dtlshandshake.RecvHandshakeState {
 	return c.recv
 }
 
@@ -453,7 +453,7 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*dtlsflight.Pack
 	}
 	go func() {
 		select {
-		case c.otherEndRecv <- recvHandshakeState{Done: make(chan struct{}), IsRetransmit: isRetransmit}:
+		case c.otherEndRecv <- dtlshandshake.RecvHandshakeState{Done: make(chan struct{}), IsRetransmit: isRetransmit}:
 		case <-c.done:
 		}
 	}()
