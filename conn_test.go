@@ -3574,16 +3574,16 @@ func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T
 	assert.NoError(t, err)
 
 	queueWriter := &packetQueueWriter{conn: conn, recyclableReadBuffer: &rawPacket}
-	isHandshake, isRetransmit, dtlsAlert, err := conn.handleIncomingPacket(
+	outcome, err := conn.handleIncomingPacket(
 		context.Background(),
 		rawPacket,
 		nil,
 		queueWriter,
 	)
 	assert.NoError(t, err)
-	assert.Nil(t, dtlsAlert)
-	assert.False(t, isHandshake)
-	assert.False(t, isRetransmit)
+	assert.Nil(t, outcome.responseAlert)
+	assert.False(t, outcome.containsHandshake)
+	assert.False(t, outcome.retransmit)
 	assert.Nil(t, queueWriter.recyclableReadBuffer)
 	assert.Len(t, conn.encryptedPackets, 1)
 	assert.Equal(t, rawPacket, conn.encryptedPackets[0].data)
@@ -4390,13 +4390,13 @@ func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 	assert.NoError(t, err)
 
 	queueWriter := &packetQueueWriter{conn: conn}
-	isHandshake, isRetransmit, dtlsAlert, err := conn.handleIncomingPacket(
+	outcome, err := conn.handleIncomingPacket(
 		context.Background(), rawPacket, nil, queueWriter,
 	)
 	assert.NoError(t, err)
-	assert.Nil(t, dtlsAlert)
-	assert.True(t, isHandshake)
-	assert.False(t, isRetransmit)
+	assert.Nil(t, outcome.responseAlert)
+	assert.True(t, outcome.containsHandshake)
+	assert.False(t, outcome.retransmit)
 
 	items := conn.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{
 		Typ:      handshake.TypeEncryptedExtensions,

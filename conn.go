@@ -107,6 +107,12 @@ type incomingPacketState struct {
 	originalCID       bool
 }
 
+type packetOutcome struct {
+	containsHandshake bool
+	retransmit        bool
+	responseAlert     *alert.Alert
+}
+
 type handshakeStart struct {
 	flight12  dtlsflight12.Flight
 	flight13  dtlsflight13.Flight
@@ -1483,9 +1489,9 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 
 	var hasHandshake, isRetransmit bool
 	for _, p := range pkts {
-		hs, rtx, alert, err := c.handleIncomingPacket(ctx, p, rAddr, &queueWriter)
-		if alert != nil {
-			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
+		outcome, err := c.handleIncomingPacket(ctx, p, rAddr, &queueWriter)
+		if outcome.responseAlert != nil {
+			if alertErr := c.notify(ctx, outcome.responseAlert.Level, outcome.responseAlert.Description); alertErr != nil {
 				if err == nil {
 					err = alertErr
 				}
@@ -1499,10 +1505,10 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop,gocogn
 		if err != nil {
 			return err
 		}
-		if hs {
+		if outcome.containsHandshake {
 			hasHandshake = true
 		}
-		if rtx {
+		if outcome.retransmit {
 			isRetransmit = true
 		}
 	}
@@ -1542,9 +1548,9 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.lock.Unlock()
 
 	for _, p := range pkts {
-		_, _, alert, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, nil) // don't re-enqueue
-		if alert != nil {
-			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
+		outcome, err := c.handleIncomingPacket(ctx, p.data, p.rAddr, nil) // don't re-enqueue
+		if outcome.responseAlert != nil {
+			if alertErr := c.notify(ctx, outcome.responseAlert.Level, outcome.responseAlert.Description); alertErr != nil {
 				if err == nil {
 					err = alertErr
 				}
@@ -2107,14 +2113,14 @@ func (c *Conn) handleIncomingPacket(
 	buf []byte,
 	rAddr net.Addr,
 	queueWriter *packetQueueWriter,
-) (bool, bool, *alert.Alert, error) {
+) (packetOutcome, error) {
 	if len(buf) == 0 {
-		return false, false, nil, nil
+		return packetOutcome{}, nil
 	}
 
 	prepared, ok := c.prepareIncomingPacket(buf, rAddr, queueWriter)
 	if !ok {
-		return false, false, nil, nil
+		return packetOutcome{}, nil
 	}
 	buf = prepared.buf
 	header := prepared.header
@@ -2127,7 +2133,7 @@ func (c *Conn) handleIncomingPacket(
 		// [RFC6347 Section-4.1.2.7]
 		c.log.Debugf("defragment failed: %s", err)
 
-		return false, false, nil, nil
+		return packetOutcome{}, nil
 	} else if isHandshake {
 		markPacketAsValid()
 		if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
@@ -2149,12 +2155,14 @@ func (c *Conn) handleIncomingPacket(
 			c.handshakeCache.Push(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient)
 		}
 
-		return true, isRetransmit, nil, nil
+		return packetOutcome{containsHandshake: true, retransmit: isRetransmit}, nil
 	}
 
 	r := &recordlayer.RecordLayer{}
 	if err := r.Unmarshal(buf); err != nil {
-		return false, false, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError}, err
+		return packetOutcome{
+			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
+		}, err
 	}
 
 	isLatestSeqNum := false
@@ -2168,7 +2176,7 @@ func (c *Conn) handleIncomingPacket(
 		}
 		_ = markPacketAsValid()
 
-		return false, false, a, &alertError{content}
+		return packetOutcome{responseAlert: a}, &alertError{content}
 	case *protocol.ChangeCipherSpec:
 		common := dtlsstate.CommonState(c.state)
 		if common.CipherSuite == nil || !common.CipherSuite.IsInitialized() {
@@ -2178,7 +2186,7 @@ func (c *Conn) handleIncomingPacket(
 				}
 			}
 
-			return false, false, nil, nil
+			return packetOutcome{}, nil
 		}
 
 		newRemoteEpoch := header.Epoch + 1
@@ -2190,8 +2198,8 @@ func (c *Conn) handleIncomingPacket(
 		}
 	case *protocol.ApplicationData:
 		if header.Epoch == 0 {
-			return false, false, &alert.Alert{
-				Level: alert.Fatal, Description: alert.UnexpectedMessage,
+			return packetOutcome{
+				responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
 			}, dtlserrors.ErrApplicationDataEpochZero
 		}
 
@@ -2204,8 +2212,8 @@ func (c *Conn) handleIncomingPacket(
 		}
 
 	default:
-		return false, false, &alert.Alert{
-			Level: alert.Fatal, Description: alert.UnexpectedMessage,
+		return packetOutcome{
+			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
 		}, fmt.Errorf("%w: %d", dtlserrors.ErrUnhandledContextType, content.ContentType())
 	}
 
@@ -2220,7 +2228,7 @@ func (c *Conn) handleIncomingPacket(
 		}
 	}
 
-	return false, false, nil, nil
+	return packetOutcome{}, nil
 }
 
 func (c *Conn) syncFragmentBufferHandshakeSequence() {
@@ -2541,9 +2549,9 @@ func (c *Conn) readAndBufferNoFSM(ctx context.Context) error { //nolint:cyclop
 	}
 
 	for _, p := range pkts {
-		_, _, alert, err := c.handleIncomingPacket(ctx, p, rAddr, &queueWriter)
-		if alert != nil {
-			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
+		outcome, err := c.handleIncomingPacket(ctx, p, rAddr, &queueWriter)
+		if outcome.responseAlert != nil {
+			if alertErr := c.notify(ctx, outcome.responseAlert.Level, outcome.responseAlert.Description); alertErr != nil {
 				if err == nil {
 					err = alertErr
 				}
