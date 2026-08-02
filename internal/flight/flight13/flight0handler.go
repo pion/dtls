@@ -1,0 +1,144 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package flight13
+
+import (
+	"context"
+	"crypto/rand"
+	"slices"
+
+	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+)
+
+//nolint:cyclop,gocognit,gocyclo
+func flight0Parse(
+	_ context.Context,
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) (Flight, *alert.Alert, error) {
+	state := flightCtx.state
+	cache := flightCtx.cache
+	cfg := flightCtx.cfg
+
+	if state.LocalVersion != protocol.Version1_3 {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
+			dtlserrors.ErrInvalidProtocolVersionState
+	}
+	seq, msgs, items, ok := cache.FullPullMapItems(0, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
+	)
+	if !ok {
+		// No valid message received. Keep reading
+		return 0, nil, nil
+	}
+
+	// Connection Identifiers must be negotiated afresh on session resumption.
+	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
+	state.SetLocalConnectionID(nil)
+	state.RemoteConnectionID = nil
+
+	state.HandshakeRecvSequence = seq
+
+	var clientHello *handshake.MessageClientHello
+
+	// Validate type
+	if clientHello, ok = msgs[handshake.TypeClientHello].(*handshake.MessageClientHello); !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+
+	if !clientHello.Version.Equal(protocol.Version1_2) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
+	}
+
+	state.RemoteRandom = clientHello.Random
+
+	cipherSuites := []dtlsconfig.CipherSuite{}
+	for _, id := range clientHello.CipherSuiteIDs {
+		if id == renegotiationInfoSCSV {
+			continue
+		}
+		if c := ciphersuite.ForID(ciphersuite.ID(id), cfg.CustomCipherSuites); c != nil {
+			cipherSuites = append(cipherSuites, c)
+		}
+	}
+
+	// nolint:godox
+	// TODO: check for DTLS 1.3 cipher suites
+	if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, cfg.LocalCipherSuites); !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
+	}
+
+	if failure := processClientHelloExtensions(state, cfg, clientHello); failure != nil {
+		return 0, failure.alert, failure.err
+	}
+
+	if !slices.Contains(state.RemoteVersions, protocol.Version1_3) {
+		// nolint:godox
+		// TODO: This should actually handover the state machine to DTLS 1.2
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
+			dtlserrors.ErrInvalidProtocolVersionState
+	}
+
+	// If the client doesn't support connection IDs, the server should not
+	// expect one to be sent.
+	if state.RemoteConnectionID == nil {
+		state.SetLocalConnectionID(nil)
+	}
+
+	nextFlight := Flight2
+
+	selectClientKeyShare(state, cfg)
+
+	if cfg.InsecureSkipHelloVerify {
+		if _, ok := matchingClientKeyShare(state, cfg); ok {
+			if failure := generateClientKeyShareSecret(state, cfg); failure != nil {
+				return 0, failure.alert, failure.err
+			}
+			nextFlight = Flight4
+		}
+	}
+
+	if flightCtx.inboundHandshakeHandler != nil {
+		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, items); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
+
+	return nextFlight, nil, nil
+}
+
+// nolint:unparam
+func flight0Generate(
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
+	state := flightCtx.state
+	cfg := flightCtx.cfg
+
+	if !cfg.InsecureSkipHelloVerify {
+		state.Cookie = make([]byte, cookieLength)
+		if _, err := rand.Read(state.Cookie); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	state.LocalEpoch.Store(EpochInitial)
+	state.RemoteEpoch.Store(EpochInitial)
+	if len(cfg.EllipticCurves) < 1 {
+		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
+	}
+
+	if err := state.LocalRandom.Populate(); err != nil {
+		return nil, nil, err
+	}
+
+	return nil, nil, nil
+}

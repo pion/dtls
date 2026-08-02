@@ -1,0 +1,242 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package flight13
+
+import (
+	"context"
+	"errors"
+
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
+)
+
+//nolint:cyclop
+func flight1Generate(
+	_ dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) ([]*dtlsflight.Packet, *alert.Alert, error) {
+	state := flightCtx.state
+	cfg := flightCtx.cfg
+
+	state.LocalEpoch.Store(EpochInitial)
+	state.RemoteEpoch.Store(EpochInitial)
+	if len(cfg.EllipticCurves) < 1 {
+		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
+	}
+	if len(cfg.LocalSignatureSchemes) < 1 {
+		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
+	}
+	state.SelectedGroup = cfg.EllipticCurves[0]
+	state.Cookie = nil
+
+	if err := state.LocalRandom.Populate(); err != nil {
+		return nil, nil, err
+	}
+
+	if cfg.HelloRandomBytesGenerator != nil {
+		state.LocalRandom.RandomBytes = cfg.HelloRandomBytesGenerator()
+	}
+
+	extensions := []extension.Extension{
+		&extension.SupportedSignatureAlgorithms{
+			SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+		},
+	}
+
+	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
+		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
+		extensions = append(extensions, &extension.UseExtendedMasterSecret{
+			Supported: true,
+		})
+	}
+
+	extensions = append(extensions, &extension.RenegotiationInfo{
+		RenegotiatedConnection: 0,
+	})
+
+	var setEllipticCurveCryptographyClientHelloExtensions bool
+	for _, c := range cfg.LocalCipherSuites {
+		if c.ECC() {
+			setEllipticCurveCryptographyClientHelloExtensions = true
+
+			break
+		}
+	}
+
+	if setEllipticCurveCryptographyClientHelloExtensions {
+		extensions = append(extensions, []extension.Extension{
+			&extension.SupportedEllipticCurves{
+				EllipticCurves: cfg.EllipticCurves,
+			},
+			&extension.SupportedPointFormats{
+				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
+			},
+		}...)
+	}
+
+	if len(cfg.SupportedProtocols) > 0 {
+		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.SupportedProtocols})
+	}
+
+	entries := make([]extension.KeyShareEntry, 0, len(cfg.EllipticCurves))
+	keypairs := make(map[elliptic.Curve]*elliptic.Keypair, len(cfg.EllipticCurves))
+	for _, group := range cfg.EllipticCurves {
+		keypair, err := elliptic.GenerateKeypair(group)
+		if err != nil {
+			return nil, nil, err
+		}
+		entries = append(entries, extension.KeyShareEntry{
+			Group: keypair.Curve, KeyExchange: keypair.PublicKey,
+		})
+		keypairs[keypair.Curve] = keypair
+	}
+	state.LocalKeyEntries = entries
+	state.LocalKeypairs = keypairs
+	extensions = append(extensions, &extension.KeyShare{
+		ClientShares: entries,
+	})
+
+	extensions = append(extensions, &extension.SupportedVersions{
+		Versions: dtlsconfig.SupportedVersionsRange(cfg.MinVersion, cfg.MaxVersion),
+	})
+
+	if len(cfg.LocalCertSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
+			SignatureHashAlgorithms: cfg.LocalCertSignatureSchemes,
+		})
+	}
+
+	if len(cfg.ServerName) > 0 {
+		extensions = append(extensions, &extension.ServerName{ServerName: cfg.ServerName})
+	}
+
+	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
+		extensions = append(extensions, &extension.UseSRTP{
+			ProtectionProfiles:  cfg.LocalSRTPProtectionProfiles,
+			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
+		})
+	}
+
+	// connection ID
+
+	// Pre_shared_key must be last extension
+
+	clientHello := &handshake.MessageClientHello{
+		Version:   protocol.Version1_2,
+		SessionID: state.SessionID,
+		Cookie:    nil,
+		Random:    state.LocalRandom,
+		// Add DTLS 1.3 ciphersuites
+		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         extensions,
+	}
+
+	var content handshake.Handshake
+
+	if cfg.ClientHelloMessageHook != nil {
+		content = handshake.Handshake{Message: cfg.ClientHelloMessageHook(*clientHello)}
+	} else {
+		content = handshake.Handshake{Message: clientHello}
+	}
+
+	return []*dtlsflight.Packet{
+		{
+			Record: &recordlayer.RecordLayer{
+				Header: recordlayer.Header{
+					Version: protocol.Version1_2,
+				},
+				Content: &content,
+			},
+		},
+	}, nil, nil
+}
+
+// nolint:cyclop
+func flight1Parse(
+	ctx context.Context,
+	conn dtlsflight.Conn,
+	flightCtx *handshakeContext,
+) (Flight, *alert.Alert, error) {
+	state := flightCtx.state
+	cache := flightCtx.cache
+	cfg := flightCtx.cfg
+
+	seq, msgs, items, ok := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
+	)
+	if !ok {
+		// No valid message received. Keep reading
+		return 0, nil, nil
+	}
+
+	sh, ok := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello)
+	if !ok {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+
+	if !IsHelloRetryRequest(sh) {
+		// Flight1 and flight2 were skipped.
+		// Parse as flight3.
+		return flight3Parse(ctx, conn, flightCtx)
+	}
+	// Handle HelloRetryRequest
+
+	if !sh.Version.Equal(protocol.Version1_0) && !sh.Version.Equal(protocol.Version1_2) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+			dtlserrors.ErrUnsupportedProtocolVersion
+	}
+	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions); err != nil {
+		description := alert.IllegalParameter
+		if errors.Is(err, dtlserrors.ErrUnsupportedProtocolVersion) {
+			description = alert.ProtocolVersion
+		}
+
+		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
+	}
+	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(sh, cfg)
+	if err != nil {
+		return 0, dtlsAlert, err
+	}
+	state.CipherSuite = selectedCipherSuite
+
+	// nolint:godox
+	// TODO: negotiate minimial set of extensions necessary for the client
+	// to generate a correct CH pair. As with the ServerHello, a
+	// HelloRetryRequest MUST NOT contain any extensions that were not first
+	// offered by the client in its ClientHello, with the exception of
+	// optionally the "cookie" extension
+	for _, val := range sh.Extensions {
+		switch ext := val.(type) {
+		case *extension.SupportedVersions:
+			// nolint:godox
+			// TODO: negotiate version
+			state.RemoteVersions = ext.Versions
+		case *extension.CookieExt:
+			state.Cookie = ext.Cookie
+		case *extension.KeyShare:
+			if ext.SelectedGroup != nil {
+				state.RemoteKeyEntries = &[]extension.KeyShareEntry{
+					{Group: *ext.SelectedGroup},
+				}
+			}
+		}
+	}
+
+	if flightCtx.inboundHandshakeHandler != nil {
+		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, items); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
+	state.HandshakeRecvSequence = seq
+
+	return Flight3, nil, nil
+}

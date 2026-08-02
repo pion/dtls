@@ -5,15 +5,19 @@
 package flight13
 
 import (
+	"bytes"
 	"context"
 	"crypto"
+	"errors"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -295,4 +299,112 @@ func CertificateVerifyPacket(
 	pkt.CertificateVerifySigner = signer
 
 	return pkt
+}
+
+type serverHelloPull struct {
+	nextHandshakeSequence int
+	serverHello           *handshake.MessageServerHello
+	items                 []*dtlsflight.HandshakeCacheItem
+	ready                 bool
+	failure               *flightParseFailure
+}
+
+func IsHelloRetryRequest(sh *handshake.MessageServerHello) bool {
+	randomBytes := sh.Random.MarshalFixed()
+
+	return bytes.Equal(randomBytes[:], handshake.HelloRetryRequestRandom())
+}
+
+func ServerHelloSelectedVersions(extensions []extension.Extension) ([]protocol.Version, bool, error) {
+	seenSupportedVersions := false
+	var versions []protocol.Version
+	for _, val := range extensions {
+		supportedVersions, ok := val.(*extension.SupportedVersions)
+		if !ok {
+			continue
+		}
+		if seenSupportedVersions || !supportedVersions.IsSelectedVersion() || len(supportedVersions.Versions) != 1 {
+			return nil, true, dtlserrors.ErrInvalidServerHello
+		}
+		seenSupportedVersions = true
+		versions = supportedVersions.Versions
+	}
+
+	return versions, seenSupportedVersions, nil
+}
+
+func validateHelloRetryRequestSelectedVersion(extensions []extension.Extension) error {
+	versions, seenSupportedVersions, err := ServerHelloSelectedVersions(extensions)
+	if err != nil || !seenSupportedVersions {
+		return dtlserrors.ErrInvalidHelloRetryRequest
+	}
+	if !versions[0].Equal(protocol.Version1_3) {
+		return dtlserrors.ErrUnsupportedProtocolVersion
+	}
+
+	return nil
+}
+
+func selectServerHelloCipherSuite(
+	serverHello *handshake.MessageServerHello,
+	cfg *dtlsconfig.HandshakeConfig,
+) (dtlsconfig.CipherSuite, *alert.Alert, error) {
+	if serverHello.CipherSuiteID == nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
+			dtlserrors.ErrInvalidServerHello
+	}
+	remoteCipherSuite := ciphersuite.ForID(ciphersuite.ID(*serverHello.CipherSuiteID), cfg.CustomCipherSuites)
+	if remoteCipherSuite == nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
+			dtlserrors.ErrCipherSuiteNoIntersection
+	}
+	if !ciphersuite.IDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_3) {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
+			dtlserrors.ErrInvalidCipherSuite
+	}
+	selectedCipherSuite, found := dtlsflight.FindMatchingCipherSuite(
+		[]dtlsconfig.CipherSuite{remoteCipherSuite}, cfg.LocalCipherSuites,
+	)
+	if !found {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
+			dtlserrors.ErrInvalidCipherSuite
+	}
+
+	return selectedCipherSuite, nil, nil
+}
+
+func serverHelloKeyShare(extensions []extension.Extension) *extension.KeyShareEntry {
+	for _, ext := range extensions {
+		keyShare, ok := ext.(*extension.KeyShare)
+		if !ok || keyShare.ServerShare == nil {
+			continue
+		}
+
+		return keyShare.ServerShare
+	}
+
+	return nil
+}
+
+func protectedFlightParseFailure(err error) *flightParseFailure {
+	switch {
+	case errors.Is(err, dtlserrors.ErrVerifyDataMismatch):
+		return newFlightParseFailure(alert.HandshakeFailure, err)
+	case errors.Is(err, dtlserrors.ErrCertificateVerifyNoCertificate):
+		return newFlightParseFailure(alert.NoCertificate, err)
+	case errors.Is(err, dtlserrors.ErrClientCertificateRequired):
+		return newFlightParseFailure(alert.CertificateRequired, err)
+	case errors.Is(err, dtlserrors.ErrKeySignatureMismatch),
+		errors.Is(err, dtlserrors.ErrInvalidCertificate),
+		errors.Is(err, dtlserrors.ErrCertificateVerificationFailed),
+		errors.Is(err, dtlserrors.ErrClientCertificateNotVerified),
+		errors.Is(err, dtlserrors.ErrInvalidCertificateOID),
+		errors.Is(err, dtlserrors.ErrInvalidCertificateSignatureAlgorithm),
+		errors.Is(err, dtlserrors.ErrNotAcceptableCertificateChain):
+		return newFlightParseFailure(alert.BadCertificate, err)
+	case errors.Is(err, dtlserrors.ErrNoAvailableSignatureSchemes):
+		return newFlightParseFailure(alert.InsufficientSecurity, err)
+	default:
+		return newFlightParseFailure(alert.InternalError, err)
+	}
 }
