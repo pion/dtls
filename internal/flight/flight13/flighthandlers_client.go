@@ -48,34 +48,12 @@ import (
 // | Flight 5c |
 // +-----------+
 
-type flightParseFailure struct {
-	alert *alert.Alert
-	err   error
-}
-
 type serverHelloPull struct {
 	nextHandshakeSequence int
 	serverHello           *handshake.MessageServerHello
 	items                 []*dtlsflight.HandshakeCacheItem
 	ready                 bool
 	failure               *flightParseFailure
-}
-
-type protectedFlightPull struct {
-	nextHandshakeSequence int
-	items                 []*dtlsflight.HandshakeCacheItem
-	ready                 bool
-	failure               *flightParseFailure
-}
-
-func newFlightParseFailure(
-	description alert.Description,
-	err error,
-) *flightParseFailure {
-	return &flightParseFailure{
-		alert: &alert.Alert{Level: alert.Fatal, Description: description},
-		err:   err,
-	}
 }
 
 func IsHelloRetryRequest(sh *handshake.MessageServerHello) bool {
@@ -251,7 +229,17 @@ func flight3Parse(
 		return 0, failure.alert, failure.err
 	}
 
-	protectedFlight := flight3PullProtectedFlight(flightCtx, pull.nextHandshakeSequence)
+	protectedFlight := pullProtectedHandshakeFlight(
+		flightCtx.cache,
+		[]dtlsflight.HandshakeCachePullRule{
+			{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false, Optional: false},
+			{Typ: handshake.TypeCertificateRequest, Epoch: EpochHandshake, IsClient: false, Optional: true},
+			{Typ: handshake.TypeCertificate, Epoch: EpochHandshake, IsClient: false, Optional: true},
+			{Typ: handshake.TypeCertificateVerify, Epoch: EpochHandshake, IsClient: false, Optional: true},
+			{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false, Optional: false},
+		},
+		pull.nextHandshakeSequence,
+	)
 	if !protectedFlight.ready {
 		return 0, nil, nil
 	}
@@ -408,102 +396,6 @@ func initializeFlight3HandshakeProtection(
 	}
 
 	return nil
-}
-
-func flight3PullProtectedFlight(
-	flightCtx *handshakeContext,
-	nextHandshakeSequence int,
-) protectedFlightPull {
-	rules := []dtlsflight.HandshakeCachePullRule{
-		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false, Optional: false},
-		{Typ: handshake.TypeCertificateRequest, Epoch: EpochHandshake, IsClient: false, Optional: true},
-		{Typ: handshake.TypeCertificate, Epoch: EpochHandshake, IsClient: false, Optional: true},
-		{Typ: handshake.TypeCertificateVerify, Epoch: EpochHandshake, IsClient: false, Optional: true},
-		{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false, Optional: false},
-	}
-	pulled := flightCtx.cache.Pull(rules...)
-	if pulled[0] == nil || pulled[len(pulled)-1] == nil {
-		return protectedFlightPull{}
-	}
-
-	seq := nextHandshakeSequence
-	items := make([]*dtlsflight.HandshakeCacheItem, 0, len(pulled))
-	for i, item := range pulled {
-		if item == nil {
-			continue
-		}
-		if failure := validateFlight3ProtectedHandshakeItem(
-			item,
-			rules[i].Typ,
-			uint16(seq), //nolint:gosec // G115
-		); failure != nil {
-			if failure.err == nil {
-				return protectedFlightPull{}
-			}
-
-			return protectedFlightPull{ready: true, failure: failure}
-		}
-		seq++
-		items = append(items, item)
-	}
-
-	return protectedFlightPull{
-		nextHandshakeSequence: seq,
-		items:                 items,
-		ready:                 true,
-	}
-}
-
-func validateFlight3ProtectedHandshakeItem(
-	item *dtlsflight.HandshakeCacheItem,
-	expectedType handshake.Type,
-	expectedSequence uint16,
-) *flightParseFailure {
-	if item.MessageSequence != expectedSequence {
-		return &flightParseFailure{}
-	}
-	if item.Typ != expectedType {
-		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
-	}
-
-	header := &handshake.Header{}
-	if err := header.Unmarshal(item.Data); err != nil {
-		return newFlightParseFailure(alert.DecodeError, err)
-	}
-	if header.Type != expectedType || header.MessageSequence != expectedSequence {
-		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
-	}
-	if header.FragmentOffset != 0 ||
-		header.FragmentLength != header.Length ||
-		len(item.Data) != handshake.HeaderLength+int(header.Length) {
-		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
-	}
-
-	if err := unmarshalFlight3ProtectedHandshakeMessage(expectedType, item.Data[handshake.HeaderLength:]); err != nil {
-		return newFlightParseFailure(alert.DecodeError, err)
-	}
-
-	return nil
-}
-
-func unmarshalFlight3ProtectedHandshakeMessage(typ handshake.Type, body []byte) error {
-	var msg handshake.Message
-	switch typ {
-	case handshake.TypeEncryptedExtensions:
-		msg = &handshake.MessageEncryptedExtensions{}
-	case handshake.TypeCertificateRequest:
-		msg = &handshake.MessageCertificateRequest13{}
-	case handshake.TypeCertificate:
-		msg = &handshake.MessageCertificate13{}
-	case handshake.TypeCertificateVerify:
-		msg = &handshake.MessageCertificateVerify{}
-	case handshake.TypeFinished:
-		msg = &handshake.MessageFinished{}
-	default:
-		return dtlserrors.ErrInvalidHandshakeTranscriptMessage
-	}
-
-	return msg.Unmarshal(body)
 }
 
 func handleFlight3ProtectedHandshake(

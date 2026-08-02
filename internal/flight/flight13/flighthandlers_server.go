@@ -333,47 +333,32 @@ func flight4Parse(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
-	rules := []dtlsflight.HandshakeCachePullRule{
-		{Typ: handshake.TypeCertificate, Epoch: EpochHandshake, IsClient: true, Optional: true},
-		{Typ: handshake.TypeCertificateVerify, Epoch: EpochHandshake, IsClient: true, Optional: true},
-		{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: true, Optional: false},
-	}
-	pulled := flightCtx.cache.Pull(rules...)
-	if pulled[len(pulled)-1] == nil {
+	protectedFlight := pullProtectedHandshakeFlight(
+		flightCtx.cache,
+		[]dtlsflight.HandshakeCachePullRule{
+			{Typ: handshake.TypeCertificate, Epoch: EpochHandshake, IsClient: true, Optional: true},
+			{Typ: handshake.TypeCertificateVerify, Epoch: EpochHandshake, IsClient: true, Optional: true},
+			{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: true, Optional: false},
+		},
+		flightCtx.state.HandshakeRecvSequence,
+	)
+	if !protectedFlight.ready {
 		return 0, nil, nil
 	}
-
-	seq := flightCtx.state.HandshakeRecvSequence
-	items := make([]*dtlsflight.HandshakeCacheItem, 0, len(pulled))
-	for i, item := range pulled {
-		if item == nil {
-			continue
-		}
-		if failure := validateFlight3ProtectedHandshakeItem(
-			item,
-			rules[i].Typ,
-			uint16(seq), //nolint:gosec // G115
-		); failure != nil {
-			if failure.err == nil {
-				return 0, nil, nil
-			}
-
-			return 0, failure.alert, failure.err
-		}
-		seq++
-		items = append(items, item)
+	if protectedFlight.failure != nil {
+		return 0, protectedFlight.failure.alert, protectedFlight.failure.err
 	}
 
 	if flightCtx.protectedHandshakeHandler == nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
 			dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
-	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
+	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, protectedFlight.items); err != nil {
 		failure := protectedFlightParseFailure(err)
 
 		return 0, failure.alert, failure.err
 	}
-	flightCtx.state.HandshakeRecvSequence = seq
+	flightCtx.state.HandshakeRecvSequence = protectedFlight.nextHandshakeSequence
 
 	// Returning the current flight marks the server's last receive flight.
 	return Flight4, nil, nil
