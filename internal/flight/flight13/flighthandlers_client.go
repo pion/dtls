@@ -805,7 +805,7 @@ func flight5Generate(
 	if err != nil {
 		return nil, dtlsAlert, err
 	}
-	pkts = append(pkts, flight5HandshakePacket(&handshake.MessageFinished{}))
+	pkts = append(pkts, HandshakePacket(&handshake.MessageFinished{}))
 	pkts[0].ResetLocalSequenceNumber = true
 
 	return pkts, nil, nil
@@ -828,7 +828,7 @@ func flight5ClientAuthPackets(
 	}
 	if len(certificate.Certificate) == 0 {
 		return []*dtlsflight.Packet{
-			flight5HandshakePacket(&handshake.MessageCertificate13{
+			HandshakePacket(&handshake.MessageCertificate13{
 				CertificateRequestContext: append(
 					[]byte(nil),
 					certificateRequest.CertificateRequestContext...,
@@ -852,14 +852,14 @@ func flight5ClientAuthPackets(
 	}
 
 	return []*dtlsflight.Packet{
-		flight5HandshakePacket(&handshake.MessageCertificate13{
+		HandshakePacket(&handshake.MessageCertificate13{
 			CertificateRequestContext: append(
 				[]byte(nil),
 				certificateRequest.CertificateRequestContext...,
 			),
 			CertificateList: certificateEntries13(certificate.Certificate),
 		}),
-		flight5CertificateVerifyPacket(
+		CertificateVerifyPacket(
 			&handshake.MessageCertificateVerify{
 				HashAlgorithm:      signatureScheme.Hash,
 				SignatureAlgorithm: signatureScheme.Signature,
@@ -961,27 +961,4 @@ func certificateEntries13(certificates [][]byte) []handshake.CertificateEntry13 
 	}
 
 	return entries
-}
-
-func flight5HandshakePacket(message handshake.Message) *dtlsflight.Packet {
-	return &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   EpochHandshake,
-			},
-			Content: &handshake.Handshake{Message: message},
-		},
-		ShouldEncrypt: true,
-	}
-}
-
-func flight5CertificateVerifyPacket(
-	message *handshake.MessageCertificateVerify,
-	signer crypto.Signer,
-) *dtlsflight.Packet {
-	pkt := flight5HandshakePacket(message)
-	pkt.CertificateVerifySigner = signer
-
-	return pkt
 }

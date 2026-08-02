@@ -6,11 +6,15 @@ package flight13
 
 import (
 	"context"
+	"crypto"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 const (
@@ -134,4 +138,27 @@ func Parse(
 	})
 
 	return nextFlight, dtlsAlert, err, true
+}
+
+func HandshakePacket(message handshake.Message) *dtlsflight.Packet {
+	return &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+				Epoch:   EpochHandshake,
+			},
+			Content: &handshake.Handshake{Message: message},
+		},
+		ShouldEncrypt: true,
+	}
+}
+
+func CertificateVerifyPacket(
+	message *handshake.MessageCertificateVerify,
+	signer crypto.Signer,
+) *dtlsflight.Packet {
+	pkt := HandshakePacket(message)
+	pkt.CertificateVerifySigner = signer
+
+	return pkt
 }

@@ -621,22 +621,22 @@ func flight4Generate(
 		},
 	}
 
-	encryptedExtensions := flight5HandshakePacket(&handshake.MessageEncryptedExtensions{})
+	encryptedExtensions := HandshakePacket(&handshake.MessageEncryptedExtensions{})
 	encryptedExtensions.ResetLocalSequenceNumber = true
 
 	return []*dtlsflight.Packet{
 		serverHello,
 		encryptedExtensions,
-		flight5HandshakePacket(&handshake.MessageCertificate13{
+		HandshakePacket(&handshake.MessageCertificate13{
 			CertificateList: certificateEntries13(certificate.Certificate),
 		}),
-		flight5CertificateVerifyPacket(
+		CertificateVerifyPacket(
 			&handshake.MessageCertificateVerify{
 				HashAlgorithm:      signatureScheme.Hash,
 				SignatureAlgorithm: signatureScheme.Signature,
 			},
 			signer,
 		),
-		flight5HandshakePacket(&handshake.MessageFinished{}),
+		HandshakePacket(&handshake.MessageFinished{}),
 	}, nil, nil
 }
