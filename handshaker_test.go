@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -163,10 +164,10 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 		"SlowServerTest": func() (TestEndpoint, TestEndpoint, func(t *testing.T)) {
 			var (
 				cntClientFinished               = 0
-				isClientFinished                = false
+				isClientFinished                atomic.Bool
 				cntClientFinishedLastRetransmit = 0
 				cntServerFinished               = 0
-				isServerFinished                = false
+				isServerFinished                atomic.Bool
 				cntServerFinishedLastRetransmit = 0
 			)
 
@@ -177,7 +178,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 						return true
 					}
 					if _, ok := h.Message.(*handshake.MessageFinished); ok {
-						if isClientFinished {
+						if isClientFinished.Load() {
 							cntClientFinishedLastRetransmit++
 						} else {
 							cntClientFinished++
@@ -188,7 +189,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 				},
 				Delay: 0,
 				OnFinished: func() {
-					isClientFinished = true
+					isClientFinished.Store(true)
 				},
 				FinishWait: 2000 * time.Millisecond,
 			}
@@ -200,7 +201,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 						return true
 					}
 					if _, ok := h.Message.(*handshake.MessageFinished); ok {
-						if isServerFinished {
+						if isServerFinished.Load() {
 							cntServerFinishedLastRetransmit++
 						} else {
 							cntServerFinished++
@@ -211,7 +212,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 				},
 				Delay: 1000 * time.Millisecond,
 				OnFinished: func() {
-					isServerFinished = true
+					isServerFinished.Store(true)
 				},
 				FinishWait: 2000 * time.Millisecond,
 			}
@@ -224,11 +225,11 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 				// using a range of 3 - 5 for checking.
 				assert.LessOrEqual(t, 3, cntClientFinished, "Number of client finished should be greater than 3")
 				assert.GreaterOrEqual(t, 5, cntClientFinished, "Number of client finished should be less than 5")
-				assert.True(t, isClientFinished)
+				assert.True(t, isClientFinished.Load())
 				// there should be no `Finished` last retransmit from client
 				assert.Equal(t, 0, cntClientFinishedLastRetransmit, "Number of client finished last retransmit greater than zero")
 				assert.LessOrEqual(t, 1, cntServerFinished, "Number of server finished less than 1")
-				assert.True(t, isServerFinished)
+				assert.True(t, isServerFinished.Load())
 				// there should be `Finished` last retransmit from server.
 				// Because of slow server, client would have sent several `Finished`.
 				assert.LessOrEqual(t, 1, cntServerFinished, "Number of server finished last retransmit is less than 1")
@@ -309,24 +310,27 @@ func runHandshakeFSM12ForTest(
 	t.Helper()
 
 	cfg := &dtlsconfig.HandshakeConfig{
-		LocalCipherSuites:     cipherSuites,
-		LocalCertificates:     []tls.Certificate{clientCert},
-		EllipticCurves:        defaultCurves,
-		LocalSignatureSchemes: signaturehash.Algorithms(),
-		InsecureSkipVerify:    true,
-		Log:                   logger,
-		OnFlightState: func(_ uint8, state uint8) {
-			if dtlshandshake.State(state) == dtlshandshake.StateFinished {
-				if endpoint.OnFinished != nil {
-					endpoint.OnFinished()
-				}
-				time.AfterFunc(endpoint.FinishWait, cancel)
-			}
-		},
+		LocalCipherSuites:         cipherSuites,
+		LocalCertificates:         []tls.Certificate{clientCert},
+		EllipticCurves:            defaultCurves,
+		LocalSignatureSchemes:     signaturehash.Algorithms(),
+		InsecureSkipVerify:        true,
+		Log:                       logger,
 		InitialRetransmitInterval: nonZeroRetransmitInterval,
 	}
+	establishment := dtlshandshake.NewEstablishment()
+	go func() {
+		select {
+		case <-establishment.Done():
+			if endpoint.OnFinished != nil {
+				endpoint.OnFinished()
+			}
+			time.AfterFunc(endpoint.FinishWait, cancel)
+		case <-ctx.Done():
+		}
+	}()
 
-	fsm := dtlshandshake.NewFSM12(&conn.state, conn.handshakeCache, cfg, initialFlight, nil)
+	fsm := dtlshandshake.NewFSM12(&conn.state, conn.handshakeCache, cfg, initialFlight, nil, establishment)
 	err := fsm.Run(ctx, handshakeConnAdapter{conn}, dtlshandshake.StatePreparing)
 	switch {
 	case errors.Is(err, context.Canceled):

@@ -126,7 +126,6 @@ type HandshakeConfig struct {
 	InsecureSkipHelloVerify       bool
 	ConnectionIDGenerator         func() []byte
 	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
-	OnFlightState                 func(flight, state uint8)
 	Log                           logging.LeveledLogger
 	KeyLogWriter                  io.Writer
 	LocalGetCertificate           func(*ClientHelloInfo) (*tls.Certificate, error)
@@ -138,7 +137,6 @@ type HandshakeConfig struct {
 	ResumeState                   *internalstate.State
 	MinVersion                    protocol.Version
 	MaxVersion                    protocol.Version
-	OnFlightState13               func(flight, state uint8)
 
 	nameToCertificate map[string]*tls.Certificate
 	mu                sync.Mutex
