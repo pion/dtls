@@ -473,25 +473,7 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				ctx,
 				s.currentFlight,
 				conn,
-				s.state,
-				s.cache,
-				s.cfg,
-				func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
-					return AppendVerifiedInboundHandshakeCacheItems(s.transcript, cipherSuite, items)
-				},
-				func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
-					return VerifyAndAppendProtectedHandshakeCacheItems13(
-						s.transcript,
-						s.state,
-						s.cfg,
-						cipherSuite,
-						items,
-					)
-				},
-				func(state *dtlsstate.State13) error {
-					return DeriveAndStoreHandshakeTrafficSecrets(state, s.transcript)
-				},
-				InitHandshakeRecordProtection,
+				s.parseDependencies(),
 			)
 			if !ok {
 				if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
@@ -561,6 +543,32 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 
 			return StateErrored, ctx.Err()
 		}
+	}
+}
+
+func (s *fsm13) parseDependencies() dtlsflight13.ParseDependencies {
+	return dtlsflight13.ParseDependencies{
+		State:  s.state,
+		Cache:  s.cache,
+		Config: s.cfg,
+		Hooks: dtlsflight13.ParseHooks{
+			InboundHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+				return AppendVerifiedInboundHandshakeCacheItems(s.transcript, cipherSuite, items)
+			},
+			ProtectedHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+				return VerifyAndAppendProtectedHandshakeCacheItems13(
+					s.transcript,
+					s.state,
+					s.cfg,
+					cipherSuite,
+					items,
+				)
+			},
+			HandshakeTrafficSecretDeriver: func(state *dtlsstate.State13) error {
+				return DeriveAndStoreHandshakeTrafficSecrets(state, s.transcript)
+			},
+			HandshakeRecordProtectionInitializer: InitHandshakeRecordProtection,
+		},
 	}
 }
 

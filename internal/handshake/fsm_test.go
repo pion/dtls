@@ -1295,13 +1295,11 @@ func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
 		context.Background(),
 		dtlsflight13.Flight0,
 		nil,
-		serverState,
-		serverCache,
-		cfg,
-		nil,
-		nil,
-		nil,
-		nil,
+		dtlsflight13.ParseDependencies{
+			State:  serverState,
+			Cache:  serverCache,
+			Config: cfg,
+		},
 	)
 	require.True(t, ok)
 	require.NoError(t, err)

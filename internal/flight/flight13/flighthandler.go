@@ -52,6 +52,24 @@ type HandshakeTrafficSecretDeriver func(*dtlsstate.State13) error
 
 type HandshakeRecordProtectionInitializer func(*dtlsstate.State13) error
 
+// ParseHooks provides the DTLS 1.3 handshake operations invoked while parsing
+// a flight.
+type ParseHooks struct {
+	InboundHandshake                     InboundHandshakeHandler
+	ProtectedHandshake                   ProtectedHandshakeHandler
+	HandshakeTrafficSecretDeriver        HandshakeTrafficSecretDeriver
+	HandshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer
+}
+
+// ParseDependencies provides the state and callbacks required to parse a DTLS
+// 1.3 flight.
+type ParseDependencies struct {
+	State  *dtlsstate.State13
+	Cache  *dtlsflight.Cache
+	Config *dtlsconfig.HandshakeConfig
+	Hooks  ParseHooks
+}
+
 type handshakeContext struct {
 	state                                *dtlsstate.State13
 	cache                                *dtlsflight.Cache
@@ -60,6 +78,18 @@ type handshakeContext struct {
 	protectedHandshakeHandler            ProtectedHandshakeHandler
 	handshakeTrafficSecretDeriver        HandshakeTrafficSecretDeriver
 	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer
+}
+
+func newHandshakeContext(dependencies ParseDependencies) *handshakeContext {
+	return &handshakeContext{
+		state:                                dependencies.State,
+		cache:                                dependencies.Cache,
+		cfg:                                  dependencies.Config,
+		inboundHandshakeHandler:              dependencies.Hooks.InboundHandshake,
+		protectedHandshakeHandler:            dependencies.Hooks.ProtectedHandshake,
+		handshakeTrafficSecretDeriver:        dependencies.Hooks.HandshakeTrafficSecretDeriver,
+		handshakeRecordProtectionInitializer: dependencies.Hooks.HandshakeRecordProtectionInitializer,
+	}
 }
 
 func getFlightParser(f Flight) (flightParser, bool) {
@@ -86,7 +116,11 @@ func adaptFlightGenerator(gen contextFlightGenerator) Generator {
 		cache *dtlsflight.Cache,
 		cfg *dtlsconfig.HandshakeConfig,
 	) ([]*dtlsflight.Packet, *alert.Alert, error) {
-		return gen(conn, &handshakeContext{state: state, cache: cache, cfg: cfg})
+		return gen(conn, newHandshakeContext(ParseDependencies{
+			State:  state,
+			Cache:  cache,
+			Config: cfg,
+		}))
 	}
 }
 
@@ -114,28 +148,14 @@ func Parse(
 	ctx context.Context,
 	f Flight,
 	conn dtlsflight.Conn,
-	state *dtlsstate.State13,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-	inboundHandshakeHandler InboundHandshakeHandler,
-	protectedHandshakeHandler ProtectedHandshakeHandler,
-	handshakeTrafficSecretDeriver HandshakeTrafficSecretDeriver,
-	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer,
+	dependencies ParseDependencies,
 ) (Flight, *alert.Alert, error, bool) {
 	parse, ok := getFlightParser(f)
 	if !ok {
 		return 0, nil, nil, false
 	}
 
-	nextFlight, dtlsAlert, err := parse(ctx, conn, &handshakeContext{
-		state:                                state,
-		cache:                                cache,
-		cfg:                                  cfg,
-		inboundHandshakeHandler:              inboundHandshakeHandler,
-		protectedHandshakeHandler:            protectedHandshakeHandler,
-		handshakeTrafficSecretDeriver:        handshakeTrafficSecretDeriver,
-		handshakeRecordProtectionInitializer: handshakeRecordProtectionInitializer,
-	})
+	nextFlight, dtlsAlert, err := parse(ctx, conn, newHandshakeContext(dependencies))
 
 	return nextFlight, dtlsAlert, err, true
 }

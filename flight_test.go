@@ -89,25 +89,29 @@ func flight13ParseForTestWithConn(
 		ctx,
 		flight,
 		conn,
-		flightCtx.state,
-		flightCtx.cache,
-		flightCtx.cfg,
-		func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
-			return dtlshandshake.AppendVerifiedInboundHandshakeCacheItems(flightCtx.transcript, cipherSuite, items)
+		dtlsflight13.ParseDependencies{
+			State:  flightCtx.state,
+			Cache:  flightCtx.cache,
+			Config: flightCtx.cfg,
+			Hooks: dtlsflight13.ParseHooks{
+				InboundHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+					return dtlshandshake.AppendVerifiedInboundHandshakeCacheItems(flightCtx.transcript, cipherSuite, items)
+				},
+				ProtectedHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+					return dtlshandshake.VerifyAndAppendProtectedHandshakeCacheItems13(
+						flightCtx.transcript,
+						flightCtx.state,
+						flightCtx.cfg,
+						cipherSuite,
+						items,
+					)
+				},
+				HandshakeTrafficSecretDeriver: func(state *dtlsstate.State13) error {
+					return dtlshandshake.DeriveAndStoreHandshakeTrafficSecrets(state, flightCtx.transcript)
+				},
+				HandshakeRecordProtectionInitializer: dtlshandshake.InitHandshakeRecordProtection,
+			},
 		},
-		func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
-			return dtlshandshake.VerifyAndAppendProtectedHandshakeCacheItems13(
-				flightCtx.transcript,
-				flightCtx.state,
-				flightCtx.cfg,
-				cipherSuite,
-				items,
-			)
-		},
-		func(state *dtlsstate.State13) error {
-			return dtlshandshake.DeriveAndStoreHandshakeTrafficSecrets(state, flightCtx.transcript)
-		},
-		dtlshandshake.InitHandshakeRecordProtection,
 	)
 	require.True(testingT, ok)
 
