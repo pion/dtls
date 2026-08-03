@@ -108,7 +108,6 @@ func TestReplayProtection(t *testing.T) { //nolint:cyclop
 
 	replaySendDone()
 	<-ctxReplayDone.Done()
-	time.Sleep(10 * time.Millisecond) // Ensure all replayed packets are sent
 
 	for i := range 4 {
 		assert.NoError(t, conn[i].Close())

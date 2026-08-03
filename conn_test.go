@@ -2185,8 +2185,6 @@ func TestProtocolVersionValidation(t *testing.T) {
 					assert.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 				}()
 
-				time.Sleep(50 * time.Millisecond)
-
 				resp := make([]byte, 1024)
 				for _, record := range serverCase.records {
 					packet, err := record.Marshal()
@@ -2267,8 +2265,6 @@ func TestProtocolVersionValidation(t *testing.T) {
 					_, err := testClient(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), clientOpts, true)
 					assert.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 				}()
-
-				time.Sleep(50 * time.Millisecond)
 
 				for _, record := range clientCase.records {
 					_, err := ca.Read(make([]byte, 1024))
@@ -2603,8 +2599,6 @@ func TestRenegotationInfo(t *testing.T) {
 				assert.ErrorIs(t, err, context.Canceled)
 			}()
 
-			time.Sleep(50 * time.Millisecond)
-
 			extensions := []extension.Extension{}
 			if test.SendRenegotiationInfoExt {
 				extensions = append(extensions, &extension.RenegotiationInfo{
@@ -2728,7 +2722,7 @@ func TestServerNameIndicationExtension(t *testing.T) {
 	}
 }
 
-func TestALPNExtension(t *testing.T) {
+func TestALPNExtension(t *testing.T) { //nolint:cyclop
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -2797,12 +2791,14 @@ func TestALPNExtension(t *testing.T) {
 			defer cancel()
 
 			ca, cb := dpipe.Pipe()
+			clientDone := make(chan error, 1)
 			go func() {
 				var opts []ClientOption
 				if len(test.ClientProtocolNameList) > 0 {
 					opts = append(opts, WithSupportedProtocols(test.ClientProtocolNameList...))
 				}
-				_, _ = testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, false)
+				_, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, false)
+				clientDone <- err
 			}()
 
 			// Receive ClientHello
@@ -2814,18 +2810,15 @@ func TestALPNExtension(t *testing.T) {
 			defer cancel2()
 
 			ca2, cb2 := dpipe.Pipe()
+			serverDone := make(chan error, 1)
 			go func() {
 				var opts []ServerOption
 				if len(test.ServerProtocolNameList) > 0 {
 					opts = append(opts, WithSupportedProtocols(test.ServerProtocolNameList...))
 				}
-				_, err2 := testServer(ctx2, dtlsnet.PacketConnFromConn(cb2), cb2.RemoteAddr(), opts, true)
-				if test.ExpectAlertFromServer {
-					assert.NotErrorIs(t, err2, context.Canceled)
-				}
+				_, serverErr := testServer(ctx2, dtlsnet.PacketConnFromConn(cb2), cb2.RemoteAddr(), opts, true)
+				serverDone <- serverErr
 			}()
-
-			time.Sleep(50 * time.Millisecond)
 
 			// Forward ClientHello
 			_, err = ca2.Write(resp[:n])
@@ -2906,7 +2899,21 @@ func TestALPNExtension(t *testing.T) {
 				}
 			}
 
-			time.Sleep(50 * time.Millisecond) // Give some time for returned errors
+			switch {
+			case test.ExpectAlertFromServer:
+				assert.NotErrorIs(t, <-serverDone, context.Canceled)
+				cancel()
+				<-clientDone
+			case test.ExpectAlertFromClient:
+				<-clientDone
+				cancel2()
+				<-serverDone
+			default:
+				cancel()
+				cancel2()
+				<-clientDone
+				<-serverDone
+			}
 		})
 	}
 }
@@ -2938,8 +2945,6 @@ func TestSupportedGroupsExtension(t *testing.T) {
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 			},
 		}
-
-		time.Sleep(50 * time.Millisecond)
 
 		resp := make([]byte, 1024)
 		err := sendClientHello([]byte{}, ca, 0, extensions)

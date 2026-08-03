@@ -101,9 +101,6 @@ func serverOpenSSL(c *comm) {
 			return
 		}
 
-		// Ensure that server has started
-		time.Sleep(500 * time.Millisecond)
-
 		c.serverReady <- struct{}{}
 		simpleReadWrite(c.errChan, c.serverChan, c.serverConn, c.messageRecvCount)
 		c.serverDone <- cmd.Process.Kill()

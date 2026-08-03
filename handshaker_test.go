@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -461,9 +462,7 @@ func (c *flightTestConn) WritePackets(_ context.Context, pkts []*dtlsflight.Pack
 		case <-c.done:
 		}
 	}()
-
-	// Avoid deadlock on JS/WASM environment due to context switch problem.
-	time.Sleep(10 * time.Millisecond)
+	runtime.Gosched()
 
 	return nil
 }

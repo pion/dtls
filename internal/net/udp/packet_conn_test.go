@@ -111,8 +111,14 @@ func TestListenerCloseUnaccepted(t *testing.T) {
 	const backlog = 2
 
 	network, addr := getConfig()
+	processed := make(chan struct{}, backlog)
 	listener, err := (&ListenConfig{
 		Backlog: backlog,
+		AcceptFilter: func([]byte) bool {
+			processed <- struct{}{}
+
+			return true
+		},
 	}).Listen(network, addr)
 	assert.NoError(t, err)
 
@@ -130,7 +136,9 @@ func TestListenerCloseUnaccepted(t *testing.T) {
 		assert.NoError(t, conn.Close())
 	}
 
-	time.Sleep(100 * time.Millisecond) // Wait all packets being processed by readLoop
+	for range backlog {
+		<-processed
+	}
 
 	// Unaccepted connections must be closed by listener.Close()
 	assert.NoError(t, listener.Close())
@@ -162,8 +170,11 @@ func TestListenerAcceptFilter(t *testing.T) {
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
 			network, addr := getConfig()
+			filterCalled := make(chan struct{})
 			listener, err := (&ListenConfig{
 				AcceptFilter: func(pkt []byte) bool {
+					close(filterCalled)
+
 					return pkt[0] == 0xAA
 				},
 			}).Listen(network, addr)
@@ -187,28 +198,28 @@ func TestListenerAcceptFilter(t *testing.T) {
 				assert.NoError(t, conn.Close())
 			}()
 
-			chAccepted := make(chan struct{})
+			acceptResult := make(chan error, 1)
 			go func() {
 				defer wgAcceptLoop.Done()
 
 				conn, _, aArr := listener.Accept()
-				if aArr != nil {
-					assert.ErrorIs(t, aArr, ErrClosedListener)
-
-					return
+				if aArr == nil {
+					aArr = conn.Close()
 				}
-				close(chAccepted)
-				assert.NoError(t, conn.Close())
+				acceptResult <- aArr
 			}()
 
-			var accepted bool
-			select {
-			case <-chAccepted:
-				accepted = true
-			case <-time.After(10 * time.Millisecond):
+			<-filterCalled
+			if !testCase.accept {
+				assert.NoError(t, listener.Close())
 			}
 
-			assert.Equal(t, testCase.accept, accepted)
+			acceptErr := <-acceptResult
+			if testCase.accept {
+				assert.NoError(t, acceptErr)
+			} else {
+				assert.ErrorIs(t, acceptErr, ErrClosedListener)
+			}
 		})
 	}
 }
@@ -225,12 +236,20 @@ func TestListenerConcurrent(t *testing.T) {
 	const backlog = 2
 
 	network, addr := getConfig()
+	processed := make(chan struct{}, backlog+2)
 	listener, err := (&ListenConfig{
 		Backlog: backlog,
+		AcceptFilter: func(packet []byte) bool {
+			processed <- struct{}{}
+
+			// The final packet is a barrier. AcceptFilter runs under connLock,
+			// so reaching it proves the overflow packet was already discarded.
+			return packet[0] != backlog+1
+		},
 	}).Listen(network, addr)
 	assert.NoError(t, err)
 
-	for i := range backlog + 1 {
+	for i := range backlog + 2 {
 		addr, ok := listener.Addr().(*net.UDPAddr)
 		assert.True(t, ok)
 		conn, dErr := net.DialUDP(network, nil, addr)
@@ -244,7 +263,9 @@ func TestListenerConcurrent(t *testing.T) {
 		assert.NoError(t, conn.Close())
 	}
 
-	time.Sleep(100 * time.Millisecond) // Wait all packets being processed by readLoop
+	for range backlog + 2 {
+		<-processed
+	}
 
 	for i := range backlog {
 		conn, _, lErr := listener.Accept()
@@ -261,9 +282,11 @@ func TestListenerConcurrent(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
+	acceptStarted := make(chan struct{})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		close(acceptStarted)
 		conn, _, lErr := listener.Accept()
 		assert.ErrorIs(t, lErr, ErrClosedListener)
 		if lErr == nil {
@@ -271,7 +294,7 @@ func TestListenerConcurrent(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(100 * time.Millisecond) // Last Accept should be discarded
+	<-acceptStarted
 	assert.NoError(t, listener.Close())
 
 	wg.Wait()

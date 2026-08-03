@@ -240,9 +240,11 @@ func TestBufferAsync(t *testing.T) {
 
 	// Start up a goroutine to start a blocking read.
 	done := make(chan string)
+	readStarted := make(chan struct{})
 	go func() {
 		packet := make([]byte, 4)
 
+		readStarted <- struct{}{}
 		n, raddr, rErr := buffer.ReadFrom(packet)
 		if rErr != nil {
 			done <- rErr.Error()
@@ -254,6 +256,7 @@ func TestBufferAsync(t *testing.T) {
 		equalBytes(t, []byte{0, 1}, packet[:n])
 		equalUDPAddr(t, addr, raddr)
 
+		readStarted <- struct{}{}
 		_, _, readErr := buffer.ReadFrom(packet)
 		if !errors.Is(readErr, io.EOF) {
 			done <- fmt.Sprintf("Unexpected err %v wanted io.EOF", readErr)
@@ -262,16 +265,14 @@ func TestBufferAsync(t *testing.T) {
 		}
 	}()
 
-	// Wait for the reader to start reading.
-	time.Sleep(time.Millisecond)
+	<-readStarted
 
 	// Write once
 	n, err := buffer.WriteTo([]byte{0, 1}, addr)
 	assert.NoError(t, err)
 	equalInt(t, 2, n)
 
-	// Wait for the reader to start reading again.
-	time.Sleep(time.Millisecond)
+	<-readStarted
 
 	// Close will unblock the reader.
 	assert.NoError(t, buffer.Close())
@@ -384,7 +385,7 @@ func benchmarkBuffer(b *testing.B, size int64) {
 			if !errors.Is(err, bytes.ErrTooLarge) {
 				break
 			}
-			time.Sleep(time.Microsecond)
+			runtime.Gosched()
 		}
 		assert.NoError(b, err)
 	}
