@@ -100,7 +100,7 @@ func flight3Parse(
 		if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrClientRequiredButNoServerEMS //nolint:lll
 		}
-		if len(cfg.LocalSRTPProtectionProfiles) > 0 && state.GetSRTPProtectionProfile() == 0 {
+		if len(cfg.LocalSRTPProtectionProfiles) > 0 && state.SRTPProtectionProfile() == 0 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrRequestedButNoSRTPExtension //nolint:lll
 		}
 
@@ -346,8 +346,8 @@ func flight3Generate(
 
 	// If we sent a connection ID on the first ClientHello, send it on the
 	// second.
-	if state.GetLocalConnectionID() != nil {
-		extensions = append(extensions, &extension.ConnectionID{CID: state.GetLocalConnectionID()})
+	if state.LocalConnectionID() != nil {
+		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
 	}
 
 	clientHello := &handshake.MessageClientHello{

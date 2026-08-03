@@ -158,10 +158,10 @@ func clientKeyShareForGroup(
 	state *dtlsstate.State13,
 	group elliptic.Curve,
 ) (extension.KeyShareEntry, bool) {
-	if state.RemoteKeyEntries == nil {
+	if !state.HasRemoteKeyEntries {
 		return extension.KeyShareEntry{}, false
 	}
-	for _, entry := range *state.RemoteKeyEntries {
+	for _, entry := range state.RemoteKeyEntries {
 		if entry.Group == group {
 			return entry, true
 		}

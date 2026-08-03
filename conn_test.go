@@ -1420,11 +1420,11 @@ func TestConnectionID(t *testing.T) {
 				}
 			}()
 
-			assert.True(t, bytes.Equal(tt.clientConnectionID, dtlsstate.CommonState(res.c.state).GetLocalConnectionID()),
+			assert.True(t, bytes.Equal(tt.clientConnectionID, dtlsstate.CommonState(res.c.state).LocalConnectionID()),
 				"Unexpected client local connection ID")
 			assert.True(t, bytes.Equal(tt.serverConnectionID, dtlsstate.CommonState(res.c.state).RemoteConnectionID),
 				"Unexpected client remote connection ID")
-			assert.True(t, bytes.Equal(tt.serverConnectionID, dtlsstate.CommonState(server.state).GetLocalConnectionID()),
+			assert.True(t, bytes.Equal(tt.serverConnectionID, dtlsstate.CommonState(server.state).LocalConnectionID()),
 				"Unexpected server local connection ID")
 			assert.True(t, bytes.Equal(tt.clientConnectionID, dtlsstate.CommonState(server.state).RemoteConnectionID),
 				"Unexpected server remote connection ID")

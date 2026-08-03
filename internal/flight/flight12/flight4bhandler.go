@@ -75,9 +75,9 @@ func flight4bGenerate(
 			Supported: true,
 		})
 	}
-	if state.GetSRTPProtectionProfile() != 0 {
+	if state.SRTPProtectionProfile() != 0 {
 		extensions = append(extensions, &extension.UseSRTP{
-			ProtectionProfiles:  []dtlsconfig.SRTPProtectionProfile{state.GetSRTPProtectionProfile()},
+			ProtectionProfiles:  []dtlsconfig.SRTPProtectionProfile{state.SRTPProtectionProfile()},
 			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
 	}

@@ -261,9 +261,9 @@ func flight4Generate(
 			Supported: true,
 		})
 	}
-	if state.GetSRTPProtectionProfile() != 0 {
+	if state.SRTPProtectionProfile() != 0 {
 		extensions = append(extensions, &extension.UseSRTP{
-			ProtectionProfiles:  []dtlsconfig.SRTPProtectionProfile{state.GetSRTPProtectionProfile()},
+			ProtectionProfiles:  []dtlsconfig.SRTPProtectionProfile{state.SRTPProtectionProfile()},
 			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
 	}
@@ -295,7 +295,7 @@ func flight4Generate(
 	// client won't send it.
 	if cfg.ConnectionIDGenerator != nil && state.RemoteConnectionID != nil {
 		state.SetLocalConnectionID(cfg.ConnectionIDGenerator())
-		extensions = append(extensions, &extension.ConnectionID{CID: state.GetLocalConnectionID()})
+		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
 	}
 
 	var pkts []*dtlsflight.Packet
