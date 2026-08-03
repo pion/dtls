@@ -12,14 +12,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
-func listenWithValidatedConfig(network string, laddr *net.UDPAddr, config *dtlsConfig) (net.Listener, error) {
-	if err := validateConfig(config); err != nil {
-		return nil, err
-	}
-
-	return listenWithConfig(network, laddr, config)
-}
-
 func listenWithConfig(network string, laddr *net.UDPAddr, config *dtlsConfig) (net.Listener, error) {
 	lc := udp.ListenConfig{
 		AcceptFilter: func(packet []byte) bool {
@@ -59,23 +51,11 @@ func ListenWithOptions(network string, laddr *net.UDPAddr, opts ...ServerOption)
 	if err != nil {
 		return nil, err
 	}
-
-	return listenWithValidatedConfig(network, laddr, config)
-}
-
-func newListenerWithValidatedConfig(inner dtlsnet.PacketListener, config *dtlsConfig) (net.Listener, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
 
-	return newListenerWithConfig(inner, config), nil
-}
-
-func newListenerWithConfig(inner dtlsnet.PacketListener, config *dtlsConfig) net.Listener {
-	return &listener{
-		config: config,
-		parent: inner,
-	}
+	return listenWithConfig(network, laddr, config)
 }
 
 // NewListenerWithOptions creates a DTLS listener which accepts connections from an inner Listener.
@@ -84,8 +64,11 @@ func NewListenerWithOptions(inner dtlsnet.PacketListener, opts ...ServerOption) 
 	if err != nil {
 		return nil, err
 	}
+	if err := validateConfig(config); err != nil {
+		return nil, err
+	}
 
-	return newListenerWithValidatedConfig(inner, config)
+	return &listener{config: config, parent: inner}, nil
 }
 
 // listener represents a DTLS listener.
