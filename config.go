@@ -42,19 +42,6 @@ type connConfigValues struct {
 	serverName                  string
 }
 
-type connConfigCallbacks struct {
-	customCipherSuites   func() []dtlsconfig.CipherSuite
-	verifyConnection     func(dtlsstate.Active) error
-	getCertificate       func(*dtlsconfig.ClientHelloInfo) (*tls.Certificate, error)
-	getClientCertificate func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error)
-}
-
-type connSessionCallbacks struct {
-	getSession func(key []byte) (id, secret []byte, err error)
-	setSession func(key, id, secret []byte) error
-	delSession func(key []byte) error
-}
-
 func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
 	cipherSuites, err := parseCipherSuitesForVersions(
@@ -185,15 +172,6 @@ func filterFIPSCurves(curves []elliptic.Curve) []elliptic.Curve {
 	return filtered
 }
 
-func newConnConfigCallbacks(config *dtlsConfig) connConfigCallbacks {
-	return connConfigCallbacks{
-		customCipherSuites:   adaptCustomCipherSuites(config.customCipherSuites),
-		verifyConnection:     adaptVerifyConnection(config.verifyConnection),
-		getCertificate:       adaptGetCertificate(config.getCertificate),
-		getClientCertificate: adaptGetClientCertificate(config.getClientCertificate),
-	}
-}
-
 func adaptCustomCipherSuites(customCipherSuites func() []CipherSuite) func() []dtlsconfig.CipherSuite {
 	if customCipherSuites == nil {
 		return nil
@@ -256,111 +234,62 @@ func adaptGetClientCertificate(
 	}
 }
 
-func newConnSessionCallbacks(sessionStore SessionStore) connSessionCallbacks {
-	return connSessionCallbacks{
-		getSession: func(key []byte) (id, secret []byte, err error) {
-			session, err := sessionStore.Get(key)
-
-			return session.ID, session.Secret, err
-		},
-		setSession: func(key, id, secret []byte) error {
-			return sessionStore.Set(key, Session{ID: id, Secret: secret})
-		},
-		delSession: func(key []byte) error {
-			return sessionStore.Del(key)
-		},
-	}
-}
-
 func newHandshakeConfig(
 	config *dtlsConfig,
 	configValues connConfigValues,
-	callbacks connConfigCallbacks,
-	sessions connSessionCallbacks,
 	resumeState *dtlsstate.State,
 ) *dtlsconfig.HandshakeConfig {
 	handshakeConfig := &dtlsconfig.HandshakeConfig{
-		Log:          configValues.logger,
-		InitialEpoch: 0,
-		ResumeState:  resumeState,
+		LocalPSKCallback:              config.psk,
+		LocalPSKIdentityHint:          config.PSKIdentityHint,
+		LocalCipherSuites:             configValues.cipherSuites,
+		LocalSignatureSchemes:         configValues.signatureSchemes,
+		LocalCertSignatureSchemes:     configValues.certificateSignatureSchemes,
+		ExtendedMasterSecret:          dtlsconfig.ExtendedMasterSecretType(config.ExtendedMasterSecret),
+		LocalSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
+		LocalSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
+		ServerName:                    configValues.serverName,
+		SupportedProtocols:            config.SupportedProtocols,
+		ClientAuth:                    dtlsconfig.ClientAuthType(config.ClientAuth),
+		LocalCertificates:             config.Certificates,
+		InsecureSkipVerify:            config.InsecureSkipVerify,
+		VerifyPeerCertificate:         config.VerifyPeerCertificate,
+		VerifyConnection:              adaptVerifyConnection(config.verifyConnection),
+		HasSessionStore:               config.sessionStore != nil,
+		RootCAs:                       config.RootCAs,
+		ClientCAs:                     config.ClientCAs,
+		InitialRetransmitInterval:     configValues.initialRetransmitInterval,
+		DisableRetransmitBackoff:      config.DisableRetransmitBackoff,
+		CustomCipherSuites:            adaptCustomCipherSuites(config.customCipherSuites),
+		EllipticCurves:                configValues.ellipticCurves,
+		InsecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
+		ConnectionIDGenerator:         config.ConnectionIDGenerator,
+		HelloRandomBytesGenerator:     config.HelloRandomBytesGenerator,
+		Log:                           configValues.logger,
+		KeyLogWriter:                  config.KeyLogWriter,
+		LocalGetCertificate:           adaptGetCertificate(config.getCertificate),
+		LocalGetClientCertificate:     adaptGetClientCertificate(config.getClientCertificate),
+		InitialEpoch:                  0,
+		ClientHelloMessageHook:        config.ClientHelloMessageHook,
+		ServerHelloMessageHook:        config.ServerHelloMessageHook,
+		CertificateRequestMessageHook: config.CertificateRequestMessageHook,
+		ResumeState:                   resumeState,
+		MinVersion:                    configValues.minVersion,
+		MaxVersion:                    configValues.maxVersion,
+	}
+	if config.sessionStore != nil {
+		handshakeConfig.GetSession = func(key []byte) (id, secret []byte, err error) {
+			session, err := config.sessionStore.Get(key)
+
+			return session.ID, session.Secret, err
+		}
+		handshakeConfig.SetSession = func(key, id, secret []byte) error {
+			return config.sessionStore.Set(key, Session{ID: id, Secret: secret})
+		}
+		handshakeConfig.DelSession = config.sessionStore.Del
 	}
 
-	setHandshakeConfigCrypto(handshakeConfig, config, configValues)
-	setHandshakeConfigIdentity(handshakeConfig, config, configValues, callbacks)
-	setHandshakeConfigSession(handshakeConfig, config, sessions)
-	setHandshakeConfigTransport(handshakeConfig, config, configValues, callbacks)
-	setHandshakeConfigHooks(handshakeConfig, config)
-
 	return handshakeConfig
-}
-
-func setHandshakeConfigCrypto(
-	handshakeConfig *dtlsconfig.HandshakeConfig,
-	config *dtlsConfig,
-	configValues connConfigValues,
-) {
-	handshakeConfig.LocalPSKCallback = config.psk
-	handshakeConfig.LocalPSKIdentityHint = config.PSKIdentityHint
-	handshakeConfig.LocalCipherSuites = configValues.cipherSuites
-	handshakeConfig.LocalSignatureSchemes = configValues.signatureSchemes
-	handshakeConfig.LocalCertSignatureSchemes = configValues.certificateSignatureSchemes
-	handshakeConfig.ExtendedMasterSecret = dtlsconfig.ExtendedMasterSecretType(config.ExtendedMasterSecret)
-	handshakeConfig.LocalCertificates = config.Certificates
-	handshakeConfig.RootCAs = config.RootCAs
-	handshakeConfig.ClientCAs = config.ClientCAs
-	handshakeConfig.EllipticCurves = configValues.ellipticCurves
-}
-
-func setHandshakeConfigIdentity(
-	handshakeConfig *dtlsconfig.HandshakeConfig,
-	config *dtlsConfig,
-	configValues connConfigValues,
-	callbacks connConfigCallbacks,
-) {
-	handshakeConfig.ServerName = configValues.serverName
-	handshakeConfig.SupportedProtocols = config.SupportedProtocols
-	handshakeConfig.ClientAuth = dtlsconfig.ClientAuthType(config.ClientAuth)
-	handshakeConfig.InsecureSkipVerify = config.InsecureSkipVerify
-	handshakeConfig.VerifyPeerCertificate = config.VerifyPeerCertificate
-	handshakeConfig.VerifyConnection = callbacks.verifyConnection
-	handshakeConfig.LocalGetCertificate = callbacks.getCertificate
-	handshakeConfig.LocalGetClientCertificate = callbacks.getClientCertificate
-}
-
-func setHandshakeConfigSession(
-	handshakeConfig *dtlsconfig.HandshakeConfig,
-	config *dtlsConfig,
-	sessions connSessionCallbacks,
-) {
-	handshakeConfig.HasSessionStore = config.sessionStore != nil
-	handshakeConfig.GetSession = sessions.getSession
-	handshakeConfig.SetSession = sessions.setSession
-	handshakeConfig.DelSession = sessions.delSession
-}
-
-func setHandshakeConfigTransport(
-	handshakeConfig *dtlsconfig.HandshakeConfig,
-	config *dtlsConfig,
-	configValues connConfigValues,
-	callbacks connConfigCallbacks,
-) {
-	handshakeConfig.LocalSRTPProtectionProfiles = config.SRTPProtectionProfiles
-	handshakeConfig.LocalSRTPMasterKeyIdentifier = config.SRTPMasterKeyIdentifier
-	handshakeConfig.CustomCipherSuites = callbacks.customCipherSuites
-	handshakeConfig.InitialRetransmitInterval = configValues.initialRetransmitInterval
-	handshakeConfig.DisableRetransmitBackoff = config.DisableRetransmitBackoff
-	handshakeConfig.KeyLogWriter = config.KeyLogWriter
-	handshakeConfig.InsecureSkipHelloVerify = config.InsecureSkipVerifyHello
-	handshakeConfig.ConnectionIDGenerator = config.ConnectionIDGenerator
-	handshakeConfig.HelloRandomBytesGenerator = config.HelloRandomBytesGenerator
-	handshakeConfig.MinVersion = configValues.minVersion
-	handshakeConfig.MaxVersion = configValues.maxVersion
-}
-
-func setHandshakeConfigHooks(handshakeConfig *dtlsconfig.HandshakeConfig, config *dtlsConfig) {
-	handshakeConfig.ClientHelloMessageHook = config.ClientHelloMessageHook
-	handshakeConfig.ServerHelloMessageHook = config.ServerHelloMessageHook
-	handshakeConfig.CertificateRequestMessageHook = config.CertificateRequestMessageHook
 }
 
 func (c *dtlsConfig) includeCertificateSuites() bool {

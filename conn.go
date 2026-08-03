@@ -233,9 +233,7 @@ func createConn(
 		return nil, err
 	}
 
-	callbacks := newConnConfigCallbacks(config)
-	sessions := newConnSessionCallbacks(config.sessionStore)
-	handshakeConfig := newHandshakeConfig(config, configValues, callbacks, sessions, resumeState)
+	handshakeConfig := newHandshakeConfig(config, configValues, resumeState)
 	conn := newConn(nextConn, rAddr, configValues, handshakeConfig, isClient)
 
 	conn.setRemoteEpoch(0)
@@ -505,18 +503,6 @@ func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (
 	return createConn(conn, rAddr, config, false, nil)
 }
 
-func serverWithValidatedConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
-	if config == nil {
-		return nil, dtlserrors.ErrNoConfigProvided
-	}
-
-	if err := validateConfig(config); err != nil {
-		return nil, err
-	}
-
-	return serverWithConfig(conn, rAddr, config)
-}
-
 // ServerWithOptions listens for incoming DTLS connections.
 func ServerWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ServerOption) (*Conn, error) {
 	config, err := buildServerConfig(opts...)
@@ -524,7 +510,11 @@ func ServerWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ServerOption
 		return nil, err
 	}
 
-	return serverWithValidatedConfig(conn, rAddr, config)
+	if err := validateConfig(config); err != nil {
+		return nil, err
+	}
+
+	return serverWithConfig(conn, rAddr, config)
 }
 
 // Read reads data from the connection.
