@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package net implements DTLS specific networking primitives.
-// NOTE: this package is an adaption of pion/transport/packetio that allows for
+// NOTE: this package is an adaptation of pion/transport/packetio that allows for
 // storing a remote address alongside each packet in the buffer and implements
 // relevant methods of net.PacketConn. If possible, the updates made in this
 // repository will be reflected back upstream. If not, it is likely that this

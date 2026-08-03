@@ -506,7 +506,7 @@ func WithMinVersion(version protocol.Version) Option {
 	})
 }
 
-// WithMaxVersion sets the maxiumum TLS version that is acceptable.
+// WithMaxVersion sets the maximum TLS version that is acceptable.
 // By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
 func WithMaxVersion(version protocol.Version) Option {
 	return sharedOption(func(c *dtlsConfig) error {

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 // Package udp implements DTLS specific UDP networking primitives.
-// NOTE: this package is an adaption of pion/transport/udp that allows for
+// NOTE: this package is an adaptation of pion/transport/udp that allows for
 // routing datagrams based on identifiers other than the remote address. The
 // primary use case for this functionality is routing based on DTLS connection
 // IDs. In order to allow for consumers of this package to treat connections as
-// generic net.PackageConn, routing and identitier establishment is based on
-// custom introspecion of datagrams, rather than direct intervention by
+// generic net.PacketConn, routing and identifier establishment is based on
+// custom introspection of datagrams, rather than direct intervention by
 // consumers. If possible, the updates made in this repository will be reflected
 // back upstream. If not, it is likely that this will be moved to a public
 // package in this repository.
@@ -150,7 +150,7 @@ type ListenConfig struct {
 	AcceptFilter func([]byte) bool
 
 	// DatagramRouter routes an incoming datagram to a connection by extracting
-	// an identifier from the its paylod
+	// an identifier from its payload.
 	DatagramRouter func([]byte) (string, bool)
 
 	// ConnectionIdentifier extracts an identifier from an outgoing packet. If

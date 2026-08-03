@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	errMessageMissmatch       = errors.New("messages missmatch")
+	errMessageMismatch        = errors.New("messages mismatch")
 	errInvalidConnectionState = errors.New("failed to get connection state")
 )
 
@@ -136,7 +136,7 @@ func DoTestResume(
 	}
 
 	if !bytes.Equal(message, recv[:n]) {
-		fatal(t, errChan, fmt.Errorf("%w: %s != %s", errMessageMissmatch, message, recv[:n]))
+		fatal(t, errChan, fmt.Errorf("%w: %s != %s", errMessageMismatch, message, recv[:n]))
 	}
 
 	if err = localConn1.Close(); err != nil {
@@ -185,7 +185,7 @@ func DoTestResume(
 	}
 
 	if !bytes.Equal(message, recv[:n]) {
-		fatal(t, errChan, fmt.Errorf("%w: %s != %s", errMessageMissmatch, message, recv[:n]))
+		fatal(t, errChan, fmt.Errorf("%w: %s != %s", errMessageMismatch, message, recv[:n]))
 	}
 }
 

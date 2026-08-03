@@ -2551,7 +2551,7 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 
 // Assert that a DTLS Server only responds with RenegotiationInfo if a ClientHello contained that
 // extension according to RFC5746 section 3.6, RFC5246 section 7.4.1.4 and RFC5746 section 4.2.
-func TestRenegotationInfo(t *testing.T) {
+func TestRenegotiationInfo(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(10 * time.Second)
 	defer lim.Stop()
@@ -3167,7 +3167,7 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) {
 
 			ca, cb := dpipe.Pipe()
 			go func() {
-				c, err := testClient(context.TODO(), dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{
+				c, err := testClient(t.Context(), dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{
 					WithCipherSuites(test.cipherList...),
 				}, false)
 				clientErr <- err
@@ -3190,7 +3190,7 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) {
 			serverCert, err := selfsign.SelfSign(signer)
 			assert.NoError(t, err)
 
-			s, err := testServer(context.TODO(), dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
+			s, err := testServer(t.Context(), dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
 				WithCipherSuites(test.cipherList...),
 				WithCertificates(serverCert),
 			}, false)
@@ -3246,7 +3246,7 @@ func TestMultipleServerCertificates(t *testing.T) {
 
 			ca, cb := dpipe.Pipe()
 			go func() {
-				clientConn, err := testClient(context.TODO(), dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{
+				clientConn, err := testClient(t.Context(), dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{
 					WithRootCAs(caPool),
 					WithServerName(test.RequestServerName),
 					WithVerifyPeerCertificate(func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
@@ -3266,7 +3266,7 @@ func TestMultipleServerCertificates(t *testing.T) {
 				client <- clientConn
 			}()
 
-			s, err := testServer(context.TODO(), dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
+			s, err := testServer(t.Context(), dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
 				WithCertificates(fooCert, barCert),
 			}, false)
 			assert.NoError(t, err)
