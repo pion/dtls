@@ -2094,7 +2094,124 @@ func (c *Conn) unpackLegacyCIDPacket(header *recordlayer.Header, buf []byte) ([]
 	return append(rawHeader, ip.Content...), true
 }
 
-//nolint:gocognit,gocyclo,cyclop,maintidx
+func (c *Conn) bufferHandshakeRecord(
+	buf []byte,
+	header *recordlayer.Header,
+	markPacketAsValid func() bool,
+) (packetOutcome, bool) {
+	c.syncFragmentBufferHandshakeSequence()
+	isHandshake, isRetransmit, err := c.fragmentBuffer.Push(bytes.Clone(buf))
+	if err != nil {
+		// Decode error must be silently discarded
+		// [RFC6347 Section-4.1.2.7]
+		c.log.Debugf("defragment failed: %s", err)
+
+		return packetOutcome{}, true
+	}
+	if !isHandshake {
+		return packetOutcome{}, false
+	}
+
+	markPacketAsValid()
+	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
+		header.Epoch >= dtlsflight13.EpochHandshake {
+		c.lock.Lock()
+		c.pendingACKs = append(c.pendingACKs, protocol.RecordNumber{
+			Epoch: uint64(header.Epoch), SequenceNumber: header.SequenceNumber,
+		})
+		c.lock.Unlock()
+	}
+
+	for out, epoch := c.fragmentBuffer.Pop(); out != nil; out, epoch = c.fragmentBuffer.Pop() {
+		header := &handshake.Header{}
+		if err := header.Unmarshal(out); err != nil {
+			c.log.Debugf("%s: handshake parse failed: %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), err)
+
+			continue
+		}
+		c.handshakeCache.Push(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient)
+	}
+
+	return packetOutcome{containsHandshake: true, retransmit: isRetransmit}, true
+}
+
+func (c *Conn) handleChangeCipherSpecRecord(
+	prepared incomingPacketState,
+	rAddr net.Addr,
+	bufferLease *readBufferLease,
+) bool {
+	common := dtlsstate.CommonState(c.state)
+	if common.CipherSuite == nil || !common.CipherSuite.IsInitialized() {
+		if bufferLease != nil {
+			if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: prepared.buf}); ok {
+				c.log.Debugf("CipherSuite not initialized, queuing packet")
+			}
+		}
+
+		return false
+	}
+
+	newRemoteEpoch := prepared.header.Epoch + 1
+	c.log.Tracef("%s: <- ChangeCipherSpec (epoch: %d)", srvCliStr(common.IsClient), newRemoteEpoch)
+	if common.RemoteEpoch()+1 != newRemoteEpoch {
+		return false
+	}
+
+	c.setRemoteEpoch(newRemoteEpoch)
+
+	return prepared.markPacketAsValid()
+}
+
+func (c *Conn) handleApplicationDataRecord(
+	ctx context.Context,
+	content *protocol.ApplicationData,
+	prepared incomingPacketState,
+) (bool, packetOutcome, error) {
+	if prepared.header.Epoch == 0 {
+		return false, packetOutcome{
+			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
+		}, dtlserrors.ErrApplicationDataEpochZero
+	}
+
+	isLatestSeqNum := prepared.markPacketAsValid()
+	select {
+	case c.decrypted <- content.Data:
+	case <-c.closed.Done():
+	case <-ctx.Done():
+	}
+
+	return isLatestSeqNum, packetOutcome{}, nil
+}
+
+func (c *Conn) handleRecordContent(
+	ctx context.Context,
+	content protocol.Content,
+	prepared incomingPacketState,
+	rAddr net.Addr,
+	bufferLease *readBufferLease,
+) (bool, packetOutcome, error) {
+	switch content := content.(type) {
+	case *alert.Alert:
+		c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
+		var responseAlert *alert.Alert
+		if content.Description == alert.CloseNotify {
+			// Respond with a close_notify [RFC5246 Section 7.2.1]
+			responseAlert = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
+		}
+		prepared.markPacketAsValid()
+
+		return false, packetOutcome{responseAlert: responseAlert}, &alertError{content}
+	case *protocol.ChangeCipherSpec:
+		return c.handleChangeCipherSpecRecord(prepared, rAddr, bufferLease), packetOutcome{}, nil
+	case *protocol.ApplicationData:
+		return c.handleApplicationDataRecord(ctx, content, prepared)
+	default:
+		return false, packetOutcome{
+			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
+		}, fmt.Errorf("%w: %d", dtlserrors.ErrUnhandledContextType, content.ContentType())
+	}
+}
+
 func (c *Conn) handleIncomingPacket(
 	ctx context.Context,
 	buf []byte,
@@ -2109,110 +2226,33 @@ func (c *Conn) handleIncomingPacket(
 	if !ok {
 		return packetOutcome{}, nil
 	}
-	buf = prepared.buf
-	header := prepared.header
-	markPacketAsValid := prepared.markPacketAsValid
-
-	c.syncFragmentBufferHandshakeSequence()
-	isHandshake, isRetransmit, err := c.fragmentBuffer.Push(bytes.Clone(buf))
-	if err != nil {
-		// Decode error must be silently discarded
-		// [RFC6347 Section-4.1.2.7]
-		c.log.Debugf("defragment failed: %s", err)
-
-		return packetOutcome{}, nil
-	} else if isHandshake {
-		markPacketAsValid()
-		if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
-			header.Epoch >= dtlsflight13.EpochHandshake {
-			c.lock.Lock()
-			c.pendingACKs = append(c.pendingACKs, protocol.RecordNumber{
-				Epoch: uint64(header.Epoch), SequenceNumber: header.SequenceNumber,
-			})
-			c.lock.Unlock()
-		}
-
-		for out, epoch := c.fragmentBuffer.Pop(); out != nil; out, epoch = c.fragmentBuffer.Pop() {
-			header := &handshake.Header{}
-			if err := header.Unmarshal(out); err != nil {
-				c.log.Debugf("%s: handshake parse failed: %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), err)
-
-				continue
-			}
-			c.handshakeCache.Push(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient)
-		}
-
-		return packetOutcome{containsHandshake: true, retransmit: isRetransmit}, nil
+	if outcome, handled := c.bufferHandshakeRecord(
+		prepared.buf,
+		prepared.header,
+		prepared.markPacketAsValid,
+	); handled {
+		return outcome, nil
 	}
 
 	r := &recordlayer.RecordLayer{}
-	if err := r.Unmarshal(buf); err != nil {
+	if err := r.Unmarshal(prepared.buf); err != nil {
 		return packetOutcome{
 			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
 		}, err
 	}
 
-	isLatestSeqNum := false
-	switch content := r.Content.(type) {
-	case *alert.Alert:
-		c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
-		var a *alert.Alert
-		if content.Description == alert.CloseNotify {
-			// Respond with a close_notify [RFC5246 Section 7.2.1]
-			a = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
-		}
-		_ = markPacketAsValid()
-
-		return packetOutcome{responseAlert: a}, &alertError{content}
-	case *protocol.ChangeCipherSpec:
-		common := dtlsstate.CommonState(c.state)
-		if common.CipherSuite == nil || !common.CipherSuite.IsInitialized() {
-			if bufferLease != nil {
-				if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
-					c.log.Debugf("CipherSuite not initialized, queuing packet")
-				}
-			}
-
-			return packetOutcome{}, nil
-		}
-
-		newRemoteEpoch := header.Epoch + 1
-		c.log.Tracef("%s: <- ChangeCipherSpec (epoch: %d)", srvCliStr(common.IsClient), newRemoteEpoch)
-
-		if common.RemoteEpoch()+1 == newRemoteEpoch {
-			c.setRemoteEpoch(newRemoteEpoch)
-			isLatestSeqNum = markPacketAsValid()
-		}
-	case *protocol.ApplicationData:
-		if header.Epoch == 0 {
-			return packetOutcome{
-				responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
-			}, dtlserrors.ErrApplicationDataEpochZero
-		}
-
-		isLatestSeqNum = markPacketAsValid()
-
-		select {
-		case c.decrypted <- content.Data:
-		case <-c.closed.Done():
-		case <-ctx.Done():
-		}
-
-	default:
-		return packetOutcome{
-			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
-		}, fmt.Errorf("%w: %d", dtlserrors.ErrUnhandledContextType, content.ContentType())
+	isLatestSeqNum, outcome, err := c.handleRecordContent(ctx, r.Content, prepared, rAddr, bufferLease)
+	if err != nil || outcome.responseAlert != nil {
+		return outcome, err
 	}
 
 	// Any valid connection ID record is a candidate for updating the remote
 	// address if it is the latest record received.
 	// https://datatracker.ietf.org/doc/html/rfc9146#peer-address-update
-	if prepared.originalCID && isLatestSeqNum {
-		if rAddr != c.RemoteAddr() {
-			c.lock.Lock()
-			c.rAddr = rAddr
-			c.lock.Unlock()
-		}
+	if prepared.originalCID && isLatestSeqNum && rAddr != c.RemoteAddr() {
+		c.lock.Lock()
+		c.rAddr = rAddr
+		c.lock.Unlock()
 	}
 
 	return packetOutcome{}, nil
