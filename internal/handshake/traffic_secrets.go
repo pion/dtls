@@ -385,15 +385,6 @@ func CertificateVerifyInputFromTranscript(
 	return certificateVerifyInput(isClient, transcriptHash), nil
 }
 
-// certificateVerifyInputFromTranscript returns the TLS 1.3 CertificateVerify
-// input for the current transcript hash.
-func certificateVerifyInputFromTranscript(
-	isClient bool,
-	transcript *Transcript,
-) ([]byte, error) {
-	return CertificateVerifyInputFromTranscript(isClient, transcript)
-}
-
 // certificateVerifyInput returns the TLS 1.3 CertificateVerify input for a
 // transcript hash.
 func certificateVerifyInput(isClient bool, transcriptHash []byte) []byte {
@@ -439,16 +430,6 @@ func FinishedVerifyDataFromTranscript(
 	}
 
 	return finishedVerifyData(hashFunc, baseKey, transcriptHash)
-}
-
-// finishedVerifyDataFromTranscript returns verify_data for the current
-// transcript hash.
-func finishedVerifyDataFromTranscript(
-	hashFunc func() hash.Hash,
-	baseKey []byte,
-	transcript *Transcript,
-) ([]byte, error) {
-	return FinishedVerifyDataFromTranscript(hashFunc, baseKey, transcript)
 }
 
 // finishedVerifyData returns TLS 1.3 Finished verify_data.

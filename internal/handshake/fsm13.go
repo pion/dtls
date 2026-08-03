@@ -689,7 +689,7 @@ func AppendOutboundHandshakeFlight(
 
 	sender := transcriptSenderForSide13(isClient)
 	for _, p := range pkts {
-		h, canonical, ok, err := canonicalOutboundHandshake13(p)
+		handshakeMessage, canonical, ok, err := canonicalOutboundHandshake13(p)
 		if err != nil {
 			return err
 		}
@@ -697,7 +697,14 @@ func AppendOutboundHandshakeFlight(
 			continue
 		}
 
-		if err := appendOutboundHandshake13(transcript, sender, cipherSuite, h, canonical); err != nil {
+		if err := appendHandshake13(
+			transcript,
+			sender,
+			cipherSuite,
+			handshakeMessage.Header.MessageSequence,
+			handshakeMessage.Message,
+			canonical,
+		); err != nil {
 			return err
 		}
 	}
@@ -725,16 +732,6 @@ func canonicalOutboundHandshake13(p *dtlsflight.Packet) (*handshake.Handshake, [
 	}
 
 	return hs, canonical, true, nil
-}
-
-func appendOutboundHandshake13(
-	transcript *Transcript,
-	sender transcriptSender,
-	cipherSuite dtlsconfig.CipherSuite,
-	h *handshake.Handshake,
-	canonical []byte,
-) error {
-	return appendHandshake13(transcript, sender, cipherSuite, h.Header.MessageSequence, h.Message, canonical)
 }
 
 // AppendVerifiedInbound appends an inbound handshake message to the transcript

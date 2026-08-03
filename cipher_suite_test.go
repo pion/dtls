@@ -87,7 +87,7 @@ func TestCipherSuiteSupportedVersions(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			assert.Equal(t, testCase.expected, cipherSuiteSupportedVersions(testCase.suite))
+			assert.Equal(t, testCase.expected, ciphersuite.SupportedVersions(testCase.suite))
 		})
 	}
 }

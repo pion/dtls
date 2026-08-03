@@ -250,10 +250,6 @@ func defaultCipherSuitesForVersions(minVersion, maxVersion protocol.Version) []C
 	return cipherSuites
 }
 
-func cipherSuiteSupportedVersions(id CipherSuiteID) []protocol.Version {
-	return ciphersuite.SupportedVersions(id)
-}
-
 func cipherSuiteSupportedVersionIDs(id CipherSuiteID) []uint16 {
 	return ciphersuite.SupportedVersionIDs(id)
 }

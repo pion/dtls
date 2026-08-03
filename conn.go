@@ -2250,17 +2250,13 @@ func (c *Conn) processIncomingPacket(
 }
 
 func (c *Conn) syncFragmentBufferHandshakeSequence() {
-	handshakeRecvSequence := c.handshakeRecvSequence()
+	handshakeRecvSequence := dtlsstate.HandshakeRecvSequence(c.state)
 	if c.fragmentBuffer == nil || handshakeRecvSequence <= 0 ||
 		handshakeRecvSequence > int(^uint16(0)) {
 		return
 	}
 
 	c.fragmentBuffer.AdvanceTo(uint16(handshakeRecvSequence))
-}
-
-func (c *Conn) handshakeRecvSequence() int {
-	return dtlsstate.HandshakeRecvSequence(c.state)
 }
 
 func (c *Conn) recvHandshake() <-chan dtlshandshake.RecvHandshakeState {
@@ -2415,7 +2411,7 @@ func (c *Conn) pickVersionFromServerResponse() (bool, error) {
 	}
 
 	if hvr, ok := c.findCachedServerMessage(handshake.TypeHelloVerifyRequest).(*handshake.MessageHelloVerifyRequest); ok {
-		if err := c.pickVersionFromHelloVerifyRequest(hvr); err != nil {
+		if err := c.selectRemoteVersion([]protocol.Version{hvr.Version}); err != nil {
 			return false, err
 		}
 
@@ -2432,10 +2428,6 @@ func (c *Conn) pickVersionFromServerHello(sh *handshake.MessageServerHello) erro
 	}
 
 	return c.selectRemoteVersion(remote)
-}
-
-func (c *Conn) pickVersionFromHelloVerifyRequest(hvr *handshake.MessageHelloVerifyRequest) error {
-	return c.selectRemoteVersion([]protocol.Version{hvr.Version})
 }
 
 func remoteVersionsFromServerHello(sh *handshake.MessageServerHello) ([]protocol.Version, error) {

@@ -186,17 +186,6 @@ func (t *Transcript) SnapshotHashWithSuffix(suffix []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-// sum returns the current transcript hash.
-func (t *Transcript) sum() ([]byte, error) {
-	return t.SnapshotHash()
-}
-
-// sumWithSuffix returns the transcript hash with suffix appended, without
-// mutating the transcript.
-func (t *Transcript) sumWithSuffix(suffix []byte) ([]byte, error) {
-	return t.SnapshotHashWithSuffix(suffix)
-}
-
 func (t *Transcript) hasInitialClientHello() bool {
 	return len(t.order) == 1 &&
 		t.order[0].ID.sender == transcriptSenderClient &&
@@ -327,17 +316,7 @@ func (t *Transcript) replaceWith(src *Transcript) error {
 	return nil
 }
 
-// pending returns the messages waiting for hash selection.
-func (t *Transcript) pendingMessages() [][]byte {
-	return util.CloneByteSlices(t.pending)
-}
-
 // Bytes returns the canonical transcript bytes.
 func (t *Transcript) Bytes() []byte {
 	return append([]byte(nil), t.transcript...)
-}
-
-// order returns the transcript message order.
-func (t *Transcript) messageOrder() []transcriptMessage {
-	return append([]transcriptMessage(nil), t.order...)
 }

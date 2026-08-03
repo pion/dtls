@@ -114,7 +114,7 @@ func TestHandshakeTranscript13DeferredHashSelection(t *testing.T) {
 
 	assert.NoError(t, transcript.selectHash(sha256.New))
 
-	sum, err := transcript.sum()
+	sum, err := transcript.SnapshotHash()
 	assert.NoError(t, err)
 	assert.Equal(t, hashTranscript13(expectedClientHello, serverHello), sum)
 }
@@ -122,7 +122,7 @@ func TestHandshakeTranscript13DeferredHashSelection(t *testing.T) {
 func TestHandshakeTranscript13RejectsSumBeforeHashSelection(t *testing.T) {
 	transcript := NewTranscript()
 
-	_, err := transcript.sum()
+	_, err := transcript.SnapshotHash()
 	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHashNotSelected)
 }
 
@@ -149,7 +149,7 @@ func TestHandshakeTranscript13DuplicateHandling(t *testing.T) {
 
 	assert.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, serverHello))
 
-	sum, err := transcript.sum()
+	sum, err := transcript.SnapshotHash()
 	assert.NoError(t, err)
 	assert.Equal(t, hashTranscript13(clientHello, serverHello), sum)
 }
@@ -162,18 +162,18 @@ func TestAppendVerifiedInboundHandshake13DuplicateHandling(t *testing.T) {
 	transcript := NewTranscript()
 	require.NoError(t, transcript.AppendVerifiedInbound(true, cipherSuite, rawClientHello))
 	beforeBytes := transcript.Bytes()
-	beforePending := transcript.pendingMessages()
+	beforePending := util.CloneByteSlices(transcript.pending)
 
 	require.NoError(t, transcript.AppendVerifiedInbound(true, cipherSuite, rawClientHello))
 	assert.Equal(t, beforeBytes, transcript.Bytes())
-	assert.Equal(t, beforePending, transcript.pendingMessages())
-	assert.Len(t, transcript.messageOrder(), 1)
+	assert.Equal(t, beforePending, transcript.pending)
+	assert.Len(t, transcript.order, 1)
 
 	err := transcript.AppendVerifiedInbound(true, cipherSuite, changedClientHello)
 	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMessageChanged)
 	assert.Equal(t, beforeBytes, transcript.Bytes())
-	assert.Equal(t, beforePending, transcript.pendingMessages())
-	assert.Len(t, transcript.messageOrder(), 1)
+	assert.Equal(t, beforePending, transcript.pending)
+	assert.Len(t, transcript.order, 1)
 }
 
 func TestAppendVerifiedInboundHandshakeCacheItems13RequiresExplicitAuthentication(t *testing.T) {
@@ -189,8 +189,8 @@ func TestAppendVerifiedInboundHandshakeCacheItems13RequiresExplicitAuthenticatio
 	})
 	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptExplicitAuthenticationRequired)
 	assert.Empty(t, transcript.Bytes())
-	assert.Empty(t, transcript.pendingMessages())
-	assert.Empty(t, transcript.messageOrder())
+	assert.Empty(t, transcript.pending)
+	assert.Empty(t, transcript.order)
 }
 
 func TestHandshakeTranscript13RejectsInvalidCanonicalMessage(t *testing.T) {
@@ -222,7 +222,7 @@ func TestHandshakeTranscript13HelloRetryRequest(t *testing.T) {
 	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, clientHello1Hash)
 	expected := hashTranscript13(messageHash, helloRetryRequest, clientHello2, serverHello)
 
-	sum, err := transcript.sum()
+	sum, err := transcript.SnapshotHash()
 	assert.NoError(t, err)
 	assert.Equal(t, expected, sum)
 	assert.Equal(t, "MessageHash", handshake.TypeMessageHash.String())
@@ -249,9 +249,9 @@ func TestAppendVerifiedInboundHandshake13HelloRetryRequest(t *testing.T) {
 	sum, err := transcript.SnapshotHash()
 	require.NoError(t, err)
 	assert.Equal(t, hashTranscript13(messageHash, helloRetryRequest), sum)
-	require.Len(t, transcript.messageOrder(), 2)
-	assert.Equal(t, handshake.TypeClientHello, transcript.messageOrder()[0].Type)
-	assert.Equal(t, handshake.TypeServerHello, transcript.messageOrder()[1].Type)
+	require.Len(t, transcript.order, 2)
+	assert.Equal(t, handshake.TypeClientHello, transcript.order[0].Type)
+	assert.Equal(t, handshake.TypeServerHello, transcript.order[1].Type)
 }
 
 func TestHandshakeTranscript13HelloRetryRequestBinderFork(t *testing.T) {
@@ -266,11 +266,11 @@ func TestHandshakeTranscript13HelloRetryRequestBinderFork(t *testing.T) {
 	assert.NoError(t, transcript.applyHelloRetryRequest())
 	assert.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, helloRetryRequest))
 
-	mainSumBefore, err := transcript.sum()
+	mainSumBefore, err := transcript.SnapshotHash()
 	assert.NoError(t, err)
 	assert.ErrorIs(t, validateCanonicalHandshake(truncatedClientHello2), dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 
-	binderTranscriptHash, err := transcript.sumWithSuffix(truncatedClientHello2)
+	binderTranscriptHash, err := transcript.SnapshotHashWithSuffix(truncatedClientHello2)
 	assert.NoError(t, err)
 
 	clientHello1Hash := hashTranscript13(clientHello1)
@@ -283,7 +283,7 @@ func TestHandshakeTranscript13HelloRetryRequestBinderFork(t *testing.T) {
 	expectedBinder := hmacSHA25613(binderKey, expectedBinderTranscriptHash)
 	assert.Equal(t, expectedBinder, binder)
 
-	mainSumAfter, err := transcript.sum()
+	mainSumAfter, err := transcript.SnapshotHash()
 	assert.NoError(t, err)
 	assert.Equal(t, mainSumBefore, mainSumAfter)
 
@@ -293,7 +293,7 @@ func TestHandshakeTranscript13HelloRetryRequestBinderFork(t *testing.T) {
 		t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient, Seq: 1}, clientHello2),
 	)
 
-	sum, err := transcript.sum()
+	sum, err := transcript.SnapshotHash()
 	assert.NoError(t, err)
 	assert.Equal(t, hashTranscript13(messageHash, helloRetryRequest, clientHello2), sum)
 }
@@ -616,7 +616,7 @@ func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 
 	require.NoError(t, DeriveAndStoreHandshakeTrafficSecrets(state, transcript))
 
-	transcriptHash, err := transcript.sum()
+	transcriptHash, err := transcript.SnapshotHash()
 	require.NoError(t, err)
 	expected, err := deriveHandshakeTrafficSecrets(cipherSuite.HashFunc(), state.KeyAgreementSecret, transcriptHash)
 	require.NoError(t, err)
@@ -1045,9 +1045,9 @@ func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 		Seq:    1,
 	}, certificate))
 
-	certVerifyInput, err := certificateVerifyInputFromTranscript(false, transcript)
+	certVerifyInput, err := CertificateVerifyInputFromTranscript(false, transcript)
 	require.NoError(t, err)
-	certVerifyTranscriptHash, err := transcript.sum()
+	certVerifyTranscriptHash, err := transcript.SnapshotHash()
 	require.NoError(t, err)
 	assert.Equal(t, certVerifyTranscriptHash, certVerifyInput[len(certVerifyInput)-sha256.Size:])
 
@@ -1057,13 +1057,13 @@ func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 		Seq:    2,
 	}, certVerify))
 
-	verifyData, err := finishedVerifyDataFromTranscript(
+	verifyData, err := FinishedVerifyDataFromTranscript(
 		sha256.New,
 		state.KeySchedule.HandshakeTraffic.Server,
 		transcript,
 	)
 	require.NoError(t, err)
-	finishedTranscriptHash, err := transcript.sum()
+	finishedTranscriptHash, err := transcript.SnapshotHash()
 	require.NoError(t, err)
 	assert.NoError(t, verifyFinishedData(
 		sha256.New,

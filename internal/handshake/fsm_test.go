@@ -185,16 +185,16 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, pkts, nil)
 	require.NoError(t, err)
 	require.NotNil(t, fsm.transcript)
-	require.Len(t, fsm.transcript.pendingMessages(), 1)
-	require.Len(t, fsm.transcript.messageOrder(), 1)
+	require.Len(t, fsm.transcript.pending, 1)
+	require.Len(t, fsm.transcript.order, 1)
 
-	assert.Equal(t, expected, fsm.transcript.pendingMessages()[0])
+	assert.Equal(t, expected, fsm.transcript.pending[0])
 	assert.Equal(t, expected, fsm.transcript.Bytes())
 	assert.Equal(t, transcriptMessageID{
 		sender: transcriptSenderClient,
 		Seq:    messageSequence,
-	}, fsm.transcript.messageOrder()[0].ID)
-	assert.Equal(t, handshake.TypeClientHello, fsm.transcript.messageOrder()[0].Type)
+	}, fsm.transcript.order[0].ID)
+	assert.Equal(t, handshake.TypeClientHello, fsm.transcript.order[0].Type)
 }
 
 func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testing.T) {
@@ -215,7 +215,7 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 
 	transcript := fsm.transcript
 	before := append([]byte(nil), transcript.Bytes()...)
-	require.Len(t, transcript.pendingMessages(), 1)
+	require.Len(t, transcript.pending, 1)
 
 	fsm.currentFlight = dtlsflight13.Flight2
 	fsm.retransmit = true
@@ -228,7 +228,7 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 	require.NoError(t, fsm.seedTranscriptFromInitialFlights())
 	assert.Same(t, transcript, fsm.transcript)
 	assert.Equal(t, before, fsm.transcript.Bytes())
-	assert.Len(t, fsm.transcript.pendingMessages(), 1)
+	assert.Len(t, fsm.transcript.pending, 1)
 }
 
 func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
@@ -256,7 +256,7 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid)
 	assert.Equal(t, StateErrored, nextState)
 	require.Len(t, fsm.flights, 1)
-	assert.Empty(t, fsm.transcript.messageOrder())
+	assert.Empty(t, fsm.transcript.order)
 	assert.Empty(t, fsm.transcript.Bytes())
 	assert.Equal(t, 1, state.HandshakeSendSequence)
 }
@@ -275,9 +275,9 @@ func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 	require.Len(t, fsm.flights, 1)
 
 	expected := canonicalPacketHandshake13(t, fsm.flights[0])
-	require.Len(t, fsm.transcript.messageOrder(), 1)
-	assert.Equal(t, transcriptMessageID{sender: transcriptSenderClient, Seq: 0}, fsm.transcript.messageOrder()[0].ID)
-	assert.Equal(t, handshake.TypeClientHello, fsm.transcript.messageOrder()[0].Type)
+	require.Len(t, fsm.transcript.order, 1)
+	assert.Equal(t, transcriptMessageID{sender: transcriptSenderClient, Seq: 0}, fsm.transcript.order[0].ID)
+	assert.Equal(t, handshake.TypeClientHello, fsm.transcript.order[0].Type)
 	assert.Equal(t, expected, fsm.transcript.Bytes())
 	assert.Equal(t, 1, state.HandshakeSendSequence)
 }
@@ -305,9 +305,9 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	expectedTranscript := append(append([]byte(nil), messageHash...), helloRetryRequestCanonical...)
 
 	assert.Equal(t, expectedTranscript, fsm.transcript.Bytes())
-	require.Len(t, fsm.transcript.messageOrder(), 2)
-	assert.Equal(t, transcriptMessageID{sender: transcriptSenderServer, Seq: 0}, fsm.transcript.messageOrder()[1].ID)
-	assert.Equal(t, handshake.TypeServerHello, fsm.transcript.messageOrder()[1].Type)
+	require.Len(t, fsm.transcript.order, 2)
+	assert.Equal(t, transcriptMessageID{sender: transcriptSenderServer, Seq: 0}, fsm.transcript.order[1].ID)
+	assert.Equal(t, handshake.TypeServerHello, fsm.transcript.order[1].Type)
 	assert.Equal(t, 1, state.HandshakeSendSequence)
 }
 
@@ -412,7 +412,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 2}, Type: handshake.TypeCertificate},
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 3}, Type: handshake.TypeCertificateVerify},
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 4}, Type: handshake.TypeFinished},
-	}, fsm.transcript.messageOrder())
+	}, fsm.transcript.order)
 
 	expectedSecrets, err := deriveHandshakeTrafficSecrets(
 		state.CipherSuite.HashFunc(),
@@ -733,7 +733,7 @@ func TestHandshakeFSM13ClientFlight5GeneratesFinished(t *testing.T) {
 	assert.Equal(t, transcriptMessage{
 		ID:   transcriptMessageID{sender: transcriptSenderClient, Seq: 1},
 		Type: handshake.TypeFinished,
-	}, fsm.transcript.messageOrder()[6])
+	}, fsm.transcript.order[6])
 	assert.True(t, conn.setLocalEpochCalled)
 	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
 }
@@ -871,7 +871,7 @@ func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
 		{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 1}, Type: handshake.TypeCertificate},
 		{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 2}, Type: handshake.TypeCertificateVerify},
 		{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 3}, Type: handshake.TypeFinished},
-	}, fsm.transcript.messageOrder()[7:])
+	}, fsm.transcript.order[7:])
 }
 
 func TestHandshakeFSM13ClientFlight5WithoutClientCertificate(t *testing.T) {
@@ -928,7 +928,7 @@ func TestHandshakeFSM13ClientFlight5WithoutClientCertificate(t *testing.T) {
 				assert.Equal(t, []transcriptMessage{
 					{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 1}, Type: handshake.TypeCertificate},
 					{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 2}, Type: handshake.TypeFinished},
-				}, fsm.transcript.messageOrder()[7:])
+				}, fsm.transcript.order[7:])
 
 				require.NoError(t, AppendOutboundHandshakeFlight(
 					transcriptThroughServerFinished,
@@ -980,7 +980,7 @@ func TestHandshakeFSM13ServerVerifiesClientFinishedAndCompletes(t *testing.T) {
 	assert.Equal(t, transcriptMessage{
 		ID:   transcriptMessageID{sender: transcriptSenderClient, Seq: 1},
 		Type: handshake.TypeFinished,
-	}, serverFSM.transcript.messageOrder()[6])
+	}, serverFSM.transcript.order[6])
 }
 
 func TestHandshakeFSM13ServerRejectsTamperedClientFinished(t *testing.T) {
@@ -1074,7 +1074,7 @@ func TestHandshakeFSM13RetransmittedFinalFlightDoesNotChangeTranscript(t *testin
 	assertFlight13RecvDoneClosed(t, first)
 
 	transcriptBefore := append([]byte(nil), serverFSM.transcript.Bytes()...)
-	orderBefore := append([]transcriptMessage(nil), serverFSM.transcript.messageOrder()...)
+	orderBefore := append([]transcriptMessage(nil), serverFSM.transcript.order...)
 	retransmit := RecvHandshakeState{Done: make(chan struct{}), IsRetransmit: true}
 	conn.recvHandshake <- retransmit
 	nextState, err = serverFSM.finish(context.Background(), conn)
@@ -1082,7 +1082,7 @@ func TestHandshakeFSM13RetransmittedFinalFlightDoesNotChangeTranscript(t *testin
 	assert.Equal(t, StateFinished, nextState)
 	assertFlight13RecvDoneClosed(t, retransmit)
 	assert.Equal(t, transcriptBefore, serverFSM.transcript.Bytes())
-	assert.Equal(t, orderBefore, serverFSM.transcript.messageOrder())
+	assert.Equal(t, orderBefore, serverFSM.transcript.order)
 }
 
 func serverFSMForClientFlight13(
@@ -1407,7 +1407,7 @@ func assertFlight13RecvDoneOpen(t *testing.T, state RecvHandshakeState) {
 func assertFlight13ClientTranscriptThroughServerFinished(t *testing.T, transcript *Transcript) {
 	t.Helper()
 
-	require.Len(t, transcript.messageOrder(), 6)
+	require.Len(t, transcript.order, 6)
 	assert.Equal(t, []transcriptMessage{
 		{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 0}, Type: handshake.TypeClientHello},
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 0}, Type: handshake.TypeServerHello},
@@ -1415,7 +1415,7 @@ func assertFlight13ClientTranscriptThroughServerFinished(t *testing.T, transcrip
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 2}, Type: handshake.TypeCertificate},
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 3}, Type: handshake.TypeCertificateVerify},
 		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 4}, Type: handshake.TypeFinished},
-	}, transcript.messageOrder())
+	}, transcript.order)
 }
 
 func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
@@ -1451,12 +1451,12 @@ func TestAppendOutboundHandshakeFlight13ClientHello(t *testing.T) {
 
 	err := AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{pkt})
 	require.NoError(t, err)
-	require.Len(t, transcript.messageOrder(), 1)
-	require.Len(t, transcript.pendingMessages(), 1)
+	require.Len(t, transcript.order, 1)
+	require.Len(t, transcript.pending, 1)
 
-	assert.Equal(t, transcriptMessageID{sender: transcriptSenderClient, Seq: 3}, transcript.messageOrder()[0].ID)
-	assert.Equal(t, handshake.TypeClientHello, transcript.messageOrder()[0].Type)
-	assert.Equal(t, expected, transcript.pendingMessages()[0])
+	assert.Equal(t, transcriptMessageID{sender: transcriptSenderClient, Seq: 3}, transcript.order[0].ID)
+	assert.Equal(t, handshake.TypeClientHello, transcript.order[0].Type)
+	assert.Equal(t, expected, transcript.pending[0])
 	assert.Equal(t, expected, transcript.Bytes())
 }
 
@@ -1469,7 +1469,7 @@ func TestAppendOutboundHandshakeFlight13DuplicateNoop(t *testing.T) {
 
 	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{pkt}))
 	assert.Equal(t, before, transcript.Bytes())
-	assert.Len(t, transcript.messageOrder(), 1)
+	assert.Len(t, transcript.order, 1)
 }
 
 func TestAppendOutboundHandshakeFlight13ChangedSameSequenceFails(t *testing.T) {
@@ -1503,19 +1503,19 @@ func TestAppendOutboundHandshakeFlight13HelloRetryRequest(t *testing.T) {
 	expectedTranscript := append(append([]byte(nil), messageHash...), helloRetryRequestCanonical...)
 	assert.Equal(t, expectedTranscript, transcript.Bytes())
 
-	sum, err := transcript.sum()
+	sum, err := transcript.SnapshotHash()
 	require.NoError(t, err)
 	assert.Equal(t, hashTranscript13(messageHash, helloRetryRequestCanonical), sum)
-	require.Len(t, transcript.messageOrder(), 2)
-	assert.Equal(t, handshake.TypeClientHello, transcript.messageOrder()[0].Type)
-	assert.Equal(t, handshake.TypeServerHello, transcript.messageOrder()[1].Type)
+	require.Len(t, transcript.order, 2)
+	assert.Equal(t, handshake.TypeClientHello, transcript.order[0].Type)
+	assert.Equal(t, handshake.TypeServerHello, transcript.order[1].Type)
 
 	before := append([]byte(nil), transcript.Bytes()...)
 	require.NoError(t, AppendOutboundHandshakeFlight(
 		transcript, false, cipherSuite, []*dtlsflight.Packet{helloRetryRequest},
 	))
 	assert.Equal(t, before, transcript.Bytes())
-	assert.Len(t, transcript.messageOrder(), 2)
+	assert.Len(t, transcript.order, 2)
 }
 
 func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *dtlsflight.Packet {
