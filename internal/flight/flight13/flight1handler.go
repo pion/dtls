@@ -28,10 +28,10 @@ func flight1Generate(
 
 	state.LocalEpoch.Store(EpochInitial)
 	state.RemoteEpoch.Store(EpochInitial)
-	if len(cfg.EllipticCurves) < 1 {
+	if len(cfg.EllipticCurves) == 0 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
-	if len(cfg.LocalSignatureSchemes) < 1 {
+	if len(cfg.LocalSignatureSchemes) == 0 {
 		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 	state.SelectedGroup = cfg.EllipticCurves[0]

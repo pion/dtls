@@ -285,7 +285,7 @@ func applySequenceNumberMask13(header *recordlayer.UnifiedHeader, mask []byte) e
 		return nil
 	}
 
-	if len(mask) < 1 {
+	if len(mask) == 0 {
 		return dtlserrors.ErrBufferTooSmall
 	}
 

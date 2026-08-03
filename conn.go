@@ -73,14 +73,14 @@ type addrPkt struct {
 	data  []byte
 }
 
-// packetQueueWriter owns a recyclable read buffer until a queued packet view
+// readBufferLease owns a recyclable read buffer until a queued packet view
 // takes responsibility for keeping its backing array alive.
-type packetQueueWriter struct {
+type readBufferLease struct {
 	conn                 *Conn
 	recyclableReadBuffer *[]byte
 }
 
-func (w *packetQueueWriter) enqueue(packet addrPkt) bool {
+func (w *readBufferLease) enqueue(packet addrPkt) bool {
 	if !w.conn.enqueueEncryptedPackets(packet) {
 		return false
 	}
@@ -90,7 +90,7 @@ func (w *packetQueueWriter) enqueue(packet addrPkt) bool {
 	return true
 }
 
-func (w *packetQueueWriter) releaseReadBuffer() {
+func (w *readBufferLease) releaseReadBuffer() {
 	readBuffer := w.recyclableReadBuffer
 	w.recyclableReadBuffer = nil
 	if readBuffer != nil {
@@ -1383,7 +1383,7 @@ func (c *Conn) processProtectedHandshakePacket(
 	dtlsHandshake *handshake.Handshake,
 ) ([][]byte, error) {
 	if pkt == nil || pkt.Record == nil || dtlsHandshake == nil {
-		// todo:  this is a temporary error until we handle this in a better way.
+		// TODO: Replace this temporary error when CID protection is implemented.
 		// nolint:godox
 		return nil, dtlserrors.ErrInvalidPacket
 	}
@@ -1502,8 +1502,8 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 	if !ok {
 		return datagramProcessingSummary{}, dtlserrors.ErrFailedToAccessPoolReadBuffer
 	}
-	queueWriter := packetQueueWriter{conn: c, recyclableReadBuffer: bufptr}
-	defer queueWriter.releaseReadBuffer()
+	bufferLease := readBufferLease{conn: c, recyclableReadBuffer: bufptr}
+	defer bufferLease.releaseReadBuffer()
 
 	b := *bufptr
 	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
@@ -1518,7 +1518,7 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 
 	var summary datagramProcessingSummary
 	for _, p := range pkts {
-		outcome, err := c.processIncomingPacket(ctx, p, rAddr, &queueWriter)
+		outcome, err := c.processIncomingPacket(ctx, p, rAddr, &bufferLease)
 		if err != nil {
 			return datagramProcessingSummary{}, err
 		}
@@ -1753,19 +1753,19 @@ func marshalInnerPlaintextRecord(
 func (c *Conn) prepareIncomingPacket(
 	buf []byte,
 	rAddr net.Addr,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 ) (incomingPacketState, bool) {
 	if protocol.IsDTLS13Ciphertext(protocol.ContentType(buf[0])) {
-		return c.prepareCiphertextPacket(buf, rAddr, queueWriter)
+		return c.prepareCiphertextPacket(buf, rAddr, bufferLease)
 	}
 
-	return c.prepareLegacyPacket(buf, rAddr, queueWriter)
+	return c.prepareLegacyPacket(buf, rAddr, bufferLease)
 }
 
 func (c *Conn) prepareCiphertextPacket(
 	buf []byte,
 	rAddr net.Addr,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 ) (incomingPacketState, bool) {
 	ciphertext, err := c.unmarshalCiphertextRecord(buf)
 	if err != nil {
@@ -1776,7 +1776,7 @@ func (c *Conn) prepareCiphertextPacket(
 
 	remoteEpoch := dtlsstate.CommonState(c.state).GetRemoteEpoch()
 	if ciphertext.Header.EpochLow != uint8(remoteEpoch&recordlayer.TwoLowBitsMask) {
-		c.handleFutureCiphertextPacket(ciphertext.Header.EpochLow, remoteEpoch, rAddr, buf, queueWriter)
+		c.handleFutureCiphertextPacket(ciphertext.Header.EpochLow, remoteEpoch, rAddr, buf, bufferLease)
 
 		return incomingPacketState{}, false
 	}
@@ -1784,7 +1784,7 @@ func (c *Conn) prepareCiphertextPacket(
 	if c.queueIfCipherSuiteUninitialized(
 		rAddr,
 		buf,
-		queueWriter,
+		bufferLease,
 		"handshake not finished, queuing ciphertext packet",
 	) {
 		return incomingPacketState{}, false
@@ -1841,15 +1841,15 @@ func (c *Conn) handleFutureCiphertextPacket(
 	remoteEpoch uint16,
 	rAddr net.Addr,
 	buf []byte,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 ) {
 	if !c.queueableCiphertextEpoch(epochLow, remoteEpoch) {
 		c.log.Debugf("discarded future ciphertext packet (epoch low: %d)", epochLow)
 
 		return
 	}
-	if queueWriter != nil {
-		if ok := queueWriter.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
+	if bufferLease != nil {
+		if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
 			c.log.Debug("received ciphertext packet of next epoch, queuing packet")
 		}
 	}
@@ -1882,15 +1882,15 @@ func (c *Conn) protectedReplayMarker(epoch uint16, sequenceNumber uint64) (func(
 func (c *Conn) queueIfCipherSuiteUninitialized(
 	rAddr net.Addr,
 	buf []byte,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 	message string,
 ) bool {
 	common := dtlsstate.CommonState(c.state)
 	if common.CipherSuite != nil && common.CipherSuite.IsInitialized() {
 		return false
 	}
-	if queueWriter != nil {
-		if ok := queueWriter.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
+	if bufferLease != nil {
+		if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
 			c.log.Debug(message)
 		}
 	}
@@ -1901,13 +1901,13 @@ func (c *Conn) queueIfCipherSuiteUninitialized(
 func (c *Conn) prepareLegacyPacket(
 	buf []byte,
 	rAddr net.Addr,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 ) (incomingPacketState, bool) {
 	header, ok := c.unmarshalLegacyHeader(buf)
 	if !ok {
 		return incomingPacketState{}, false
 	}
-	if c.handleFutureLegacyPacket(header, rAddr, buf, queueWriter) {
+	if c.handleFutureLegacyPacket(header, rAddr, buf, bufferLease) {
 		return incomingPacketState{}, false
 	}
 
@@ -1919,7 +1919,7 @@ func (c *Conn) prepareLegacyPacket(
 	originalCID := false
 	if header.Epoch != 0 {
 		var decryptOK bool
-		buf, originalCID, decryptOK = c.decryptLegacyPacket(header, buf, rAddr, queueWriter)
+		buf, originalCID, decryptOK = c.decryptLegacyPacket(header, buf, rAddr, bufferLease)
 		if !decryptOK {
 			return incomingPacketState{}, false
 		}
@@ -1956,7 +1956,7 @@ func (c *Conn) handleFutureLegacyPacket(
 	header *recordlayer.Header,
 	rAddr net.Addr,
 	buf []byte,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 ) bool {
 	remoteEpoch := dtlsstate.CommonState(c.state).GetRemoteEpoch()
 	if header.Epoch <= remoteEpoch {
@@ -1969,8 +1969,8 @@ func (c *Conn) handleFutureLegacyPacket(
 
 		return true
 	}
-	if queueWriter != nil {
-		if ok := queueWriter.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
+	if bufferLease != nil {
+		if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
 			c.log.Debug("received packet of next epoch, queuing packet")
 		}
 	}
@@ -2001,12 +2001,12 @@ func (c *Conn) decryptLegacyPacket(
 	header *recordlayer.Header,
 	buf []byte,
 	rAddr net.Addr,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 ) ([]byte, bool, bool) {
 	if c.queueIfCipherSuiteUninitialized(
 		rAddr,
 		buf,
-		queueWriter,
+		bufferLease,
 		"handshake not finished, queuing packet",
 	) {
 		return nil, false, false
@@ -2099,13 +2099,13 @@ func (c *Conn) handleIncomingPacket(
 	ctx context.Context,
 	buf []byte,
 	rAddr net.Addr,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 ) (packetOutcome, error) {
 	if len(buf) == 0 {
 		return packetOutcome{}, nil
 	}
 
-	prepared, ok := c.prepareIncomingPacket(buf, rAddr, queueWriter)
+	prepared, ok := c.prepareIncomingPacket(buf, rAddr, bufferLease)
 	if !ok {
 		return packetOutcome{}, nil
 	}
@@ -2114,7 +2114,7 @@ func (c *Conn) handleIncomingPacket(
 	markPacketAsValid := prepared.markPacketAsValid
 
 	c.syncFragmentBufferHandshakeSequence()
-	isHandshake, isRetransmit, err := c.fragmentBuffer.Push(append([]byte{}, buf...))
+	isHandshake, isRetransmit, err := c.fragmentBuffer.Push(bytes.Clone(buf))
 	if err != nil {
 		// Decode error must be silently discarded
 		// [RFC6347 Section-4.1.2.7]
@@ -2167,8 +2167,8 @@ func (c *Conn) handleIncomingPacket(
 	case *protocol.ChangeCipherSpec:
 		common := dtlsstate.CommonState(c.state)
 		if common.CipherSuite == nil || !common.CipherSuite.IsInitialized() {
-			if queueWriter != nil {
-				if ok := queueWriter.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
+			if bufferLease != nil {
+				if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: buf}); ok {
 					c.log.Debugf("CipherSuite not initialized, queuing packet")
 				}
 			}
@@ -2222,9 +2222,9 @@ func (c *Conn) processIncomingPacket(
 	ctx context.Context,
 	buf []byte,
 	rAddr net.Addr,
-	queueWriter *packetQueueWriter,
+	bufferLease *readBufferLease,
 ) (packetOutcome, error) {
-	outcome, err := c.handleIncomingPacket(ctx, buf, rAddr, queueWriter)
+	outcome, err := c.handleIncomingPacket(ctx, buf, rAddr, bufferLease)
 	if outcome.responseAlert != nil {
 		responseAlert := outcome.responseAlert
 		if alertErr := c.notify(ctx, responseAlert.Level, responseAlert.Description); alertErr != nil && err == nil {
@@ -2612,7 +2612,7 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 		defer func() {
 			if c.isHandshakeCompletedSuccessfully() {
 				// Escaping read loop.
-				// It's safe to close decrypted channnel now.
+				// It's safe to close the decrypted channel now.
 				close(c.decrypted)
 			}
 

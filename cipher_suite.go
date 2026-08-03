@@ -212,21 +212,21 @@ func allCipherSuites() []CipherSuite {
 }
 
 func cipherSuiteIDs(cipherSuites []CipherSuite) []uint16 {
-	rtrn := []uint16{}
+	ids := []uint16{}
 	for _, c := range cipherSuites {
-		rtrn = append(rtrn, uint16(c.ID()))
+		ids = append(ids, uint16(c.ID()))
 	}
 
-	return rtrn
+	return ids
 }
 
 func configCipherSuiteIDs(cipherSuites []ciphersuite.CipherSuite) []uint16 {
-	rtrn := []uint16{}
+	ids := []uint16{}
 	for _, c := range cipherSuites {
-		rtrn = append(rtrn, uint16(c.ID()))
+		ids = append(ids, uint16(c.ID()))
 	}
 
-	return rtrn
+	return ids
 }
 
 func defaultCipherSuitesForVersions(minVersion, maxVersion protocol.Version) []CipherSuite {

@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/binary"
 
@@ -82,7 +83,7 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 
 	hintLength := binary.BigEndian.Uint16(data)
 	if int(hintLength) <= len(data)-2 && m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmPsk) {
-		m.IdentityHint = append([]byte{}, data[2:2+hintLength]...)
+		m.IdentityHint = bytes.Clone(data[2 : 2+hintLength])
 		data = data[2+hintLength:]
 	}
 	if m.KeyExchangeAlgorithm == types.KeyExchangeAlgorithmPsk {
@@ -123,7 +124,7 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 	if len(data) < offset {
 		return dtlserrors.ErrBufferTooSmall
 	}
-	m.PublicKey = append([]byte{}, data[4:offset]...)
+	m.PublicKey = bytes.Clone(data[4:offset])
 
 	// Anon connection doesn't contains hashAlgorithm, signatureAlgorithm, signature
 	if len(data) == offset {
@@ -152,7 +153,7 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 	if len(data) < offset+signatureLength {
 		return dtlserrors.ErrBufferTooSmall
 	}
-	m.Signature = append([]byte{}, data[offset:offset+signatureLength]...)
+	m.Signature = bytes.Clone(data[offset : offset+signatureLength])
 
 	return nil
 }

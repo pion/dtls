@@ -36,7 +36,7 @@ func (o *OIDFilters) Marshal() ([]byte, error) {
 		b.AddUint16LengthPrefixed(func(builder *cryptobyte.Builder) {
 			seen := map[string]struct{}{}
 			for _, filter := range o.Filters {
-				if len(filter.OID) < 1 {
+				if len(filter.OID) == 0 {
 					builder.SetError(dtlserrors.ErrEmptyOIDFilter)
 				}
 				if _, ok := seen[string(filter.OID)]; ok {

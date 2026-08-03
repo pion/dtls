@@ -4,6 +4,8 @@
 package handshake
 
 import (
+	"bytes"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 )
@@ -75,7 +77,7 @@ func (m *MessageCertificate) Unmarshal(data []byte) error {
 			return dtlserrors.ErrLengthMismatch
 		}
 
-		m.Certificate = append(m.Certificate, append([]byte{}, data[offset:offset+certificateLen]...))
+		m.Certificate = append(m.Certificate, bytes.Clone(data[offset:offset+certificateLen]))
 		offset += certificateLen
 	}
 

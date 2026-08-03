@@ -42,7 +42,7 @@ func flight3Parse(
 			if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion //nolint:lll
 			}
-			state.Cookie = append([]byte{}, h.Cookie...)
+			state.Cookie = bytes.Clone(h.Cookie)
 			state.HandshakeRecvSequence = seq
 
 			return Flight3, nil, nil

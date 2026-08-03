@@ -14,16 +14,16 @@ func decodeCipherSuiteIDs(buf []byte) ([]uint16, error) {
 		return nil, dtlserrors.ErrBufferTooSmall
 	}
 	cipherSuitesCount := int(binary.BigEndian.Uint16(buf[0:])) / 2
-	rtrn := make([]uint16, cipherSuitesCount)
+	ids := make([]uint16, cipherSuitesCount)
 	for i := range cipherSuitesCount {
 		if len(buf) < (i*2 + 4) {
 			return nil, dtlserrors.ErrBufferTooSmall
 		}
 
-		rtrn[i] = binary.BigEndian.Uint16(buf[(i*2)+2:])
+		ids[i] = binary.BigEndian.Uint16(buf[(i*2)+2:])
 	}
 
-	return rtrn, nil
+	return ids, nil
 }
 
 func encodeCipherSuiteIDs(cipherSuiteIDs []uint16) []byte {

@@ -56,7 +56,7 @@ var (
 	errTestPSKClientInvalidIdentity = errors.New("TestPSK: Client got invalid identity")
 	errPSKRejected                  = errors.New("psk Rejected")
 	errNotExpectedChain             = errors.New("not expected chain")
-	errExpecedChain                 = errors.New("expected chain")
+	errExpectedChain                = errors.New("expected chain")
 	errWrongCert                    = errors.New("wrong cert")
 	errConnectionAttemptFailed      = errors.New("connection attempt failed")
 )
@@ -1585,7 +1585,7 @@ func TestServerCertificate(t *testing.T) {
 					WithClientAuth(RequireAndVerifyClientCert),
 					WithVerifyPeerCertificate(func(_ [][]byte, chain [][]*x509.Certificate) error {
 						if len(chain) == 0 {
-							return errExpecedChain
+							return errExpectedChain
 						}
 
 						return nil
@@ -3037,8 +3037,8 @@ func TestSessionResume(t *testing.T) {
 
 		actualSessionID := state.SessionID
 		actualMasterSecret := state.masterSecret
-		assert.Equal(t, actualSessionID, id, "TestSessionResumetion SessionID mismatch")
-		assert.Equal(t, actualMasterSecret, secret, "TestSessionResumetion masterSecret mismatch")
+		assert.Equal(t, actualSessionID, id, "TestSessionResumption SessionID mismatch")
+		assert.Equal(t, actualMasterSecret, secret, "TestSessionResumption masterSecret mismatch")
 
 		defer func() {
 			assert.NoError(t, server.Close())
@@ -3082,7 +3082,7 @@ func TestSessionResume(t *testing.T) {
 		actualSessionID := state.SessionID
 		actualMasterSecret := state.masterSecret
 		ss, _ := s2.Get(actualSessionID)
-		assert.Equal(t, actualMasterSecret, ss.Secret, "TestSessionResumetion masterSecret mismatch")
+		assert.Equal(t, actualMasterSecret, ss.Secret, "TestSessionResumption masterSecret mismatch")
 
 		defer func() {
 			assert.NoError(t, server.Close())
@@ -3092,7 +3092,7 @@ func TestSessionResume(t *testing.T) {
 		assert.NoError(t, res.err)
 
 		cs, _ := s1.Get([]byte(ca.RemoteAddr().String() + "_example.com"))
-		assert.Equal(t, actualMasterSecret, cs.Secret, "TestSessionResumetion mismatch")
+		assert.Equal(t, actualMasterSecret, cs.Secret, "TestSessionResumption mismatch")
 		assert.NoError(t, res.c.Close())
 	})
 }
@@ -3492,19 +3492,19 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 func TestPacketQueueWriterRetiresReadBufferOnlyWhenQueued(t *testing.T) {
 	readBuffer := []byte{1, 2, 3}
 	conn := &Conn{}
-	writer := packetQueueWriter{conn: conn, recyclableReadBuffer: &readBuffer}
+	lease := readBufferLease{conn: conn, recyclableReadBuffer: &readBuffer}
 
-	require.True(t, writer.enqueue(addrPkt{data: readBuffer}))
-	assert.Nil(t, writer.recyclableReadBuffer)
+	require.True(t, lease.enqueue(addrPkt{data: readBuffer}))
+	assert.Nil(t, lease.recyclableReadBuffer)
 	require.Len(t, conn.encryptedPackets, 1)
 	assert.Same(t, &readBuffer[0], &conn.encryptedPackets[0].data[0])
 	assert.Equal(t, len(conn.encryptedPackets[0].data), cap(conn.encryptedPackets[0].data))
 
 	rejectedReadBuffer := []byte{4, 5, 6}
 	fullConn := &Conn{encryptedPackets: make([]addrPkt, maxAppDataPacketQueueSize)}
-	rejectedWriter := packetQueueWriter{conn: fullConn, recyclableReadBuffer: &rejectedReadBuffer}
-	assert.False(t, rejectedWriter.enqueue(addrPkt{data: rejectedReadBuffer}))
-	assert.Same(t, &rejectedReadBuffer, rejectedWriter.recyclableReadBuffer)
+	rejectedLease := readBufferLease{conn: fullConn, recyclableReadBuffer: &rejectedReadBuffer}
+	assert.False(t, rejectedLease.enqueue(addrPkt{data: rejectedReadBuffer}))
+	assert.Same(t, &rejectedReadBuffer, rejectedLease.recyclableReadBuffer)
 }
 
 func TestReadAndBufferNoFSMQueuesWithoutCopy(t *testing.T) {
@@ -3573,18 +3573,18 @@ func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T
 	}).Marshal()
 	assert.NoError(t, err)
 
-	queueWriter := &packetQueueWriter{conn: conn, recyclableReadBuffer: &rawPacket}
+	bufferLease := &readBufferLease{conn: conn, recyclableReadBuffer: &rawPacket}
 	outcome, err := conn.handleIncomingPacket(
 		context.Background(),
 		rawPacket,
 		nil,
-		queueWriter,
+		bufferLease,
 	)
 	assert.NoError(t, err)
 	assert.Nil(t, outcome.responseAlert)
 	assert.False(t, outcome.containsHandshake)
 	assert.False(t, outcome.retransmit)
-	assert.Nil(t, queueWriter.recyclableReadBuffer)
+	assert.Nil(t, bufferLease.recyclableReadBuffer)
 	assert.Len(t, conn.encryptedPackets, 1)
 	assert.Equal(t, rawPacket, conn.encryptedPackets[0].data)
 }
@@ -4088,7 +4088,7 @@ func TestHandshakeCancellationWhilePostSetupBlocks(t *testing.T) {
 	}
 }
 
-// WIP! Tests if the dual stack mode client managed to negotiate a version successfully.
+// TestDTLSDualStackClient verifies that a dual-stack client negotiates successfully.
 func TestDTLSDualStackClient(t *testing.T) {
 	defer test.CheckRoutines(t)()
 	defer test.TimeOut(time.Second * 10).Stop()
@@ -4166,7 +4166,7 @@ func TestDTLSDualStackClientRejectsNonClientHelloBeforeWrite(t *testing.T) {
 	assert.Equal(t, int32(0), writes.Load())
 }
 
-// WIP! Tests if the dual stack mode server managed to negotiate a version successfully.
+// TestDTLSDualStackServer verifies that a dual-stack server negotiates successfully.
 func TestDTLSDualStackServer(t *testing.T) {
 	defer test.CheckRoutines(t)()
 	defer test.TimeOut(time.Second * 10).Stop()
@@ -4196,7 +4196,7 @@ func TestDTLSDualStackServer(t *testing.T) {
 	testDTLSDualStack(t, clientOpts, serverOpts)
 }
 
-// WIP! Tests if the dual stack mode managed to negotiate a version successfully.
+// testDTLSDualStack verifies successful version negotiation.
 func testDTLSDualStack(t *testing.T, clientOpts []ClientOption, serverOpts []ServerOption) {
 	t.Helper()
 	ca, cb := dpipe.Pipe()
@@ -4389,9 +4389,9 @@ func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 	rawPacket, err := record.Marshal()
 	assert.NoError(t, err)
 
-	queueWriter := &packetQueueWriter{conn: conn}
+	bufferLease := &readBufferLease{conn: conn}
 	outcome, err := conn.handleIncomingPacket(
-		context.Background(), rawPacket, nil, queueWriter,
+		context.Background(), rawPacket, nil, bufferLease,
 	)
 	assert.NoError(t, err)
 	assert.Nil(t, outcome.responseAlert)
@@ -4419,7 +4419,7 @@ func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	rawPacket, err := record.Marshal()
 	assert.NoError(t, err)
 
-	prepared, ok := conn.prepareIncomingPacket(rawPacket, nil, &packetQueueWriter{conn: conn})
+	prepared, ok := conn.prepareIncomingPacket(rawPacket, nil, &readBufferLease{conn: conn})
 	assert.True(t, ok)
 	if assert.NotNil(t, prepared.header) {
 		assert.Equal(t, protocol.ContentTypeHandshake, prepared.header.ContentType)

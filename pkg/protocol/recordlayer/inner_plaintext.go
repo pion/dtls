@@ -4,6 +4,8 @@
 package recordlayer
 
 import (
+	"bytes"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"golang.org/x/crypto/cryptobyte"
@@ -48,7 +50,7 @@ func (p *InnerPlaintext) Unmarshal(data []byte) error {
 		return dtlserrors.ErrBufferTooSmall
 	}
 	p.RealType = protocol.ContentType(data[i])
-	p.Content = append([]byte{}, data[:i]...)
+	p.Content = bytes.Clone(data[:i])
 
 	return nil
 }

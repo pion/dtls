@@ -24,7 +24,7 @@ func (c CertificateAuthorities) TypeValue() TypeValue {
 
 // Marshal encodes the extension.
 func (c *CertificateAuthorities) Marshal() ([]byte, error) {
-	if len(c.Authorities) < 1 {
+	if len(c.Authorities) == 0 {
 		return []byte{}, dtlserrors.ErrInvalidCertificateAuthFormat
 	}
 	var out cryptobyte.Builder
@@ -32,7 +32,7 @@ func (c *CertificateAuthorities) Marshal() ([]byte, error) {
 	out.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 			for _, ca := range c.Authorities {
-				if len(ca) < 1 {
+				if len(ca) == 0 {
 					b.SetError(dtlserrors.ErrInvalidCertificateAuthFormat)
 
 					return
@@ -72,7 +72,7 @@ func (c *CertificateAuthorities) unmarshalPayload(data []byte) error {
 	var cauths [][]byte
 	for !auths.Empty() {
 		var ca cryptobyte.String
-		if !auths.ReadUint16LengthPrefixed(&ca) || len(ca) < 1 {
+		if !auths.ReadUint16LengthPrefixed(&ca) || len(ca) == 0 {
 			return dtlserrors.ErrInvalidCertificateAuthFormat
 		}
 		cauths = append(cauths, ca)

@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -91,7 +92,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error {
 	if len(data) <= currOffset+n {
 		return dtlserrors.ErrBufferTooSmall
 	}
-	m.SessionID = append([]byte{}, data[currOffset:currOffset+n]...)
+	m.SessionID = bytes.Clone(data[currOffset : currOffset+n])
 	currOffset += len(m.SessionID)
 
 	if len(data) < currOffset+2 {

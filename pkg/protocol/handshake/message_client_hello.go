@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -103,7 +104,7 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if len(data) <= currOffset+n {
 		return dtlserrors.ErrBufferTooSmall
 	}
-	m.SessionID = append([]byte{}, data[currOffset:currOffset+n]...)
+	m.SessionID = bytes.Clone(data[currOffset : currOffset+n])
 	currOffset += len(m.SessionID)
 
 	currOffset++
@@ -114,7 +115,7 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if len(data) <= currOffset+n {
 		return dtlserrors.ErrBufferTooSmall
 	}
-	m.Cookie = append([]byte{}, data[currOffset:currOffset+n]...)
+	m.Cookie = bytes.Clone(data[currOffset : currOffset+n])
 	currOffset += len(m.Cookie)
 
 	// Cipher Suites

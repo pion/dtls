@@ -237,7 +237,7 @@ func flight3Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
-	if len(flightCtx.cfg.LocalSignatureSchemes) < 1 {
+	if len(flightCtx.cfg.LocalSignatureSchemes) == 0 {
 		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 

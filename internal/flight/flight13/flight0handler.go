@@ -132,7 +132,7 @@ func flight0Generate(
 
 	state.LocalEpoch.Store(EpochInitial)
 	state.RemoteEpoch.Store(EpochInitial)
-	if len(cfg.EllipticCurves) < 1 {
+	if len(cfg.EllipticCurves) == 0 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 

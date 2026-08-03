@@ -179,7 +179,7 @@ func generateAEADAdditionalDataCID(h *recordlayer.Header, payloadLen int) []byte
 //
 // https://github.com/golang/go/blob/039c2081d1178f90a8fa2f4e6958693129f8de33/src/crypto/tls/conn.go#L245
 func examinePadding(payload []byte) (toRemove int, good byte) {
-	if len(payload) < 1 {
+	if len(payload) == 0 {
 		return 0, 0
 	}
 

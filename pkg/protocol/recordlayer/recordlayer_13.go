@@ -165,7 +165,7 @@ func (r *CiphertextRecord13) Unmarshal(data []byte) error {
 		return ErrInvalidPacketLength
 	}
 
-	r.EncryptedRecord = append([]byte{}, data[headerSize:headerSize+recordLen]...)
+	r.EncryptedRecord = bytes.Clone(data[headerSize : headerSize+recordLen])
 
 	return nil
 }
@@ -246,7 +246,7 @@ func isMismatchedCiphertextCID(firstCID *[]byte, cid []byte, cidLength int) bool
 		return false
 	}
 	if *firstCID == nil {
-		*firstCID = append([]byte{}, cid...)
+		*firstCID = bytes.Clone(cid)
 
 		return false
 	}
