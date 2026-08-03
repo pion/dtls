@@ -32,10 +32,10 @@ func FindMatchingCipherSuite(a, b []dtlsconfig.CipherSuite) (dtlsconfig.CipherSu
 }
 
 func CipherSuiteIDs(cipherSuites []dtlsconfig.CipherSuite) []uint16 {
-	rtrn := []uint16{}
+	ids := []uint16{}
 	for _, c := range cipherSuites {
-		rtrn = append(rtrn, uint16(c.ID()))
+		ids = append(ids, uint16(c.ID()))
 	}
 
-	return rtrn
+	return ids
 }

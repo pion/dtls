@@ -4,6 +4,7 @@
 package flight12
 
 import (
+	"bytes"
 	"context"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
@@ -49,7 +50,7 @@ func flight1Parse(
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 				dtlserrors.ErrUnsupportedProtocolVersion
 		}
-		state.Cookie = append([]byte{}, h.Cookie...)
+		state.Cookie = bytes.Clone(h.Cookie)
 		state.HandshakeRecvSequence = seq
 
 		return Flight3, nil, nil
@@ -69,7 +70,7 @@ func flight1Generate(
 	state.LocalEpoch.Store(zeroEpoch)
 	state.RemoteEpoch.Store(zeroEpoch)
 	ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)
-	if len(ellipticCurves) < 1 {
+	if len(ellipticCurves) == 0 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
 	state.NamedCurve = ellipticCurves[0]

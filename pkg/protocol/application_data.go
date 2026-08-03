@@ -3,6 +3,8 @@
 
 package protocol
 
+import "bytes"
+
 // ApplicationData messages are carried by the record layer and are
 // fragmented, compressed, and encrypted based on the current connection
 // state.  The messages are treated as transparent data to the record
@@ -19,12 +21,12 @@ func (a ApplicationData) ContentType() ContentType {
 
 // Marshal encodes the ApplicationData to binary.
 func (a *ApplicationData) Marshal() ([]byte, error) {
-	return append([]byte{}, a.Data...), nil
+	return bytes.Clone(a.Data), nil
 }
 
 // Unmarshal populates the ApplicationData from binary.
 func (a *ApplicationData) Unmarshal(data []byte) error {
-	a.Data = append([]byte{}, data...)
+	a.Data = bytes.Clone(data)
 
 	return nil
 }

@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/binary"
 
@@ -75,7 +76,7 @@ func (m *MessageCertificateVerify) Unmarshal(data []byte) error {
 		return dtlserrors.ErrBufferTooSmall
 	}
 
-	m.Signature = append([]byte{}, data[4:]...)
+	m.Signature = bytes.Clone(data[4:])
 
 	return nil
 }

@@ -3,6 +3,8 @@
 
 package handshake
 
+import "bytes"
+
 // MessageFinished is a DTLS Handshake Message
 // this message is the first one protected with the just
 // negotiated algorithms, keys, and secrets.  Recipients of Finished
@@ -20,12 +22,12 @@ func (m MessageFinished) Type() Type {
 
 // Marshal encodes the Handshake.
 func (m *MessageFinished) Marshal() ([]byte, error) {
-	return append([]byte{}, m.VerifyData...), nil
+	return bytes.Clone(m.VerifyData), nil
 }
 
 // Unmarshal populates the message from encoded data.
 func (m *MessageFinished) Unmarshal(data []byte) error {
-	m.VerifyData = append([]byte{}, data...)
+	m.VerifyData = bytes.Clone(data)
 
 	return nil
 }

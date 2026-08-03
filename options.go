@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"io"
 	"net"
+	"slices"
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -33,12 +34,6 @@ type ClientOption interface {
 type Option interface {
 	ServerOption
 	ClientOption
-}
-
-// defensiveCopy copies a slice. This prevents the caller from mutating
-// the config after construction. Returns empty slice if input is empty.
-func defensiveCopy[T any](t ...T) []T {
-	return append([]T{}, t...)
 }
 
 type dtlsConfig struct {
@@ -149,7 +144,7 @@ func WithCertificates(certs ...tls.Certificate) Option {
 		if len(certs) == 0 {
 			return dtlserrors.ErrEmptyCertificates
 		}
-		c.Certificates = defensiveCopy(certs...)
+		c.Certificates = slices.Clone(certs)
 
 		return nil
 	})
@@ -162,7 +157,7 @@ func WithCipherSuites(suites ...CipherSuiteID) Option {
 		if len(suites) == 0 {
 			return dtlserrors.ErrEmptyCipherSuites
 		}
-		c.CipherSuites = defensiveCopy(suites...)
+		c.CipherSuites = slices.Clone(suites)
 
 		return nil
 	})
@@ -188,7 +183,7 @@ func WithSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 		if len(schemes) == 0 {
 			return dtlserrors.ErrEmptySignatureSchemes
 		}
-		c.SignatureSchemes = defensiveCopy(schemes...)
+		c.SignatureSchemes = slices.Clone(schemes)
 
 		return nil
 	})
@@ -204,7 +199,7 @@ func WithCertificateSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 		if len(schemes) == 0 {
 			return dtlserrors.ErrEmptyCertificateSignatureSchemes
 		}
-		c.CertificateSignatureSchemes = defensiveCopy(schemes...)
+		c.CertificateSignatureSchemes = slices.Clone(schemes)
 
 		return nil
 	})
@@ -217,7 +212,7 @@ func WithSRTPProtectionProfiles(profiles ...SRTPProtectionProfile) Option {
 		if len(profiles) == 0 {
 			return dtlserrors.ErrEmptySRTPProtectionProfiles
 		}
-		c.SRTPProtectionProfiles = defensiveCopy(profiles...)
+		c.SRTPProtectionProfiles = slices.Clone(profiles)
 
 		return nil
 	})
@@ -226,7 +221,7 @@ func WithSRTPProtectionProfiles(profiles ...SRTPProtectionProfile) Option {
 // WithSRTPMasterKeyIdentifier sets the SRTP master key identifier.
 func WithSRTPMasterKeyIdentifier(identifier []byte) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		c.SRTPMasterKeyIdentifier = defensiveCopy(identifier...)
+		c.SRTPMasterKeyIdentifier = slices.Clone(identifier)
 
 		return nil
 	})
@@ -283,7 +278,7 @@ func WithPSK(callback PSKCallback) Option {
 // WithPSKIdentityHint sets the PSK identity hint.
 func WithPSKIdentityHint(hint []byte) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		c.PSKIdentityHint = defensiveCopy(hint...)
+		c.PSKIdentityHint = slices.Clone(hint)
 
 		return nil
 	})
@@ -413,7 +408,7 @@ func WithSupportedProtocols(protocols ...string) Option {
 		if len(protocols) == 0 {
 			return dtlserrors.ErrEmptySupportedProtocols
 		}
-		c.SupportedProtocols = defensiveCopy(protocols...)
+		c.SupportedProtocols = slices.Clone(protocols)
 
 		return nil
 	})
@@ -426,7 +421,7 @@ func WithEllipticCurves(curves ...elliptic.Curve) Option {
 		if len(curves) == 0 {
 			return dtlserrors.ErrEmptyEllipticCurves
 		}
-		c.EllipticCurves = defensiveCopy(curves...)
+		c.EllipticCurves = slices.Clone(curves)
 
 		return nil
 	})

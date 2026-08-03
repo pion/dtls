@@ -5,6 +5,8 @@
 package fragmentbuffer
 
 import (
+	"bytes"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -127,7 +129,7 @@ func (f *FragmentBuffer) pushHandshakeFragments(
 		}
 
 		// Discard all headers, when rebuilding the packet we will re-build
-		frag.data = append([]byte{}, buf[handshake.HeaderLength:end]...)
+		frag.data = bytes.Clone(buf[handshake.HeaderLength:end])
 		frag.recordLayerHeader = recordLayerHeader
 
 		if _, ok = messageFragments.fragmentByOffset[frag.handshakeHeader.FragmentOffset]; !ok {

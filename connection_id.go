@@ -42,7 +42,7 @@ func OnlySendCIDGenerator() func() []byte {
 func cidDatagramRouter(size int) func([]byte) (string, bool) {
 	return func(packet []byte) (string, bool) {
 		pkts, err := recordlayer.ContentAwareUnpackDatagram(packet, size)
-		if err != nil || len(pkts) < 1 {
+		if err != nil || len(pkts) == 0 {
 			return "", false
 		}
 		for _, pkt := range pkts {
@@ -71,7 +71,7 @@ func cidDatagramRouter(size int) func([]byte) (string, bool) {
 func cidConnIdentifier() func([]byte) (string, bool) { //nolint:cyclop
 	return func(packet []byte) (string, bool) {
 		pkts, err := recordlayer.UnpackDatagram(packet)
-		if err != nil || len(pkts) < 1 {
+		if err != nil || len(pkts) == 0 {
 			return "", false
 		}
 		var h recordlayer.Header

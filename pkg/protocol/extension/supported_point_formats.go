@@ -59,7 +59,7 @@ func (s *SupportedPointFormats) Unmarshal(data []byte) error {
 
 func (s *SupportedPointFormats) unmarshalPayload(data []byte) error {
 	switch {
-	case len(data) < 1:
+	case len(data) == 0:
 		return dtlserrors.ErrBufferTooSmall
 	case int(data[0])+1 != len(data):
 		return dtlserrors.ErrLengthMismatch

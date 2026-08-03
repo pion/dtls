@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
@@ -68,7 +69,7 @@ func (m *MessageClientKeyExchange) Unmarshal(data []byte) error {
 			return dtlserrors.ErrBufferTooSmall
 		}
 
-		m.IdentityHint = append([]byte{}, data[2:pskLength+2]...)
+		m.IdentityHint = bytes.Clone(data[2 : pskLength+2])
 		offset += pskLength + 2
 	}
 
@@ -78,7 +79,7 @@ func (m *MessageClientKeyExchange) Unmarshal(data []byte) error {
 			return dtlserrors.ErrBufferTooSmall
 		}
 
-		m.PublicKey = append([]byte{}, data[offset+1:]...)
+		m.PublicKey = bytes.Clone(data[offset+1:])
 	}
 
 	return nil
