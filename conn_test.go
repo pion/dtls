@@ -860,6 +860,7 @@ func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
 			expectedServerKeyExchange := testCase.SetIdentity
 
 			clientErr := make(chan error, 1)
+			serverHandshakeDone := make(chan struct{})
 			ca, cb := dpipe.Pipe()
 			cbAnalyzer := &connWithCallback{Conn: cb}
 			cbAnalyzer.onWrite = func(in []byte) {
@@ -906,6 +907,7 @@ func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
 				if client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, false); err != nil {
 					clientErr <- err
 				} else {
+					<-serverHandshakeDone
 					clientErr <- client.Close() //nolint
 				}
 			}()
@@ -921,6 +923,7 @@ func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
 			}
 
 			server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cbAnalyzer), cbAnalyzer.RemoteAddr(), opts, false)
+			close(serverHandshakeDone)
 			assert.NoError(t, err)
 
 			// Read the value immediately after handshake completes, before closing
