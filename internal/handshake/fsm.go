@@ -5,7 +5,9 @@ package dtlshandshake
 
 import (
 	"context"
+	"time"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
@@ -60,4 +62,35 @@ func notifyAlert(ctx context.Context, conn Conn, dtlsAlert *alert.Alert, err err
 	}
 
 	return err
+}
+
+func handleRetransmitTimeout(
+	retransmit bool,
+	retransmitInterval *time.Duration,
+	cfg *dtlsconfig.HandshakeConfig,
+) State {
+	if !retransmit {
+		return StateWaiting
+	}
+
+	// RFC 4347 4.2.4.1: retransmissions use exponential backoff, capped at
+	// 60 seconds.
+	if !cfg.DisableRetransmitBackoff {
+		*retransmitInterval *= 2
+	}
+	if *retransmitInterval > time.Second*60 {
+		*retransmitInterval = time.Second * 60
+	}
+
+	return StateSending
+}
+
+func handleWaitCancellation(
+	retransmitInterval *time.Duration,
+	cfg *dtlsconfig.HandshakeConfig,
+	err error,
+) (State, error) {
+	*retransmitInterval = cfg.InitialRetransmitInterval
+
+	return StateErrored, err
 }

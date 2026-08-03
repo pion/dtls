@@ -32,26 +32,14 @@ import (
 
 var testCurves13 = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384} //nolint:gochecknoglobals
 
-type handshakeContext13 struct {
-	state      *dtlsstate.State13
-	cache      *dtlsflight.Cache
-	cfg        *dtlsconfig.HandshakeConfig
-	transcript *Transcript
-}
-
-func (s *fsm13) flightContext() *handshakeContext13 {
-	return &handshakeContext13{
-		state:      s.state,
-		cache:      s.cache,
-		cfg:        s.cfg,
-		transcript: s.transcript,
-	}
+func (s *fsm13) flightContext() *handshakeContext {
+	return &s.handshakeContext
 }
 
 func flight13GenerateForTest(
 	testingT require.TestingT,
 	flight dtlsflight13.Flight,
-	flightCtx *handshakeContext13,
+	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {
 		helper.Helper()
@@ -116,6 +104,67 @@ func newTestState13(isClient bool) *dtlsstate.State13 {
 	return &state
 }
 
+func TestHandshakeFSMRetransmitTimeout(t *testing.T) {
+	tests := []struct {
+		name              string
+		retransmit        bool
+		disableBackoff    bool
+		initial, expected time.Duration
+		expectedState     State
+	}{
+		{
+			name:          "no retransmit",
+			initial:       time.Second,
+			expected:      time.Second,
+			expectedState: StateWaiting,
+		},
+		{
+			name:          "backoff",
+			retransmit:    true,
+			initial:       time.Second,
+			expected:      2 * time.Second,
+			expectedState: StateSending,
+		},
+		{
+			name:           "backoff disabled",
+			retransmit:     true,
+			disableBackoff: true,
+			initial:        time.Second,
+			expected:       time.Second,
+			expectedState:  StateSending,
+		},
+		{
+			name:          "cap",
+			retransmit:    true,
+			initial:       45 * time.Second,
+			expected:      60 * time.Second,
+			expectedState: StateSending,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			interval := test.initial
+			cfg := &dtlsconfig.HandshakeConfig{DisableRetransmitBackoff: test.disableBackoff}
+
+			assert.Equal(t, test.expectedState, handleRetransmitTimeout(test.retransmit, &interval, cfg))
+			assert.Equal(t, test.expected, interval)
+		})
+	}
+}
+
+func TestHandshakeFSMWaitCancellationResetsRetransmitInterval(t *testing.T) {
+	cfg := &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}
+	interval := 30 * time.Second
+	errExpected := context.Canceled
+
+	state, err := handleWaitCancellation(&interval, cfg, errExpected)
+
+	assert.Equal(t, StateErrored, state)
+	assert.ErrorIs(t, err, errExpected)
+	assert.Equal(t, cfg.InitialRetransmitInterval, interval)
+}
+
 func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 	state := newTestState13(true)
 	cache := dtlsflight.NewCache()
@@ -136,10 +185,10 @@ func TestHandshakeFSM13SendACKUsesCurrentEpoch(t *testing.T) {
 	state := newTestState13(true)
 	state.LocalEpoch.Store(dtlsflight13.EpochApplication)
 	conn := &flightTestConn{}
-	fsm := &fsm13{state: state}
+	fsm := &fsm13{handshakeContext: handshakeContext{state: state}}
 	records := []protocol.RecordNumber{{Epoch: 2, SequenceNumber: 7}}
 
-	require.NoError(t, fsm.sendACK(context.Background(), conn, records))
+	require.NoError(t, sendACK(context.Background(), conn, fsm.state.GetLocalEpoch(), records))
 	require.Len(t, conn.writtenPackets, 1)
 	assert.True(t, conn.writtenPackets[0].ShouldEncrypt)
 	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Record.Header.Epoch)
@@ -150,9 +199,9 @@ func TestHandshakeFSM13SendACKUsesCurrentEpoch(t *testing.T) {
 
 func TestHandshakeFSM13DoesNotSendEmptyACK(t *testing.T) {
 	conn := &flightTestConn{}
-	fsm := &fsm13{state: newTestState13(false)}
+	fsm := &fsm13{handshakeContext: handshakeContext{state: newTestState13(false)}}
 
-	require.NoError(t, fsm.sendACK(context.Background(), conn, nil))
+	require.NoError(t, sendACK(context.Background(), conn, fsm.state.GetLocalEpoch(), nil))
 	assert.Empty(t, conn.writtenPackets)
 }
 
@@ -166,7 +215,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 		return &ch
 	}
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -202,7 +251,7 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
-	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
+	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext{
 		state: state,
 		cache: cache,
 		cfg:   cfg,
@@ -225,7 +274,7 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 	assert.Equal(t, before, fsm.transcript.Bytes())
 	assert.Same(t, transcript, fsm.flightContext().transcript)
 
-	require.NoError(t, fsm.seedTranscriptFromInitialFlights())
+	require.NoError(t, fsm.seedInitialFlights(fsm.flights, fsm.retransmit))
 	assert.Same(t, transcript, fsm.transcript)
 	assert.Equal(t, before, fsm.transcript.Bytes())
 	assert.Len(t, fsm.transcript.pending, 1)
@@ -582,9 +631,8 @@ func TestHandshakeFSM13ReaderPauseRequiredOnlyForQueueDrainingTransitions(t *tes
 		t.Run(test.name, func(t *testing.T) {
 			state := newTestState13(test.isClient)
 			state.RemoteEpoch.Store(test.remoteEpoch)
-			fsm := &fsm13{state: state}
-
-			assert.Equal(t, test.expected, fsm.transitionRequiresReaderPause(test.nextFlight))
+			flightContext := handshakeContext{state: state}
+			assert.Equal(t, test.expected, flightContext.transitionRequiresReaderPause(test.nextFlight))
 		})
 	}
 }
@@ -684,7 +732,7 @@ func TestHandshakeFSM13NoHRRReachesFlight5AfterEncryptedExtensions(t *testing.T)
 	assert.Equal(t, 5, fixture.clientState.HandshakeRecvSequence)
 	assertFlight13RecvDoneOpen(t, recvState)
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
-	fsm.releasePendingRecv()
+	fsm.received.release()
 	assertFlight13RecvDoneClosed(t, recvState)
 }
 
@@ -750,7 +798,7 @@ func TestHandshakeFSM13SendErrorReleasesReader(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fsm := clientFSMThroughServerFlight13(t, newNoHRRFlight13Fixture(t))
-			recvState := RecvHandshakeState{Done: fsm.pendingRecvDone}
+			recvState := RecvHandshakeState{Done: fsm.received.done}
 			conn := &flightTestConn{
 				writePackets: func(context.Context, []*dtlsflight.Packet) error {
 					assertFlight13RecvDoneOpen(t, recvState)
@@ -1168,7 +1216,7 @@ func clientFSMThroughServerFlight13(t *testing.T, fixture noHRRFlight13Fixture) 
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
 	assertFlight13RecvDoneOpen(t, recvState)
-	t.Cleanup(fsm.releasePendingRecv)
+	t.Cleanup(fsm.received.release)
 
 	return fsm
 }
@@ -1282,7 +1330,7 @@ func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
 	serverState := newTestState13(false)
 	serverCache := dtlsflight.NewCache()
 
-	_, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight0, &handshakeContext13{
+	_, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight0, &handshakeContext{
 		state: serverState,
 		cache: serverCache,
 		cfg:   cfg,
@@ -1336,7 +1384,7 @@ func newFlight13ClientHelloFixture(
 	t.Helper()
 
 	clientState := newTestState13(true)
-	clientHello, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext13{
+	clientHello, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext{
 		state: clientState,
 		cache: dtlsflight.NewCache(),
 		cfg:   cfg,

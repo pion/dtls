@@ -7,9 +7,13 @@ import (
 	"crypto/hmac"
 	"hash"
 
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/keyschedule"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
 const (
@@ -30,6 +34,178 @@ const (
 type handshakeKeySchedule struct {
 	HandshakeTrafficSecrets dtlsstate.TrafficSecrets
 	MasterSecret            []byte
+}
+
+func commitPreparedFlights(
+	conn Conn,
+	state *dtlsstate.State13,
+	transcript *Transcript,
+	cfg *dtlsconfig.HandshakeConfig,
+	flights []*dtlsflight.Packet,
+) error {
+	nextEpoch, protectedFlightStart := prepareFlightPackets(state, cfg.InitialEpoch, flights)
+	if err := commitOutboundFlight(state, transcript, flights, protectedFlightStart); err != nil {
+		return err
+	}
+	if nextEpoch == cfg.InitialEpoch {
+		return nil
+	}
+
+	cfg.Log.Tracef("[handshake13:%s] -> changeCipherSpec (epoch: %d)", sideString(state.IsClient), nextEpoch)
+	conn.SetLocalEpoch(nextEpoch)
+
+	return nil
+}
+
+func prepareFlightPackets(
+	state *dtlsstate.State13,
+	epoch uint16,
+	flights []*dtlsflight.Packet,
+) (uint16, int) {
+	nextEpoch := epoch
+	protectedFlightStart := len(flights)
+	for i, packet := range flights {
+		packet.Record.Header.Epoch += epoch
+		if packet.Record.Header.Epoch > nextEpoch {
+			nextEpoch = packet.Record.Header.Epoch
+		}
+		if packet.ShouldEncrypt && protectedFlightStart == len(flights) {
+			protectedFlightStart = i
+		}
+		if handshakeMessage, ok := packet.Record.Content.(*handshake.Handshake); ok {
+			handshakeMessage.Header.MessageSequence = uint16(state.HandshakeSendSequence) //nolint:gosec // G115
+			state.HandshakeSendSequence++
+		}
+	}
+
+	return nextEpoch, protectedFlightStart
+}
+
+func commitOutboundFlight(
+	state *dtlsstate.State13,
+	transcript *Transcript,
+	flights []*dtlsflight.Packet,
+	protectedFlightStart int,
+) error {
+	if err := appendCommittedOutboundHandshakeFlight(state, transcript, flights[:protectedFlightStart]); err != nil {
+		return err
+	}
+	if protectedFlightStart == len(flights) {
+		return nil
+	}
+	if err := ensureHandshakeTrafficSecrets(state, transcript); err != nil {
+		return err
+	}
+	if err := InitHandshakeRecordProtection(state); err != nil {
+		return err
+	}
+
+	return appendCommittedOutboundHandshakeFlight(state, transcript, flights[protectedFlightStart:])
+}
+
+func ensureHandshakeTrafficSecrets(state *dtlsstate.State13, transcript *Transcript) error {
+	secrets := state.KeySchedule.HandshakeTraffic
+	if len(secrets.Client) == 0 && len(secrets.Server) == 0 {
+		return DeriveAndStoreHandshakeTrafficSecrets(state, transcript)
+	}
+
+	return selectHashIfReady(transcript, state.CipherSuite)
+}
+
+func appendCommittedOutboundHandshakeFlight(
+	state *dtlsstate.State13,
+	transcript *Transcript,
+	pkts []*dtlsflight.Packet,
+) error {
+	for _, p := range pkts {
+		if err := populateOutboundCertificateVerify(state, transcript, p); err != nil {
+			return err
+		}
+		if err := populateOutboundFinished(state, transcript, p); err != nil {
+			return err
+		}
+		if err := AppendOutboundHandshakeFlight(
+			transcript,
+			state.IsClient,
+			state.CipherSuite,
+			[]*dtlsflight.Packet{p},
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func populateOutboundCertificateVerify(
+	state *dtlsstate.State13,
+	transcript *Transcript,
+	pkt *dtlsflight.Packet,
+) error {
+	if pkt == nil || pkt.Record == nil {
+		return nil
+	}
+	h, ok := pkt.Record.Content.(*handshake.Handshake)
+	if !ok {
+		return nil
+	}
+	certificateVerify, ok := h.Message.(*handshake.MessageCertificateVerify)
+	if !ok || len(certificateVerify.Signature) != 0 {
+		return nil
+	}
+	if pkt.CertificateVerifySigner == nil {
+		return dtlserrors.ErrInvalidPrivateKey
+	}
+
+	input, err := CertificateVerifyInputFromTranscript(state.IsClient, transcript)
+	if err != nil {
+		return err
+	}
+	certificateVerify.Signature, err = dtlscrypto.GenerateCertificateVerify(
+		input,
+		pkt.CertificateVerifySigner,
+		certificateVerify.HashAlgorithm,
+		certificateVerify.SignatureAlgorithm,
+	)
+
+	return err
+}
+
+func populateOutboundFinished(
+	state *dtlsstate.State13,
+	transcript *Transcript,
+	p *dtlsflight.Packet,
+) error {
+	if p == nil || p.Record == nil {
+		return nil
+	}
+	h, ok := p.Record.Content.(*handshake.Handshake)
+	if !ok {
+		return nil
+	}
+	finished, ok := h.Message.(*handshake.MessageFinished)
+	if !ok || len(finished.VerifyData) != 0 {
+		return nil
+	}
+	if state.CipherSuite == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+
+	baseKey, err := ServerHandshakeFinishedBaseKey(state)
+	if state.IsClient {
+		baseKey, err = ClientHandshakeFinishedBaseKey(state)
+	}
+	if err != nil {
+		return err
+	}
+
+	verifyData, err := FinishedVerifyDataFromTranscript(state.CipherSuite.HashFunc(), baseKey, transcript)
+	if err != nil {
+		return err
+	}
+	finished.VerifyData = verifyData
+
+	return nil
 }
 
 // deriveHandshakeTrafficSecrets derives the DTLS 1.3 client and server
