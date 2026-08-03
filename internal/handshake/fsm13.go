@@ -72,6 +72,7 @@ type fsm13 struct {
 	handshakeContext
 	closed        chan struct{}
 	establishment *Establishment
+	postHandshake *postHandshake
 	received      recvHandshakeLease // keeps the reader paused across a prepare/send transition
 }
 
@@ -120,6 +121,7 @@ func newFSM13WithEstablishment(
 		retransmitInterval: cfg.InitialRetransmitInterval,
 		closed:             make(chan struct{}),
 		establishment:      establishment,
+		postHandshake:      newPostHandshake(cfg.InitialRetransmitInterval),
 	}
 	if err := fsm.seedInitialFlights(fsm.flights, fsm.retransmit); err != nil {
 		return nil, err
@@ -239,6 +241,8 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 }
 
 func (s *fsm13) finish(ctx context.Context, c Conn) (State, error) {
+	s.postHandshake.initialize(s.state.IsClient)
+
 	select {
 	case state := <-c.RecvHandshake():
 		close(state.Done)
