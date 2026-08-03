@@ -331,7 +331,7 @@ func runHandshakeFSM12ForTest(
 	}()
 
 	fsm := dtlshandshake.NewFSM12(&conn.state, conn.handshakeCache, cfg, initialFlight, nil, establishment)
-	err := fsm.Run(ctx, handshakeConnAdapter{conn}, dtlshandshake.StatePreparing)
+	err := fsm.Run(ctx, conn, dtlshandshake.StatePreparing)
 	switch {
 	case errors.Is(err, context.Canceled):
 	case errors.Is(err, context.DeadlineExceeded):
@@ -400,19 +400,19 @@ type flightTestConn struct {
 	otherEndRecv  chan dtlshandshake.RecvHandshakeState
 }
 
-func (c *flightTestConn) recvHandshake() <-chan dtlshandshake.RecvHandshakeState {
+func (c *flightTestConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
 	return c.recv
 }
 
-func (c *flightTestConn) setLocalEpoch(epoch uint16) {
+func (c *flightTestConn) SetLocalEpoch(epoch uint16) {
 	c.epoch = epoch
 }
 
-func (c *flightTestConn) notify(context.Context, alert.Level, alert.Description) error {
+func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description) error {
 	return nil
 }
 
-func (c *flightTestConn) writePackets(_ context.Context, pkts []*dtlsflight.Packet) error { //nolint:cyclop
+func (c *flightTestConn) WritePackets(_ context.Context, pkts []*dtlsflight.Packet) error { //nolint:cyclop
 	time.Sleep(c.delay)
 	isRetransmit := false
 	for _, pkt := range pkts {
@@ -468,10 +468,10 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*dtlsflight.Pack
 	return nil
 }
 
-func (c *flightTestConn) handleQueuedPackets(context.Context) error {
+func (c *flightTestConn) HandleQueuedPackets(context.Context) error {
 	return nil
 }
 
-func (c *flightTestConn) sessionKey() []byte {
+func (c *flightTestConn) SessionKey() []byte {
 	return nil
 }
