@@ -585,7 +585,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 	ctx, cancel := c.contextWithClose(c.writeDeadline)
 	defer cancel()
 
-	return len(payload), c.writePackets(ctx, []*dtlsflight.Packet{
+	err := c.writePackets(ctx, []*dtlsflight.Packet{
 		{
 			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
@@ -600,6 +600,11 @@ func (c *Conn) Write(payload []byte) (int, error) {
 			ShouldEncrypt: true,
 		},
 	})
+	if errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
+		return len(payload), dtlserrors.ErrDeadlineExceeded
+	}
+
+	return len(payload), err
 }
 
 // Close closes the connection.
@@ -730,66 +735,25 @@ func (c *Conn) cacheHandshakePacket(pkt *dtlsflight.Packet, dtlsHandshake *hands
 	return nil
 }
 
-type closeContext struct {
-	context.Context //nolint:containedctx
-	done            chan struct{}
-	errMu           sync.RWMutex
-	err             error
-	doneOnce        sync.Once
-}
-
-func (c *closeContext) Done() <-chan struct{} {
-	return c.done
-}
-
-func (c *closeContext) Err() error {
-	c.errMu.RLock()
-	err := c.err
-	c.errMu.RUnlock()
-	if err != nil {
-		return err
-	}
-
-	return c.Context.Err()
-}
-
-func (c *closeContext) close(err error) {
-	c.doneOnce.Do(func() {
-		c.errMu.Lock()
-		c.err = err
-		c.errMu.Unlock()
-		close(c.done)
-	})
-}
-
 func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.CancelFunc) {
-	closeCtx := &closeContext{
-		Context: ctx,
-		done:    make(chan struct{}),
-	}
-	stop := make(chan struct{})
+	closeCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	go func() {
 		select {
 		case <-c.closed.Done():
-			closeCtx.close(context.Canceled)
+			cancel(context.Canceled)
 		case <-ctx.Done():
 			err := ctx.Err()
 			if err == nil {
 				err = context.DeadlineExceeded
 			}
-			closeCtx.close(err)
-		case <-stop:
+			cancel(err)
+		case <-closeCtx.Done():
 		}
 	}()
 
-	var stopOnce sync.Once
-	cancel := func() {
-		stopOnce.Do(func() {
-			close(stop)
-		})
+	return closeCtx, func() {
+		cancel(context.Canceled)
 	}
-
-	return closeCtx, cancel
 }
 
 func (c *Conn) compactRawPackets(rawPackets [][]byte) [][]byte {
