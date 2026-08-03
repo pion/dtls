@@ -133,49 +133,40 @@ type handshakeStart struct {
 	postSetup func(context.Context)
 }
 
-type handshakeConn interface {
-	notify(ctx context.Context, level alert.Level, desc alert.Description) error
-	writePackets(context.Context, []*dtlsflight.Packet) error
-	recvHandshake() <-chan dtlshandshake.RecvHandshakeState
-	setLocalEpoch(epoch uint16)
-	handleQueuedPackets(context.Context) error
-	sessionKey() []byte
+type handshakeConn struct {
+	conn *Conn
 }
 
-type handshakeConnAdapter struct {
-	handshakeConn
+func (c handshakeConn) Notify(ctx context.Context, level alert.Level, desc alert.Description) error {
+	return c.conn.notify(ctx, level, desc)
 }
 
-func (c handshakeConnAdapter) Notify(ctx context.Context, level alert.Level, desc alert.Description) error {
-	return c.notify(ctx, level, desc)
+func (c handshakeConn) WritePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
+	return c.conn.writePackets(ctx, pkts)
 }
 
-func (c handshakeConnAdapter) WritePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
-	return c.writePackets(ctx, pkts)
+func (c handshakeConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
+	return c.conn.recvHandshake()
 }
 
-func (c handshakeConnAdapter) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
-	return c.recvHandshake()
+func (c handshakeConn) SetLocalEpoch(epoch uint16) {
+	c.conn.setLocalEpoch(epoch)
 }
 
-func (c handshakeConnAdapter) SetLocalEpoch(epoch uint16) {
-	c.setLocalEpoch(epoch)
+func (c handshakeConn) HandleQueuedPackets(ctx context.Context) error {
+	return c.conn.handleQueuedPackets(ctx)
 }
 
-func (c handshakeConnAdapter) HandleQueuedPackets(ctx context.Context) error {
-	return c.handleQueuedPackets(ctx)
+func (c handshakeConn) SessionKey() []byte {
+	return c.conn.sessionKey()
 }
 
-func (c handshakeConnAdapter) SessionKey() []byte {
-	return c.sessionKey()
-}
-
-func adaptFlightConn(conn handshakeConn) dtlsflight.Conn {
+func adaptFlightConn(conn *Conn) dtlsflight.Conn {
 	if conn == nil {
 		return nil
 	}
 
-	return handshakeConnAdapter{conn}
+	return handshakeConn{conn}
 }
 
 func srvCliStr(isClient bool) string {
@@ -2608,7 +2599,7 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 	// The other party may request retransmission of the last flight to cope with packet drop.
 	go func() {
 		defer handshakeLoopsFinished.Done()
-		err := c.fsm.Run(ctxHs, handshakeConnAdapter{c}, start.fsmState)
+		err := c.fsm.Run(ctxHs, handshakeConn{c}, start.fsmState)
 		if !errors.Is(err, context.Canceled) {
 			select {
 			case firstErr <- err:
