@@ -4,8 +4,11 @@
 package dtlshandshake
 
 import (
+	"context"
+
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 )
 
@@ -28,6 +31,16 @@ func InitApplicationRecordProtection(state *dtlsstate.State13) error {
 		Client: state.KeySchedule.ClientApplicationTrafficSecret0,
 		Server: state.KeySchedule.ServerApplicationTrafficSecret0,
 	}, true)
+}
+
+func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *dtlsstate.State13) error {
+	if err := InitApplicationRecordProtection(state); err != nil {
+		return err
+	}
+	conn.SetLocalEpoch(dtlsflight13.EpochApplication)
+	state.RemoteEpoch.Store(dtlsflight13.EpochApplication)
+
+	return conn.HandleQueuedPackets(ctx)
 }
 
 func initRecordProtectionFromTrafficSecrets(

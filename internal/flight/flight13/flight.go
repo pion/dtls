@@ -32,3 +32,16 @@ func (f Flight) String() string {
 		return "Invalid Flight"
 	}
 }
+
+// IsLastSendFlight reports whether f is the final handshake flight sent by
+// either endpoint. DTLS 1.3 completes when the client sends Flight 5.
+func (f Flight) IsLastSendFlight() bool {
+	return f == Flight5
+}
+
+// IsLastRecvFlight reports whether f is the final handshake flight received
+// by either endpoint. The server completes when it receives the client's
+// Flight 5 while it is in Flight 4.
+func (f Flight) IsLastRecvFlight() bool {
+	return f == Flight4
+}

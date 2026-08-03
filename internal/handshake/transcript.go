@@ -10,7 +10,12 @@ import (
 	"hash"
 	"maps"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite/types"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
@@ -319,4 +324,255 @@ func (t *Transcript) replaceWith(src *Transcript) error {
 // Bytes returns the canonical transcript bytes.
 func (t *Transcript) Bytes() []byte {
 	return append([]byte(nil), t.transcript...)
+}
+
+// seedTranscriptFromInitialFlights imports the dual-stack ClientHello generated
+// before the DTLS 1.3 FSM exists.
+func seedTranscriptFromInitialFlights(
+	state *dtlsstate.State13,
+	transcript *Transcript,
+	flights []*dtlsflight.Packet,
+	retransmit bool,
+) error {
+	if !state.IsClient {
+		return nil
+	}
+
+	appended, err := AppendClientHelloInitialFlights(transcript, flights)
+	if err != nil {
+		return err
+	}
+	if retransmit && !appended {
+		return dtlserrors.ErrHandshakeTranscriptMissingClientHello
+	}
+
+	return nil
+}
+
+func AppendClientHelloInitialFlights(transcript *Transcript, flights []*dtlsflight.Packet) (bool, error) {
+	if transcript == nil {
+		return false, dtlserrors.ErrHandshakeTranscriptMissingClientHello
+	}
+
+	appended := false
+	for _, p := range flights {
+		seq, canonical, ok, err := canonicalClientHelloInitialFlight(p)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			continue
+		}
+		if err := transcript.appendCanonical(transcriptMessageID{
+			sender: transcriptSenderClient,
+			Seq:    seq,
+		}, canonical); err != nil {
+			return false, err
+		}
+		appended = true
+	}
+
+	return appended, nil
+}
+
+// ValidateClientHelloInitialFlights verifies that the dual-stack initial flight
+// contains a canonical ClientHello before it is written.
+func ValidateClientHelloInitialFlights(flights []*dtlsflight.Packet) error {
+	appended, err := AppendClientHelloInitialFlights(NewTranscript(), flights)
+	if err != nil {
+		return err
+	}
+	if !appended {
+		return dtlserrors.ErrHandshakeTranscriptMissingClientHello
+	}
+
+	return nil
+}
+
+func canonicalClientHelloInitialFlight(p *dtlsflight.Packet) (uint16, []byte, bool, error) {
+	if p == nil || p.Record == nil {
+		return 0, nil, false, nil
+	}
+	hand, ok := p.Record.Content.(*handshake.Handshake)
+	if !ok {
+		return 0, nil, false, nil
+	}
+	if hand.Message == nil || hand.Message.Type() != handshake.TypeClientHello {
+		return 0, nil, false, nil
+	}
+
+	raw, err := hand.Marshal()
+	if err != nil {
+		return 0, nil, false, err
+	}
+	canonical, err := canonicalHandshake(raw)
+	if err != nil {
+		return 0, nil, false, err
+	}
+
+	return hand.Header.MessageSequence, canonical, true, nil
+}
+
+func transcriptSenderForSide(isClient bool) transcriptSender {
+	if isClient {
+		return transcriptSenderClient
+	}
+
+	return transcriptSenderServer
+}
+
+func AppendOutboundHandshakeFlight(
+	transcript *Transcript,
+	isClient bool,
+	cipherSuite dtlsconfig.CipherSuite,
+	pkts []*dtlsflight.Packet,
+) error {
+	if transcript == nil {
+		return nil
+	}
+
+	sender := transcriptSenderForSide(isClient)
+	for _, p := range pkts {
+		handshakeMessage, canonical, ok, err := canonicalOutboundHandshake(p)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+
+		if err := appendHandshake(
+			transcript,
+			sender,
+			cipherSuite,
+			handshakeMessage.Header.MessageSequence,
+			handshakeMessage.Message,
+			canonical,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func canonicalOutboundHandshake(p *dtlsflight.Packet) (*handshake.Handshake, []byte, bool, error) {
+	if p == nil || p.Record == nil {
+		return nil, nil, false, nil
+	}
+
+	hs, ok := p.Record.Content.(*handshake.Handshake)
+	if !ok || hs.Message == nil {
+		return nil, nil, false, nil
+	}
+
+	raw, err := hs.Marshal()
+	if err != nil {
+		return nil, nil, false, err
+	}
+	canonical, err := canonicalHandshake(raw)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	return hs, canonical, true, nil
+}
+
+// AppendVerifiedInbound appends an inbound handshake message to the transcript
+// after the caller has validated and accepted it. For CertificateVerify and
+// Finished, callers must authenticate the message against SnapshotHash before
+// calling this method.
+func (t *Transcript) AppendVerifiedInbound(
+	isClient bool,
+	cipherSuite dtlsconfig.CipherSuite,
+	raw []byte,
+) error {
+	if t == nil {
+		return nil
+	}
+
+	canonical, err := canonicalHandshake(raw)
+	if err != nil {
+		return err
+	}
+
+	var keyExchangeAlgorithm types.KeyExchangeAlgorithm
+	if cipherSuite != nil {
+		keyExchangeAlgorithm = cipherSuite.KeyExchangeAlgorithm()
+	}
+
+	h := &handshake.Handshake{
+		KeyExchangeAlgorithm: keyExchangeAlgorithm,
+	}
+	if err := h.Unmarshal(raw); err != nil {
+		return err
+	}
+
+	return appendHandshake(
+		t,
+		transcriptSenderForSide(isClient),
+		cipherSuite,
+		h.Header.MessageSequence,
+		h.Message,
+		canonical,
+	)
+}
+
+// AppendVerifiedInboundHandshakeCacheItems appends inbound cache items to the
+// transcript after the caller has validated and accepted each item.
+//
+// Messages that require explicit authentication, such as CertificateVerify and
+// Finished, must be verified first and then appended with AppendVerifiedInbound.
+func AppendVerifiedInboundHandshakeCacheItems(
+	transcript *Transcript,
+	cipherSuite dtlsconfig.CipherSuite,
+	items []*dtlsflight.HandshakeCacheItem,
+) error {
+	if transcript == nil {
+		return nil
+	}
+
+	for _, item := range items {
+		if requiresExplicitAuthenticationBeforeTranscriptCommit(item.Typ) {
+			return dtlserrors.ErrHandshakeTranscriptExplicitAuthenticationRequired
+		}
+		if err := transcript.AppendVerifiedInbound(item.IsClient, cipherSuite, item.Data); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func requiresExplicitAuthenticationBeforeTranscriptCommit(typ handshake.Type) bool {
+	return typ == handshake.TypeCertificateVerify || typ == handshake.TypeFinished
+}
+
+func appendHandshake(
+	transcript *Transcript,
+	sender transcriptSender,
+	cipherSuite dtlsconfig.CipherSuite,
+	seq uint16,
+	message handshake.Message,
+	canonical []byte,
+) error {
+	id := transcriptMessageID{
+		sender: sender,
+		Seq:    seq,
+	}
+	if sh, ok := message.(*handshake.MessageServerHello); ok && dtlsflight13.IsHelloRetryRequest(sh) {
+		duplicate, err := transcript.hasCanonical(id, canonical)
+		if err != nil || duplicate {
+			return err
+		}
+
+		if err := selectHashIfReady(transcript, cipherSuite); err != nil {
+			return err
+		}
+		if err := transcript.applyHelloRetryRequest(); err != nil {
+			return err
+		}
+	}
+
+	return transcript.appendCanonical(id, canonical)
 }

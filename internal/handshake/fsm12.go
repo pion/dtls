@@ -218,25 +218,9 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 			return StatePreparing, nil
 
 		case <-retransmitTimer.C:
-			if !s.retransmit {
-				return StateWaiting, nil
-			}
-
-			// RFC 4347 4.2.4.1:
-			// Implementations SHOULD use an initial timer value of 1 second (the minimum defined in RFC 2988 [RFC2988])
-			// and double the value at each retransmission, up to no less than the RFC 2988 maximum of 60 seconds.
-			if !s.cfg.DisableRetransmitBackoff {
-				s.retransmitInterval *= 2
-			}
-			if s.retransmitInterval > time.Second*60 {
-				s.retransmitInterval = time.Second * 60
-			}
-
-			return StateSending, nil
+			return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg), nil
 		case <-ctx.Done():
-			s.retransmitInterval = s.cfg.InitialRetransmitInterval
-
-			return StateErrored, ctx.Err()
+			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
 		}
 	}
 }

@@ -477,9 +477,9 @@ func appendParsedInboundHandshake13(
 		return err
 	}
 
-	return appendHandshake13(
+	return appendHandshake(
 		transcript,
-		transcriptSenderForSide13(isClient),
+		transcriptSenderForSide(isClient),
 		cipherSuite,
 		hs.Header.MessageSequence,
 		hs.Message,
