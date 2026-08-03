@@ -8,6 +8,7 @@ import (
 	"encoding/gob"
 	"sync/atomic"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	dtlsutil "github.com/pion/dtls/v3/internal/util"
@@ -189,7 +190,7 @@ func (s *State) deserialize(serialized serializedState) {
 }
 
 func (s *State) initializedCipherSuite() (CipherSuite, error) {
-	cipherSuite := cipherSuiteForID(s.CipherSuiteID)
+	cipherSuite := ciphersuite.ForID(s.CipherSuiteID, nil)
 	if cipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -227,7 +228,7 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 		Common: &dtlsstate.Common{
 			LocalRandom:        s.localRandom,
 			RemoteRandom:       s.remoteRandom,
-			CipherSuite:        cipherSuiteForID(s.CipherSuiteID),
+			CipherSuite:        ciphersuite.ForID(s.CipherSuiteID, nil),
 			RemoteConnectionID: s.remoteConnectionID,
 			IsClient:           s.isClient,
 			PeerCertificates:   s.PeerCertificates,
