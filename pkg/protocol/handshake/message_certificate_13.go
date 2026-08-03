@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -126,8 +127,7 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 	}
 
 	// Copy cert_data to avoid aliasing issues
-	certDataBytes := make([]byte, len(certData))
-	copy(certDataBytes, certData)
+	certDataBytes := bytes.Clone(certData)
 
 	// Validate extensions length (2-byte length prefix + up to 2^16-1 bytes of data)
 	if len(*str) < cert13ExtLengthFieldSize {
@@ -172,8 +172,7 @@ func (m *MessageCertificate13) Unmarshal(data []byte) error {
 	if !str.ReadUint8LengthPrefixed(&contextData) {
 		return dtlserrors.ErrInvalidCertificateRequestContext
 	}
-	m.CertificateRequestContext = make([]byte, len(contextData))
-	copy(m.CertificateRequestContext, contextData)
+	m.CertificateRequestContext = bytes.Clone(contextData)
 
 	// Read certificate_list with 3-byte length prefix
 	var certificateListData cryptobyte.String

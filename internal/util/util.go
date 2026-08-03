@@ -35,15 +35,6 @@ func PutBigEndianUint48(out []byte, in uint64) {
 	copy(out, tmp[2:])
 }
 
-// Max returns the larger value.
-func Max(a, b int) int {
-	if a > b {
-		return a
-	}
-
-	return b
-}
-
 // CloneByteSlices returns a deep copy of in, preserving nil.
 func CloneByteSlices(in [][]byte) [][]byte {
 	if in == nil {

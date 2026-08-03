@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -80,7 +81,7 @@ func (m *MessageNewSessionTicket) Unmarshal(data []byte) error {
 	if len(data)-offset < nonceLength+2 {
 		return dtlserrors.ErrBufferTooSmall
 	}
-	ticketNonce := append([]byte(nil), data[offset:offset+nonceLength]...)
+	ticketNonce := bytes.Clone(data[offset : offset+nonceLength])
 	offset += nonceLength
 
 	ticketLength := int(binary.BigEndian.Uint16(data[offset:]))
@@ -91,7 +92,7 @@ func (m *MessageNewSessionTicket) Unmarshal(data []byte) error {
 	if len(data)-offset < ticketLength+2 {
 		return dtlserrors.ErrBufferTooSmall
 	}
-	ticket := append([]byte(nil), data[offset:offset+ticketLength]...)
+	ticket := bytes.Clone(data[offset : offset+ticketLength])
 	offset += ticketLength
 
 	extensions, err := extension.Unmarshal(data[offset:])

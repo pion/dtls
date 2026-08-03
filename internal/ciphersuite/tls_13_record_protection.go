@@ -4,6 +4,7 @@
 package ciphersuite
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/binary"
@@ -348,7 +349,7 @@ func recordNonce13(iv []byte, sequenceNumber uint64) ([]byte, error) {
 		return nil, dtlserrors.ErrLengthMismatch
 	}
 
-	nonce := append([]byte(nil), iv...)
+	nonce := bytes.Clone(iv)
 	var sequenceNumberBytes [8]byte
 	binary.BigEndian.PutUint64(sequenceNumberBytes[:], sequenceNumber)
 	for i, b := range sequenceNumberBytes {

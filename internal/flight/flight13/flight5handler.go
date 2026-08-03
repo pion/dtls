@@ -4,6 +4,7 @@
 package flight13
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/tls"
 
@@ -175,7 +176,7 @@ func certificateEntries13(certificates [][]byte) []handshake.CertificateEntry13 
 	entries := make([]handshake.CertificateEntry13, 0, len(certificates))
 	for _, certificate := range certificates {
 		entries = append(entries, handshake.CertificateEntry13{
-			CertificateData: append([]byte(nil), certificate...),
+			CertificateData: bytes.Clone(certificate),
 		})
 	}
 

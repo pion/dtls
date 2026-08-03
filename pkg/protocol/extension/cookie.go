@@ -4,6 +4,8 @@
 package extension
 
 import (
+	"bytes"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -60,7 +62,7 @@ func (c *CookieExt) unmarshalPayload(data []byte) error {
 		return dtlserrors.ErrLengthMismatch
 	}
 
-	c.Cookie = append([]byte(nil), cookie...)
+	c.Cookie = bytes.Clone(cookie)
 
 	return nil
 }

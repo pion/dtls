@@ -4,6 +4,8 @@
 package extension
 
 import (
+	"slices"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -78,8 +80,7 @@ func (c *CertificateAuthorities) unmarshalPayload(data []byte) error {
 		cauths = append(cauths, ca)
 	}
 
-	c.Authorities = make([][]byte, len(cauths))
-	copy(c.Authorities, cauths)
+	c.Authorities = slices.Clone(cauths)
 
 	return nil
 }

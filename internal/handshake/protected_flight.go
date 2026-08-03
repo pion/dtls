@@ -4,6 +4,7 @@
 package dtlshandshake
 
 import (
+	"bytes"
 	"crypto/x509"
 	"fmt"
 
@@ -229,7 +230,7 @@ func protectedHandshakeMessage13(typ handshake.Type, body []byte) (handshake.Mes
 func rawCertificatesFromCertificate13(certificate *handshake.MessageCertificate13) [][]byte {
 	out := make([][]byte, 0, len(certificate.CertificateList))
 	for _, entry := range certificate.CertificateList {
-		out = append(out, append([]byte(nil), entry.CertificateData...))
+		out = append(out, bytes.Clone(entry.CertificateData))
 	}
 
 	return out

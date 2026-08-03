@@ -130,7 +130,7 @@ func (c *CBC) Decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 	case header.ContentType == protocol.ContentTypeChangeCipherSpec:
 		// Nothing to encrypt with ChangeCipherSpec
 		return in, nil
-	case len(body)%blockSize != 0 || len(body) < blockSize+util.Max(mac.Size()+1, blockSize):
+	case len(body)%blockSize != 0 || len(body) < blockSize+max(mac.Size()+1, blockSize):
 		return nil, dtlserrors.ErrNotEnoughRoomForNonce
 	}
 

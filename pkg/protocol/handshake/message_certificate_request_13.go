@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -98,8 +99,7 @@ func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 	if !str.ReadUint8LengthPrefixed(&contextData) {
 		return dtlserrors.ErrInvalidCertificateRequestContext
 	}
-	m.CertificateRequestContext = make([]byte, len(contextData))
-	copy(m.CertificateRequestContext, contextData)
+	m.CertificateRequestContext = bytes.Clone(contextData)
 
 	// Read extensions length (2 bytes)
 	if len(str) < 2 {
