@@ -929,7 +929,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		{
 			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
-					Epoch:   dtlsstate.CommonState(c.state).GetLocalEpoch(),
+					Epoch:   dtlsstate.CommonState(c.state).LocalEpoch(),
 					Version: protocol.Version1_2,
 				},
 				Content: &protocol.ApplicationData{
@@ -970,7 +970,7 @@ func (c *Conn) ConnectionState() (State, bool) {
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile.
 func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
-	profile := dtlsstate.CommonState(c.state).GetSRTPProtectionProfile()
+	profile := dtlsstate.CommonState(c.state).SRTPProtectionProfile()
 	if profile == 0 {
 		return 0, false
 	}
@@ -981,7 +981,7 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 // RemoteSRTPMasterKeyIdentifier returns the MasterKeyIdentifier value from the use_srtp.
 func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
 	common := dtlsstate.CommonState(c.state)
-	if profile := common.GetSRTPProtectionProfile(); profile == 0 {
+	if profile := common.SRTPProtectionProfile(); profile == 0 {
 		return nil, false
 	}
 
@@ -1599,7 +1599,7 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 		return recordlayer.UnpackDatagram13(buf, 0, true)
 	}
 
-	return recordlayer.ContentAwareUnpackDatagram(buf, len(common.GetLocalConnectionID()))
+	return recordlayer.ContentAwareUnpackDatagram(buf, len(common.LocalConnectionID()))
 }
 
 func (c *Conn) queueableCiphertextEpoch(epochLow uint8, remoteEpoch uint16) bool {
@@ -1615,7 +1615,7 @@ func (c *Conn) queueableCiphertextEpoch(epochLow uint8, remoteEpoch uint16) bool
 func (c *Conn) unmarshalCiphertextRecord(buf []byte) (recordlayer.CiphertextRecord13, error) {
 	record := recordlayer.CiphertextRecord13{}
 	hasCID := buf[0]&recordlayer.UnifiedHeaderCIDBit != 0
-	localCID := dtlsstate.CommonState(c.state).GetLocalConnectionID()
+	localCID := dtlsstate.CommonState(c.state).LocalConnectionID()
 	if hasCID {
 		if len(localCID) == 0 {
 			return record, dtlserrors.ErrInvalidCiphertextHeader
@@ -1647,7 +1647,7 @@ func (c *Conn) openCiphertextRecord(
 		return recordlayer.InnerPlaintext{}, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
-	remoteEpoch := dtlsstate.CommonState(c.state).GetRemoteEpoch()
+	remoteEpoch := dtlsstate.CommonState(c.state).RemoteEpoch()
 	if record.Header.EpochLow != uint8(remoteEpoch&recordlayer.TwoLowBitsMask) {
 		return recordlayer.InnerPlaintext{}, 0, dtlserrors.ErrInvalidEpoch
 	}
@@ -1774,7 +1774,7 @@ func (c *Conn) prepareCiphertextPacket(
 		return incomingPacketState{}, false
 	}
 
-	remoteEpoch := dtlsstate.CommonState(c.state).GetRemoteEpoch()
+	remoteEpoch := dtlsstate.CommonState(c.state).RemoteEpoch()
 	if ciphertext.Header.EpochLow != uint8(remoteEpoch&recordlayer.TwoLowBitsMask) {
 		c.handleFutureCiphertextPacket(ciphertext.Header.EpochLow, remoteEpoch, rAddr, buf, bufferLease)
 
@@ -1937,7 +1937,7 @@ func (c *Conn) unmarshalLegacyHeader(buf []byte) (*recordlayer.Header, bool) {
 	header := &recordlayer.Header{}
 	// Set connection ID size so that records of content type tls12_cid will
 	// be parsed correctly.
-	localCID := dtlsstate.CommonState(c.state).GetLocalConnectionID()
+	localCID := dtlsstate.CommonState(c.state).LocalConnectionID()
 	if len(localCID) > 0 {
 		header.ConnectionID = make([]byte, len(localCID))
 	}
@@ -1958,7 +1958,7 @@ func (c *Conn) handleFutureLegacyPacket(
 	buf []byte,
 	bufferLease *readBufferLease,
 ) bool {
-	remoteEpoch := dtlsstate.CommonState(c.state).GetRemoteEpoch()
+	remoteEpoch := dtlsstate.CommonState(c.state).RemoteEpoch()
 	if header.Epoch <= remoteEpoch {
 		return false
 	}
@@ -2035,7 +2035,7 @@ func (c *Conn) decryptLegacyPacket(
 
 func (c *Conn) validateLegacyCIDPresence(header *recordlayer.Header) bool {
 	common := dtlsstate.CommonState(c.state)
-	if len(common.GetLocalConnectionID()) == 0 || header.ContentType == protocol.ContentTypeConnectionID {
+	if len(common.LocalConnectionID()) == 0 || header.ContentType == protocol.ContentTypeConnectionID {
 		return true
 	}
 
@@ -2048,7 +2048,7 @@ func (c *Conn) decryptLegacyRecord(header *recordlayer.Header, buf []byte) ([]by
 	var decryptHeader recordlayer.Header
 	common := dtlsstate.CommonState(c.state)
 	if header.ContentType == protocol.ContentTypeConnectionID {
-		decryptHeader.ConnectionID = make([]byte, len(common.GetLocalConnectionID()))
+		decryptHeader.ConnectionID = make([]byte, len(common.LocalConnectionID()))
 	}
 	decrypted, err := common.CipherSuite.Decrypt(decryptHeader, buf)
 	if err != nil {
@@ -2061,7 +2061,7 @@ func (c *Conn) decryptLegacyRecord(header *recordlayer.Header, buf []byte) ([]by
 }
 
 func (c *Conn) validateLegacyCID(header *recordlayer.Header) bool {
-	if bytes.Equal(dtlsstate.CommonState(c.state).GetLocalConnectionID(), header.ConnectionID) {
+	if bytes.Equal(dtlsstate.CommonState(c.state).LocalConnectionID(), header.ConnectionID) {
 		return true
 	}
 
@@ -2179,7 +2179,7 @@ func (c *Conn) handleIncomingPacket(
 		newRemoteEpoch := header.Epoch + 1
 		c.log.Tracef("%s: <- ChangeCipherSpec (epoch: %d)", srvCliStr(common.IsClient), newRemoteEpoch)
 
-		if common.GetRemoteEpoch()+1 == newRemoteEpoch {
+		if common.RemoteEpoch()+1 == newRemoteEpoch {
 			c.setRemoteEpoch(newRemoteEpoch)
 			isLatestSeqNum = markPacketAsValid()
 		}
@@ -2274,7 +2274,7 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 		{
 			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
-					Epoch:   common.GetLocalEpoch(),
+					Epoch:   common.LocalEpoch(),
 					Version: protocol.Version1_2,
 				},
 				Content: &alert.Alert{
@@ -2762,11 +2762,11 @@ func (c *Conn) isConnectionClosed() bool {
 }
 
 func (c *Conn) setLocalEpoch(epoch uint16) {
-	dtlsstate.CommonState(c.state).LocalEpoch.Store(epoch)
+	dtlsstate.CommonState(c.state).SetLocalEpoch(epoch)
 }
 
 func (c *Conn) setRemoteEpoch(epoch uint16) {
-	dtlsstate.CommonState(c.state).RemoteEpoch.Store(epoch)
+	dtlsstate.CommonState(c.state).SetRemoteEpoch(epoch)
 }
 
 // LocalAddr implements net.Conn.LocalAddr.

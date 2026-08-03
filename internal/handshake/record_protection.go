@@ -38,7 +38,7 @@ func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *
 		return err
 	}
 	conn.SetLocalEpoch(dtlsflight13.EpochApplication)
-	state.RemoteEpoch.Store(dtlsflight13.EpochApplication)
+	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
 
 	return conn.HandleQueuedPackets(ctx)
 }

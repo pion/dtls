@@ -26,8 +26,8 @@ func flight1Generate(
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 
-	state.LocalEpoch.Store(EpochInitial)
-	state.RemoteEpoch.Store(EpochInitial)
+	state.SetLocalEpoch(EpochInitial)
+	state.SetRemoteEpoch(EpochInitial)
 	if len(cfg.EllipticCurves) == 0 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
@@ -224,9 +224,10 @@ func flight1Parse(
 			state.Cookie = ext.Cookie
 		case *extension.KeyShare:
 			if ext.SelectedGroup != nil {
-				state.RemoteKeyEntries = &[]extension.KeyShareEntry{
+				state.RemoteKeyEntries = []extension.KeyShareEntry{
 					{Group: *ext.SelectedGroup},
 				}
+				state.HasRemoteKeyEntries = true
 			}
 		}
 	}

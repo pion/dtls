@@ -344,22 +344,11 @@ func cloneState13ForVerifyConnection(state *dtlsstate.State13, peerCertificates 
 	if !state.LocalVersion.Equal(protocol.Version{}) {
 		common.LocalVersion = state.LocalVersion
 	}
-	if localEpoch, ok := state.LocalEpoch.Load().(uint16); ok {
-		common.LocalEpoch.Store(localEpoch)
-	}
-	if remoteEpoch, ok := state.RemoteEpoch.Load().(uint16); ok {
-		common.RemoteEpoch.Store(remoteEpoch)
-	}
-	if profile, ok := state.SRTPProtectionProfile.Load().(extension.SRTPProtectionProfile); ok {
-		common.SRTPProtectionProfile.Store(profile)
-	}
-	if localCID := state.GetLocalConnectionID(); localCID != nil {
+	common.SetLocalEpoch(state.LocalEpoch())
+	common.SetRemoteEpoch(state.RemoteEpoch())
+	common.SetSRTPProtectionProfile(state.SRTPProtectionProfile())
+	if localCID := state.LocalConnectionID(); localCID != nil {
 		common.SetLocalConnectionID(bytes.Clone(localCID))
-	}
-	var remoteKeyEntries *[]extension.KeyShareEntry
-	if state.RemoteKeyEntries != nil {
-		entries := append([]extension.KeyShareEntry(nil), (*state.RemoteKeyEntries)...)
-		remoteKeyEntries = &entries
 	}
 
 	return &dtlsstate.State13{
@@ -368,7 +357,8 @@ func cloneState13ForVerifyConnection(state *dtlsstate.State13, peerCertificates 
 		KeyAgreementSecret:    bytes.Clone(state.KeyAgreementSecret),
 		SelectedGroup:         state.SelectedGroup,
 		LocalKeyEntries:       append([]extension.KeyShareEntry(nil), state.LocalKeyEntries...),
-		RemoteKeyEntries:      remoteKeyEntries,
+		RemoteKeyEntries:      append([]extension.KeyShareEntry(nil), state.RemoteKeyEntries...),
+		HasRemoteKeyEntries:   state.HasRemoteKeyEntries,
 		RemoteGroups:          append([]elliptic.Curve(nil), state.RemoteGroups...),
 		Cookie:                bytes.Clone(state.Cookie),
 		HandshakeSendSequence: state.HandshakeSendSequence,

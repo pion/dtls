@@ -213,10 +213,10 @@ func populateOutboundFinished(
 func deriveHandshakeTrafficSecrets(
 	hashFunc func() hash.Hash,
 	keyAgreementSecret, transcriptHash []byte,
-) (dtlsstate.HandshakeTrafficSecrets, error) {
+) (dtlsstate.TrafficSecrets, error) {
 	secrets, err := deriveHandshakeKeySchedule(hashFunc, keyAgreementSecret, transcriptHash)
 	if err != nil {
-		return dtlsstate.HandshakeTrafficSecrets{}, err
+		return dtlsstate.TrafficSecrets{}, err
 	}
 
 	return secrets.HandshakeTrafficSecrets, nil

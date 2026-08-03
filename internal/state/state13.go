@@ -14,10 +14,6 @@ type TrafficSecrets struct {
 	Server []byte
 }
 
-// HandshakeTrafficSecrets is retained as a type alias for tests and helper
-// code that name the DTLS 1.3 handshake traffic secrets directly.
-type HandshakeTrafficSecrets = TrafficSecrets
-
 type KeySchedule struct {
 	EarlySecret     []byte
 	HandshakeSecret []byte
@@ -52,8 +48,9 @@ type State13 struct {
 
 	LocalKeyEntries []extension.KeyShareEntry
 
-	RemoteKeyEntries *[]extension.KeyShareEntry
-	RemoteGroups     []elliptic.Curve
+	RemoteKeyEntries    []extension.KeyShareEntry
+	HasRemoteKeyEntries bool
+	RemoteGroups        []elliptic.Curve
 
 	Cookie                []byte
 	HandshakeSendSequence int

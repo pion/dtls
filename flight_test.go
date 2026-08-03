@@ -920,7 +920,7 @@ func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, dtlsflight13.Flight3, nextFlight)
-	entries := *state.RemoteKeyEntries
+	entries := state.RemoteKeyEntries
 	require.Len(t, entries, 1)
 	assert.Equal(t, selectedGroup, entries[0].Group)
 	assert.Empty(t, entries[0].KeyExchange)
@@ -954,7 +954,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithoutSupportedVersions(t *test
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
-	assert.Nil(t, state.RemoteKeyEntries)
+	assert.False(t, state.HasRemoteKeyEntries)
 }
 
 func TestFlight13_1ParseRejectsHelloRetryRequestWithWrongSelectedVersion(t *testing.T) {
@@ -989,7 +989,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithWrongSelectedVersion(t *test
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.ProtocolVersion, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
-	assert.Nil(t, state.RemoteKeyEntries)
+	assert.False(t, state.HasRemoteKeyEntries)
 }
 
 func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersionsEncoding(t *testing.T) {
@@ -1029,7 +1029,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersions
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
-	assert.Nil(t, state.RemoteKeyEntries)
+	assert.False(t, state.HasRemoteKeyEntries)
 }
 
 func TestFlight13_3GenerateRejectsWithoutCommonVersion(t *testing.T) {
@@ -1119,7 +1119,8 @@ func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.
 	state.LocalKeyEntries = []extension.KeyShareEntry{
 		{Group: originalKeypair.Curve, KeyExchange: originalKeypair.PublicKey},
 	}
-	state.RemoteKeyEntries = &[]extension.KeyShareEntry{{Group: selectedGroup}}
+	state.RemoteKeyEntries = []extension.KeyShareEntry{{Group: selectedGroup}}
+	state.HasRemoteKeyEntries = true
 	require.NoError(t, state.LocalRandom.Populate())
 
 	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeTestContext13{
@@ -1171,7 +1172,8 @@ func TestFlight13_3GenerateDoesNotRegenerateAlreadyAdvertisedGroup(t *testing.T)
 	state.LocalKeyEntries = []extension.KeyShareEntry{
 		{Group: keypair.Curve, KeyExchange: keypair.PublicKey},
 	}
-	state.RemoteKeyEntries = &[]extension.KeyShareEntry{{Group: selectedGroup}}
+	state.RemoteKeyEntries = []extension.KeyShareEntry{{Group: selectedGroup}}
+	state.HasRemoteKeyEntries = true
 	require.NoError(t, state.LocalRandom.Populate())
 
 	pkts, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight3, &handshakeTestContext13{
@@ -1283,9 +1285,9 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	assert.Equal(t, cfg.LocalCipherSuites[0].ID(), state.CipherSuite.ID())
 	assert.Equal(t, group, state.SelectedGroup)
 	assert.Equal(t, random.RandomBytes, state.RemoteRandom.RandomBytes)
-	require.NotNil(t, state.RemoteKeyEntries)
-	require.Len(t, *state.RemoteKeyEntries, 1)
-	assert.Equal(t, group, (*state.RemoteKeyEntries)[0].Group)
+	require.True(t, state.HasRemoteKeyEntries)
+	require.Len(t, state.RemoteKeyEntries, 1)
+	assert.Equal(t, group, state.RemoteKeyEntries[0].Group)
 
 	assert.Equal(t, expected, state.KeyAgreementSecret)
 	assert.NotEmpty(t, state.KeyAgreementSecret)
@@ -1356,7 +1358,7 @@ func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(
 		handleQueuedPackets: func(context.Context) error {
 			drained = true
 			assert.True(t, state.CipherSuite.IsInitialized())
-			assert.Equal(t, dtlsflight13.EpochHandshake, state.GetRemoteEpoch())
+			assert.Equal(t, dtlsflight13.EpochHandshake, state.RemoteEpoch())
 			cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 			cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
 

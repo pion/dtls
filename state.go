@@ -64,17 +64,17 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 		return nil, ErrStateSerializationUnsupported
 	}
 
-	epoch := internalState.GetLocalEpoch()
+	epoch := internalState.LocalEpoch()
 
 	return &State{
-		localEpoch:            internalState.GetLocalEpoch(),
-		remoteEpoch:           internalState.GetRemoteEpoch(),
+		localEpoch:            internalState.LocalEpoch(),
+		remoteEpoch:           internalState.RemoteEpoch(),
 		localRandom:           internalState.LocalRandom,
 		remoteRandom:          internalState.RemoteRandom,
 		masterSecret:          internalState.MasterSecret,
 		sequenceNumber:        atomic.LoadUint64(&internalState.LocalSequenceNumber[epoch]),
-		srtpProtectionProfile: internalState.GetSRTPProtectionProfile(),
-		localConnectionID:     internalState.GetLocalConnectionID(),
+		srtpProtectionProfile: internalState.SRTPProtectionProfile(),
+		localConnectionID:     internalState.LocalConnectionID(),
 		remoteConnectionID:    internalState.RemoteConnectionID,
 		isClient:              internalState.IsClient,
 		version:               protocol.Version1_2,
@@ -107,20 +107,20 @@ func generateState13(internalState *dtlsstate.State13) (*State, error) {
 		return nil, dtlserrors.ErrInvalidProtocolVersionState
 	}
 
-	epoch := common.GetLocalEpoch()
+	epoch := common.LocalEpoch()
 	var sequenceNumber uint64
 	if int(epoch) < len(common.LocalSequenceNumber) {
 		sequenceNumber = atomic.LoadUint64(&common.LocalSequenceNumber[epoch])
 	}
 
 	return &State{
-		localEpoch:            common.GetLocalEpoch(),
-		remoteEpoch:           common.GetRemoteEpoch(),
+		localEpoch:            common.LocalEpoch(),
+		remoteEpoch:           common.RemoteEpoch(),
 		localRandom:           common.LocalRandom,
 		remoteRandom:          common.RemoteRandom,
 		sequenceNumber:        sequenceNumber,
-		srtpProtectionProfile: common.GetSRTPProtectionProfile(),
-		localConnectionID:     bytes.Clone(common.GetLocalConnectionID()),
+		srtpProtectionProfile: common.SRTPProtectionProfile(),
+		localConnectionID:     bytes.Clone(common.LocalConnectionID()),
 		remoteConnectionID:    bytes.Clone(common.RemoteConnectionID),
 		isClient:              common.IsClient,
 		version:               protocol.Version1_3,
@@ -239,8 +239,8 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 		},
 		MasterSecret: s.masterSecret,
 	}
-	state.LocalEpoch.Store(s.localEpoch)
-	state.RemoteEpoch.Store(s.remoteEpoch)
+	state.SetLocalEpoch(s.localEpoch)
+	state.SetRemoteEpoch(s.remoteEpoch)
 	state.SetSRTPProtectionProfile(s.srtpProtectionProfile)
 	state.SetLocalConnectionID(s.localConnectionID)
 

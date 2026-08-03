@@ -183,12 +183,12 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 
 func TestHandshakeFSM13SendACKUsesCurrentEpoch(t *testing.T) {
 	state := newTestState13(true)
-	state.LocalEpoch.Store(dtlsflight13.EpochApplication)
+	state.SetLocalEpoch(dtlsflight13.EpochApplication)
 	conn := &flightTestConn{}
 	fsm := &fsm13{handshakeContext: handshakeContext{state: state}}
 	records := []protocol.RecordNumber{{Epoch: 2, SequenceNumber: 7}}
 
-	require.NoError(t, sendACK(context.Background(), conn, fsm.state.GetLocalEpoch(), records))
+	require.NoError(t, sendACK(context.Background(), conn, fsm.state.LocalEpoch(), records))
 	require.Len(t, conn.writtenPackets, 1)
 	assert.True(t, conn.writtenPackets[0].ShouldEncrypt)
 	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Record.Header.Epoch)
@@ -201,7 +201,7 @@ func TestHandshakeFSM13DoesNotSendEmptyACK(t *testing.T) {
 	conn := &flightTestConn{}
 	fsm := &fsm13{handshakeContext: handshakeContext{state: newTestState13(false)}}
 
-	require.NoError(t, sendACK(context.Background(), conn, fsm.state.GetLocalEpoch(), nil))
+	require.NoError(t, sendACK(context.Background(), conn, fsm.state.LocalEpoch(), nil))
 	assert.Empty(t, conn.writtenPackets)
 }
 
@@ -556,14 +556,14 @@ func TestHandshakeFSM13ServerFlight4KeepsReaderPausedThroughQueueDrain(t *testin
 	require.Equal(t, StateWaiting, nextState)
 	assertFlight13RecvDoneClosed(t, recvState)
 	assert.Equal(t, 1, queueDrains)
-	assert.Equal(t, dtlsflight13.EpochHandshake, serverState.GetRemoteEpoch())
+	assert.Equal(t, dtlsflight13.EpochHandshake, serverState.RemoteEpoch())
 
 	conn.writePackets = nil
 	nextState, err = fsm.send(context.Background(), conn)
 	require.NoError(t, err)
 	require.Equal(t, StateWaiting, nextState)
 	assert.Equal(t, 1, queueDrains)
-	assert.Equal(t, dtlsflight13.EpochHandshake, serverState.GetRemoteEpoch())
+	assert.Equal(t, dtlsflight13.EpochHandshake, serverState.RemoteEpoch())
 }
 
 func TestHandshakeFSM13NonDrainingTransitionReleasesReaderAfterWait(t *testing.T) {
@@ -630,7 +630,7 @@ func TestHandshakeFSM13ReaderPauseRequiredOnlyForQueueDrainingTransitions(t *tes
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			state := newTestState13(test.isClient)
-			state.RemoteEpoch.Store(test.remoteEpoch)
+			state.SetRemoteEpoch(test.remoteEpoch)
 			flightContext := handshakeContext{state: state}
 			assert.Equal(t, test.expected, flightContext.transitionRequiresReaderPause(test.nextFlight))
 		})
@@ -682,7 +682,7 @@ func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
 	assert.Equal(t, 5, fixture.clientState.HandshakeRecvSequence)
 	assert.True(t, fixture.clientState.CipherSuite.IsInitialized())
-	assert.Equal(t, dtlsflight13.EpochHandshake, fixture.clientState.GetRemoteEpoch())
+	assert.Equal(t, dtlsflight13.EpochHandshake, fixture.clientState.RemoteEpoch())
 	assertFlight13RecvDoneOpen(t, recvState)
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
 
@@ -1021,7 +1021,7 @@ func TestHandshakeFSM13ServerVerifiesClientFinishedAndCompletes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StateFinished, nextState)
 	assert.Equal(t, 2, fixture.serverState.HandshakeRecvSequence)
-	assert.Equal(t, dtlsflight13.EpochApplication, fixture.serverState.GetRemoteEpoch())
+	assert.Equal(t, dtlsflight13.EpochApplication, fixture.serverState.RemoteEpoch())
 	assert.True(t, conn.setLocalEpochCalled)
 	assert.Equal(t, dtlsflight13.EpochApplication, conn.localEpoch)
 	assertFlight13RecvDoneClosed(t, recvState)

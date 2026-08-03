@@ -67,8 +67,8 @@ func flight1Generate(
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	var zeroEpoch uint16
-	state.LocalEpoch.Store(zeroEpoch)
-	state.RemoteEpoch.Store(zeroEpoch)
+	state.SetLocalEpoch(zeroEpoch)
+	state.SetRemoteEpoch(zeroEpoch)
 	ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)
 	if len(ellipticCurves) == 0 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
@@ -162,10 +162,10 @@ func flight1Generate(
 		// use the presence of a non-nil local CID in flight 3 to determine
 		// whether we send a CID in the second ClientHello, so we convert any
 		// nil CID returned by a generator to []byte{}.
-		if state.GetLocalConnectionID() == nil {
+		if state.LocalConnectionID() == nil {
 			state.SetLocalConnectionID([]byte{})
 		}
-		extensions = append(extensions, &extension.ConnectionID{CID: state.GetLocalConnectionID()})
+		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
 	}
 
 	clientHello := &handshake.MessageClientHello{

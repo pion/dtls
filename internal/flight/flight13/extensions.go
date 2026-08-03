@@ -109,6 +109,7 @@ func processClientHelloStateExtension(
 		// Store the client's certificate signature schemes for later validation.
 		state.RemoteCertSignatureSchemes = ext.SignatureHashAlgorithms
 	case *extension.KeyShare:
-		state.RemoteKeyEntries = &ext.ClientShares
+		state.RemoteKeyEntries = ext.ClientShares
+		state.HasRemoteKeyEntries = true
 	}
 }

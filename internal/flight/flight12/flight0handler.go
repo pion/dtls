@@ -195,8 +195,8 @@ func flight0Generate(
 	}
 
 	var zeroEpoch uint16
-	state.LocalEpoch.Store(zeroEpoch)
-	state.RemoteEpoch.Store(zeroEpoch)
+	state.SetLocalEpoch(zeroEpoch)
+	state.SetRemoteEpoch(zeroEpoch)
 	ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)
 	if len(ellipticCurves) == 0 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves

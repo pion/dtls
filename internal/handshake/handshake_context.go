@@ -50,10 +50,10 @@ func (c *handshakeContext) afterSend(
 ) (bool, error) {
 	if !c.state.IsClient &&
 		flight == dtlsflight13.Flight4 &&
-		c.state.GetRemoteEpoch() < dtlsflight13.EpochHandshake {
+		c.state.RemoteEpoch() < dtlsflight13.EpochHandshake {
 		// Only the first send advances the epoch and drains packets. A timer
 		// retransmission has no receive-side rendezvous and the reader is active.
-		c.state.RemoteEpoch.Store(dtlsflight13.EpochHandshake)
+		c.state.SetRemoteEpoch(dtlsflight13.EpochHandshake)
 		if err := conn.HandleQueuedPackets(ctx); err != nil {
 			return false, err
 		}
@@ -108,7 +108,7 @@ func (c *handshakeContext) advanceAfterReceivedFlight(
 		if err := activateApplicationRecordProtection(ctx, conn, c.state); err != nil {
 			return receivedFlightTransition{}, err
 		}
-		if err := sendACK(ctx, conn, c.state.GetLocalEpoch(), receivedRecords); err != nil {
+		if err := sendACK(ctx, conn, c.state.LocalEpoch(), receivedRecords); err != nil {
 			return receivedFlightTransition{}, err
 		}
 
@@ -135,7 +135,7 @@ func (c *handshakeContext) transitionRequiresReaderPause(nextFlight dtlsflight13
 	}
 
 	return nextFlight == dtlsflight13.Flight4 &&
-		c.state.GetRemoteEpoch() < dtlsflight13.EpochHandshake
+		c.state.RemoteEpoch() < dtlsflight13.EpochHandshake
 }
 
 func (c *handshakeContext) parseDependencies() dtlsflight13.ParseDependencies {

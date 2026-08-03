@@ -18,7 +18,7 @@ import (
 
 // Common is the protocol-independent connection state shared by DTLS versions.
 type Common struct {
-	LocalEpoch, RemoteEpoch   atomic.Value
+	localEpoch, remoteEpoch   atomic.Uint32
 	LocalSequenceNumber       []uint64 // uint48
 	RemoteSequenceNumber      []uint64
 	LocalRandom, RemoteRandom handshake.Random
@@ -28,7 +28,7 @@ type Common struct {
 	SessionID                 []byte
 	NegotiatedProtocol        string
 
-	SRTPProtectionProfile         atomic.Value // Negotiated SRTPProtectionProfile
+	srtpProtectionProfile         atomic.Uint32 // Negotiated SRTPProtectionProfile
 	RemoteSRTPMasterKeyIdentifier []byte
 
 	// Connection Identifiers must be negotiated afresh on session resumption.
@@ -38,7 +38,7 @@ type Common struct {
 	// to be received from the remote endpoint.
 	// For a server, this is the connection ID sent in ServerHello.
 	// For a client, this is the connection ID sent in the ClientHello.
-	LocalConnectionID atomic.Value
+	localConnectionID atomic.Value
 	// RemoteConnectionID is the connection ID that the remote endpoint
 	// specifies should be sent.
 	// For a server, this is the connection ID received in the ClientHello.
@@ -59,36 +59,32 @@ type Common struct {
 	RemoteVersions []protocol.Version
 }
 
-func (s *Common) GetRemoteEpoch() uint16 {
-	if remoteEpoch, ok := s.RemoteEpoch.Load().(uint16); ok {
-		return remoteEpoch
-	}
-
-	return 0
+func (s *Common) RemoteEpoch() uint16 {
+	return uint16(s.remoteEpoch.Load()) //nolint:gosec // Epochs are stored as uint16 values.
 }
 
-func (s *Common) GetLocalEpoch() uint16 {
-	if localEpoch, ok := s.LocalEpoch.Load().(uint16); ok {
-		return localEpoch
-	}
+func (s *Common) SetRemoteEpoch(epoch uint16) {
+	s.remoteEpoch.Store(uint32(epoch))
+}
 
-	return 0
+func (s *Common) LocalEpoch() uint16 {
+	return uint16(s.localEpoch.Load()) //nolint:gosec // Epochs are stored as uint16 values.
+}
+
+func (s *Common) SetLocalEpoch(epoch uint16) {
+	s.localEpoch.Store(uint32(epoch))
 }
 
 func (s *Common) SetSRTPProtectionProfile(profile extension.SRTPProtectionProfile) {
-	s.SRTPProtectionProfile.Store(profile)
+	s.srtpProtectionProfile.Store(uint32(profile))
 }
 
-func (s *Common) GetSRTPProtectionProfile() extension.SRTPProtectionProfile {
-	if val, ok := s.SRTPProtectionProfile.Load().(extension.SRTPProtectionProfile); ok {
-		return val
-	}
-
-	return 0
+func (s *Common) SRTPProtectionProfile() extension.SRTPProtectionProfile {
+	return extension.SRTPProtectionProfile(s.srtpProtectionProfile.Load()) //nolint:gosec // Stored profile is uint16.
 }
 
-func (s *Common) GetLocalConnectionID() []byte {
-	if val, ok := s.LocalConnectionID.Load().([]byte); ok {
+func (s *Common) LocalConnectionID() []byte {
+	if val, ok := s.localConnectionID.Load().([]byte); ok {
 		return val
 	}
 
@@ -96,7 +92,7 @@ func (s *Common) GetLocalConnectionID() []byte {
 }
 
 func (s *Common) SetLocalConnectionID(v []byte) {
-	s.LocalConnectionID.Store(v)
+	s.localConnectionID.Store(v)
 }
 
 // State is retained as the DTLS 1.2 state alias for callers that still only

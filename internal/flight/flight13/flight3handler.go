@@ -166,7 +166,8 @@ func applyFlight3ServerKeyShare(
 	}
 	flightCtx.state.KeyAgreementSecret = keyAgreementSecret
 	flightCtx.state.SelectedGroup = serverShare.Group
-	flightCtx.state.RemoteKeyEntries = &[]extension.KeyShareEntry{*serverShare}
+	flightCtx.state.RemoteKeyEntries = []extension.KeyShareEntry{*serverShare}
+	flightCtx.state.HasRemoteKeyEntries = true
 
 	return nil
 }
@@ -193,7 +194,7 @@ func initializeFlight3HandshakeProtection(
 	if err := flightCtx.handshakeRecordProtectionInitializer(flightCtx.state); err != nil {
 		return newFlightParseFailure(alert.InternalError, err)
 	}
-	flightCtx.state.RemoteEpoch.Store(EpochHandshake)
+	flightCtx.state.SetRemoteEpoch(EpochHandshake)
 	if conn == nil {
 		return nil
 	}
@@ -276,12 +277,12 @@ func flight3Generate(
 	var localGroups []elliptic.Curve
 	var newEntries []extension.KeyShareEntry
 	newKeypairs := map[elliptic.Curve]*elliptic.Keypair{}
-	if flightCtx.state.RemoteKeyEntries != nil {
+	if flightCtx.state.HasRemoteKeyEntries {
 		for _, entry := range flightCtx.state.LocalKeyEntries {
 			localGroups = append(localGroups, entry.Group)
 		}
 
-		for _, entry := range *flightCtx.state.RemoteKeyEntries {
+		for _, entry := range flightCtx.state.RemoteKeyEntries {
 			if !slices.Contains(localGroups, entry.Group) && slices.Contains(flightCtx.cfg.EllipticCurves, entry.Group) {
 				keypair, err := elliptic.GenerateKeypair(entry.Group)
 				if err != nil {
