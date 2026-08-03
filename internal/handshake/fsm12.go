@@ -71,17 +71,6 @@ func NewFSM12(
 	initialFlights []*dtlsflight.Packet,
 	establishment *Establishment,
 ) FSM {
-	return newFSM12(state, cache, cfg, initialFlight, initialFlights, establishment)
-}
-
-func newFSM12(
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-	initialFlight dtlsflight12.Flight,
-	initialFlights []*dtlsflight.Packet,
-	establishment *Establishment,
-) *fsm12 {
 	return &fsm12{
 		currentFlight:      initialFlight,
 		flights:            initialFlights,
