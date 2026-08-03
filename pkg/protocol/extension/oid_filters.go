@@ -4,6 +4,8 @@
 package extension
 
 import (
+	"bytes"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -92,15 +94,13 @@ func (o *OIDFilters) unmarshalPayload(data []byte) error {
 		}
 		seen[string(oid)] = struct{}{}
 
-		filter.OID = make([]byte, len(oid))
-		copy(filter.OID, oid)
+		filter.OID = bytes.Clone(oid)
 
 		var values cryptobyte.String
 		if !filterList.ReadUint16LengthPrefixed(&values) {
 			return dtlserrors.ErrOIDFiltersFormat
 		}
-		filter.Values = make([]byte, len(values))
-		copy(filter.Values, values)
+		filter.Values = bytes.Clone(values)
 
 		o.Filters = append(o.Filters, filter)
 	}

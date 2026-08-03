@@ -4,6 +4,8 @@
 package extension
 
 import (
+	"bytes"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"golang.org/x/crypto/cryptobyte"
@@ -125,7 +127,7 @@ func (k *KeyShare) unmarshalPayload(data []byte) error { //nolint:cyclop
 			seenGroups[group] = struct{}{}
 
 			entry.Group = group
-			entry.KeyExchange = append([]byte(nil), raw...)
+			entry.KeyExchange = bytes.Clone(raw)
 			k.ClientShares = append(k.ClientShares, entry)
 		}
 
@@ -161,7 +163,7 @@ func (k *KeyShare) unmarshalPayload(data []byte) error { //nolint:cyclop
 	}
 
 	group := elliptic.Curve(groupU16)
-	share := KeyShareEntry{Group: group, KeyExchange: append([]byte(nil), raw...)}
+	share := KeyShareEntry{Group: group, KeyExchange: bytes.Clone(raw)}
 	k.ServerShare = &share
 
 	return nil

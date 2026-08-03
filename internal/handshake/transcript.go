@@ -5,10 +5,12 @@
 package dtlshandshake
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"errors"
 	"hash"
 	"maps"
+	"slices"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
@@ -136,7 +138,7 @@ func (t *Transcript) appendCanonical(id transcriptMessageID, message []byte) err
 		return dtlserrors.ErrHandshakeTranscriptMessageChanged
 	}
 
-	messageCopy := append([]byte(nil), message...)
+	messageCopy := bytes.Clone(message)
 	t.seen[id] = seenTranscriptMessage13{
 		length:      len(messageCopy),
 		fingerprint: fingerprint,
@@ -282,9 +284,9 @@ func (t *Transcript) clone() (*Transcript, error) {
 	out := &Transcript{
 		newHash:           t.newHash,
 		pending:           util.CloneByteSlices(t.pending),
-		transcript:        append([]byte(nil), t.transcript...),
+		transcript:        bytes.Clone(t.transcript),
 		seen:              make(map[transcriptMessageID]seenTranscriptMessage13, len(t.seen)),
-		order:             append([]transcriptMessage(nil), t.order...),
+		order:             slices.Clone(t.order),
 		helloRetryApplied: t.helloRetryApplied,
 	}
 	maps.Copy(out.seen, t.seen)
@@ -323,7 +325,7 @@ func (t *Transcript) replaceWith(src *Transcript) error {
 
 // Bytes returns the canonical transcript bytes.
 func (t *Transcript) Bytes() []byte {
-	return append([]byte(nil), t.transcript...)
+	return bytes.Clone(t.transcript)
 }
 
 // seedTranscriptFromInitialFlights imports the dual-stack ClientHello generated

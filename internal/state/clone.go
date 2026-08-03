@@ -5,12 +5,10 @@ package state
 
 import (
 	"bytes"
+	"slices"
 
 	"github.com/pion/dtls/v3/internal/util"
-	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
 )
 
 // Clone13ForVerification returns a DTLS 1.3 state snapshot containing the
@@ -24,8 +22,8 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 		return &State13{Common: common}
 	}
 
-	common.LocalSequenceNumber = append([]uint64(nil), state.LocalSequenceNumber...)
-	common.RemoteSequenceNumber = append([]uint64(nil), state.RemoteSequenceNumber...)
+	common.LocalSequenceNumber = slices.Clone(state.LocalSequenceNumber)
+	common.RemoteSequenceNumber = slices.Clone(state.RemoteSequenceNumber)
 	common.LocalRandom = state.LocalRandom
 	common.RemoteRandom = state.RemoteRandom
 	common.CipherSuite = state.CipherSuite
@@ -36,8 +34,8 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	common.RemoteConnectionID = bytes.Clone(state.RemoteConnectionID)
 	common.IsClient = state.IsClient
 	common.ServerName = state.ServerName
-	common.PeerSupportedProtocols = append([]string(nil), state.PeerSupportedProtocols...)
-	common.RemoteVersions = append([]protocol.Version(nil), state.RemoteVersions...)
+	common.PeerSupportedProtocols = slices.Clone(state.PeerSupportedProtocols)
+	common.RemoteVersions = slices.Clone(state.RemoteVersions)
 	if !state.LocalVersion.Equal(protocol.Version{}) {
 		common.LocalVersion = state.LocalVersion
 	}
@@ -49,23 +47,19 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	}
 
 	return &State13{
-		Common:                common,
-		KeySchedule:           cloneKeySchedule13(state.KeySchedule),
-		KeyAgreementSecret:    bytes.Clone(state.KeyAgreementSecret),
-		SelectedGroup:         state.SelectedGroup,
-		LocalKeyEntries:       append([]extension.KeyShareEntry(nil), state.LocalKeyEntries...),
-		RemoteKeyEntries:      append([]extension.KeyShareEntry(nil), state.RemoteKeyEntries...),
-		HasRemoteKeyEntries:   state.HasRemoteKeyEntries,
-		RemoteGroups:          append([]elliptic.Curve(nil), state.RemoteGroups...),
-		Cookie:                bytes.Clone(state.Cookie),
-		HandshakeSendSequence: state.HandshakeSendSequence,
-		HandshakeRecvSequence: state.HandshakeRecvSequence,
-		RemoteSignatureSchemes: append(
-			[]signaturehash.Algorithm(nil), state.RemoteSignatureSchemes...,
-		),
-		RemoteCertSignatureSchemes: append(
-			[]signaturehash.Algorithm(nil), state.RemoteCertSignatureSchemes...,
-		),
+		Common:                     common,
+		KeySchedule:                cloneKeySchedule13(state.KeySchedule),
+		KeyAgreementSecret:         bytes.Clone(state.KeyAgreementSecret),
+		SelectedGroup:              state.SelectedGroup,
+		LocalKeyEntries:            slices.Clone(state.LocalKeyEntries),
+		RemoteKeyEntries:           slices.Clone(state.RemoteKeyEntries),
+		HasRemoteKeyEntries:        state.HasRemoteKeyEntries,
+		RemoteGroups:               slices.Clone(state.RemoteGroups),
+		Cookie:                     bytes.Clone(state.Cookie),
+		HandshakeSendSequence:      state.HandshakeSendSequence,
+		HandshakeRecvSequence:      state.HandshakeRecvSequence,
+		RemoteSignatureSchemes:     slices.Clone(state.RemoteSignatureSchemes),
+		RemoteCertSignatureSchemes: slices.Clone(state.RemoteCertSignatureSchemes),
 	}
 }
 
