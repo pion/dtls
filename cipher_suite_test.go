@@ -56,7 +56,7 @@ func TestCipherSuites(t *testing.T) {
 			cipher := theirs[i]
 			assert.Equal(t, cipher.ID, uint16(s.ID()))
 			assert.Equal(t, cipher.Name, s.String())
-			assert.Equal(t, cipherSuiteSupportedVersionIDs(s.ID()), cipher.SupportedVersions)
+			assert.Equal(t, ciphersuite.SupportedVersionIDs(s.ID()), cipher.SupportedVersions)
 			assert.False(t, cipher.Insecure, "Expected Insecure")
 		})
 	}
@@ -106,8 +106,8 @@ func TestParseCipherSuitesForVersions(t *testing.T) {
 		require.NotEmpty(t, suites)
 
 		for _, suite := range suites {
-			assert.True(t, cipherSuiteIDSupportsVersion(suite.ID(), protocol.Version1_2))
-			assert.False(t, cipherSuiteIDSupportsVersion(suite.ID(), protocol.Version1_3))
+			assert.True(t, ciphersuite.IDSupportsVersion(suite.ID(), protocol.Version1_2))
+			assert.False(t, ciphersuite.IDSupportsVersion(suite.ID(), protocol.Version1_3))
 		}
 	})
 

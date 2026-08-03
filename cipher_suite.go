@@ -126,7 +126,7 @@ const VersionDTLS13 = 0xfefc
 // Our implementation differs slightly in that it takes in a CipherSuiteID,
 // like the rest of our library, instead of a uint16 like crypto/tls.
 func CipherSuiteName(id CipherSuiteID) string {
-	suite := cipherSuiteForID(id)
+	suite := ciphersuite.ForID(id, nil)
 	if suite != nil {
 		return suite.String()
 	}
@@ -139,7 +139,7 @@ func toTLSCipherSuite(c CipherSuite) *tls.CipherSuite {
 	return &tls.CipherSuite{
 		ID:                uint16(c.ID()),
 		Name:              c.String(),
-		SupportedVersions: cipherSuiteSupportedVersionIDs(c.ID()),
+		SupportedVersions: ciphersuite.SupportedVersionIDs(c.ID()),
 		Insecure:          false,
 	}
 }
@@ -163,13 +163,6 @@ func InsecureCipherSuites() []*tls.CipherSuite {
 	var res []*tls.CipherSuite
 
 	return res
-}
-
-// Taken from https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
-// A cipherSuite is a specific combination of key agreement, cipher and MAC
-// function.
-func cipherSuiteForID(id CipherSuiteID) CipherSuite {
-	return ciphersuite.ForID(id, nil)
 }
 
 // TLS 1.3 CipherSuites we support in order of preference.
@@ -250,17 +243,9 @@ func defaultCipherSuitesForVersions(minVersion, maxVersion protocol.Version) []C
 	return cipherSuites
 }
 
-func cipherSuiteSupportedVersionIDs(id CipherSuiteID) []uint16 {
-	return ciphersuite.SupportedVersionIDs(id)
-}
-
-func cipherSuiteIDSupportsVersion(id CipherSuiteID, version protocol.Version) bool {
-	return ciphersuite.IDSupportsVersion(id, version)
-}
-
 func cipherSuiteIDSupportsVersions(id CipherSuiteID, minVersion, maxVersion protocol.Version) bool {
 	for _, version := range dtlsconfig.SupportedVersionsRange(minVersion, maxVersion) {
-		if cipherSuiteIDSupportsVersion(id, version) {
+		if ciphersuite.IDSupportsVersion(id, version) {
 			return true
 		}
 	}
@@ -274,7 +259,7 @@ func filterCipherSuitesForVersion(
 ) []ciphersuite.CipherSuite {
 	filtered := make([]ciphersuite.CipherSuite, 0, len(cipherSuites))
 	for _, c := range cipherSuites {
-		if cipherSuiteIDSupportsVersion(c.ID(), version) {
+		if ciphersuite.IDSupportsVersion(c.ID(), version) {
 			filtered = append(filtered, c)
 		}
 	}
@@ -321,7 +306,7 @@ func parseCipherSuitesForVersions(
 	cipherSuitesForIDs := func(ids []CipherSuiteID) ([]ciphersuite.CipherSuite, error) {
 		cipherSuites := []ciphersuite.CipherSuite{}
 		for _, id := range ids {
-			c := cipherSuiteForID(id)
+			c := ciphersuite.ForID(id, nil)
 			if c == nil {
 				return nil, &invalidCipherSuiteError{id}
 			}
@@ -366,7 +351,7 @@ func parseCipherSuitesForVersions(
 			foundPSKSuite = true
 		case cipher.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous:
 			foundAnonymousSuite = true
-			if cipherSuiteIDSupportsVersion(cipher.ID(), protocol.Version1_3) {
+			if ciphersuite.IDSupportsVersion(cipher.ID(), protocol.Version1_3) {
 				foundTLS13Suite = true
 			}
 		default:
