@@ -14,9 +14,42 @@ import (
 
 // RecvHandshakeState signals that a handshake packet has been received.
 type RecvHandshakeState struct {
-	Done         chan struct{}
+	Done chan struct{}
+	// HasHandshake distinguishes an ACK-only event from a handshake event.
+	HasHandshake bool
 	IsRetransmit bool
-	Records      []protocol.RecordNumber
+	// ACK messages received from the peer.
+	ACKs []protocol.ACK
+	// Protected handshake records that should be acknowledged.
+	RecordsToACK []protocol.RecordNumber
+}
+
+// ACKResult is the record-layer progress caused by a received ACK.
+type ACKResult struct {
+	Empty    bool
+	Messages []MessageACKProgress
+}
+
+// WriteResult identifies tracked handshake records emitted by one write.
+type WriteResult struct {
+	TrackedRecords []SentHandshakeRecord
+}
+
+type SentHandshakeRecord struct {
+	Number    protocol.RecordNumber
+	Fragments []SentHandshakeFragment
+}
+
+type SentHandshakeFragment struct {
+	MessageSequence uint16
+	Offset          uint32
+	Length          uint32
+}
+
+type MessageACKProgress struct {
+	MessageSequence uint16
+	Changed         bool
+	Complete        bool
 }
 
 // recvHandshakeLease keeps the reader paused while an FSM transition needs
@@ -50,7 +83,7 @@ type FSM interface {
 type Conn interface {
 	dtlsflight.Conn
 	Notify(ctx context.Context, level alert.Level, desc alert.Description) error
-	WritePackets(context.Context, []*dtlsflight.Packet) error
+	WritePackets(context.Context, []*dtlsflight.Packet) (*WriteResult, error)
 	RecvHandshake() <-chan RecvHandshakeState
 	SetLocalEpoch(epoch uint16)
 }
@@ -68,11 +101,13 @@ func sendACK(ctx context.Context, conn Conn, epoch uint16, records []protocol.Re
 		return nil
 	}
 
-	return conn.WritePackets(ctx, []*dtlsflight.Packet{{
+	_, err := conn.WritePackets(ctx, []*dtlsflight.Packet{{
 		Record: &recordlayer.RecordLayer{
 			Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: epoch},
 			Content: &protocol.ACK{Records: records},
 		},
 		ShouldEncrypt: true,
 	}})
+
+	return err
 }

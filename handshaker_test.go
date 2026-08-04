@@ -412,7 +412,10 @@ func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description)
 	return nil
 }
 
-func (c *flightTestConn) WritePackets(_ context.Context, pkts []*dtlsflight.Packet) error { //nolint:cyclop
+func (c *flightTestConn) WritePackets( //nolint:cyclop
+	_ context.Context,
+	pkts []*dtlsflight.Packet,
+) (*dtlshandshake.WriteResult, error) {
 	time.Sleep(c.delay)
 	isRetransmit := false
 	for _, pkt := range pkts {
@@ -425,7 +428,7 @@ func (c *flightTestConn) WritePackets(_ context.Context, pkts []*dtlsflight.Pack
 		if handshake, ok := pkt.Record.Content.(*handshake.Handshake); ok {
 			handshakeRaw, err := pkt.Record.Marshal()
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			c.handshakeCache.Push(
@@ -438,13 +441,13 @@ func (c *flightTestConn) WritePackets(_ context.Context, pkts []*dtlsflight.Pack
 
 			content, err := handshake.Message.Marshal()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			handshake.Header.Length = uint32(len(content))         //nolint:gosec // G115
 			handshake.Header.FragmentLength = uint32(len(content)) //nolint:gosec // G115
 			hdr, err := handshake.Header.Marshal()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			c.otherEndCache.Push(
 				append(hdr, content...),
@@ -465,7 +468,7 @@ func (c *flightTestConn) WritePackets(_ context.Context, pkts []*dtlsflight.Pack
 	// Avoid deadlock on JS/WASM environment due to context switch problem.
 	time.Sleep(10 * time.Millisecond)
 
-	return nil
+	return &dtlshandshake.WriteResult{}, nil
 }
 
 func (c *flightTestConn) HandleQueuedPackets(context.Context) error {
