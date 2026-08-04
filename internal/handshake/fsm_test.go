@@ -64,13 +64,16 @@ func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description)
 	return nil
 }
 
-func (c *flightTestConn) WritePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
+func (c *flightTestConn) WritePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*WriteResult, error) {
 	c.writtenPackets = append(c.writtenPackets, pkts...)
 	if c.writePackets != nil {
-		return c.writePackets(ctx, pkts)
+		return nil, c.writePackets(ctx, pkts)
 	}
 
-	return nil
+	return &WriteResult{}, nil
 }
 
 func (c *flightTestConn) RecvHandshake() <-chan RecvHandshakeState {

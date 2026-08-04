@@ -194,7 +194,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 func (s *fsm13) send(ctx context.Context, conn Conn) (State, error) {
 	defer s.received.release()
 
-	if err := conn.WritePackets(ctx, s.flights); err != nil {
+	if _, err := conn.WritePackets(ctx, s.flights); err != nil {
 		return StateErrored, err
 	}
 	finished, err := s.afterSend(ctx, conn, s.currentFlight)
@@ -275,7 +275,7 @@ func (s *fsm13) handleReceivedFlight(
 		return receivedFlightTransition{state: StateWaiting}, nil
 	}
 
-	transition, err := s.advanceAfterReceivedFlight(ctx, conn, s.currentFlight, nextFlight, received.Records)
+	transition, err := s.advanceAfterReceivedFlight(ctx, conn, s.currentFlight, nextFlight, received.RecordsToACK)
 	if err != nil {
 		return receivedFlightTransition{}, err
 	}

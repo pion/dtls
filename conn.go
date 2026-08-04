@@ -104,12 +104,14 @@ type incomingPacketState struct {
 type packetOutcome struct {
 	containsHandshake bool
 	retransmit        bool
+	receivedACK       *protocol.ACK
 	responseAlert     *alert.Alert
 }
 
 type datagramProcessingSummary struct {
 	containsHandshake bool
 	retransmit        bool
+	receivedACKs      []protocol.ACK
 }
 
 type readLoopErrorAction uint8
@@ -137,8 +139,11 @@ func (c handshakeConn) Notify(ctx context.Context, level alert.Level, desc alert
 	return c.conn.notify(ctx, level, desc)
 }
 
-func (c handshakeConn) WritePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
-	return c.conn.writePackets(ctx, pkts)
+func (c handshakeConn) WritePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*dtlshandshake.WriteResult, error) {
+	return c.conn.writePacketsWithResult(ctx, pkts)
 }
 
 func (c handshakeConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
@@ -644,46 +649,91 @@ func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
 }
 
 func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
+	_, err := c.writePacketsWithResult(ctx, pkts)
+
+	return err
+}
+
+func (c *Conn) writePacketsWithResult(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*dtlshandshake.WriteResult, error) {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
-	compactedRawPackets, rAddr, err := c.prepareRawPackets(pkts)
+	datagrams, rAddr, err := c.prepareRawPacketsTracked(pkts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	for _, compactedRawPacket := range compactedRawPackets {
-		if _, err = c.nextConn.WriteToContext(ctx, compactedRawPacket, rAddr); err != nil {
+	result := &dtlshandshake.WriteResult{}
+	for _, datagram := range datagrams {
+		if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
 			if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
-				return ErrConnClosed
+				return nil, ErrConnClosed
 			}
 
-			return netError(err)
+			return nil, netError(err)
 		}
+		result.TrackedRecords = append(result.TrackedRecords, datagram.tracked...)
 	}
 
-	return nil
+	return result, nil
 }
 
-func (c *Conn) prepareRawPackets(pkts []*dtlsflight.Packet) ([][]byte, net.Addr, error) {
+type preparedDatagram struct {
+	raw     []byte
+	tracked []dtlshandshake.SentHandshakeRecord
+}
+
+func (c *Conn) prepareRawPacketsTracked(pkts []*dtlsflight.Packet) ([]preparedDatagram, net.Addr, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	var rawPackets [][]byte
-
-	for _, pkt := range pkts {
-		pktRawPackets, err := c.prepareRawPacket(pkt)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		rawPackets = append(rawPackets, pktRawPackets...)
+	records, err := c.prepareRecordsTracked(pkts)
+	if err != nil {
+		return nil, nil, err
 	}
-	if len(rawPackets) == 0 {
+	if len(records) == 0 {
 		return nil, nil, nil
 	}
 
-	return c.compactRawPackets(rawPackets), c.rAddr, nil
+	return c.compactPreparedRecords(records), c.rAddr, nil
+}
+
+func (c *Conn) prepareRecordsTracked(pkts []*dtlsflight.Packet) ([]preparedRecord, error) {
+	var records []preparedRecord
+	for _, pkt := range pkts {
+		prepared, err := c.prepareRecordsFromPacket(pkt)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, prepared...)
+	}
+
+	return records, nil
+}
+
+func (c *Conn) prepareRecordsFromPacket(pkt *dtlsflight.Packet) ([]preparedRecord, error) {
+	handshakeRecord, ok := pkt.Record.Content.(*handshake.Handshake)
+	if ok && dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) && pkt.ShouldEncrypt {
+		if err := c.cacheHandshakePacket(pkt, handshakeRecord); err != nil {
+			return nil, err
+		}
+
+		return c.processProtectedHandshakePacketTracked(pkt, handshakeRecord)
+	}
+
+	rawPackets, err := c.prepareRawPacket(pkt)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]preparedRecord, 0, len(rawPackets))
+	for _, raw := range rawPackets {
+		records = append(records, preparedRecord{raw: raw})
+	}
+
+	return records, nil
 }
 
 func (c *Conn) prepareRawPacket(pkt *dtlsflight.Packet) ([][]byte, error) {
@@ -746,26 +796,22 @@ func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.C
 	}
 }
 
-func (c *Conn) compactRawPackets(rawPackets [][]byte) [][]byte {
-	// avoid a useless copy in the common case
-	if len(rawPackets) == 1 {
-		return rawPackets
-	}
-
-	combinedRawPackets := make([][]byte, 0)
-	currentCombinedRawPacket := make([]byte, 0)
-
-	for _, rawPacket := range rawPackets {
-		if len(currentCombinedRawPacket) > 0 && len(currentCombinedRawPacket)+len(rawPacket) >= c.maximumTransmissionUnit {
-			combinedRawPackets = append(combinedRawPackets, currentCombinedRawPacket)
-			currentCombinedRawPacket = []byte{}
+func (c *Conn) compactPreparedRecords(records []preparedRecord) []preparedDatagram {
+	datagrams := make([]preparedDatagram, 0, len(records))
+	current := preparedDatagram{}
+	for _, record := range records {
+		if len(current.raw) > 0 && len(current.raw)+len(record.raw) >= c.maximumTransmissionUnit {
+			datagrams = append(datagrams, current)
+			current = preparedDatagram{}
 		}
-		currentCombinedRawPacket = append(currentCombinedRawPacket, rawPacket...)
+		current.raw = append(current.raw, record.raw...)
+		if record.tracked != nil {
+			current.tracked = append(current.tracked, *record.tracked)
+		}
 	}
+	datagrams = append(datagrams, current)
 
-	combinedRawPackets = append(combinedRawPackets, currentCombinedRawPacket)
-
-	return combinedRawPackets
+	return datagrams
 }
 
 func (c *Conn) processPacket(pkt *dtlsflight.Packet) ([]byte, error) { //nolint:cyclop
@@ -1005,12 +1051,37 @@ func (c *Conn) processProtectedHandshakePacket(
 		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
+	prepared, err := c.processProtectedHandshakePacketTracked(pkt, dtlsHandshake)
+	if err != nil {
+		return nil, err
+	}
+	rawPackets := make([][]byte, 0, len(prepared))
+	for _, record := range prepared {
+		rawPackets = append(rawPackets, record.raw)
+	}
+
+	return rawPackets, nil
+}
+
+type preparedRecord struct {
+	raw     []byte
+	tracked *dtlshandshake.SentHandshakeRecord
+}
+
+func (c *Conn) processProtectedHandshakePacketTracked(
+	pkt *dtlsflight.Packet,
+	dtlsHandshake *handshake.Handshake,
+) ([]preparedRecord, error) {
+	if pkt.ShouldWrapCID {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
 	handshakeFragments, err := c.fragmentHandshake(dtlsHandshake)
 	if err != nil {
 		return nil, err
 	}
 
-	rawPackets := make([][]byte, 0, len(handshakeFragments))
+	rawPackets := make([]preparedRecord, 0, len(handshakeFragments))
 	epoch := pkt.Record.Header.Epoch
 	for _, handshakeFragment := range handshakeFragments {
 		seq, err := c.nextLocalSequenceNumber(epoch)
@@ -1031,7 +1102,22 @@ func (c *Conn) processProtectedHandshakePacket(
 			return nil, err
 		}
 
-		rawPackets = append(rawPackets, rawPacket)
+		prepared := preparedRecord{raw: rawPacket}
+		if pkt.ShouldTrackACK {
+			fragmentHeader := &handshake.Header{}
+			if err = fragmentHeader.Unmarshal(handshakeFragment); err != nil {
+				return nil, err
+			}
+			prepared.tracked = &dtlshandshake.SentHandshakeRecord{
+				Number: protocol.RecordNumber{Epoch: uint64(epoch), SequenceNumber: seq},
+				Fragments: []dtlshandshake.SentHandshakeFragment{{
+					MessageSequence: fragmentHeader.MessageSequence,
+					Offset:          fragmentHeader.FragmentOffset,
+					Length:          fragmentHeader.FragmentLength,
+				}},
+			}
+		}
+		rawPackets = append(rawPackets, prepared)
 	}
 
 	return rawPackets, nil
@@ -1091,14 +1177,16 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !summary.containsHandshake {
+	if !summary.containsHandshake && len(summary.receivedACKs) == 0 {
 		return nil
 	}
 
 	s := dtlshandshake.RecvHandshakeState{
 		Done:         make(chan struct{}),
+		HasHandshake: summary.containsHandshake,
 		IsRetransmit: summary.retransmit,
-		Records:      c.takePendingACKs(),
+		ACKs:         summary.receivedACKs,
+		RecordsToACK: c.takePendingACKs(),
 	}
 	select {
 	case c.handshakeRecv <- s:
@@ -1138,6 +1226,9 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 		}
 		summary.containsHandshake = summary.containsHandshake || outcome.containsHandshake
 		summary.retransmit = summary.retransmit || outcome.retransmit
+		if outcome.receivedACK != nil {
+			summary.receivedACKs = append(summary.receivedACKs, *outcome.receivedACK)
+		}
 	}
 
 	return summary, nil
@@ -1426,7 +1517,8 @@ func (c *Conn) prepareInnerPlaintextRecord(
 	markPacketAsValid func() bool,
 ) (incomingPacketState, bool) {
 	switch innerPlaintext.RealType {
-	case protocol.ContentTypeHandshake, protocol.ContentTypeAlert, protocol.ContentTypeApplicationData:
+	case protocol.ContentTypeHandshake, protocol.ContentTypeAlert,
+		protocol.ContentTypeApplicationData, protocol.ContentTypeACK:
 		plaintext, header, err := marshalInnerPlaintextRecord(remoteEpoch, sequenceNumber, innerPlaintext)
 		if err != nil {
 			c.log.Debugf("converting ciphertext record to inner plaintext failed: %s", err)
@@ -1439,10 +1531,6 @@ func (c *Conn) prepareInnerPlaintextRecord(
 			header:            header,
 			markPacketAsValid: markPacketAsValid,
 		}, true
-	case protocol.ContentTypeACK:
-		_ = markPacketAsValid()
-
-		return incomingPacketState{}, false
 	default:
 		c.log.Debugf("discarded ciphertext packet with invalid inner type: %d", innerPlaintext.RealType)
 
@@ -1805,6 +1893,12 @@ func (c *Conn) handleRecordContent(
 	bufferLease *readBufferLease,
 ) (bool, packetOutcome, error) {
 	switch content := content.(type) {
+	case *protocol.ACK:
+		prepared.markPacketAsValid()
+
+		return false, packetOutcome{
+			receivedACK: &protocol.ACK{Records: append([]protocol.RecordNumber(nil), content.Records...)},
+		}, nil
 	case *alert.Alert:
 		c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
 		var responseAlert *alert.Alert
@@ -1869,7 +1963,7 @@ func (c *Conn) handleIncomingPacket(
 		c.lock.Unlock()
 	}
 
-	return packetOutcome{}, nil
+	return outcome, nil
 }
 
 func (c *Conn) processIncomingPacket(

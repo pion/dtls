@@ -20,6 +20,7 @@ type Packet struct {
 	Record                   *recordlayer.RecordLayer
 	ShouldEncrypt            bool
 	ShouldWrapCID            bool
+	ShouldTrackACK           bool
 	ResetLocalSequenceNumber bool
 
 	// CertificateVerifySigner is local-only metadata used to populate an
