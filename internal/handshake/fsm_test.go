@@ -208,6 +208,33 @@ func TestHandshakeFSM13DoesNotSendEmptyACK(t *testing.T) {
 	assert.Empty(t, conn.writtenPackets)
 }
 
+func TestHandshakeFSM13ACKProgress(t *testing.T) {
+	first := SentHandshakeFragment{MessageSequence: 7, Length: 10}
+	second := SentHandshakeFragment{MessageSequence: 7, Offset: 10, Length: 10}
+	record1 := protocol.RecordNumber{Epoch: 2, SequenceNumber: 1}
+	record2 := protocol.RecordNumber{Epoch: 2, SequenceNumber: 2}
+	record3 := protocol.RecordNumber{Epoch: 2, SequenceNumber: 3}
+
+	var ack reliableFlight
+	ack.reset()
+	ack.track(&WriteResult{TrackedRecords: []SentHandshakeRecord{
+		{Number: record1, Fragments: []SentHandshakeFragment{first}},
+		{Number: record2, Fragments: []SentHandshakeFragment{second}},
+		{Number: record3, Fragments: []SentHandshakeFragment{second}},
+	}})
+
+	partial := ack.acknowledge([]protocol.ACK{{Records: []protocol.RecordNumber{record1}}})
+	require.Equal(t, []MessageACKProgress{{MessageSequence: 7, Changed: true}}, partial.Messages)
+	assert.Equal(t, map[uint32]uint32{10: 10}, ack.pendingForMessage(7))
+	assert.Empty(t, ack.acknowledge([]protocol.ACK{{Records: []protocol.RecordNumber{record1}}}).Messages)
+	assert.Empty(t, ack.acknowledge(nil).Messages)
+
+	reordered := ack.acknowledge([]protocol.ACK{{Records: []protocol.RecordNumber{record2}}})
+	require.Equal(t, []MessageACKProgress{{MessageSequence: 7, Changed: true, Complete: true}}, reordered.Messages)
+	assert.Empty(t, ack.pending)
+	assert.True(t, ack.acknowledge([]protocol.ACK{{}}).Empty)
+}
+
 func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	state := newTestState13(true)
 	cache := dtlsflight.NewCache()
