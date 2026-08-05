@@ -123,7 +123,9 @@ func newFSM13WithEstablishment(
 		retransmitInterval: cfg.InitialRetransmitInterval,
 		closed:             make(chan struct{}),
 		establishment:      establishment,
-		postHandshake:      newPostHandshake(cfg.InitialRetransmitInterval),
+		postHandshake: newPostHandshake(handshakeContext{
+			state: state, cache: cache, cfg: cfg, transcript: initialTranscript,
+		}),
 	}
 	fsm.prepareFlightACKTracking(fsm.flights, fsm.retransmit)
 	if err := fsm.seedInitialFlights(fsm.flights, fsm.retransmit); err != nil {
@@ -248,23 +250,38 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 	}
 }
 
-func (s *fsm13) finish(ctx context.Context, c Conn) (State, error) {
-	s.postHandshake.initialize(s.state.IsClient)
+func (s *fsm13) finish(ctx context.Context, conn Conn) (State, error) {
+	s.postHandshake.initialize()
+	if err := s.postHandshake.startQueuedPostHandshake(ctx, conn); err != nil {
+		return StateErrored, err
+	}
+
+	timer, timerC := s.postHandshake.nextTimer()
+	if timer != nil {
+		defer timer.Stop()
+	}
 
 	select {
-	case received := <-c.RecvHandshake():
-		if err := sendACK(ctx, c, s.state.LocalEpoch(), received.RecordsToACK); err != nil {
-			close(received.Done)
-
+	case received := <-conn.RecvHandshake():
+		s.received.retain(received)
+		defer s.received.release()
+		if err := s.postHandshake.handlePostHandshakeReceive(ctx, conn, received); err != nil {
 			return StateErrored, err
 		}
-		close(received.Done)
 
-		// avoid committing a second time.
-		return StateFinished, nil
+	case command := <-s.postHandshake.commands:
+		s.postHandshake.queue = append(s.postHandshake.queue, command)
+
+	case now := <-timerC:
+		if err := s.postHandshake.retransmitPostHandshake(ctx, conn, now, s.cfg.DisableRetransmitBackoff); err != nil {
+			return StateErrored, err
+		}
+
 	case <-ctx.Done():
 		return StateErrored, ctx.Err()
 	}
+
+	return StateFinished, nil
 }
 
 func (s *fsm13) handleReceivedFlight(

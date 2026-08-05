@@ -128,6 +128,20 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 	}
 }
 
+func TestHandshakeCachePullExact(t *testing.T) {
+	cache := dtlsflight.NewCache()
+	cache.Push([]byte{1}, 2, 3, handshake.TypeFinished, true)
+	cache.Push([]byte{2}, 2, 3, handshake.TypeNewSessionTicket, false)
+
+	item, ok := cache.PullExact(3, false)
+	require.True(t, ok)
+	assert.Equal(t, handshake.TypeNewSessionTicket, item.Typ)
+	assert.Equal(t, []byte{2}, item.Data)
+
+	_, ok = cache.PullExact(4, false)
+	assert.False(t, ok)
+}
+
 func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
 	cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
 	rawClientHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{

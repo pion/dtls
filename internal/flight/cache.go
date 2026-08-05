@@ -35,6 +35,21 @@ func (h *Cache) Push(data []byte, epoch, messageSequence uint16, typ handshake.T
 	})
 }
 
+// PullExact returns the handshake message with the requested sequence and
+// sender.
+func (h *Cache) PullExact(messageSequence uint16, isClient bool) (*HandshakeCacheItem, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, item := range h.cache {
+		if item.MessageSequence == messageSequence && item.IsClient == isClient {
+			return item, true
+		}
+	}
+
+	return nil, false
+}
+
 // Pull returns a list handshakes that match the requested rules.
 // The list will contain null entries for rules that can't be satisfied.
 // Multiple entries may match a rule, but only the last match is returned (ie ClientHello with cookies).

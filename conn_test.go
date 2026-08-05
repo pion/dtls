@@ -4017,7 +4017,7 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	go func() { errs <- server.HandshakeContext(ctx) }()
 	require.NoError(t, <-errs)
 	require.NoError(t, <-errs)
-	assert.Equal(t, int32(1), applicationEpochWrites.Load())
+	assert.GreaterOrEqual(t, applicationEpochWrites.Load(), int32(1))
 
 	var rawACK []byte
 	select {

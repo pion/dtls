@@ -109,6 +109,8 @@ var ( //nolint:gochecknoglobals,lll
 	ErrFailedToAccessPoolReadBuffer          = stderrors.New("failed to access pool read buffer")
 	ErrFragmentBufferOverflow                = stderrors.New("fragment buffer overflow")
 	ErrCipherSuiteNotSet                     = stderrors.New("cipher suite not set")
+	ErrHandshakeSequenceOverflow             = stderrors.New("handshake message sequence overflow")
+	ErrUnexpectedPostHandshakeMessage        = stderrors.New("unexpected DTLS 1.3 post-handshake message")
 
 	ErrEmptyCertificates                = stderrors.New("certificates option requires at least one certificate")   //nolint:lll
 	ErrEmptyCipherSuites                = stderrors.New("cipher suites option requires at least one cipher suite") //nolint:lll
