@@ -13,6 +13,7 @@ import (
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
 // [RFC9147 Section-5.8.1]
@@ -69,6 +70,7 @@ type fsm13 struct {
 	flights            []*dtlsflight.Packet
 	retransmit         bool
 	retransmitInterval time.Duration
+	flightACK          reliableFlight
 	handshakeContext
 	closed        chan struct{}
 	establishment *Establishment
@@ -123,6 +125,7 @@ func newFSM13WithEstablishment(
 		establishment:      establishment,
 		postHandshake:      newPostHandshake(cfg.InitialRetransmitInterval),
 	}
+	fsm.prepareFlightACKTracking(fsm.flights, fsm.retransmit)
 	if err := fsm.seedInitialFlights(fsm.flights, fsm.retransmit); err != nil {
 		return nil, err
 	}
@@ -184,6 +187,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 	}
 
 	s.flights = pkts
+	s.prepareFlightACKTracking(s.flights, s.retransmit)
 	if err := s.commitPreparedFlight(conn, s.currentFlight, s.flights); err != nil {
 		return StateErrored, err
 	}
@@ -194,14 +198,16 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 func (s *fsm13) send(ctx context.Context, conn Conn) (State, error) {
 	defer s.received.release()
 
-	if _, err := conn.WritePackets(ctx, s.flights); err != nil {
+	result, err := conn.WritePackets(ctx, s.flights)
+	if err != nil {
 		return StateErrored, err
 	}
+	s.flightACK.track(result)
 	finished, err := s.afterSend(ctx, conn, s.currentFlight)
 	if err != nil {
 		return StateErrored, err
 	}
-	if finished {
+	if finished && len(s.flightACK.pending) == 0 {
 		return StateFinished, nil
 	}
 
@@ -226,6 +232,8 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 				return StateErrored, err
 			}
 			if transition.state == StateWaiting {
+				s.received.release()
+
 				continue
 			}
 			retainPendingRecv = transition.retainPendingRecv
@@ -244,8 +252,13 @@ func (s *fsm13) finish(ctx context.Context, c Conn) (State, error) {
 	s.postHandshake.initialize(s.state.IsClient)
 
 	select {
-	case state := <-c.RecvHandshake():
-		close(state.Done)
+	case received := <-c.RecvHandshake():
+		if err := sendACK(ctx, c, s.state.LocalEpoch(), received.RecordsToACK); err != nil {
+			close(received.Done)
+
+			return StateErrored, err
+		}
+		close(received.Done)
 
 		// avoid committing a second time.
 		return StateFinished, nil
@@ -264,15 +277,22 @@ func (s *fsm13) handleReceivedFlight(
 	if !received.IsRetransmit {
 		s.retransmitInterval = s.cfg.InitialRetransmitInterval
 	}
+	ackResult := s.flightACK.acknowledge(received.ACKs)
+	s.applyACKProgress(ackResult)
+	if !received.HasHandshake && len(received.ACKs) != 0 {
+		return s.transitionAfterACK(ackResult, false), nil
+	}
 
 	nextFlight, err := s.parseReceivedFlight(ctx, conn, s.currentFlight)
 	if err != nil {
 		return receivedFlightTransition{}, err
 	}
 	if nextFlight == 0 {
-		s.received.release()
+		if ackErr := sendACK(ctx, conn, s.state.LocalEpoch(), received.RecordsToACK); ackErr != nil {
+			return receivedFlightTransition{}, ackErr
+		}
 
-		return receivedFlightTransition{state: StateWaiting}, nil
+		return s.transitionAfterACK(ackResult, received.IsRetransmit), nil
 	}
 
 	transition, err := s.advanceAfterReceivedFlight(ctx, conn, s.currentFlight, nextFlight, received.RecordsToACK)
@@ -284,4 +304,47 @@ func (s *fsm13) handleReceivedFlight(
 	}
 
 	return transition, nil
+}
+
+func (s *fsm13) prepareFlightACKTracking(flights []*dtlsflight.Packet, retransmit bool) {
+	s.flightACK.reset()
+	if retransmit {
+		for _, packet := range flights {
+			_, packet.ShouldTrackACK = packet.Record.Content.(*handshake.Handshake)
+		}
+	}
+}
+
+func (s *fsm13) applyACKProgress(result ACKResult) {
+	for _, progress := range result.Messages {
+		remaining := s.flights[:0]
+		for _, packet := range s.flights {
+			message, ok := packet.Record.Content.(*handshake.Handshake)
+			if !ok || message.Header.MessageSequence != progress.MessageSequence {
+				remaining = append(remaining, packet)
+			} else if !progress.Complete {
+				packet.HandshakeFragmentOffsets = s.flightACK.pendingForMessage(progress.MessageSequence)
+				remaining = append(remaining, packet)
+			}
+		}
+		s.flights = remaining
+	}
+}
+
+func (s *fsm13) transitionAfterACK(result ACKResult, peerRetransmit bool) receivedFlightTransition {
+	if len(result.Messages) != 0 && len(s.flightACK.pending) == 0 {
+		s.retransmit = false
+		if s.currentFlight.IsLastSendFlight() {
+			return receivedFlightTransition{state: StateFinished}
+		}
+
+		return receivedFlightTransition{state: StateWaiting}
+	}
+	if result.Empty || len(result.Messages) != 0 || peerRetransmit {
+		return receivedFlightTransition{
+			state: handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg),
+		}
+	}
+
+	return receivedFlightTransition{state: StateWaiting}
 }

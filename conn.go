@@ -1084,6 +1084,13 @@ func (c *Conn) processProtectedHandshakePacketTracked(
 	rawPackets := make([]preparedRecord, 0, len(handshakeFragments))
 	epoch := pkt.Record.Header.Epoch
 	for _, handshakeFragment := range handshakeFragments {
+		selected, err := selectHandshakeFragment(pkt.HandshakeFragmentOffsets, handshakeFragment)
+		if err != nil {
+			return nil, err
+		}
+		if !selected {
+			continue
+		}
 		seq, err := c.nextLocalSequenceNumber(epoch)
 		if err != nil {
 			return nil, err
@@ -1121,6 +1128,19 @@ func (c *Conn) processProtectedHandshakePacketTracked(
 	}
 
 	return rawPackets, nil
+}
+
+func selectHandshakeFragment(offsets map[uint32]uint32, raw []byte) (bool, error) {
+	if offsets == nil {
+		return true, nil
+	}
+	header := &handshake.Header{}
+	if err := header.Unmarshal(raw); err != nil {
+		return false, err
+	}
+	length, ok := offsets[header.FragmentOffset]
+
+	return ok && length == header.FragmentLength, nil
 }
 
 func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, error) {

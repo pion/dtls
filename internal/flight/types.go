@@ -17,10 +17,12 @@ type Conn interface {
 }
 
 type Packet struct {
-	Record                   *recordlayer.RecordLayer
-	ShouldEncrypt            bool
-	ShouldWrapCID            bool
-	ShouldTrackACK           bool
+	Record         *recordlayer.RecordLayer
+	ShouldEncrypt  bool
+	ShouldWrapCID  bool
+	ShouldTrackACK bool
+	// HandshakeFragmentOffsets limits a retransmission to offset:length pairs.
+	HandshakeFragmentOffsets map[uint32]uint32
 	ResetLocalSequenceNumber bool
 
 	// CertificateVerifySigner is local-only metadata used to populate an

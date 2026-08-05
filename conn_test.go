@@ -4303,6 +4303,30 @@ func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
 
+func TestProcessProtectedHandshakePacketFiltersACKedFragments(t *testing.T) {
+	conn, _ := newTestConnWithWriteProtection(t)
+	conn.maximumTransmissionUnit = 10
+	dtlsHandshake := &handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: 9},
+		Message: &handshake.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)}},
+	}
+	_, err := dtlsHandshake.Marshal()
+	require.NoError(t, err)
+
+	prepared, err := conn.processProtectedHandshakePacketTracked(&dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: dtlsflight13.EpochHandshake},
+			Content: dtlsHandshake,
+		},
+		ShouldEncrypt:            true,
+		ShouldTrackACK:           true,
+		HandshakeFragmentOffsets: map[uint32]uint32{10: 10},
+	}, dtlsHandshake)
+	require.NoError(t, err)
+	require.Len(t, prepared, 1)
+	assert.Equal(t, uint32(10), prepared[0].tracked.Fragments[0].Offset)
+}
+
 func TestProcessProtectedPacketWritesApplicationData(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithWriteProtection(t)
 	payload := []byte("application data")
