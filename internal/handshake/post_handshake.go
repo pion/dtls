@@ -199,14 +199,6 @@ func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn)
 	}
 }
 
-func (p *postHandshake) newTicketNonce() []byte {
-	var nonce [8]byte
-	binary.BigEndian.PutUint64(nonce[:], p.nextTicketNonce)
-	p.nextTicketNonce++
-
-	return nonce[:]
-}
-
 func (p *postHandshake) applyACK(ack protocol.ACK) []postHandshakeFlightID {
 	completed := map[postHandshakeFlightID]struct{}{}
 	for _, number := range ack.Records {
@@ -380,19 +372,24 @@ func (p *postHandshake) prepareNewSessionTicket(isClient bool) (*reliablePostHan
 		return nil, dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
 
-	identity, err := newTicketIdentity()
-	if err != nil {
-		return nil, err
-	}
-	ageAdd, err := newTicketAgeAdd()
-	if err != nil {
+	identity := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, identity); err != nil {
 		return nil, err
 	}
 
+	var ageAdd [4]byte
+	if _, err := io.ReadFull(rand.Reader, ageAdd[:]); err != nil {
+		return nil, err
+	}
+
+	var nonce [8]byte
+	binary.BigEndian.PutUint64(nonce[:], p.nextTicketNonce)
+	p.nextTicketNonce++
+
 	return p.makeReliableNewSessionTicket(&handshake.MessageNewSessionTicket{
 		TicketLifetime: newSessionTicketLifetime,
-		TicketAgeAdd:   ageAdd,
-		TicketNonce:    p.newTicketNonce(),
+		TicketAgeAdd:   binary.BigEndian.Uint32(ageAdd[:]),
+		TicketNonce:    nonce[:],
 		Ticket:         identity,
 	})
 }
@@ -476,8 +473,6 @@ func (p *postHandshake) retransmitPostHandshake(
 	return nil
 }
 
-// todo: retransmit fragments not just the whole message.
-// nolint:godox
 func (p *postHandshake) retransmitNewSessionTicket(
 	ctx context.Context,
 	conn Conn,
@@ -485,6 +480,19 @@ func (p *postHandshake) retransmitNewSessionTicket(
 	now time.Time,
 	disableRetransmitBackoff bool,
 ) error {
+	for _, packet := range flight.Packets {
+		message, ok := packet.Record.Content.(*handshake.Handshake)
+		if !ok {
+			continue
+		}
+		packet.HandshakeFragmentOffsets = map[uint32]uint32{}
+		for fragment := range flight.PendingFragments {
+			if fragment.MessageSequence == message.Header.MessageSequence {
+				packet.HandshakeFragmentOffsets[fragment.Offset] = fragment.Length
+			}
+		}
+	}
+
 	result, err := conn.WritePackets(ctx, flight.Packets)
 	if err != nil {
 		return err
@@ -499,22 +507,4 @@ func (p *postHandshake) retransmitNewSessionTicket(
 	flight.NextRetransmit = now.Add(flight.RetransmitInterval)
 
 	return nil
-}
-
-func newTicketIdentity() ([]byte, error) {
-	ticket := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, ticket); err != nil {
-		return nil, err
-	}
-
-	return ticket, nil
-}
-
-func newTicketAgeAdd() (uint32, error) {
-	var raw [4]byte
-	if _, err := io.ReadFull(rand.Reader, raw[:]); err != nil {
-		return 0, err
-	}
-
-	return binary.BigEndian.Uint32(raw[:]), nil
 }

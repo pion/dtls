@@ -44,6 +44,20 @@ func (c *postHandshakeAlertConn) Notify(
 	return c.notifyErr
 }
 
+type postHandshakeWriteConn struct {
+	flightTestConn
+	result *WriteResult
+}
+
+func (c *postHandshakeWriteConn) WritePackets(
+	_ context.Context,
+	pkts []*dtlsflight.Packet,
+) (*WriteResult, error) {
+	c.writtenPackets = append(c.writtenPackets, pkts...)
+
+	return c.result, nil
+}
+
 func TestMakeReliableNewSessionTicket(t *testing.T) {
 	state := dtlsstate.NewState13(false)
 	state.SetLocalEpoch(7)
@@ -103,6 +117,62 @@ func TestPostHandshakeACKCompletesReliableFlight(t *testing.T) {
 	assert.Empty(t, flight.PendingFragments)
 	_, firstStillIndexed := post.recordIndex[firstRecord]
 	assert.True(t, firstStillIndexed)
+}
+
+func TestPostHandshakeACKReliability(t *testing.T) {
+	state := dtlsstate.NewState13(false)
+	post := newPostHandshake(handshakeContext{
+		state: &state,
+		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
+	})
+	flight, err := post.makeReliableNewSessionTicket(&handshake.MessageNewSessionTicket{
+		TicketLifetime: newSessionTicketLifetime,
+		Ticket:         []byte{1},
+	})
+	require.NoError(t, err)
+
+	messageSequence := flight.ID.MessageSequence
+	firstFragment := SentHandshakeFragment{MessageSequence: messageSequence, Length: 10}
+	secondFragment := SentHandshakeFragment{MessageSequence: messageSequence, Offset: 10, Length: 10}
+	firstRecord := protocol.RecordNumber{Epoch: 3, SequenceNumber: 1}
+	secondRecord := protocol.RecordNumber{Epoch: 3, SequenceNumber: 2}
+	post.flights[flight.ID] = flight
+	post.registerTransmission(flight, []SentHandshakeRecord{
+		{Number: firstRecord, Fragments: []SentHandshakeFragment{firstFragment}},
+		{Number: secondRecord, Fragments: []SentHandshakeFragment{secondFragment}},
+	}, true)
+
+	// A partial ACK retires the first fragment. Receiving it again makes no
+	// further progress.
+	assert.Empty(t, post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{firstRecord}}))
+	assert.Empty(t, post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{firstRecord}}))
+
+	// If the second fragment's ACK is lost, retransmit only that fragment.
+	retransmitRecord := protocol.RecordNumber{Epoch: 3, SequenceNumber: 3}
+	conn := &postHandshakeWriteConn{result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{
+		Number:    retransmitRecord,
+		Fragments: []SentHandshakeFragment{secondFragment},
+	}}}}
+	now := time.Now()
+	require.NoError(t, post.retransmitNewSessionTicket(context.Background(), conn, flight, now, true))
+	require.Len(t, conn.writtenPackets, 1)
+	assert.Equal(t, map[uint32]uint32{10: 10}, conn.writtenPackets[0].HandshakeFragmentOffsets)
+	assert.Equal(t, now.Add(time.Second), flight.NextRetransmit)
+
+	// The original ACK can arrive after the retransmission and still complete
+	// the flight.
+	completed := post.applyACK(protocol.ACK{
+		Records: []protocol.RecordNumber{secondRecord},
+	})
+	assert.Equal(t, []postHandshakeFlightID{flight.ID}, completed)
+	assert.Empty(t, flight.PendingFragments)
+	for _, id := range completed {
+		post.completePostHandshakeFlight(id)
+	}
+
+	// An ACK for a retransmission may arrive after an earlier transmission
+	// already completed the flight.
+	assert.Empty(t, post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{retransmitRecord}}))
 }
 
 func TestPostHandshakeReceiveNewSessionTicket(t *testing.T) {
