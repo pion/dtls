@@ -3198,10 +3198,10 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) {
 				WithCertificates(serverCert),
 			}, false)
 			assert.NoError(t, err)
-			assert.NoError(t, s.Close())
 
 			c := <-client
 			assert.NoError(t, <-clientErr)
+			assert.NoError(t, s.Close())
 			assert.NoError(t, c.Close())
 
 			state, ok := c.ConnectionState()
