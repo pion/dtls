@@ -25,7 +25,12 @@ import (
 
 const defaultMTU = 1200 // bytes
 
-var defaultCurves = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384} //nolint:gochecknoglobals
+var defaultCurves = []elliptic.Curve{ //nolint:gochecknoglobals
+	elliptic.X25519MLKEM768,
+	elliptic.X25519,
+	elliptic.P256,
+	elliptic.P384,
+}
 
 type connConfigValues struct {
 	logger                      logging.LeveledLogger

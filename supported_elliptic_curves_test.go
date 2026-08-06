@@ -33,7 +33,16 @@ func TestSupportedEllipticCurves(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	expectedCurves := append([]elliptic.Curve(nil), defaultCurves...)
+	// This test configures only a DTLS 1.2 cipher suite. X25519MLKEM768 is a
+	// DTLS 1.3-only group.
+	// todo: handle cases like this when configured by end user.
+	// nolint:godox
+	expectedCurves := make([]elliptic.Curve, 0, len(defaultCurves))
+	for _, curve := range defaultCurves {
+		if curve != elliptic.X25519MLKEM768 {
+			expectedCurves = append(expectedCurves, curve)
+		}
+	}
 	var actualCurves []elliptic.Curve
 
 	rand.Shuffle(len(expectedCurves), func(i, j int) {
