@@ -2839,6 +2839,22 @@ func TestFlight13_2Generate(t *testing.T) {
 		assert.Equal(t, elliptic.X25519, *keyShare.SelectedGroup)
 	})
 
+	t.Run("OmitsKeyShareWhenSelectedGroupWasAlreadyOffered", func(t *testing.T) {
+		state := newTestState13(false)
+		state.SelectedGroup = elliptic.X25519
+		state.RemoteKeyEntries = []extension.KeyShareEntry{{
+			Group:       elliptic.X25519,
+			KeyExchange: []byte{0x01},
+		}}
+		state.HasRemoteKeyEntries = true
+		cfg := testHandshakeConfig13(t)
+
+		serverHello := serverHelloFromFlight13_2(t, state, cfg)
+
+		_, hasKeyShare := findKeyShare(serverHello.Extensions)
+		assert.False(t, hasKeyShare, "KeyShare must be omitted when the selected group was already offered")
+	})
+
 	t.Run("IncludesCookieWhenSet", func(t *testing.T) {
 		cookie := []byte{0x01, 0x02, 0x03, 0x04}
 		state := newTestState13(false)

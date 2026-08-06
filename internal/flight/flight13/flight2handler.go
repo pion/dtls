@@ -85,9 +85,16 @@ func flight2Generate(
 	cipherSuiteID := uint16(flightCtx.state.CipherSuite.ID())
 
 	if flightCtx.state.SelectedGroup != 0 {
-		exts = append(exts, &extension.KeyShare{
-			SelectedGroup: &flightCtx.state.SelectedGroup,
-		})
+		// RFC 8446 Section 4.2.8 requires a client to abort with illegal_parameter
+		// if an HRR selects a group for which it already supplied a key share.
+		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
+		// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.8
+		_, clientAlreadyOfferedShare := clientKeyShareForGroup(flightCtx.state, flightCtx.state.SelectedGroup)
+		if !clientAlreadyOfferedShare {
+			exts = append(exts, &extension.KeyShare{
+				SelectedGroup: &flightCtx.state.SelectedGroup,
+			})
+		}
 	}
 
 	if len(flightCtx.state.Cookie) > 0 {
