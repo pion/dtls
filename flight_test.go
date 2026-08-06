@@ -1265,9 +1265,23 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	)
 	state.CipherSuite = nil
 	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
+	nextFlight, dtlsAlert, err := flight13ParseForTest(
+		t, dtlsflight13.Flight3, context.Background(), &handshakeTestContext13{
+			state:      state,
+			cache:      cache,
+			cfg:        cfg,
+			transcript: transcript,
+		})
+
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, dtlsflight13.Flight(0), nextFlight)
+	assert.Equal(t, 1, state.HandshakeRecvSequence)
+	assert.Equal(t, dtlsflight13.EpochHandshake, state.RemoteEpoch())
+
 	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 	cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
-	nextFlight, dtlsAlert, err := flight13ParseForTest(
+	nextFlight, dtlsAlert, err = flight13ParseForTest(
 		t, dtlsflight13.Flight3, context.Background(), &handshakeTestContext13{
 			state:      state,
 			cache:      cache,

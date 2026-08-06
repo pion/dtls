@@ -25,29 +25,39 @@ func flight3Parse(
 	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
-	pull := flight3PullServerHello(flightCtx)
-	if !pull.ready {
-		return 0, nil, nil
-	}
-	if pull.failure != nil {
-		return 0, pull.failure.alert, pull.failure.err
+	nextHandshakeSequence := flightCtx.state.HandshakeRecvSequence
+	if flightCtx.state.RemoteEpoch() < EpochHandshake {
+		pull := flight3PullServerHello(flightCtx)
+		if !pull.ready {
+			return 0, nil, nil
+		}
+		if pull.failure != nil {
+			return 0, pull.failure.alert, pull.failure.err
+		}
+
+		failure := processFlight3ServerHello(flightCtx, pull.serverHello)
+		if failure != nil {
+			return 0, failure.alert, failure.err
+		}
+		failure = initializeFlight3HandshakeProtection(
+			ctx,
+			conn,
+			flightCtx,
+			pull.nextHandshakeSequence,
+			pull.items,
+		)
+		if failure != nil {
+			return 0, failure.alert, failure.err
+		}
+		nextHandshakeSequence = pull.nextHandshakeSequence
 	}
 
-	failure := processFlight3ServerHello(flightCtx, pull.serverHello)
-	if failure != nil {
-		return 0, failure.alert, failure.err
-	}
-	failure = initializeFlight3HandshakeProtection(
-		ctx,
-		conn,
-		flightCtx,
-		pull.nextHandshakeSequence,
-		pull.items,
-	)
-	if failure != nil {
-		return 0, failure.alert, failure.err
-	}
-
+	// A DTLS flight may span multiple datagrams. Once ServerHello installs the
+	// handshake read keys, resume at the first protected message instead of
+	// requiring ServerHello to be pulled again. RFC 9147 Section 5.7,
+	// and 5.8.1:
+	// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.7
+	// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.8.1
 	protectedFlight := pullProtectedHandshakeFlight(
 		flightCtx.cache,
 		[]dtlsflight.HandshakeCachePullRule{
@@ -57,7 +67,7 @@ func flight3Parse(
 			{Typ: handshake.TypeCertificateVerify, Epoch: EpochHandshake, IsClient: false, Optional: true},
 			{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false, Optional: false},
 		},
-		pull.nextHandshakeSequence,
+		nextHandshakeSequence,
 	)
 	if !protectedFlight.ready {
 		return 0, nil, nil
@@ -65,7 +75,7 @@ func flight3Parse(
 	if protectedFlight.failure != nil {
 		return 0, protectedFlight.failure.alert, protectedFlight.failure.err
 	}
-	failure = handleFlight3ProtectedHandshake(flightCtx, protectedFlight.items)
+	failure := handleFlight3ProtectedHandshake(flightCtx, protectedFlight.items)
 	if failure != nil {
 		return 0, failure.alert, failure.err
 	}
