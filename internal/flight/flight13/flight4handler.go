@@ -176,7 +176,7 @@ func needsClientKeypair(state *dtlsstate.State13) bool {
 		state.SelectedGroup == elliptic.X25519MLKEM768
 }
 
-func flight4Generate(
+func flight4Generate( //nolint:cyclop
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
@@ -255,9 +255,32 @@ func flight4Generate(
 	encryptedExtensions := HandshakePacket(&handshake.MessageEncryptedExtensions{})
 	encryptedExtensions.ResetLocalSequenceNumber = true
 
-	return []*dtlsflight.Packet{
+	pkts := []*dtlsflight.Packet{
 		serverHello,
 		encryptedExtensions,
+	}
+	if cfg.ClientAuth > dtlsconfig.NoClientCert {
+		// RFC 8446 Section 4.3.2 requires signature_algorithms in the request.
+		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
+		// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.3.2
+		certificateRequestExtensions := []extension.Extension{
+			&extension.SupportedSignatureAlgorithms{
+				SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+			},
+		}
+		if cfg.ClientCAs != nil {
+			certificateRequestExtensions = append(certificateRequestExtensions, &extension.CertificateAuthorities{
+				// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR
+				// because cert does not come from SystemCertPool and it's ok if certificate
+				// authorities is empty.
+				Authorities: cfg.ClientCAs.Subjects(),
+			})
+		}
+		pkts = append(pkts, HandshakePacket(&handshake.MessageCertificateRequest13{
+			Extensions: certificateRequestExtensions,
+		}))
+	}
+	pkts = append(pkts,
 		HandshakePacket(&handshake.MessageCertificate13{
 			CertificateList: certificateEntries13(certificate.Certificate),
 		}),
@@ -269,5 +292,7 @@ func flight4Generate(
 			signer,
 		),
 		HandshakePacket(&handshake.MessageFinished{}),
-	}, nil, nil
+	)
+
+	return pkts, nil, nil
 }

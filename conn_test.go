@@ -3838,6 +3838,7 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 		dtlsnet.PacketConnFromConn(cb),
 		cb.RemoteAddr(),
 		WithCertificates(serverCert),
+		WithClientAuth(RequireAnyClientCert),
 		WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_3),
 		WithMaxVersion(protocol.Version1_3),
@@ -3864,8 +3865,9 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 
 	_, ok = client.ConnectionState()
 	require.True(t, ok)
-	_, ok = server.ConnectionState()
+	serverState, ok := server.ConnectionState()
 	require.True(t, ok)
+	assert.Equal(t, clientCert.Certificate, serverState.PeerCertificates)
 
 	require.NoError(t, client.SetReadDeadline(time.Now().Add(time.Second)))
 	require.NoError(t, server.SetReadDeadline(time.Now().Add(time.Second)))

@@ -2895,6 +2895,71 @@ func TestFlight13_2Generate(t *testing.T) {
 }
 
 func TestFlight13_4Generate(t *testing.T) {
+	t.Run("RequestsClientCertificateWhenConfigured", func(t *testing.T) {
+		certificate, err := selfsign.GenerateSelfSigned()
+		require.NoError(t, err)
+		keypair, err := elliptic.GenerateKeypair(testCurves13[0])
+		require.NoError(t, err)
+
+		tests := map[string]struct {
+			clientAuth  dtlsconfig.ClientAuthType
+			wantRequest bool
+		}{
+			"NoClientCert":               {clientAuth: dtlsconfig.NoClientCert},
+			"RequestClientCert":          {clientAuth: dtlsconfig.RequestClientCert, wantRequest: true},
+			"RequireAnyClientCert":       {clientAuth: dtlsconfig.RequireAnyClientCert, wantRequest: true},
+			"VerifyClientCertIfGiven":    {clientAuth: dtlsconfig.VerifyClientCertIfGiven, wantRequest: true},
+			"RequireAndVerifyClientCert": {clientAuth: dtlsconfig.RequireAndVerifyClientCert, wantRequest: true},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				cfg := testHandshakeConfig13(t)
+				cfg.LocalCertificates = []tls.Certificate{certificate}
+				cfg.ClientAuth = test.clientAuth
+
+				state := newTestState13(false)
+				state.CipherSuite = cfg.LocalCipherSuites[0]
+				state.LocalKeypair = keypair
+				state.RemoteSignatureSchemes = append([]signaturehash.Algorithm(nil), cfg.LocalSignatureSchemes...)
+
+				pkts, dtlsAlert, err := flight13GenerateForTest(
+					t, dtlsflight13.Flight4, &handshakeTestContext13{state: state, cfg: cfg},
+				)
+				require.NoError(t, err)
+				require.Nil(t, dtlsAlert)
+
+				var certificateRequest *handshake.MessageCertificateRequest13
+				for _, pkt := range pkts {
+					handshakePacket, ok := pkt.Record.Content.(*handshake.Handshake)
+					if !ok {
+						continue
+					}
+					request, ok := handshakePacket.Message.(*handshake.MessageCertificateRequest13)
+					if !ok {
+						continue
+					}
+					require.Nil(t, certificateRequest, "server flight contains multiple CertificateRequest messages")
+					certificateRequest = request
+					assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Record.Header.Epoch)
+					assert.True(t, pkt.ShouldEncrypt)
+				}
+
+				if !test.wantRequest {
+					assert.Nil(t, certificateRequest)
+
+					return
+				}
+
+				require.NotNil(t, certificateRequest)
+				assert.Empty(t, certificateRequest.CertificateRequestContext)
+				require.Len(t, certificateRequest.Extensions, 1)
+				signatureAlgorithms, ok := certificateRequest.Extensions[0].(*extension.SupportedSignatureAlgorithms)
+				require.True(t, ok)
+				assert.Equal(t, cfg.LocalSignatureSchemes, signatureAlgorithms.SignatureHashAlgorithms)
+			})
+		}
+	})
+
 	t.Run("GeneratesCertificateAuthenticatedServerFlight", func(t *testing.T) {
 		cfg := testHandshakeConfig13(t)
 		certificate, err := selfsign.GenerateSelfSigned()
