@@ -14,6 +14,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
@@ -48,7 +49,11 @@ type connConfigValues struct {
 }
 
 func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
-	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
+	minVersion, maxVersion, err := effectiveProtocolVersionRange(config)
+	if err != nil {
+		return connConfigValues{}, err
+	}
+
 	cipherSuites, err := parseCipherSuitesForVersions(
 		config.CipherSuites,
 		config.customCipherSuites,
@@ -356,12 +361,12 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 		}
 	}
 
-	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
-	if err := validateEllipticCurveVersions(config.EllipticCurves, minVersion, maxVersion); err != nil {
+	minVersion, maxVersion, err := effectiveProtocolVersionRange(config)
+	if err != nil {
 		return err
 	}
 
-	_, err := parseCipherSuitesForVersions(
+	_, err = parseCipherSuitesForVersions(
 		config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil,
 		minVersion, maxVersion,
 	)
@@ -369,29 +374,88 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 	return err
 }
 
-func validateEllipticCurveVersions(
-	curves []elliptic.Curve,
-	minVersion, maxVersion protocol.Version,
-) error {
-	if !slices.Contains(curves, elliptic.X25519MLKEM768) {
-		return nil
-	}
-	if !maxVersion.Equal(protocol.Version1_3) {
-		return dtlserrors.ErrUnsupportedEllipticCurveVersion
-	}
-	if minVersion.Equal(protocol.Version1_3) || hasDTLS12CompatibleCurve(curves) {
-		return nil
+// effectiveProtocolVersionRange restricts a configured version range to the
+// versions supported by explicitly selected cipher suites and curves. This
+// prevents advertising a version for which the local configuration cannot
+// complete a handshake.
+func effectiveProtocolVersionRange(config *dtlsConfig) (protocol.Version, protocol.Version, error) {
+	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
+	versions := dtlsconfig.SupportedVersionsRange(minVersion, maxVersion)
+
+	if cipherVersions := supportedCipherSuiteVersions(config.CipherSuites, versions); len(cipherVersions) != 0 {
+		versions = cipherVersions
 	}
 
-	return dtlserrors.ErrUnsupportedEllipticCurveVersion
+	curveVersions := supportedEllipticCurveVersions(
+		config.EllipticCurves,
+		dtlsconfig.SupportedVersionsRange(minVersion, maxVersion),
+	)
+	if len(config.EllipticCurves) != 0 && len(curveVersions) == 0 {
+		return protocol.Version{}, protocol.Version{}, dtlserrors.ErrUnsupportedEllipticCurveVersion
+	}
+	versions = intersectSupportedVersions(versions, curveVersions)
+
+	if len(versions) == 0 {
+		return protocol.Version{}, protocol.Version{}, dtlserrors.ErrNoCommonProtocolVersion
+	}
+
+	return versions[len(versions)-1], versions[0], nil
 }
 
-func hasDTLS12CompatibleCurve(curves []elliptic.Curve) bool {
-	for _, curve := range curves {
-		if curve != elliptic.X25519MLKEM768 {
-			return true
+func supportedCipherSuiteVersions(
+	suites []CipherSuiteID,
+	versions []protocol.Version,
+) []protocol.Version {
+	if suites == nil {
+		return versions
+	}
+
+	for _, suite := range suites {
+		if ciphersuite.ForID(suite, nil) == nil {
+			return versions
 		}
 	}
 
-	return false
+	return filterSupportedVersions(versions, func(version protocol.Version) bool {
+		return slices.ContainsFunc(suites, func(suite CipherSuiteID) bool {
+			return ciphersuite.IDSupportsVersion(suite, version)
+		})
+	})
+}
+
+func supportedEllipticCurveVersions(
+	curves []elliptic.Curve,
+	versions []protocol.Version,
+) []protocol.Version {
+	if len(curves) == 0 {
+		return versions
+	}
+
+	return filterSupportedVersions(versions, func(version protocol.Version) bool {
+		return slices.ContainsFunc(curves, func(curve elliptic.Curve) bool {
+			return curve != elliptic.X25519MLKEM768 || version.Equal(protocol.Version1_3)
+		})
+	})
+}
+
+func filterSupportedVersions(
+	versions []protocol.Version,
+	supports func(protocol.Version) bool,
+) []protocol.Version {
+	filtered := make([]protocol.Version, 0, len(versions))
+	for _, version := range versions {
+		if supports(version) {
+			filtered = append(filtered, version)
+		}
+	}
+
+	return filtered
+}
+
+func intersectSupportedVersions(
+	left, right []protocol.Version,
+) []protocol.Version {
+	return filterSupportedVersions(left, func(version protocol.Version) bool {
+		return slices.ContainsFunc(right, version.Equal)
+	})
 }

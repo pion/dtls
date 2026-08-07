@@ -360,19 +360,23 @@ func TestX25519MLKEM768RequiresDTLS13(t *testing.T) {
 	})
 
 	t.Run("DualStackMLKEMOnlyClient", func(t *testing.T) {
-		err := clientOptionsError(t,
+		client, err := newOptionsClient(t,
 			WithMaxVersion(protocol.Version1_3),
 			WithEllipticCurves(elliptic.X25519MLKEM768),
 		)
-		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
+		require.NoError(t, err)
+		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MinVersion)
+		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MaxVersion)
 	})
 
 	t.Run("DualStackMLKEMOnlyServer", func(t *testing.T) {
-		err := serverOptionsError(t,
+		server, err := newOptionsServer(t,
 			WithMaxVersion(protocol.Version1_3),
 			WithEllipticCurves(elliptic.X25519MLKEM768),
 		)
-		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
+		require.NoError(t, err)
+		require.Equal(t, protocol.Version1_3, server.handshakeConfig.MinVersion)
+		require.Equal(t, protocol.Version1_3, server.handshakeConfig.MaxVersion)
 	})
 
 	t.Run("DualStackWithClassicalFallback", func(t *testing.T) {
@@ -405,6 +409,46 @@ func TestX25519MLKEM768RequiresDTLS13(t *testing.T) {
 			WithEllipticCurves(elliptic.X25519MLKEM768),
 		)
 		require.NoError(t, err)
+	})
+}
+
+func TestSelectedCipherSuitesConstrainProtocolVersion(t *testing.T) {
+	t.Run("DTLS13SuitesSelectDTLS13", func(t *testing.T) {
+		client, err := newOptionsClient(t,
+			WithMaxVersion(protocol.Version1_3),
+			WithCipherSuites(TLS_AES_128_GCM_SHA256),
+		)
+		require.NoError(t, err)
+		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MinVersion)
+		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MaxVersion)
+	})
+
+	t.Run("DTLS12SuitesSelectDTLS12", func(t *testing.T) {
+		client, err := newOptionsClient(t,
+			WithMaxVersion(protocol.Version1_3),
+			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		)
+		require.NoError(t, err)
+		require.Equal(t, protocol.Version1_2, client.handshakeConfig.MinVersion)
+		require.Equal(t, protocol.Version1_2, client.handshakeConfig.MaxVersion)
+	})
+
+	t.Run("DTLS12SuitesAndDTLS13CurvesAreRejected", func(t *testing.T) {
+		err := clientOptionsError(t,
+			WithMaxVersion(protocol.Version1_3),
+			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+			WithEllipticCurves(elliptic.X25519MLKEM768),
+		)
+		require.ErrorIs(t, err, dtlserrors.ErrNoCommonProtocolVersion)
+	})
+
+	t.Run("DTLS12SuitesWithExactDTLS13AreRejected", func(t *testing.T) {
+		err := clientOptionsError(t,
+			WithMinVersion(protocol.Version1_3),
+			WithMaxVersion(protocol.Version1_3),
+			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		)
+		require.Error(t, err)
 	})
 }
 
