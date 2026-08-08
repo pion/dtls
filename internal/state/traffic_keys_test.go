@@ -1,0 +1,105 @@
+// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+package state
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/pion/dtls/v3/internal/ciphersuite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestTrafficKeyStateAdvancesDirectionsIndependently(t *testing.T) {
+	suite := ciphersuite.NewTLSAes128GcmSha256()
+	secretSize := suite.HashFunc()().Size()
+	writeSecret0 := bytes.Repeat([]byte{0x10}, secretSize)
+	readSecret0 := bytes.Repeat([]byte{0x20}, secretSize)
+	writeSecret1 := bytes.Repeat([]byte{0x11}, secretSize)
+	readSecret1 := bytes.Repeat([]byte{0x21}, secretSize)
+
+	writeProtection0, err := suite.NewRecordProtection(writeSecret0)
+	require.NoError(t, err)
+	readProtection0, err := suite.NewRecordProtection(readSecret0)
+	require.NoError(t, err)
+	writeProtection1, err := suite.NewRecordProtection(writeSecret1)
+	require.NoError(t, err)
+	readProtection1, err := suite.NewRecordProtection(readSecret1)
+	require.NoError(t, err)
+
+	var keys TrafficKeyState
+	keys.Install(
+		&TrafficGeneration{
+			Epoch:      2,
+			Generation: 0,
+			Secret:     writeSecret0,
+			Protection: writeProtection0,
+		},
+		&TrafficGeneration{
+			Epoch:      2,
+			Generation: 0,
+			Secret:     readSecret0,
+			Protection: readProtection0,
+		},
+	)
+	keys.Install(&TrafficGeneration{
+		Epoch:      3,
+		Generation: 1,
+		Secret:     writeSecret1,
+		Protection: writeProtection1,
+	}, nil)
+
+	currentWrite, ok := keys.CurrentWrite()
+	require.True(t, ok)
+	assert.Equal(t, uint16(3), currentWrite.Epoch)
+	assert.Equal(t, uint64(1), currentWrite.Generation)
+	assert.Equal(t, writeSecret1, currentWrite.Secret)
+
+	currentRead, ok := keys.CurrentRead()
+	require.True(t, ok)
+	assert.Equal(t, uint16(2), currentRead.Epoch)
+	assert.Equal(t, readSecret0, currentRead.Secret)
+	_, ok = keys.Read(3)
+	assert.False(t, ok)
+
+	oldWrite, ok := keys.Write(2)
+	require.True(t, ok)
+	assert.Equal(t, writeSecret0, oldWrite.Secret)
+
+	keys.Install(nil, &TrafficGeneration{
+		Epoch:      3,
+		Generation: 1,
+		Secret:     readSecret1,
+		Protection: readProtection1,
+	})
+	currentRead, ok = keys.CurrentRead()
+	require.True(t, ok)
+	assert.Equal(t, uint16(3), currentRead.Epoch)
+	assert.Equal(t, uint64(1), currentRead.Generation)
+	assert.Equal(t, readSecret1, currentRead.Secret)
+	oldRead, ok := keys.Read(2)
+	require.True(t, ok)
+	assert.Equal(t, readSecret0, oldRead.Secret)
+}
+
+func TestTrafficGenerationCloneCopiesSecret(t *testing.T) {
+	suite := ciphersuite.NewTLSAes128GcmSha256()
+	secret := bytes.Repeat([]byte{0x42}, suite.HashFunc()().Size())
+	protection, err := suite.NewRecordProtection(secret)
+	require.NoError(t, err)
+
+	generation := &TrafficGeneration{
+		Epoch:      7,
+		Generation: 3,
+		Secret:     secret,
+		Protection: protection,
+	}
+	clone := generation.Clone()
+	secret[0] ^= 0xff
+	assert.Equal(t, byte(0x42), clone.Secret[0])
+	clone.Secret[0] ^= 0xff
+	assert.Equal(t, byte(0xbd), generation.Secret[0])
+	assert.NotNil(t, clone.Protection)
+}

@@ -49,6 +49,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	return &State13{
 		Common:                     common,
 		KeySchedule:                cloneKeySchedule13(state.KeySchedule),
+		TrafficKeys:                state.TrafficKeys.Clone(),
 		KeyAgreementSecret:         bytes.Clone(state.KeyAgreementSecret),
 		SelectedGroup:              state.SelectedGroup,
 		LocalKeyEntries:            slices.Clone(state.LocalKeyEntries),

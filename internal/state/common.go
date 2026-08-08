@@ -139,5 +139,6 @@ func NewState13(isClient bool) State13 {
 	return State13{
 		Common:        common,
 		LocalKeypairs: make(map[elliptic.Curve]*elliptic.Keypair),
+		TrafficKeys:   &TrafficKeyState{},
 	}
 }

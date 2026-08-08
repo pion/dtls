@@ -36,6 +36,7 @@ type State13 struct {
 	*Common
 
 	KeySchedule KeySchedule
+	TrafficKeys *TrafficKeyState
 
 	// KeyAgreementSecret is the ECDHE or hybrid shared secret that feeds the
 	// TLS 1.3 HKDF key schedule.
