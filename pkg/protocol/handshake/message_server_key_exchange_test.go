@@ -131,7 +131,7 @@ func TestHandshakeMessageServerKeyExchangeUnmarshalErrors(t *testing.T) {
 			name:                 "InvalidNamedCurve",
 			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
 			data:                 []byte{0x03, 0xFF, 0xFF},
-			expectedErr:          dtlserrors.ErrInvalidNamedCurveFatal,
+			expectedErr:          dtlserrors.ErrInvalidNamedCurve,
 		},
 		{
 			// Valid curve type and named curve but missing the public key length.

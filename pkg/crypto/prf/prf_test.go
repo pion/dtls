@@ -270,13 +270,13 @@ func TestEcdhePSKPreMasterSecret_InvalidCurve(t *testing.T) {
 	invalid := elliptic.Curve(0xFFFF)
 
 	_, err := EcdhePSKPreMasterSecret(psk, pub, priv, invalid)
-	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurveFatal)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurve)
 }
 
 func TestPreMasterSecret_InvalidCurve(t *testing.T) {
 	invalid := elliptic.Curve(0) // not supported
 	_, err := PreMasterSecret(nil, nil, invalid)
-	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurveFatal)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidNamedCurve)
 }
 
 func TestPreMasterSecret_X25519MLKEM768RejectsBadShareLengths(t *testing.T) {

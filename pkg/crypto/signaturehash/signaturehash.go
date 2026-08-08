@@ -116,7 +116,7 @@ func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]A
 	}
 
 	if len(out) == 0 {
-		return nil, dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes
+		return nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 
 	return out, nil
@@ -156,7 +156,7 @@ func FromCertificate(cert *x509.Certificate) (Algorithm, error) { //nolint:cyclo
 		hashAlg = hash.SHA1
 		sigAlg = signature.ECDSA
 	default:
-		return Algorithm{}, dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm
+		return Algorithm{}, dtlserrors.ErrInvalidSignatureAlgorithm
 	}
 
 	return Algorithm{Hash: hashAlg, Signature: sigAlg}, nil
@@ -171,7 +171,7 @@ func (a *Algorithm) Unmarshal(sigScheme tls.SignatureScheme) error {
 		a.Signature = signature.Algorithm(sigScheme)
 		a.Hash = hash.ExtractHashFromPSS(uint16(sigScheme))
 		if a.Hash == hash.None {
-			return dtlserrors.ErrSignatureHashInvalidHashAlgorithm
+			return dtlserrors.ErrInvalidHashAlgorithm
 		}
 	} else {
 		// TLS 1.2 style - split into hash (high byte) and signature (low byte)
@@ -181,12 +181,12 @@ func (a *Algorithm) Unmarshal(sigScheme tls.SignatureScheme) error {
 
 	// Validate signature algorithm
 	if _, ok := signature.Algorithms()[a.Signature]; !ok {
-		return dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm
+		return dtlserrors.ErrInvalidSignatureAlgorithm
 	}
 
 	// Validate hash algorithm
 	if _, ok := hash.Algorithms()[a.Hash]; !ok || (ok && a.Hash == hash.None) {
-		return dtlserrors.ErrSignatureHashInvalidHashAlgorithm
+		return dtlserrors.ErrInvalidHashAlgorithm
 	}
 
 	return nil

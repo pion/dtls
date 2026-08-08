@@ -113,7 +113,7 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 	}
 	m.NamedCurve = elliptic.Curve(binary.BigEndian.Uint16(data[1:3]))
 	if _, ok := elliptic.Curves()[m.NamedCurve]; !ok {
-		return dtlserrors.ErrInvalidNamedCurveFatal
+		return dtlserrors.ErrInvalidNamedCurve
 	}
 	if len(data) < 4 {
 		return dtlserrors.ErrBufferTooSmall

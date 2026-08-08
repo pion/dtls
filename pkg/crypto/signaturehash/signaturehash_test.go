@@ -56,7 +56,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 			},
 			expected:       nil,
 			insecureHashes: false,
-			err:            dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm,
+			err:            dtlserrors.ErrInvalidSignatureAlgorithm,
 		},
 		"InvalidHashAlgorithm": {
 			input: []tls.SignatureScheme{
@@ -65,7 +65,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 			},
 			expected:       nil,
 			insecureHashes: false,
-			err:            dtlserrors.ErrSignatureHashInvalidHashAlgorithm,
+			err:            dtlserrors.ErrInvalidHashAlgorithm,
 		},
 		"InsecureHashAlgorithmDenied": {
 			input: []tls.SignatureScheme{
@@ -95,7 +95,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 				tls.ECDSAWithSHA1, // Insecure
 			},
 			insecureHashes: false,
-			err:            dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes,
+			err:            dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
 		"PSSSchemes": {
 			input: []tls.SignatureScheme{
@@ -175,7 +175,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 			},
 			expected:       nil,
 			insecureHashes: false,
-			err:            dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm,
+			err:            dtlserrors.ErrInvalidSignatureAlgorithm,
 		},
 	}
 
@@ -237,7 +237,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 			privateKey:     rsaKey,
 			is13:           false,
 			expectedSigAlg: 0,
-			expectedError:  dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes,
+			expectedError:  dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
 		{
 			name: "ECDSA works on both DTLS 1.2 and 1.3",
@@ -271,7 +271,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 			privateKey:     rsaKey,
 			is13:           true,
 			expectedSigAlg: 0,
-			expectedError:  dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes,
+			expectedError:  dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
 		{
 			name: "DTLS 1.3 with RSA key and only RSA_PSS_PSS schemes fails if no fallback",
@@ -283,7 +283,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 			privateKey:     rsaKey,
 			is13:           true,
 			expectedSigAlg: 0,
-			expectedError:  dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes,
+			expectedError:  dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
 	}
 
@@ -405,7 +405,7 @@ func TestFromCertificate(t *testing.T) {
 			result, err := FromCertificate(&x509.Certificate{SignatureAlgorithm: tt.sigAlg})
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, dtlserrors.ErrSignatureHashInvalidSignatureAlgorithm)
+				assert.ErrorIs(t, err, dtlserrors.ErrInvalidSignatureAlgorithm)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, result)

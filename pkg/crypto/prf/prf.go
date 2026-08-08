@@ -124,7 +124,7 @@ func ecdhPreMasterSecret(publicKey, privateKey []byte, curve elliptic.Curve) ([]
 	case elliptic.P384:
 		ec = ecdh.P384()
 	default:
-		return nil, dtlserrors.ErrInvalidNamedCurveFatal
+		return nil, dtlserrors.ErrInvalidNamedCurve
 	}
 
 	sk, err := ec.NewPrivateKey(privateKey)

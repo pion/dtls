@@ -15,7 +15,7 @@ import (
 func selectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey, is13 bool) (Algorithm, error) {
 	signer, ok := privateKey.(crypto.Signer)
 	if !ok {
-		return Algorithm{}, dtlserrors.ErrSignatureHashInvalidPrivateKey
+		return Algorithm{}, dtlserrors.ErrInvalidPrivateKey
 	}
 	for _, ss := range sigs {
 		// Skip PSS schemes for DTLS 1.2 (PSS is only supported in DTLS 1.3)
@@ -36,5 +36,5 @@ func selectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey, is1
 		}
 	}
 
-	return Algorithm{}, dtlserrors.ErrSignatureHashNoAvailableSignatureSchemes
+	return Algorithm{}, dtlserrors.ErrNoAvailableSignatureSchemes
 }
