@@ -4376,38 +4376,56 @@ func TestOpenCiphertextRecordHandshake(t *testing.T) {
 	expectedPlaintext := encryptedExtensionsHandshake(t)
 	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, expectedPlaintext)
 
-	innerPlaintext, sequenceNumber, err := conn.openCiphertextRecord(record)
+	innerPlaintext, sequenceNumber, epoch, err := conn.openCiphertextRecord(record)
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(0), sequenceNumber)
+	assert.Equal(t, dtlsflight13.EpochHandshake, epoch)
 	assert.Equal(t, protocol.ContentTypeHandshake, innerPlaintext.RealType)
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
 
-func TestOpenCiphertextRecordFailsWithWrongSequenceNumber(t *testing.T) {
-	conn, peerCipherSuite := newTestConnWithReadProtection(t)
-	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
-	conn.updateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
+func TestOpenCiphertextRecordRejectsInvalidRecords(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Conn, *recordlayer.CiphertextRecord13)
+		wantErr error
+	}{
+		{
+			name: "wrong sequence number",
+			mutate: func(conn *Conn, _ *recordlayer.CiphertextRecord13) {
+				conn.updateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
+			},
+			wantErr: dtlserrors.ErrDecryptPacket,
+		},
+		{
+			name: "wrong epoch",
+			mutate: func(_ *Conn, record *recordlayer.CiphertextRecord13) {
+				record.Header.EpochLow ^= 0x01
+			},
+			wantErr: dtlserrors.ErrInvalidEpoch,
+		},
+		{
+			name: "tampered ciphertext",
+			mutate: func(_ *Conn, record *recordlayer.CiphertextRecord13) {
+				record.EncryptedRecord[0] ^= 0x80
+			},
+			wantErr: dtlserrors.ErrDecryptPacket,
+		},
+	}
 
-	_, _, err := conn.openCiphertextRecord(record)
-	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
-}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			conn, peerCipherSuite := newTestConnWithReadProtection(t)
+			record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
+			test.mutate(conn, &record)
 
-func TestOpenCiphertextRecordFailsWithWrongEpoch(t *testing.T) {
-	conn, peerCipherSuite := newTestConnWithReadProtection(t)
-	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
-	record.Header.EpochLow ^= 0x01
-
-	_, _, err := conn.openCiphertextRecord(record)
-	assert.ErrorIs(t, err, dtlserrors.ErrInvalidEpoch)
-}
-
-func TestOpenCiphertextRecordFailsWithTamperedCiphertext(t *testing.T) {
-	conn, peerCipherSuite := newTestConnWithReadProtection(t)
-	record := sealTestProtectedHandshakeRecord(t, peerCipherSuite, encryptedExtensionsHandshake(t))
-	record.EncryptedRecord[0] ^= 0x80
-
-	_, _, err := conn.openCiphertextRecord(record)
-	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+			innerPlaintext, sequenceNumber, epoch, err := conn.openCiphertextRecord(record)
+			assert.ErrorIs(t, err, test.wantErr)
+			assert.Zero(t, innerPlaintext)
+			assert.Zero(t, sequenceNumber)
+			assert.Zero(t, epoch)
+		})
+	}
 }
 
 func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
@@ -4707,16 +4725,20 @@ func TestOpenCiphertextRecordUsesReadTrafficGeneration(t *testing.T) {
 	handshakeRecord := sealTrafficKeyTestRecord(
 		t, handshakeProtection, dtlsflight13.EpochHandshake, protocol.ContentTypeHandshake, []byte("handshake"),
 	)
-	innerPlaintext, _, err := conn.openCiphertextRecord(handshakeRecord)
+	innerPlaintext, sequenceNumber, epoch, err := conn.openCiphertextRecord(handshakeRecord)
 	require.NoError(t, err)
+	assert.Equal(t, uint64(0), sequenceNumber)
+	assert.Equal(t, dtlsflight13.EpochHandshake, epoch)
 	assert.Equal(t, []byte("handshake"), innerPlaintext.Content)
 
 	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
 	applicationRecord := sealTrafficKeyTestRecord(
 		t, applicationProtection, dtlsflight13.EpochApplication, protocol.ContentTypeApplicationData, []byte("application"),
 	)
-	innerPlaintext, _, err = conn.openCiphertextRecord(applicationRecord)
+	innerPlaintext, sequenceNumber, epoch, err = conn.openCiphertextRecord(applicationRecord)
 	require.NoError(t, err)
+	assert.Equal(t, uint64(0), sequenceNumber)
+	assert.Equal(t, dtlsflight13.EpochApplication, epoch)
 	assert.Equal(t, []byte("application"), innerPlaintext.Content)
 
 	wrongDirection := trafficKeyTestProtection(t, suite, trafficKeyTestSecret(suite, 0x33))
@@ -4725,13 +4747,49 @@ func TestOpenCiphertextRecordUsesReadTrafficGeneration(t *testing.T) {
 		Secret:     trafficKeyTestSecret(suite, 0x33),
 		Protection: wrongDirection,
 	})
-	_, _, err = conn.openCiphertextRecord(applicationRecord)
+	innerPlaintext, sequenceNumber, epoch, err = conn.openCiphertextRecord(applicationRecord)
 	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+	assert.Zero(t, innerPlaintext)
+	assert.Zero(t, sequenceNumber)
+	assert.Zero(t, epoch)
 
 	state.SetRemoteEpoch(4)
 	applicationRecord.Header.EpochLow = 0
-	_, _, err = conn.openCiphertextRecord(applicationRecord)
-	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+	innerPlaintext, sequenceNumber, epoch, err = conn.openCiphertextRecord(applicationRecord)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidEpoch)
+	assert.Zero(t, innerPlaintext)
+	assert.Zero(t, sequenceNumber)
+	assert.Zero(t, epoch)
+}
+
+func TestOpenCiphertextRecordRetainsPreviousReadGeneration(t *testing.T) {
+	conn, state, suite := newTrafficKeyTestConn(t)
+	previousSecret := trafficKeyTestSecret(suite, 0x41)
+	currentSecret := trafficKeyTestSecret(suite, 0x42)
+	previousProtection := trafficKeyTestProtection(t, suite, previousSecret)
+	currentProtection := trafficKeyTestProtection(t, suite, currentSecret)
+	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochApplication,
+		Generation: 0,
+		Secret:     previousSecret,
+		Protection: previousProtection,
+	})
+	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochApplication + 1,
+		Generation: 1,
+		Secret:     currentSecret,
+		Protection: currentProtection,
+	})
+	state.SetRemoteEpoch(dtlsflight13.EpochApplication + 1)
+	record := sealTrafficKeyTestRecord(
+		t, previousProtection, dtlsflight13.EpochApplication,
+		protocol.ContentTypeHandshake, []byte("retransmitted KeyUpdate"),
+	)
+
+	innerPlaintext, _, epoch, err := conn.openCiphertextRecord(record)
+	require.NoError(t, err)
+	assert.Equal(t, dtlsflight13.EpochApplication, epoch)
+	assert.Equal(t, []byte("retransmitted KeyUpdate"), innerPlaintext.Content)
 }
 
 func TestQueueIfCipherSuiteUninitializedUsesReadTrafficGeneration(t *testing.T) {

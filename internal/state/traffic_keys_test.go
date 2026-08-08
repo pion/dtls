@@ -84,6 +84,36 @@ func TestTrafficKeyStateAdvancesDirectionsIndependently(t *testing.T) {
 	assert.Equal(t, readSecret0, oldRead.Secret)
 }
 
+func TestTrafficKeyStateReadCandidates(t *testing.T) {
+	var keys TrafficKeyState
+	readGenerations := []*TrafficGeneration{
+		{Epoch: 2},
+		{Epoch: 3},
+		{Epoch: 4},
+		{Epoch: 5},
+		{Epoch: 6},
+	}
+	for _, generation := range readGenerations {
+		keys.Install(nil, generation)
+	}
+
+	storage := make([]*TrafficGeneration, 0, 2)
+	candidates := keys.ReadCandidates(2, storage)
+	require.Len(t, candidates, 2)
+	assert.Same(t, readGenerations[4], candidates[0], "current generation must be tried first")
+	assert.Same(t, readGenerations[0], candidates[1])
+
+	candidates = keys.ReadCandidates(0, storage[:0])
+	require.Len(t, candidates, 1)
+	assert.Same(t, readGenerations[2], candidates[0])
+
+	candidates = keys.ReadCandidates(1, storage[:0])
+	require.Len(t, candidates, 1)
+	assert.Same(t, readGenerations[3], candidates[0])
+
+	assert.Empty(t, keys.ReadCandidates(7, storage[:0]))
+}
+
 func TestTrafficGenerationCloneCopiesSecret(t *testing.T) {
 	suite := ciphersuite.NewTLSAes128GcmSha256()
 	secret := bytes.Repeat([]byte{0x42}, suite.HashFunc()().Size())

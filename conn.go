@@ -1379,33 +1379,82 @@ func (c *Conn) unmarshalCiphertextRecord(buf []byte) (recordlayer.CiphertextReco
 
 func (c *Conn) openCiphertextRecord(
 	record recordlayer.CiphertextRecord13,
-) (recordlayer.InnerPlaintext, uint64, error) {
+) (recordlayer.InnerPlaintext, uint64, uint16, error) {
 	if len(record.Header.ConnectionID) > 0 {
-		return recordlayer.InnerPlaintext{}, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return recordlayer.InnerPlaintext{}, 0, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
-	remoteEpoch := dtlsstate.CommonState(c.state).RemoteEpoch()
-	if record.Header.EpochLow != uint8(remoteEpoch&recordlayer.TwoLowBitsMask) {
-		return recordlayer.InnerPlaintext{}, 0, dtlserrors.ErrInvalidEpoch
+	var candidateBuffer [4]*dtlsstate.TrafficGeneration
+	candidates, remoteEpoch, err := c.readTrafficCandidates(record.Header.EpochLow, candidateBuffer[:0])
+	if err != nil {
+		return recordlayer.InnerPlaintext{}, 0, 0, err
 	}
 
-	generation, err := c.readTrafficGeneration(remoteEpoch)
+	var candidateErr error
+	eligible := false
+	for _, generation := range candidates {
+		// Reject generations before it's authorized and
+		// the receive epoch has advanced.
+		if generation.Epoch > remoteEpoch {
+			continue
+		}
+		eligible = true
+		if generation.Protection == nil {
+			continue
+		}
+		innerPlaintext, sequenceNumber, err := c.openCiphertextWithGeneration(record, generation)
+		if err != nil {
+			candidateErr = err
+
+			continue
+		}
+
+		return innerPlaintext, sequenceNumber, generation.Epoch, nil
+	}
+	if !eligible {
+		return recordlayer.InnerPlaintext{}, 0, 0, dtlserrors.ErrInvalidEpoch
+	}
+	if candidateErr == nil {
+		candidateErr = dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	return recordlayer.InnerPlaintext{}, 0, 0, candidateErr
+}
+
+func (c *Conn) readTrafficCandidates(
+	epochLow uint8,
+	candidates []*dtlsstate.TrafficGeneration,
+) ([]*dtlsstate.TrafficGeneration, uint16, error) {
+	state13, ok := c.state.(*dtlsstate.State13)
+	if !ok || state13.TrafficKeys == nil {
+		return nil, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	candidates = state13.TrafficKeys.ReadCandidates(epochLow, candidates)
+	if len(candidates) == 0 {
+		return nil, 0, dtlserrors.ErrInvalidEpoch
+	}
+
+	return candidates, state13.RemoteEpoch(), nil
+}
+
+func (c *Conn) openCiphertextWithGeneration(
+	record recordlayer.CiphertextRecord13,
+	generation *dtlsstate.TrafficGeneration,
+) (recordlayer.InnerPlaintext, uint64, error) {
+	clearHeader, err := generation.Protection.UnmaskSequenceNumber(record.Header, record.EncryptedRecord)
 	if err != nil {
 		return recordlayer.InnerPlaintext{}, 0, err
 	}
-
-	protection := generation.Protection
-	clearHeader, err := protection.UnmaskSequenceNumber(record.Header, record.EncryptedRecord)
-	if err != nil {
-		return recordlayer.InnerPlaintext{}, 0, err
-	}
-
 	sequenceNumber := reconstructSequenceNumber(
 		clearHeader.SequenceNumber,
 		clearHeader.SeqBit,
-		c.highestRemoteSequenceNumber(remoteEpoch),
+		c.highestRemoteSequenceNumber(generation.Epoch),
 	)
-	innerPlaintext, err := protection.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+	innerPlaintext, err := generation.Protection.Open(
+		record.Header,
+		sequenceNumber,
+		record.EncryptedRecord,
+	)
 	if err != nil {
 		return recordlayer.InnerPlaintext{}, 0, err
 	}
@@ -1415,24 +1464,10 @@ func (c *Conn) openCiphertextRecord(
 		protocol.ContentTypeHandshake,
 		protocol.ContentTypeApplicationData,
 		protocol.ContentTypeACK:
+		return innerPlaintext, sequenceNumber, nil
 	default:
 		return recordlayer.InnerPlaintext{}, 0, dtlserrors.ErrInvalidContentType
 	}
-
-	return innerPlaintext, sequenceNumber, nil
-}
-
-func (c *Conn) readTrafficGeneration(epoch uint16) (*dtlsstate.TrafficGeneration, error) {
-	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok || state13.TrafficKeys == nil {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
-	}
-	generation, ok := state13.TrafficKeys.Read(epoch)
-	if !ok || generation.Protection == nil {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
-	}
-
-	return generation, nil
 }
 
 func reconstructSequenceNumber(partial uint16, seqBit bool, highest uint64) uint64 {
@@ -1525,13 +1560,6 @@ func (c *Conn) prepareCiphertextPacket(
 		return incomingPacketState{}, false
 	}
 
-	remoteEpoch := dtlsstate.CommonState(c.state).RemoteEpoch()
-	if ciphertext.Header.EpochLow != uint8(remoteEpoch&recordlayer.TwoLowBitsMask) {
-		c.handleFutureCiphertextPacket(ciphertext.Header.EpochLow, remoteEpoch, rAddr, buf, bufferLease)
-
-		return incomingPacketState{}, false
-	}
-
 	if c.queueIfCipherSuiteUninitialized(
 		rAddr,
 		buf,
@@ -1541,19 +1569,28 @@ func (c *Conn) prepareCiphertextPacket(
 		return incomingPacketState{}, false
 	}
 
-	innerPlaintext, sequenceNumber, err := c.openCiphertextRecord(ciphertext)
+	innerPlaintext, sequenceNumber, epoch, err := c.openCiphertextRecord(ciphertext)
 	if err != nil {
+		if errors.Is(err, dtlserrors.ErrInvalidEpoch) {
+			c.handleFutureCiphertextPacket(
+				ciphertext.Header.EpochLow,
+				dtlsstate.CommonState(c.state).RemoteEpoch(),
+				rAddr,
+				buf,
+				bufferLease,
+			)
+		}
 		c.log.Debugf("%s: decrypt failed: %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), err)
 
 		return incomingPacketState{}, false
 	}
 
-	markPacketAsValid, ok := c.protectedReplayMarker(remoteEpoch, sequenceNumber)
+	markPacketAsValid, ok := c.protectedReplayMarker(epoch, sequenceNumber)
 	if !ok {
 		return incomingPacketState{}, false
 	}
 
-	return c.prepareInnerPlaintextRecord(remoteEpoch, sequenceNumber, innerPlaintext, markPacketAsValid)
+	return c.prepareInnerPlaintextRecord(epoch, sequenceNumber, innerPlaintext, markPacketAsValid)
 }
 
 func (c *Conn) prepareInnerPlaintextRecord(

@@ -95,6 +95,29 @@ func (s *TrafficKeyState) CurrentRead() (*TrafficGeneration, bool) {
 	return s.readCurrent, s.readCurrent != nil
 }
 
+// ReadCandidates appends installed generations matching the low epoch bits to
+// candidates. The current generation is added first if it matches.
+func (s *TrafficKeyState) ReadCandidates(
+	epochLow uint8,
+	candidates []*TrafficGeneration,
+) []*TrafficGeneration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	const epochLowMask = uint16(0x3)
+	if s.readCurrent != nil && uint8(s.readCurrent.Epoch&epochLowMask) == epochLow {
+		candidates = append(candidates, s.readCurrent)
+	}
+
+	for _, generation := range s.readOld {
+		if uint8(generation.Epoch&epochLowMask) == epochLow {
+			candidates = append(candidates, generation)
+		}
+	}
+
+	return candidates
+}
+
 func installTrafficGeneration(
 	current **TrafficGeneration,
 	old *map[uint16]*TrafficGeneration,
