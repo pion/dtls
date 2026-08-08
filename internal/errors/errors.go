@@ -13,6 +13,7 @@ var (
 	ErrConnClosed = stderrors.New("conn is closed")
 
 	ErrDeadlineExceeded   = context.DeadlineExceeded
+	ErrEpochOverflow      = stderrors.New("epoch overflow")
 	ErrInvalidContentType = stderrors.New("invalid content type")
 	ErrBufferTooSmall     = stderrors.New("buffer is too small")
 	ErrInvalidPacket      = stderrors.New("invalid packet")

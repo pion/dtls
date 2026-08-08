@@ -13,6 +13,7 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -102,6 +103,9 @@ type reliablePostHandshakeFlight struct {
 
 	// non-nil for application commands that wait for completion.
 	Result chan error
+
+	// non-nil only when acknowledging this flight commits a KeyUpdate.
+	PendingWrite *dtlsstate.TrafficGeneration
 }
 
 type postHandshakeCommandKind uint8
@@ -145,6 +149,10 @@ type postHandshake struct {
 
 	initialRetransmitInterval time.Duration
 	handshakeContext
+}
+
+type keyUpdateCommitConn interface {
+	CommitLocalKeyUpdate(*dtlsstate.TrafficGeneration) error
 }
 
 func newPostHandshake(ctx handshakeContext) *postHandshake {
@@ -308,7 +316,9 @@ func (p *postHandshake) handlePostHandshakeReceive(
 ) error {
 	for _, ack := range received.ACKs {
 		for _, id := range p.applyACK(ack) {
-			p.completePostHandshakeFlight(id)
+			if err := p.completePostHandshakeFlight(conn, id); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -397,6 +407,120 @@ func (p *postHandshake) startNewSessionTicket(ctx context.Context, conn Conn, is
 	return nil
 }
 
+func (p *postHandshake) startKeyUpdate(
+	ctx context.Context,
+	conn Conn,
+	command postHandshakeCommand,
+) error {
+	flight, err := p.buildKeyUpdateFlight(command.KeyUpdate.Request, command.Result)
+	if err != nil {
+		return err
+	}
+
+	result, err := conn.WritePackets(ctx, flight.Packets)
+	if err != nil {
+		return err
+	}
+	p.flights[flight.ID] = flight
+	p.registerTransmission(flight, result.TrackedRecords, true)
+	flight.NextRetransmit = time.Now().Add(flight.RetransmitInterval)
+
+	return nil
+}
+
+func (p *postHandshake) buildKeyUpdateFlight(
+	request handshake.KeyUpdateRequest,
+	result chan error,
+) (*reliablePostHandshakeFlight, error) {
+	if p.state.TrafficKeys == nil {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	current, ok := p.state.TrafficKeys.CurrentWrite()
+	if !ok || current.Protection == nil {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	if current.Epoch != p.state.LocalEpoch() {
+		return nil, dtlserrors.ErrInvalidEpoch
+	}
+	next, err := p.nextTrafficGeneration(current)
+	if err != nil {
+		return nil, err
+	}
+
+	message := &handshake.MessageKeyUpdate{RequestUpdate: request}
+	body, err := message.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	if p.state.HandshakeSendSequence > math.MaxUint16 {
+		return nil, dtlserrors.ErrHandshakeSequenceOverflow
+	}
+
+	messageSequence := uint16(p.state.HandshakeSendSequence) //nolint:gosec // bounded above
+	p.state.HandshakeSendSequence++
+	packet := &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+				Epoch:   current.Epoch,
+			},
+			Content: &handshake.Handshake{
+				Header: handshake.Header{
+					Type:            handshake.TypeKeyUpdate,
+					Length:          uint32(len(body)), //nolint:gosec // marshal limits the message size
+					MessageSequence: messageSequence,
+					FragmentLength:  uint32(len(body)), //nolint:gosec // marshal limits the message size
+				},
+				Message: message,
+			},
+		},
+		ShouldEncrypt:  true,
+		ShouldTrackACK: true,
+	}
+	id := postHandshakeFlightID{
+		Category:        postHandshakeKeyUpdate,
+		MessageSequence: messageSequence,
+	}
+
+	return &reliablePostHandshakeFlight{
+		ID:                 id,
+		Packets:            []*dtlsflight.Packet{packet},
+		Epoch:              current.Epoch,
+		PendingFragments:   make(map[postHandshakeFragment]struct{}),
+		SentRecords:        make(map[protocol.RecordNumber]struct{}),
+		RetransmitInterval: p.initialRetransmitInterval,
+		Result:             result,
+		PendingWrite:       next,
+	}, nil
+}
+
+func (p *postHandshake) nextTrafficGeneration(
+	current *dtlsstate.TrafficGeneration,
+) (*dtlsstate.TrafficGeneration, error) {
+	if current.Epoch == math.MaxUint16 {
+		return nil, dtlserrors.ErrEpochOverflow
+	}
+	cipherSuite, err := recordProtectionCipherSuite(p.state)
+	if err != nil {
+		return nil, err
+	}
+	nextSecret, err := deriveNextApplicationTrafficSecret(cipherSuite.HashFunc(), current.Secret)
+	if err != nil {
+		return nil, err
+	}
+	nextProtection, err := cipherSuite.NewRecordProtection(nextSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dtlsstate.TrafficGeneration{
+		Epoch:      current.Epoch + 1,
+		Generation: current.Generation + 1,
+		Secret:     nextSecret,
+		Protection: nextProtection,
+	}, nil
+}
+
 func (p *postHandshake) prepareNewSessionTicket(isClient bool) (*reliablePostHandshakeFlight, error) {
 	if isClient {
 		return nil, dtlserrors.ErrUnexpectedPostHandshakeMessage
@@ -471,16 +595,28 @@ func (p *postHandshake) makeReliableNewSessionTicket(
 	}, nil
 }
 
-func (p *postHandshake) completePostHandshakeFlight(id postHandshakeFlightID) {
+func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeFlightID) error {
 	flight := p.flights[id]
 	if flight == nil {
-		return
+		return nil
+	}
+
+	var completionErr error
+	if flight.PendingWrite != nil {
+		keyConn, ok := conn.(keyUpdateCommitConn)
+		if !ok {
+			completionErr = dtlserrors.ErrNotImplemented
+		} else {
+			completionErr = keyConn.CommitLocalKeyUpdate(flight.PendingWrite)
+		}
 	}
 	for number := range flight.SentRecords {
 		delete(p.recordIndex, number)
 	}
 	delete(p.flights, id)
-	completePostHandshakeResult(flight.Result, nil)
+	completePostHandshakeResult(flight.Result, completionErr)
+
+	return completionErr
 }
 
 func completePostHandshakeResult(result chan error, err error) {

@@ -153,6 +153,10 @@ func (c handshakeConn) SetLocalEpoch(epoch uint16) {
 	c.conn.setLocalEpoch(epoch)
 }
 
+func (c handshakeConn) CommitLocalKeyUpdate(generation *dtlsstate.TrafficGeneration) error {
+	return c.conn.commitLocalKeyUpdate(generation)
+}
+
 func (c handshakeConn) HandleQueuedPackets(ctx context.Context) error {
 	return c.conn.handleQueuedPackets(ctx)
 }
@@ -2611,6 +2615,44 @@ func (c *Conn) setLocalEpoch(epoch uint16) {
 
 func (c *Conn) setRemoteEpoch(epoch uint16) {
 	dtlsstate.CommonState(c.state).SetRemoteEpoch(epoch)
+}
+
+func (c *Conn) commitLocalKeyUpdate(generation *dtlsstate.TrafficGeneration) error {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	state13, ok := c.state.(*dtlsstate.State13)
+	if !ok || state13.TrafficKeys == nil {
+		return dtlserrors.ErrInvalidProtocolVersionState
+	}
+	current, _ := state13.TrafficKeys.CurrentWrite()
+	if err := validateNextWriteGeneration(current, generation, state13.LocalEpoch()); err != nil {
+		return err
+	}
+
+	state13.TrafficKeys.Install(generation, nil)
+	state13.SetLocalEpoch(generation.Epoch)
+
+	return nil
+}
+
+func validateNextWriteGeneration(
+	current, next *dtlsstate.TrafficGeneration,
+	localEpoch uint16,
+) error {
+	if current == nil || next == nil {
+		return dtlserrors.ErrInvalidEpoch
+	}
+	if current.Epoch == ^uint16(0) {
+		return dtlserrors.ErrEpochOverflow
+	}
+	if current.Epoch != localEpoch || next.Epoch != current.Epoch+1 || next.Generation != current.Generation+1 {
+		return dtlserrors.ErrInvalidEpoch
+	}
+
+	return nil
 }
 
 // LocalAddr implements net.Conn.LocalAddr.

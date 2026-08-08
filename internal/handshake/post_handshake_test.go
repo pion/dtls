@@ -4,13 +4,16 @@
 package dtlshandshake
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -47,6 +50,63 @@ func (c *postHandshakeAlertConn) Notify(
 type postHandshakeWriteConn struct {
 	flightTestConn
 	result *WriteResult
+}
+
+type postHandshakeKeyUpdateConn struct {
+	flightTestConn
+	state     *dtlsstate.State13
+	result    *WriteResult
+	committed *dtlsstate.TrafficGeneration
+}
+
+func (c *postHandshakeKeyUpdateConn) WritePackets(
+	_ context.Context,
+	pkts []*dtlsflight.Packet,
+) (*WriteResult, error) {
+	c.writtenPackets = append(c.writtenPackets, pkts...)
+	if c.result == nil {
+		return &WriteResult{}, nil
+	}
+
+	return c.result, nil
+}
+
+func (c *postHandshakeKeyUpdateConn) CommitLocalKeyUpdate(generation *dtlsstate.TrafficGeneration) error {
+	c.committed = generation
+	c.state.TrafficKeys.Install(generation, nil)
+	c.state.SetLocalEpoch(generation.Epoch)
+
+	return nil
+}
+
+func newPostHandshakeKeyUpdateTestState(t *testing.T, isClient bool) *dtlsstate.State13 {
+	t.Helper()
+
+	state := dtlsstate.NewState13(isClient)
+	suite := ciphersuite.NewTLSAes128GcmSha256()
+	state.CipherSuite = suite
+	state.SetLocalEpoch(dtlsflight13.EpochApplication)
+	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
+	writeSecret := bytes.Repeat([]byte{0x11}, suite.HashFunc()().Size())
+	readSecret := bytes.Repeat([]byte{0x22}, suite.HashFunc()().Size())
+	writeProtection, err := suite.NewRecordProtection(writeSecret)
+	require.NoError(t, err)
+	readProtection, err := suite.NewRecordProtection(readSecret)
+	require.NoError(t, err)
+	state.TrafficKeys.Install(
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochApplication,
+			Secret:     writeSecret,
+			Protection: writeProtection,
+		},
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochApplication,
+			Secret:     readSecret,
+			Protection: readProtection,
+		},
+	)
+
+	return &state
 }
 
 func (c *postHandshakeWriteConn) WritePackets(
@@ -190,7 +250,7 @@ func TestPostHandshakeACKReliability(t *testing.T) {
 	assert.Equal(t, []postHandshakeFlightID{flight.ID}, completed)
 	assert.Empty(t, flight.PendingFragments)
 	for _, id := range completed {
-		post.completePostHandshakeFlight(id)
+		require.NoError(t, post.completePostHandshakeFlight(conn, id))
 	}
 
 	// An ACK for a retransmission may arrive after an earlier transmission
@@ -378,4 +438,73 @@ func TestPrepareNewSessionTicket(t *testing.T) {
 	assert.Len(t, firstMessage.Ticket, 32)
 	assert.NotEqual(t, firstMessage.Ticket, secondMessage.Ticket)
 	assert.NotEqual(t, firstMessage.TicketNonce, secondMessage.TicketNonce)
+}
+
+func TestKeyUpdateCommitsWriteKeysOnlyAfterACK(t *testing.T) {
+	state := newPostHandshakeKeyUpdateTestState(t, true)
+	state.HandshakeSendSequence = 9
+	post := newPostHandshake(handshakeContext{
+		state: state,
+		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
+	})
+	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 4}
+	fragment := SentHandshakeFragment{MessageSequence: 9, Length: 1}
+	conn := &postHandshakeKeyUpdateConn{
+		state: state,
+		result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{
+			Number: record, Fragments: []SentHandshakeFragment{fragment},
+		}}},
+	}
+	result := make(chan error, 1)
+
+	require.NoError(t, post.startKeyUpdate(context.Background(), conn, postHandshakeCommand{
+		Kind: commandSendKeyUpdate,
+		KeyUpdate: keyUpdateCommand{
+			Request: handshake.KeyUpdateRequested,
+		},
+		Result: result,
+	}))
+	require.Len(t, conn.writtenPackets, 1)
+	packet := conn.writtenPackets[0]
+	assert.Equal(t, dtlsflight13.EpochApplication, packet.Record.Header.Epoch)
+	wireHandshake, ok := packet.Record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	wireKeyUpdate, ok := wireHandshake.Message.(*handshake.MessageKeyUpdate)
+	require.True(t, ok)
+	assert.Equal(t, handshake.KeyUpdateRequested, wireKeyUpdate.RequestUpdate)
+	assert.Equal(t, uint16(9), wireHandshake.Header.MessageSequence)
+	assert.True(t, packet.ShouldTrackACK)
+	assert.Equal(t, dtlsflight13.EpochApplication, state.LocalEpoch())
+	current, ok := state.TrafficKeys.CurrentWrite()
+	require.True(t, ok)
+	assert.Equal(t, uint64(0), current.Generation)
+
+	completed := post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{record}})
+	require.Equal(t, []postHandshakeFlightID{{
+		Category: postHandshakeKeyUpdate, MessageSequence: 9,
+	}}, completed)
+	require.NoError(t, post.completePostHandshakeFlight(conn, completed[0]))
+	assert.Equal(t, dtlsflight13.EpochApplication+1, state.LocalEpoch())
+	current, ok = state.TrafficKeys.CurrentWrite()
+	require.True(t, ok)
+	assert.Equal(t, uint64(1), current.Generation)
+	assert.Same(t, current, conn.committed)
+	assert.NoError(t, <-result)
+}
+
+func TestBuildKeyUpdateFlightRejectsEpochOverflow(t *testing.T) {
+	state := newPostHandshakeKeyUpdateTestState(t, true)
+	current, ok := state.TrafficKeys.CurrentWrite()
+	require.True(t, ok)
+	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{
+		Epoch:      ^uint16(0),
+		Generation: current.Generation,
+		Secret:     current.Secret,
+		Protection: current.Protection,
+	}, nil)
+	state.SetLocalEpoch(^uint16(0))
+	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{}})
+
+	_, err := post.buildKeyUpdateFlight(handshake.KeyUpdateNotRequested, nil)
+	assert.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)
 }
