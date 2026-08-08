@@ -23,6 +23,7 @@ const (
 	serverApplicationTrafficLabel = "s ap traffic"
 	exporterMasterSecretLabel     = "exp master"
 	resumptionMasterSecretLabel   = "res master"
+	trafficUpdateLabel            = "traffic upd"
 	derivedSecretLabel            = "derived"
 	finishedLabel                 = "finished"
 
@@ -358,6 +359,30 @@ func deriveApplicationTrafficSecrets(
 		Client: clientSecret,
 		Server: serverSecret,
 	}, nil
+}
+
+// deriveNextApplicationTrafficSecret derives the next generation of a
+// DTLS 1.3 application traffic secret as defined by RFC 8446 section 7.2.
+// The next-generation application_traffic_secret is computed as:
+// application_traffic_secret_N+1 =
+// HKDF-Expand-Label(application_traffic_secret_N,
+//
+//	"traffic upd", "", Hash.length)
+//
+// https://datatracker.ietf.org/doc/html/rfc8446#section-7.2
+func deriveNextApplicationTrafficSecret(
+	hashFunc func() hash.Hash,
+	current []byte,
+) ([]byte, error) {
+	hashSize, err := hashSize13(hashFunc)
+	if err != nil {
+		return nil, err
+	}
+	if len(current) != hashSize {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+
+	return keyschedule.HkdfExpandLabel(hashFunc, current, trafficUpdateLabel, nil, hashSize)
 }
 
 func deriveMasterSecretFromKeyAgreementSecret(hashFunc func() hash.Hash, keyAgreementSecret []byte) ([]byte, error) {

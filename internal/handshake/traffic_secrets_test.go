@@ -10,6 +10,7 @@ import (
 	"hash"
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,6 +35,8 @@ func TestKeySchedule13RegressionVectors(t *testing.T) {
 		masterSecret          string
 		clientApplication     string
 		serverApplication     string
+		nextClientApplication string
+		nextServerApplication string
 		exporterMasterSecret  string
 		resumptionMaster      string
 		serverFinished        string
@@ -64,6 +67,10 @@ func TestKeySchedule13RegressionVectors(t *testing.T) {
 				"5f205e12f823535eccf19479da7600ef",
 			serverApplication: "4514b3035c3be36a4e51b693c3ffb44f" +
 				"4b07027afd2fa3d736675d6094c2a4e7",
+			nextClientApplication: "fed8175bac9818218674e05e9c22e5b0" +
+				"466a9e61bdec0ae657f61b058860a0a2",
+			nextServerApplication: "513bd66bc6b09c3f8a62865cf11bbebc" +
+				"987602633775cff8e521c0c34fff4ebf",
 			exporterMasterSecret: "432323faec5c4bb685a39a140564e901" +
 				"ec42f7bf3d2de56a874806661567dbb3",
 			resumptionMaster: "fcd8551edc0e575f85a61b92fb913765" +
@@ -109,6 +116,12 @@ func TestKeySchedule13RegressionVectors(t *testing.T) {
 			serverApplication: "f6eb012422f600a6d4a0a3a78a5baa8d" +
 				"ebd71f30a20af15783046ff4cef28c47" +
 				"69ae893afe65d718f8cff5eaad93b3f8",
+			nextClientApplication: "13125f36b3eb73222446c3d99edf1fbc" +
+				"a97e3d58a4261abfc5aada73f73e88eb" +
+				"1cf38591b55474058e9446a91f491705",
+			nextServerApplication: "34d5f36a5d86175e2b83dc1f8b97b2c" +
+				"4ee32ce19cfed673a605eff7d059a8817" +
+				"1c2416ba96876e99f05f5d92519defef",
 			exporterMasterSecret: "69e9f076aaab9e68a16be160cfaa2235" +
 				"6276bd51db9dc6db41f392e22874d6d0" +
 				"0ead96a2d55939364f81517eed6909cb",
@@ -142,6 +155,14 @@ func TestKeySchedule13RegressionVectors(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, decodeRegressionHex(t, test.clientApplication), application.Client)
 			assert.Equal(t, decodeRegressionHex(t, test.serverApplication), application.Server)
+
+			nextClientApplication, err := deriveNextApplicationTrafficSecret(test.hash, application.Client)
+			require.NoError(t, err)
+			assert.Equal(t, decodeRegressionHex(t, test.nextClientApplication), nextClientApplication)
+
+			nextServerApplication, err := deriveNextApplicationTrafficSecret(test.hash, application.Server)
+			require.NoError(t, err)
+			assert.Equal(t, decodeRegressionHex(t, test.nextServerApplication), nextServerApplication)
 
 			exporter, err := deriveExporterMasterSecret(test.hash, schedule.MasterSecret, applicationHash)
 			require.NoError(t, err)
@@ -184,6 +205,50 @@ func TestKeySchedule13RegressionVectors(t *testing.T) {
 				decodeRegressionHex(t, test.clientFinishedHash),
 				expectedClientFinished,
 			))
+		})
+	}
+}
+
+func TestDeriveNextApplicationTrafficSecretErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		hash    func() hash.Hash
+		current []byte
+		err     error
+	}{
+		{
+			name: "missing hash function",
+			err:  dtlserrors.ErrKeyScheduleMissingHashFunction,
+		},
+		{
+			name: "nil hash",
+			hash: func() hash.Hash { return nil },
+			err:  dtlserrors.ErrKeyScheduleMissingHashFunction,
+		},
+		{
+			name:    "empty secret",
+			hash:    sha256.New,
+			current: nil,
+			err:     dtlserrors.ErrLengthMismatch,
+		},
+		{
+			name:    "short secret",
+			hash:    sha256.New,
+			current: make([]byte, sha256.Size-1),
+			err:     dtlserrors.ErrLengthMismatch,
+		},
+		{
+			name:    "long secret",
+			hash:    sha256.New,
+			current: make([]byte, sha256.Size+1),
+			err:     dtlserrors.ErrLengthMismatch,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := deriveNextApplicationTrafficSecret(test.hash, test.current)
+			assert.ErrorIs(t, err, test.err)
 		})
 	}
 }
