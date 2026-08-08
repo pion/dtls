@@ -1445,7 +1445,8 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 	)
 	require.NoError(t, err)
 	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
-	require.NoError(t, peerCipherSuite.InitFromTrafficSecrets(secrets.Client, secrets.Server, false))
+	peerWriteProtection, err := peerCipherSuite.NewRecordProtection(secrets.Server)
+	require.NoError(t, err)
 
 	rawEncryptedExtensions, err := (&handshake.Handshake{
 		Header:  handshake.Header{MessageSequence: 1},
@@ -1468,11 +1469,11 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
 
 	protectedEncryptedExtensions := sealTestProtectedHandshakeRecordWithSequence(
-		t, peerCipherSuite, rawEncryptedExtensions, 0,
+		t, peerWriteProtection, rawEncryptedExtensions, 0,
 	)
 	protectedEncryptedExtensionsRaw, err := protectedEncryptedExtensions.Marshal()
 	require.NoError(t, err)
-	protectedFinished := sealTestProtectedHandshakeRecordWithSequence(t, peerCipherSuite, rawFinished, 1)
+	protectedFinished := sealTestProtectedHandshakeRecordWithSequence(t, peerWriteProtection, rawFinished, 1)
 	protectedFinishedRaw, err := protectedFinished.Marshal()
 	require.NoError(t, err)
 	conn.encryptedPackets = []addrPkt{{data: protectedEncryptedExtensionsRaw}, {data: protectedFinishedRaw}}

@@ -679,7 +679,6 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 	state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
 
 	require.NoError(t, InitHandshakeRecordProtection(state))
-	require.True(t, state.CipherSuite.IsInitialized())
 	require.NoError(t, InitApplicationRecordProtection(state))
 
 	applicationWrite, ok := state.TrafficKeys.Write(dtlsflight13.EpochApplication)
@@ -695,23 +694,15 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 	assert.Equal(t, handshakeSecrets.Client, handshakeWrite.Secret)
 	assert.Equal(t, handshakeSecrets.Server, handshakeRead.Secret)
 
-	clientSuite, ok := state.CipherSuite.(ciphersuite.CipherSuiteTLS13)
-	require.True(t, ok)
 	serverApplicationSuite := ciphersuite.NewTLSAes128GcmSha256()
-	require.NoError(t, serverApplicationSuite.InitFromTrafficSecrets(
-		applicationSecrets.Client,
-		applicationSecrets.Server,
-		false,
-	))
+	serverApplicationProtection, err := serverApplicationSuite.NewRecordProtection(applicationSecrets.Client)
+	require.NoError(t, err)
 	serverHandshakeSuite := ciphersuite.NewTLSAes128GcmSha256()
-	require.NoError(t, serverHandshakeSuite.InitFromTrafficSecrets(
-		handshakeSecrets.Client,
-		handshakeSecrets.Server,
-		false,
-	))
+	serverHandshakeProtection, err := serverHandshakeSuite.NewRecordProtection(handshakeSecrets.Client)
+	require.NoError(t, err)
 
 	sequenceNumber := uint64(0x0102030405061234)
-	record, err := clientSuite.Seal(
+	record, err := applicationWrite.Protection.Seal(
 		recordlayer.UnifiedHeader{SequenceNumber: uint16(sequenceNumber), EpochLow: 2}, //nolint:gosec // G115
 		sequenceNumber,
 		protocol.ContentTypeApplicationData,
@@ -719,12 +710,12 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	innerPlaintext, err := serverApplicationSuite.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+	innerPlaintext, err := serverApplicationProtection.Open(record.Header, sequenceNumber, record.EncryptedRecord)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("application traffic after finished"), innerPlaintext.Content)
 	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
 
-	_, err = serverHandshakeSuite.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+	_, err = serverHandshakeProtection.Open(record.Header, sequenceNumber, record.EncryptedRecord)
 	assert.Error(t, err)
 }
 
@@ -792,7 +783,6 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 					Server: bytes.Repeat([]byte{0x22}, sha256.Size),
 				}
 				require.NoError(t, InitHandshakeRecordProtection(state))
-				require.True(t, state.CipherSuite.IsInitialized())
 
 				return state
 			}(),

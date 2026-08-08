@@ -1633,16 +1633,7 @@ func (c *Conn) queueIfCipherSuiteUninitialized(
 	bufferLease *readBufferLease,
 	message string,
 ) bool {
-	common := dtlsstate.CommonState(c.state)
-	initialized := common.CipherSuite != nil && common.CipherSuite.IsInitialized()
-	if state13, ok := c.state.(*dtlsstate.State13); ok && common.LocalVersion.Equal(protocol.Version1_3) {
-		initialized = false
-		if state13.TrafficKeys != nil {
-			generation, found := state13.TrafficKeys.Read(common.RemoteEpoch())
-			initialized = found && generation.Protection != nil
-		}
-	}
-	if initialized {
+	if c.hasInboundRecordProtection() {
 		return false
 	}
 	if bufferLease != nil {
@@ -1652,6 +1643,20 @@ func (c *Conn) queueIfCipherSuiteUninitialized(
 	}
 
 	return true
+}
+
+func (c *Conn) hasInboundRecordProtection() bool {
+	common := dtlsstate.CommonState(c.state)
+	if state13, ok := c.state.(*dtlsstate.State13); ok && common.LocalVersion.Equal(protocol.Version1_3) {
+		if state13.TrafficKeys == nil {
+			return false
+		}
+		generation, found := state13.TrafficKeys.Read(common.RemoteEpoch())
+
+		return found && generation.Protection != nil
+	}
+
+	return common.CipherSuite != nil && common.CipherSuite.IsInitialized()
 }
 
 func (c *Conn) prepareLegacyPacket(
@@ -1897,7 +1902,7 @@ func (c *Conn) handleChangeCipherSpecRecord(
 	bufferLease *readBufferLease,
 ) bool {
 	common := dtlsstate.CommonState(c.state)
-	if common.CipherSuite == nil || !common.CipherSuite.IsInitialized() {
+	if !c.hasInboundRecordProtection() {
 		if bufferLease != nil {
 			if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: prepared.buf}); ok {
 				c.log.Debugf("CipherSuite not initialized, queuing packet")

@@ -54,53 +54,27 @@ type recordTrafficProtection13 struct {
 	sequenceNumberMaskFn recordSequenceNumberMaskFunc13
 }
 
-type recordProtection13 struct {
-	local  recordTrafficProtection13
-	remote recordTrafficProtection13
-}
-
-func newAESGCMRecordProtection13(
-	hashFunc func() hash.Hash,
-	localTrafficSecret, remoteTrafficSecret []byte,
-	keyLen int,
-) (*recordProtection13, error) {
-	local, err := newAESGCMRecordTrafficProtection13(hashFunc, localTrafficSecret, keyLen)
-	if err != nil {
-		return nil, err
-	}
-
-	remote, err := newAESGCMRecordTrafficProtection13(hashFunc, remoteTrafficSecret, keyLen)
-	if err != nil {
-		return nil, err
-	}
-
-	return &recordProtection13{
-		local:  local,
-		remote: remote,
-	}, nil
-}
-
 func newAESGCMRecordTrafficProtection13(
 	hashFunc func() hash.Hash,
 	trafficSecret []byte,
 	keyLen int,
-) (recordTrafficProtection13, error) {
+) (*recordTrafficProtection13, error) {
 	keys, err := deriveRecordTrafficKeys13(hashFunc, trafficSecret, keyLen)
 	if err != nil {
-		return recordTrafficProtection13{}, err
+		return nil, err
 	}
 
 	block, err := aes.NewCipher(keys.key)
 	if err != nil {
-		return recordTrafficProtection13{}, err
+		return nil, err
 	}
 
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
-		return recordTrafficProtection13{}, err
+		return nil, err
 	}
 
-	return recordTrafficProtection13{
+	return &recordTrafficProtection13{
 		aead:                 aead,
 		iv:                   keys.iv,
 		sequenceNumberKey:    keys.sequenceNumberKey,
@@ -108,41 +82,21 @@ func newAESGCMRecordTrafficProtection13(
 	}, nil
 }
 
-func newChaCha20Poly1305RecordProtection13(
-	hashFunc func() hash.Hash,
-	localTrafficSecret, remoteTrafficSecret []byte,
-) (*recordProtection13, error) {
-	local, err := newChaCha20Poly1305RecordTrafficProtection13(hashFunc, localTrafficSecret)
-	if err != nil {
-		return nil, err
-	}
-
-	remote, err := newChaCha20Poly1305RecordTrafficProtection13(hashFunc, remoteTrafficSecret)
-	if err != nil {
-		return nil, err
-	}
-
-	return &recordProtection13{
-		local:  local,
-		remote: remote,
-	}, nil
-}
-
 func newChaCha20Poly1305RecordTrafficProtection13(
 	hashFunc func() hash.Hash,
 	trafficSecret []byte,
-) (recordTrafficProtection13, error) {
+) (*recordTrafficProtection13, error) {
 	keys, err := deriveRecordTrafficKeys13(hashFunc, trafficSecret, tls13ChaCha20Poly1305KeyLen)
 	if err != nil {
-		return recordTrafficProtection13{}, err
+		return nil, err
 	}
 
 	aead, err := chacha20poly1305.New(keys.key)
 	if err != nil {
-		return recordTrafficProtection13{}, err
+		return nil, err
 	}
 
-	return recordTrafficProtection13{
+	return &recordTrafficProtection13{
 		aead:                 aead,
 		iv:                   keys.iv,
 		sequenceNumberKey:    keys.sequenceNumberKey,
@@ -150,7 +104,7 @@ func newChaCha20Poly1305RecordTrafficProtection13(
 	}, nil
 }
 
-func (r *recordProtection13) seal(
+func (r *recordTrafficProtection13) seal(
 	header recordlayer.UnifiedHeader,
 	sequenceNumber uint64,
 	contentType protocol.ContentType,
@@ -168,7 +122,7 @@ func (r *recordProtection13) seal(
 		return recordlayer.CiphertextRecord13{}, err
 	}
 
-	ciphertextLen := len(innerPlaintext) + r.local.aead.Overhead()
+	ciphertextLen := len(innerPlaintext) + r.aead.Overhead()
 	if ciphertextLen > maxDTLSCiphertextRecordLen13 {
 		return recordlayer.CiphertextRecord13{}, dtlserrors.ErrInvalidPacketLength
 	}
@@ -181,7 +135,7 @@ func (r *recordProtection13) seal(
 		return recordlayer.CiphertextRecord13{}, err
 	}
 
-	nonce, err := recordNonce13(r.local.iv, sequenceNumber)
+	nonce, err := recordNonce13(r.iv, sequenceNumber)
 	if err != nil {
 		return recordlayer.CiphertextRecord13{}, err
 	}
@@ -189,11 +143,11 @@ func (r *recordProtection13) seal(
 	// Sequence-number masking is kept separate until DTLS 1.3 record writer integration.
 	return recordlayer.CiphertextRecord13{
 		Header:          header,
-		EncryptedRecord: r.local.aead.Seal(nil, nonce, innerPlaintext, additionalData),
+		EncryptedRecord: r.aead.Seal(nil, nonce, innerPlaintext, additionalData),
 	}, nil
 }
 
-func (r *recordProtection13) open(
+func (r *recordTrafficProtection13) open(
 	header recordlayer.UnifiedHeader,
 	sequenceNumber uint64,
 	encryptedRecord []byte,
@@ -203,12 +157,12 @@ func (r *recordProtection13) open(
 		return recordlayer.InnerPlaintext{}, err
 	}
 
-	nonce, err := recordNonce13(r.remote.iv, sequenceNumber)
+	nonce, err := recordNonce13(r.iv, sequenceNumber)
 	if err != nil {
 		return recordlayer.InnerPlaintext{}, err
 	}
 
-	innerPlaintextRaw, err := r.remote.aead.Open(nil, nonce, encryptedRecord, additionalData)
+	innerPlaintextRaw, err := r.aead.Open(nil, nonce, encryptedRecord, additionalData)
 	if err != nil {
 		return recordlayer.InnerPlaintext{}, fmt.Errorf("%w: %v", dtlserrors.ErrDecryptPacket, err) //nolint:errorlint
 	}
@@ -221,15 +175,11 @@ func (r *recordProtection13) open(
 	return innerPlaintext, nil
 }
 
-func (r *recordProtection13) sequenceNumberMask(encryptedRecord []byte) ([]byte, error) {
-	return r.local.sequenceNumberMask(encryptedRecord)
-}
-
-func (r *recordProtection13) maskLocalSequenceNumber(
+func (r *recordTrafficProtection13) maskSequenceNumber(
 	header *recordlayer.UnifiedHeader,
 	encryptedRecord []byte,
 ) error {
-	mask, err := r.local.sequenceNumberMask(encryptedRecord)
+	mask, err := r.sequenceNumberMask(encryptedRecord)
 	if err != nil {
 		return err
 	}
@@ -237,55 +187,39 @@ func (r *recordProtection13) maskLocalSequenceNumber(
 	return applySequenceNumberMask13(header, mask)
 }
 
-func (r *recordProtection13) unmaskRemoteSequenceNumber(
-	header *recordlayer.UnifiedHeader,
-	encryptedRecord []byte,
-) error {
-	mask, err := r.remote.sequenceNumberMask(encryptedRecord)
-	if err != nil {
-		return err
-	}
-
-	return applySequenceNumberMask13(header, mask)
-}
-
-func (p recordTrafficProtection13) sequenceNumberMask(encryptedRecord []byte) ([]byte, error) {
-	if p.sequenceNumberMaskFn == nil {
+func (r recordTrafficProtection13) sequenceNumberMask(encryptedRecord []byte) ([]byte, error) {
+	if r.sequenceNumberMaskFn == nil {
 		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
-	return p.sequenceNumberMaskFn(p.sequenceNumberKey, encryptedRecord)
+	return r.sequenceNumberMaskFn(r.sequenceNumberKey, encryptedRecord)
 }
 
-func (p recordTrafficProtection13) Seal(
+func (r *recordTrafficProtection13) Seal(
 	header recordlayer.UnifiedHeader,
 	sequenceNumber uint64,
 	contentType protocol.ContentType,
 	plaintext []byte,
 ) (recordlayer.CiphertextRecord13, error) {
 	header.SequenceNumber = uint16(sequenceNumber & 0xffff)
-	record, err := (&recordProtection13{local: p}).seal(header, sequenceNumber, contentType, plaintext)
+	record, err := r.seal(header, sequenceNumber, contentType, plaintext)
 	if err != nil {
 		return recordlayer.CiphertextRecord13{}, err
 	}
 
-	mask, err := p.sequenceNumberMask(record.EncryptedRecord)
-	if err != nil {
-		return recordlayer.CiphertextRecord13{}, err
-	}
-	if err = applySequenceNumberMask13(&record.Header, mask); err != nil {
+	if err = r.maskSequenceNumber(&record.Header, record.EncryptedRecord); err != nil {
 		return recordlayer.CiphertextRecord13{}, err
 	}
 
 	return record, nil
 }
 
-func (p recordTrafficProtection13) Open(
+func (r *recordTrafficProtection13) Open(
 	header recordlayer.UnifiedHeader,
 	sequenceNumber uint64,
 	encryptedRecord []byte,
 ) (recordlayer.InnerPlaintext, error) {
-	clearHeader, err := p.UnmaskSequenceNumber(header, encryptedRecord)
+	clearHeader, err := r.UnmaskSequenceNumber(header, encryptedRecord)
 	if err != nil {
 		return recordlayer.InnerPlaintext{}, err
 	}
@@ -293,19 +227,15 @@ func (p recordTrafficProtection13) Open(
 		return recordlayer.InnerPlaintext{}, err
 	}
 
-	return (&recordProtection13{remote: p}).open(clearHeader, sequenceNumber, encryptedRecord)
+	return r.open(clearHeader, sequenceNumber, encryptedRecord)
 }
 
-func (p recordTrafficProtection13) UnmaskSequenceNumber(
+func (r *recordTrafficProtection13) UnmaskSequenceNumber(
 	header recordlayer.UnifiedHeader,
 	encryptedRecord []byte,
 ) (recordlayer.UnifiedHeader, error) {
-	mask, err := p.sequenceNumberMask(encryptedRecord)
-	if err != nil {
-		return recordlayer.UnifiedHeader{}, err
-	}
 	clearHeader := header
-	if err = applySequenceNumberMask13(&clearHeader, mask); err != nil {
+	if err := r.maskSequenceNumber(&clearHeader, encryptedRecord); err != nil {
 		return recordlayer.UnifiedHeader{}, err
 	}
 

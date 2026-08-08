@@ -4029,9 +4029,11 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	}
 	var ciphertext recordlayer.CiphertextRecord13
 	require.NoError(t, ciphertext.Unmarshal(rawACK))
-	clientCipherSuite, ok := dtlsstate.CommonState(client.state).CipherSuite.(ciphersuite.CipherSuiteTLS13)
+	clientState, ok := client.state.(*dtlsstate.State13)
 	require.True(t, ok)
-	innerPlaintext, err := clientCipherSuite.Open(ciphertext.Header, 0, ciphertext.EncryptedRecord)
+	readGeneration, ok := clientState.TrafficKeys.Read(dtlsflight13.EpochApplication)
+	require.True(t, ok)
+	innerPlaintext, err := readGeneration.Protection.Open(ciphertext.Header, 0, ciphertext.EncryptedRecord)
 	require.NoError(t, err)
 	require.Equal(t, protocol.ContentTypeACK, innerPlaintext.RealType)
 	var ack protocol.ACK
@@ -4459,50 +4461,104 @@ func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	}
 }
 
-func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.CipherSuiteTLS13) {
+func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.RecordProtection13) {
 	t.Helper()
 
 	localCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
 	clientSecret := bytes.Repeat([]byte{0x11}, localCipherSuite.HashFunc()().Size())
 	serverSecret := bytes.Repeat([]byte{0x22}, localCipherSuite.HashFunc()().Size())
-	assert.NoError(t, localCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
+	localWriteProtection, err := localCipherSuite.NewRecordProtection(clientSecret)
+	assert.NoError(t, err)
+	localReadProtection, err := localCipherSuite.NewRecordProtection(serverSecret)
+	assert.NoError(t, err)
 
 	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
-	assert.NoError(t, peerCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
+	peerReadProtection, err := peerCipherSuite.NewRecordProtection(clientSecret)
+	assert.NoError(t, err)
 
 	commonState := &dtlsstate.Common{
 		IsClient:     true,
 		LocalVersion: protocol.Version1_3,
 		CipherSuite:  localCipherSuite,
 	}
-	state13 := &dtlsstate.State13{Common: commonState}
-	installTestTrafficKeys(t, state13, localCipherSuite, clientSecret, serverSecret)
+	state13 := &dtlsstate.State13{Common: commonState, TrafficKeys: &dtlsstate.TrafficKeyState{}}
+	state13.TrafficKeys.Install(
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochHandshake,
+			Secret:     clientSecret,
+			Protection: localWriteProtection,
+		},
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochHandshake,
+			Secret:     serverSecret,
+			Protection: localReadProtection,
+		},
+	)
+	state13.TrafficKeys.Install(
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochApplication,
+			Secret:     clientSecret,
+			Protection: localWriteProtection,
+		},
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochApplication,
+			Secret:     serverSecret,
+			Protection: localReadProtection,
+		},
+	)
 
 	return &Conn{
 		handshakeCache:          dtlsflight.NewCache(),
 		maximumTransmissionUnit: defaultMTU,
 		state:                   state13,
-	}, peerCipherSuite
+	}, peerReadProtection
 }
 
-func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.CipherSuiteTLS13) {
+func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.RecordProtection13) {
 	t.Helper()
 
 	localCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
 	clientSecret := bytes.Repeat([]byte{0x11}, localCipherSuite.HashFunc()().Size())
 	serverSecret := bytes.Repeat([]byte{0x22}, localCipherSuite.HashFunc()().Size())
-	assert.NoError(t, localCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, true))
+	localWriteProtection, err := localCipherSuite.NewRecordProtection(clientSecret)
+	assert.NoError(t, err)
+	localReadProtection, err := localCipherSuite.NewRecordProtection(serverSecret)
+	assert.NoError(t, err)
 
 	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
-	assert.NoError(t, peerCipherSuite.InitFromTrafficSecrets(clientSecret, serverSecret, false))
+	peerWriteProtection, err := peerCipherSuite.NewRecordProtection(serverSecret)
+	assert.NoError(t, err)
 
 	commonState := &dtlsstate.Common{
 		IsClient:     true,
 		LocalVersion: protocol.Version1_3,
 		CipherSuite:  localCipherSuite,
 	}
-	state13 := &dtlsstate.State13{Common: commonState}
-	installTestTrafficKeys(t, state13, localCipherSuite, clientSecret, serverSecret)
+	state13 := &dtlsstate.State13{Common: commonState, TrafficKeys: &dtlsstate.TrafficKeyState{}}
+	state13.TrafficKeys.Install(
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochHandshake,
+			Secret:     clientSecret,
+			Protection: localWriteProtection,
+		},
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochHandshake,
+			Secret:     serverSecret,
+			Protection: localReadProtection,
+		},
+	)
+	state13.TrafficKeys.Install(
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochApplication,
+			Secret:     clientSecret,
+			Protection: localWriteProtection,
+		},
+		&dtlsstate.TrafficGeneration{
+			Epoch:      dtlsflight13.EpochApplication,
+			Secret:     serverSecret,
+			Protection: localReadProtection,
+		},
+	)
 
 	conn := &Conn{
 		fragmentBuffer:          dtlsfragmentbuffer.New(),
@@ -4514,37 +4570,7 @@ func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.CipherSuite
 	}
 	conn.setRemoteEpoch(dtlsflight13.EpochHandshake)
 
-	return conn, peerCipherSuite
-}
-
-func installTestTrafficKeys(
-	t *testing.T,
-	state *dtlsstate.State13,
-	suite ciphersuite.CipherSuiteTLS13,
-	writeSecret, readSecret []byte,
-) {
-	t.Helper()
-
-	writeProtection, err := suite.NewRecordProtection(writeSecret)
-	require.NoError(t, err)
-	readProtection, err := suite.NewRecordProtection(readSecret)
-	require.NoError(t, err)
-
-	state.TrafficKeys = &dtlsstate.TrafficKeyState{}
-	for _, epoch := range []uint16{dtlsflight13.EpochHandshake, dtlsflight13.EpochApplication} {
-		state.TrafficKeys.Install(
-			&dtlsstate.TrafficGeneration{
-				Epoch:      epoch,
-				Secret:     writeSecret,
-				Protection: writeProtection,
-			},
-			&dtlsstate.TrafficGeneration{
-				Epoch:      epoch,
-				Secret:     readSecret,
-				Protection: readProtection,
-			},
-		)
-	}
+	return conn, peerWriteProtection
 }
 
 func encryptedExtensionsHandshake(t *testing.T) []byte {
@@ -4567,23 +4593,23 @@ func encryptedExtensionsHandshakeWithSequence(t *testing.T, messageSequence uint
 
 func sealTestProtectedHandshakeRecord(
 	t *testing.T,
-	cipherSuite ciphersuite.CipherSuiteTLS13,
+	protection ciphersuite.RecordProtection13,
 	plaintext []byte,
 ) recordlayer.CiphertextRecord13 {
 	t.Helper()
 
-	return sealTestProtectedHandshakeRecordWithSequence(t, cipherSuite, plaintext, 0)
+	return sealTestProtectedHandshakeRecordWithSequence(t, protection, plaintext, 0)
 }
 
 func sealTestProtectedHandshakeRecordWithSequence(
 	t *testing.T,
-	cipherSuite ciphersuite.CipherSuiteTLS13,
+	protection ciphersuite.RecordProtection13,
 	plaintext []byte,
 	sequenceNumber uint64,
 ) recordlayer.CiphertextRecord13 {
 	t.Helper()
 
-	record, err := cipherSuite.Seal(
+	record, err := protection.Seal(
 		recordlayer.UnifiedHeader{
 			EpochLow: uint8(dtlsflight13.EpochHandshake & recordlayer.TwoLowBitsMask),
 		},
@@ -4607,7 +4633,7 @@ func appendProtectedRecordHeader(t *testing.T, header *recordlayer.Header, conte
 
 func openTestProtectedRecord(
 	t *testing.T,
-	cipherSuite ciphersuite.CipherSuiteTLS13,
+	protection ciphersuite.RecordProtection13,
 	rawPacket []byte,
 ) recordlayer.InnerPlaintext {
 	t.Helper()
@@ -4615,7 +4641,7 @@ func openTestProtectedRecord(
 	var ciphertext recordlayer.CiphertextRecord13
 	assert.NoError(t, ciphertext.Unmarshal(rawPacket))
 
-	innerPlaintext, err := cipherSuite.Open(
+	innerPlaintext, err := protection.Open(
 		ciphertext.Header,
 		0,
 		ciphertext.EncryptedRecord,

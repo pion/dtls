@@ -101,7 +101,7 @@ func initRecordProtectionFromTrafficSecrets(
 		},
 	)
 
-	return tls13CipherSuite.InitFromTrafficSecrets(secrets.Client, secrets.Server, state.IsClient)
+	return nil
 }
 
 func cipherSuite13(state *dtlsstate.State13) (ciphersuite.CipherSuiteTLS13, error) {

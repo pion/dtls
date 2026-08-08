@@ -37,15 +37,3 @@ func (c *TLSChacha20Poly1305Sha256) HashFunc() func() hash.Hash {
 func (c *TLSChacha20Poly1305Sha256) NewRecordProtection(trafficSecret []byte) (RecordProtection13, error) {
 	return newChaCha20Poly1305RecordTrafficProtection13(c.HashFunc(), trafficSecret)
 }
-
-// InitFromTrafficSecrets initializes DTLS 1.3 record protection from the
-// negotiated client and server handshake/application traffic secrets.
-func (c *TLSChacha20Poly1305Sha256) InitFromTrafficSecrets(clientSecret, serverSecret []byte, isClient bool) error {
-	return c.initFromTrafficSecrets13(clientSecret, serverSecret, isClient, c.newRecordProtection)
-}
-
-func (c *TLSChacha20Poly1305Sha256) newRecordProtection(
-	localTrafficSecret, remoteTrafficSecret []byte,
-) (*recordProtection13, error) {
-	return newChaCha20Poly1305RecordProtection13(c.HashFunc(), localTrafficSecret, remoteTrafficSecret)
-}

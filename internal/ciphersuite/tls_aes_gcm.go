@@ -42,15 +42,3 @@ func (c *tlsAESGCMCipherSuite) HashFunc() func() hash.Hash {
 func (c *tlsAESGCMCipherSuite) NewRecordProtection(trafficSecret []byte) (RecordProtection13, error) {
 	return newAESGCMRecordTrafficProtection13(c.HashFunc(), trafficSecret, c.keyLen)
 }
-
-// InitFromTrafficSecrets initializes DTLS 1.3 record protection from the
-// negotiated client and server handshake/application traffic secrets.
-func (c *tlsAESGCMCipherSuite) InitFromTrafficSecrets(clientSecret, serverSecret []byte, isClient bool) error {
-	return c.initFromTrafficSecrets13(clientSecret, serverSecret, isClient, c.newRecordProtection)
-}
-
-func (c *tlsAESGCMCipherSuite) newRecordProtection(
-	localTrafficSecret, remoteTrafficSecret []byte,
-) (*recordProtection13, error) {
-	return newAESGCMRecordProtection13(c.HashFunc(), localTrafficSecret, remoteTrafficSecret, c.keyLen)
-}
