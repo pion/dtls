@@ -135,10 +135,15 @@ func newFSM13WithEstablishment(
 	return fsm, nil
 }
 
-func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) error {
+func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) (err error) {
 	defer s.received.release()
+	defer func() {
+		if err != nil {
+			s.postHandshake.fail(err)
+		}
+	}()
 
-	return runHandshakeFSM(
+	err = runHandshakeFSM(
 		ctx,
 		conn,
 		initialState,
@@ -157,6 +162,8 @@ func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) error {
 		s.wait,
 		s.finish,
 	)
+
+	return err
 }
 
 func (s *fsm13) Done() <-chan struct{} {

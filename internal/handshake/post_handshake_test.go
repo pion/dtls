@@ -119,6 +119,29 @@ func TestPostHandshakeACKCompletesReliableFlight(t *testing.T) {
 	assert.True(t, firstStillIndexed)
 }
 
+func TestPostHandshakeSkipsCanceledCommand(t *testing.T) {
+	state := dtlsstate.NewState13(false)
+	post := newPostHandshake(handshakeContext{
+		state: &state,
+		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := make(chan error, 1)
+	post.queue = append(post.queue, postHandshakeCommand{
+		Kind:     commandSendNewSessionTicket,
+		Canceled: ctx.Done(),
+		Result:   result,
+	})
+	conn := &postHandshakeWriteConn{result: &WriteResult{}}
+
+	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
+	assert.ErrorIs(t, <-result, context.Canceled)
+	assert.Empty(t, conn.writtenPackets)
+	assert.Empty(t, post.queue)
+	assert.Empty(t, post.flights)
+}
+
 func TestPostHandshakeACKReliability(t *testing.T) {
 	state := dtlsstate.NewState13(false)
 	post := newPostHandshake(handshakeContext{
@@ -154,7 +177,7 @@ func TestPostHandshakeACKReliability(t *testing.T) {
 		Fragments: []SentHandshakeFragment{secondFragment},
 	}}}}
 	now := time.Now()
-	require.NoError(t, post.retransmitNewSessionTicket(context.Background(), conn, flight, now, true))
+	require.NoError(t, post.retransmitPostHandshakeFlight(context.Background(), conn, flight, now, true))
 	require.Len(t, conn.writtenPackets, 1)
 	assert.Equal(t, map[uint32]uint32{10: 10}, conn.writtenPackets[0].HandshakeFragmentOffsets)
 	assert.Equal(t, now.Add(time.Second), flight.NextRetransmit)

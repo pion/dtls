@@ -125,6 +125,7 @@ type postHandshakeCommand struct {
 	Kind postHandshakeCommandKind
 
 	KeyUpdate keyUpdateCommand13
+	Canceled  <-chan struct{}
 
 	// Always buffered with capacity one.
 	Result chan error
@@ -179,13 +180,42 @@ func (p *postHandshake) initialize() {
 }
 
 func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn) error {
-	if len(p.flights) != 0 || len(p.queue) == 0 {
-		return nil
+	for len(p.flights) == 0 && len(p.queue) != 0 {
+		command := p.queue[0]
+		p.queue = p.queue[1:]
+		if err, canceled := canceledPostHandshakeCommand(command); canceled {
+			completePostHandshakeResult(command.Result, err)
+
+			continue
+		}
+
+		if err := p.startPostHandshakeCommand(ctx, conn, command); err != nil {
+			completePostHandshakeResult(command.Result, err)
+
+			return err
+		}
 	}
 
-	command := p.queue[0]
-	p.queue = p.queue[1:]
+	return nil
+}
 
+func canceledPostHandshakeCommand(command postHandshakeCommand) (error, bool) {
+	if command.Canceled == nil {
+		return nil, false
+	}
+	select {
+	case <-command.Canceled:
+		return context.Canceled, true
+	default:
+		return nil, false
+	}
+}
+
+func (p *postHandshake) startPostHandshakeCommand(
+	ctx context.Context,
+	conn Conn,
+	command postHandshakeCommand,
+) error {
 	switch command.Kind {
 	case commandSendNewSessionTicket:
 		return p.startNewSessionTicket(ctx, conn, false)
@@ -450,9 +480,25 @@ func (p *postHandshake) completePostHandshakeFlight(id postHandshakeFlightID) {
 		delete(p.recordIndex, number)
 	}
 	delete(p.flights, id)
-	if flight.Result != nil {
-		flight.Result <- nil
+	completePostHandshakeResult(flight.Result, nil)
+}
+
+func completePostHandshakeResult(result chan error, err error) {
+	if result != nil {
+		result <- err
 	}
+}
+
+func (p *postHandshake) fail(err error) {
+	for _, command := range p.queue {
+		completePostHandshakeResult(command.Result, err)
+	}
+	p.queue = nil
+	for id, flight := range p.flights {
+		completePostHandshakeResult(flight.Result, err)
+		delete(p.flights, id)
+	}
+	p.recordIndex = make(map[protocol.RecordNumber]postHandshakeRecord)
 }
 
 func (p *postHandshake) retransmitPostHandshake(
@@ -465,7 +511,7 @@ func (p *postHandshake) retransmitPostHandshake(
 		if flight.NextRetransmit.After(now) {
 			continue
 		}
-		if err := p.retransmitNewSessionTicket(ctx, conn, flight, now, disableRetransmitBackoff); err != nil {
+		if err := p.retransmitPostHandshakeFlight(ctx, conn, flight, now, disableRetransmitBackoff); err != nil {
 			return err
 		}
 	}
@@ -473,7 +519,7 @@ func (p *postHandshake) retransmitPostHandshake(
 	return nil
 }
 
-func (p *postHandshake) retransmitNewSessionTicket(
+func (p *postHandshake) retransmitPostHandshakeFlight(
 	ctx context.Context,
 	conn Conn,
 	flight *reliablePostHandshakeFlight,
