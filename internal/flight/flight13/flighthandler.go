@@ -136,7 +136,7 @@ func pullProtectedHandshakeFlight(
 		if item == nil {
 			continue
 		}
-		if failure := validateProtectedHandshakeItem13(
+		if failure := validateProtectedHandshakeItem(
 			item,
 			rules[i].Typ,
 			uint16(nextHandshakeSequence), //nolint:gosec // G115
@@ -158,7 +158,7 @@ func pullProtectedHandshakeFlight(
 	}
 }
 
-func validateProtectedHandshakeItem13(
+func validateProtectedHandshakeItem(
 	item *dtlsflight.HandshakeCacheItem,
 	expectedType handshake.Type,
 	expectedSequence uint16,
@@ -183,14 +183,14 @@ func validateProtectedHandshakeItem13(
 		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 	}
 
-	if err := unmarshalProtectedHandshakeMessage13(expectedType, item.Data[handshake.HeaderLength:]); err != nil {
+	if err := unmarshalProtectedHandshakeMessage(expectedType, item.Data[handshake.HeaderLength:]); err != nil {
 		return newFlightParseFailure(alert.DecodeError, err)
 	}
 
 	return nil
 }
 
-func unmarshalProtectedHandshakeMessage13(typ handshake.Type, body []byte) error {
+func unmarshalProtectedHandshakeMessage(typ handshake.Type, body []byte) error {
 	var msg handshake.Message
 	switch typ {
 	case handshake.TypeEncryptedExtensions:

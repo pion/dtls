@@ -27,9 +27,9 @@ const (
 	derivedSecretLabel            = "derived"
 	finishedLabel                 = "finished"
 
-	serverCertificateVerifyContext13 = "TLS 1.3, server CertificateVerify\x00"
-	clientCertificateVerifyContext13 = "TLS 1.3, client CertificateVerify\x00"
-	certificateVerifyPaddingLen13    = 64
+	serverCertificateVerifyContext = "TLS 1.3, server CertificateVerify\x00"
+	clientCertificateVerifyContext = "TLS 1.3, client CertificateVerify\x00"
+	certificateVerifyPaddingLen    = 64
 )
 
 type handshakeKeySchedule struct {
@@ -227,7 +227,7 @@ func deriveHandshakeKeySchedule(
 	hashFunc func() hash.Hash,
 	keyAgreementSecret, transcriptHash []byte,
 ) (handshakeKeySchedule, error) {
-	hashSize, err := hashSize13(hashFunc)
+	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return handshakeKeySchedule{}, err
 	}
@@ -275,7 +275,7 @@ func deriveHandshakeKeySchedule(
 }
 
 func deriveHandshakeSecret(hashFunc func() hash.Hash, keyAgreementSecret []byte) ([]byte, error) {
-	hashSize, err := hashSize13(hashFunc)
+	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +298,7 @@ func deriveHandshakeSecret(hashFunc func() hash.Hash, keyAgreementSecret []byte)
 }
 
 func deriveMasterSecret(hashFunc func() hash.Hash, handshakeSecret []byte) ([]byte, error) {
-	hashSize, err := hashSize13(hashFunc)
+	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,7 @@ func deriveTrafficSecret(
 	label string,
 	transcriptHash []byte,
 ) ([]byte, error) {
-	hashSize, err := hashSize13(hashFunc)
+	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +374,7 @@ func deriveNextApplicationTrafficSecret(
 	hashFunc func() hash.Hash,
 	current []byte,
 ) ([]byte, error) {
-	hashSize, err := hashSize13(hashFunc)
+	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -518,7 +518,7 @@ func DeriveAndStoreResumptionMasterSecret(state *dtlsstate.State13, transcript *
 }
 
 func ensureMasterSecret(state *dtlsstate.State13) ([]byte, error) {
-	hashSize, err := hashSize13(state.CipherSuite.HashFunc())
+	hashSize, err := hashSize(state.CipherSuite.HashFunc())
 	if err != nil {
 		return nil, err
 	}
@@ -589,12 +589,12 @@ func CertificateVerifyInputFromTranscript(
 // certificateVerifyInput returns the TLS 1.3 CertificateVerify input for a
 // transcript hash.
 func certificateVerifyInput(isClient bool, transcriptHash []byte) []byte {
-	context := serverCertificateVerifyContext13
+	context := serverCertificateVerifyContext
 	if isClient {
-		context = clientCertificateVerifyContext13
+		context = clientCertificateVerifyContext
 	}
 
-	out := make([]byte, certificateVerifyPaddingLen13, certificateVerifyPaddingLen13+len(context)+len(transcriptHash))
+	out := make([]byte, certificateVerifyPaddingLen, certificateVerifyPaddingLen+len(context)+len(transcriptHash))
 	for i := range out {
 		out[i] = 0x20
 	}
@@ -606,7 +606,7 @@ func certificateVerifyInput(isClient bool, transcriptHash []byte) []byte {
 
 // finishedKey returns the TLS 1.3 finished key derived from baseKey.
 func finishedKey(hashFunc func() hash.Hash, baseKey []byte) ([]byte, error) {
-	hashSize, err := hashSize13(hashFunc)
+	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -635,7 +635,7 @@ func FinishedVerifyDataFromTranscript(
 
 // finishedVerifyData returns TLS 1.3 Finished verify_data.
 func finishedVerifyData(hashFunc func() hash.Hash, baseKey, transcriptHash []byte) ([]byte, error) {
-	hashSize, err := hashSize13(hashFunc)
+	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -689,7 +689,7 @@ func VerifyFinishedDataFromTranscript(
 	return verifyFinishedData(hashFunc, baseKey, transcriptHash, verifyData)
 }
 
-func hashSize13(hashFunc func() hash.Hash) (int, error) {
+func hashSize(hashFunc func() hash.Hash) (int, error) {
 	if hashFunc == nil {
 		return 0, dtlserrors.ErrKeyScheduleMissingHashFunction
 	}

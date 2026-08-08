@@ -289,7 +289,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := selectSignatureScheme13(tt.schemes, tt.privateKey, tt.is13)
+			result, err := selectSignatureScheme(tt.schemes, tt.privateKey, tt.is13)
 			if tt.expectedError != nil {
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.expectedError)

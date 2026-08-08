@@ -48,7 +48,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 
 	return &State13{
 		Common:                     common,
-		KeySchedule:                cloneKeySchedule13(state.KeySchedule),
+		KeySchedule:                cloneKeySchedule(state.KeySchedule),
 		TrafficKeys:                state.TrafficKeys.Clone(),
 		KeyAgreementSecret:         bytes.Clone(state.KeyAgreementSecret),
 		SelectedGroup:              state.SelectedGroup,
@@ -64,12 +64,12 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	}
 }
 
-func cloneKeySchedule13(in KeySchedule) KeySchedule {
+func cloneKeySchedule(in KeySchedule) KeySchedule {
 	return KeySchedule{
 		EarlySecret:                     bytes.Clone(in.EarlySecret),
 		HandshakeSecret:                 bytes.Clone(in.HandshakeSecret),
 		MasterSecret:                    bytes.Clone(in.MasterSecret),
-		HandshakeTraffic:                cloneTrafficSecrets13(in.HandshakeTraffic),
+		HandshakeTraffic:                cloneTrafficSecrets(in.HandshakeTraffic),
 		ClientApplicationTrafficSecret0: bytes.Clone(in.ClientApplicationTrafficSecret0),
 		ServerApplicationTrafficSecret0: bytes.Clone(in.ServerApplicationTrafficSecret0),
 		ExporterMasterSecret:            bytes.Clone(in.ExporterMasterSecret),
@@ -77,7 +77,7 @@ func cloneKeySchedule13(in KeySchedule) KeySchedule {
 	}
 }
 
-func cloneTrafficSecrets13(in TrafficSecrets) TrafficSecrets {
+func cloneTrafficSecrets(in TrafficSecrets) TrafficSecrets {
 	return TrafficSecrets{
 		Client: bytes.Clone(in.Client),
 		Server: bytes.Clone(in.Server),

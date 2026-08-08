@@ -30,7 +30,7 @@ func TestProtectedFlightParseFailureClientCertificateRequired(t *testing.T) {
 }
 
 func TestFlight4GenerateCertificateAuthenticatedFlight(t *testing.T) {
-	flightCtx, certificate := flight4TestContext13(t)
+	flightCtx, certificate := flight4TestContext(t)
 	certificate.Certificate = append(certificate.Certificate, []byte{0x01, 0x02, 0x03})
 	flightCtx.cfg.LocalCertificates = []tls.Certificate{certificate}
 
@@ -102,7 +102,7 @@ func TestFlight4GenerateCertificateFailures(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			flightCtx, _ := flight4TestContext13(t)
+			flightCtx, _ := flight4TestContext(t)
 			test.configure(flightCtx)
 
 			pkts, dtlsAlert, err := flight4Generate(nil, flightCtx)
@@ -115,7 +115,7 @@ func TestFlight4GenerateCertificateFailures(t *testing.T) {
 	}
 }
 
-func flight4TestContext13(t *testing.T) (*handshakeContext, tls.Certificate) {
+func flight4TestContext(t *testing.T) (*handshakeContext, tls.Certificate) {
 	t.Helper()
 
 	certificate, err := selfsign.GenerateSelfSigned()

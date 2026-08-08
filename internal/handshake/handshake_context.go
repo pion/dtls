@@ -148,7 +148,7 @@ func (c *handshakeContext) parseDependencies() dtlsflight13.ParseDependencies {
 				return AppendVerifiedInboundHandshakeCacheItems(c.transcript, cipherSuite, items)
 			},
 			ProtectedHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
-				return VerifyAndAppendProtectedHandshakeCacheItems13(
+				return VerifyAndAppendProtectedHandshakeCacheItems(
 					c.transcript,
 					c.state,
 					c.cfg,

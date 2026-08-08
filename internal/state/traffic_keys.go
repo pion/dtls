@@ -144,13 +144,13 @@ func (s *TrafficKeyState) Clone() *TrafficKeyState {
 
 	return &TrafficKeyState{
 		writeCurrent: s.writeCurrent.Clone(),
-		writeOld:     cloneTrafficGenerations13(s.writeOld),
+		writeOld:     cloneTrafficGenerations(s.writeOld),
 		readCurrent:  s.readCurrent.Clone(),
-		readOld:      cloneTrafficGenerations13(s.readOld),
+		readOld:      cloneTrafficGenerations(s.readOld),
 	}
 }
 
-func cloneTrafficGenerations13(in map[uint16]*TrafficGeneration) map[uint16]*TrafficGeneration {
+func cloneTrafficGenerations(in map[uint16]*TrafficGeneration) map[uint16]*TrafficGeneration {
 	if in == nil {
 		return nil
 	}

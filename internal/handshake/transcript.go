@@ -41,7 +41,7 @@ type transcriptMessageID struct {
 	Seq    uint16
 }
 
-type seenTranscriptMessage13 struct {
+type seenTranscriptMessage struct {
 	length      int
 	fingerprint [sha256.Size]byte
 }
@@ -59,7 +59,7 @@ type Transcript struct {
 
 	pending    [][]byte
 	transcript []byte
-	seen       map[transcriptMessageID]seenTranscriptMessage13
+	seen       map[transcriptMessageID]seenTranscriptMessage
 	order      []transcriptMessage
 
 	helloRetryApplied bool
@@ -68,7 +68,7 @@ type Transcript struct {
 // NewTranscript returns an empty DTLS 1.3 handshake transcript.
 func NewTranscript() *Transcript {
 	return &Transcript{
-		seen: make(map[transcriptMessageID]seenTranscriptMessage13),
+		seen: make(map[transcriptMessageID]seenTranscriptMessage),
 	}
 }
 
@@ -139,7 +139,7 @@ func (t *Transcript) appendCanonical(id transcriptMessageID, message []byte) err
 	}
 
 	messageCopy := bytes.Clone(message)
-	t.seen[id] = seenTranscriptMessage13{
+	t.seen[id] = seenTranscriptMessage{
 		length:      len(messageCopy),
 		fingerprint: fingerprint,
 	}
@@ -285,7 +285,7 @@ func (t *Transcript) clone() (*Transcript, error) {
 		newHash:           t.newHash,
 		pending:           util.CloneByteSlices(t.pending),
 		transcript:        bytes.Clone(t.transcript),
-		seen:              make(map[transcriptMessageID]seenTranscriptMessage13, len(t.seen)),
+		seen:              make(map[transcriptMessageID]seenTranscriptMessage, len(t.seen)),
 		order:             slices.Clone(t.order),
 		helloRetryApplied: t.helloRetryApplied,
 	}

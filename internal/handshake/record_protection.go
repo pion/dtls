@@ -59,7 +59,7 @@ func initRecordProtectionFromTrafficSecrets(
 	secrets dtlsstate.TrafficSecrets,
 	allowReinitialize bool,
 ) error {
-	tls13CipherSuite, err := cipherSuite13(state)
+	tls13CipherSuite, err := recordProtectionCipherSuite(state)
 	if err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func initRecordProtectionFromTrafficSecrets(
 		}
 	}
 
-	writeSecret, readSecret, err := directionalTrafficSecrets13(secrets, state.IsClient)
+	writeSecret, readSecret, err := directionalTrafficSecrets(secrets, state.IsClient)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func initRecordProtectionFromTrafficSecrets(
 	return nil
 }
 
-func cipherSuite13(state *dtlsstate.State13) (ciphersuite.CipherSuiteTLS13, error) {
+func recordProtectionCipherSuite(state *dtlsstate.State13) (ciphersuite.CipherSuiteTLS13, error) {
 	if state == nil || state.CipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -117,7 +117,7 @@ func cipherSuite13(state *dtlsstate.State13) (ciphersuite.CipherSuiteTLS13, erro
 	return tls13CipherSuite, nil
 }
 
-func directionalTrafficSecrets13(
+func directionalTrafficSecrets(
 	secrets dtlsstate.TrafficSecrets,
 	isClient bool,
 ) (write, read []byte, err error) {

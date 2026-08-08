@@ -77,7 +77,7 @@ func flight5ClientAuthPackets(
 				[]byte(nil),
 				certificateRequest.CertificateRequestContext...,
 			),
-			CertificateList: certificateEntries13(certificate.Certificate),
+			CertificateList: certificateEntries(certificate.Certificate),
 		}),
 		CertificateVerifyPacket(
 			&handshake.MessageCertificateVerify{
@@ -172,7 +172,7 @@ func certificateRequestSignatureSchemes(
 	return nil
 }
 
-func certificateEntries13(certificates [][]byte) []handshake.CertificateEntry13 {
+func certificateEntries(certificates [][]byte) []handshake.CertificateEntry13 {
 	entries := make([]handshake.CertificateEntry13, 0, len(certificates))
 	for _, certificate := range certificates {
 		entries = append(entries, handshake.CertificateEntry13{

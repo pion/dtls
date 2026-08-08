@@ -10,9 +10,9 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 )
 
-// selectSignatureScheme13 returns most preferred and compatible scheme.
+// selectSignatureScheme returns most preferred and compatible scheme.
 // It's compatible with all DTLS versions up to and including 1.3.
-func selectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey, is13 bool) (Algorithm, error) {
+func selectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey, is13 bool) (Algorithm, error) {
 	signer, ok := privateKey.(crypto.Signer)
 	if !ok {
 		return Algorithm{}, dtlserrors.ErrInvalidPrivateKey

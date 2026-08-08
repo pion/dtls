@@ -113,7 +113,7 @@ const (
 	commandSendRequestConnectionID
 )
 
-type keyUpdateCommand13 struct {
+type keyUpdateCommand struct {
 	Request handshake.KeyUpdateRequest
 
 	// True when this is a protocol-required response to an incoming
@@ -124,7 +124,7 @@ type keyUpdateCommand13 struct {
 type postHandshakeCommand struct {
 	Kind postHandshakeCommandKind
 
-	KeyUpdate keyUpdateCommand13
+	KeyUpdate keyUpdateCommand
 	Canceled  <-chan struct{}
 
 	// Always buffered with capacity one.

@@ -66,12 +66,12 @@ func Algorithms() []Algorithm {
 
 // SelectSignatureScheme returns most preferred and compatible scheme for DTLS <= 1.2.
 func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey) (Algorithm, error) {
-	return selectSignatureScheme13(sigs, privateKey, false)
+	return selectSignatureScheme(sigs, privateKey, false)
 }
 
 // SelectSignatureScheme13 returns most preferred and compatible scheme for DTLS 1.3.
 func SelectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey) (Algorithm, error) {
-	return selectSignatureScheme13(sigs, privateKey, true)
+	return selectSignatureScheme(sigs, privateKey, true)
 }
 
 // isCompatible checks that given private key is compatible with the signature scheme.

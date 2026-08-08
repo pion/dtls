@@ -282,7 +282,7 @@ func flight4Generate( //nolint:cyclop
 	}
 	pkts = append(pkts,
 		HandshakePacket(&handshake.MessageCertificate13{
-			CertificateList: certificateEntries13(certificate.Certificate),
+			CertificateList: certificateEntries(certificate.Certificate),
 		}),
 		CertificateVerifyPacket(
 			&handshake.MessageCertificateVerify{

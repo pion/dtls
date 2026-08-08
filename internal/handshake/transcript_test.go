@@ -869,19 +869,19 @@ func TestCertificateVerifyInput13ServerAndClient(t *testing.T) {
 	serverInput := certificateVerifyInput(false, transcriptHash)
 	clientInput := certificateVerifyInput(true, transcriptHash)
 
-	require.Len(t, serverInput, certificateVerifyPaddingLen13+len(serverCertificateVerifyContext13)+sha256.Size)
-	assert.Equal(t, bytes.Repeat([]byte{0x20}, certificateVerifyPaddingLen13),
-		serverInput[:certificateVerifyPaddingLen13])
-	serverContextEnd := certificateVerifyPaddingLen13 + len(serverCertificateVerifyContext13)
-	serverContext := serverInput[certificateVerifyPaddingLen13:serverContextEnd]
-	assert.Equal(t, serverCertificateVerifyContext13,
+	require.Len(t, serverInput, certificateVerifyPaddingLen+len(serverCertificateVerifyContext)+sha256.Size)
+	assert.Equal(t, bytes.Repeat([]byte{0x20}, certificateVerifyPaddingLen),
+		serverInput[:certificateVerifyPaddingLen])
+	serverContextEnd := certificateVerifyPaddingLen + len(serverCertificateVerifyContext)
+	serverContext := serverInput[certificateVerifyPaddingLen:serverContextEnd]
+	assert.Equal(t, serverCertificateVerifyContext,
 		string(serverContext))
 	assert.Equal(t, transcriptHash, serverInput[len(serverInput)-sha256.Size:])
 
-	require.Len(t, clientInput, certificateVerifyPaddingLen13+len(clientCertificateVerifyContext13)+sha256.Size)
-	clientContextEnd := certificateVerifyPaddingLen13 + len(clientCertificateVerifyContext13)
-	clientContext := clientInput[certificateVerifyPaddingLen13:clientContextEnd]
-	assert.Equal(t, clientCertificateVerifyContext13,
+	require.Len(t, clientInput, certificateVerifyPaddingLen+len(clientCertificateVerifyContext)+sha256.Size)
+	clientContextEnd := certificateVerifyPaddingLen + len(clientCertificateVerifyContext)
+	clientContext := clientInput[certificateVerifyPaddingLen:clientContextEnd]
+	assert.Equal(t, clientCertificateVerifyContext,
 		string(clientContext))
 	assert.Equal(t, transcriptHash, clientInput[len(clientInput)-sha256.Size:])
 	assert.NotEqual(t, serverInput, clientInput)
