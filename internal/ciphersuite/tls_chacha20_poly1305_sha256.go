@@ -32,6 +32,12 @@ func (c *TLSChacha20Poly1305Sha256) HashFunc() func() hash.Hash {
 	return sha256.New
 }
 
+// NewRecordProtection derives record protection for one DTLS 1.3 traffic
+// direction and generation.
+func (c *TLSChacha20Poly1305Sha256) NewRecordProtection(trafficSecret []byte) (RecordProtection13, error) {
+	return newChaCha20Poly1305RecordTrafficProtection13(c.HashFunc(), trafficSecret)
+}
+
 // InitFromTrafficSecrets initializes DTLS 1.3 record protection from the
 // negotiated client and server handshake/application traffic secrets.
 func (c *TLSChacha20Poly1305Sha256) InitFromTrafficSecrets(clientSecret, serverSecret []byte, isClient bool) error {

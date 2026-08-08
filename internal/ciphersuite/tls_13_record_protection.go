@@ -271,6 +271,61 @@ func (p recordTrafficProtection13) sequenceNumberMask(encryptedRecord []byte) ([
 	return p.sequenceNumberMaskFn(p.sequenceNumberKey, encryptedRecord)
 }
 
+func (p recordTrafficProtection13) Seal(
+	header recordlayer.UnifiedHeader,
+	sequenceNumber uint64,
+	contentType protocol.ContentType,
+	plaintext []byte,
+) (recordlayer.CiphertextRecord13, error) {
+	header.SequenceNumber = uint16(sequenceNumber & 0xffff)
+	record, err := (&recordProtection13{local: p}).seal(header, sequenceNumber, contentType, plaintext)
+	if err != nil {
+		return recordlayer.CiphertextRecord13{}, err
+	}
+
+	mask, err := p.sequenceNumberMask(record.EncryptedRecord)
+	if err != nil {
+		return recordlayer.CiphertextRecord13{}, err
+	}
+	if err = applySequenceNumberMask13(&record.Header, mask); err != nil {
+		return recordlayer.CiphertextRecord13{}, err
+	}
+
+	return record, nil
+}
+
+func (p recordTrafficProtection13) Open(
+	header recordlayer.UnifiedHeader,
+	sequenceNumber uint64,
+	encryptedRecord []byte,
+) (recordlayer.InnerPlaintext, error) {
+	clearHeader, err := p.UnmaskSequenceNumber(header, encryptedRecord)
+	if err != nil {
+		return recordlayer.InnerPlaintext{}, err
+	}
+	if err = validateSequenceNumberLowBits13(clearHeader, sequenceNumber); err != nil {
+		return recordlayer.InnerPlaintext{}, err
+	}
+
+	return (&recordProtection13{remote: p}).open(clearHeader, sequenceNumber, encryptedRecord)
+}
+
+func (p recordTrafficProtection13) UnmaskSequenceNumber(
+	header recordlayer.UnifiedHeader,
+	encryptedRecord []byte,
+) (recordlayer.UnifiedHeader, error) {
+	mask, err := p.sequenceNumberMask(encryptedRecord)
+	if err != nil {
+		return recordlayer.UnifiedHeader{}, err
+	}
+	clearHeader := header
+	if err = applySequenceNumberMask13(&clearHeader, mask); err != nil {
+		return recordlayer.UnifiedHeader{}, err
+	}
+
+	return clearHeader, nil
+}
+
 func applySequenceNumberMask13(header *recordlayer.UnifiedHeader, mask []byte) error {
 	if header == nil {
 		return dtlserrors.ErrInvalidCiphertextHeader

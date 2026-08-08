@@ -1028,3 +1028,37 @@ func TestDeriveRecordTrafficKeys13RejectsInvalidKeyLength(t *testing.T) {
 	_, err := deriveRecordTrafficKeys13(suite.HashFunc(), trafficSecret13(suite, 0x3c), 0)
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 }
+
+func TestTLS13CipherSuiteNewRecordProtection(t *testing.T) {
+	tests := []struct {
+		name  string
+		suite CipherSuiteTLS13
+	}{
+		{name: "AES-128-GCM", suite: NewTLSAes128GcmSha256()},
+		{name: "AES-256-GCM", suite: NewTLSAes256GcmSha384()},
+		{name: "ChaCha20-Poly1305", suite: NewTLSChacha20Poly1305Sha256()},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			secret := bytes.Repeat([]byte{0x5a}, test.suite.HashFunc()().Size())
+			writer, err := test.suite.NewRecordProtection(secret)
+			require.NoError(t, err)
+			reader, err := test.suite.NewRecordProtection(secret)
+			require.NoError(t, err)
+
+			record, err := writer.Seal(
+				recordlayer.UnifiedHeader{EpochLow: 2},
+				0x0102030405060708,
+				protocol.ContentTypeApplicationData,
+				[]byte("directional record protection"),
+			)
+			require.NoError(t, err)
+
+			innerPlaintext, err := reader.Open(record.Header, 0x0102030405060708, record.EncryptedRecord)
+			require.NoError(t, err)
+			assert.Equal(t, []byte("directional record protection"), innerPlaintext.Content)
+			assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+		})
+	}
+}

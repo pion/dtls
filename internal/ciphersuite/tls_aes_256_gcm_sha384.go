@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
+//nolint:dupl // AES-128 and AES-256 implementations mirror one another.
 package ciphersuite
 
 import (
@@ -30,6 +31,12 @@ func (c *TLSAes256GcmSha384) String() string {
 // HashFunc returns the hashing func for this CipherSuite.
 func (c *TLSAes256GcmSha384) HashFunc() func() hash.Hash {
 	return sha512.New384
+}
+
+// NewRecordProtection derives record protection for one DTLS 1.3 traffic
+// direction and generation.
+func (c *TLSAes256GcmSha384) NewRecordProtection(trafficSecret []byte) (RecordProtection13, error) {
+	return newAESGCMRecordTrafficProtection13(c.HashFunc(), trafficSecret, tls13AES256GCMKeyLen)
 }
 
 // InitFromTrafficSecrets initializes DTLS 1.3 record protection from the

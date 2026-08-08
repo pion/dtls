@@ -17,6 +17,27 @@ import (
 type CipherSuiteTLS13 interface {
 	CipherSuite
 	InitFromTrafficSecrets(clientSecret, serverSecret []byte, isClient bool) error
+	NewRecordProtection(trafficSecret []byte) (RecordProtection13, error)
+	Seal(
+		header recordlayer.UnifiedHeader,
+		sequenceNumber uint64,
+		contentType protocol.ContentType,
+		plaintext []byte,
+	) (recordlayer.CiphertextRecord13, error)
+	Open(
+		header recordlayer.UnifiedHeader,
+		sequenceNumber uint64,
+		encryptedRecord []byte,
+	) (recordlayer.InnerPlaintext, error)
+	UnmaskSequenceNumber(
+		header recordlayer.UnifiedHeader,
+		encryptedRecord []byte,
+	) (recordlayer.UnifiedHeader, error)
+}
+
+// RecordProtection13 protects records for one DTLS 1.3 traffic direction and
+// generation.
+type RecordProtection13 interface {
 	Seal(
 		header recordlayer.UnifiedHeader,
 		sequenceNumber uint64,
