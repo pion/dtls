@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	"github.com/pion/dtls/v3/internal/closer"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -935,9 +934,9 @@ func (c *Conn) sealRecordContent(
 	contentType protocol.ContentType,
 	plaintext []byte,
 ) ([]byte, error) {
-	tls13CipherSuite, ok := dtlsstate.CommonState(c.state).CipherSuite.(ciphersuite.CipherSuiteTLS13)
-	if !ok || !tls13CipherSuite.IsInitialized() {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	generation, err := c.writeTrafficGeneration(epoch)
+	if err != nil {
+		return nil, err
 	}
 
 	header := recordlayer.UnifiedHeader{
@@ -947,7 +946,7 @@ func (c *Conn) sealRecordContent(
 		LengthBit:      true,
 	}
 
-	ciphertext, err := tls13CipherSuite.Seal(
+	ciphertext, err := generation.Protection.Seal(
 		header,
 		seq,
 		contentType,
@@ -958,6 +957,19 @@ func (c *Conn) sealRecordContent(
 	}
 
 	return ciphertext.Marshal()
+}
+
+func (c *Conn) writeTrafficGeneration(epoch uint16) (*dtlsstate.TrafficGeneration, error) {
+	state13, ok := c.state.(*dtlsstate.State13)
+	if !ok || state13.TrafficKeys == nil {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	generation, ok := state13.TrafficKeys.Write(epoch)
+	if !ok || generation.Protection == nil {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	return generation, nil
 }
 
 //nolint:cyclop
@@ -1377,12 +1389,13 @@ func (c *Conn) openCiphertextRecord(
 		return recordlayer.InnerPlaintext{}, 0, dtlserrors.ErrInvalidEpoch
 	}
 
-	tls13CipherSuite, ok := dtlsstate.CommonState(c.state).CipherSuite.(ciphersuite.CipherSuiteTLS13)
-	if !ok || !tls13CipherSuite.IsInitialized() {
-		return recordlayer.InnerPlaintext{}, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	generation, err := c.readTrafficGeneration(remoteEpoch)
+	if err != nil {
+		return recordlayer.InnerPlaintext{}, 0, err
 	}
 
-	clearHeader, err := tls13CipherSuite.UnmaskSequenceNumber(record.Header, record.EncryptedRecord)
+	protection := generation.Protection
+	clearHeader, err := protection.UnmaskSequenceNumber(record.Header, record.EncryptedRecord)
 	if err != nil {
 		return recordlayer.InnerPlaintext{}, 0, err
 	}
@@ -1392,7 +1405,7 @@ func (c *Conn) openCiphertextRecord(
 		clearHeader.SeqBit,
 		c.highestRemoteSequenceNumber(remoteEpoch),
 	)
-	innerPlaintext, err := tls13CipherSuite.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+	innerPlaintext, err := protection.Open(record.Header, sequenceNumber, record.EncryptedRecord)
 	if err != nil {
 		return recordlayer.InnerPlaintext{}, 0, err
 	}
@@ -1407,6 +1420,19 @@ func (c *Conn) openCiphertextRecord(
 	}
 
 	return innerPlaintext, sequenceNumber, nil
+}
+
+func (c *Conn) readTrafficGeneration(epoch uint16) (*dtlsstate.TrafficGeneration, error) {
+	state13, ok := c.state.(*dtlsstate.State13)
+	if !ok || state13.TrafficKeys == nil {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	generation, ok := state13.TrafficKeys.Read(epoch)
+	if !ok || generation.Protection == nil {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+
+	return generation, nil
 }
 
 func reconstructSequenceNumber(partial uint16, seqBit bool, highest uint64) uint64 {
@@ -1608,7 +1634,15 @@ func (c *Conn) queueIfCipherSuiteUninitialized(
 	message string,
 ) bool {
 	common := dtlsstate.CommonState(c.state)
-	if common.CipherSuite != nil && common.CipherSuite.IsInitialized() {
+	initialized := common.CipherSuite != nil && common.CipherSuite.IsInitialized()
+	if state13, ok := c.state.(*dtlsstate.State13); ok && common.LocalVersion.Equal(protocol.Version1_3) {
+		initialized = false
+		if state13.TrafficKeys != nil {
+			generation, found := state13.TrafficKeys.Read(common.RemoteEpoch())
+			initialized = found && generation.Protection != nil
+		}
+	}
+	if initialized {
 		return false
 	}
 	if bufferLease != nil {

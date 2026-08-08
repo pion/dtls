@@ -4475,11 +4475,13 @@ func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.CipherSuit
 		LocalVersion: protocol.Version1_3,
 		CipherSuite:  localCipherSuite,
 	}
+	state13 := &dtlsstate.State13{Common: commonState}
+	installTestTrafficKeys(t, state13, localCipherSuite, clientSecret, serverSecret)
 
 	return &Conn{
 		handshakeCache:          dtlsflight.NewCache(),
 		maximumTransmissionUnit: defaultMTU,
-		state:                   &dtlsstate.State13{Common: commonState},
+		state:                   state13,
 	}, peerCipherSuite
 }
 
@@ -4499,6 +4501,8 @@ func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.CipherSuite
 		LocalVersion: protocol.Version1_3,
 		CipherSuite:  localCipherSuite,
 	}
+	state13 := &dtlsstate.State13{Common: commonState}
+	installTestTrafficKeys(t, state13, localCipherSuite, clientSecret, serverSecret)
 
 	conn := &Conn{
 		fragmentBuffer:          dtlsfragmentbuffer.New(),
@@ -4506,11 +4510,41 @@ func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.CipherSuite
 		maximumTransmissionUnit: defaultMTU,
 		replayProtectionWindow:  defaultReplayProtectionWindow,
 		log:                     logging.NewDefaultLoggerFactory().NewLogger("dtls"),
-		state:                   &dtlsstate.State13{Common: commonState},
+		state:                   state13,
 	}
 	conn.setRemoteEpoch(dtlsflight13.EpochHandshake)
 
 	return conn, peerCipherSuite
+}
+
+func installTestTrafficKeys(
+	t *testing.T,
+	state *dtlsstate.State13,
+	suite ciphersuite.CipherSuiteTLS13,
+	writeSecret, readSecret []byte,
+) {
+	t.Helper()
+
+	writeProtection, err := suite.NewRecordProtection(writeSecret)
+	require.NoError(t, err)
+	readProtection, err := suite.NewRecordProtection(readSecret)
+	require.NoError(t, err)
+
+	state.TrafficKeys = &dtlsstate.TrafficKeyState{}
+	for _, epoch := range []uint16{dtlsflight13.EpochHandshake, dtlsflight13.EpochApplication} {
+		state.TrafficKeys.Install(
+			&dtlsstate.TrafficGeneration{
+				Epoch:      epoch,
+				Secret:     writeSecret,
+				Protection: writeProtection,
+			},
+			&dtlsstate.TrafficGeneration{
+				Epoch:      epoch,
+				Secret:     readSecret,
+				Protection: readProtection,
+			},
+		)
+	}
 }
 
 func encryptedExtensionsHandshake(t *testing.T) []byte {
@@ -4589,4 +4623,168 @@ func openTestProtectedRecord(
 	assert.NoError(t, err)
 
 	return innerPlaintext
+}
+
+func TestSealRecordContentUsesWriteTrafficGeneration(t *testing.T) {
+	conn, state, suite := newTrafficKeyTestConn(t)
+	handshakeSecret := trafficKeyTestSecret(suite, 0x11)
+	applicationSecret := trafficKeyTestSecret(suite, 0x22)
+	handshakeProtection := trafficKeyTestProtection(t, suite, handshakeSecret)
+	applicationProtection := trafficKeyTestProtection(t, suite, applicationSecret)
+
+	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochHandshake,
+		Secret:     handshakeSecret,
+		Protection: handshakeProtection,
+	}, nil)
+	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochApplication,
+		Secret:     applicationSecret,
+		Protection: applicationProtection,
+	}, nil)
+
+	applicationRecord, err := conn.sealRecordContent(
+		dtlsflight13.EpochApplication, 0, protocol.ContentTypeApplicationData, []byte("application"),
+	)
+	require.NoError(t, err)
+	assertTrafficKeyTestRecord(t, applicationProtection, applicationRecord, []byte("application"))
+
+	handshakeRecord, err := conn.sealRecordContent(
+		dtlsflight13.EpochHandshake, 0, protocol.ContentTypeHandshake, []byte("handshake"),
+	)
+	require.NoError(t, err)
+	assertTrafficKeyTestRecord(t, handshakeProtection, handshakeRecord, []byte("handshake"))
+
+	_, err = conn.sealRecordContent(4, 0, protocol.ContentTypeApplicationData, nil)
+	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+}
+
+func TestOpenCiphertextRecordUsesReadTrafficGeneration(t *testing.T) {
+	conn, state, suite := newTrafficKeyTestConn(t)
+	handshakeSecret := trafficKeyTestSecret(suite, 0x31)
+	applicationSecret := trafficKeyTestSecret(suite, 0x32)
+	handshakeProtection := trafficKeyTestProtection(t, suite, handshakeSecret)
+	applicationProtection := trafficKeyTestProtection(t, suite, applicationSecret)
+
+	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochHandshake,
+		Secret:     handshakeSecret,
+		Protection: handshakeProtection,
+	})
+	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochApplication,
+		Secret:     applicationSecret,
+		Protection: applicationProtection,
+	})
+
+	state.SetRemoteEpoch(dtlsflight13.EpochHandshake)
+	handshakeRecord := sealTrafficKeyTestRecord(
+		t, handshakeProtection, dtlsflight13.EpochHandshake, protocol.ContentTypeHandshake, []byte("handshake"),
+	)
+	innerPlaintext, _, err := conn.openCiphertextRecord(handshakeRecord)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("handshake"), innerPlaintext.Content)
+
+	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
+	applicationRecord := sealTrafficKeyTestRecord(
+		t, applicationProtection, dtlsflight13.EpochApplication, protocol.ContentTypeApplicationData, []byte("application"),
+	)
+	innerPlaintext, _, err = conn.openCiphertextRecord(applicationRecord)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("application"), innerPlaintext.Content)
+
+	wrongDirection := trafficKeyTestProtection(t, suite, trafficKeyTestSecret(suite, 0x33))
+	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochApplication,
+		Secret:     trafficKeyTestSecret(suite, 0x33),
+		Protection: wrongDirection,
+	})
+	_, _, err = conn.openCiphertextRecord(applicationRecord)
+	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+
+	state.SetRemoteEpoch(4)
+	applicationRecord.Header.EpochLow = 0
+	_, _, err = conn.openCiphertextRecord(applicationRecord)
+	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+}
+
+func TestQueueIfCipherSuiteUninitializedUsesReadTrafficGeneration(t *testing.T) {
+	conn, state, suite := newTrafficKeyTestConn(t)
+	for _, epoch := range []uint16{dtlsflight13.EpochHandshake, dtlsflight13.EpochApplication} {
+		state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{
+			Epoch:      epoch,
+			Secret:     trafficKeyTestSecret(suite, byte(epoch)),
+			Protection: trafficKeyTestProtection(t, suite, trafficKeyTestSecret(suite, byte(epoch))),
+		})
+		state.SetRemoteEpoch(epoch)
+		assert.False(t, conn.queueIfCipherSuiteUninitialized(nil, nil, nil, "traffic key available"))
+	}
+}
+
+func newTrafficKeyTestConn(t *testing.T) (*Conn, *dtlsstate.State13, ciphersuite.CipherSuiteTLS13) {
+	t.Helper()
+
+	suite := ciphersuite.NewTLSAes128GcmSha256()
+	state := &dtlsstate.State13{
+		Common: &dtlsstate.Common{
+			IsClient:     true,
+			LocalVersion: protocol.Version1_3,
+			CipherSuite:  suite,
+		},
+		TrafficKeys: &dtlsstate.TrafficKeyState{},
+	}
+
+	return &Conn{state: state}, state, suite
+}
+
+func trafficKeyTestSecret(suite ciphersuite.CipherSuiteTLS13, value byte) []byte {
+	return bytes.Repeat([]byte{value}, suite.HashFunc()().Size())
+}
+
+func trafficKeyTestProtection(
+	t *testing.T,
+	suite ciphersuite.CipherSuiteTLS13,
+	secret []byte,
+) ciphersuite.RecordProtection13 {
+	t.Helper()
+
+	protection, err := suite.NewRecordProtection(secret)
+	require.NoError(t, err)
+
+	return protection
+}
+
+func sealTrafficKeyTestRecord(
+	t *testing.T,
+	protection ciphersuite.RecordProtection13,
+	epoch uint16,
+	contentType protocol.ContentType,
+	plaintext []byte,
+) recordlayer.CiphertextRecord13 {
+	t.Helper()
+
+	record, err := protection.Seal(
+		recordlayer.UnifiedHeader{EpochLow: uint8(epoch & recordlayer.TwoLowBitsMask), SeqBit: true},
+		0,
+		contentType,
+		plaintext,
+	)
+	require.NoError(t, err)
+
+	return record
+}
+
+func assertTrafficKeyTestRecord(
+	t *testing.T,
+	protection ciphersuite.RecordProtection13,
+	rawRecord []byte,
+	want []byte,
+) {
+	t.Helper()
+
+	var record recordlayer.CiphertextRecord13
+	require.NoError(t, record.Unmarshal(rawRecord))
+	innerPlaintext, err := protection.Open(record.Header, 0, record.EncryptedRecord)
+	require.NoError(t, err)
+	assert.Equal(t, want, innerPlaintext.Content)
 }
