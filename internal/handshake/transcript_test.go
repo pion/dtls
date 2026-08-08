@@ -14,6 +14,7 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
@@ -626,20 +627,38 @@ func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 	assert.NotEmpty(t, state.KeySchedule.MasterSecret)
 }
 
-func TestInitHandshakeRecordProtection13(t *testing.T) {
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
-	secretLen := cipherSuite.HashFunc()().Size()
-	state := newTestState13(true)
-	state.CipherSuite = cipherSuite
-	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
-		Client: bytes.Repeat([]byte{0x11}, secretLen),
-		Server: bytes.Repeat([]byte{0x22}, secretLen),
-	}
+func TestInitHandshakeRecordProtection13InstallsDirectionalKeys(t *testing.T) {
+	for _, testCase := range []struct {
+		name                  string
+		isClient              bool
+		expectedWrite, readID byte
+	}{
+		{name: "client", isClient: true, expectedWrite: 0x11, readID: 0x22},
+		{name: "server", isClient: false, expectedWrite: 0x22, readID: 0x11},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+			secretLen := cipherSuite.HashFunc()().Size()
+			state := newTestState13(testCase.isClient)
+			state.CipherSuite = cipherSuite
+			state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
+				Client: bytes.Repeat([]byte{0x11}, secretLen),
+				Server: bytes.Repeat([]byte{0x22}, secretLen),
+			}
 
-	require.False(t, state.CipherSuite.IsInitialized())
-	require.NoError(t, InitHandshakeRecordProtection(state))
-	assert.True(t, state.CipherSuite.IsInitialized())
-	require.NoError(t, InitHandshakeRecordProtection(state))
+			require.NoError(t, InitHandshakeRecordProtection(state))
+			write, ok := state.TrafficKeys.Write(dtlsflight13.EpochHandshake)
+			require.True(t, ok)
+			read, ok := state.TrafficKeys.Read(dtlsflight13.EpochHandshake)
+			require.True(t, ok)
+			assert.Equal(t, testCase.expectedWrite, write.Secret[0])
+			assert.Equal(t, testCase.readID, read.Secret[0])
+			assert.NotNil(t, write.Protection)
+			assert.NotNil(t, read.Protection)
+
+			require.NoError(t, InitHandshakeRecordProtection(state))
+		})
+	}
 }
 
 func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
@@ -662,6 +681,19 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 	require.NoError(t, InitHandshakeRecordProtection(state))
 	require.True(t, state.CipherSuite.IsInitialized())
 	require.NoError(t, InitApplicationRecordProtection(state))
+
+	applicationWrite, ok := state.TrafficKeys.Write(dtlsflight13.EpochApplication)
+	require.True(t, ok)
+	applicationRead, ok := state.TrafficKeys.Read(dtlsflight13.EpochApplication)
+	require.True(t, ok)
+	handshakeWrite, ok := state.TrafficKeys.Write(dtlsflight13.EpochHandshake)
+	require.True(t, ok)
+	handshakeRead, ok := state.TrafficKeys.Read(dtlsflight13.EpochHandshake)
+	require.True(t, ok)
+	assert.Equal(t, applicationSecrets.Client, applicationWrite.Secret)
+	assert.Equal(t, applicationSecrets.Server, applicationRead.Secret)
+	assert.Equal(t, handshakeSecrets.Client, handshakeWrite.Secret)
+	assert.Equal(t, handshakeSecrets.Server, handshakeRead.Secret)
 
 	clientSuite, ok := state.CipherSuite.(ciphersuite.CipherSuiteTLS13)
 	require.True(t, ok)

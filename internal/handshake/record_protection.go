@@ -17,7 +17,12 @@ func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
 
-	return initRecordProtectionFromTrafficSecrets(state, state.KeySchedule.HandshakeTraffic, false)
+	return initRecordProtectionFromTrafficSecrets(
+		state,
+		dtlsflight13.EpochHandshake,
+		state.KeySchedule.HandshakeTraffic,
+		false,
+	)
 }
 
 // InitApplicationRecordProtection installs DTLS 1.3 application record
@@ -27,10 +32,15 @@ func InitApplicationRecordProtection(state *dtlsstate.State13) error {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
 
-	return initRecordProtectionFromTrafficSecrets(state, dtlsstate.TrafficSecrets{
-		Client: state.KeySchedule.ClientApplicationTrafficSecret0,
-		Server: state.KeySchedule.ServerApplicationTrafficSecret0,
-	}, true)
+	return initRecordProtectionFromTrafficSecrets(
+		state,
+		dtlsflight13.EpochApplication,
+		dtlsstate.TrafficSecrets{
+			Client: state.KeySchedule.ClientApplicationTrafficSecret0,
+			Server: state.KeySchedule.ServerApplicationTrafficSecret0,
+		},
+		true,
+	)
 }
 
 func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *dtlsstate.State13) error {
@@ -45,28 +55,78 @@ func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *
 
 func initRecordProtectionFromTrafficSecrets(
 	state *dtlsstate.State13,
+	epoch uint16,
 	secrets dtlsstate.TrafficSecrets,
 	allowReinitialize bool,
 ) error {
+	tls13CipherSuite, err := cipherSuite13(state)
+	if err != nil {
+		return err
+	}
+	if state.TrafficKeys == nil {
+		state.TrafficKeys = &dtlsstate.TrafficKeyState{}
+	}
+	if !allowReinitialize {
+		_, hasWrite := state.TrafficKeys.Write(epoch)
+		_, hasRead := state.TrafficKeys.Read(epoch)
+		if hasWrite && hasRead {
+			return nil
+		}
+	}
+
+	writeSecret, readSecret, err := directionalTrafficSecrets13(secrets, state.IsClient)
+	if err != nil {
+		return err
+	}
+	writeProtection, err := tls13CipherSuite.NewRecordProtection(writeSecret)
+	if err != nil {
+		return err
+	}
+	readProtection, err := tls13CipherSuite.NewRecordProtection(readSecret)
+	if err != nil {
+		return err
+	}
+	state.TrafficKeys.Install(
+		&dtlsstate.TrafficGeneration{
+			Epoch:      epoch,
+			Generation: 0,
+			Secret:     writeSecret,
+			Protection: writeProtection,
+		},
+		&dtlsstate.TrafficGeneration{
+			Epoch:      epoch,
+			Generation: 0,
+			Secret:     readSecret,
+			Protection: readProtection,
+		},
+	)
+
+	return tls13CipherSuite.InitFromTrafficSecrets(secrets.Client, secrets.Server, state.IsClient)
+}
+
+func cipherSuite13(state *dtlsstate.State13) (ciphersuite.CipherSuiteTLS13, error) {
 	if state == nil || state.CipherSuite == nil {
-		return dtlserrors.ErrCipherSuiteNotSet
+		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
 
 	tls13CipherSuite, ok := state.CipherSuite.(ciphersuite.CipherSuiteTLS13)
 	if !ok {
-		return dtlserrors.ErrInvalidCipherSuite
-	}
-	if !allowReinitialize && tls13CipherSuite.IsInitialized() {
-		return nil
+		return nil, dtlserrors.ErrInvalidCipherSuite
 	}
 
+	return tls13CipherSuite, nil
+}
+
+func directionalTrafficSecrets13(
+	secrets dtlsstate.TrafficSecrets,
+	isClient bool,
+) (write, read []byte, err error) {
 	if len(secrets.Client) == 0 || len(secrets.Server) == 0 {
-		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return nil, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	if isClient {
+		return secrets.Client, secrets.Server, nil
 	}
 
-	return tls13CipherSuite.InitFromTrafficSecrets(
-		secrets.Client,
-		secrets.Server,
-		state.IsClient,
-	)
+	return secrets.Server, secrets.Client, nil
 }
