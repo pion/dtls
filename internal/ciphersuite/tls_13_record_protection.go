@@ -59,20 +59,6 @@ type recordProtection13 struct {
 	remote recordTrafficProtection13
 }
 
-func newAES128GCMRecordProtection13(
-	hashFunc func() hash.Hash,
-	localTrafficSecret, remoteTrafficSecret []byte,
-) (*recordProtection13, error) {
-	return newAESGCMRecordProtection13(hashFunc, localTrafficSecret, remoteTrafficSecret, tls13AES128GCMKeyLen)
-}
-
-func newAES256GCMRecordProtection13(
-	hashFunc func() hash.Hash,
-	localTrafficSecret, remoteTrafficSecret []byte,
-) (*recordProtection13, error) {
-	return newAESGCMRecordProtection13(hashFunc, localTrafficSecret, remoteTrafficSecret, tls13AES256GCMKeyLen)
-}
-
 func newAESGCMRecordProtection13(
 	hashFunc func() hash.Hash,
 	localTrafficSecret, remoteTrafficSecret []byte,
