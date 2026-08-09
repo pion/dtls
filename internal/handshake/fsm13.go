@@ -170,6 +170,58 @@ func (s *fsm13) Done() <-chan struct{} {
 	return s.closed
 }
 
+type KeyUpdater interface {
+	UpdateKeys(context.Context, handshake.KeyUpdateRequest) error
+}
+
+// UpdateKeys queues a reliable DTLS 1.3 KeyUpdate and waits until its ACK has
+// committed the next local write generation.
+func (s *fsm13) UpdateKeys(ctx context.Context, request handshake.KeyUpdateRequest) error {
+	if request != handshake.KeyUpdateNotRequested && request != handshake.KeyUpdateRequested {
+		return dtlserrors.ErrInvalidKeyUpdate
+	}
+
+	result := make(chan error, 1)
+	command := postHandshakeCommand{
+		Kind:      commandSendKeyUpdate,
+		Canceled:  ctx.Done(),
+		KeyUpdate: keyUpdateCommand{Request: request},
+		Result:    result,
+	}
+	if err := s.submitKeyUpdateCommand(ctx, command); err != nil {
+		return err
+	}
+
+	return s.waitKeyUpdateResult(ctx, result)
+}
+
+func (s *fsm13) submitKeyUpdateCommand(ctx context.Context, command postHandshakeCommand) error {
+	select {
+	case s.postHandshake.commands <- command:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.closed:
+		return dtlserrors.ErrConnClosed
+	}
+}
+
+func (s *fsm13) waitKeyUpdateResult(ctx context.Context, result <-chan error) error {
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.closed:
+		select {
+		case err := <-result:
+			return err
+		default:
+			return dtlserrors.ErrConnClosed
+		}
+	}
+}
+
 func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err error) {
 	defer func() {
 		if err != nil {

@@ -617,6 +617,70 @@ func (c *Conn) Write(payload []byte) (int, error) {
 	return len(payload), err
 }
 
+// KeyUpdateOptions controls a DTLS 1.3 application traffic-key update.
+type KeyUpdateOptions struct {
+	// RequestPeerUpdate asks the peer to update its sending keys in response.
+	RequestPeerUpdate bool
+}
+
+// UpdateKeys requests a DTLS 1.3 application traffic-key update. It returns
+// only after the peer acknowledges the KeyUpdate and the next local write
+// generation has been committed.
+func (c *Conn) UpdateKeys(ctx context.Context, options KeyUpdateOptions) error {
+	updater, err := c.keyUpdateFSM(ctx)
+	if err != nil {
+		return err
+	}
+	request := handshake.KeyUpdateNotRequested
+	if options.RequestPeerUpdate {
+		request = handshake.KeyUpdateRequested
+	}
+
+	operationCtx, cancel := c.contextWithCloseAndWriteDeadline(ctx)
+	defer cancel()
+
+	return c.normalizeKeyUpdateError(ctx, operationCtx, updater.UpdateKeys(operationCtx, request))
+}
+
+func (c *Conn) keyUpdateFSM(ctx context.Context) (dtlshandshake.KeyUpdater, error) {
+	if c.isConnectionClosed() {
+		return nil, ErrConnClosed
+	}
+	select {
+	case <-c.writeDeadline.Done():
+		return nil, dtlserrors.ErrDeadlineExceeded
+	default:
+	}
+	if err := c.HandshakeContext(ctx); err != nil {
+		return nil, err
+	}
+	if !dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) {
+		return nil, dtlserrors.ErrUnsupportedProtocolVersion
+	}
+
+	updater, ok := c.fsm.(dtlshandshake.KeyUpdater)
+	if !ok {
+		return nil, dtlserrors.ErrNotImplemented
+	}
+
+	return updater, nil
+}
+
+func (c *Conn) normalizeKeyUpdateError(ctx, operationCtx context.Context, err error) error {
+	if errors.Is(err, context.Canceled) {
+		switch {
+		case c.isConnectionClosed():
+			return ErrConnClosed
+		case errors.Is(context.Cause(operationCtx), context.DeadlineExceeded):
+			return dtlserrors.ErrDeadlineExceeded
+		case ctx.Err() != nil:
+			return ctx.Err()
+		}
+	}
+
+	return err
+}
+
 func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Packet) error {
 	for {
 		c.writeLock.Lock()
@@ -864,6 +928,25 @@ func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.C
 	}()
 
 	return closeCtx, func() {
+		cancel(context.Canceled)
+	}
+}
+
+func (c *Conn) contextWithCloseAndWriteDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	operationCtx, cancel := context.WithCancelCause(context.Background())
+	go func() {
+		select {
+		case <-c.closed.Done():
+			cancel(context.Canceled)
+		case <-c.writeDeadline.Done():
+			cancel(context.DeadlineExceeded)
+		case <-ctx.Done():
+			cancel(ctx.Err())
+		case <-operationCtx.Done():
+		}
+	}()
+
+	return operationCtx, func() {
 		cancel(context.Canceled)
 	}
 }
