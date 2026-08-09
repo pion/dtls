@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"time"
@@ -147,12 +148,30 @@ type postHandshake struct {
 	// Reverse lookup for received ACK record numbers.
 	recordIndex map[protocol.RecordNumber]postHandshakeRecord
 
+	pendingRequiredKeyUpdateResponses int
+
 	initialRetransmitInterval time.Duration
 	handshakeContext
 }
 
 type keyUpdateCommitConn interface {
 	CommitLocalKeyUpdate(*dtlsstate.TrafficGeneration) error
+}
+
+// TODO: Replace this pause gate with unified serialization of application
+// and post-handshake writes.
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.6.3
+// https://www.rfc-editor.org/rfc/rfc9147.html#section-4.2.1
+// https://www.rfc-editor.org/rfc/rfc9147.html#section-8
+//
+//nolint:godox
+type applicationDataPauser interface {
+	PauseApplicationData()
+	ResumeApplicationData()
+}
+
+type pendingACKConn interface {
+	TakePendingACKs() []protocol.RecordNumber
 }
 
 func newPostHandshake(ctx handshakeContext) *postHandshake {
@@ -197,8 +216,10 @@ func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn)
 			continue
 		}
 
-		if err := p.startPostHandshakeCommand(ctx, conn, command); err != nil {
+		err := p.startPostHandshakeCommand(ctx, conn, command)
+		if err != nil {
 			completePostHandshakeResult(command.Result, err)
+			p.failRequiredKeyUpdateResponse(conn, command)
 
 			return err
 		}
@@ -227,13 +248,23 @@ func (p *postHandshake) startPostHandshakeCommand(
 	switch command.Kind {
 	case commandSendNewSessionTicket:
 		return p.startNewSessionTicket(ctx, conn, false)
-	case commandSendKeyUpdate,
-		commandSendNewConnectionID,
+	case commandSendKeyUpdate:
+		return p.startKeyUpdate(ctx, conn, command)
+	case commandSendNewConnectionID,
 		commandSendRequestConnectionID:
-
 		return dtlserrors.ErrNotImplemented
 	default:
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
+	}
+}
+
+func (p *postHandshake) failRequiredKeyUpdateResponse(conn Conn, command postHandshakeCommand) {
+	if !command.KeyUpdate.RequiredResponse {
+		return
+	}
+	p.pendingRequiredKeyUpdateResponses = 0
+	if pauser, ok := conn.(applicationDataPauser); ok {
+		pauser.ResumeApplicationData()
 	}
 }
 
@@ -327,6 +358,9 @@ func (p *postHandshake) handlePostHandshakeReceive(
 			return err
 		}
 	}
+	if pendingConn, ok := conn.(pendingACKConn); ok {
+		received.RecordsToACK = append(received.RecordsToACK, pendingConn.TakePendingACKs()...)
+	}
 
 	return sendACK(ctx, conn, p.state.LocalEpoch(), received.RecordsToACK)
 }
@@ -343,13 +377,17 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 
 		message := &handshake.Handshake{}
 		if err := message.Unmarshal(item.Data); err != nil {
-			if alertErr := conn.Notify(ctx, alert.Fatal, alert.DecodeError); alertErr != nil {
+			description := alert.DecodeError
+			if errors.Is(err, dtlserrors.ErrInvalidKeyUpdate) {
+				description = alert.IllegalParameter
+			}
+			if alertErr := conn.Notify(ctx, alert.Fatal, description); alertErr != nil {
 				return alertErr
 			}
 
 			return err
 		}
-		if err := p.handlePostHandshakeMessage(ctx, conn, message); err != nil {
+		if err := p.handlePostHandshakeMessage(ctx, conn, message, item.Epoch); err != nil {
 			return err
 		}
 	}
@@ -361,13 +399,75 @@ func (p *postHandshake) handlePostHandshakeMessage(
 	ctx context.Context,
 	conn Conn,
 	message *handshake.Handshake,
+	epoch uint16,
 ) error {
 	switch body := message.Message.(type) {
 	case *handshake.MessageNewSessionTicket:
 		return p.handleNewSessionTicket(ctx, conn, body)
+	case *handshake.MessageKeyUpdate:
+		return p.handleKeyUpdate(ctx, conn, body, epoch)
 	default:
 		return conn.Notify(ctx, alert.Fatal, alert.UnexpectedMessage)
 	}
+}
+
+func (p *postHandshake) handleKeyUpdate(
+	ctx context.Context,
+	conn Conn,
+	message *handshake.MessageKeyUpdate,
+	epoch uint16,
+) error {
+	if p.state.TrafficKeys == nil {
+		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	current, ok := p.state.TrafficKeys.CurrentRead()
+	if !ok || current.Protection == nil {
+		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	if current.Epoch != epoch || p.state.RemoteEpoch() != epoch {
+		return conn.Notify(ctx, alert.Fatal, alert.UnexpectedMessage)
+	}
+	next, err := p.nextTrafficGeneration(current)
+	if err != nil {
+		return err
+	}
+
+	if err = p.queueRequiredKeyUpdateResponse(conn, message.RequestUpdate); err != nil {
+		return err
+	}
+
+	p.state.TrafficKeys.Install(nil, next)
+	p.state.SetRemoteEpoch(next.Epoch)
+	p.state.HandshakeRecvSequence++
+
+	return conn.HandleQueuedPackets(ctx)
+}
+
+func (p *postHandshake) queueRequiredKeyUpdateResponse(
+	conn Conn,
+	request handshake.KeyUpdateRequest,
+) error {
+	if request != handshake.KeyUpdateRequested {
+		return nil
+	}
+	pauser, ok := conn.(applicationDataPauser)
+	if !ok {
+		return dtlserrors.ErrNotImplemented
+	}
+	if p.pendingRequiredKeyUpdateResponses == 0 {
+		pauser.PauseApplicationData()
+	}
+	p.pendingRequiredKeyUpdateResponses++
+	command := postHandshakeCommand{
+		Kind: commandSendKeyUpdate,
+		KeyUpdate: keyUpdateCommand{
+			Request:          handshake.KeyUpdateNotRequested,
+			RequiredResponse: true,
+		},
+	}
+	p.queue = append(p.queue, command)
+
+	return nil
 }
 
 func (p *postHandshake) handleNewSessionTicket(
@@ -424,6 +524,22 @@ func (p *postHandshake) startKeyUpdate(
 	p.flights[flight.ID] = flight
 	p.registerTransmission(flight, result.TrackedRecords, true)
 	flight.NextRetransmit = time.Now().Add(flight.RetransmitInterval)
+
+	if command.KeyUpdate.RequiredResponse {
+		pauser, ok := conn.(applicationDataPauser)
+		if !ok {
+			return dtlserrors.ErrNotImplemented
+		}
+		p.pendingRequiredKeyUpdateResponses--
+		// RFC 8446 4.6.3 requires this response before the next Application Data
+		// record,
+		// and RFC 9147 8 defers using the next write keys until it is ACKed.
+		// https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.3
+		// https://datatracker.ietf.org/doc/html/rfc9147#section-8
+		if p.pendingRequiredKeyUpdateResponses == 0 {
+			pauser.ResumeApplicationData()
+		}
+	}
 
 	return nil
 }
@@ -625,7 +741,7 @@ func completePostHandshakeResult(result chan error, err error) {
 	}
 }
 
-func (p *postHandshake) fail(err error) {
+func (p *postHandshake) fail(conn Conn, err error) {
 	for _, command := range p.queue {
 		completePostHandshakeResult(command.Result, err)
 	}
@@ -635,6 +751,12 @@ func (p *postHandshake) fail(err error) {
 		delete(p.flights, id)
 	}
 	p.recordIndex = make(map[protocol.RecordNumber]postHandshakeRecord)
+	if p.pendingRequiredKeyUpdateResponses != 0 {
+		p.pendingRequiredKeyUpdateResponses = 0
+		if pauser, ok := conn.(applicationDataPauser); ok {
+			pauser.ResumeApplicationData()
+		}
+	}
 }
 
 func (p *postHandshake) retransmitPostHandshake(

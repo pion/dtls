@@ -139,7 +139,7 @@ func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) (err err
 	defer s.received.release()
 	defer func() {
 		if err != nil {
-			s.postHandshake.fail(err)
+			s.postHandshake.fail(conn, err)
 		}
 	}()
 

@@ -54,9 +54,12 @@ type postHandshakeWriteConn struct {
 
 type postHandshakeKeyUpdateConn struct {
 	flightTestConn
-	state     *dtlsstate.State13
-	result    *WriteResult
-	committed *dtlsstate.TrafficGeneration
+	state        *dtlsstate.State13
+	result       *WriteResult
+	committed    *dtlsstate.TrafficGeneration
+	blocked      bool
+	blockCount   int
+	unblockCount int
 }
 
 func (c *postHandshakeKeyUpdateConn) WritePackets(
@@ -77,6 +80,16 @@ func (c *postHandshakeKeyUpdateConn) CommitLocalKeyUpdate(generation *dtlsstate.
 	c.state.SetLocalEpoch(generation.Epoch)
 
 	return nil
+}
+
+func (c *postHandshakeKeyUpdateConn) PauseApplicationData() {
+	c.blocked = true
+	c.blockCount++
+}
+
+func (c *postHandshakeKeyUpdateConn) ResumeApplicationData() {
+	c.blocked = false
+	c.unblockCount++
 }
 
 func newPostHandshakeKeyUpdateTestState(t *testing.T, isClient bool) *dtlsstate.State13 {
@@ -368,7 +381,7 @@ func TestHandleUnexpectedPostHandshakeMessageAlert(t *testing.T) {
 
 	err := post.handlePostHandshakeMessage(context.Background(), conn, &handshake.Handshake{
 		Message: &handshake.MessageFinished{},
-	})
+	}, 0)
 	require.NoError(t, err)
 	assert.Equal(t, []postHandshakeAlert{{
 		level:       alert.Fatal,
@@ -507,4 +520,137 @@ func TestBuildKeyUpdateFlightRejectsEpochOverflow(t *testing.T) {
 
 	_, err := post.buildKeyUpdateFlight(handshake.KeyUpdateNotRequested, nil)
 	assert.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)
+}
+
+func TestRequestedKeyUpdateInstallsReadKeysAndQueuesResponse(t *testing.T) {
+	state := newPostHandshakeKeyUpdateTestState(t, false)
+	state.HandshakeRecvSequence = 7
+	state.HandshakeSendSequence = 11
+	post := newPostHandshake(handshakeContext{
+		state: state,
+		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
+	})
+	conn := &postHandshakeKeyUpdateConn{state: state}
+
+	require.NoError(t, post.handleKeyUpdate(
+		context.Background(), conn,
+		&handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateRequested},
+		dtlsflight13.EpochApplication,
+	))
+	assert.Equal(t, 8, state.HandshakeRecvSequence)
+	assert.Equal(t, dtlsflight13.EpochApplication+1, state.RemoteEpoch())
+	currentRead, ok := state.TrafficKeys.CurrentRead()
+	require.True(t, ok)
+	assert.Equal(t, uint64(1), currentRead.Generation)
+	_, oldReadRetained := state.TrafficKeys.Read(dtlsflight13.EpochApplication)
+	assert.True(t, oldReadRetained)
+	assert.True(t, conn.blocked)
+	assert.Equal(t, 1, conn.blockCount)
+	require.Len(t, post.queue, 1)
+	assert.True(t, post.queue[0].KeyUpdate.RequiredResponse)
+
+	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
+	assert.False(t, conn.blocked)
+	assert.Equal(t, 1, conn.unblockCount)
+	require.Len(t, conn.writtenPackets, 1)
+	responseHandshake, ok := conn.writtenPackets[0].Record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	response, ok := responseHandshake.Message.(*handshake.MessageKeyUpdate)
+	require.True(t, ok)
+	assert.Equal(t, handshake.KeyUpdateNotRequested, response.RequestUpdate)
+	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Record.Header.Epoch)
+	assert.Equal(t, dtlsflight13.EpochApplication, state.LocalEpoch())
+}
+
+func TestRequiredKeyUpdateResponsesKeepApplicationDataBlockedUntilEmitted(t *testing.T) {
+	state := newPostHandshakeKeyUpdateTestState(t, false)
+	post := newPostHandshake(handshakeContext{
+		state: state,
+		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
+	})
+	conn := &postHandshakeKeyUpdateConn{state: state}
+	request := &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateRequested}
+
+	require.NoError(t, post.handleKeyUpdate(
+		context.Background(), conn, request, dtlsflight13.EpochApplication,
+	))
+	require.NoError(t, post.handleKeyUpdate(
+		context.Background(), conn, request, dtlsflight13.EpochApplication+1,
+	))
+	assert.True(t, conn.blocked)
+	assert.Equal(t, 1, conn.blockCount)
+	assert.Equal(t, 2, post.pendingRequiredKeyUpdateResponses)
+	require.Len(t, post.queue, 2)
+
+	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
+	assert.True(t, conn.blocked)
+	assert.Equal(t, 1, post.pendingRequiredKeyUpdateResponses)
+	require.Len(t, conn.writtenPackets, 1)
+	require.Len(t, post.flights, 1)
+	for id := range post.flights {
+		require.NoError(t, post.completePostHandshakeFlight(conn, id))
+	}
+
+	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
+	assert.False(t, conn.blocked)
+	assert.Equal(t, 1, conn.unblockCount)
+	assert.Zero(t, post.pendingRequiredKeyUpdateResponses)
+	assert.Len(t, conn.writtenPackets, 2)
+}
+
+func TestRetransmittedKeyUpdateDoesNotRatchetReadKeysTwice(t *testing.T) {
+	const messageSequence = uint16(5)
+	state := newPostHandshakeKeyUpdateTestState(t, true)
+	state.HandshakeRecvSequence = int(messageSequence)
+	wire, err := (&handshake.Handshake{
+		Header: handshake.Header{
+			Type:            handshake.TypeKeyUpdate,
+			MessageSequence: messageSequence,
+		},
+		Message: &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateNotRequested},
+	}).Marshal()
+	require.NoError(t, err)
+	cache := dtlsflight.NewCache()
+	cache.Push(wire, dtlsflight13.EpochApplication, messageSequence, handshake.TypeKeyUpdate, false)
+	post := newPostHandshake(handshakeContext{
+		state: state,
+		cache: cache,
+		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
+	})
+	conn := &postHandshakeKeyUpdateConn{state: state}
+	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 3}
+	receive := func() error {
+		return post.handlePostHandshakeReceive(context.Background(), conn, RecvHandshakeState{
+			HasHandshake: true,
+			RecordsToACK: []protocol.RecordNumber{record},
+		})
+	}
+
+	require.NoError(t, receive())
+	require.NoError(t, receive())
+	assert.Equal(t, int(messageSequence)+1, state.HandshakeRecvSequence)
+	currentRead, ok := state.TrafficKeys.CurrentRead()
+	require.True(t, ok)
+	assert.Equal(t, uint64(1), currentRead.Generation)
+	assert.Len(t, conn.writtenPackets, 2, "both copies must be acknowledged")
+}
+
+func TestInvalidKeyUpdateUsesIllegalParameterAlert(t *testing.T) {
+	state := newPostHandshakeKeyUpdateTestState(t, true)
+	cache := dtlsflight.NewCache()
+	header, err := (&handshake.Header{
+		Type:           handshake.TypeKeyUpdate,
+		Length:         1,
+		FragmentLength: 1,
+	}).Marshal()
+	require.NoError(t, err)
+	cache.Push(append(header, 2), dtlsflight13.EpochApplication, 0, handshake.TypeKeyUpdate, false)
+	post := newPostHandshake(handshakeContext{state: state, cache: cache, cfg: &dtlsconfig.HandshakeConfig{}})
+	conn := &postHandshakeAlertConn{}
+
+	err = post.processPostHandshakeMessages(context.Background(), conn)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidKeyUpdate)
+	assert.Equal(t, []postHandshakeAlert{{
+		level: alert.Fatal, description: alert.IllegalParameter,
+	}}, conn.notifications)
 }

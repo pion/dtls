@@ -157,6 +157,18 @@ func (c handshakeConn) CommitLocalKeyUpdate(generation *dtlsstate.TrafficGenerat
 	return c.conn.commitLocalKeyUpdate(generation)
 }
 
+func (c handshakeConn) PauseApplicationData() {
+	c.conn.pauseApplicationData()
+}
+
+func (c handshakeConn) ResumeApplicationData() {
+	c.conn.resumeApplicationData()
+}
+
+func (c handshakeConn) TakePendingACKs() []protocol.RecordNumber {
+	return c.conn.takePendingACKs()
+}
+
 func (c handshakeConn) HandleQueuedPackets(ctx context.Context) error {
 	return c.conn.handleQueuedPackets(ctx)
 }
@@ -195,10 +207,11 @@ type Conn struct {
 	maximumTransmissionUnit int
 	paddingLengthGenerator  func(uint) uint
 
-	handshakeEstablished *dtlshandshake.Establishment
-	handshakeMutex       sync.Mutex
-	handshakeDone        chan struct{}
-	writeLock            sync.Mutex
+	handshakeEstablished  *dtlshandshake.Establishment
+	handshakeMutex        sync.Mutex
+	handshakeDone         chan struct{}
+	writeLock             sync.Mutex
+	applicationDataResume chan struct{} // guarded by writeLock; nil while writes may proceed
 
 	encryptedPackets []addrPkt
 
@@ -583,11 +596,10 @@ func (c *Conn) Write(payload []byte) (int, error) {
 	ctx, cancel := c.contextWithClose(c.writeDeadline)
 	defer cancel()
 
-	err := c.writePackets(ctx, []*dtlsflight.Packet{
+	err := c.writeApplicationData(ctx, []*dtlsflight.Packet{
 		{
 			Record: &recordlayer.RecordLayer{
 				Header: recordlayer.Header{
-					Epoch:   dtlsstate.CommonState(c.state).LocalEpoch(),
 					Version: protocol.Version1_2,
 				},
 				Content: &protocol.ApplicationData{
@@ -603,6 +615,56 @@ func (c *Conn) Write(payload []byte) (int, error) {
 	}
 
 	return len(payload), err
+}
+
+func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Packet) error {
+	for {
+		c.writeLock.Lock()
+		resume := c.applicationDataResume
+		if resume == nil {
+			epoch := dtlsstate.CommonState(c.state).LocalEpoch()
+			for _, pkt := range pkts {
+				pkt.Record.Header.Epoch = epoch
+			}
+			_, err := c.writePacketsWithResultLocked(ctx, pkts)
+			c.writeLock.Unlock()
+
+			return err
+		}
+		c.writeLock.Unlock()
+
+		select {
+		case <-resume:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.closed.Done():
+			return dtlserrors.ErrConnClosed
+		}
+	}
+}
+
+func (c *Conn) pauseApplicationData() {
+	// Serialize pausing with application record preparation.
+	// TODO: Replace this pause gate with unified serialization of application
+	// and post-handshake writes.
+	// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.6.3
+	// https://www.rfc-editor.org/rfc/rfc9147.html#section-4.2.1
+	// https://www.rfc-editor.org/rfc/rfc9147.html#section-8
+	//nolint:godox
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
+	if c.applicationDataResume == nil {
+		c.applicationDataResume = make(chan struct{})
+	}
+}
+
+func (c *Conn) resumeApplicationData() {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
+	if c.applicationDataResume != nil {
+		close(c.applicationDataResume)
+		c.applicationDataResume = nil
+	}
 }
 
 // Close closes the connection.
@@ -664,6 +726,13 @@ func (c *Conn) writePacketsWithResult(
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
+	return c.writePacketsWithResultLocked(ctx, pkts)
+}
+
+func (c *Conn) writePacketsWithResultLocked(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*dtlshandshake.WriteResult, error) {
 	datagrams, rAddr, err := c.prepareRawPacketsTracked(pkts)
 	if err != nil {
 		return nil, err
