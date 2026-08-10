@@ -181,18 +181,18 @@ func (s *fsm13) UpdateKeys(ctx context.Context, request handshake.KeyUpdateReque
 		return dtlserrors.ErrInvalidKeyUpdate
 	}
 
-	result := make(chan error, 1)
+	completion, completionCtx := newPostHandshakeCompletion()
 	command := postHandshakeCommand{
-		Kind:      commandSendKeyUpdate,
-		Canceled:  ctx.Done(),
-		KeyUpdate: keyUpdateCommand{Request: request},
-		Result:    result,
+		Kind:       commandSendKeyUpdate,
+		Canceled:   ctx.Done(),
+		KeyUpdate:  keyUpdateCommand{Request: request},
+		Completion: completion,
 	}
 	if err := s.submitKeyUpdateCommand(ctx, command); err != nil {
 		return err
 	}
 
-	return s.waitKeyUpdateResult(ctx, result)
+	return s.waitKeyUpdateCompletion(ctx, completionCtx, completion)
 }
 
 func (s *fsm13) submitKeyUpdateCommand(ctx context.Context, command postHandshakeCommand) error {
@@ -206,16 +206,20 @@ func (s *fsm13) submitKeyUpdateCommand(ctx context.Context, command postHandshak
 	}
 }
 
-func (s *fsm13) waitKeyUpdateResult(ctx context.Context, result <-chan error) error {
+func (s *fsm13) waitKeyUpdateCompletion(
+	ctx context.Context,
+	completionCtx context.Context,
+	completion *postHandshakeCompletion,
+) error {
 	select {
-	case err := <-result:
-		return err
+	case <-completionCtx.Done():
+		return completion.result()
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-s.closed:
 		select {
-		case err := <-result:
-			return err
+		case <-completionCtx.Done():
+			return completion.result()
 		default:
 			return dtlserrors.ErrConnClosed
 		}

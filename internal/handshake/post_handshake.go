@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"sync/atomic"
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -82,6 +83,17 @@ type postHandshakeRecord struct {
 	Fragments []postHandshakeFragment
 }
 
+type postHandshakeOutcome struct {
+	err error
+}
+
+// postHandshakeCompletion publishes a one-shot operation result.
+type postHandshakeCompletion struct {
+	signal context.CancelFunc
+
+	outcome atomic.Pointer[postHandshakeOutcome]
+}
+
 type reliablePostHandshakeFlight struct {
 	ID postHandshakeFlightID
 
@@ -103,7 +115,7 @@ type reliablePostHandshakeFlight struct {
 	NextRetransmit     time.Time
 
 	// non-nil for application commands that wait for completion.
-	Result chan error
+	Completion *postHandshakeCompletion
 
 	// non-nil only when acknowledging this flight commits a KeyUpdate.
 	PendingWrite *dtlsstate.TrafficGeneration
@@ -132,8 +144,8 @@ type postHandshakeCommand struct {
 	KeyUpdate keyUpdateCommand
 	Canceled  <-chan struct{}
 
-	// Always buffered with capacity one.
-	Result chan error
+	// non-nil for application commands that wait for completion.
+	Completion *postHandshakeCompletion
 }
 
 type postHandshake struct {
@@ -174,6 +186,28 @@ type pendingACKConn interface {
 	TakePendingACKs() []protocol.RecordNumber
 }
 
+func newPostHandshakeCompletion() (*postHandshakeCompletion, context.Context) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	return &postHandshakeCompletion{
+		signal: cancel,
+	}, ctx
+}
+
+func (c *postHandshakeCompletion) complete(err error) {
+	if c == nil {
+		return
+	}
+	if c.outcome.CompareAndSwap(nil, &postHandshakeOutcome{err: err}) {
+		c.signal()
+	}
+}
+
+// result must only be called after the paired completion context is done.
+func (c *postHandshakeCompletion) result() error {
+	return c.outcome.Load().err
+}
+
 func newPostHandshake(ctx handshakeContext) *postHandshake {
 	return &postHandshake{
 		commands: make(chan postHandshakeCommand),
@@ -211,14 +245,14 @@ func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn)
 		command := p.queue[0]
 		p.queue = p.queue[1:]
 		if err, canceled := canceledPostHandshakeCommand(command); canceled {
-			completePostHandshakeResult(command.Result, err)
+			command.Completion.complete(err)
 
 			continue
 		}
 
 		err := p.startPostHandshakeCommand(ctx, conn, command)
 		if err != nil {
-			completePostHandshakeResult(command.Result, err)
+			command.Completion.complete(err)
 			p.failRequiredKeyUpdateResponse(conn, command)
 
 			return err
@@ -512,7 +546,7 @@ func (p *postHandshake) startKeyUpdate(
 	conn Conn,
 	command postHandshakeCommand,
 ) error {
-	flight, err := p.buildKeyUpdateFlight(command.KeyUpdate.Request, command.Result)
+	flight, err := p.buildKeyUpdateFlight(command.KeyUpdate.Request, command.Completion)
 	if err != nil {
 		return err
 	}
@@ -546,7 +580,7 @@ func (p *postHandshake) startKeyUpdate(
 
 func (p *postHandshake) buildKeyUpdateFlight(
 	request handshake.KeyUpdateRequest,
-	result chan error,
+	completion *postHandshakeCompletion,
 ) (*reliablePostHandshakeFlight, error) {
 	if p.state.TrafficKeys == nil {
 		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
@@ -605,7 +639,7 @@ func (p *postHandshake) buildKeyUpdateFlight(
 		PendingFragments:   make(map[postHandshakeFragment]struct{}),
 		SentRecords:        make(map[protocol.RecordNumber]struct{}),
 		RetransmitInterval: p.initialRetransmitInterval,
-		Result:             result,
+		Completion:         completion,
 		PendingWrite:       next,
 	}, nil
 }
@@ -730,24 +764,18 @@ func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeF
 		delete(p.recordIndex, number)
 	}
 	delete(p.flights, id)
-	completePostHandshakeResult(flight.Result, completionErr)
+	flight.Completion.complete(completionErr)
 
 	return completionErr
 }
 
-func completePostHandshakeResult(result chan error, err error) {
-	if result != nil {
-		result <- err
-	}
-}
-
 func (p *postHandshake) fail(conn Conn, err error) {
 	for _, command := range p.queue {
-		completePostHandshakeResult(command.Result, err)
+		command.Completion.complete(err)
 	}
 	p.queue = nil
 	for id, flight := range p.flights {
-		completePostHandshakeResult(flight.Result, err)
+		flight.Completion.complete(err)
 		delete(p.flights, id)
 	}
 	p.recordIndex = make(map[protocol.RecordNumber]postHandshakeRecord)

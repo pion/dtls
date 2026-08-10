@@ -200,19 +200,46 @@ func TestPostHandshakeSkipsCanceledCommand(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result := make(chan error, 1)
+	completion, completionCtx := newPostHandshakeCompletion()
 	post.queue = append(post.queue, postHandshakeCommand{
-		Kind:     commandSendNewSessionTicket,
-		Canceled: ctx.Done(),
-		Result:   result,
+		Kind:       commandSendNewSessionTicket,
+		Canceled:   ctx.Done(),
+		Completion: completion,
 	})
 	conn := &postHandshakeWriteConn{result: &WriteResult{}}
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
-	assert.ErrorIs(t, <-result, context.Canceled)
+	<-completionCtx.Done()
+	assert.ErrorIs(t, completion.result(), context.Canceled)
 	assert.Empty(t, conn.writtenPackets)
 	assert.Empty(t, post.queue)
 	assert.Empty(t, post.flights)
+}
+
+func TestPostHandshakeCompletionKeepsFirstOutcome(t *testing.T) {
+	completion, completionCtx := newPostHandshakeCompletion()
+	completion.complete(nil)
+	completion.complete(assert.AnError)
+
+	<-completionCtx.Done()
+	assert.NoError(t, completion.result())
+}
+
+func TestWaitKeyUpdateCompletionKeepsCallerCancellationSeparate(t *testing.T) {
+	completion, completionCtx := newPostHandshakeCompletion()
+	callerCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assert.ErrorIs(t, (&fsm13{}).waitKeyUpdateCompletion(
+		callerCtx,
+		completionCtx,
+		completion,
+	), context.Canceled)
+	assert.NoError(t, completionCtx.Err())
+
+	completion.complete(nil)
+	<-completionCtx.Done()
+	assert.NoError(t, completion.result())
 }
 
 func TestPostHandshakeACKReliability(t *testing.T) {
@@ -468,14 +495,14 @@ func TestKeyUpdateCommitsWriteKeysOnlyAfterACK(t *testing.T) {
 			Number: record, Fragments: []SentHandshakeFragment{fragment},
 		}}},
 	}
-	result := make(chan error, 1)
+	completion, completionCtx := newPostHandshakeCompletion()
 
 	require.NoError(t, post.startKeyUpdate(context.Background(), conn, postHandshakeCommand{
 		Kind: commandSendKeyUpdate,
 		KeyUpdate: keyUpdateCommand{
 			Request: handshake.KeyUpdateRequested,
 		},
-		Result: result,
+		Completion: completion,
 	}))
 	require.Len(t, conn.writtenPackets, 1)
 	packet := conn.writtenPackets[0]
@@ -502,7 +529,8 @@ func TestKeyUpdateCommitsWriteKeysOnlyAfterACK(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, uint64(1), current.Generation)
 	assert.Same(t, current, conn.committed)
-	assert.NoError(t, <-result)
+	<-completionCtx.Done()
+	assert.NoError(t, completion.result())
 }
 
 func TestBuildKeyUpdateFlightRejectsEpochOverflow(t *testing.T) {
