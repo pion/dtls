@@ -46,8 +46,12 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 		common.SetLocalConnectionID(bytes.Clone(localCID))
 	}
 
+	cid := state.CID
+	cid.Send.Active = bytes.Clone(state.CID.Send.Active)
+
 	return &State13{
 		Common:                     common,
+		CID:                        cid,
 		KeySchedule:                cloneKeySchedule(state.KeySchedule),
 		TrafficKeys:                state.TrafficKeys.Clone(),
 		KeyAgreementSecret:         bytes.Clone(state.KeyAgreementSecret),
