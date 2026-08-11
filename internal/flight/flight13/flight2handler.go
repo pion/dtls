@@ -9,6 +9,7 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -16,7 +17,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
-func flight2Parse(
+func flight2Parse( //nolint:cyclop
 	_ context.Context,
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
@@ -47,6 +48,9 @@ func flight2Parse(
 	if !bytes.Equal(flightCtx.state.Cookie, cookie) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
+	if failure := validateRepeatedClientHelloConnectionID(flightCtx.state, clientHello); failure != nil {
+		return 0, failure.alert, failure.err
+	}
 
 	if failure := processClientHelloExtensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
@@ -62,6 +66,19 @@ func flight2Parse(
 	flightCtx.state.HandshakeRecvSequence = seq
 
 	return Flight4, nil, nil
+}
+
+func validateRepeatedClientHelloConnectionID(
+	state *dtlsstate.State13,
+	clientHello *handshake.MessageClientHello,
+) *clientHelloExtensionFailure {
+	remoteCID, present, duplicate := connectionIDExtension(clientHello.Extensions)
+	expectedPresent := state.RemoteCIDOffered
+	if duplicate || present != expectedPresent || (present && !bytes.Equal(remoteCID, state.RemoteConnectionID)) {
+		return newClientHelloExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
+	}
+
+	return nil
 }
 
 func flight2Generate(

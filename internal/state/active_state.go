@@ -11,6 +11,7 @@ import (
 // Active is a concrete DTLS version state that shares common connection fields.
 type Active interface {
 	CommonFields() *Common
+	ShouldWrapConnectionID() bool
 }
 
 // NewActive creates a DTLS 1.2 active state with initialized common fields.

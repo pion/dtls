@@ -4,6 +4,9 @@
 package flight13
 
 import (
+	"bytes"
+	"fmt"
+
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
@@ -40,17 +43,27 @@ func processClientHelloExtensions(
 	clientHello *handshake.MessageClientHello,
 ) *clientHelloExtensionFailure {
 	var seen clientHelloExtensionSet
+	remoteCID, hasRemoteCID, duplicateCID := connectionIDExtension(clientHello.Extensions)
+	if duplicateCID {
+		return newClientHelloExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
+	}
 
 	for _, val := range clientHello.Extensions {
 		if failure := processClientHelloSecurityExtension(state, cfg, &seen, val); failure != nil {
 			return failure
 		}
-		processClientHelloStateExtension(state, cfg, val)
+		processClientHelloStateExtension(state, val)
 	}
 
 	if !seen.hasPreSharedKey && (!seen.hasSignatureAlgorithms || !seen.hasSupportedGroups) {
 		return newClientHelloExtensionFailure(alert.MissingExtension, dtlserrors.ErrMissingClientHelloExtension)
 	}
+	if hasRemoteCID {
+		state.RemoteConnectionID = remoteCID
+	} else {
+		state.RemoteConnectionID = nil
+	}
+	state.RemoteCIDOffered = hasRemoteCID
 
 	return nil
 }
@@ -92,7 +105,6 @@ func processClientHelloSecurityExtension(
 
 func processClientHelloStateExtension(
 	state *dtlsstate.State13,
-	cfg *dtlsconfig.HandshakeConfig,
 	val extension.Extension,
 ) {
 	switch ext := val.(type) {
@@ -100,11 +112,6 @@ func processClientHelloStateExtension(
 		state.ServerName = ext.ServerName // remote server name
 	case *extension.ALPN:
 		state.PeerSupportedProtocols = ext.ProtocolNameList
-	case *extension.ConnectionID:
-		// Only set connection ID to be sent if server supports connection IDs.
-		if cfg.ConnectionIDGenerator != nil {
-			state.RemoteConnectionID = ext.CID
-		}
 	case *extension.SignatureAlgorithmsCert:
 		// Store the client's certificate signature schemes for later validation.
 		state.RemoteCertSignatureSchemes = ext.SignatureHashAlgorithms
@@ -112,4 +119,86 @@ func processClientHelloStateExtension(
 		state.RemoteKeyEntries = ext.ClientShares
 		state.HasRemoteKeyEntries = true
 	}
+}
+
+// connectionIDExtension extracts a connection_id extension while preserving
+// the distinction between an absent extension and a present, zero-length CID.
+func connectionIDExtension(extensions []extension.Extension) ([]byte, bool, bool) {
+	var cid []byte
+	found := false
+	for _, val := range extensions {
+		ext, ok := val.(*extension.ConnectionID)
+		if !ok {
+			continue
+		}
+		if found {
+			return nil, false, true
+		}
+		if len(ext.CID) > 0 {
+			cid = bytes.Clone(ext.CID)
+		}
+		found = true
+	}
+
+	return cid, found, false
+}
+
+func captureClientHelloConnectionIDOffer(
+	state *dtlsstate.State13,
+	message handshake.Message,
+) error {
+	clientHello, ok := message.(*handshake.MessageClientHello)
+	if !ok {
+		state.SetLocalConnectionID(nil)
+		state.LocalCIDOffered = false
+
+		return nil
+	}
+
+	localCID, present, duplicate := connectionIDExtension(clientHello.Extensions)
+	if duplicate {
+		state.SetLocalConnectionID(nil)
+		state.LocalCIDOffered = false
+
+		return dtlserrors.ErrInvalidClientHello
+	}
+	if !present {
+		state.SetLocalConnectionID(nil)
+		state.LocalCIDOffered = false
+
+		return nil
+	}
+
+	state.SetLocalConnectionID(localCID)
+	state.LocalCIDOffered = true
+
+	return nil
+}
+
+func validateRepeatedClientHelloConnectionIDOffer(
+	state *dtlsstate.State13,
+	message handshake.Message,
+) error {
+	clientHello, ok := message.(*handshake.MessageClientHello)
+	if !ok {
+		state.SetLocalConnectionID(nil)
+		state.LocalCIDOffered = false
+
+		return nil
+	}
+
+	localCID, present, duplicate := connectionIDExtension(clientHello.Extensions)
+	expectedCID := state.LocalConnectionID()
+	expectedPresent := state.LocalCIDOffered
+	if duplicate {
+		return fmt.Errorf("%w: duplicate connection_id extension", dtlserrors.ErrInvalidClientHello)
+	}
+	if present != expectedPresent {
+		return fmt.Errorf("%w: unexpected connection_id extension", dtlserrors.ErrInvalidClientHello)
+	}
+	if !bytes.Equal(localCID, expectedCID) {
+		return fmt.Errorf("%w: unexpected connection_id value", dtlserrors.ErrInvalidClientHello)
+	}
+
+	return nil
 }

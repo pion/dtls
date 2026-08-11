@@ -276,7 +276,7 @@ func flight5Generate(
 					},
 				},
 			},
-			ShouldWrapCID:            len(state.RemoteConnectionID) > 0,
+			ShouldWrapCID:            state.ShouldWrapConnectionID(),
 			ShouldEncrypt:            true,
 			ResetLocalSequenceNumber: true,
 		})

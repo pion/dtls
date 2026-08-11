@@ -4,6 +4,7 @@
 package flight13
 
 import (
+	"bytes"
 	"context"
 	"maps"
 	"slices"
@@ -119,6 +120,13 @@ func processFlight3ServerHello(
 	if failure != nil {
 		return failure
 	}
+	remoteCID, hasRemoteCID, duplicateCID := connectionIDExtension(serverHello.Extensions)
+	if duplicateCID {
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrInvalidServerHello)
+	}
+	if hasRemoteCID && !flightCtx.state.LocalCIDOffered {
+		return newFlightParseFailure(alert.UnsupportedExtension, dtlserrors.ErrInvalidServerHello)
+	}
 	flightCtx.state.RemoteVersions = versions
 	flightCtx.state.LocalVersion = protocol.Version1_3
 
@@ -135,7 +143,16 @@ func processFlight3ServerHello(
 		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareMissing)
 	}
 
-	return applyFlight3ServerKeyShare(flightCtx, serverShare)
+	if failure := applyFlight3ServerKeyShare(flightCtx, serverShare); failure != nil {
+		return failure
+	}
+	if hasRemoteCID {
+		flightCtx.state.NegotiateConnectionIDs(remoteCID)
+	} else {
+		flightCtx.state.ResetConnectionIDs()
+	}
+
+	return nil
 }
 
 func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]protocol.Version, *flightParseFailure) {
@@ -349,6 +366,13 @@ func flight3Generate(
 		})
 	}
 
+	localCID := flightCtx.state.LocalConnectionID()
+	if flightCtx.cfg.ConnectionIDGenerator != nil && flightCtx.state.LocalCIDOffered {
+		extensions = append(extensions, &extension.ConnectionID{
+			CID: bytes.Clone(localCID),
+		})
+	}
+
 	if len(flightCtx.state.Cookie) > 0 {
 		extensions = append(extensions, &extension.CookieExt{Cookie: flightCtx.state.Cookie})
 	}
@@ -363,13 +387,14 @@ func flight3Generate(
 		Extensions:         extensions,
 	}
 
-	var content handshake.Handshake
-
+	message := handshake.Message(clientHello)
 	if flightCtx.cfg.ClientHelloMessageHook != nil {
-		content = handshake.Handshake{Message: flightCtx.cfg.ClientHelloMessageHook(*clientHello)}
-	} else {
-		content = handshake.Handshake{Message: clientHello}
+		message = flightCtx.cfg.ClientHelloMessageHook(*clientHello)
 	}
+	if err := validateRepeatedClientHelloConnectionIDOffer(flightCtx.state, message); err != nil {
+		return nil, nil, err
+	}
+	content := handshake.Handshake{Message: message}
 
 	return []*dtlsflight.Packet{
 		{

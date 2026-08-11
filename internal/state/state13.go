@@ -4,6 +4,8 @@
 package state
 
 import (
+	"bytes"
+
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -118,4 +120,41 @@ type State13 struct {
 
 	RemoteSignatureSchemes     []signaturehash.Algorithm // signature_algorithms from peer
 	RemoteCertSignatureSchemes []signaturehash.Algorithm // signature_algorithms_cert from peer
+}
+
+// ShouldWrapConnectionID reports whether outgoing records should use the
+// legacy DTLS 1.2 CID record encoding.
+func (*State13) ShouldWrapConnectionID() bool {
+	return false
+}
+
+// ResetConnectionIDs clears the connection IDs and CID state.
+func (s *State13) ResetConnectionIDs() {
+	s.SetLocalConnectionID(nil)
+	s.LocalCIDOffered = false
+	s.RemoteConnectionID = nil
+	s.RemoteCIDOffered = false
+	s.CID = CIDState{}
+}
+
+// NegotiateConnectionIDs records the connection IDs negotiated.
+func (s *State13) NegotiateConnectionIDs(remoteCID []byte) {
+	localCID := bytes.Clone(s.LocalConnectionID())
+
+	s.SetLocalConnectionID(localCID)
+	s.LocalCIDOffered = true
+	s.RemoteConnectionID = bytes.Clone(remoteCID)
+	s.RemoteCIDOffered = true
+	s.CID = CIDState{
+		Negotiated: true,
+		Receive: CIDReceiveState{
+			Expected:               len(localCID) > 0,
+			Length:                 len(localCID),
+			CanSendNewConnectionID: len(localCID) > 0,
+		},
+		Send: CIDSendState{
+			UseCID: len(remoteCID) > 0,
+			Active: bytes.Clone(remoteCID),
+		},
+	}
 }

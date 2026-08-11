@@ -38,6 +38,12 @@ type State12 struct {
 	PeerCertificatesVerified bool
 }
 
+// ShouldWrapConnectionID reports whether outgoing DTLS 1.2 records should
+// use CID record encoding.
+func (s *State12) ShouldWrapConnectionID() bool {
+	return len(s.RemoteConnectionID) > 0
+}
+
 func (s *State12) InitCipherSuite() error {
 	if s.CipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet

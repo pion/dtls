@@ -86,15 +86,17 @@ func flight3Parse(
 			case *extension.ConnectionID:
 				// Only set connection ID to be sent if client supports connection
 				// IDs.
-				if cfg.ConnectionIDGenerator != nil {
+				if state.LocalCIDOffered {
 					state.RemoteConnectionID = ext.CID
+					state.RemoteCIDOffered = true
 				}
 			}
 		}
 		// If the server doesn't support connection IDs, the client should not
 		// expect one to be sent.
-		if state.RemoteConnectionID == nil {
+		if !state.RemoteCIDOffered {
 			state.SetLocalConnectionID(nil)
+			state.LocalCIDOffered = false
 		}
 
 		if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
@@ -288,7 +290,7 @@ func handleServerKeyExchange(
 	return nil, nil //nolint:nilnil
 }
 
-func flight3Generate(
+func flight3Generate( //nolint:cyclop
 	_ dtlsflight.Conn,
 	state *dtlsstate.State12,
 	_ *dtlsflight.Cache,
@@ -346,7 +348,7 @@ func flight3Generate(
 
 	// If we sent a connection ID on the first ClientHello, send it on the
 	// second.
-	if state.LocalConnectionID() != nil {
+	if cfg.ConnectionIDGenerator != nil && state.LocalCIDOffered {
 		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
 	}
 

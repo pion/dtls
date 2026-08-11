@@ -591,8 +591,6 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		return 0, err
 	}
 
-	//nolint:godox
-	// TODO: check for version
 	ctx, cancel := c.contextWithClose(c.writeDeadline)
 	defer cancel()
 
@@ -606,7 +604,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 					Data: payload,
 				},
 			},
-			ShouldWrapCID: len(dtlsstate.CommonState(c.state).RemoteConnectionID) > 0,
+			ShouldWrapCID: c.state.ShouldWrapConnectionID(),
 			ShouldEncrypt: true,
 		},
 	})
@@ -2269,7 +2267,6 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 		}
 	}
 
-	// This should be updated with DTLS 1.3 record encoding.
 	return c.writePackets(ctx, []*dtlsflight.Packet{
 		{
 			Record: &recordlayer.RecordLayer{
@@ -2282,7 +2279,7 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 					Description: desc,
 				},
 			},
-			ShouldWrapCID: len(common.RemoteConnectionID) > 0,
+			ShouldWrapCID: c.state.ShouldWrapConnectionID(),
 			ShouldEncrypt: c.isHandshakeCompletedSuccessfully(),
 		},
 	})

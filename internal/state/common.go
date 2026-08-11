@@ -39,11 +39,17 @@ type Common struct {
 	// For a server, this is the connection ID sent in ServerHello.
 	// For a client, this is the connection ID sent in the ClientHello.
 	localConnectionID atomic.Value
+	// LocalCIDOffered reports whether the local endpoint sent a connection_id
+	// extension.
+	LocalCIDOffered bool
 	// RemoteConnectionID is the connection ID that the remote endpoint
 	// specifies should be sent.
 	// For a server, this is the connection ID received in the ClientHello.
 	// For a client, this is the connection ID received in the ServerHello.
 	RemoteConnectionID []byte
+	// RemoteCIDOffered reports whether the peer sent a connection_id
+	// extension.
+	RemoteCIDOffered bool
 
 	IsClient bool
 

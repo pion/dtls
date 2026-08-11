@@ -4,6 +4,7 @@
 package flight13
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"slices"
@@ -234,6 +235,18 @@ func flight4Generate( //nolint:cyclop
 			KeyExchange: state.LocalKeypair.PublicKey,
 		},
 	})
+	if state.RemoteCIDOffered && cfg.ConnectionIDGenerator != nil {
+		if !state.LocalCIDOffered {
+			state.SetLocalConnectionID(bytes.Clone(cfg.ConnectionIDGenerator()))
+			state.LocalCIDOffered = true
+		}
+		state.NegotiateConnectionIDs(state.RemoteConnectionID)
+		serverHelloExtensions = append(serverHelloExtensions, &extension.ConnectionID{
+			CID: bytes.Clone(state.LocalConnectionID()),
+		})
+	} else {
+		state.ResetConnectionIDs()
+	}
 
 	serverHello := &dtlsflight.Packet{
 		Record: &recordlayer.RecordLayer{

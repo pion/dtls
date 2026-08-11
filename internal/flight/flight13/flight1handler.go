@@ -4,6 +4,7 @@
 package flight13
 
 import (
+	"bytes"
 	"context"
 	"errors"
 
@@ -25,6 +26,7 @@ func flight1Generate(
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
+	state.ResetConnectionIDs()
 
 	state.SetLocalEpoch(EpochInitial)
 	state.SetRemoteEpoch(EpochInitial)
@@ -125,7 +127,13 @@ func flight1Generate(
 		})
 	}
 
-	// connection ID
+	if cfg.ConnectionIDGenerator != nil {
+		state.SetLocalConnectionID(bytes.Clone(cfg.ConnectionIDGenerator()))
+		state.LocalCIDOffered = true
+		extensions = append(extensions, &extension.ConnectionID{
+			CID: bytes.Clone(state.LocalConnectionID()),
+		})
+	}
 
 	// Pre_shared_key must be last extension
 
@@ -140,13 +148,14 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	var content handshake.Handshake
-
+	message := handshake.Message(clientHello)
 	if cfg.ClientHelloMessageHook != nil {
-		content = handshake.Handshake{Message: cfg.ClientHelloMessageHook(*clientHello)}
-	} else {
-		content = handshake.Handshake{Message: clientHello}
+		message = cfg.ClientHelloMessageHook(*clientHello)
 	}
+	if err := captureClientHelloConnectionIDOffer(state, message); err != nil {
+		return nil, nil, err
+	}
+	content := handshake.Handshake{Message: message}
 
 	return []*dtlsflight.Packet{
 		{
@@ -209,6 +218,10 @@ func flight1Parse(
 		}
 
 		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
+	}
+	if _, present, duplicate := connectionIDExtension(sh.Extensions); present || duplicate {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
+			dtlserrors.ErrInvalidHelloRetryRequest
 	}
 	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(sh, cfg)
 	if err != nil {

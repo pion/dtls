@@ -293,8 +293,9 @@ func flight4Generate(
 	// IDs. We already know whether the client supports connection IDs from
 	// parsing the ClientHello, so avoid setting local connection ID if the
 	// client won't send it.
-	if cfg.ConnectionIDGenerator != nil && state.RemoteConnectionID != nil {
+	if cfg.ConnectionIDGenerator != nil && state.RemoteCIDOffered {
 		state.SetLocalConnectionID(cfg.ConnectionIDGenerator())
+		state.LocalCIDOffered = true
 		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
 	}
 

@@ -41,8 +41,7 @@ func flight0Parse(
 
 	// Connection Identifiers must be negotiated afresh on session resumption.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
-	state.SetLocalConnectionID(nil)
-	state.RemoteConnectionID = nil
+	state.ResetConnectionIDs()
 
 	state.HandshakeRecvSequence = seq
 
@@ -85,12 +84,6 @@ func flight0Parse(
 		// TODO: This should actually handover the state machine to DTLS 1.2
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
 			dtlserrors.ErrInvalidProtocolVersionState
-	}
-
-	// If the client doesn't support connection IDs, the server should not
-	// expect one to be sent.
-	if state.RemoteConnectionID == nil {
-		state.SetLocalConnectionID(nil)
 	}
 
 	nextFlight := Flight2

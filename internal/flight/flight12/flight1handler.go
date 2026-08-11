@@ -158,13 +158,7 @@ func flight1Generate(
 	// use.
 	if cfg.ConnectionIDGenerator != nil {
 		state.SetLocalConnectionID(cfg.ConnectionIDGenerator())
-		// The presence of a generator indicates support for connection IDs. We
-		// use the presence of a non-nil local CID in flight 3 to determine
-		// whether we send a CID in the second ClientHello, so we convert any
-		// nil CID returned by a generator to []byte{}.
-		if state.LocalConnectionID() == nil {
-			state.SetLocalConnectionID([]byte{})
-		}
+		state.LocalCIDOffered = true
 		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
 	}
 
