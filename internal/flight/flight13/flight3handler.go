@@ -204,6 +204,15 @@ func initializeFlight3HandshakeProtection(
 	if err := flightCtx.handshakeRecordProtectionInitializer(flightCtx.state); err != nil {
 		return newFlightParseFailure(alert.InternalError, err)
 	}
+	// During the handshake, ACK records MUST be sent with an epoch which is equal to or higher
+	// than the record which is being acknowledged.
+	// ....
+	// if the client receives only the ServerHello and Certificate and wishes to ACK them
+	// in a single record, it must do so in epoch 2, as it is required to use an epoch
+	// greater than or equal to 2 and cannot yet send with any greater epoch.
+	//
+	// https://datatracker.ietf.org/doc/html/rfc9147#section-7
+	flightCtx.state.SetLocalEpoch(EpochHandshake)
 	flightCtx.state.SetRemoteEpoch(EpochHandshake)
 	if conn == nil {
 		return nil

@@ -170,6 +170,14 @@ func flight1Parse(
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
 
+	if state.RemoteEpoch() >= EpochHandshake {
+		// a direct ServerHello can leave the protected server flight pending,
+		// so resume it instead of pulling ServerHello again.
+		//
+		// https://datatracker.ietf.org/doc/html/rfc9147#section-5.5
+		return flight3Parse(ctx, conn, flightCtx)
+	}
+
 	seq, msgs, items, ok := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
 	)
