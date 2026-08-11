@@ -106,15 +106,13 @@ func (f *FragmentBuffer) pushHandshakeFragments(
 			return false, false, err
 		}
 
-		// Fragment is a retransmission. We have already assembled it before successfully
-		isRetransmit = frag.handshakeHeader.FragmentOffset == 0 &&
-			frag.handshakeHeader.MessageSequence < f.currentMessageSequenceNumber
-
 		end := int(handshake.HeaderLength + frag.handshakeHeader.FragmentLength)
 		if end > len(buf) {
 			return false, false, dtlserrors.ErrBufferTooSmall
 		}
 		if frag.handshakeHeader.MessageSequence < f.currentMessageSequenceNumber {
+			// any fragment from an already assembled message is a retransmission.
+			isRetransmit = true
 			buf = buf[end:]
 
 			continue

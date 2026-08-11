@@ -7,7 +7,11 @@ import (
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFragmentBuffer(t *testing.T) {
@@ -199,4 +203,85 @@ func TestFragmentBuffer_UnmarshalInvalid(t *testing.T) {
 		0x16, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03,
 	})
 	assert.Error(t, err, "Pushing a buffer with partial handshake header should return an error")
+}
+
+func TestFragmentBuffer_RetransmitDetection(t *testing.T) {
+	tests := []struct {
+		name               string
+		headers            []handshake.Header
+		expectedRetransmit bool
+	}{
+		{
+			name: "old nonzero-offset fragment",
+			headers: []handshake.Header{{
+				Type:            handshake.TypeCertificate,
+				Length:          2,
+				MessageSequence: 0,
+				FragmentOffset:  1,
+				FragmentLength:  1,
+			}},
+			expectedRetransmit: true,
+		},
+		{
+			name: "old fragment followed by current fragment",
+			headers: []handshake.Header{
+				{
+					Type:            handshake.TypeCertificate,
+					Length:          1,
+					MessageSequence: 0,
+					FragmentLength:  1,
+				},
+				{
+					Type:            handshake.TypeCertificate,
+					Length:          1,
+					MessageSequence: 1,
+					FragmentLength:  1,
+				},
+			},
+			expectedRetransmit: true,
+		},
+		{
+			name: "current fragment",
+			headers: []handshake.Header{{
+				Type:            handshake.TypeCertificate,
+				Length:          1,
+				MessageSequence: 1,
+				FragmentLength:  1,
+			}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fragmentBuffer := New()
+			fragmentBuffer.AdvanceTo(1)
+
+			isHandshake, isRetransmit, err := fragmentBuffer.Push(marshalHandshakeRecord(t, test.headers...))
+			require.NoError(t, err)
+			assert.True(t, isHandshake)
+			assert.Equal(t, test.expectedRetransmit, isRetransmit)
+		})
+	}
+}
+
+func marshalHandshakeRecord(t *testing.T, headers ...handshake.Header) []byte {
+	t.Helper()
+
+	var content []byte
+	for i := range headers {
+		rawHeader, err := headers[i].Marshal()
+		require.NoError(t, err)
+		content = append(content, rawHeader...)
+		content = append(content, make([]byte, headers[i].FragmentLength)...)
+	}
+
+	header := recordlayer.Header{
+		ContentType: protocol.ContentTypeHandshake,
+		ContentLen:  uint16(len(content)), //nolint:gosec // Test records are small and bounded.
+		Version:     protocol.Version1_2,
+	}
+	rawHeader, err := header.Marshal()
+	require.NoError(t, err)
+
+	return append(rawHeader, content...)
 }
