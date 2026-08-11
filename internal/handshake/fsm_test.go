@@ -894,6 +894,38 @@ func TestHandshakeFSM13ClientFlight5GeneratesFinished(t *testing.T) {
 	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
 }
 
+func TestHandshakeFSM13ClientFlight5HandlesPreviousFlightRetransmit(t *testing.T) {
+	fixture := newNoHRRFlight13Fixture(t)
+	fsm := clientFSMThroughServerFlight13(t, fixture)
+	conn := &flightTestConn{}
+	nextState, err := fsm.prepare(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateSending, nextState)
+	require.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
+
+	fixture.clientState.SetLocalEpoch(dtlsflight13.EpochHandshake)
+	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochHandshake), SequenceNumber: 11}
+	retransmit := RecvHandshakeState{
+		Done:         make(chan struct{}),
+		HasHandshake: true,
+		IsRetransmit: true,
+		RecordsToACK: []protocol.RecordNumber{record},
+	}
+	transition, err := fsm.handleReceivedFlight(context.Background(), conn, retransmit)
+	require.NoError(t, err)
+	assert.Equal(t, StateSending, transition.state)
+	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
+	require.Len(t, conn.writtenPackets, 1)
+	ackPacket := conn.writtenPackets[0]
+	assert.True(t, ackPacket.ShouldEncrypt)
+	assert.Equal(t, dtlsflight13.EpochHandshake, ackPacket.Record.Header.Epoch)
+	ack, ok := ackPacket.Record.Content.(*protocol.ACK)
+	require.True(t, ok)
+	assert.Equal(t, []protocol.RecordNumber{record}, ack.Records)
+	fsm.received.release()
+	assertFlight13RecvDoneClosed(t, retransmit)
+}
+
 func TestHandshakeFSM13SendErrorReleasesReader(t *testing.T) {
 	tests := []struct {
 		name     string

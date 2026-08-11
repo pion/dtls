@@ -12,6 +12,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
@@ -347,7 +348,7 @@ func (s *fsm13) finish(ctx context.Context, conn Conn) (State, error) {
 	return StateFinished, nil
 }
 
-func (s *fsm13) handleReceivedFlight(
+func (s *fsm13) handleReceivedFlight( //nolint:cyclop
 	ctx context.Context,
 	conn Conn,
 	received RecvHandshakeState,
@@ -361,6 +362,9 @@ func (s *fsm13) handleReceivedFlight(
 	s.applyACKProgress(ackResult)
 	if !received.HasHandshake && len(received.ACKs) != 0 {
 		return s.transitionAfterACK(ackResult, false), nil
+	}
+	if received.HasHandshake && received.IsRetransmit && s.currentFlight.IsLastSendFlight() {
+		return s.handlePreviousFlightRetransmit(ctx, conn, received.RecordsToACK, ackResult)
 	}
 
 	nextFlight, err := s.parseReceivedFlight(ctx, conn, s.currentFlight)
@@ -384,6 +388,23 @@ func (s *fsm13) handleReceivedFlight(
 	}
 
 	return transition, nil
+}
+
+func (s *fsm13) handlePreviousFlightRetransmit(
+	ctx context.Context,
+	conn Conn,
+	recordsToACK []protocol.RecordNumber,
+	ackResult ACKResult,
+) (receivedFlightTransition, error) {
+	// A duplicate peer flight means it didn't receive our response.
+	// ACK the duplicate and retransmit the pending final flight.
+	// check WAIT exit 3:
+	// https://datatracker.ietf.org/doc/html/rfc9147#section-5.8.1
+	if err := sendACK(ctx, conn, s.state.LocalEpoch(), recordsToACK); err != nil {
+		return receivedFlightTransition{}, err
+	}
+
+	return s.transitionAfterACK(ackResult, true), nil
 }
 
 func (s *fsm13) prepareFlightACKTracking(flights []*dtlsflight.Packet, retransmit bool) {
