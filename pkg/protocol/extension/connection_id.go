@@ -24,6 +24,24 @@ func (c ConnectionID) TypeValue() TypeValue {
 	return ConnectionIDTypeValue
 }
 
+// ExtensionType returns the IANA extension type for the payload-oriented API.
+func (c ConnectionID) ExtensionType() Type {
+	return TypeConnectionID
+}
+
+// MarshalData encodes extension_data without the extension header.
+func (c ConnectionID) MarshalData() ([]byte, error) {
+	if len(c.CID) > 255 {
+		return nil, dtlserrors.ErrInvalidCIDFormat
+	}
+
+	out := make([]byte, 1, 1+len(c.CID))
+	out[0] = byte(len(c.CID)) //nolint:gosec // length is bounded above.
+	out = append(out, c.CID...)
+
+	return out, nil
+}
+
 // Marshal encodes the extension.
 func (c *ConnectionID) Marshal() ([]byte, error) {
 	var b cryptobyte.Builder
@@ -65,4 +83,9 @@ func (c *ConnectionID) unmarshalPayload(data []byte) error {
 	}
 
 	return nil
+}
+
+// UnmarshalData decodes extension_data without the extension header.
+func (c *ConnectionID) UnmarshalData(data []byte) error {
+	return c.unmarshalPayload(data)
 }
