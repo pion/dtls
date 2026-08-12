@@ -128,19 +128,18 @@ const (
 	commandSendKeyUpdate
 	commandSendNewConnectionID
 	commandSendRequestConnectionID
+	commandSendApplicationData
 )
 
 type keyUpdateCommand struct {
 	Request handshake.KeyUpdateRequest
-
-	// True when this is a protocol-required response to an incoming
-	// update_requested KeyUpdate.
-	RequiredResponse bool
 }
 
 type postHandshakeCommand struct {
 	Kind postHandshakeCommandKind
 
+	Packets   []*dtlsflight.Packet
+	Write     func(Conn, []*dtlsflight.Packet) error
 	KeyUpdate keyUpdateCommand
 	Canceled  <-chan struct{}
 
@@ -160,26 +159,12 @@ type postHandshake struct {
 	// Reverse lookup for received ACK record numbers.
 	recordIndex map[protocol.RecordNumber]postHandshakeRecord
 
-	pendingRequiredKeyUpdateResponses int
-
 	initialRetransmitInterval time.Duration
 	handshakeContext
 }
 
 type keyUpdateCommitConn interface {
 	CommitLocalKeyUpdate(*dtlsstate.TrafficGeneration) error
-}
-
-// TODO: Replace this pause gate with unified serialization of application
-// and post-handshake writes.
-// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.6.3
-// https://www.rfc-editor.org/rfc/rfc9147.html#section-4.2.1
-// https://www.rfc-editor.org/rfc/rfc9147.html#section-8
-//
-//nolint:godox
-type applicationDataPauser interface {
-	PauseApplicationData()
-	ResumeApplicationData()
 }
 
 type pendingACKConn interface {
@@ -241,7 +226,14 @@ func (p *postHandshake) initialize() {
 }
 
 func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn) error {
-	for len(p.flights) == 0 && len(p.queue) != 0 {
+	for len(p.queue) != 0 {
+		// Reliable post-handshake messages use one active outbound flight.
+		// Application records may follow a flight that has already been emitted.
+		// For KeyUpdate they continue using the current generation until the ACK
+		// commits the pending generation.
+		if len(p.flights) != 0 && p.queue[0].Kind != commandSendApplicationData {
+			return nil
+		}
 		command := p.queue[0]
 		p.queue = p.queue[1:]
 		if err, canceled := canceledPostHandshakeCommand(command); canceled {
@@ -253,7 +245,6 @@ func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn)
 		err := p.startPostHandshakeCommand(ctx, conn, command)
 		if err != nil {
 			command.Completion.complete(err)
-			p.failRequiredKeyUpdateResponse(conn, command)
 
 			return err
 		}
@@ -287,19 +278,23 @@ func (p *postHandshake) startPostHandshakeCommand(
 	case commandSendNewConnectionID,
 		commandSendRequestConnectionID:
 		return dtlserrors.ErrNotImplemented
+	case commandSendApplicationData:
+		return p.writeApplicationData(conn, command)
 	default:
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
 }
 
-func (p *postHandshake) failRequiredKeyUpdateResponse(conn Conn, command postHandshakeCommand) {
-	if !command.KeyUpdate.RequiredResponse {
-		return
+func (p *postHandshake) writeApplicationData(conn Conn, command postHandshakeCommand) error {
+	for _, packet := range command.Packets {
+		packet.Record.Header.Epoch = p.state.LocalEpoch()
 	}
-	p.pendingRequiredKeyUpdateResponses = 0
-	if pauser, ok := conn.(applicationDataPauser); ok {
-		pauser.ResumeApplicationData()
-	}
+	err := command.Write(conn, command.Packets)
+	command.Completion.complete(err)
+
+	// Report application write failures to the caller without terminating the
+	// post-handshake state machine. This preserves Conn.Write's behavior.
+	return nil
 }
 
 func (p *postHandshake) applyACK(ack protocol.ACK) []postHandshakeFlightID {
@@ -466,9 +461,7 @@ func (p *postHandshake) handleKeyUpdate(
 		return err
 	}
 
-	if err = p.queueRequiredKeyUpdateResponse(conn, message.RequestUpdate); err != nil {
-		return err
-	}
+	p.queueRequiredKeyUpdateResponse(message.RequestUpdate)
 
 	p.state.TrafficKeys.Install(nil, next)
 	p.state.SetRemoteEpoch(next.Epoch)
@@ -477,31 +470,27 @@ func (p *postHandshake) handleKeyUpdate(
 	return conn.HandleQueuedPackets(ctx)
 }
 
-func (p *postHandshake) queueRequiredKeyUpdateResponse(
-	conn Conn,
-	request handshake.KeyUpdateRequest,
-) error {
+func (p *postHandshake) queueRequiredKeyUpdateResponse(request handshake.KeyUpdateRequest) {
 	if request != handshake.KeyUpdateRequested {
-		return nil
+		return
 	}
-	pauser, ok := conn.(applicationDataPauser)
-	if !ok {
-		return dtlserrors.ErrNotImplemented
-	}
-	if p.pendingRequiredKeyUpdateResponses == 0 {
-		pauser.PauseApplicationData()
-	}
-	p.pendingRequiredKeyUpdateResponses++
 	command := postHandshakeCommand{
 		Kind: commandSendKeyUpdate,
 		KeyUpdate: keyUpdateCommand{
-			Request:          handshake.KeyUpdateNotRequested,
-			RequiredResponse: true,
+			Request: handshake.KeyUpdateNotRequested,
 		},
 	}
-	p.queue = append(p.queue, command)
+	insertAt := len(p.queue)
+	for i, queued := range p.queue {
+		if queued.Kind == commandSendApplicationData {
+			insertAt = i
 
-	return nil
+			break
+		}
+	}
+	p.queue = append(p.queue, postHandshakeCommand{})
+	copy(p.queue[insertAt+1:], p.queue[insertAt:])
+	p.queue[insertAt] = command
 }
 
 func (p *postHandshake) handleNewSessionTicket(
@@ -558,22 +547,6 @@ func (p *postHandshake) startKeyUpdate(
 	p.flights[flight.ID] = flight
 	p.registerTransmission(flight, result.TrackedRecords, true)
 	flight.NextRetransmit = time.Now().Add(flight.RetransmitInterval)
-
-	if command.KeyUpdate.RequiredResponse {
-		pauser, ok := conn.(applicationDataPauser)
-		if !ok {
-			return dtlserrors.ErrNotImplemented
-		}
-		p.pendingRequiredKeyUpdateResponses--
-		// RFC 8446 4.6.3 requires this response before the next Application Data
-		// record,
-		// and RFC 9147 8 defers using the next write keys until it is ACKed.
-		// https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.3
-		// https://datatracker.ietf.org/doc/html/rfc9147#section-8
-		if p.pendingRequiredKeyUpdateResponses == 0 {
-			pauser.ResumeApplicationData()
-		}
-	}
 
 	return nil
 }
@@ -769,7 +742,7 @@ func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeF
 	return completionErr
 }
 
-func (p *postHandshake) fail(conn Conn, err error) {
+func (p *postHandshake) fail(err error) {
 	for _, command := range p.queue {
 		command.Completion.complete(err)
 	}
@@ -779,12 +752,6 @@ func (p *postHandshake) fail(conn Conn, err error) {
 		delete(p.flights, id)
 	}
 	p.recordIndex = make(map[protocol.RecordNumber]postHandshakeRecord)
-	if p.pendingRequiredKeyUpdateResponses != 0 {
-		p.pendingRequiredKeyUpdateResponses = 0
-		if pauser, ok := conn.(applicationDataPauser); ok {
-			pauser.ResumeApplicationData()
-		}
-	}
 }
 
 func (p *postHandshake) retransmitPostHandshake(

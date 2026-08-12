@@ -18,6 +18,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,12 +55,9 @@ type postHandshakeWriteConn struct {
 
 type postHandshakeKeyUpdateConn struct {
 	flightTestConn
-	state        *dtlsstate.State13
-	result       *WriteResult
-	committed    *dtlsstate.TrafficGeneration
-	blocked      bool
-	blockCount   int
-	unblockCount int
+	state     *dtlsstate.State13
+	result    *WriteResult
+	committed *dtlsstate.TrafficGeneration
 }
 
 func (c *postHandshakeKeyUpdateConn) WritePackets(
@@ -80,16 +78,6 @@ func (c *postHandshakeKeyUpdateConn) CommitLocalKeyUpdate(generation *dtlsstate.
 	c.state.SetLocalEpoch(generation.Epoch)
 
 	return nil
-}
-
-func (c *postHandshakeKeyUpdateConn) PauseApplicationData() {
-	c.blocked = true
-	c.blockCount++
-}
-
-func (c *postHandshakeKeyUpdateConn) ResumeApplicationData() {
-	c.blocked = false
-	c.unblockCount++
 }
 
 func newPostHandshakeKeyUpdateTestState(t *testing.T, isClient bool) *dtlsstate.State13 {
@@ -225,12 +213,12 @@ func TestPostHandshakeCompletionKeepsFirstOutcome(t *testing.T) {
 	assert.NoError(t, completion.result())
 }
 
-func TestWaitKeyUpdateCompletionKeepsCallerCancellationSeparate(t *testing.T) {
+func TestWaitPostHandshakeCompletionKeepsCallerCancellationSeparate(t *testing.T) {
 	completion, completionCtx := newPostHandshakeCompletion()
 	callerCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	assert.ErrorIs(t, (&fsm13{}).waitKeyUpdateCompletion(
+	assert.ErrorIs(t, (&fsm13{}).waitPostHandshakeCompletion(
 		callerCtx,
 		completionCtx,
 		completion,
@@ -572,14 +560,10 @@ func TestRequestedKeyUpdateInstallsReadKeysAndQueuesResponse(t *testing.T) {
 	assert.Equal(t, uint64(1), currentRead.Generation)
 	_, oldReadRetained := state.TrafficKeys.Read(dtlsflight13.EpochApplication)
 	assert.True(t, oldReadRetained)
-	assert.True(t, conn.blocked)
-	assert.Equal(t, 1, conn.blockCount)
 	require.Len(t, post.queue, 1)
-	assert.True(t, post.queue[0].KeyUpdate.RequiredResponse)
+	assert.Equal(t, handshake.KeyUpdateNotRequested, post.queue[0].KeyUpdate.Request)
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
-	assert.False(t, conn.blocked)
-	assert.Equal(t, 1, conn.unblockCount)
 	require.Len(t, conn.writtenPackets, 1)
 	responseHandshake, ok := conn.writtenPackets[0].Record.Content.(*handshake.Handshake)
 	require.True(t, ok)
@@ -590,7 +574,7 @@ func TestRequestedKeyUpdateInstallsReadKeysAndQueuesResponse(t *testing.T) {
 	assert.Equal(t, dtlsflight13.EpochApplication, state.LocalEpoch())
 }
 
-func TestRequiredKeyUpdateResponsesKeepApplicationDataBlockedUntilEmitted(t *testing.T) {
+func TestRequiredKeyUpdateResponsesAreSerialized(t *testing.T) {
 	state := newPostHandshakeKeyUpdateTestState(t, false)
 	post := newPostHandshake(handshakeContext{
 		state: state,
@@ -605,14 +589,10 @@ func TestRequiredKeyUpdateResponsesKeepApplicationDataBlockedUntilEmitted(t *tes
 	require.NoError(t, post.handleKeyUpdate(
 		context.Background(), conn, request, dtlsflight13.EpochApplication+1,
 	))
-	assert.True(t, conn.blocked)
-	assert.Equal(t, 1, conn.blockCount)
-	assert.Equal(t, 2, post.pendingRequiredKeyUpdateResponses)
 	require.Len(t, post.queue, 2)
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
-	assert.True(t, conn.blocked)
-	assert.Equal(t, 1, post.pendingRequiredKeyUpdateResponses)
+	require.Len(t, post.queue, 1)
 	require.Len(t, conn.writtenPackets, 1)
 	require.Len(t, post.flights, 1)
 	for id := range post.flights {
@@ -620,10 +600,115 @@ func TestRequiredKeyUpdateResponsesKeepApplicationDataBlockedUntilEmitted(t *tes
 	}
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
-	assert.False(t, conn.blocked)
-	assert.Equal(t, 1, conn.unblockCount)
-	assert.Zero(t, post.pendingRequiredKeyUpdateResponses)
+	assert.Empty(t, post.queue)
 	assert.Len(t, conn.writtenPackets, 2)
+}
+
+func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
+	state := newPostHandshakeKeyUpdateTestState(t, false)
+	post := newPostHandshake(handshakeContext{
+		state: state,
+		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
+	})
+	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 4}
+	conn := &postHandshakeKeyUpdateConn{
+		state: state,
+		result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{
+			Number: record,
+			Fragments: []SentHandshakeFragment{{
+				MessageSequence: 0,
+				Length:          1,
+			}},
+		}}},
+	}
+	applicationPacket := &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header:  recordlayer.Header{Version: protocol.Version1_2},
+			Content: &protocol.ApplicationData{Data: []byte("after update")},
+		},
+		ShouldEncrypt: true,
+	}
+	post.queue = append(post.queue, postHandshakeCommand{
+		Kind:    commandSendApplicationData,
+		Packets: []*dtlsflight.Packet{applicationPacket},
+		Write: func(conn Conn, packets []*dtlsflight.Packet) error {
+			_, err := conn.WritePackets(context.Background(), packets)
+
+			return err
+		},
+	})
+	post.queueRequiredKeyUpdateResponse(handshake.KeyUpdateRequested)
+
+	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
+	require.Len(t, conn.writtenPackets, 2)
+	_, isKeyUpdate := conn.writtenPackets[0].Record.Content.(*handshake.Handshake)
+	assert.True(t, isKeyUpdate)
+	_, isApplicationData := conn.writtenPackets[1].Record.Content.(*protocol.ApplicationData)
+	assert.True(t, isApplicationData)
+	assert.Equal(t, dtlsflight13.EpochApplication, applicationPacket.Record.Header.Epoch)
+	assert.Empty(t, post.queue)
+
+	completed := post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{record}})
+	require.Len(t, completed, 1)
+	require.NoError(t, post.completePostHandshakeFlight(conn, completed[0]))
+	afterACKPacket := &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header:  recordlayer.Header{Version: protocol.Version1_2},
+			Content: &protocol.ApplicationData{Data: []byte("after ACK")},
+		},
+		ShouldEncrypt: true,
+	}
+	post.queue = append(post.queue, postHandshakeCommand{
+		Kind:    commandSendApplicationData,
+		Packets: []*dtlsflight.Packet{afterACKPacket},
+		Write: func(conn Conn, packets []*dtlsflight.Packet) error {
+			_, err := conn.WritePackets(context.Background(), packets)
+
+			return err
+		},
+	})
+	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
+	require.Len(t, conn.writtenPackets, 3)
+	assert.Equal(t, dtlsflight13.EpochApplication+1, afterACKPacket.Record.Header.Epoch)
+}
+
+func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
+	state := dtlsstate.NewState13(false)
+	state.SetLocalEpoch(dtlsflight13.EpochApplication)
+	post := newPostHandshake(handshakeContext{
+		state: &state,
+		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
+	})
+	applicationPacket := &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header:  recordlayer.Header{Version: protocol.Version1_2},
+			Content: &protocol.ApplicationData{Data: []byte("after ticket")},
+		},
+		ShouldEncrypt: true,
+	}
+	post.queue = append(post.queue,
+		postHandshakeCommand{Kind: commandSendNewSessionTicket},
+		postHandshakeCommand{
+			Kind:    commandSendApplicationData,
+			Packets: []*dtlsflight.Packet{applicationPacket},
+			Write: func(conn Conn, packets []*dtlsflight.Packet) error {
+				_, err := conn.WritePackets(context.Background(), packets)
+
+				return err
+			},
+		},
+	)
+	conn := &postHandshakeWriteConn{result: &WriteResult{}}
+
+	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
+	assert.Empty(t, post.queue)
+	require.Len(t, post.flights, 1)
+	require.Len(t, conn.writtenPackets, 2)
+	_, isTicket := conn.writtenPackets[0].Record.Content.(*handshake.Handshake)
+	assert.True(t, isTicket)
+	_, isApplicationData := conn.writtenPackets[1].Record.Content.(*protocol.ApplicationData)
+	assert.True(t, isApplicationData)
+	assert.Equal(t, dtlsflight13.EpochApplication, applicationPacket.Record.Header.Epoch)
 }
 
 func TestRetransmittedKeyUpdateDoesNotRatchetReadKeysTwice(t *testing.T) {
