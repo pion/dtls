@@ -176,7 +176,13 @@ func (r *CiphertextRecord13) RecordHeader() HeaderLike {
 }
 
 // UnpackDatagram13 extracts DTLS 1.3 records from a single datagram.
-func UnpackDatagram13(buf []byte, cidLength int, ciphertextHeadersEnabled bool) ([][]byte, error) {
+// If cidRequired is true, the datagram must contain a CID.
+func UnpackDatagram13(
+	buf []byte,
+	cidLength int,
+	cidRequired bool,
+	ciphertextHeadersEnabled bool,
+) ([][]byte, error) {
 	out := [][]byte{}
 	var firstCiphertextCID []byte
 
@@ -197,7 +203,9 @@ func UnpackDatagram13(buf []byte, cidLength int, ciphertextHeadersEnabled bool) 
 			return nil, dtlserrors.ErrInvalidContentType
 		}
 
-		record, cid, nextOffset, done, err := unpackCiphertextDatagram13Record(buf, offset, cidLength)
+		record, cid, nextOffset, done, err := unpackCiphertextDatagramRecord(
+			buf, offset, cidLength, cidRequired,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -227,8 +235,13 @@ func unpackPlaintextDatagram13Record(buf []byte, offset int) ([]byte, int, error
 	return buf[offset : offset+pktLen], offset + pktLen, nil
 }
 
-func unpackCiphertextDatagram13Record(buf []byte, offset, cidLength int) ([]byte, []byte, int, bool, error) {
-	header, err := unmarshalCiphertextDatagram13Header(buf[offset:], cidLength)
+func unpackCiphertextDatagramRecord(
+	buf []byte,
+	offset int,
+	cidLength int,
+	cidRequired bool,
+) ([]byte, []byte, int, bool, error) {
+	header, err := unmarshalCiphertextDatagramHeader(buf[offset:], cidLength, cidRequired)
 	if err != nil {
 		return nil, nil, 0, false, err
 	}
@@ -254,9 +267,9 @@ func isMismatchedCiphertextCID(firstCID *[]byte, cid []byte, cidLength int) bool
 	return !bytes.Equal(*firstCID, cid)
 }
 
-func unmarshalCiphertextDatagram13Header(data []byte, cidLength int) (UnifiedHeader, error) {
+func unmarshalCiphertextDatagramHeader(data []byte, cidLength int, cidRequired bool) (UnifiedHeader, error) {
 	hasCID := data[0]&UnifiedHeaderCIDBit != 0
-	if err := validateCiphertextCIDBit(hasCID, cidLength); err != nil {
+	if err := validateCiphertextCIDBit(hasCID, cidLength, cidRequired); err != nil {
 		return UnifiedHeader{}, err
 	}
 
@@ -268,9 +281,9 @@ func unmarshalCiphertextDatagram13Header(data []byte, cidLength int) (UnifiedHea
 	return header, header.Unmarshal(data)
 }
 
-func validateCiphertextCIDBit(hasCID bool, cidLength int) error {
+func validateCiphertextCIDBit(hasCID bool, cidLength int, cidRequired bool) error {
 	switch {
-	case cidLength > 0 && !hasCID:
+	case cidRequired && cidLength > 0 && !hasCID:
 		return dtlserrors.ErrInvalidCiphertextHeader
 	case cidLength == 0 && hasCID:
 		return dtlserrors.ErrInvalidCiphertextHeader

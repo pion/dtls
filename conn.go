@@ -1099,6 +1099,10 @@ func (c *Conn) sealRecordContent(
 		SeqBit:         true,
 		LengthBit:      true,
 	}
+	if state13, ok := c.state.(*dtlsstate.State13); ok &&
+		state13.CID.Negotiated && state13.CID.Send.UseCID {
+		header.ConnectionID = bytes.Clone(state13.CID.Send.Active)
+	}
 
 	ciphertext, err := generation.Protection.Seal(
 		header,
@@ -1487,7 +1491,10 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 	common := dtlsstate.CommonState(c.state)
 	if common.LocalVersion.Equal(protocol.Version1_3) ||
 		protocol.IsDTLS13Ciphertext(protocol.ContentType(buf[0])) {
-		return recordlayer.UnpackDatagram13(buf, 0, true)
+		cidLength := len(common.LocalConnectionID())
+		state13, is13 := c.state.(*dtlsstate.State13)
+
+		return recordlayer.UnpackDatagram13(buf, cidLength, is13 && state13.CID.Negotiated, true)
 	}
 
 	return recordlayer.ContentAwareUnpackDatagram(buf, len(common.LocalConnectionID()))
@@ -1507,8 +1514,12 @@ func (c *Conn) unmarshalCiphertextRecord(buf []byte) (recordlayer.CiphertextReco
 	record := recordlayer.CiphertextRecord13{}
 	hasCID := buf[0]&recordlayer.UnifiedHeaderCIDBit != 0
 	localCID := dtlsstate.CommonState(c.state).LocalConnectionID()
+	cidExpected, cidAllowed, err := c.ciphertextCIDPolicy(localCID)
+	if err != nil {
+		return record, err
+	}
 	if hasCID {
-		if len(localCID) == 0 {
+		if !cidAllowed {
 			return record, dtlserrors.ErrInvalidCiphertextHeader
 		}
 		record.Header.ConnectionID = make([]byte, len(localCID))
@@ -1517,27 +1528,33 @@ func (c *Conn) unmarshalCiphertextRecord(buf []byte) (recordlayer.CiphertextReco
 	if err := record.Unmarshal(buf); err != nil {
 		return record, err
 	}
-	if len(localCID) > 0 && !hasCID {
+	if cidExpected && !hasCID {
 		return record, dtlserrors.ErrInvalidCiphertextHeader
 	}
 	if hasCID {
 		if !bytes.Equal(localCID, record.Header.ConnectionID) {
 			return record, dtlserrors.ErrInvalidCiphertextHeader
 		}
-
-		return record, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
 	return record, nil
 }
 
+func (c *Conn) ciphertextCIDPolicy(localCID []byte) (expected, allowed bool, err error) {
+	state13, ok := c.state.(*dtlsstate.State13)
+	if !ok || !state13.CID.Negotiated {
+		return false, len(localCID) > 0, nil
+	}
+	if state13.CID.Receive.Length != len(localCID) {
+		return false, false, dtlserrors.ErrInvalidCiphertextHeader
+	}
+
+	return state13.CID.Receive.Expected, state13.CID.Receive.Expected, nil
+}
+
 func (c *Conn) openCiphertextRecord(
 	record recordlayer.CiphertextRecord13,
 ) (recordlayer.InnerPlaintext, uint64, uint16, error) {
-	if len(record.Header.ConnectionID) > 0 {
-		return recordlayer.InnerPlaintext{}, 0, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
-	}
-
 	var candidateBuffer [4]*dtlsstate.TrafficGeneration
 	candidates, remoteEpoch, err := c.readTrafficCandidates(record.Header.EpochLow, candidateBuffer[:0])
 	if err != nil {

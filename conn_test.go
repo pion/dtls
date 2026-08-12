@@ -1350,6 +1350,17 @@ func TestClientCertificate(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 	})
 }
 
+func TestShouldWrapConnectionIDUsesOnlyDTLS12(t *testing.T) {
+	state12 := dtlsstate.NewActive(false)
+	assert.False(t, state12.ShouldWrapConnectionID())
+	dtlsstate.CommonState(state12).RemoteConnectionID = []byte{0x01}
+	assert.True(t, state12.ShouldWrapConnectionID())
+
+	state13 := dtlsstate.NewState13(false)
+	state13.RemoteConnectionID = []byte{0x01}
+	assert.False(t, state13.ShouldWrapConnectionID())
+}
+
 func TestConnectionID(t *testing.T) {
 	// Check for leaking routines
 	report := test.CheckRoutines(t)
@@ -4701,6 +4712,74 @@ func TestSealRecordContentUsesWriteTrafficGeneration(t *testing.T) {
 
 	_, err = conn.sealRecordContent(4, 0, protocol.ContentTypeApplicationData, nil)
 	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+}
+
+func TestSealRecordContentUsesNegotiatedConnectionID(t *testing.T) {
+	conn, state, suite := newTrafficKeyTestConn(t)
+	secret := trafficKeyTestSecret(suite, 0x23)
+	protection := trafficKeyTestProtection(t, suite, secret)
+	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochApplication,
+		Secret:     secret,
+		Protection: protection,
+	}, nil)
+	state.SetLocalConnectionID([]byte("local-cid"))
+	state.NegotiateConnectionIDs([]byte("remote-cid"))
+
+	rawRecord, err := conn.sealRecordContent(
+		dtlsflight13.EpochApplication, 0, protocol.ContentTypeApplicationData, []byte("application"),
+	)
+	require.NoError(t, err)
+
+	record := recordlayer.CiphertextRecord13{
+		Header: recordlayer.UnifiedHeader{ConnectionID: make([]byte, len("remote-cid"))},
+	}
+	require.NoError(t, record.Unmarshal(rawRecord))
+	assert.Equal(t, []byte("remote-cid"), record.Header.ConnectionID)
+	innerPlaintext, err := protection.Open(record.Header, 0, record.EncryptedRecord)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("application"), innerPlaintext.Content)
+}
+
+func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
+	conn, state, suite := newTrafficKeyTestConn(t)
+	secret := trafficKeyTestSecret(suite, 0x34)
+	protection := trafficKeyTestProtection(t, suite, secret)
+	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{
+		Epoch:      dtlsflight13.EpochApplication,
+		Secret:     secret,
+		Protection: protection,
+	})
+	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
+	state.SetLocalConnectionID([]byte("local-cid"))
+	state.NegotiateConnectionIDs([]byte("remote-cid"))
+
+	sealed, err := protection.Seal(
+		recordlayer.UnifiedHeader{
+			ConnectionID: []byte("local-cid"),
+			EpochLow:     uint8(dtlsflight13.EpochApplication & recordlayer.TwoLowBitsMask),
+		},
+		0,
+		protocol.ContentTypeApplicationData,
+		[]byte("application"),
+	)
+	require.NoError(t, err)
+	rawRecord, err := sealed.Marshal()
+	require.NoError(t, err)
+
+	record, err := conn.unmarshalCiphertextRecord(rawRecord)
+	require.NoError(t, err)
+	innerPlaintext, sequenceNumber, epoch, err := conn.openCiphertextRecord(record)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0), sequenceNumber)
+	assert.Equal(t, dtlsflight13.EpochApplication, epoch)
+	assert.Equal(t, []byte("application"), innerPlaintext.Content)
+
+	sealed.Header.ConnectionID = nil
+	rawRecord, err = sealed.Marshal()
+	require.NoError(t, err)
+	_, err = conn.unmarshalCiphertextRecord(rawRecord)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 }
 
 func TestOpenCiphertextRecordUsesReadTrafficGeneration(t *testing.T) {

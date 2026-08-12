@@ -366,7 +366,7 @@ func TestUnpackDatagram13Plaintext(t *testing.T) {
 	plaintextRaw, err := plaintext.Marshal()
 	require.NoError(t, err)
 
-	records, err := UnpackDatagram13(plaintextRaw, 0, false)
+	records, err := UnpackDatagram13(plaintextRaw, 0, false, true)
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{plaintextRaw}, records)
 }
@@ -385,7 +385,7 @@ func TestUnpackDatagram13Ciphertext(t *testing.T) {
 	ciphertextWithoutLengthRaw := append([]byte{0x20, 0x02}, ciphertext13Payload(0xcc)...)
 
 	datagram := append(append([]byte{}, ciphertextWithLengthRaw...), ciphertextWithoutLengthRaw...)
-	records, err := UnpackDatagram13(datagram, 0, true)
+	records, err := UnpackDatagram13(datagram, 0, true, true)
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{ciphertextWithLengthRaw, ciphertextWithoutLengthRaw}, records)
 }
@@ -394,7 +394,7 @@ func TestUnpackDatagram13RejectsShortFinalCiphertextRecordWithoutLength(t *testi
 	for recordLen := range minDTLSCiphertextRecordLen {
 		raw := append([]byte{0x20, 0x01}, make([]byte, recordLen)...)
 
-		_, err := UnpackDatagram13(raw, 0, true)
+		_, err := UnpackDatagram13(raw, 0, true, true)
 		require.ErrorIs(t, err, ErrInvalidPacketLength, "record length %d", recordLen)
 	}
 }
@@ -407,7 +407,7 @@ func TestUnpackDatagram13RejectsShortCiphertextRecordWithLength(t *testing.T) {
 		}
 		raw = append(raw, make([]byte, recordLen)...)
 
-		_, err := UnpackDatagram13(raw, 0, true)
+		_, err := UnpackDatagram13(raw, 0, true, true)
 		require.ErrorIs(t, err, ErrInvalidPacketLength, "record length %d", recordLen)
 	}
 }
@@ -430,7 +430,31 @@ func TestUnpackDatagram13MixedPlaintextAndCiphertext(t *testing.T) {
 	require.NoError(t, err)
 
 	datagram := append(append([]byte{}, plaintextRaw...), ciphertextRaw...)
-	records, err := UnpackDatagram13(datagram, 0, true)
+	records, err := UnpackDatagram13(datagram, 0, true, true)
+	require.NoError(t, err)
+	require.Equal(t, [][]byte{plaintextRaw, ciphertextRaw}, records)
+}
+
+func TestUnpackDatagram13WithOptionalCID(t *testing.T) {
+	plaintext := &PlaintextRecord13{
+		Header:  Header{Version: protocol.Version1_2},
+		Content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify},
+	}
+	plaintextRaw, err := plaintext.Marshal()
+	require.NoError(t, err)
+
+	ciphertext := &CiphertextRecord13{
+		Header: UnifiedHeader{
+			ConnectionID:   []byte{0x01, 0x02, 0x03, 0x04},
+			SequenceNumber: 0x01,
+		},
+		EncryptedRecord: ciphertext13Payload(0xaa),
+	}
+	ciphertextRaw, err := ciphertext.Marshal()
+	require.NoError(t, err)
+
+	datagram := append(append([]byte{}, plaintextRaw...), ciphertextRaw...)
+	records, err := UnpackDatagram13(datagram, 4, true, true)
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{plaintextRaw, ciphertextRaw}, records)
 }
@@ -445,7 +469,7 @@ func TestUnpackDatagram13RejectsCiphertextMissingNegotiatedCID(t *testing.T) {
 	raw, err := ciphertext.Marshal()
 	require.NoError(t, err)
 
-	_, err = UnpackDatagram13(raw, 4, true)
+	_, err = UnpackDatagram13(raw, 4, true, true)
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 }
 
@@ -460,12 +484,12 @@ func TestUnpackDatagram13RejectsCiphertextWithUnexpectedCID(t *testing.T) {
 	raw, err := ciphertext.Marshal()
 	require.NoError(t, err)
 
-	_, err = UnpackDatagram13(raw, 0, true)
+	_, err = UnpackDatagram13(raw, 0, true, true)
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 }
 
 func TestUnpackDatagram13RejectsTruncatedCID(t *testing.T) {
-	_, err := UnpackDatagram13([]byte{0x30, 0x01, 0x02}, 4, true)
+	_, err := UnpackDatagram13([]byte{0x30, 0x01, 0x02}, 4, true, true)
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidUnifiedHeaderFormat)
 }
 
@@ -490,7 +514,7 @@ func TestUnpackDatagram13DiscardsRemainderOnMismatchedCID(t *testing.T) {
 	secondRaw, err := second.Marshal()
 	require.NoError(t, err)
 
-	records, err := UnpackDatagram13(append(append([]byte{}, firstRaw...), secondRaw...), 4, true)
+	records, err := UnpackDatagram13(append(append([]byte{}, firstRaw...), secondRaw...), 4, true, true)
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{firstRaw}, records)
 }
@@ -505,7 +529,7 @@ func TestUnpackDatagram13RejectsLegacyPlaintextWhenCiphertextHeadersEnabled(t *t
 	require.NoError(t, err)
 	raw = append(raw, 0xaa)
 
-	_, err = UnpackDatagram13(raw, 0, true)
+	_, err = UnpackDatagram13(raw, 0, true, true)
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidContentType)
 }
 
