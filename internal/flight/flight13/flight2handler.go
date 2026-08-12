@@ -17,7 +17,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
-func flight2Parse( //nolint:cyclop
+func flight2Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
@@ -58,10 +58,8 @@ func flight2Parse( //nolint:cyclop
 	if failure := generateClientKeyShareSecret(flightCtx.state, flightCtx.cfg); failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	if flightCtx.inboundHandshakeHandler != nil {
-		if err := flightCtx.inboundHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
+	if failure := flightCtx.handleInboundHandshake(items); failure != nil {
+		return 0, failure.alert, failure.err
 	}
 	flightCtx.state.HandshakeRecvSequence = seq
 

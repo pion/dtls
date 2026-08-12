@@ -290,7 +290,7 @@ func handleServerKeyExchange(
 	return nil, nil //nolint:nilnil
 }
 
-func flight3Generate( //nolint:cyclop
+func flight3Generate(
 	_ dtlsflight.Conn,
 	state *dtlsstate.State12,
 	_ *dtlsflight.Cache,
@@ -331,8 +331,7 @@ func flight3Generate( //nolint:cyclop
 		})
 	}
 
-	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
-		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
+	if isExtendedMasterSecretRequested(cfg.ExtendedMasterSecret) {
 		extensions = append(extensions, &extension.UseExtendedMasterSecret{
 			Supported: true,
 		})
@@ -380,4 +379,9 @@ func flight3Generate( //nolint:cyclop
 			},
 		},
 	}, nil, nil
+}
+
+func isExtendedMasterSecretRequested(policy dtlsconfig.ExtendedMasterSecretType) bool {
+	return policy == dtlsconfig.RequestExtendedMasterSecret ||
+		policy == dtlsconfig.RequireExtendedMasterSecret
 }

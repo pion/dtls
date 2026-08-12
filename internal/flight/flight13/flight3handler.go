@@ -206,7 +206,7 @@ func initializeFlight3HandshakeProtection(
 	serverHelloSeq int,
 	items []*dtlsflight.HandshakeCacheItem,
 ) *flightParseFailure {
-	if failure := handleFlight3InboundHandshake(flightCtx, items); failure != nil {
+	if failure := flightCtx.handleInboundHandshake(items); failure != nil {
 		return failure
 	}
 	flightCtx.state.HandshakeRecvSequence = serverHelloSeq
@@ -250,20 +250,6 @@ func handleFlight3ProtectedHandshake(
 	}
 	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
 		return protectedFlightParseFailure(err)
-	}
-
-	return nil
-}
-
-func handleFlight3InboundHandshake(
-	flightCtx *handshakeContext,
-	items []*dtlsflight.HandshakeCacheItem,
-) *flightParseFailure {
-	if flightCtx.inboundHandshakeHandler == nil {
-		return nil
-	}
-	if err := flightCtx.inboundHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
-		return newFlightParseFailure(alert.InternalError, err)
 	}
 
 	return nil

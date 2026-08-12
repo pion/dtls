@@ -97,6 +97,19 @@ type handshakeContext struct {
 	handshakeRecordProtectionInitializer HandshakeRecordProtectionInitializer
 }
 
+func (h *handshakeContext) handleInboundHandshake(
+	items []*dtlsflight.HandshakeCacheItem,
+) *flightParseFailure {
+	if h.inboundHandshakeHandler == nil {
+		return nil
+	}
+	if err := h.inboundHandshakeHandler(h.state.CipherSuite, items); err != nil {
+		return newFlightParseFailure(alert.InternalError, err)
+	}
+
+	return nil
+}
+
 func newFlightParseFailure(
 	description alert.Description,
 	err error,
