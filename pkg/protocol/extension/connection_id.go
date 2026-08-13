@@ -4,8 +4,9 @@
 package extension
 
 import (
+	"bytes"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"golang.org/x/crypto/cryptobyte"
 )
 
 // ConnectionID is a DTLS extension that provides an alternative to IP address
@@ -17,11 +18,6 @@ type ConnectionID struct {
 	// negotiated connection IDs from the peer will be sent but there is no need
 	// to respond with one
 	CID []byte // variable length
-}
-
-// TypeValue returns the extension TypeValue.
-func (c ConnectionID) TypeValue() TypeValue {
-	return ConnectionIDTypeValue
 }
 
 // ExtensionType returns the IANA extension type for the payload-oriented API.
@@ -42,50 +38,21 @@ func (c ConnectionID) MarshalData() ([]byte, error) {
 	return out, nil
 }
 
-// Marshal encodes the extension.
-func (c *ConnectionID) Marshal() ([]byte, error) {
-	var b cryptobyte.Builder
-	b.AddUint16(uint16(c.TypeValue()))
-	b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
-		b.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
-			b.AddBytes(c.CID)
-		})
-	})
-
-	return b.Bytes()
-}
-
-// Unmarshal populates the extension from encoded data.
-func (c *ConnectionID) Unmarshal(data []byte) error {
-	payload, err := extensionPayload(data, c.TypeValue())
-	if err != nil {
-		return err
-	}
-
-	return c.unmarshalPayload(payload)
-}
-
-func (c *ConnectionID) unmarshalPayload(data []byte) error {
-	extData := cryptobyte.String(data)
-
-	var cid cryptobyte.String
-	if !extData.ReadUint8LengthPrefixed(&cid) {
+// UnmarshalData decodes extension_data without the extension header.
+func (c *ConnectionID) UnmarshalData(data []byte) error {
+	if len(data) == 0 {
 		return dtlserrors.ErrInvalidCIDFormat
 	}
 
-	if !extData.Empty() {
+	cidLen := int(data[0])
+	if cidLen > len(data)-1 {
+		return dtlserrors.ErrInvalidCIDFormat
+	}
+	if cidLen != len(data)-1 {
 		return dtlserrors.ErrLengthMismatch
 	}
 
-	c.CID = make([]byte, len(cid))
-	if !cid.CopyBytes(c.CID) {
-		return dtlserrors.ErrInvalidCIDFormat
-	}
+	c.CID = bytes.Clone(data[1:])
 
 	return nil
-}
-
-// UnmarshalData decodes extension_data without the extension header.
-func (c *ConnectionID) UnmarshalData(data []byte) error {
-	return c.unmarshalPayload(data)
 }

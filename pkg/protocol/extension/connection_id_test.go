@@ -6,53 +6,45 @@ package extension
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestExtensionConnectionID(t *testing.T) {
-	rawExtensionConnectionID := []byte{1, 6, 8, 3, 88, 12, 2, 47}
-	parsedExtensionConnectionID := &ConnectionID{
-		CID: rawExtensionConnectionID,
-	}
+func TestConnectionIDPayload(t *testing.T) {
+	extension := ConnectionID{CID: []byte{1, 6, 8, 3, 88, 12, 2, 47}}
 
-	raw, err := parsedExtensionConnectionID.Marshal()
-	assert.NoError(t, err)
+	data, err := extension.MarshalData()
+	require.NoError(t, err)
+	assert.Equal(t, append([]byte{8}, extension.CID...), data)
 
-	roundtrip := &ConnectionID{}
-	assert.NoError(t, roundtrip.Unmarshal(raw))
-	assert.Equal(t, parsedExtensionConnectionID, roundtrip)
+	var roundTrip ConnectionID
+	require.NoError(t, roundTrip.UnmarshalData(data))
+	assert.Equal(t, extension, roundTrip)
 }
 
-func FuzzCIDUnmarshal(f *testing.F) {
-	bigCID := make([]byte, 0xff)
-	bigCID[0] = 0x00
-	bigCID[1] = 0x36
-	bigCID[2] = 0xff
-	bigCID[3] = 0xff
-	bigCID[4] = 0xff
-	bigCID[5] = 0xfd
+func TestConnectionIDPayloadErrors(t *testing.T) {
+	var connectionID ConnectionID
+	assert.ErrorIs(t, connectionID.UnmarshalData(nil), dtlserrors.ErrInvalidCIDFormat)
+	assert.ErrorIs(t, connectionID.UnmarshalData([]byte{2, 1}), dtlserrors.ErrInvalidCIDFormat)
+	assert.ErrorIs(t, connectionID.UnmarshalData([]byte{1, 1, 2}), dtlserrors.ErrLengthMismatch)
 
-	testCases := [][]byte{
-		{
-			0x00, 0x36, // Extension type
-			0x00, 0x03, // Extension length
-			0x00, 0x01, // CID length
-			0x42, // CID
-		},
-		bigCID,
-	}
-	for _, tc := range testCases {
-		f.Add(tc)
-	}
+	_, err := (ConnectionID{CID: make([]byte, 256)}).MarshalData()
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCIDFormat)
+}
+
+func FuzzConnectionIDPayloadUnmarshal(f *testing.F) {
+	f.Add([]byte{0})
+	f.Add([]byte{1, 0x42})
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		cid := ConnectionID{}
-		err := cid.Unmarshal(data)
-		if err != nil {
+		var connectionID ConnectionID
+		if err := connectionID.UnmarshalData(data); err != nil {
 			return
 		}
-		length := len(cid.CID)
-		assert.Less(t, length, 0xff)
-		testExtDataLength(t, &cid, data, true)
+
+		encoded, err := connectionID.MarshalData()
+		require.NoError(t, err)
+		assert.Equal(t, data, encoded)
 	})
 }

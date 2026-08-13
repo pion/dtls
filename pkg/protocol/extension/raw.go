@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
+// Package extension provides TLS extension framing and payload codecs.
 package extension
 
 import (
@@ -11,31 +12,28 @@ import (
 )
 
 // Type is the two-byte value assigned to a TLS extension by IANA.
-//
-// TypeValue remains available for compatibility with the existing framed
-// extension API.
-type Type = TypeValue
+type Type uint16
 
 const (
-	TypeServerName              Type = ServerNameTypeValue
-	TypeSupportedGroups         Type = SupportedEllipticCurvesTypeValue
-	TypeSupportedPointFormats   Type = SupportedPointFormatsTypeValue
-	TypeSignatureAlgorithms     Type = SupportedSignatureAlgorithmsTypeValue
-	TypeUseSRTP                 Type = UseSRTPTypeValue
-	TypeALPN                    Type = ALPNTypeValue
-	TypeExtendedMasterSecret    Type = UseExtendedMasterSecretTypeValue
-	TypePreSharedKey            Type = PreSharedKeyValue
-	TypeEarlyData               Type = EarlyDataIndicationTypeValue
-	TypeSupportedVersions       Type = SupportedVersionsTypeValue
-	TypeCookie                  Type = CookieTypeValue
-	TypePSKKeyExchangeModes     Type = PskKeyExchangeModesTypeValue
-	TypeCertificateAuthorities  Type = CertificateAuthoritiesTypeValue
-	TypeOIDFilters              Type = OIDFiltersTypeValue
-	TypePostHandshakeAuth       Type = PostHandshakeAuthTypeValue
-	TypeSignatureAlgorithmsCert Type = SignatureAlgorithmsCertTypeValue
-	TypeKeyShare                Type = KeyShareTypeValue
-	TypeConnectionID            Type = ConnectionIDTypeValue
-	TypeRenegotiationInfo       Type = RenegotiationInfoTypeValue
+	TypeServerName              Type = 0
+	TypeSupportedGroups         Type = 10
+	TypeSupportedPointFormats   Type = 11
+	TypeSignatureAlgorithms     Type = 13
+	TypeUseSRTP                 Type = 14
+	TypeALPN                    Type = 16
+	TypeExtendedMasterSecret    Type = 23
+	TypePreSharedKey            Type = 41
+	TypeEarlyData               Type = 42
+	TypeSupportedVersions       Type = 43
+	TypeCookie                  Type = 44
+	TypePSKKeyExchangeModes     Type = 45
+	TypeCertificateAuthorities  Type = 47
+	TypeOIDFilters              Type = 48
+	TypePostHandshakeAuth       Type = 49
+	TypeSignatureAlgorithmsCert Type = 50
+	TypeKeyShare                Type = 51
+	TypeConnectionID            Type = 54
+	TypeRenegotiationInfo       Type = 65281
 )
 
 // Value is an extension payload that can be framed in an extension list.

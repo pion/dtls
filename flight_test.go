@@ -602,19 +602,6 @@ func TestFlight13_5GenerateSelectsClientCertificateBySignatureScheme(t *testing.
 	assert.Same(t, ecdsaCertificate.PrivateKey, packets[1].CertificateVerifySigner)
 }
 
-type rawExtension struct {
-	typeValue extension.TypeValue
-	raw       []byte
-}
-
-func (e rawExtension) ExtensionType() extension.Type {
-	return e.typeValue
-}
-
-func (e rawExtension) MarshalData() ([]byte, error) {
-	return append([]byte(nil), e.raw[4:]...), nil
-}
-
 func marshalHelloRetryRequestServerHello(
 	t *testing.T,
 	cfg *dtlsconfig.HandshakeConfig,
@@ -990,11 +977,9 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithClientHelloSupportedVersions
 		t,
 		cfg,
 		[]extension.Value{
-			rawExtension{
-				typeValue: extension.SupportedVersionsTypeValue,
-				raw: []byte{
-					0x00, 0x2b, // supported_versions
-					0x00, 0x03, // extension_data length
+			extension.Raw{
+				Type: extension.TypeSupportedVersions,
+				Data: []byte{
 					0x02,       // ClientHello vector length
 					0xfe, 0xfc, // DTLS v1.3
 				},

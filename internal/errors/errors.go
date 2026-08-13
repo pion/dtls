@@ -196,7 +196,6 @@ var (
 
 	ErrALPNInvalidFormat           = stderrors.New("invalid alpn format")
 	ErrALPNNoAppProto              = stderrors.New("no application protocol")
-	ErrInvalidExtensionType        = stderrors.New("invalid extension type")
 	ErrInvalidSNIFormat            = stderrors.New("invalid server name format")
 	ErrInvalidCIDFormat            = stderrors.New("invalid connection ID format")
 	ErrMasterKeyIdentifierTooLarge = stderrors.New("master key identifier is over 255 bytes")
@@ -213,7 +212,6 @@ var (
 	ErrInvalidKeyShareFormat          = stderrors.New("invalid key_share format")
 	ErrDuplicateKeyShare              = stderrors.New("duplicate key_share group")
 	ErrInvalidSupportedVersionsFormat = stderrors.New("invalid supported_versions format")
-	ErrInvalidDTLSVersion             = stderrors.New("invalid dtls version was provided")
 	ErrEarlyDataIndicationFormat      = stderrors.New("invalid Early Data Indication extension format")
 	ErrInvalidCertificateAuthFormat   = stderrors.New(
 		"invalid Certificate Authorities extension format",

@@ -12,6 +12,8 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 )
 
+const serverNameTypeDNSHostName = 0
+
 // ServerNameOffer is the ClientHello server_name payload.
 type ServerNameOffer struct {
 	ServerName string

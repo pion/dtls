@@ -2310,19 +2310,6 @@ func TestProtocolVersionValidation(t *testing.T) {
 	})
 }
 
-type rawExtension13 struct {
-	typeValue extension.TypeValue
-	raw       []byte
-}
-
-func (e rawExtension13) ExtensionType() extension.Type {
-	return e.typeValue
-}
-
-func (e rawExtension13) MarshalData() ([]byte, error) {
-	return append([]byte(nil), e.raw[4:]...), nil
-}
-
 func marshalVersionNegotiationHelloRetryRequestServerHello13(
 	t *testing.T,
 	cfg *dtlsconfig.HandshakeConfig,
@@ -2427,11 +2414,9 @@ func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupported
 		cfg,
 		random,
 		[]extension.Value{
-			rawExtension13{
-				typeValue: extension.SupportedVersionsTypeValue,
-				raw: []byte{
-					0x00, 0x2b, // supported_versions
-					0x00, 0x03, // extension_data length
+			extension.Raw{
+				Type: extension.TypeSupportedVersions,
+				Data: []byte{
 					0x02,       // ClientHello vector length
 					0xfe, 0xfc, // DTLS v1.3
 				},

@@ -65,7 +65,7 @@ const (
 //	For each certificate:
 //	  [3 bytes]  cert_data length
 //	  [variable] cert_data (DER certificate)
-//	  [2 bytes]  extensions length (from extension.Marshal)
+//	  [2 bytes]  extensions length (from extension.MarshalList)
 //	  [variable] extensions data
 func (m *MessageCertificate13) Marshal() ([]byte, error) {
 	// Validate certificate_request_context length

@@ -43,7 +43,7 @@ const (
 //
 //	[1 byte]  certificate_request_context length
 //	[0-255]   certificate_request_context data
-//	[2 bytes] extensions length (from extension.Marshal)
+//	[2 bytes] extensions length (from extension.MarshalList)
 //	[variable] extensions data
 func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 	// Validate certificate_request_context length

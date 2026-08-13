@@ -99,6 +99,8 @@ func extensionValueForContext(context extensionContext, typ extension.Type) exte
 			return &extension13.CertificateAuthorities{}
 		case extension.TypePostHandshakeAuth:
 			return &extension13.PostHandshakeAuth{}
+		default:
+			return nil
 		}
 	case extensionContextServerHello12:
 		switch typ {
@@ -116,6 +118,8 @@ func extensionValueForContext(context extensionContext, typ extension.Type) exte
 			return &extension12.ExtendedMasterSecret{}
 		case extension.TypeRenegotiationInfo:
 			return &extension12.RenegotiationInfo{}
+		default:
+			return nil
 		}
 	case extensionContextServerHello13:
 		switch typ {
@@ -127,6 +131,8 @@ func extensionValueForContext(context extensionContext, typ extension.Type) exte
 			return &extension13.SelectedPSK{}
 		case extension.TypeConnectionID:
 			return &extension.ConnectionID{}
+		default:
+			return nil
 		}
 	case extensionContextHelloRetryRequest:
 		switch typ {
@@ -138,6 +144,8 @@ func extensionValueForContext(context extensionContext, typ extension.Type) exte
 			return &extension13.Cookie{}
 		case extension.TypeConnectionID:
 			return &extension.ConnectionID{}
+		default:
+			return nil
 		}
 	case extensionContextEncryptedExtensions:
 		switch typ {
@@ -151,6 +159,8 @@ func extensionValueForContext(context extensionContext, typ extension.Type) exte
 			return &extension.SupportedGroups{}
 		case extension.TypeEarlyData:
 			return &extension13.EarlyData{}
+		default:
+			return nil
 		}
 	case extensionContextCertificateRequest:
 		switch typ {
@@ -162,6 +172,8 @@ func extensionValueForContext(context extensionContext, typ extension.Type) exte
 			return &extension13.CertificateAuthorities{}
 		case extension.TypeOIDFilters:
 			return &extension13.OIDFilters{}
+		default:
+			return nil
 		}
 	case extensionContextNewSessionTicket:
 		if typ == extension.TypeEarlyData {

@@ -125,6 +125,41 @@ func TestKeyShareDuplicateGroup(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrDuplicateKeyShare)
 }
 
+func TestExtensionPayloadValidation(t *testing.T) {
+	t.Run("supported versions", func(t *testing.T) {
+		_, err := (OfferedVersions{}).MarshalData()
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidSupportedVersionsFormat)
+		assert.ErrorIs(t, (&OfferedVersions{}).UnmarshalData([]byte{3, 0xfe, 0xfc, 0xfe}),
+			dtlserrors.ErrInvalidSupportedVersionsFormat)
+		assert.ErrorIs(t, (&SelectedVersion{}).UnmarshalData([]byte{0xfe}),
+			dtlserrors.ErrInvalidSupportedVersionsFormat)
+	})
+
+	t.Run("offered psks", func(t *testing.T) {
+		identity := PSKIdentity{Identity: []byte("identity")}
+		binder := make(PSKBinder, minPSKBinderSize)
+
+		_, err := (OfferedPSKs{Identities: []PSKIdentity{identity}}).MarshalData()
+		assert.ErrorIs(t, err, dtlserrors.ErrPreSharedKeyFormat)
+		_, err = (OfferedPSKs{
+			Identities: []PSKIdentity{identity},
+			Binders:    []PSKBinder{binder[:minPSKBinderSize-1]},
+		}).MarshalData()
+		assert.ErrorIs(t, err, dtlserrors.ErrPreSharedKeyFormat)
+		assert.ErrorIs(t, (&OfferedPSKs{}).UnmarshalData([]byte{0, 6, 0, 0, 0, 0, 0, 0, 0, 0}),
+			dtlserrors.ErrPreSharedKeyFormat)
+	})
+
+	t.Run("oid filters", func(t *testing.T) {
+		_, err := (OIDFilters{Filters: []OIDFilter{{}}}).MarshalData()
+		assert.ErrorIs(t, err, dtlserrors.ErrEmptyOIDFilter)
+		_, err = (OIDFilters{Filters: []OIDFilter{{OID: []byte{1}}, {OID: []byte{1}}}}).MarshalData()
+		assert.ErrorIs(t, err, dtlserrors.ErrDuplicateOID)
+		assert.ErrorIs(t, (&OIDFilters{}).UnmarshalData([]byte{0, 8, 1, 1, 0, 0, 1, 1, 0, 0}),
+			dtlserrors.ErrDuplicateOID)
+	})
+}
+
 func FuzzClientKeyShareUnmarshalData(f *testing.F) {
 	f.Add([]byte{0, 0})
 	f.Add([]byte{0, 5, 0, 29, 0, 1, 1})

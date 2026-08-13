@@ -41,7 +41,7 @@ func (o *OfferedVersions) UnmarshalData(data []byte) error {
 	}
 
 	o.Versions = o.Versions[:0]
-	for offset := 1; offset < len(data); offset += 2 {
+	for offset := 1; offset+1 < len(data); offset += 2 {
 		o.Versions = append(o.Versions, protocol.Version{Major: data[offset], Minor: data[offset+1]})
 	}
 
