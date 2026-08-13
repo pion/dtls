@@ -36,6 +36,7 @@ var defaultCurves = []elliptic.Curve{ //nolint:gochecknoglobals
 type connConfigValues struct {
 	logger                      logging.LeveledLogger
 	maximumTransmissionUnit     int
+	receiveBufferSize           int
 	paddingLengthGenerator      func(uint) uint
 	replayProtectionWindow      int
 	initialRetransmitInterval   time.Duration
@@ -74,6 +75,7 @@ func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 	return connConfigValues{
 		logger:                      newConnLogger(config),
 		maximumTransmissionUnit:     effectiveMTU(config.MTU),
+		receiveBufferSize:           effectiveReceiveBufferSize(config.ReceiveBufferSize),
 		paddingLengthGenerator:      effectivePaddingLengthGenerator(config.PaddingLengthGenerator),
 		replayProtectionWindow:      effectiveReplayProtectionWindow(config.ReplayProtectionWindow),
 		initialRetransmitInterval:   effectiveFlightInterval(config.FlightInterval),
@@ -124,6 +126,14 @@ func effectiveMTU(mtu int) int {
 	}
 
 	return mtu
+}
+
+func effectiveReceiveBufferSize(size int) int {
+	if size <= 0 {
+		return defaultReceiveBufferSize
+	}
+
+	return size
 }
 
 func effectiveReplayProtectionWindow(replayProtectionWindow int) int {

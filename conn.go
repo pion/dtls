@@ -37,7 +37,9 @@ import (
 
 const (
 	initialTickerInterval = time.Second
-	inboundBufferSize     = 8192
+	// defaultReceiveBufferSize is the default size of the buffers used to
+	// receive datagrams. Overridable via WithReceiveBufferSize.
+	defaultReceiveBufferSize = 8192
 	// Default replay protection window is specified by RFC 6347 Section 4.1.2.6.
 	defaultReplayProtectionWindow = 64
 	// maxAppDataPacketQueueSize is the maximum number of app data packets we will.
@@ -72,6 +74,7 @@ type addrPkt struct {
 // takes responsibility for keeping its backing array alive.
 type readBufferLease struct {
 	conn                 *Conn
+	pool                 *sync.Pool
 	recyclableReadBuffer *[]byte
 }
 
@@ -88,8 +91,8 @@ func (w *readBufferLease) enqueue(packet addrPkt) bool {
 func (w *readBufferLease) releaseReadBuffer() {
 	readBuffer := w.recyclableReadBuffer
 	w.recyclableReadBuffer = nil
-	if readBuffer != nil {
-		poolReadBuffer.Put(readBuffer)
+	if readBuffer != nil && w.pool != nil {
+		w.pool.Put(readBuffer)
 	}
 }
 
@@ -206,6 +209,7 @@ type Conn struct {
 
 	maximumTransmissionUnit int
 	paddingLengthGenerator  func(uint) uint
+	readBufferPool          *sync.Pool
 
 	handshakeEstablished  *dtlshandshake.Establishment
 	handshakeMutex        sync.Mutex
@@ -278,6 +282,7 @@ func newConn(
 		handshakeCache:          dtlsflight.NewCache(),
 		maximumTransmissionUnit: configValues.maximumTransmissionUnit,
 		paddingLengthGenerator:  configValues.paddingLengthGenerator,
+		readBufferPool:          readBufferPoolForSize(configValues.receiveBufferSize),
 
 		decrypted: make(chan any, 1),
 		log:       configValues.logger,
@@ -1356,10 +1361,33 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 
 var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	New: func() any {
-		b := make([]byte, inboundBufferSize)
+		b := make([]byte, defaultReceiveBufferSize)
 
 		return &b
 	},
+}
+
+// readBufferPools caches read buffer pools for non-default receive buffer
+// sizes so buffers are reused across connections. Only a small bounded set of
+// distinct sizes is expected in a program.
+var readBufferPools sync.Map //nolint:gochecknoglobals // map[int]*sync.Pool
+
+// readBufferPoolForSize returns the shared read buffer pool for the default
+// receive buffer size, or a shared per-size pool for a custom size.
+func readBufferPoolForSize(size int) *sync.Pool {
+	if size == defaultReceiveBufferSize {
+		return &poolReadBuffer
+	}
+
+	pool, _ := readBufferPools.LoadOrStore(size, &sync.Pool{
+		New: func() any {
+			b := make([]byte, size)
+
+			return &b
+		},
+	})
+
+	return pool.(*sync.Pool) //nolint:forcetypeassert // only *sync.Pool values are stored
 }
 
 func (c *Conn) readAndBuffer(ctx context.Context) error {
@@ -1390,11 +1418,11 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 }
 
 func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) {
-	bufptr, ok := poolReadBuffer.Get().(*[]byte)
+	bufptr, ok := c.readBufferPool.Get().(*[]byte)
 	if !ok {
 		return datagramProcessingSummary{}, dtlserrors.ErrFailedToAccessPoolReadBuffer
 	}
-	bufferLease := readBufferLease{conn: c, recyclableReadBuffer: bufptr}
+	bufferLease := readBufferLease{conn: c, pool: c.readBufferPool, recyclableReadBuffer: bufptr}
 	defer bufferLease.releaseReadBuffer()
 
 	b := *bufptr

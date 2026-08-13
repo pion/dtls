@@ -56,6 +56,7 @@ type dtlsConfig struct {
 	ServerName                    string
 	LoggerFactory                 logging.LoggerFactory
 	MTU                           int
+	ReceiveBufferSize             int
 	ReplayProtectionWindow        int
 	KeyLogWriter                  io.Writer
 	SupportedProtocols            []string
@@ -85,6 +86,7 @@ func (c *dtlsConfig) applyDefaults() {
 	c.ExtendedMasterSecret = RequestExtendedMasterSecret
 	c.FlightInterval = time.Second
 	c.MTU = defaultMTU
+	c.ReceiveBufferSize = defaultReceiveBufferSize
 	c.ReplayProtectionWindow = defaultReplayProtectionWindow
 }
 
@@ -364,6 +366,26 @@ func WithMTU(mtu int) Option {
 			return dtlserrors.ErrInvalidMTU
 		}
 		c.MTU = mtu
+
+		return nil
+	})
+}
+
+// WithReceiveBufferSize sets the size of the in-memory buffers used to read
+// incoming datagrams. A datagram larger than this size cannot be received —
+// depending on the transport it is truncated or rejected — so it must be at
+// least as large as the largest datagram the peer may send. The default is
+// 8192 bytes.
+//
+// This does not change the kernel socket receive buffer (SO_RCVBUF); use
+// net.UDPConn.SetReadBuffer for that.
+// Returns an error if the size is not positive.
+func WithReceiveBufferSize(size int) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		if size <= 0 {
+			return dtlserrors.ErrInvalidReceiveBufferSize
+		}
+		c.ReceiveBufferSize = size
 
 		return nil
 	})
