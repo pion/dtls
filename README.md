@@ -17,7 +17,8 @@
 </p>
 <br>
 
-Native [DTLS 1.2][rfc6347] implementation in the Go programming language.
+Native [DTLS 1.2][rfc6347] and [DTLS 1.3][rfc9147] implementation in the Go
+programming language.
 
 A long term goal is a professional security review, and maybe an inclusion in stdlib.
 
@@ -29,6 +30,8 @@ A long term goal is a professional security review, and maybe an inclusion in st
 ### RFCs
 #### Implemented
 - **RFC 6347**: [Datagram Transport Layer Security Version 1.2][rfc6347]
+- **RFC 9146**: [Connection Identifier for DTLS 1.2][rfc9146]
+- **RFC 9147**: [The Datagram Transport Layer Security (DTLS) Protocol Version 1.3][rfc9147]
 - **RFC 5705**: [Keying Material Exporters for Transport Layer Security (TLS)][rfc5705]
 - **RFC 7627**: [Transport Layer Security (TLS) - Session Hash and Extended Master Secret Extension][rfc7627]
 - **RFC 7301**: [Transport Layer Security (TLS) - Application-Layer Protocol Negotiation Extension][rfc7301]
@@ -43,24 +46,33 @@ A long term goal is a professional security review, and maybe an inclusion in st
 [rfc7627]: https://tools.ietf.org/html/rfc7627
 [rfc7905]: https://tools.ietf.org/html/rfc7905
 [rfc8422]: https://tools.ietf.org/html/rfc8422
-[rfc9147]: https://tools.ietf.org/html/rfc9147
+[rfc8446]: https://www.rfc-editor.org/rfc/rfc8446.html
+[rfc9146]: https://www.rfc-editor.org/rfc/rfc9146.html
+[rfc9147]: https://www.rfc-editor.org/rfc/rfc9147.html
 
-### Goals/Progress
-This will only be targeting DTLS 1.2, and the most modern/common cipher suites.
-We would love contributions that fall under the 'Planned Features' and any bug fixes!
+### Features
+
+Pion DTLS supports DTLS 1.2 and DTLS 1.3. We welcome contributions and bug fixes.
 
 #### Current features
-* DTLS 1.2 Client/Server
+
+* DTLS 1.2 and DTLS 1.3 client/server
 * Key Exchange via ECDHE(curve25519, nistp256, nistp384) and PSK
 * Packet loss and re-ordering is handled during handshaking
 * Key export ([RFC 5705][rfc5705])
-* Serialization and Resumption of sessions
+* DTLS 1.2 session serialization and resumption
 * Extended Master Secret extension ([RFC 7627][rfc7627])
 * ALPN extension ([RFC 7301][rfc7301])
 
 #### Supported ciphers
 
-##### ECDHE
+##### DTLS 1.3
+
+* TLS_AES_128_GCM_SHA256 ([RFC 8446][rfc8446])
+* TLS_AES_256_GCM_SHA384 ([RFC 8446][rfc8446])
+* TLS_CHACHA20_POLY1305_SHA256 ([RFC 8446][rfc8446])
+
+##### DTLS 1.2: ECDHE
 
 * TLS_ECDHE_ECDSA_WITH_AES_128_CCM ([RFC 6655][rfc6655])
 * TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 ([RFC 6655][rfc6655])
@@ -73,7 +85,7 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 * TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
 * TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
 
-##### PSK
+##### DTLS 1.2: PSK
 
 * TLS_PSK_WITH_AES_128_CCM ([RFC 6655][rfc6655])
 * TLS_PSK_WITH_AES_128_CCM_8 ([RFC 6655][rfc6655])
@@ -82,22 +94,14 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 * TLS_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5487][rfc5487])
 * TLS_PSK_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
 
-##### ECDHE & PSK
+##### DTLS 1.2: ECDHE & PSK
 
 * TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5489][rfc5489])
-
-#### Planned Features
-* DTLS 1.3 ([RFC 9147][rfc9147])
 
 #### Excluded Features
 * DTLS 1.0
 * Renegotiation
 * Compression
-
-### Using
-
-This library needs at least Go 1.21, and you should have [Go modules
-enabled](https://github.com/golang/go/wiki/Modules).
 
 #### Pion DTLS
 For a DTLS 1.2 Server that listens on 127.0.0.1:4444
@@ -126,7 +130,7 @@ Pion DTLS can connect to itself and OpenSSL.
 ```
 
 ### Using with PSK
-Pion DTLS also comes with examples that do key exchange via PSK
+Pion DTLS also comes with examples that do key exchange via DTLS 1.2 PSK.
 
 #### Pion DTLS
 ```sh
