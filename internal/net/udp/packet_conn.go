@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	receiveMTU           = 8192
-	defaultListenBacklog = 128 // same as Linux default
+	defaultReceiveBufferSize = 8192
+	defaultListenBacklog     = 128 // same as Linux default
 )
 
 // Typed errors.
@@ -44,13 +44,14 @@ var (
 type listener struct {
 	pConn *net.UDPConn
 
-	accepting      atomic.Value // bool
-	acceptCh       chan *PacketConn
-	doneCh         chan struct{}
-	doneOnce       sync.Once
-	acceptFilter   func([]byte) bool
-	datagramRouter func([]byte) (string, bool)
-	connIdentifier func([]byte) (string, bool)
+	accepting         atomic.Value // bool
+	acceptCh          chan *PacketConn
+	doneCh            chan struct{}
+	doneOnce          sync.Once
+	acceptFilter      func([]byte) bool
+	datagramRouter    func([]byte) (string, bool)
+	connIdentifier    func([]byte) (string, bool)
+	receiveBufferSize int
 
 	connLock sync.Mutex
 	conns    map[string]*PacketConn
@@ -158,6 +159,11 @@ type ListenConfig struct {
 	// added.
 	ConnectionIdentifier func([]byte) (string, bool)
 
+	// ReceiveBufferSize sets the size of the buffer used to read incoming
+	// datagrams. Datagrams larger than this size are truncated.
+	// If zero or negative, the default value 8192 is used.
+	ReceiveBufferSize int
+
 	// Internal listen config used to open the UDP socket.
 	ListenConfig net.ListenConfig
 }
@@ -168,6 +174,9 @@ type ListenConfig struct {
 func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.PacketListener, error) {
 	if lc.Backlog == 0 {
 		lc.Backlog = defaultListenBacklog
+	}
+	if lc.ReceiveBufferSize <= 0 {
+		lc.ReceiveBufferSize = defaultReceiveBufferSize
 	}
 
 	laddrStr := ":0"
@@ -184,14 +193,15 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 	}
 
 	packetListener := &listener{
-		pConn:          conn,
-		acceptCh:       make(chan *PacketConn, lc.Backlog),
-		conns:          make(map[string]*PacketConn),
-		doneCh:         make(chan struct{}),
-		acceptFilter:   lc.AcceptFilter,
-		datagramRouter: lc.DatagramRouter,
-		connIdentifier: lc.ConnectionIdentifier,
-		readDoneCh:     make(chan struct{}),
+		pConn:             conn,
+		acceptCh:          make(chan *PacketConn, lc.Backlog),
+		conns:             make(map[string]*PacketConn),
+		doneCh:            make(chan struct{}),
+		acceptFilter:      lc.AcceptFilter,
+		datagramRouter:    lc.DatagramRouter,
+		connIdentifier:    lc.ConnectionIdentifier,
+		receiveBufferSize: lc.ReceiveBufferSize,
+		readDoneCh:        make(chan struct{}),
 	}
 
 	packetListener.accepting.Store(true)
@@ -221,7 +231,7 @@ func (l *listener) readLoop() {
 	defer l.readWG.Done()
 	defer close(l.readDoneCh)
 
-	buf := make([]byte, receiveMTU)
+	buf := make([]byte, l.receiveBufferSize)
 
 	for {
 		n, raddr, err := l.pConn.ReadFrom(buf)

@@ -26,7 +26,8 @@ func listenWithConfig(network string, laddr *net.UDPAddr, config *dtlsConfig) (n
 
 			return h.ContentType == protocol.ContentTypeHandshake
 		},
-		ListenConfig: config.ListenConfig,
+		ReceiveBufferSize: config.ReceiveBufferSize,
+		ListenConfig:      config.ListenConfig,
 	}
 	// If connection ID support is enabled, then they must be supported in
 	// routing.
