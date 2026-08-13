@@ -3371,3 +3371,835 @@ func TestFlight13_2Parse(t *testing.T) {
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
 	})
 }
+
+func findConnectionID(exts []extension.Extension) (*extension.ConnectionID, bool) {
+	for _, ext := range exts {
+		if typed, ok := ext.(*extension.ConnectionID); ok {
+			return typed, true
+		}
+	}
+
+	return nil, false
+}
+
+func clientHelloFromFlight13Packet(t *testing.T, packet *dtlsflight.Packet) *handshake.MessageClientHello {
+	t.Helper()
+
+	hand, ok := packet.Record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	raw, err := hand.Marshal()
+	require.NoError(t, err)
+
+	var parsed handshake.Handshake
+	require.NoError(t, parsed.Unmarshal(raw))
+	clientHello, ok := parsed.Message.(*handshake.MessageClientHello)
+	require.True(t, ok)
+
+	return clientHello
+}
+
+func TestFlight13_1GenerateConnectionIDOffer(t *testing.T) {
+	tests := map[string]struct {
+		enabled bool
+		cid     []byte
+	}{
+		"Disabled": {},
+		"Empty": {
+			enabled: true,
+		},
+		"NonEmpty": {
+			enabled: true,
+			cid:     []byte{0x01, 0x02, 0x03, 0x04},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			calls := 0
+			if test.enabled {
+				cfg.ConnectionIDGenerator = func() []byte {
+					calls++
+
+					return test.cid
+				}
+			}
+			state := newTestState13(true)
+
+			packets, dtlsAlert, err := flight13GenerateForTest(
+				t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg},
+			)
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			require.Len(t, packets, 1)
+
+			connectionID, present := findConnectionID(clientHelloFromFlight13Packet(t, packets[0]).Extensions)
+			assert.Equal(t, test.enabled, present)
+			assert.Equal(t, test.enabled, state.LocalCIDOffered)
+			if test.enabled {
+				require.NotNil(t, connectionID)
+				if len(test.cid) == 0 {
+					assert.Empty(t, connectionID.CID)
+				} else {
+					assert.Equal(t, test.cid, connectionID.CID)
+				}
+				assert.Equal(t, test.cid, state.LocalConnectionID())
+				assert.Equal(t, 1, calls)
+			} else {
+				assert.Nil(t, state.LocalConnectionID())
+				assert.Zero(t, calls)
+			}
+			assert.Nil(t, state.RemoteConnectionID)
+			assert.False(t, state.RemoteCIDOffered)
+			assert.False(t, state.CID.Negotiated)
+			assert.False(t, state.CID.Receive.Expected)
+			assert.False(t, state.CID.Send.UseCID)
+		})
+	}
+}
+
+func TestFlight13_1GenerateCapturesHookedConnectionIDOffer(t *testing.T) {
+	tests := map[string]struct {
+		generatorEnabled bool
+		mutate           func(*handshake.MessageClientHello)
+		expectedCID      []byte
+		expectedPresent  bool
+	}{
+		"Remove": {
+			generatorEnabled: true,
+			mutate: func(clientHello *handshake.MessageClientHello) {
+				extensions := clientHello.Extensions[:0]
+				for _, ext := range clientHello.Extensions {
+					if _, ok := ext.(*extension.ConnectionID); !ok {
+						extensions = append(extensions, ext)
+					}
+				}
+				clientHello.Extensions = extensions
+			},
+		},
+		"Replace": {
+			generatorEnabled: true,
+			mutate: func(clientHello *handshake.MessageClientHello) {
+				connectionID, present := findConnectionID(clientHello.Extensions)
+				if present {
+					connectionID.CID = []byte{0xaa, 0xbb}
+				}
+			},
+			expectedCID:     []byte{0xaa, 0xbb},
+			expectedPresent: true,
+		},
+		"Add": {
+			mutate: func(clientHello *handshake.MessageClientHello) {
+				clientHello.Extensions = append(clientHello.Extensions, &extension.ConnectionID{
+					CID: []byte{0xcc},
+				})
+			},
+			expectedCID:     []byte{0xcc},
+			expectedPresent: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			generatorCalls := 0
+			if test.generatorEnabled {
+				cfg.ConnectionIDGenerator = func() []byte {
+					generatorCalls++
+
+					return []byte{0x01, 0x02}
+				}
+			}
+			cfg.ClientHelloMessageHook = func(clientHello handshake.MessageClientHello) handshake.Message {
+				test.mutate(&clientHello)
+
+				return &clientHello
+			}
+			state := newTestState13(true)
+
+			packets, dtlsAlert, err := flight13GenerateForTest(
+				t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg},
+			)
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			require.Len(t, packets, 1)
+
+			connectionID, present := findConnectionID(clientHelloFromFlight13Packet(t, packets[0]).Extensions)
+			assert.Equal(t, test.expectedPresent, present)
+			assert.Equal(t, test.expectedPresent, state.LocalCIDOffered)
+			if test.expectedPresent {
+				require.NotNil(t, connectionID)
+				assert.Equal(t, test.expectedCID, connectionID.CID)
+				assert.Equal(t, test.expectedCID, state.LocalConnectionID())
+			} else {
+				assert.Nil(t, state.LocalConnectionID())
+			}
+			if test.generatorEnabled {
+				assert.Equal(t, 1, generatorCalls)
+			} else {
+				assert.Zero(t, generatorCalls)
+			}
+		})
+	}
+}
+
+func TestFlight13_1GenerateRejectsDuplicateHookedConnectionIDOffer(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	cfg.ConnectionIDGenerator = func() []byte { return []byte{0x01} }
+	cfg.ClientHelloMessageHook = func(clientHello handshake.MessageClientHello) handshake.Message {
+		clientHello.Extensions = append(clientHello.Extensions, &extension.ConnectionID{CID: []byte{0x02}})
+
+		return &clientHello
+	}
+	state := newTestState13(true)
+
+	packets, dtlsAlert, err := flight13GenerateForTest(
+		t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg},
+	)
+
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
+	assert.Nil(t, dtlsAlert)
+	assert.Nil(t, packets)
+	assert.Nil(t, state.LocalConnectionID())
+	assert.False(t, state.LocalCIDOffered)
+}
+
+func TestFlight13_3GenerateReusesConnectionIDOffer(t *testing.T) {
+	tests := map[string][]byte{
+		"Empty":    nil,
+		"NonEmpty": {0x01, 0x02, 0x03, 0x04},
+	}
+
+	for name, cid := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			calls := 0
+			cfg.ConnectionIDGenerator = func() []byte {
+				calls++
+				if calls == 1 {
+					return cid
+				}
+
+				return []byte{0xff}
+			}
+			state := newTestState13(true)
+
+			firstFlight, dtlsAlert, err := flight13GenerateForTest(
+				t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg},
+			)
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			state.RemoteVersions = []protocol.Version{protocol.Version1_3}
+			state.Cookie = []byte{0xaa, 0xbb}
+
+			secondFlight, dtlsAlert, err := flight13GenerateForTest(
+				t, dtlsflight13.Flight3, &handshakeTestContext13{state: state, cfg: cfg},
+			)
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			assert.Equal(t, 1, calls)
+
+			firstCID, firstPresent := findConnectionID(
+				clientHelloFromFlight13Packet(t, firstFlight[0]).Extensions,
+			)
+			secondCID, secondPresent := findConnectionID(
+				clientHelloFromFlight13Packet(t, secondFlight[0]).Extensions,
+			)
+			require.True(t, firstPresent)
+			require.True(t, secondPresent)
+			assert.Equal(t, firstCID.CID, secondCID.CID)
+			if cid == nil {
+				assert.Empty(t, secondCID.CID)
+			} else {
+				assert.Equal(t, cid, secondCID.CID)
+			}
+			assert.True(t, state.LocalCIDOffered)
+		})
+	}
+}
+
+func TestFlight13_3GenerateRejectsHookedConnectionIDChange(t *testing.T) {
+	tests := map[string]struct {
+		offer  bool
+		mutate func(*handshake.MessageClientHello)
+	}{
+		"Remove": {
+			offer: true,
+			mutate: func(clientHello *handshake.MessageClientHello) {
+				extensions := clientHello.Extensions[:0]
+				for _, ext := range clientHello.Extensions {
+					if _, ok := ext.(*extension.ConnectionID); !ok {
+						extensions = append(extensions, ext)
+					}
+				}
+				clientHello.Extensions = extensions
+			},
+		},
+		"Replace": {
+			offer: true,
+			mutate: func(clientHello *handshake.MessageClientHello) {
+				connectionID, present := findConnectionID(clientHello.Extensions)
+				if present {
+					connectionID.CID = []byte{0xff}
+				}
+			},
+		},
+		"Add": {
+			mutate: func(clientHello *handshake.MessageClientHello) {
+				clientHello.Extensions = append(clientHello.Extensions, &extension.ConnectionID{CID: []byte{0xff}})
+			},
+		},
+		"Duplicate": {
+			offer: true,
+			mutate: func(clientHello *handshake.MessageClientHello) {
+				clientHello.Extensions = append(clientHello.Extensions, &extension.ConnectionID{CID: []byte{0x01}})
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			generatorCalls := 0
+			if test.offer {
+				cfg.ConnectionIDGenerator = func() []byte {
+					generatorCalls++
+
+					return []byte{0x01}
+				}
+			}
+			hookCalls := 0
+			cfg.ClientHelloMessageHook = func(clientHello handshake.MessageClientHello) handshake.Message {
+				hookCalls++
+				if hookCalls == 2 {
+					test.mutate(&clientHello)
+				}
+
+				return &clientHello
+			}
+			state := newTestState13(true)
+			firstFlight, dtlsAlert, err := flight13GenerateForTest(
+				t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg},
+			)
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			require.Len(t, firstFlight, 1)
+			state.RemoteVersions = []protocol.Version{protocol.Version1_3}
+			state.Cookie = []byte{0xaa}
+
+			packets, dtlsAlert, err := flight13GenerateForTest(
+				t, dtlsflight13.Flight3, &handshakeTestContext13{state: state, cfg: cfg},
+			)
+			require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
+			assert.Nil(t, dtlsAlert)
+			assert.Nil(t, packets)
+			assert.Equal(t, 2, hookCalls)
+			if test.offer {
+				assert.Equal(t, 1, generatorCalls)
+			} else {
+				assert.Zero(t, generatorCalls)
+			}
+		})
+	}
+}
+
+func TestFlight13_3GenerateReusesHookOnlyConnectionIDOffer(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	hookCalls := 0
+	cfg.ClientHelloMessageHook = func(clientHello handshake.MessageClientHello) handshake.Message {
+		hookCalls++
+		clientHello.Extensions = append(clientHello.Extensions, &extension.ConnectionID{CID: []byte{0xcc}})
+
+		return &clientHello
+	}
+	state := newTestState13(true)
+
+	firstFlight, dtlsAlert, err := flight13GenerateForTest(
+		t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg},
+	)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, firstFlight, 1)
+	state.RemoteVersions = []protocol.Version{protocol.Version1_3}
+	state.Cookie = []byte{0xaa}
+
+	secondFlight, dtlsAlert, err := flight13GenerateForTest(
+		t, dtlsflight13.Flight3, &handshakeTestContext13{state: state, cfg: cfg},
+	)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Len(t, secondFlight, 1)
+	assert.Equal(t, 2, hookCalls)
+
+	firstCID, firstPresent := findConnectionID(clientHelloFromFlight13Packet(t, firstFlight[0]).Extensions)
+	secondCID, secondPresent := findConnectionID(clientHelloFromFlight13Packet(t, secondFlight[0]).Extensions)
+	require.True(t, firstPresent)
+	require.True(t, secondPresent)
+	assert.Equal(t, firstCID.CID, secondCID.CID)
+	assert.Equal(t, []byte{0xcc}, state.LocalConnectionID())
+	assert.True(t, state.LocalCIDOffered)
+}
+
+func TestFlight13_2ParseRejectsChangedConnectionIDOffer(t *testing.T) {
+	cookie := []byte{0xde, 0xad, 0xbe, 0xef}
+	tests := map[string]struct {
+		firstPresent bool
+		firstCID     []byte
+		secondCIDs   [][]byte
+	}{
+		"RemovedEmptyOffer": {
+			firstPresent: true,
+			firstCID:     []byte{},
+		},
+		"AddedEmptyOffer": {
+			secondCIDs: [][]byte{{}},
+		},
+		"ChangedValue": {
+			firstPresent: true,
+			firstCID:     []byte{0x01},
+			secondCIDs:   [][]byte{{0x02}},
+		},
+		"DuplicateOffer": {
+			firstPresent: true,
+			firstCID:     []byte{0x01},
+			secondCIDs:   [][]byte{{0x01}, {0x01}},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			state := newTestState13(false)
+			state.Cookie = cookie
+			if test.firstPresent {
+				state.RemoteConnectionID = test.firstCID
+				state.RemoteCIDOffered = true
+			}
+			cache := dtlsflight.NewCache()
+			exts := requiredClientHello13Extensions(t, cfg)
+			for _, cid := range test.secondCIDs {
+				exts = append(exts, &extension.ConnectionID{CID: cid})
+			}
+			exts = append(exts, &extension.CookieExt{Cookie: cookie})
+			pushClientHello13(t, cache, protocol.Version1_2, exts)
+
+			nextFlight, dtlsAlert, err := flight13ParseForTest(
+				t, dtlsflight13.Flight2, context.Background(), flight13_2Context(state, cache, cfg),
+			)
+
+			require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
+			require.NotNil(t, dtlsAlert)
+			assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
+			assert.Zero(t, nextFlight)
+			assert.Nil(t, state.LocalKeypair)
+		})
+	}
+}
+
+func TestFlight13_2ParseAcceptsRepeatedConnectionIDOffer(t *testing.T) {
+	cookie := []byte{0xde, 0xad, 0xbe, 0xef}
+	for name, cid := range map[string][]byte{
+		"Empty":    {},
+		"NonEmpty": {0x01, 0x02},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			state := newTestState13(false)
+			state.Cookie = cookie
+			state.RemoteConnectionID = cid
+			state.RemoteCIDOffered = true
+			cache := dtlsflight.NewCache()
+			exts := append(requiredClientHello13Extensions(t, cfg),
+				&extension.ConnectionID{CID: cid},
+				&extension.CookieExt{Cookie: cookie},
+			)
+			pushClientHello13(t, cache, protocol.Version1_2, exts)
+
+			nextFlight, dtlsAlert, err := flight13ParseForTest(
+				t, dtlsflight13.Flight2, context.Background(), flight13_2Context(state, cache, cfg),
+			)
+
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			assert.Equal(t, dtlsflight13.Flight4, nextFlight)
+			assert.True(t, state.RemoteCIDOffered)
+			if len(cid) > 0 {
+				assert.Equal(t, cid, state.RemoteConnectionID)
+			} else {
+				assert.Nil(t, state.RemoteConnectionID)
+			}
+			assert.False(t, state.CID.Negotiated)
+		})
+	}
+}
+
+func TestFlight13_4GenerateNegotiatesConnectionIDs(t *testing.T) {
+	tests := map[string]struct {
+		clientOffered bool
+		serverEnabled bool
+		clientCID     []byte
+		serverCID     []byte
+	}{
+		"NoClientOffer": {
+			serverEnabled: true,
+			serverCID:     []byte{0x10},
+		},
+		"ServerDeclines": {
+			clientOffered: true,
+			clientCID:     []byte{0x01},
+		},
+		"BothEmpty": {
+			clientOffered: true,
+			serverEnabled: true,
+		},
+		"OnlyClientSendsCID": {
+			clientOffered: true,
+			serverEnabled: true,
+			serverCID:     []byte{0x10, 0x11},
+		},
+		"OnlyServerSendsCID": {
+			clientOffered: true,
+			serverEnabled: true,
+			clientCID:     []byte{0x01, 0x02},
+		},
+		"Bidirectional": {
+			clientOffered: true,
+			serverEnabled: true,
+			clientCID:     []byte{0x01, 0x02},
+			serverCID:     []byte{0x10, 0x11},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			certificate, err := selfsign.GenerateSelfSigned()
+			require.NoError(t, err)
+			cfg.LocalCertificates = []tls.Certificate{certificate}
+			generatorCalls := 0
+			if test.serverEnabled {
+				cfg.ConnectionIDGenerator = func() []byte {
+					generatorCalls++
+
+					return test.serverCID
+				}
+			}
+			keypair, err := elliptic.GenerateKeypair(cfg.EllipticCurves[0])
+			require.NoError(t, err)
+			state := newTestState13(false)
+			state.CipherSuite = cfg.LocalCipherSuites[0]
+			state.LocalKeypair = keypair
+			state.RemoteSignatureSchemes = append([]signaturehash.Algorithm(nil), cfg.LocalSignatureSchemes...)
+			if test.clientOffered {
+				state.RemoteConnectionID = test.clientCID
+				state.RemoteCIDOffered = true
+			}
+
+			packets, dtlsAlert, err := flight13GenerateForTest(
+				t, dtlsflight13.Flight4, &handshakeTestContext13{state: state, cfg: cfg},
+			)
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			require.NotEmpty(t, packets)
+			serverHelloHandshake, ok := packets[0].Record.Content.(*handshake.Handshake)
+			require.True(t, ok)
+			serverHello, ok := serverHelloHandshake.Message.(*handshake.MessageServerHello)
+			require.True(t, ok)
+
+			expectedNegotiated := test.clientOffered && test.serverEnabled
+			connectionID, present := findConnectionID(serverHello.Extensions)
+			assert.Equal(t, expectedNegotiated, present)
+			assert.Equal(t, expectedNegotiated, state.CID.Negotiated)
+			if !expectedNegotiated {
+				assert.Zero(t, generatorCalls)
+				assert.Nil(t, state.LocalConnectionID())
+				assert.Nil(t, state.RemoteConnectionID)
+				assert.False(t, state.LocalCIDOffered)
+				assert.False(t, state.RemoteCIDOffered)
+				assert.Equal(t, dtlsstate.CIDState{}, state.CID)
+
+				return
+			}
+
+			require.NotNil(t, connectionID)
+			assert.Equal(t, 1, generatorCalls)
+			assert.True(t, state.LocalCIDOffered)
+			assert.True(t, state.RemoteCIDOffered)
+			assert.Equal(t, test.serverCID, state.LocalConnectionID())
+			assert.Equal(t, test.serverCID, connectionID.CID)
+			assert.Equal(t, test.clientCID, state.RemoteConnectionID)
+			assert.Equal(t, len(test.serverCID), state.CID.Receive.Length)
+			assert.Equal(t, len(test.serverCID) > 0, state.CID.Receive.Expected)
+			assert.Equal(t, len(test.serverCID) > 0, state.CID.Receive.CanSendNewConnectionID)
+			assert.Equal(t, len(test.clientCID) > 0, state.CID.Send.UseCID)
+			assert.Equal(t, test.clientCID, state.CID.Send.Active)
+		})
+	}
+}
+
+func TestFlight13_0ParseCapturesConnectionIDOffer(t *testing.T) {
+	tests := map[string]struct {
+		present bool
+		cid     []byte
+	}{
+		"Absent": {},
+		"Empty": {
+			present: true,
+			cid:     []byte{},
+		},
+		"NonEmpty": {
+			present: true,
+			cid:     []byte{0x01, 0x02, 0x03, 0x04},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			generatorCalls := 0
+			cfg.ConnectionIDGenerator = func() []byte {
+				generatorCalls++
+
+				return []byte{0xaa}
+			}
+			state := newTestState13(false)
+			cache := dtlsflight.NewCache()
+			exts := requiredClientHello13Extensions(t, cfg)
+			if test.present {
+				exts = append(exts, &extension.ConnectionID{CID: test.cid})
+			}
+			pushFlight13_0ClientHello(t, cache, cfg, exts)
+
+			nextFlight, dtlsAlert, err := flight13ParseForTest(
+				t, dtlsflight13.Flight0, context.Background(), &handshakeTestContext13{
+					state: state,
+					cache: cache,
+					cfg:   cfg,
+				},
+			)
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			assert.Equal(t, dtlsflight13.Flight2, nextFlight)
+			assert.Zero(t, generatorCalls, "server CID generation is deferred until the final ServerHello")
+			assert.Equal(t, test.present, state.RemoteCIDOffered)
+			if test.present && len(test.cid) > 0 {
+				assert.Equal(t, test.cid, state.RemoteConnectionID)
+			} else {
+				assert.Nil(t, state.RemoteConnectionID)
+			}
+			assert.Nil(t, state.LocalConnectionID())
+			assert.False(t, state.LocalCIDOffered)
+			assert.False(t, state.CID.Negotiated)
+		})
+	}
+}
+
+func TestFlight13_0ParseRejectsDuplicateConnectionID(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := newTestState13(false)
+	cache := dtlsflight.NewCache()
+	exts := append(requiredClientHello13Extensions(t, cfg),
+		&extension.ConnectionID{CID: []byte{0x01}},
+		&extension.ConnectionID{CID: []byte{0x02}},
+	)
+	pushFlight13_0ClientHello(t, cache, cfg, exts)
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(
+		t, dtlsflight13.Flight0, context.Background(), &handshakeTestContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		},
+	)
+
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
+	require.NotNil(t, dtlsAlert)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
+	assert.Zero(t, nextFlight)
+	assert.Nil(t, state.RemoteConnectionID)
+	assert.False(t, state.RemoteCIDOffered)
+}
+
+func parseFlight13ServerHelloConnectionID(
+	t *testing.T,
+	clientOffers bool,
+	clientCID []byte,
+	serverCIDs [][]byte,
+) (*dtlsstate.State13, dtlsflight13.Flight, *alert.Alert, error) {
+	t.Helper()
+
+	cfg := testHandshakeConfig13(t)
+	if clientOffers {
+		cfg.ConnectionIDGenerator = func() []byte {
+			return clientCID
+		}
+	}
+	state := newTestState13(true)
+	transcript := dtlshandshake.NewTranscript()
+	clientHello, dtlsAlert, err := flight13GenerateForTest(
+		t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg},
+	)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	appended, err := dtlshandshake.AppendClientHelloInitialFlights(transcript, clientHello)
+	require.NoError(t, err)
+	require.True(t, appended)
+
+	group := cfg.EllipticCurves[0]
+	serverKeypair, err := elliptic.GenerateKeypair(group)
+	require.NoError(t, err)
+	extensions := []extension.Extension{
+		&extension.SupportedVersions{Versions: []protocol.Version{protocol.Version1_3}, SelectedVersion: true},
+		&extension.KeyShare{ServerShare: &extension.KeyShareEntry{
+			Group: group, KeyExchange: serverKeypair.PublicKey,
+		}},
+	}
+	for _, cid := range serverCIDs {
+		extensions = append(extensions, &extension.ConnectionID{CID: cid})
+	}
+	rawServerHello := marshalServerHello(t, cfg, handshake.Random{
+		RandomBytes: [handshake.RandomBytesLength]byte{0x01},
+	}, extensions)
+	cache := dtlsflight.NewCache()
+	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(
+		t, dtlsflight13.Flight3, context.Background(), &handshakeTestContext13{
+			state:      state,
+			cache:      cache,
+			cfg:        cfg,
+			transcript: transcript,
+		},
+	)
+
+	return state, nextFlight, dtlsAlert, err
+}
+
+func TestFlight13_3ParseNegotiatesConnectionIDs(t *testing.T) {
+	tests := map[string]struct {
+		clientCID   []byte
+		serverCID   []byte
+		serverSends bool
+	}{
+		"ServerDeclines": {},
+		"BothEmpty": {
+			serverSends: true,
+		},
+		"OnlyClientSendsCID": {
+			serverCID:   []byte{0x10, 0x11},
+			serverSends: true,
+		},
+		"OnlyServerSendsCID": {
+			clientCID:   []byte{0x01, 0x02},
+			serverSends: true,
+		},
+		"Bidirectional": {
+			clientCID:   []byte{0x01, 0x02},
+			serverCID:   []byte{0x10, 0x11},
+			serverSends: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			var serverCIDs [][]byte
+			if test.serverSends {
+				serverCIDs = [][]byte{test.serverCID}
+			}
+			state, nextFlight, dtlsAlert, err := parseFlight13ServerHelloConnectionID(
+				t, true, test.clientCID, serverCIDs,
+			)
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			assert.Zero(t, nextFlight, "the parser should wait for the protected remainder of Flight 3")
+
+			assert.Equal(t, test.serverSends, state.CID.Negotiated)
+			if !test.serverSends {
+				assert.Nil(t, state.LocalConnectionID())
+				assert.Nil(t, state.RemoteConnectionID)
+				assert.False(t, state.LocalCIDOffered)
+				assert.False(t, state.RemoteCIDOffered)
+				assert.Equal(t, dtlsstate.CIDState{}, state.CID)
+
+				return
+			}
+
+			assert.True(t, state.LocalCIDOffered)
+			assert.True(t, state.RemoteCIDOffered)
+			assert.Equal(t, test.clientCID, state.LocalConnectionID())
+			assert.Equal(t, test.serverCID, state.RemoteConnectionID)
+			assert.Equal(t, len(test.clientCID), state.CID.Receive.Length)
+			assert.Equal(t, len(test.clientCID) > 0, state.CID.Receive.Expected)
+			assert.Equal(t, len(test.clientCID) > 0, state.CID.Receive.CanSendNewConnectionID)
+			assert.Equal(t, len(test.serverCID) > 0, state.CID.Send.UseCID)
+			assert.Equal(t, test.serverCID, state.CID.Send.Active)
+		})
+	}
+}
+
+func TestFlight13_3ParseRejectsUnsolicitedConnectionID(t *testing.T) {
+	for name, cid := range map[string][]byte{
+		"Empty":    {},
+		"NonEmpty": {0x10, 0x11},
+	} {
+		t.Run(name, func(t *testing.T) {
+			state, nextFlight, dtlsAlert, err := parseFlight13ServerHelloConnectionID(
+				t, false, nil, [][]byte{cid},
+			)
+
+			require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
+			require.NotNil(t, dtlsAlert)
+			assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, dtlsAlert)
+			assert.Zero(t, nextFlight)
+			assert.Nil(t, state.LocalConnectionID())
+			assert.False(t, state.LocalCIDOffered)
+			assert.Nil(t, state.RemoteConnectionID)
+			assert.False(t, state.RemoteCIDOffered)
+			assert.Equal(t, dtlsstate.CIDState{}, state.CID)
+		})
+	}
+}
+
+func TestFlight13_3ParseRejectsDuplicateConnectionID(t *testing.T) {
+	state, nextFlight, dtlsAlert, err := parseFlight13ServerHelloConnectionID(
+		t, true, []byte{0x01}, [][]byte{{0x10}, {0x11}},
+	)
+
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
+	require.NotNil(t, dtlsAlert)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
+	assert.Zero(t, nextFlight)
+	assert.False(t, state.CID.Negotiated)
+}
+
+func TestFlight13_1ParseRejectsConnectionIDInHelloRetryRequest(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	rawServerHello := marshalHelloRetryRequestServerHello(
+		t,
+		cfg,
+		[]extension.Extension{
+			&extension.SupportedVersions{
+				Versions:        []protocol.Version{protocol.Version1_3},
+				SelectedVersion: true,
+			},
+			&extension.ConnectionID{CID: []byte{}},
+		},
+	)
+	state := newTestState13(true)
+	cache := dtlsflight.NewCache()
+	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(
+		t, dtlsflight13.Flight1, context.Background(), &handshakeTestContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		},
+	)
+
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
+	require.NotNil(t, dtlsAlert)
+	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
+	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
+	assert.Zero(t, nextFlight)
+}
