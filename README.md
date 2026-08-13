@@ -46,9 +46,9 @@ A long term goal is a professional security review, and maybe an inclusion in st
 [rfc7627]: https://tools.ietf.org/html/rfc7627
 [rfc7905]: https://tools.ietf.org/html/rfc7905
 [rfc8422]: https://tools.ietf.org/html/rfc8422
-[rfc8446]: https://www.rfc-editor.org/rfc/rfc8446.html
-[rfc9146]: https://www.rfc-editor.org/rfc/rfc9146.html
-[rfc9147]: https://www.rfc-editor.org/rfc/rfc9147.html
+[rfc8446]: https://tools.ietf.org/html/rfc8446
+[rfc9146]: https://tools.ietf.org/html/rfc9146
+[rfc9147]: https://tools.ietf.org/html/rfc9147
 
 ### Features
 
