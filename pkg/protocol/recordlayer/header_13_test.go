@@ -151,6 +151,8 @@ func FuzzUnifiedHeaderUnmarshal(f *testing.F) {
 }
 
 func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
+	const cidLength = 32
+
 	testcases := [][]byte{
 		{
 			0x2f,       // 0b00101111
@@ -172,8 +174,25 @@ func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
 	for _, tc := range testcases {
 		f.Add(tc)
 	}
+
+	cid := make([]byte, cidLength)
+	for i := range cid {
+		cid[i] = byte(i)
+	}
+	raw, err := (&UnifiedHeader{
+		ConnectionID:   cid,
+		SequenceNumber: 0xaabb,
+		SeqBit:         true,
+		Length:         42,
+		LengthBit:      true,
+		EpochLow:       3,
+	}).Marshal()
+	if err != nil {
+		f.Fatalf("marshal fuzz seed: %v", err)
+	}
+	f.Add(raw)
+
 	f.Fuzz(func(t *testing.T, data []byte) {
-		cidLength := 32
 		uh := UnifiedHeader{ConnectionID: make([]byte, cidLength)}
 		err := uh.Unmarshal(data)
 		if err != nil {
@@ -187,5 +206,9 @@ func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
 			assert.Equal(t, cidLength, parsedLength)
 		}
 		assert.LessOrEqual(t, uh.EpochLow, uint8(0b000000011))
+
+		raw, err := uh.Marshal()
+		assert.NoError(t, err)
+		assert.Equal(t, data[:uh.Size()], raw)
 	})
 }
