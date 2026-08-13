@@ -26,7 +26,7 @@ import (
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
@@ -2377,7 +2377,7 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 	var remote []protocol.Version
 	seenSupportedVersions := false
 	for _, e := range ch.Extensions {
-		if sv, ok := e.(*extension.SupportedVersions); ok { //nolint:govet
+		if sv, ok := e.(*extension13.OfferedVersions); ok { //nolint:govet
 			seenSupportedVersions = true
 			remote = sv.Versions
 

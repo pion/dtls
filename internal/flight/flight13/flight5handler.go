@@ -14,6 +14,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -142,7 +143,7 @@ func flight5ClientCertificate(
 		SignatureSchemes: certificateRequestSignatureSchemes(request),
 	}
 	for _, ext := range request.Extensions {
-		if authorities, ok := ext.(*extension.CertificateAuthorities); ok {
+		if authorities, ok := ext.(*extension13.CertificateAuthorities); ok {
 			requestInfo.AcceptableCAs = authorities.Authorities
 
 			break
@@ -164,8 +165,8 @@ func certificateRequestSignatureSchemes(
 	request *handshake.MessageCertificateRequest13,
 ) []signaturehash.Algorithm {
 	for _, ext := range request.Extensions {
-		if algorithms, ok := ext.(*extension.SupportedSignatureAlgorithms); ok {
-			return algorithms.SignatureHashAlgorithms
+		if algorithms, ok := ext.(*extension.SignatureAlgorithms); ok {
+			return dtlsflight.SignatureSchemes(algorithms.Schemes)
 		}
 	}
 

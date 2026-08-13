@@ -8,6 +8,7 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,8 +20,8 @@ func TestMessageNewSessionTicket(t *testing.T) {
 		TicketAgeAdd:   0x05060708,
 		TicketNonce:    []byte{0xaa, 0xbb},
 		Ticket:         []byte{0xcc, 0xdd, 0xee},
-		Extensions: []extension.Extension{
-			&extension.EarlyDataIndication{MaxEarlyData: &maxEarlyData},
+		Extensions: []extension.Value{
+			&extension13.MaxEarlyData{Size: maxEarlyData},
 		},
 	}
 	want := []byte{
@@ -55,9 +56,9 @@ func TestMessageNewSessionTicketEmptyVectors(t *testing.T) {
 }
 
 func TestMessageNewSessionTicketMarshalErrors(t *testing.T) {
-	tooManyExtensions := make([]extension.Extension, 16384)
+	tooManyExtensions := make([]extension.Value, 16384)
 	for i := range tooManyExtensions {
-		tooManyExtensions[i] = &extension.PostHandshakeAuth{Enabled: true}
+		tooManyExtensions[i] = extension.Raw{Type: extension.TypePostHandshakeAuth}
 	}
 
 	tests := map[string]*MessageNewSessionTicket{

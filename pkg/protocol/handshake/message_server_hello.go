@@ -26,7 +26,7 @@ type MessageServerHello struct {
 
 	CipherSuiteID     *uint16
 	CompressionMethod *protocol.CompressionMethod
-	Extensions        []extension.Extension
+	Extensions        []extension.Value
 }
 
 const messageServerHelloVariableWidthStart = 2 + RandomLength
@@ -47,7 +47,7 @@ func (m *MessageServerHello) Marshal() ([]byte, error) {
 		return nil, dtlserrors.ErrSessionIDTooLong
 	}
 
-	extensions, err := extension.Marshal(m.Extensions)
+	extensions, err := extension.MarshalList(m.Extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -113,12 +113,17 @@ func (m *MessageServerHello) Unmarshal(data []byte) error {
 	}
 
 	if len(data) <= currOffset {
-		m.Extensions = []extension.Extension{}
+		m.Extensions = []extension.Value{}
 
 		return nil
 	}
 
-	extensions, err := extension.Unmarshal(data[currOffset:])
+	rawExtensions, err := extension.ParseList(data[currOffset:])
+	if err != nil {
+		return err
+	}
+	context := serverHelloExtensionContext(m.Random, rawExtensions)
+	extensions, err := decodeRawExtensions(rawExtensions, context)
 	if err != nil {
 		return err
 	}

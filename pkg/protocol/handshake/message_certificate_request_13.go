@@ -23,7 +23,7 @@ type MessageCertificateRequest13 struct {
 
 	// Extensions contains the list of extensions.
 	// The signature_algorithms extension is REQUIRED per RFC 8446.
-	Extensions []extension.Extension
+	Extensions []extension.Value
 }
 
 // Type returns the handshake message type.
@@ -54,7 +54,7 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
 	hasSignatureAlgorithms := false
 	for _, ext := range m.Extensions {
-		if ext.TypeValue() == extension.SupportedSignatureAlgorithmsTypeValue {
+		if ext.ExtensionType() == extension.TypeSignatureAlgorithms {
 			hasSignatureAlgorithms = true
 
 			break
@@ -72,7 +72,7 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 	})
 
 	// Marshal extensions (includes 2-byte length prefix, like in TLS 1.2)
-	extensionsData, err := extension.Marshal(m.Extensions)
+	extensionsData, err := extension.MarshalList(m.Extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 	}
 
 	var err error
-	m.Extensions, err = extension.Unmarshal([]byte(str))
+	m.Extensions, err = decodeExtensionList([]byte(str), extensionContextCertificateRequest)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
 	hasSignatureAlgorithms := false
 	for _, ext := range m.Extensions {
-		if ext.TypeValue() == extension.SupportedSignatureAlgorithmsTypeValue {
+		if ext.ExtensionType() == extension.TypeSignatureAlgorithms {
 			hasSignatureAlgorithms = true
 
 			break

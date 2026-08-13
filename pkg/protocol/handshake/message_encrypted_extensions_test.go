@@ -17,16 +17,12 @@ var errMarshalEncryptedExtensionsTest = errors.New("marshal encrypted extensions
 
 type failingEncryptedExtensionsExtension struct{}
 
-func (f *failingEncryptedExtensionsExtension) Marshal() ([]byte, error) {
+func (f *failingEncryptedExtensionsExtension) MarshalData() ([]byte, error) {
 	return nil, errMarshalEncryptedExtensionsTest
 }
 
-func (f *failingEncryptedExtensionsExtension) Unmarshal([]byte) error {
-	return nil
-}
-
-func (f *failingEncryptedExtensionsExtension) TypeValue() extension.TypeValue {
-	return extension.ALPNTypeValue
+func (f *failingEncryptedExtensionsExtension) ExtensionType() extension.Type {
+	return extension.TypeALPN
 }
 
 func TestMessageEncryptedExtensionsType(t *testing.T) {
@@ -43,19 +39,18 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 
 	t.Run("WithExtensions", func(t *testing.T) {
 		raw, err := (&MessageEncryptedExtensions{
-			Extensions: []extension.Extension{
-				&extension.ALPN{ProtocolNameList: []string{"h2", "http/1.1"}},
-				&extension.UseExtendedMasterSecret{Supported: true},
+			Extensions: []extension.Value{
+				&extension.ALPNSelection{Protocol: "h2"},
+				extension.Raw{Type: extension.TypeExtendedMasterSecret},
 			},
 		}).Marshal()
 		require.NoError(t, err)
 		assert.Equal(t, []byte{
-			0x00, 0x16, // extensions length
+			0x00, 0x0d, // extensions length
 			0x00, 0x10, // ALPN
-			0x00, 0x0e, // ALPN extension length
-			0x00, 0x0c, // ALPN protocol name list length
+			0x00, 0x05, // ALPN extension length
+			0x00, 0x03, // ALPN protocol name list length
 			0x02, 0x68, 0x32, // h2
-			0x08, 0x68, 0x74, 0x74, 0x70, 0x2f, 0x31, 0x2e, 0x31, // http/1.1
 			0x00, 0x17, // extended_master_secret
 			0x00, 0x00, // extended_master_secret extension length
 		}, raw)
@@ -63,7 +58,7 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 
 	t.Run("ExtensionMarshalError", func(t *testing.T) {
 		raw, err := (&MessageEncryptedExtensions{
-			Extensions: []extension.Extension{&failingEncryptedExtensionsExtension{}},
+			Extensions: []extension.Value{&failingEncryptedExtensionsExtension{}},
 		}).Marshal()
 		assert.ErrorIs(t, err, errMarshalEncryptedExtensionsTest)
 		assert.Nil(t, raw)
@@ -91,30 +86,29 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		msg := &MessageEncryptedExtensions{}
 
 		err := msg.Unmarshal([]byte{
-			0x00, 0x16, // extensions length
+			0x00, 0x0d, // extensions length
 			0x00, 0x10, // ALPN
-			0x00, 0x0e, // ALPN extension length
-			0x00, 0x0c, // ALPN protocol name list length
+			0x00, 0x05, // ALPN extension length
+			0x00, 0x03, // ALPN protocol name list length
 			0x02, 0x68, 0x32, // h2
-			0x08, 0x68, 0x74, 0x74, 0x70, 0x2f, 0x31, 0x2e, 0x31, // http/1.1
 			0x00, 0x17, // extended_master_secret
 			0x00, 0x00, // extended_master_secret extension length
 		})
 		require.NoError(t, err)
 		require.Len(t, msg.Extensions, 2)
 
-		alpn, ok := msg.Extensions[0].(*extension.ALPN)
+		alpn, ok := msg.Extensions[0].(*extension.ALPNSelection)
 		require.True(t, ok)
-		assert.Equal(t, []string{"h2", "http/1.1"}, alpn.ProtocolNameList)
+		assert.Equal(t, "h2", alpn.Protocol)
 
-		extendedMasterSecret, ok := msg.Extensions[1].(*extension.UseExtendedMasterSecret)
+		extendedMasterSecret, ok := msg.Extensions[1].(extension.Raw)
 		require.True(t, ok)
-		assert.True(t, extendedMasterSecret.Supported)
+		assert.Equal(t, extension.TypeExtendedMasterSecret, extendedMasterSecret.Type)
 	})
 
 	t.Run("ShortExtensionListHeader", func(t *testing.T) {
-		previouslyParsedExts := []extension.Extension{
-			&extension.UseExtendedMasterSecret{Supported: true},
+		previouslyParsedExts := []extension.Value{
+			extension.Raw{Type: extension.TypeExtendedMasterSecret},
 		}
 		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 
@@ -124,8 +118,8 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 	})
 
 	t.Run("MismatchedExtensionListLength", func(t *testing.T) {
-		previouslyParsedExts := []extension.Extension{
-			&extension.UseExtendedMasterSecret{Supported: true},
+		previouslyParsedExts := []extension.Value{
+			extension.Raw{Type: extension.TypeExtendedMasterSecret},
 		}
 		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 
@@ -135,8 +129,8 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 	})
 
 	t.Run("ExtensionUnmarshalError", func(t *testing.T) {
-		previouslyParsedExts := []extension.Extension{
-			&extension.UseExtendedMasterSecret{Supported: true},
+		previouslyParsedExts := []extension.Value{
+			extension.Raw{Type: extension.TypeExtendedMasterSecret},
 		}
 		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 

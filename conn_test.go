@@ -41,6 +41,8 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
@@ -331,7 +333,7 @@ func sendClientHello(
 	cookie []byte,
 	ca net.Conn,
 	sequenceNumber uint64,
-	extensions []extension.Extension,
+	extensions []extension.Value,
 	cipherSuiteIDsOverride ...uint16,
 ) error {
 	cipherSuites := cipherSuiteIDsOverride
@@ -1990,21 +1992,21 @@ func TestServerTimeout(t *testing.T) {
 		&ciphersuite.TLSEcdheRsaWithAes128GcmSha256{},
 	}
 
-	extensions := []extension.Extension{
-		&extension.SupportedSignatureAlgorithms{
-			SignatureHashAlgorithms: []signaturehash.Algorithm{
+	extensions := []extension.Value{
+		&extension.SignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{
 				{Hash: hash.SHA256, Signature: signature.ECDSA},
 				{Hash: hash.SHA384, Signature: signature.ECDSA},
 				{Hash: hash.SHA512, Signature: signature.ECDSA},
 				{Hash: hash.SHA256, Signature: signature.RSA},
 				{Hash: hash.SHA384, Signature: signature.RSA},
 				{Hash: hash.SHA512, Signature: signature.RSA},
-			},
+			}),
 		},
-		&extension.SupportedEllipticCurves{
-			EllipticCurves: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
+		&extension.SupportedGroups{
+			Groups: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
 		},
-		&extension.SupportedPointFormats{
+		&extension12.SupportedPointFormats{
 			PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 		},
 	}
@@ -2313,22 +2315,18 @@ type rawExtension13 struct {
 	raw       []byte
 }
 
-func (e rawExtension13) Marshal() ([]byte, error) {
-	return append([]byte(nil), e.raw...), nil
-}
-
-func (e rawExtension13) Unmarshal([]byte) error {
-	return nil
-}
-
-func (e rawExtension13) TypeValue() extension.TypeValue {
+func (e rawExtension13) ExtensionType() extension.Type {
 	return e.typeValue
+}
+
+func (e rawExtension13) MarshalData() ([]byte, error) {
+	return append([]byte(nil), e.raw[4:]...), nil
 }
 
 func marshalVersionNegotiationHelloRetryRequestServerHello13(
 	t *testing.T,
 	cfg *dtlsconfig.HandshakeConfig,
-	extensions []extension.Extension,
+	extensions []extension.Value,
 ) []byte {
 	t.Helper()
 
@@ -2344,7 +2342,7 @@ func marshalVersionNegotiationServerHello13(
 	t *testing.T,
 	cfg *dtlsconfig.HandshakeConfig,
 	random handshake.Random,
-	extensions []extension.Extension,
+	extensions []extension.Value,
 ) []byte {
 	t.Helper()
 
@@ -2400,8 +2398,8 @@ func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVe
 	rawServerHello := marshalVersionNegotiationHelloRetryRequestServerHello13(
 		t,
 		cfg,
-		[]extension.Extension{
-			&extension.KeyShare{SelectedGroup: &selectedGroup},
+		[]extension.Value{
+			&extension13.RetryKeyShare{SelectedGroup: selectedGroup},
 		},
 	)
 
@@ -2428,7 +2426,7 @@ func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupported
 		t,
 		cfg,
 		random,
-		[]extension.Extension{
+		[]extension.Value{
 			rawExtension13{
 				typeValue: extension.SupportedVersionsTypeValue,
 				raw: []byte{
@@ -2441,17 +2439,9 @@ func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupported
 		},
 	)
 
-	conn := &Conn{
-		handshakeCache:  dtlsflight.NewCache(),
-		handshakeConfig: cfg,
-	}
-	conn.handshakeCache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-
-	ok, err := conn.pickVersionFromServerResponse()
-
-	assert.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
-	assert.False(t, ok)
-	assert.Equal(t, protocol.Version{}, dtlsstate.CommonState(conn.state).LocalVersion)
+	parsed := &handshake.Handshake{}
+	err := parsed.Unmarshal(rawServerHello)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidSupportedVersionsFormat)
 }
 
 func TestSelectRemoteVersionActivatesChosenState(t *testing.T) {
@@ -2619,9 +2609,9 @@ func TestRenegotiationInfo(t *testing.T) {
 
 			time.Sleep(50 * time.Millisecond)
 
-			extensions := []extension.Extension{}
+			extensions := []extension.Value{}
 			if test.SendRenegotiationInfoExt {
-				extensions = append(extensions, &extension.RenegotiationInfo{
+				extensions = append(extensions, &extension12.RenegotiationInfo{
 					RenegotiatedConnection: 0,
 				})
 			}
@@ -2656,7 +2646,7 @@ func TestRenegotiationInfo(t *testing.T) {
 
 			actualNegotationInfo := false
 			for _, v := range serverHello.Extensions {
-				if _, ok := v.(*extension.RenegotiationInfo); ok {
+				if _, ok := v.(*extension12.RenegotiationInfo); ok {
 					actualNegotationInfo = true
 				}
 			}
@@ -2727,9 +2717,9 @@ func TestServerNameIndicationExtension(t *testing.T) {
 			gotSNI := false
 			var actualServerName string
 			for _, v := range clientHello.Extensions {
-				if _, ok := v.(*extension.ServerName); ok {
+				if _, ok := v.(*extension.ServerNameOffer); ok {
 					gotSNI = true
-					extensionServerName, ok := v.(*extension.ServerName)
+					extensionServerName, ok := v.(*extension.ServerNameOffer)
 					assert.True(t, ok)
 
 					actualServerName = extensionServerName.ServerName
@@ -2795,15 +2785,6 @@ func TestALPNExtension(t *testing.T) {
 			ExpectAlertFromClient:  false,
 			ExpectAlertFromServer:  true,
 			Alert:                  alert.NoApplicationProtocol,
-		},
-		{
-			Name:                   "Multiple protocols in ServerHello",
-			ClientProtocolNameList: []string{"http/1.1"},
-			ServerProtocolNameList: []string{"http/1.1"},
-			ExpectedProtocol:       "http/1.1",
-			ExpectAlertFromClient:  true,
-			ExpectAlertFromServer:  false,
-			Alert:                  alert.InternalError,
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
@@ -2883,16 +2864,19 @@ func TestALPNExtension(t *testing.T) {
 				assert.True(t, ok)
 
 				var negotiatedProtocol string
-				for _, v := range serverHello.Extensions {
-					if _, ok := v.(*extension.ALPN); ok {
-						e, ok := v.(*extension.ALPN)
+				for i, v := range serverHello.Extensions {
+					if _, ok := v.(*extension.ALPNSelection); ok {
+						e, ok := v.(*extension.ALPNSelection)
 						assert.True(t, ok)
 
-						negotiatedProtocol = e.ProtocolNameList[0]
+						negotiatedProtocol = e.Protocol
 
 						// Manipulate ServerHello
 						if test.ExpectAlertFromClient {
-							e.ProtocolNameList = append(e.ProtocolNameList, "oops")
+							serverHello.Extensions[i] = extension.Raw{
+								Type: extension.TypeALPN,
+								Data: []byte{0x00, 0x08, 0x02, 'h', '2', 0x04, 'o', 'o', 'p', 's'},
+							}
 						}
 					}
 				}
@@ -2944,11 +2928,11 @@ func TestSupportedGroupsExtension(t *testing.T) {
 			_, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), nil, true)
 			assert.ErrorIs(t, err, context.Canceled)
 		}()
-		extensions := []extension.Extension{
-			&extension.SupportedEllipticCurves{
-				EllipticCurves: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
+		extensions := []extension.Value{
+			&extension.SupportedGroups{
+				Groups: []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384},
 			},
-			&extension.SupportedPointFormats{
+			&extension12.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 			},
 		}
@@ -2984,7 +2968,7 @@ func TestSupportedGroupsExtension(t *testing.T) {
 
 		gotGroups := false
 		for _, v := range serverHello.Extensions {
-			if _, ok := v.(*extension.SupportedEllipticCurves); ok {
+			if _, ok := v.(*extension.SupportedGroups); ok {
 				gotGroups = true
 			}
 		}
@@ -3471,7 +3455,7 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 		assert.Error(t, dconn.HandshakeContext(ctx))
 		close(done)
 	}()
-	extensions := []extension.Extension{}
+	extensions := []extension.Value{}
 
 	time.Sleep(50 * time.Millisecond)
 

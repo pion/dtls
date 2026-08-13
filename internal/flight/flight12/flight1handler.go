@@ -15,6 +15,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -84,18 +85,18 @@ func flight1Generate(
 		state.LocalRandom.RandomBytes = cfg.HelloRandomBytesGenerator()
 	}
 
-	extensions := []extension.Extension{
-		&extension.SupportedSignatureAlgorithms{
-			SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+	extensions := []extension.Value{
+		&extension.SignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
 		},
-		&extension.RenegotiationInfo{
+		&extension12.RenegotiationInfo{
 			RenegotiatedConnection: 0,
 		},
 	}
 
 	if len(cfg.LocalCertSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
-			SignatureHashAlgorithms: cfg.LocalCertSignatureSchemes,
+		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes),
 		})
 	}
 
@@ -109,18 +110,18 @@ func flight1Generate(
 	}
 
 	if setEllipticCurveCryptographyClientHelloExtensions {
-		extensions = append(extensions, []extension.Extension{
-			&extension.SupportedEllipticCurves{
-				EllipticCurves: ellipticCurves,
+		extensions = append(extensions, []extension.Value{
+			&extension.SupportedGroups{
+				Groups: ellipticCurves,
 			},
-			&extension.SupportedPointFormats{
+			&extension12.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 			},
 		}...)
 	}
 
 	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
-		extensions = append(extensions, &extension.UseSRTP{
+		extensions = append(extensions, &extension.SRTPOffer{
 			ProtectionProfiles:  cfg.LocalSRTPProtectionProfiles,
 			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
@@ -128,17 +129,15 @@ func flight1Generate(
 
 	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
 		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
-		extensions = append(extensions, &extension.UseExtendedMasterSecret{
-			Supported: true,
-		})
+		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
 
 	if len(cfg.ServerName) > 0 {
-		extensions = append(extensions, &extension.ServerName{ServerName: cfg.ServerName})
+		extensions = append(extensions, &extension.ServerNameOffer{ServerName: cfg.ServerName})
 	}
 
 	if len(cfg.SupportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.SupportedProtocols})
+		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
 	}
 
 	if cfg.HasSessionStore {

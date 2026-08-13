@@ -17,6 +17,8 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -180,7 +182,7 @@ func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]pr
 
 func applyFlight3ServerKeyShare(
 	flightCtx *handshakeContext,
-	serverShare *extension.KeyShareEntry,
+	serverShare *extension13.KeyShareEntry,
 ) *flightParseFailure {
 	localKeypair, ok := flightCtx.state.LocalKeypairs[serverShare.Group]
 	if !ok || localKeypair == nil {
@@ -193,7 +195,7 @@ func applyFlight3ServerKeyShare(
 	}
 	flightCtx.state.KeyAgreementSecret = keyAgreementSecret
 	flightCtx.state.SelectedGroup = serverShare.Group
-	flightCtx.state.RemoteKeyEntries = []extension.KeyShareEntry{*serverShare}
+	flightCtx.state.RemoteKeyEntries = []extension13.KeyShareEntry{*serverShare}
 	flightCtx.state.HasRemoteKeyEntries = true
 
 	return nil
@@ -264,40 +266,38 @@ func flight3Generate(
 		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 
-	extensions := []extension.Extension{
-		&extension.SupportedSignatureAlgorithms{
-			SignatureHashAlgorithms: flightCtx.cfg.LocalSignatureSchemes,
+	extensions := []extension.Value{
+		&extension.SignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(flightCtx.cfg.LocalSignatureSchemes),
 		},
 	}
 
 	if flightCtx.cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
 		flightCtx.cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
-		extensions = append(extensions, &extension.UseExtendedMasterSecret{
-			Supported: true,
-		})
+		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
 
-	extensions = append(extensions, &extension.RenegotiationInfo{
+	extensions = append(extensions, &extension12.RenegotiationInfo{
 		RenegotiatedConnection: 0,
 	})
 
 	if flightCtx.state.SelectedGroup != 0 {
-		extensions = append(extensions, []extension.Extension{
-			&extension.SupportedEllipticCurves{
-				EllipticCurves: flightCtx.cfg.EllipticCurves,
+		extensions = append(extensions, []extension.Value{
+			&extension.SupportedGroups{
+				Groups: flightCtx.cfg.EllipticCurves,
 			},
-			&extension.SupportedPointFormats{
+			&extension12.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 			},
 		}...)
 	}
 
 	if len(flightCtx.cfg.SupportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPN{ProtocolNameList: flightCtx.cfg.SupportedProtocols})
+		extensions = append(extensions, &extension.ALPNOffer{Protocols: flightCtx.cfg.SupportedProtocols})
 	}
 
 	var localGroups []elliptic.Curve
-	var newEntries []extension.KeyShareEntry
+	var newEntries []extension13.KeyShareEntry
 	newKeypairs := map[elliptic.Curve]*elliptic.Keypair{}
 	if flightCtx.state.HasRemoteKeyEntries {
 		for _, entry := range flightCtx.state.LocalKeyEntries {
@@ -310,7 +310,7 @@ func flight3Generate(
 				if err != nil {
 					return nil, nil, err
 				}
-				newEntries = append(newEntries, extension.KeyShareEntry{
+				newEntries = append(newEntries, extension13.KeyShareEntry{
 					Group: keypair.Curve, KeyExchange: keypair.PublicKey,
 				})
 				newKeypairs[keypair.Curve] = keypair
@@ -324,29 +324,29 @@ func flight3Generate(
 		}
 		maps.Copy(flightCtx.state.LocalKeypairs, newKeypairs)
 	}
-	extensions = append(extensions, &extension.KeyShare{
-		ClientShares: flightCtx.state.LocalKeyEntries,
+	extensions = append(extensions, &extension13.ClientKeyShare{
+		Shares: flightCtx.state.LocalKeyEntries,
 	})
 
 	if !slices.Contains(flightCtx.state.RemoteVersions, protocol.Version1_3) {
 		return nil, nil, dtlserrors.ErrNoCommonProtocolVersion
 	}
-	extensions = append(extensions, &extension.SupportedVersions{
+	extensions = append(extensions, &extension13.OfferedVersions{
 		Versions: dtlsconfig.SupportedVersionsRange(flightCtx.cfg.MinVersion, flightCtx.cfg.MaxVersion),
 	})
 
 	if len(flightCtx.cfg.LocalCertSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
-			SignatureHashAlgorithms: flightCtx.cfg.LocalCertSignatureSchemes,
+		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(flightCtx.cfg.LocalCertSignatureSchemes),
 		})
 	}
 
 	if len(flightCtx.cfg.ServerName) > 0 {
-		extensions = append(extensions, &extension.ServerName{ServerName: flightCtx.cfg.ServerName})
+		extensions = append(extensions, &extension.ServerNameOffer{ServerName: flightCtx.cfg.ServerName})
 	}
 
 	if len(flightCtx.cfg.LocalSRTPProtectionProfiles) > 0 {
-		extensions = append(extensions, &extension.UseSRTP{
+		extensions = append(extensions, &extension.SRTPOffer{
 			ProtectionProfiles:  flightCtx.cfg.LocalSRTPProtectionProfiles,
 			MasterKeyIdentifier: flightCtx.cfg.LocalSRTPMasterKeyIdentifier,
 		})
@@ -360,7 +360,7 @@ func flight3Generate(
 	}
 
 	if len(flightCtx.state.Cookie) > 0 {
-		extensions = append(extensions, &extension.CookieExt{Cookie: flightCtx.state.Cookie})
+		extensions = append(extensions, &extension13.Cookie{Cookie: flightCtx.state.Cookie})
 	}
 
 	clientHello := &handshake.MessageClientHello{

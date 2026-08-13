@@ -8,7 +8,7 @@ import (
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 )
 
 type TrafficSecrets struct {
@@ -108,9 +108,9 @@ type State13 struct {
 	LocalKeypair  *elliptic.Keypair
 	LocalKeypairs map[elliptic.Curve]*elliptic.Keypair
 
-	LocalKeyEntries []extension.KeyShareEntry
+	LocalKeyEntries []extension13.KeyShareEntry
 
-	RemoteKeyEntries    []extension.KeyShareEntry
+	RemoteKeyEntries    []extension13.KeyShareEntry
 	HasRemoteKeyEntries bool
 	RemoteGroups        []elliptic.Curve
 

@@ -37,14 +37,14 @@ func TestClientHelloFiltersX25519MLKEM768(t *testing.T) {
 	clientHello, ok := content.Message.(*handshake.MessageClientHello)
 	require.True(t, ok)
 
-	var supportedGroups *extension.SupportedEllipticCurves
+	var supportedGroups *extension.SupportedGroups
 	for _, ext := range clientHello.Extensions {
-		if groups, ok := ext.(*extension.SupportedEllipticCurves); ok {
+		if groups, ok := ext.(*extension.SupportedGroups); ok {
 			supportedGroups = groups
 		}
 	}
 	require.NotNil(t, supportedGroups)
-	require.Equal(t, []elliptic.Curve{elliptic.P256}, supportedGroups.EllipticCurves)
+	require.Equal(t, []elliptic.Curve{elliptic.P256}, supportedGroups.Groups)
 }
 
 func TestServerSelectsClassicalCurveFromClientGroups(t *testing.T) {

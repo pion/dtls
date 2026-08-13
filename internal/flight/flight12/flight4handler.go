@@ -22,6 +22,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -253,27 +254,25 @@ func flight4Generate(
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
-	extensions := []extension.Extension{}
+	extensions := []extension.Value{}
 
 	if (cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
 		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
-		extensions = append(extensions, &extension.UseExtendedMasterSecret{
-			Supported: true,
-		})
+		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
 	if state.SRTPProtectionProfile() != 0 {
-		extensions = append(extensions, &extension.UseSRTP{
-			ProtectionProfiles:  []dtlsconfig.SRTPProtectionProfile{state.SRTPProtectionProfile()},
+		extensions = append(extensions, &extension.SRTPSelection{
+			ProtectionProfile:   state.SRTPProtectionProfile(),
 			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
 	}
 	if state.RemoteSupportsRenegotiation {
-		extensions = append(extensions, &extension.RenegotiationInfo{
+		extensions = append(extensions, &extension12.RenegotiationInfo{
 			RenegotiatedConnection: 0,
 		})
 	}
 	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate {
-		extensions = append(extensions, &extension.SupportedPointFormats{
+		extensions = append(extensions, &extension12.SupportedPointFormats{
 			PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 		})
 	}
@@ -283,9 +282,7 @@ func flight4Generate(
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.NoApplicationProtocol}, err
 	}
 	if selectedProto != "" {
-		extensions = append(extensions, &extension.ALPN{
-			ProtocolNameList: []string{selectedProto},
-		})
+		extensions = append(extensions, &extension.ALPNSelection{Protocol: selectedProto})
 		state.NegotiatedProtocol = selectedProto
 	}
 

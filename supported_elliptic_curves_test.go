@@ -72,9 +72,9 @@ func TestSupportedEllipticCurves(t *testing.T) {
 				assert.NoError(t, clientHello.Unmarshal(msg))
 
 				for _, e := range clientHello.Extensions {
-					if e.TypeValue() == extension.SupportedEllipticCurvesTypeValue {
-						if c, ok := e.(*extension.SupportedEllipticCurves); ok {
-							actualCurves = c.EllipticCurves
+					if e.ExtensionType() == extension.TypeSupportedGroups {
+						if c, ok := e.(*extension.SupportedGroups); ok {
+							actualCurves = c.Groups
 						}
 					}
 				}

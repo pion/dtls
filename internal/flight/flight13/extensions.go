@@ -13,6 +13,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -72,31 +73,28 @@ func processClientHelloSecurityExtension(
 	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 	seen *clientHelloExtensionSet,
-	val extension.Extension,
+	val extension.Value,
 ) *clientHelloExtensionFailure {
 	switch ext := val.(type) {
-	case *extension.SupportedEllipticCurves:
+	case *extension.SupportedGroups:
 		seen.hasSupportedGroups = true
-		if len(ext.EllipticCurves) == 0 {
+		if len(ext.Groups) == 0 {
 			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
 		}
-		state.RemoteGroups = ext.EllipticCurves
-	case *extension.UseSRTP:
+		state.RemoteGroups = ext.Groups
+	case *extension.SRTPOffer:
 		profile, ok := dtlsflight.FindMatchingSRTPProfile(cfg.LocalSRTPProtectionProfiles, ext.ProtectionProfiles)
 		if !ok {
 			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrServerNoMatchingSRTPProfile)
 		}
 		state.SetSRTPProtectionProfile(profile)
 		state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
-	case *extension.SupportedSignatureAlgorithms:
+	case *extension.SignatureAlgorithms:
 		seen.hasSignatureAlgorithms = true
-		state.RemoteSignatureSchemes = ext.SignatureHashAlgorithms
-	case *extension.SupportedVersions:
-		if ext.IsSelectedVersion() {
-			return newClientHelloExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
-		}
+		state.RemoteSignatureSchemes = dtlsflight.SignatureSchemes(ext.Schemes)
+	case *extension13.OfferedVersions:
 		state.RemoteVersions = ext.Versions
-	case *extension.PreSharedKey:
+	case *extension13.OfferedPSKs:
 		seen.hasPreSharedKey = true
 	}
 
@@ -105,25 +103,25 @@ func processClientHelloSecurityExtension(
 
 func processClientHelloStateExtension(
 	state *dtlsstate.State13,
-	val extension.Extension,
+	val extension.Value,
 ) {
 	switch ext := val.(type) {
-	case *extension.ServerName:
+	case *extension.ServerNameOffer:
 		state.ServerName = ext.ServerName // remote server name
-	case *extension.ALPN:
-		state.PeerSupportedProtocols = ext.ProtocolNameList
-	case *extension.SignatureAlgorithmsCert:
+	case *extension.ALPNOffer:
+		state.PeerSupportedProtocols = ext.Protocols
+	case *extension.CertificateSignatureAlgorithms:
 		// Store the client's certificate signature schemes for later validation.
-		state.RemoteCertSignatureSchemes = ext.SignatureHashAlgorithms
-	case *extension.KeyShare:
-		state.RemoteKeyEntries = ext.ClientShares
+		state.RemoteCertSignatureSchemes = dtlsflight.SignatureSchemes(ext.Schemes)
+	case *extension13.ClientKeyShare:
+		state.RemoteKeyEntries = ext.Shares
 		state.HasRemoteKeyEntries = true
 	}
 }
 
 // connectionIDExtension extracts a connection_id extension while preserving
 // the distinction between an absent extension and a present, zero-length CID.
-func connectionIDExtension(extensions []extension.Extension) ([]byte, bool, bool) {
+func connectionIDExtension(extensions []extension.Value) ([]byte, bool, bool) {
 	var cid []byte
 	found := false
 	for _, val := range extensions {

@@ -24,6 +24,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
@@ -1165,10 +1166,9 @@ func rawHelloRetryRequest13(
 		Random:            random,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{},
-		Extensions: []extension.Extension{
-			&extension.SupportedVersions{
-				Versions:        []protocol.Version{protocol.Version1_3},
-				SelectedVersion: true,
+		Extensions: []extension.Value{
+			&extension13.SelectedVersion{
+				Version: protocol.Version1_3,
 			},
 		},
 	})
@@ -1199,15 +1199,15 @@ func pskClientHelloTranscript13(tb testing.TB, binder []byte) ([]byte, []byte) {
 		Version:            protocol.Version1_2,
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-		Extensions: []extension.Extension{
-			&extension.PreSharedKey{
-				Identities: []extension.PskIdentity{
+		Extensions: []extension.Value{
+			&extension13.OfferedPSKs{
+				Identities: []extension13.PSKIdentity{
 					{
 						Identity:            []byte("psk-identity"),
 						ObfuscatedTicketAge: 0x01020304,
 					},
 				},
-				Binders: []extension.PskBinderEntry{binder},
+				Binders: []extension13.PSKBinder{extension13.PSKBinder(binder)},
 			},
 		},
 	}

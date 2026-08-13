@@ -20,6 +20,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -63,9 +64,9 @@ func flight4Parse(
 	return Flight4, nil, nil
 }
 
-func clientHelloCookie(extensions []extension.Extension) []byte {
+func clientHelloCookie(extensions []extension.Value) []byte {
 	for _, ext := range extensions {
-		if cookieExt, ok := ext.(*extension.CookieExt); ok {
+		if cookieExt, ok := ext.(*extension13.Cookie); ok {
 			return cookieExt.Cookie
 		}
 	}
@@ -129,10 +130,10 @@ func generateClientKeyShareSecret(
 func matchingClientKeyShare(
 	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
-) (extension.KeyShareEntry, bool) {
+) (extension13.KeyShareEntry, bool) {
 	selectedGroup, ok := preferredClientGroup(state, cfg)
 	if !ok {
-		return extension.KeyShareEntry{}, false
+		return extension13.KeyShareEntry{}, false
 	}
 
 	return clientKeyShareForGroup(state, selectedGroup)
@@ -158,9 +159,9 @@ func preferredClientGroup(
 func clientKeyShareForGroup(
 	state *dtlsstate.State13,
 	group elliptic.Curve,
-) (extension.KeyShareEntry, bool) {
+) (extension13.KeyShareEntry, bool) {
 	if !state.HasRemoteKeyEntries {
-		return extension.KeyShareEntry{}, false
+		return extension13.KeyShareEntry{}, false
 	}
 	for _, entry := range state.RemoteKeyEntries {
 		if entry.Group == group {
@@ -168,7 +169,7 @@ func clientKeyShareForGroup(
 		}
 	}
 
-	return extension.KeyShareEntry{}, false
+	return extension13.KeyShareEntry{}, false
 }
 
 func needsClientKeypair(state *dtlsstate.State13) bool {
@@ -223,14 +224,13 @@ func flight4Generate( //nolint:cyclop
 	}
 
 	cipherSuiteID := uint16(state.CipherSuite.ID())
-	serverHelloExtensions := []extension.Extension{
-		&extension.SupportedVersions{
-			Versions:        []protocol.Version{protocol.Version1_3},
-			SelectedVersion: true,
+	serverHelloExtensions := []extension.Value{
+		&extension13.SelectedVersion{
+			Version: protocol.Version1_3,
 		},
 	}
-	serverHelloExtensions = append(serverHelloExtensions, &extension.KeyShare{
-		ServerShare: &extension.KeyShareEntry{
+	serverHelloExtensions = append(serverHelloExtensions, &extension13.ServerKeyShare{
+		Share: extension13.KeyShareEntry{
 			Group:       state.LocalKeypair.Curve,
 			KeyExchange: state.LocalKeypair.PublicKey,
 		},
@@ -276,13 +276,13 @@ func flight4Generate( //nolint:cyclop
 		// RFC 8446 Section 4.3.2 requires signature_algorithms in the request.
 		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
 		// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.3.2
-		certificateRequestExtensions := []extension.Extension{
-			&extension.SupportedSignatureAlgorithms{
-				SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+		certificateRequestExtensions := []extension.Value{
+			&extension.SignatureAlgorithms{
+				Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
 			},
 		}
 		if cfg.ClientCAs != nil {
-			certificateRequestExtensions = append(certificateRequestExtensions, &extension.CertificateAuthorities{
+			certificateRequestExtensions = append(certificateRequestExtensions, &extension13.CertificateAuthorities{
 				// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR
 				// because cert does not come from SystemCertPool and it's ok if certificate
 				// authorities is empty.

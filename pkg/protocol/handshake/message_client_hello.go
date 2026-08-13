@@ -28,7 +28,7 @@ type MessageClientHello struct {
 
 	CipherSuiteIDs     []uint16
 	CompressionMethods []*protocol.CompressionMethod
-	Extensions         []extension.Extension
+	Extensions         []extension.Value
 }
 
 const handshakeMessageClientHelloVariableWidthStart = 34
@@ -50,7 +50,7 @@ func (m *MessageClientHello) Marshal() ([]byte, error) {
 		return nil, dtlserrors.ErrCompressionMethodsTooLong
 	}
 
-	extensions, err := extension.Marshal(m.Extensions)
+	extensions, err := extension.MarshalList(m.Extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 	currOffset += int(data[currOffset]) + 1
 
 	// Extensions
-	extensions, err := extension.Unmarshal(data[currOffset:])
+	extensions, err := decodeExtensionList(data[currOffset:], extensionContextClientHello)
 	if err != nil {
 		return err
 	}

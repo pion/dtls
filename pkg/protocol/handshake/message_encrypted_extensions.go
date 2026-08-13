@@ -14,7 +14,7 @@ import (
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
 type MessageEncryptedExtensions struct {
-	Extensions []extension.Extension
+	Extensions []extension.Value
 }
 
 // Type returns the Handshake Type.
@@ -24,7 +24,7 @@ func (m MessageEncryptedExtensions) Type() Type {
 
 // Marshal encodes the Handshake.
 func (m *MessageEncryptedExtensions) Marshal() ([]byte, error) {
-	return extension.Marshal(m.Extensions)
+	return extension.MarshalList(m.Extensions)
 }
 
 // Unmarshal populates the message from encoded data.
@@ -33,7 +33,7 @@ func (m *MessageEncryptedExtensions) Unmarshal(data []byte) error {
 		return dtlserrors.ErrBufferTooSmall
 	}
 
-	extensions, err := extension.Unmarshal(data)
+	extensions, err := decodeExtensionList(data, extensionContextEncryptedExtensions)
 	if err != nil {
 		return err
 	}

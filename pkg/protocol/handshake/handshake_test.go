@@ -9,6 +9,7 @@ import (
 
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 )
@@ -39,7 +40,7 @@ func TestHandshakeMessage(t *testing.T) {
 			Cookie:             []byte{},
 			CipherSuiteIDs:     []uint16{},
 			CompressionMethods: []*protocol.CompressionMethod{},
-			Extensions:         []extension.Extension{},
+			Extensions:         []extension.Value{},
 		},
 	}
 
@@ -60,8 +61,8 @@ func TestPostHandshakeMessageDispatch(t *testing.T) {
 			TicketAgeAdd:   2,
 			TicketNonce:    []byte{0x03},
 			Ticket:         []byte{0x04},
-			Extensions: []extension.Extension{
-				&extension.EarlyDataIndication{MaxEarlyData: &maxEarlyData},
+			Extensions: []extension.Value{
+				&extension13.MaxEarlyData{Size: maxEarlyData},
 			},
 		},
 		"KeyUpdate": &handshake.MessageKeyUpdate{

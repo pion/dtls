@@ -15,6 +15,8 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -47,20 +49,18 @@ func flight1Generate(
 		state.LocalRandom.RandomBytes = cfg.HelloRandomBytesGenerator()
 	}
 
-	extensions := []extension.Extension{
-		&extension.SupportedSignatureAlgorithms{
-			SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+	extensions := []extension.Value{
+		&extension.SignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
 		},
 	}
 
 	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
 		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
-		extensions = append(extensions, &extension.UseExtendedMasterSecret{
-			Supported: true,
-		})
+		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
 
-	extensions = append(extensions, &extension.RenegotiationInfo{
+	extensions = append(extensions, &extension12.RenegotiationInfo{
 		RenegotiatedConnection: 0,
 	})
 
@@ -74,54 +74,54 @@ func flight1Generate(
 	}
 
 	if setEllipticCurveCryptographyClientHelloExtensions {
-		extensions = append(extensions, []extension.Extension{
-			&extension.SupportedEllipticCurves{
-				EllipticCurves: cfg.EllipticCurves,
+		extensions = append(extensions, []extension.Value{
+			&extension.SupportedGroups{
+				Groups: cfg.EllipticCurves,
 			},
-			&extension.SupportedPointFormats{
+			&extension12.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 			},
 		}...)
 	}
 
 	if len(cfg.SupportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.SupportedProtocols})
+		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
 	}
 
-	entries := make([]extension.KeyShareEntry, 0, len(cfg.EllipticCurves))
+	entries := make([]extension13.KeyShareEntry, 0, len(cfg.EllipticCurves))
 	keypairs := make(map[elliptic.Curve]*elliptic.Keypair, len(cfg.EllipticCurves))
 	for _, group := range cfg.EllipticCurves {
 		keypair, err := elliptic.GenerateKeypair(group)
 		if err != nil {
 			return nil, nil, err
 		}
-		entries = append(entries, extension.KeyShareEntry{
+		entries = append(entries, extension13.KeyShareEntry{
 			Group: keypair.Curve, KeyExchange: keypair.PublicKey,
 		})
 		keypairs[keypair.Curve] = keypair
 	}
 	state.LocalKeyEntries = entries
 	state.LocalKeypairs = keypairs
-	extensions = append(extensions, &extension.KeyShare{
-		ClientShares: entries,
+	extensions = append(extensions, &extension13.ClientKeyShare{
+		Shares: entries,
 	})
 
-	extensions = append(extensions, &extension.SupportedVersions{
+	extensions = append(extensions, &extension13.OfferedVersions{
 		Versions: dtlsconfig.SupportedVersionsRange(cfg.MinVersion, cfg.MaxVersion),
 	})
 
 	if len(cfg.LocalCertSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
-			SignatureHashAlgorithms: cfg.LocalCertSignatureSchemes,
+		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes),
 		})
 	}
 
 	if len(cfg.ServerName) > 0 {
-		extensions = append(extensions, &extension.ServerName{ServerName: cfg.ServerName})
+		extensions = append(extensions, &extension.ServerNameOffer{ServerName: cfg.ServerName})
 	}
 
 	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
-		extensions = append(extensions, &extension.UseSRTP{
+		extensions = append(extensions, &extension.SRTPOffer{
 			ProtectionProfiles:  cfg.LocalSRTPProtectionProfiles,
 			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
@@ -237,19 +237,15 @@ func flight1Parse(
 	// optionally the "cookie" extension
 	for _, val := range sh.Extensions {
 		switch ext := val.(type) {
-		case *extension.SupportedVersions:
+		case *extension13.SelectedVersion:
 			// nolint:godox
 			// TODO: negotiate version
-			state.RemoteVersions = ext.Versions
-		case *extension.CookieExt:
+			state.RemoteVersions = []protocol.Version{ext.Version}
+		case *extension13.Cookie:
 			state.Cookie = ext.Cookie
-		case *extension.KeyShare:
-			if ext.SelectedGroup != nil {
-				state.RemoteKeyEntries = []extension.KeyShareEntry{
-					{Group: *ext.SelectedGroup},
-				}
-				state.HasRemoteKeyEntries = true
-			}
+		case *extension13.RetryKeyShare:
+			state.RemoteKeyEntries = []extension13.KeyShareEntry{{Group: ext.SelectedGroup}}
+			state.HasRemoteKeyEntries = true
 		}
 	}
 

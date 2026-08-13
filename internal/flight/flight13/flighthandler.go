@@ -18,6 +18,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -328,25 +329,25 @@ func IsHelloRetryRequest(sh *handshake.MessageServerHello) bool {
 	return bytes.Equal(randomBytes[:], handshake.HelloRetryRequestRandom())
 }
 
-func ServerHelloSelectedVersions(extensions []extension.Extension) ([]protocol.Version, bool, error) {
+func ServerHelloSelectedVersions(extensions []extension.Value) ([]protocol.Version, bool, error) {
 	seenSupportedVersions := false
 	var versions []protocol.Version
 	for _, val := range extensions {
-		supportedVersions, ok := val.(*extension.SupportedVersions)
+		supportedVersions, ok := val.(*extension13.SelectedVersion)
 		if !ok {
 			continue
 		}
-		if seenSupportedVersions || !supportedVersions.IsSelectedVersion() || len(supportedVersions.Versions) != 1 {
+		if seenSupportedVersions {
 			return nil, true, dtlserrors.ErrInvalidServerHello
 		}
 		seenSupportedVersions = true
-		versions = supportedVersions.Versions
+		versions = []protocol.Version{supportedVersions.Version}
 	}
 
 	return versions, seenSupportedVersions, nil
 }
 
-func validateHelloRetryRequestSelectedVersion(extensions []extension.Extension) error {
+func validateHelloRetryRequestSelectedVersion(extensions []extension.Value) error {
 	versions, seenSupportedVersions, err := ServerHelloSelectedVersions(extensions)
 	if err != nil || !seenSupportedVersions {
 		return dtlserrors.ErrInvalidHelloRetryRequest
@@ -386,14 +387,14 @@ func selectServerHelloCipherSuite(
 	return selectedCipherSuite, nil, nil
 }
 
-func serverHelloKeyShare(extensions []extension.Extension) *extension.KeyShareEntry {
+func serverHelloKeyShare(extensions []extension.Value) *extension13.KeyShareEntry {
 	for _, ext := range extensions {
-		keyShare, ok := ext.(*extension.KeyShare)
-		if !ok || keyShare.ServerShare == nil {
+		keyShare, ok := ext.(*extension13.ServerKeyShare)
+		if !ok {
 			continue
 		}
 
-		return keyShare.ServerShare
+		return &keyShare.Share
 	}
 
 	return nil

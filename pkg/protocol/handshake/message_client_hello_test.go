@@ -43,8 +43,8 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 		CompressionMethods: []*protocol.CompressionMethod{
 			{},
 		},
-		Extensions: []extension.Extension{
-			&extension.SupportedEllipticCurves{EllipticCurves: []elliptic.Curve{elliptic.X25519}},
+		Extensions: []extension.Value{
+			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
 		},
 	}
 

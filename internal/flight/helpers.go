@@ -4,9 +4,12 @@
 package flight
 
 import (
+	"crypto/tls"
+	"encoding/binary"
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 )
 
 func FindMatchingSRTPProfile(a, b []dtlsconfig.SRTPProtectionProfile) (dtlsconfig.SRTPProtectionProfile, bool) {
@@ -17,6 +20,32 @@ func FindMatchingSRTPProfile(a, b []dtlsconfig.SRTPProtectionProfile) (dtlsconfi
 	}
 
 	return 0, false
+}
+
+// SignatureSchemeIDs converts negotiated signature algorithms to their
+// identifiers for the payload-oriented extension codecs.
+func SignatureSchemeIDs(algorithms []signaturehash.Algorithm) []uint16 {
+	ids := make([]uint16, 0, len(algorithms))
+	for i := range algorithms {
+		ids = append(ids, binary.BigEndian.Uint16(algorithms[i].Marshal()))
+	}
+
+	return ids
+}
+
+// SignatureSchemes converts known identifiers into algorithms used by
+// negotiation. Unknown identifiers remain preserved by the extension value
+// and are ignored here.
+func SignatureSchemes(ids []uint16) []signaturehash.Algorithm {
+	algorithms := make([]signaturehash.Algorithm, 0, len(ids))
+	for _, id := range ids {
+		var algorithm signaturehash.Algorithm
+		if err := algorithm.Unmarshal(tls.SignatureScheme(id)); err == nil {
+			algorithms = append(algorithms, algorithm)
+		}
+	}
+
+	return algorithms
 }
 
 func FindMatchingCipherSuite(a, b []dtlsconfig.CipherSuite) (dtlsconfig.CipherSuite, bool) {

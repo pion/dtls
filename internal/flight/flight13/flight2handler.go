@@ -13,6 +13,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -91,11 +92,10 @@ func flight2Generate(
 	random := handshake.Random{}
 	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
 
-	exts := []extension.Extension{}
+	exts := []extension.Value{}
 
-	exts = append(exts, &extension.SupportedVersions{
-		Versions:        []protocol.Version{protocol.Version1_3},
-		SelectedVersion: true,
+	exts = append(exts, &extension13.SelectedVersion{
+		Version: protocol.Version1_3,
 	})
 	cipherSuiteID := uint16(flightCtx.state.CipherSuite.ID())
 
@@ -106,14 +106,14 @@ func flight2Generate(
 		// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.8
 		_, clientAlreadyOfferedShare := clientKeyShareForGroup(flightCtx.state, flightCtx.state.SelectedGroup)
 		if !clientAlreadyOfferedShare {
-			exts = append(exts, &extension.KeyShare{
-				SelectedGroup: &flightCtx.state.SelectedGroup,
+			exts = append(exts, &extension13.RetryKeyShare{
+				SelectedGroup: flightCtx.state.SelectedGroup,
 			})
 		}
 	}
 
 	if len(flightCtx.state.Cookie) > 0 {
-		exts = append(exts, &extension.CookieExt{
+		exts = append(exts, &extension13.Cookie{
 			Cookie: flightCtx.state.Cookie,
 		})
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -88,32 +89,32 @@ func flight0Parse(
 
 	for _, val := range clientHello.Extensions {
 		switch ext := val.(type) {
-		case *extension.SupportedEllipticCurves:
-			if len(ext.EllipticCurves) == 0 {
+		case *extension.SupportedGroups:
+			if len(ext.Groups) == 0 {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
 			}
-			namedCurve, ok := selectEllipticCurve(cfg.EllipticCurves, ext.EllipticCurves)
+			namedCurve, ok := selectEllipticCurve(cfg.EllipticCurves, ext.Groups)
 			if !ok {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
 			}
 			state.NamedCurve = namedCurve
-		case *extension.UseSRTP:
+		case *extension.SRTPOffer:
 			profile, ok := dtlsflight.FindMatchingSRTPProfile(cfg.LocalSRTPProtectionProfiles, ext.ProtectionProfiles)
 			if !ok {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerNoMatchingSRTPProfile //nolint:lll
 			}
 			state.SetSRTPProtectionProfile(profile)
 			state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
-		case *extension.UseExtendedMasterSecret:
+		case *extension12.ExtendedMasterSecret:
 			if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 				state.ExtendedMasterSecret = true
 			}
-		case *extension.ServerName:
+		case *extension.ServerNameOffer:
 			state.ServerName = ext.ServerName // remote server name
-		case *extension.RenegotiationInfo:
+		case *extension12.RenegotiationInfo:
 			state.RemoteSupportsRenegotiation = true
-		case *extension.ALPN:
-			state.PeerSupportedProtocols = ext.ProtocolNameList
+		case *extension.ALPNOffer:
+			state.PeerSupportedProtocols = ext.Protocols
 		case *extension.ConnectionID:
 			// Only set connection ID to be sent if server supports connection
 			// IDs.
@@ -121,9 +122,9 @@ func flight0Parse(
 				state.RemoteConnectionID = ext.CID
 				state.RemoteCIDOffered = true
 			}
-		case *extension.SignatureAlgorithmsCert:
+		case *extension.CertificateSignatureAlgorithms:
 			// Store the client's certificate signature schemes for later validation
-			state.RemoteCertSignatureSchemes = ext.SignatureHashAlgorithms
+			state.RemoteCertSignatureSchemes = dtlsflight.SignatureSchemes(ext.Schemes)
 		}
 	}
 

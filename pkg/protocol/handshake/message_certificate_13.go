@@ -24,7 +24,7 @@ type CertificateEntry13 struct {
 
 	// Extensions contains per-certificate extensions.
 	// Examples: OCSP status, SignedCertificateTimestamp, etc.
-	Extensions []extension.Extension
+	Extensions []extension.Value
 }
 
 // MessageCertificate13 represents the Certificate handshake message for DTLS 1.3.
@@ -92,7 +92,7 @@ func (m *MessageCertificate13) Marshal() ([]byte, error) {
 		certificateList = append(certificateList, entry.CertificateData...)
 
 		// Marshal extensions (includes a 2-byte length prefix)
-		extensionsData, err := extension.Marshal(entry.Extensions)
+		extensionsData, err := extension.MarshalList(entry.Extensions)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +142,7 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 
 	// Unmarshal extensions data
 	extensionsData := []byte(*str)[:cert13ExtLengthFieldSize+int(extensionsLen)]
-	extensions, err := extension.Unmarshal(extensionsData)
+	extensions, err := decodeExtensionList(extensionsData, extensionContextCertificateEntry)
 	if err != nil {
 		return nil, err
 	}

@@ -27,7 +27,7 @@ type MessageNewSessionTicket struct {
 	TicketAgeAdd   uint32
 	TicketNonce    []byte
 	Ticket         []byte
-	Extensions     []extension.Extension
+	Extensions     []extension.Value
 }
 
 // Type returns the Handshake Type.
@@ -44,7 +44,7 @@ func (m *MessageNewSessionTicket) Marshal() ([]byte, error) {
 		return nil, dtlserrors.ErrInvalidTicketLength
 	}
 
-	extensions, err := extension.Marshal(m.Extensions)
+	extensions, err := extension.MarshalList(m.Extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (m *MessageNewSessionTicket) Unmarshal(data []byte) error {
 	ticket := bytes.Clone(data[offset : offset+ticketLength])
 	offset += ticketLength
 
-	extensions, err := extension.Unmarshal(data[offset:])
+	extensions, err := decodeExtensionList(data[offset:], extensionContextNewSessionTicket)
 	if err != nil {
 		return err
 	}

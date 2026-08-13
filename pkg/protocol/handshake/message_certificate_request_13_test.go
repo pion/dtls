@@ -7,9 +7,6 @@ import (
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/pkg/crypto/hash"
-	"github.com/pion/dtls/v3/pkg/crypto/signature"
-	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,12 +29,8 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 			},
 			parsedCertificateRequest: &MessageCertificateRequest13{
 				CertificateRequestContext: []byte{},
-				Extensions: []extension.Extension{
-					&extension.SupportedSignatureAlgorithms{
-						SignatureHashAlgorithms: []signaturehash.Algorithm{
-							{Hash: hash.SHA256, Signature: signature.ECDSA},
-						},
-					},
+				Extensions: []extension.Value{
+					&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
 				},
 			},
 		},
@@ -55,14 +48,8 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 			},
 			parsedCertificateRequest: &MessageCertificateRequest13{
 				CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
-				Extensions: []extension.Extension{
-					&extension.SupportedSignatureAlgorithms{
-						SignatureHashAlgorithms: []signaturehash.Algorithm{
-							{Hash: hash.SHA256, Signature: signature.ECDSA},
-							{Hash: hash.SHA256, Signature: signature.RSA},
-							{Hash: hash.SHA384, Signature: signature.ECDSA},
-						},
-					},
+				Extensions: []extension.Value{
+					&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0401, 0x0503}},
 				},
 			},
 		},
@@ -108,13 +95,8 @@ func TestMessageCertificateRequest13_MinimalValid(t *testing.T) {
 	// Build (valid) message with empty context
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: []byte{},
-		Extensions: []extension.Extension{
-			&extension.SupportedSignatureAlgorithms{
-				SignatureHashAlgorithms: []signaturehash.Algorithm{
-					{Hash: hash.SHA256, Signature: signature.ECDSA},
-					{Hash: hash.SHA256, Signature: signature.RSA},
-				},
-			},
+		Extensions: []extension.Value{
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0401}},
 		},
 	}
 	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
@@ -124,12 +106,8 @@ func TestMessageCertificateRequest13_WithContext(t *testing.T) {
 	// Build (valid) message with non-empty context
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
-		Extensions: []extension.Extension{
-			&extension.SupportedSignatureAlgorithms{
-				SignatureHashAlgorithms: []signaturehash.Algorithm{
-					{Hash: hash.SHA256, Signature: signature.ECDSA},
-				},
-			},
+		Extensions: []extension.Value{
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
 		},
 	}
 	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
@@ -143,12 +121,8 @@ func TestMessageCertificateRequest13_MaxContextLength(t *testing.T) {
 	}
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: context,
-		Extensions: []extension.Extension{
-			&extension.SupportedSignatureAlgorithms{
-				SignatureHashAlgorithms: []signaturehash.Algorithm{
-					{Hash: hash.SHA256, Signature: signature.ECDSA},
-				},
-			},
+		Extensions: []extension.Value{
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
 		},
 	}
 	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
@@ -159,15 +133,14 @@ func TestMessageCertificateRequest13_MultipleExtensions(t *testing.T) {
 	// (signature_algorithms, which must be present, and server_name)
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
-		Extensions: []extension.Extension{
-			&extension.SupportedSignatureAlgorithms{
-				SignatureHashAlgorithms: []signaturehash.Algorithm{
-					{Hash: hash.SHA256, Signature: signature.ECDSA},
-					{Hash: hash.SHA384, Signature: signature.ECDSA},
-					{Hash: hash.SHA512, Signature: signature.RSA},
+		Extensions: []extension.Value{
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0503, 0x0601}},
+			extension.Raw{
+				Type: extension.TypeServerName,
+				Data: []byte{
+					0x00, 0x0e, 0x00, 0x00, 0x0b, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
 				},
 			},
-			&extension.ServerName{ServerName: "example.com"},
 		},
 	}
 	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
@@ -178,12 +151,8 @@ func TestMessageCertificateRequest13_ContextTooLong(t *testing.T) {
 	tooLongContext := make([]byte, certReq13ContextMaxLength+1)
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: tooLongContext,
-		Extensions: []extension.Extension{
-			&extension.SupportedSignatureAlgorithms{
-				SignatureHashAlgorithms: []signaturehash.Algorithm{
-					{Hash: hash.SHA256, Signature: signature.ECDSA},
-				},
-			},
+		Extensions: []extension.Value{
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
 		},
 	}
 
@@ -336,7 +305,7 @@ func marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(
 	// Verify has signature algorithms extension present
 	hasSignatureAlgorithms := false
 	for _, ext := range out.Extensions {
-		if ext.TypeValue() == extension.SupportedSignatureAlgorithmsTypeValue {
+		if ext.ExtensionType() == extension.TypeSignatureAlgorithms {
 			hasSignatureAlgorithms = true
 
 			break

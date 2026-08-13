@@ -17,6 +17,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
@@ -64,25 +65,21 @@ func flight3Parse(
 		}
 		for _, v := range serverHelloMsg.Extensions {
 			switch ext := v.(type) {
-			case *extension.UseSRTP:
-				profile, found := dtlsflight.FindMatchingSRTPProfile(ext.ProtectionProfiles, cfg.LocalSRTPProtectionProfiles)
+			case *extension.SRTPSelection:
+				profile, found := dtlsflight.FindMatchingSRTPProfile(
+					[]extension.SRTPProtectionProfile{ext.ProtectionProfile}, cfg.LocalSRTPProtectionProfiles,
+				)
 				if !found {
 					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrClientNoMatchingSRTPProfile //nolint:lll
 				}
 				state.SetSRTPProtectionProfile(profile)
 				state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
-			case *extension.UseExtendedMasterSecret:
+			case *extension12.ExtendedMasterSecret:
 				if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 					state.ExtendedMasterSecret = true
 				}
-			case *extension.ALPN:
-				if len(ext.ProtocolNameList) > 1 { // This should be exactly 1, the zero case is handle when unmarshalling
-					return 0, &alert.Alert{
-						Level:       alert.Fatal,
-						Description: alert.InternalError,
-					}, extension.ErrALPNInvalidFormat // Meh, internal error?
-				}
-				state.NegotiatedProtocol = ext.ProtocolNameList[0]
+			case *extension.ALPNSelection:
+				state.NegotiatedProtocol = ext.Protocol
 			case *extension.ConnectionID:
 				// Only set connection ID to be sent if client supports connection
 				// IDs.
@@ -296,53 +293,51 @@ func flight3Generate(
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
-	extensions := []extension.Extension{
-		&extension.SupportedSignatureAlgorithms{
-			SignatureHashAlgorithms: cfg.LocalSignatureSchemes,
+	extensions := []extension.Value{
+		&extension.SignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
 		},
-		&extension.RenegotiationInfo{
+		&extension12.RenegotiationInfo{
 			RenegotiatedConnection: 0,
 		},
 	}
 
 	if len(cfg.LocalCertSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.SignatureAlgorithmsCert{
-			SignatureHashAlgorithms: cfg.LocalCertSignatureSchemes,
+		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes),
 		})
 	}
 
 	if state.NamedCurve != 0 {
 		ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)
 
-		extensions = append(extensions, []extension.Extension{
-			&extension.SupportedEllipticCurves{
-				EllipticCurves: ellipticCurves,
+		extensions = append(extensions, []extension.Value{
+			&extension.SupportedGroups{
+				Groups: ellipticCurves,
 			},
-			&extension.SupportedPointFormats{
+			&extension12.SupportedPointFormats{
 				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 			},
 		}...)
 	}
 
 	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
-		extensions = append(extensions, &extension.UseSRTP{
+		extensions = append(extensions, &extension.SRTPOffer{
 			ProtectionProfiles:  cfg.LocalSRTPProtectionProfiles,
 			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
 		})
 	}
 
 	if isExtendedMasterSecretRequested(cfg.ExtendedMasterSecret) {
-		extensions = append(extensions, &extension.UseExtendedMasterSecret{
-			Supported: true,
-		})
+		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
 
 	if len(cfg.ServerName) > 0 {
-		extensions = append(extensions, &extension.ServerName{ServerName: cfg.ServerName})
+		extensions = append(extensions, &extension.ServerNameOffer{ServerName: cfg.ServerName})
 	}
 
 	if len(cfg.SupportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPN{ProtocolNameList: cfg.SupportedProtocols})
+		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
 	}
 
 	// If we sent a connection ID on the first ClientHello, send it on the

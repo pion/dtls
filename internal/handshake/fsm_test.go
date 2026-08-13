@@ -23,6 +23,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
@@ -1378,9 +1379,9 @@ func addCertificateRequestToServerFlight13(
 				Header: handshake.Header{MessageSequence: 2},
 				Message: &handshake.MessageCertificateRequest13{
 					CertificateRequestContext: requestContext,
-					Extensions: []extension.Extension{
-						&extension.SupportedSignatureAlgorithms{
-							SignatureHashAlgorithms: fixture.cfg.LocalSignatureSchemes,
+					Extensions: []extension.Value{
+						&extension.SignatureAlgorithms{
+							Schemes: dtlsflight.SignatureSchemeIDs(fixture.cfg.LocalSignatureSchemes),
 						},
 					},
 				},
@@ -1746,10 +1747,9 @@ func transcriptTestHelloRetryRequestPacket13(
 					Random:            random,
 					CipherSuiteID:     &cipherSuiteID,
 					CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-					Extensions: []extension.Extension{
-						&extension.SupportedVersions{
-							Versions:        []protocol.Version{protocol.Version1_3},
-							SelectedVersion: true,
+					Extensions: []extension.Value{
+						&extension13.SelectedVersion{
+							Version: protocol.Version1_3,
 						},
 					},
 				},
