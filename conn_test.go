@@ -1110,6 +1110,75 @@ func TestSRTPConfiguration(t *testing.T) {
 	}
 }
 
+func TestSRTPConfigurationDTLS13(t *testing.T) {
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	clientMKI := []byte("ClientSRTPMKI")
+	serverMKI := []byte("ServerSRTPMKI")
+
+	ca, cb := dpipe.Pipe()
+	type result struct {
+		c   *Conn
+		err error
+	}
+	resultCh := make(chan result)
+
+	go func() {
+		opts := []ClientOption{
+			WithMinVersion(protocol.Version1_3),
+			WithMaxVersion(protocol.Version1_3),
+			WithSRTPMasterKeyIdentifier(serverMKI),
+			WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
+		}
+		client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, true)
+		resultCh <- result{client, err}
+	}()
+
+	opts := []ServerOption{
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+		WithSRTPMasterKeyIdentifier(clientMKI),
+		WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
+	}
+	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), opts, true)
+	assert.NoError(t, err, "TestSRTPConfigurationDTLS13: Server handshake failed")
+	defer func() {
+		_ = server.Close()
+	}()
+
+	res := <-resultCh
+	assert.NoError(t, res.err, "TestSRTPConfigurationDTLS13: Client handshake failed")
+	defer func() {
+		_ = res.c.Close()
+	}()
+
+	assert.Equal(t, protocol.Version1_3, dtlsstate.CommonState(server.state).LocalVersion,
+		"TestSRTPConfigurationDTLS13: server did not negotiate DTLS 1.3")
+
+	actualClientSRTP, clientHasSRTP := res.c.SelectedSRTPProtectionProfile()
+	assert.True(t, clientHasSRTP, "TestSRTPConfigurationDTLS13: client selected no SRTP profile")
+	assert.Equal(t, SRTP_AES128_CM_HMAC_SHA1_80, actualClientSRTP,
+		"TestSRTPConfigurationDTLS13: Client SRTPProtectionProfile Mismatch")
+
+	actualServerSRTP, serverHasSRTP := server.SelectedSRTPProtectionProfile()
+	assert.True(t, serverHasSRTP, "TestSRTPConfigurationDTLS13: server selected no SRTP profile")
+	assert.Equal(t, SRTP_AES128_CM_HMAC_SHA1_80, actualServerSRTP,
+		"TestSRTPConfigurationDTLS13: Server SRTPProtectionProfile Mismatch")
+
+	actualServerMKI, _ := server.RemoteSRTPMasterKeyIdentifier()
+	assert.Truef(t, bytes.Equal(serverMKI, actualServerMKI),
+		"TestSRTPConfigurationDTLS13: Server SRTPMKI Mismatch")
+
+	actualClientMKI, _ := res.c.RemoteSRTPMasterKeyIdentifier()
+	assert.Truef(t, bytes.Equal(clientMKI, actualClientMKI),
+		"TestSRTPConfigurationDTLS13: Client SRTPMKI Mismatch")
+}
+
 func TestClientCertificate(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 	// Check for leaking routines
 	report := test.CheckRoutines(t)

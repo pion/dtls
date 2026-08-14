@@ -82,9 +82,44 @@ func flight3Parse(
 	if failure != nil {
 		return 0, failure.alert, failure.err
 	}
+	if failure := processFlight3EncryptedExtensions(flightCtx, protectedFlight.items); failure != nil {
+		return 0, failure.alert, failure.err
+	}
 	flightCtx.state.HandshakeRecvSequence = protectedFlight.nextHandshakeSequence
 
 	return Flight5, nil, nil
+}
+
+func processFlight3EncryptedExtensions(
+	flightCtx *handshakeContext,
+	items []*dtlsflight.HandshakeCacheItem,
+) *flightParseFailure {
+	for _, item := range items {
+		if item == nil || item.Typ != handshake.TypeEncryptedExtensions {
+			continue
+		}
+		message := &handshake.MessageEncryptedExtensions{}
+		if err := message.Unmarshal(item.Data[handshake.HeaderLength:]); err != nil {
+			return newFlightParseFailure(alert.DecodeError, err)
+		}
+		for _, val := range message.Extensions {
+			selection, ok := val.(*extension.SRTPSelection)
+			if !ok {
+				continue
+			}
+			profile, matched := dtlsflight.FindMatchingSRTPProfile(
+				flightCtx.cfg.LocalSRTPProtectionProfiles,
+				[]extension.SRTPProtectionProfile{selection.ProtectionProfile},
+			)
+			if !matched {
+				return newFlightParseFailure(alert.InsufficientSecurity, dtlserrors.ErrClientNoMatchingSRTPProfile)
+			}
+			flightCtx.state.SetSRTPProtectionProfile(profile)
+			flightCtx.state.RemoteSRTPMasterKeyIdentifier = selection.MasterKeyIdentifier
+		}
+	}
+
+	return nil
 }
 
 func flight3PullServerHello(

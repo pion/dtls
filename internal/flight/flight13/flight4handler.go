@@ -265,7 +265,14 @@ func flight4Generate( //nolint:cyclop
 		},
 	}
 
-	encryptedExtensions := HandshakePacket(&handshake.MessageEncryptedExtensions{})
+	encryptedExtensionsMessage := &handshake.MessageEncryptedExtensions{}
+	if profile := state.SRTPProtectionProfile(); profile != 0 {
+		encryptedExtensionsMessage.Extensions = append(encryptedExtensionsMessage.Extensions, &extension.SRTPSelection{
+			ProtectionProfile:   profile,
+			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
+		})
+	}
+	encryptedExtensions := HandshakePacket(encryptedExtensionsMessage)
 	encryptedExtensions.ResetLocalSequenceNumber = true
 
 	pkts := []*dtlsflight.Packet{
