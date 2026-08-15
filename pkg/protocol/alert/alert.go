@@ -139,13 +139,15 @@ func (d Description) String() string { //nolint:cyclop
 // connections.  Like other messages, alert messages are encrypted and
 // compressed, as specified by the current connection state.
 // https://tools.ietf.org/html/rfc5246#section-7.2
+//
+//nolint:errname // Alert is the protocol-defined name.
 type Alert struct {
 	Level       Level
 	Description Description
 }
 
 // ContentType returns the ContentType of this Content.
-func (a Alert) ContentType() protocol.ContentType {
+func (a *Alert) ContentType() protocol.ContentType {
 	return protocol.ContentTypeAlert
 }
 
@@ -169,3 +171,6 @@ func (a *Alert) Unmarshal(data []byte) error {
 func (a *Alert) String() string {
 	return fmt.Sprintf("Alert %s: %s", a.Level, a.Description)
 }
+
+// Error allows alerts to be used in standard Go error chains.
+func (a *Alert) Error() string { return a.String() }
