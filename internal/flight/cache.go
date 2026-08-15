@@ -5,11 +5,14 @@
 package flight
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -74,61 +77,208 @@ func (h *Cache) Pull(rules ...HandshakeCachePullRule) []*HandshakeCacheItem {
 	return out
 }
 
-// FullPullMap pulls all handshakes between rules[0] to rules[len(rules)-1] as map.
-func (h *Cache) FullPullMap(
-	startSeq int,
-	cipherSuite dtlsconfig.CipherSuite,
-	rules ...HandshakeCachePullRule,
-) (int, map[handshake.Type]handshake.Message, bool) {
-	seq, msgs, _, ok := h.FullPullMapItems(startSeq, cipherSuite, rules...)
-
-	return seq, msgs, ok
-}
-
 func (h *Cache) FullPullMapItems(
 	startSeq int,
 	cipherSuite dtlsconfig.CipherSuite,
 	rules ...HandshakeCachePullRule,
-) (int, map[handshake.Type]handshake.Message, []*HandshakeCacheItem, bool) {
+) HandshakeCachePullResult {
+	selection := h.PullSequential(startSeq, rules...)
+	if selection.Err != nil || !selection.Ready {
+		return HandshakeCachePullResult{
+			NextSequence: startSeq,
+			Ready:        selection.Ready,
+			Err:          selection.Err,
+		}
+	}
+
+	return fullPullMapCacheItems(startSeq, cipherSuite, rules, selection.Items)
+}
+
+// FullPullMapOneOfItems decodes exactly one of the allowed messages at
+// startSeq. A different message from the same peer and epoch is an
+// unexpected_message failure.
+func (h *Cache) FullPullMapOneOfItems(
+	startSeq int,
+	cipherSuite dtlsconfig.CipherSuite,
+	rules ...HandshakeCachePullRule,
+) HandshakeCachePullResult {
+	rule, item, ready, err := h.pullOneOf(startSeq, rules)
+	if err != nil || !ready {
+		return HandshakeCachePullResult{
+			NextSequence: startSeq,
+			Ready:        ready,
+			Err:          err,
+		}
+	}
+
+	return fullPullMapCacheItems(
+		startSeq,
+		cipherSuite,
+		[]HandshakeCachePullRule{rule},
+		[]*HandshakeCacheItem{item},
+	)
+}
+
+func (h *Cache) pullOneOf( //nolint:cyclop
+	startSeq int,
+	rules []HandshakeCachePullRule,
+) (HandshakeCachePullRule, *HandshakeCacheItem, bool, error) {
+	if startSeq < 0 || startSeq > int(^uint16(0)) {
+		return HandshakeCachePullRule{}, nil, true, fmt.Errorf(
+			"%w: %w",
+			dtlserrors.ErrHandshakeSequenceOverflow,
+			&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
+		)
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	ci, ok := h.pullLastCacheItems(rules)
-	if !ok {
-		return startSeq, nil, nil, false
-	}
-
-	return fullPullMapCacheItems(startSeq, cipherSuite, rules, ci)
-}
-
-func (h *Cache) pullLastCacheItems(rules []HandshakeCachePullRule) ([]*HandshakeCacheItem, bool) {
-	items := make([]*HandshakeCacheItem, len(rules))
-	for i, rule := range rules {
-		items[i] = h.lastCacheItemForRule(rule)
-		if !rule.Optional && items[i] == nil {
-			return nil, false
-		}
-	}
-
-	return items, true
-}
-
-func (h *Cache) lastCacheItemForRule(rule HandshakeCachePullRule) *HandshakeCacheItem {
-	var last *HandshakeCacheItem
-	for _, c := range h.cache {
-		if !cacheItemMatchesRule(c, rule) {
+	var selectedRule HandshakeCachePullRule
+	var selectedItem *HandshakeCacheItem
+	conflict := false
+	for _, item := range h.cache {
+		if item.MessageSequence != uint16(startSeq) { //nolint:gosec // startSeq is bounded above.
 			continue
 		}
-		if last == nil || last.MessageSequence < c.MessageSequence {
-			last = c
+
+		matchedMetadata := false
+		matchedRule := -1
+		for i, rule := range rules {
+			if item.IsClient != rule.IsClient || item.Epoch != rule.Epoch {
+				continue
+			}
+			matchedMetadata = true
+			if item.Typ == rule.Typ {
+				matchedRule = i
+
+				break
+			}
+		}
+		if !matchedMetadata {
+			continue
+		}
+		if matchedRule < 0 {
+			conflict = true
+
+			continue
+		}
+		if selectedItem != nil && selectedItem.Typ != item.Typ {
+			conflict = true
+
+			continue
+		}
+
+		selectedRule = rules[matchedRule]
+		selectedItem = item
+	}
+
+	if conflict {
+		return HandshakeCachePullRule{}, nil, true, fmt.Errorf(
+			"%w: %w",
+			dtlserrors.ErrUnexpectedHandshakeMessage,
+			&alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
+		)
+	}
+	if selectedItem == nil {
+		return HandshakeCachePullRule{}, nil, false, nil
+	}
+
+	return selectedRule, selectedItem, true, nil
+}
+
+// PullSequential selects messages at consecutive sequence numbers. Missing
+// messages are incomplete.
+func (h *Cache) PullSequential( //nolint:cyclop,gocognit // Ordered required/optional conflict handling.
+	startSeq int,
+	rules ...HandshakeCachePullRule,
+) HandshakeCacheItemPullResult {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	items := make([]*HandshakeCacheItem, len(rules))
+	seq := startSeq
+	selected := 0
+	for i, rule := range rules {
+		if seq < 0 || seq > int(^uint16(0)) {
+			return HandshakeCacheItemPullResult{
+				NextSequence: startSeq,
+				Ready:        true,
+				Err: fmt.Errorf(
+					"%w: %w",
+					dtlserrors.ErrHandshakeSequenceOverflow,
+					&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
+				),
+			}
+		}
+
+		conflicts := make([]*HandshakeCacheItem, 0, 1)
+		for _, item := range h.cache {
+			if item.IsClient != rule.IsClient || item.Epoch != rule.Epoch ||
+				item.MessageSequence != uint16(seq) { //nolint:gosec // seq is bounded above.
+				continue
+			}
+			if item.Typ == rule.Typ {
+				items[i] = item
+			} else {
+				conflicts = append(conflicts, item)
+			}
+		}
+
+		if items[i] == nil {
+			if rule.Optional {
+				for _, conflict := range conflicts {
+					if !matchesAnyHandshakePullRule(conflict, rules[i+1:]) {
+						return unexpectedHandshakePull(startSeq)
+					}
+				}
+
+				continue
+			}
+			if len(conflicts) != 0 {
+				return unexpectedHandshakePull(startSeq)
+			}
+
+			return HandshakeCacheItemPullResult{NextSequence: startSeq}
+		}
+		if len(conflicts) != 0 {
+			return unexpectedHandshakePull(startSeq)
+		}
+
+		selected++
+		seq++
+	}
+	if selected == 0 {
+		return HandshakeCacheItemPullResult{NextSequence: startSeq}
+	}
+
+	return HandshakeCacheItemPullResult{
+		NextSequence: seq,
+		Items:        items,
+		Ready:        true,
+	}
+}
+
+func matchesAnyHandshakePullRule(item *HandshakeCacheItem, rules []HandshakeCachePullRule) bool {
+	for _, rule := range rules {
+		if item.Typ == rule.Typ && item.IsClient == rule.IsClient && item.Epoch == rule.Epoch {
+			return true
 		}
 	}
 
-	return last
+	return false
 }
 
-func cacheItemMatchesRule(item *HandshakeCacheItem, rule HandshakeCachePullRule) bool {
-	return item.Typ == rule.Typ && item.IsClient == rule.IsClient && item.Epoch == rule.Epoch
+func unexpectedHandshakePull(startSeq int) HandshakeCacheItemPullResult {
+	return HandshakeCacheItemPullResult{
+		NextSequence: startSeq,
+		Ready:        true,
+		Err: fmt.Errorf(
+			"%w: %w",
+			dtlserrors.ErrUnexpectedHandshakeMessage,
+			&alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
+		),
+	}
 }
 
 func fullPullMapCacheItems(
@@ -136,7 +286,7 @@ func fullPullMapCacheItems(
 	cipherSuite dtlsconfig.CipherSuite,
 	rules []HandshakeCachePullRule,
 	ci []*HandshakeCacheItem,
-) (int, map[handshake.Type]handshake.Message, []*HandshakeCacheItem, bool) {
+) HandshakeCachePullResult {
 	out := make(map[handshake.Type]handshake.Message)
 	items := make([]*HandshakeCacheItem, 0, len(rules))
 	seq := startSeq
@@ -147,23 +297,41 @@ func fullPullMapCacheItems(
 		if item == nil {
 			continue
 		}
-		rawHandshake, ok := unmarshalCachedHandshake(item, keyExchangeAlgorithm)
-		if !ok {
-			return startSeq, nil, nil, false
+		parsed := &handshake.Handshake{KeyExchangeAlgorithm: keyExchangeAlgorithm}
+		err := parsed.Unmarshal(item.Data)
+		if err == nil {
+			err = validateCachedHandshake(
+				item,
+				parsed,
+				r.Typ,
+				uint16(seq), //nolint:gosec // selection bounded seq above.
+			)
 		}
-		if uint16(seq) != rawHandshake.Header.MessageSequence { //nolint:gosec // G115
-			// There is a gap. Some messages are not arrived.
-			return startSeq, nil, nil, false
+		if err != nil {
+			return HandshakeCachePullResult{
+				NextSequence: startSeq,
+				Ready:        true,
+				Err: fmt.Errorf(
+					"%w: %w",
+					err,
+					&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
+				),
+			}
 		}
 		seq++
-		out[typ] = rawHandshake.Message
+		out[typ] = parsed.Message
 		items = append(items, item)
 	}
 	if len(items) == 0 {
-		return seq, nil, nil, false
+		return HandshakeCachePullResult{NextSequence: seq}
 	}
 
-	return seq, out, items, true
+	return HandshakeCachePullResult{
+		NextSequence: seq,
+		Messages:     out,
+		Items:        items,
+		Ready:        true,
+	}
 }
 
 func keyExchangeAlgorithmForCipherSuite(cipherSuite dtlsconfig.CipherSuite) ciphersuite.KeyExchangeAlgorithm {
@@ -174,18 +342,33 @@ func keyExchangeAlgorithmForCipherSuite(cipherSuite dtlsconfig.CipherSuite) ciph
 	return cipherSuite.KeyExchangeAlgorithm()
 }
 
-func unmarshalCachedHandshake(
+func validateCachedHandshake( //nolint:cyclop // Each condition validates a distinct wire/cache invariant.
 	item *HandshakeCacheItem,
-	keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm,
-) (*handshake.Handshake, bool) {
-	rawHandshake := &handshake.Handshake{
-		KeyExchangeAlgorithm: keyExchangeAlgorithm,
-	}
-	if err := rawHandshake.Unmarshal(item.Data); err != nil {
-		return nil, false
+	parsed *handshake.Handshake,
+	expectedType handshake.Type,
+	expectedSequence uint16,
+) error {
+	if item == nil || parsed == nil || parsed.Message == nil {
+		return dtlserrors.ErrInvalidHandshakeTranscriptMessage
 	}
 
-	return rawHandshake, true
+	var rawHeader handshake.Header
+	if err := rawHeader.Unmarshal(item.Data); err != nil {
+		return err
+	}
+	if rawHeader != parsed.Header ||
+		rawHeader.Type != expectedType ||
+		rawHeader.Type != item.Typ ||
+		rawHeader.MessageSequence != expectedSequence ||
+		rawHeader.MessageSequence != item.MessageSequence ||
+		rawHeader.FragmentOffset != 0 ||
+		rawHeader.FragmentLength != rawHeader.Length ||
+		len(item.Data) != handshake.HeaderLength+int(rawHeader.Length) ||
+		parsed.Message.Type() != rawHeader.Type {
+		return dtlserrors.ErrInvalidHandshakeTranscriptMessage
+	}
+
+	return nil
 }
 
 // PullAndMerge calls pull and then merges the results, ignoring any null entries.

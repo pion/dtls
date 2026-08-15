@@ -38,6 +38,28 @@ type HandshakeCacheItem struct {
 	Data            []byte
 }
 
+// HandshakeCachePullResult distinguishes an incomplete flight from a complete
+// malformed message. Err is non-nil only when a selected complete message
+// could not be decoded or failed cache/header validation.
+type HandshakeCachePullResult struct {
+	NextSequence int
+	Messages     map[handshake.Type]handshake.Message
+	Items        []*HandshakeCacheItem
+	Ready        bool
+	// Err always wraps an *alert.Alert.
+	Err error
+}
+
+// HandshakeCacheItemPullResult is an ordered cache selection before message
+// payloads are decoded. Items is aligned with the requested pull rules.
+type HandshakeCacheItemPullResult struct {
+	NextSequence int
+	Items        []*HandshakeCacheItem
+	Ready        bool
+	// Err always wraps an *alert.Alert.
+	Err error
+}
+
 type HandshakeCachePullRule struct {
 	Typ      handshake.Type
 	Epoch    uint16

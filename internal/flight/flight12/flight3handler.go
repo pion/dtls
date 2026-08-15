@@ -33,32 +33,34 @@ func flight3Parse(
 	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
 	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response
 	// to the new HelloVerifyRequest. RFC 6347 Section 4.2.1
-	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
+	serverResponsePull := cache.FullPullMapOneOfItems(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: cfg.InitialEpoch, IsClient: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false},        //nolint:lll
 	)
-	if ok {
-		if h, msgOk := msgs[handshake.TypeHelloVerifyRequest].(*handshake.MessageHelloVerifyRequest); msgOk {
-			// DTLS 1.2 clients must not assume that the server will use the protocol version
-			// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
-			if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion //nolint:lll
-			}
-			state.Cookie = bytes.Clone(h.Cookie)
-			state.HandshakeRecvSequence = seq
-
-			return Flight3, nil, nil
-		}
+	if serverResponsePull.Err != nil {
+		return 0, nil, serverResponsePull.Err
 	}
-
-	_, msgs, ok = cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
-	)
-	if !ok {
+	if !serverResponsePull.Ready {
 		// Don't have enough messages. Keep reading
 		return 0, nil, nil
 	}
+	serverResponse := serverResponsePull.Messages[handshake.TypeHelloVerifyRequest]
+	h, hasHelloVerifyRequest := serverResponse.(*handshake.MessageHelloVerifyRequest)
+	if hasHelloVerifyRequest {
+		// DTLS 1.2 clients must not assume that the server will use the protocol version
+		// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
+		if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion //nolint:lll
+		}
+		state.Cookie = bytes.Clone(h.Cookie)
+		state.HandshakeRecvSequence = serverResponsePull.NextSequence
 
-	if serverHelloMsg, msgOk := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello); msgOk { //nolint:nestif
+		return Flight3, nil, nil
+	}
+
+	serverResponse = serverResponsePull.Messages[handshake.TypeServerHello]
+	serverHelloMsg, hasServerHello := serverResponse.(*handshake.MessageServerHello)
+	if hasServerHello { //nolint:nestif
 		if !serverHelloMsg.Version.Equal(protocol.Version1_2) {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 				dtlserrors.ErrUnsupportedProtocolVersion
@@ -142,39 +144,43 @@ func flight3Parse(
 		state.MasterSecret = []byte{}
 	}
 
+	var serverFlightPull dtlsflight.HandshakeCachePullResult
 	if cfg.LocalPSKCallback != nil {
-		seq, msgs, ok = cache.FullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
+		serverFlightPull = cache.FullPullMapItems(state.HandshakeRecvSequence+1, state.CipherSuite,
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
 		)
 	} else {
-		seq, msgs, ok = cache.FullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
+		serverFlightPull = cache.FullPullMapItems(state.HandshakeRecvSequence+1, state.CipherSuite,
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true},        //nolint:lll
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},   //nolint:lll
 		)
 	}
-	if !ok {
+	if serverFlightPull.Err != nil {
+		return 0, nil, serverFlightPull.Err
+	}
+	if !serverFlightPull.Ready {
 		// Don't have enough messages. Keep reading
 		return 0, nil, nil
 	}
-	state.HandshakeRecvSequence = seq
+	state.HandshakeRecvSequence = serverFlightPull.NextSequence
 
-	if h, ok := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
+	if h, ok := serverFlightPull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
 		state.PeerCertificates = h.Certificate
 	} else if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrInvalidCertificate
 	}
 
-	if h, ok := msgs[handshake.TypeServerKeyExchange].(*handshake.MessageServerKeyExchange); ok {
+	if h, ok := serverFlightPull.Messages[handshake.TypeServerKeyExchange].(*handshake.MessageServerKeyExchange); ok {
 		alertPtr, err := handleServerKeyExchange(conn, state, cfg, h)
 		if err != nil {
 			return 0, alertPtr, err
 		}
 	}
 
-	if creq, ok := msgs[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok {
+	if creq, ok := serverFlightPull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok {
 		state.RemoteCertRequestAlgs = creq.SignatureHashAlgorithms
 		state.RemoteRequestedCertificate = true
 	}
@@ -198,16 +204,19 @@ func handleResumption(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
-	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence+1, state.CipherSuite,
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence+1, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
 
-	var finished *handshake.MessageFinished
-	if finished, ok = msgs[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
+	finished, ok := pull.Messages[handshake.TypeFinished].(*handshake.MessageFinished)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 	plainText := cache.PullAndMerge(

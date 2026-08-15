@@ -182,11 +182,10 @@ func decodeExtensionList(data []byte, context extensionContext) ([]extension.Val
 	return decodeRawExtensions(rawExtensions, context)
 }
 
-func decodeRawExtensions( //nolint:cyclop
-	rawExtensions []extension.Raw,
-	context extensionContext,
-) ([]extension.Value, error) {
-	validationErr := validateRawExtensionBlock(rawExtensions, context)
+func decodeRawExtensions(rawExtensions []extension.Raw, context extensionContext) ([]extension.Value, error) {
+	if err := validateRawExtensionBlock(rawExtensions, context); err != nil {
+		return nil, err
+	}
 
 	values := make([]extension.Value, 0, len(rawExtensions))
 	for _, raw := range rawExtensions {
@@ -199,15 +198,13 @@ func decodeRawExtensions( //nolint:cyclop
 
 		factory, allowed := contexts[context]
 		if !allowed {
-			// todo: remove this once we remove the compatibility path.
-			// nolint:godox
-			if raw.Type == extension.TypeConnectionID && context == extensionContextHelloRetryRequest {
-				factory = contexts[extensionContextServerHello13]
-			} else {
-				values = append(values, extension.Raw{Type: raw.Type, Data: bytes.Clone(raw.Data)})
-
-				continue
-			}
+			return nil, fmt.Errorf(
+				"extension %d in %s: %w: %w",
+				raw.Type,
+				context,
+				dtlserrors.ErrExtensionNotAllowed,
+				&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
+			)
 		}
 		if factory == nil {
 			values = append(values, extension.Raw{Type: raw.Type, Data: bytes.Clone(raw.Data)})
@@ -217,10 +214,6 @@ func decodeRawExtensions( //nolint:cyclop
 
 		value := factory()
 		if err := value.UnmarshalData(raw.Data); err != nil {
-			if validationErr != nil {
-				return values, validationErr
-			}
-
 			return nil, fmt.Errorf(
 				"extension %d in %s: %w: %w",
 				raw.Type,
@@ -232,11 +225,8 @@ func decodeRawExtensions( //nolint:cyclop
 		values = append(values, value)
 	}
 
-	if validationErr != nil {
-		return values, validationErr
-	}
 	if err := validateExtensionDependencies(values, context); err != nil {
-		return values, err
+		return nil, err
 	}
 
 	return values, nil

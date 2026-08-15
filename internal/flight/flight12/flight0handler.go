@@ -24,7 +24,7 @@ import (
 // https://datatracker.ietf.org/doc/html/rfc5746#section-3.3.
 const renegotiationInfoSCSV uint16 = 0x00ff
 
-//nolint:cyclop,gocognit
+//nolint:cyclop,gocognit,gocyclo
 func flight0Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
@@ -32,10 +32,13 @@ func flight0Parse(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
-	seq, msgs, ok := cache.FullPullMap(0, state.CipherSuite,
+	pull := cache.FullPullMapItems(0, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
@@ -47,12 +50,11 @@ func flight0Parse(
 	state.RemoteConnectionID = nil
 	state.RemoteCIDOffered = false
 
-	state.HandshakeRecvSequence = seq
-
-	var clientHello *handshake.MessageClientHello
+	state.HandshakeRecvSequence = pull.NextSequence
 
 	// Validate type
-	if clientHello, ok = msgs[handshake.TypeClientHello].(*handshake.MessageClientHello); !ok {
+	clientHello, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 

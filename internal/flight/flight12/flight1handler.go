@@ -29,22 +29,25 @@ func flight1Parse(
 ) (Flight, *alert.Alert, error) {
 	// HelloVerifyRequest can be skipped by the server,
 	// so allow ServerHello during flight1 also
-	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true},        //nolint:lll
+	pull := cache.FullPullMapOneOfItems(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: cfg.InitialEpoch, IsClient: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false},        //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
 
-	if _, ok := msgs[handshake.TypeServerHello]; ok {
+	if _, ok := pull.Messages[handshake.TypeServerHello]; ok {
 		// Flight1 and flight2 were skipped.
 		// Parse as flight3.
 		return flight3Parse(ctx, conn, state, cache, cfg)
 	}
 
-	if h, ok := msgs[handshake.TypeHelloVerifyRequest].(*handshake.MessageHelloVerifyRequest); ok {
+	if h, ok := pull.Messages[handshake.TypeHelloVerifyRequest].(*handshake.MessageHelloVerifyRequest); ok {
 		// DTLS 1.2 clients must not assume that the server will use the protocol version
 		// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
 		if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
@@ -52,7 +55,7 @@ func flight1Parse(
 				dtlserrors.ErrUnsupportedProtocolVersion
 		}
 		state.Cookie = bytes.Clone(h.Cookie)
-		state.HandshakeRecvSequence = seq
+		state.HandshakeRecvSequence = pull.NextSequence
 
 		return Flight3, nil, nil
 	}

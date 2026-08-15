@@ -27,16 +27,19 @@ func flight4bParse(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
-	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
 
-	var finished *handshake.MessageFinished
-	if finished, ok = msgs[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
+	finished, ok := pull.Messages[handshake.TypeFinished].(*handshake.MessageFinished)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 

@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto"
 	"errors"
+	"fmt"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
@@ -115,8 +116,13 @@ func newFlightParseFailure(
 	description alert.Description,
 	err error,
 ) *flightParseFailure {
+	dtlsAlert := &alert.Alert{Level: alert.Fatal, Description: description}
+	if err != nil {
+		err = fmt.Errorf("%w: %w", dtlsAlert, err)
+	}
+
 	return &flightParseFailure{
-		alert: &alert.Alert{Level: alert.Fatal, Description: description},
+		alert: dtlsAlert,
 		err:   err,
 	}
 }
@@ -138,35 +144,37 @@ func pullProtectedHandshakeFlight(
 	rules []dtlsflight.HandshakeCachePullRule,
 	nextHandshakeSequence int,
 ) protectedFlightPull {
-	pulled := cache.Pull(rules...)
-	for i, rule := range rules {
-		if !rule.Optional && pulled[i] == nil {
-			return protectedFlightPull{}
+	selection := cache.PullSequential(nextHandshakeSequence, rules...)
+	if selection.Err != nil {
+		return protectedFlightPull{
+			ready:   true,
+			failure: &flightParseFailure{err: selection.Err},
 		}
 	}
+	if !selection.Ready {
+		return protectedFlightPull{}
+	}
 
-	items := make([]*dtlsflight.HandshakeCacheItem, 0, len(pulled))
-	for i, item := range pulled {
+	items := make([]*dtlsflight.HandshakeCacheItem, 0, len(selection.Items))
+	sequence := nextHandshakeSequence
+	for i, item := range selection.Items {
 		if item == nil {
 			continue
 		}
-		if failure := validateProtectedHandshakeItem(
+		failure := validateProtectedHandshakeItem(
 			item,
 			rules[i].Typ,
-			uint16(nextHandshakeSequence), //nolint:gosec // G115
-		); failure != nil {
-			if failure.err == nil {
-				return protectedFlightPull{}
-			}
-
+			uint16(sequence), //nolint:gosec // PullSequential bounded sequence.
+		)
+		if failure != nil {
 			return protectedFlightPull{ready: true, failure: failure}
 		}
-		nextHandshakeSequence++
+		sequence++
 		items = append(items, item)
 	}
 
 	return protectedFlightPull{
-		nextHandshakeSequence: nextHandshakeSequence,
+		nextHandshakeSequence: selection.NextSequence,
 		items:                 items,
 		ready:                 true,
 	}
@@ -177,10 +185,7 @@ func validateProtectedHandshakeItem(
 	expectedType handshake.Type,
 	expectedSequence uint16,
 ) *flightParseFailure {
-	if item.MessageSequence != expectedSequence {
-		return &flightParseFailure{}
-	}
-	if item.Typ != expectedType {
+	if item.MessageSequence != expectedSequence || item.Typ != expectedType {
 		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 	}
 
@@ -188,17 +193,19 @@ func validateProtectedHandshakeItem(
 	if err := header.Unmarshal(item.Data); err != nil {
 		return newFlightParseFailure(alert.DecodeError, err)
 	}
-	if header.Type != expectedType || header.MessageSequence != expectedSequence {
-		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
-	}
-	if header.FragmentOffset != 0 ||
+	if header.Type != expectedType || header.MessageSequence != expectedSequence ||
+		header.FragmentOffset != 0 ||
 		header.FragmentLength != header.Length ||
 		len(item.Data) != handshake.HeaderLength+int(header.Length) {
 		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 	}
 
 	if err := unmarshalProtectedHandshakeMessage(expectedType, item.Data[handshake.HeaderLength:]); err != nil {
-		return newFlightParseFailure(alert.DecodeError, err)
+		return &flightParseFailure{err: fmt.Errorf(
+			"%w: %w",
+			err,
+			&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
+		)}
 	}
 
 	return nil
@@ -288,6 +295,9 @@ func Parse(
 	}
 
 	nextFlight, dtlsAlert, err := parse(ctx, conn, newHandshakeContext(dependencies))
+	if dtlsAlert == nil && err != nil {
+		errors.As(err, &dtlsAlert)
+	}
 
 	return nextFlight, dtlsAlert, err, true
 }
@@ -349,8 +359,11 @@ func ServerHelloSelectedVersions(extensions []extension.Value) ([]protocol.Versi
 
 func validateHelloRetryRequestSelectedVersion(extensions []extension.Value) error {
 	versions, seenSupportedVersions, err := ServerHelloSelectedVersions(extensions)
-	if err != nil || !seenSupportedVersions {
+	if err != nil {
 		return dtlserrors.ErrInvalidHelloRetryRequest
+	}
+	if !seenSupportedVersions {
+		return dtlserrors.ErrMissingSupportedVersionsExtension
 	}
 	if !versions[0].Equal(protocol.Version1_3) {
 		return dtlserrors.ErrUnsupportedProtocolVersion

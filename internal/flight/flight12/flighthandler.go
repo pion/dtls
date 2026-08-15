@@ -6,6 +6,7 @@ package flight12
 
 import (
 	"context"
+	"errors"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
@@ -101,6 +102,9 @@ func Parse(
 	}
 
 	nextFlight, dtlsAlert, err := parse(ctx, conn, state, cache, cfg)
+	if dtlsAlert == nil && err != nil {
+		errors.As(err, &dtlsAlert)
+	}
 
 	return nextFlight, dtlsAlert, err, true
 }

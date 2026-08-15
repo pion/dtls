@@ -5,13 +5,10 @@
 package handshake
 
 import (
-	"errors"
-
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
 
 // Type is the unique identifier for each handshake message
@@ -194,17 +191,5 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 		return dtlserrors.ErrNotImplemented
 	}
 
-	err := h.Message.Unmarshal(data[HeaderLength:])
-	var extensionAlert *alert.Alert
-	if (h.Header.Type == TypeClientHello || h.Header.Type == TypeServerHello) &&
-		errors.As(err, &extensionAlert) &&
-		(extensionAlert.Description == alert.IllegalParameter || extensionAlert.Description == alert.MissingExtension) {
-		// FullPullMap currently treats every Unmarshal error as an incomplete
-		// flight.
-		// todo: return decode errors.
-		// nolint:godox
-		return nil //nolint:nilerr
-	}
-
-	return err
+	return h.Message.Unmarshal(data[HeaderLength:])
 }

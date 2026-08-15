@@ -10,11 +10,13 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +29,87 @@ func TestProtectedFlightParseFailureClientCertificateRequired(t *testing.T) {
 	assert.Equal(t, alert.Fatal, failure.alert.Level)
 	assert.Equal(t, alert.CertificateRequired, failure.alert.Description)
 	assert.ErrorIs(t, failure.err, dtlserrors.ErrClientCertificateRequired)
+	var classified *alert.Alert
+	require.ErrorAs(t, failure.err, &classified)
+	assert.Equal(t, failure.alert, classified)
+}
+
+func TestPullProtectedHandshakeFlightDistinguishesIncompleteAndInvalid(t *testing.T) {
+	rule := []dtlsflight.HandshakeCachePullRule{
+		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false},
+	}
+
+	t.Run("missing", func(t *testing.T) {
+		pull := pullProtectedHandshakeFlight(dtlsflight.NewCache(), rule, 0)
+		assert.False(t, pull.ready)
+		assert.Nil(t, pull.failure)
+	})
+
+	t.Run("sequence gap", func(t *testing.T) {
+		cache := dtlsflight.NewCache()
+		raw := marshalProtectedTestHandshake(t, 1, &handshake.MessageEncryptedExtensions{})
+		cache.Push(raw, EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
+
+		pull := pullProtectedHandshakeFlight(cache, rule, 0)
+		assert.False(t, pull.ready)
+		assert.Nil(t, pull.failure)
+	})
+
+	t.Run("sequence overflow", func(t *testing.T) {
+		pull := pullProtectedHandshakeFlight(dtlsflight.NewCache(), rule, -1)
+		require.True(t, pull.ready)
+		require.NotNil(t, pull.failure)
+		assert.ErrorIs(t, pull.failure.err, dtlserrors.ErrHandshakeSequenceOverflow)
+		var classified *alert.Alert
+		require.ErrorAs(t, pull.failure.err, &classified)
+		assert.Equal(t, alert.DecodeError, classified.Description)
+	})
+
+	t.Run("malformed payload", func(t *testing.T) {
+		header := handshake.Header{
+			Type: handshake.TypeEncryptedExtensions, Length: 1, MessageSequence: 0, FragmentLength: 1,
+		}
+		raw, err := header.Marshal()
+		require.NoError(t, err)
+		raw = append(raw, 0x00)
+		cache := dtlsflight.NewCache()
+		cache.Push(raw, EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
+
+		pull := pullProtectedHandshakeFlight(cache, rule, 0)
+		require.True(t, pull.ready)
+		require.NotNil(t, pull.failure)
+		var classified *alert.Alert
+		require.ErrorAs(t, pull.failure.err, &classified)
+		assert.Equal(t, alert.DecodeError, classified.Description)
+	})
+
+	t.Run("known illegal placement", func(t *testing.T) {
+		cache := dtlsflight.NewCache()
+		raw := marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{
+			Extensions: []extension.Value{extension.Raw{Type: extension.TypeExtendedMasterSecret}},
+		})
+		cache.Push(raw, EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
+
+		pull := pullProtectedHandshakeFlight(cache, rule, 0)
+		require.True(t, pull.ready)
+		require.NotNil(t, pull.failure)
+		assert.ErrorIs(t, pull.failure.err, dtlserrors.ErrExtensionNotAllowed)
+		var classified *alert.Alert
+		require.ErrorAs(t, pull.failure.err, &classified)
+		assert.Equal(t, alert.IllegalParameter, classified.Description)
+	})
+}
+
+func marshalProtectedTestHandshake(t *testing.T, sequence uint16, message handshake.Message) []byte {
+	t.Helper()
+
+	raw, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: sequence},
+		Message: message,
+	}).Marshal()
+	require.NoError(t, err)
+
+	return raw
 }
 
 func TestFlight4GenerateCertificateAuthenticatedFlight(t *testing.T) {

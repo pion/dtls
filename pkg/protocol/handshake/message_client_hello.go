@@ -148,10 +148,10 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 
 	// Extensions
 	extensions, err := decodeExtensionList(data[currOffset:], extensionContextClientHello)
-	m.Extensions = extensions
 	if err != nil {
 		return err
 	}
+	m.Extensions = extensions
 
 	return nil
 }

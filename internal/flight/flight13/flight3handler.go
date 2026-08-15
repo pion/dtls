@@ -90,15 +90,21 @@ func flight3Parse(
 func flight3PullServerHello(
 	flightCtx *handshakeContext,
 ) serverHelloPull {
-	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
+	pull := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return serverHelloPull{
+			ready:   true,
+			failure: &flightParseFailure{err: pull.Err},
+		}
+	}
+	if !pull.Ready {
 		return serverHelloPull{}
 	}
 
-	serverHello, ok := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello)
+	serverHello, ok := pull.Messages[handshake.TypeServerHello].(*handshake.MessageServerHello)
 	if !ok {
 		return serverHelloPull{
 			ready:   true,
@@ -107,9 +113,9 @@ func flight3PullServerHello(
 	}
 
 	return serverHelloPull{
-		nextHandshakeSequence: seq,
+		nextHandshakeSequence: pull.NextSequence,
 		serverHello:           serverHello,
-		items:                 items,
+		items:                 pull.Items,
 		ready:                 true,
 	}
 }
@@ -134,7 +140,7 @@ func processFlight3ServerHello(
 
 	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(serverHello, flightCtx.cfg)
 	if err != nil {
-		return &flightParseFailure{alert: dtlsAlert, err: err}
+		return newFlightParseFailure(dtlsAlert.Description, err)
 	}
 	flightCtx.state.CipherSuite = selectedCipherSuite
 	flightCtx.state.RemoteRandom = serverHello.Random
@@ -257,7 +263,7 @@ func handleFlight3ProtectedHandshake(
 	return nil
 }
 
-// nolint:cyclop
+//nolint:cyclop,gocognit,nestif
 func flight3Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
@@ -282,14 +288,9 @@ func flight3Generate(
 	})
 
 	if flightCtx.state.SelectedGroup != 0 {
-		extensions = append(extensions, []extension.Value{
-			&extension.SupportedGroups{
-				Groups: flightCtx.cfg.EllipticCurves,
-			},
-			&extension12.SupportedPointFormats{
-				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
-			},
-		}...)
+		extensions = append(extensions, &extension12.SupportedPointFormats{
+			PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
+		})
 	}
 
 	if len(flightCtx.cfg.SupportedProtocols) > 0 {
@@ -324,6 +325,9 @@ func flight3Generate(
 		}
 		maps.Copy(flightCtx.state.LocalKeypairs, newKeypairs)
 	}
+	extensions = append(extensions, &extension.SupportedGroups{
+		Groups: supportedGroupsForKeyShares(flightCtx.state.LocalKeyEntries, flightCtx.cfg.EllipticCurves),
+	})
 	extensions = append(extensions, &extension13.ClientKeyShare{
 		Shares: flightCtx.state.LocalKeyEntries,
 	})
@@ -392,4 +396,23 @@ func flight3Generate(
 			},
 		},
 	}, nil, nil
+}
+
+func supportedGroupsForKeyShares(
+	shares []extension13.KeyShareEntry,
+	configured []elliptic.Curve,
+) []elliptic.Curve {
+	groups := make([]elliptic.Curve, 0, len(configured))
+	for _, share := range shares {
+		if !slices.Contains(groups, share.Group) {
+			groups = append(groups, share.Group)
+		}
+	}
+	for _, group := range configured {
+		if !slices.Contains(groups, group) {
+			groups = append(groups, group)
+		}
+	}
+
+	return groups
 }

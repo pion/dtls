@@ -10,7 +10,9 @@ import (
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/logging"
@@ -38,10 +40,9 @@ func (f *flight1TestMockCipherSuite) IsInitialized() bool {
 	return true
 }
 
-// When "server hello" arrives later than "certificate",
-// "server key exchange", "certificate request", "server hello done",
-// is it normal for the flight1Parse method to handle it.
-func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) { //nolint:maintidx
+// A later ServerHello exposes an invalid cached message occupying the next
+// sequence number; parsing must fail instead of treating it as packet loss.
+func TestFlight1_Process_RejectsInvalidLateServerFlight(t *testing.T) { //nolint:maintidx
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(5 * time.Second)
 	defer lim.Stop()
@@ -276,6 +277,6 @@ func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) { //nolint:maintid
 	cache.Push(serverHello, 0, 0, handshake.TypeServerHello, false)
 	cache.Push(certificate1, 0, 1, handshake.TypeCertificate, false)
 	_, alt, err = parseForTest(t, Flight1, t.Context(), mockConn, state, cache, cfg)
-	assert.NoError(t, err)
-	assert.Nil(t, alt)
+	assert.ErrorIs(t, err, dtlserrors.ErrUnexpectedHandshakeMessage)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, alt)
 }

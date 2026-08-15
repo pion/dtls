@@ -117,10 +117,10 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if len(data) <= currOffset {
 		context := serverHelloExtensionContext(m.Random, nil)
 		extensions, err := decodeRawExtensions(nil, context)
-		m.Extensions = extensions
 		if err != nil {
 			return err
 		}
+		m.Extensions = extensions
 
 		return nil
 	}
@@ -142,10 +142,10 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 	}
 	context := serverHelloExtensionContext(m.Random, rawExtensions)
 	extensions, err := decodeRawExtensions(rawExtensions, context)
-	m.Extensions = extensions
 	if err != nil {
 		return err
 	}
+	m.Extensions = extensions
 
 	return nil
 }

@@ -5,6 +5,7 @@ package dtlshandshake
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
@@ -54,6 +55,9 @@ func runHandshakeFSM(
 
 // notifyAlert sends a DTLS alert if present and prefers the original error.
 func notifyAlert(ctx context.Context, conn Conn, dtlsAlert *alert.Alert, err error) error {
+	if dtlsAlert == nil && err != nil {
+		errors.As(err, &dtlsAlert)
+	}
 	if dtlsAlert == nil {
 		return err
 	}

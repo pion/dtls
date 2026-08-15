@@ -7,8 +7,11 @@ import (
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,18 +162,270 @@ func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
 	cache.Push(rawServerHello, 0, 1, handshake.TypeServerHello, false)
 	cache.Push(rawClientHello, 0, 0, handshake.TypeClientHello, true)
 
-	seq, msgs, items, ok := cache.FullPullMapItems(0, nil,
+	pull := cache.FullPullMapItems(0, nil,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false},  //nolint:lll
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: 0, IsClient: false, Optional: false}, //nolint:lll
 	)
 
-	require.True(t, ok)
-	assert.Equal(t, 2, seq)
-	require.IsType(t, &handshake.MessageClientHello{}, msgs[handshake.TypeClientHello])
-	require.IsType(t, &handshake.MessageServerHello{}, msgs[handshake.TypeServerHello])
-	require.Len(t, items, 2)
-	assert.Equal(t, rawClientHello, items[0].Data)
-	assert.Equal(t, rawServerHello, items[1].Data)
+	require.NoError(t, pull.Err)
+	require.True(t, pull.Ready)
+	assert.Equal(t, 2, pull.NextSequence)
+	require.IsType(t, &handshake.MessageClientHello{}, pull.Messages[handshake.TypeClientHello])
+	require.IsType(t, &handshake.MessageServerHello{}, pull.Messages[handshake.TypeServerHello])
+	require.Len(t, pull.Items, 2)
+	assert.Equal(t, rawClientHello, pull.Items[0].Data)
+	assert.Equal(t, rawServerHello, pull.Items[1].Data)
+}
+
+func TestHandshakeCachePullResultDistinguishesIncompleteAndMalformed(t *testing.T) {
+	rule := dtlsflight.HandshakeCachePullRule{
+		Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false,
+	}
+
+	t.Run("missing", func(t *testing.T) {
+		pull := dtlsflight.NewCache().FullPullMapItems(7, nil, rule)
+		assert.False(t, pull.Ready)
+		assert.NoError(t, pull.Err)
+		assert.Equal(t, 7, pull.NextSequence)
+	})
+
+	t.Run("sequence gap", func(t *testing.T) {
+		raw := marshalHandshakeCacheTestMessage(t, 1, &handshake.MessageClientHello{
+			Version:            protocol.Version1_2,
+			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		})
+		cache := dtlsflight.NewCache()
+		cache.Push(raw, 0, 1, handshake.TypeClientHello, true)
+
+		pull := cache.FullPullMapItems(0, nil, rule)
+		assert.False(t, pull.Ready)
+		assert.NoError(t, pull.Err)
+		assert.Equal(t, 0, pull.NextSequence)
+	})
+
+	t.Run("malformed complete message", func(t *testing.T) {
+		cache := dtlsflight.NewCache()
+		cache.Push([]byte{byte(handshake.TypeClientHello)}, 0, 0, handshake.TypeClientHello, true)
+
+		pull := cache.FullPullMapItems(0, nil, rule)
+		assert.True(t, pull.Ready)
+		assert.ErrorIs(t, pull.Err, dtlserrors.ErrBufferTooSmall)
+		var got *alert.Alert
+		require.ErrorAs(t, pull.Err, &got)
+		assert.Equal(t, alert.DecodeError, got.Description)
+	})
+}
+
+func TestHandshakeCachePullValidatesMetadataAndHeader(t *testing.T) {
+	valid := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+	})
+	rule := dtlsflight.HandshakeCachePullRule{
+		Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false,
+	}
+
+	tests := map[string]struct {
+		data []byte
+		typ  handshake.Type
+		seq  uint16
+	}{
+		"header sequence": {
+			data: marshalHandshakeCacheTestMessage(t, 1, &handshake.MessageClientHello{
+				Version:            protocol.Version1_2,
+				CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+			}),
+			typ: handshake.TypeClientHello,
+		},
+		"header type": {
+			data: marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageServerHello{
+				Version:           protocol.Version1_2,
+				CipherSuiteID:     new(uint16),
+				CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+			}),
+			typ: handshake.TypeClientHello,
+		},
+		"fragment offset": {
+			data: func() []byte {
+				data := append([]byte(nil), valid...)
+				data[8] = 1
+
+				return data
+			}(),
+			typ: handshake.TypeClientHello,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cache := dtlsflight.NewCache()
+			cache.Push(test.data, 0, test.seq, test.typ, true)
+
+			pull := cache.FullPullMapItems(0, nil, rule)
+			require.True(t, pull.Ready)
+			assert.ErrorIs(t, pull.Err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
+			var got *alert.Alert
+			require.ErrorAs(t, pull.Err, &got)
+			assert.Equal(t, alert.DecodeError, got.Description)
+		})
+	}
+}
+
+func TestHandshakeCachePullPreservesExtensionAlert(t *testing.T) {
+	raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions: []extension.Value{
+			extension.Raw{Type: 0xfefe},
+			extension.Raw{Type: 0xfefe},
+		},
+	})
+	cache := dtlsflight.NewCache()
+	cache.Push(raw, 0, 0, handshake.TypeClientHello, true)
+
+	pull := cache.FullPullMapItems(0, nil, dtlsflight.HandshakeCachePullRule{
+		Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false,
+	})
+	require.True(t, pull.Ready)
+	assert.ErrorIs(t, pull.Err, dtlserrors.ErrDuplicateExtension)
+	var got *alert.Alert
+	require.ErrorAs(t, pull.Err, &got)
+	assert.Equal(t, alert.IllegalParameter, got.Description)
+}
+
+func TestHandshakeCachePullRejectsUnexpectedMessageAtRequiredSequence(t *testing.T) {
+	cache := dtlsflight.NewCache()
+	cache.Push([]byte{byte(handshake.TypeServerHello)}, 0, 0, handshake.TypeServerHello, true)
+
+	pull := cache.FullPullMapItems(0, nil, dtlsflight.HandshakeCachePullRule{
+		Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false,
+	})
+	require.True(t, pull.Ready)
+	assert.ErrorIs(t, pull.Err, dtlserrors.ErrUnexpectedHandshakeMessage)
+	var got *alert.Alert
+	require.ErrorAs(t, pull.Err, &got)
+	assert.Equal(t, alert.UnexpectedMessage, got.Description)
+}
+
+func TestHandshakeCachePullOptionalRules(t *testing.T) {
+	helloVerifyRule := dtlsflight.HandshakeCachePullRule{
+		Typ: handshake.TypeHelloVerifyRequest, Epoch: 0, IsClient: false, Optional: true,
+	}
+	serverHelloRule := dtlsflight.HandshakeCachePullRule{
+		Typ: handshake.TypeServerHello, Epoch: 0, IsClient: false, Optional: true,
+	}
+
+	t.Run("skip to later rule", func(t *testing.T) {
+		cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
+		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageServerHello{
+			Version:           protocol.Version1_2,
+			CipherSuiteID:     &cipherSuiteID,
+			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+		})
+		cache := dtlsflight.NewCache()
+		cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
+
+		pull := cache.FullPullMapItems(0, nil, helloVerifyRule, serverHelloRule)
+		require.NoError(t, pull.Err)
+		require.True(t, pull.Ready)
+		require.IsType(t, &handshake.MessageServerHello{}, pull.Messages[handshake.TypeServerHello])
+	})
+
+	t.Run("unexpected message", func(t *testing.T) {
+		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageCertificate{})
+		cache := dtlsflight.NewCache()
+		cache.Push(raw, 0, 0, handshake.TypeCertificate, false)
+
+		pull := cache.FullPullMapItems(0, nil, helloVerifyRule, serverHelloRule)
+		require.True(t, pull.Ready)
+		assert.ErrorIs(t, pull.Err, dtlserrors.ErrUnexpectedHandshakeMessage)
+		var got *alert.Alert
+		require.ErrorAs(t, pull.Err, &got)
+		assert.Equal(t, alert.UnexpectedMessage, got.Description)
+	})
+}
+
+func TestHandshakeCacheFullPullMapOneOfItems(t *testing.T) {
+	rules := []dtlsflight.HandshakeCachePullRule{
+		{Typ: handshake.TypeServerHello, Epoch: 0, IsClient: false},
+		{Typ: handshake.TypeHelloVerifyRequest, Epoch: 0, IsClient: false},
+	}
+
+	t.Run("allowed message", func(t *testing.T) {
+		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageHelloVerifyRequest{
+			Version: protocol.Version1_2,
+			Cookie:  []byte{0x01},
+		})
+		cache := dtlsflight.NewCache()
+		cache.Push(raw, 0, 0, handshake.TypeHelloVerifyRequest, false)
+
+		pull := cache.FullPullMapOneOfItems(0, nil, rules...)
+		require.NoError(t, pull.Err)
+		require.True(t, pull.Ready)
+		assert.Equal(t, 1, pull.NextSequence)
+		require.IsType(t, &handshake.MessageHelloVerifyRequest{}, pull.Messages[handshake.TypeHelloVerifyRequest])
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		pull := dtlsflight.NewCache().FullPullMapOneOfItems(0, nil, rules...)
+		assert.False(t, pull.Ready)
+		assert.NoError(t, pull.Err)
+	})
+
+	t.Run("unexpected message", func(t *testing.T) {
+		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageCertificate{})
+		cache := dtlsflight.NewCache()
+		cache.Push(raw, 0, 0, handshake.TypeCertificate, false)
+
+		pull := cache.FullPullMapOneOfItems(0, nil, rules...)
+		require.True(t, pull.Ready)
+		assert.ErrorIs(t, pull.Err, dtlserrors.ErrUnexpectedHandshakeMessage)
+		var got *alert.Alert
+		require.ErrorAs(t, pull.Err, &got)
+		assert.Equal(t, alert.UnexpectedMessage, got.Description)
+	})
+
+	t.Run("conflicting allowed messages", func(t *testing.T) {
+		cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
+		serverHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageServerHello{
+			Version:           protocol.Version1_2,
+			CipherSuiteID:     &cipherSuiteID,
+			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+		})
+		helloVerifyRequest := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageHelloVerifyRequest{
+			Version: protocol.Version1_2,
+			Cookie:  []byte{0x01},
+		})
+		cache := dtlsflight.NewCache()
+		cache.Push(serverHello, 0, 0, handshake.TypeServerHello, false)
+		cache.Push(helloVerifyRequest, 0, 0, handshake.TypeHelloVerifyRequest, false)
+
+		pull := cache.FullPullMapOneOfItems(0, nil, rules...)
+		require.True(t, pull.Ready)
+		assert.ErrorIs(t, pull.Err, dtlserrors.ErrUnexpectedHandshakeMessage)
+		var got *alert.Alert
+		require.ErrorAs(t, pull.Err, &got)
+		assert.Equal(t, alert.UnexpectedMessage, got.Description)
+	})
+}
+
+func TestHandshakeCachePullRejectsSequenceOverflow(t *testing.T) {
+	rule := dtlsflight.HandshakeCachePullRule{
+		Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false,
+	}
+	pull := dtlsflight.NewCache().FullPullMapItems(-1, nil, rule)
+	require.True(t, pull.Ready)
+	assert.ErrorIs(t, pull.Err, dtlserrors.ErrHandshakeSequenceOverflow)
+	var got *alert.Alert
+	require.ErrorAs(t, pull.Err, &got)
+	assert.Equal(t, alert.DecodeError, got.Description)
+
+	pull = dtlsflight.NewCache().FullPullMapOneOfItems(-1, nil, rule)
+	require.True(t, pull.Ready)
+	assert.ErrorIs(t, pull.Err, dtlserrors.ErrHandshakeSequenceOverflow)
+	got = nil
+	require.ErrorAs(t, pull.Err, &got)
+	assert.Equal(t, alert.DecodeError, got.Description)
 }
 
 func marshalHandshakeCacheTestMessage(t *testing.T, seq uint16, message handshake.Message) []byte {

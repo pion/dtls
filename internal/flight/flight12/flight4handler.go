@@ -35,23 +35,26 @@ func flight4Parse(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
-	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: true},        //nolint:lll
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateVerify, Epoch: cfg.InitialEpoch, IsClient: true, Optional: true},  //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
 
 	// Validate type
-	var clientKeyExchange *handshake.MessageClientKeyExchange
-	if clientKeyExchange, ok = msgs[handshake.TypeClientKeyExchange].(*handshake.MessageClientKeyExchange); !ok {
+	clientKeyExchange, ok := pull.Messages[handshake.TypeClientKeyExchange].(*handshake.MessageClientKeyExchange)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if h, hasCert := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
+	if h, hasCert := pull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
 		state.PeerCertificates = h.Certificate
 		// If the client offer its certificate, just disable session resumption.
 		// Otherwise, we have to store the certificate identitfication and expire time.
@@ -62,7 +65,7 @@ func flight4Parse(
 	}
 
 	//nolint:nestif
-	if verify, hasVerify := msgs[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasVerify {
+	if verify, hasVerify := pull.Messages[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasVerify {
 		if state.PeerCertificates == nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrCertificateVerifyNoCertificate
 		}
@@ -196,16 +199,19 @@ func flight4Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
-	seq, msgs, ok = cache.FullPullMap(seq, state.CipherSuite,
+	finishedPull := cache.FullPullMapItems(pull.NextSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if finishedPull.Err != nil {
+		return 0, nil, finishedPull.Err
+	}
+	if !finishedPull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
-	state.HandshakeRecvSequence = seq
+	state.HandshakeRecvSequence = finishedPull.NextSequence
 
-	if _, ok = msgs[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
+	if _, ok = finishedPull.Messages[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 

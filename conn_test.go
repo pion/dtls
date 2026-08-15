@@ -2409,9 +2409,175 @@ func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVe
 
 	ok, err := conn.pickVersionFromServerResponse()
 
-	assert.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
+	assert.ErrorIs(t, err, dtlserrors.ErrMissingSupportedVersionsExtension)
+	var classified *alert.Alert
+	require.ErrorAs(t, err, &classified)
+	assert.Equal(t, alert.MissingExtension, classified.Description)
 	assert.False(t, ok)
 	assert.Equal(t, protocol.Version{}, dtlsstate.CommonState(conn.state).LocalVersion)
+}
+
+func TestPickVersionFromServerResponseRejectsUnexpectedMessage(t *testing.T) {
+	cfg := testVersionNegotiationHandshakeConfig13(t)
+	cfg.MinVersion = protocol.Version1_2
+	cfg.MaxVersion = protocol.Version1_3
+	raw, err := (&handshake.Handshake{
+		Message: &handshake.MessageFinished{VerifyData: []byte{0x01}},
+	}).Marshal()
+	require.NoError(t, err)
+
+	conn := &Conn{
+		handshakeCache:  dtlsflight.NewCache(),
+		handshakeConfig: cfg,
+	}
+	conn.handshakeCache.Push(raw, cfg.InitialEpoch, 0, handshake.TypeFinished, false)
+
+	ok, err := conn.pickVersionFromServerResponse()
+
+	assert.ErrorIs(t, err, dtlserrors.ErrUnexpectedHandshakeMessage)
+	var classified *alert.Alert
+	require.ErrorAs(t, err, &classified)
+	assert.Equal(t, alert.UnexpectedMessage, classified.Description)
+	assert.False(t, ok)
+}
+
+func TestPickVersionFromServerResponsePreservesDecodeAlert(t *testing.T) {
+	cfg := testVersionNegotiationHandshakeConfig13(t)
+	cfg.MinVersion = protocol.Version1_2
+	cfg.MaxVersion = protocol.Version1_3
+	conn := &Conn{
+		handshakeCache:  dtlsflight.NewCache(),
+		handshakeConfig: cfg,
+	}
+	conn.handshakeCache.Push(
+		[]byte{byte(handshake.TypeServerHello)},
+		cfg.InitialEpoch,
+		0,
+		handshake.TypeServerHello,
+		false,
+	)
+
+	ok, err := conn.pickVersionFromServerResponse()
+
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+	var classified *alert.Alert
+	require.ErrorAs(t, err, &classified)
+	assert.Equal(t, alert.DecodeError, classified.Description)
+	assert.False(t, ok)
+}
+
+func TestDualStackVersionNegotiationSendsClassifiedAlerts(t *testing.T) {
+	t.Run("server rejects illegal ClientHello extensions", func(t *testing.T) {
+		ca, cb := dpipe.Pipe()
+		defer func() {
+			_ = ca.Close()
+			_ = cb.Close()
+		}()
+
+		certificate, err := selfsign.GenerateSelfSigned()
+		require.NoError(t, err)
+		server, err := ServerWithOptions(
+			dtlsnet.PacketConnFromConn(cb),
+			cb.RemoteAddr(),
+			WithCertificates(certificate),
+			WithMinVersion(protocol.Version1_2),
+			WithMaxVersion(protocol.Version1_3),
+		)
+		require.NoError(t, err)
+		defer func() { _ = server.Close() }()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		result := make(chan error, 1)
+		go func() { result <- server.HandshakeContext(ctx) }()
+
+		raw := marshalVersionNegotiationRecord(t, &handshake.MessageClientHello{
+			Version:            protocol.Version1_2,
+			CipherSuiteIDs:     []uint16{uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
+			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+			Extensions: []extension.Value{
+				extension.Raw{Type: 0xfefe},
+				extension.Raw{Type: 0xfefe},
+			},
+		})
+		_, err = ca.Write(raw)
+		require.NoError(t, err)
+
+		assert.Equal(t, alert.IllegalParameter, readVersionNegotiationAlert(t, ca))
+		assert.ErrorIs(t, <-result, dtlserrors.ErrDuplicateExtension)
+	})
+
+	t.Run("client rejects unexpected response", func(t *testing.T) {
+		ca, cb := dpipe.Pipe()
+		defer func() {
+			_ = ca.Close()
+			_ = cb.Close()
+		}()
+
+		client, err := ClientWithOptions(
+			dtlsnet.PacketConnFromConn(cb),
+			cb.RemoteAddr(),
+			WithInsecureSkipVerify(true),
+			WithMinVersion(protocol.Version1_2),
+			WithMaxVersion(protocol.Version1_3),
+		)
+		require.NoError(t, err)
+		defer func() { _ = client.Close() }()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		result := make(chan error, 1)
+		go func() { result <- client.HandshakeContext(ctx) }()
+
+		require.NoError(t, ca.SetReadDeadline(time.Now().Add(time.Second)))
+		_, err = ca.Read(make([]byte, 8192)) // Initial ClientHello.
+		require.NoError(t, err)
+		_, err = ca.Write(marshalVersionNegotiationRecord(t, &handshake.MessageFinished{VerifyData: []byte{0x01}}))
+		require.NoError(t, err)
+
+		assert.Equal(t, alert.UnexpectedMessage, readVersionNegotiationAlert(t, ca))
+		assert.ErrorIs(t, <-result, dtlserrors.ErrUnexpectedHandshakeMessage)
+	})
+}
+
+func marshalVersionNegotiationRecord(t *testing.T, message handshake.Message) []byte {
+	t.Helper()
+
+	raw, err := (&recordlayer.RecordLayer{
+		Header: recordlayer.Header{Version: protocol.Version1_2},
+		Content: &handshake.Handshake{
+			Message: message,
+		},
+	}).Marshal()
+	require.NoError(t, err)
+
+	return raw
+}
+
+func readVersionNegotiationAlert(t *testing.T, conn net.Conn) alert.Description {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(time.Second)))
+	for {
+		raw := make([]byte, 8192)
+		n, err := conn.Read(raw)
+		require.NoError(t, err)
+		records, err := recordlayer.UnpackDatagram(raw[:n])
+		require.NoError(t, err)
+		for _, rawRecord := range records {
+			header := &recordlayer.Header{}
+			require.NoError(t, header.Unmarshal(rawRecord))
+			if header.ContentType != protocol.ContentTypeAlert {
+				continue
+			}
+
+			record := &recordlayer.RecordLayer{}
+			require.NoError(t, record.Unmarshal(rawRecord))
+			dtlsAlert, ok := record.Content.(*alert.Alert)
+			require.True(t, ok)
+
+			return dtlsAlert.Description
+		}
+	}
 }
 
 func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupportedVersionsEncoding(t *testing.T) {

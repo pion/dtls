@@ -929,10 +929,10 @@ func TestFlight13_1ParseRejectsHelloRetryRequestWithoutSupportedVersions(t *test
 			cfg:   cfg,
 		})
 
-	require.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
+	require.ErrorIs(t, err, dtlserrors.ErrMissingSupportedVersionsExtension)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
-	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)
+	assert.Equal(t, alert.MissingExtension, dtlsAlert.Description)
 	assert.Zero(t, nextFlight)
 	assert.False(t, state.HasRemoteKeyEntries)
 }
@@ -2084,14 +2084,8 @@ func TestFlight13_3ParseRejectsMissingSupportedVersions(t *testing.T) {
 	_, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg})
 	require.NoError(t, err)
 
-	group := cfg.EllipticCurves[0]
-	serverKeypair, err := elliptic.GenerateKeypair(group)
-	require.NoError(t, err)
-
 	random := handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}}
-	rawServerHello := marshalServerHello(t, cfg, random, []extension.Value{
-		&extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
-	})
+	rawServerHello := marshalServerHello(t, cfg, random, nil)
 
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
@@ -2443,7 +2437,7 @@ func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.
 		assert.Equal(t, cfg.EllipticCurves, state.RemoteGroups)
 	})
 
-	t.Run("AllowsPreSharedKeyWithoutCertificateAuthExtensions", func(t *testing.T) {
+	t.Run("RejectsPreSharedKeyWithoutModes", func(t *testing.T) {
 		cfg := testHandshakeConfig13(t)
 		state := newTestState13(false)
 		cache := dtlsflight.NewCache()
@@ -2465,9 +2459,10 @@ func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.
 				cfg:   cfg,
 			})
 
-		require.NoError(t, err)
-		require.Nil(t, dtlsAlert)
-		assert.Equal(t, dtlsflight13.Flight2, nextFlight)
+		require.ErrorIs(t, err, dtlserrors.ErrMissingPSKKeyExchangeModesExtension)
+		require.NotNil(t, dtlsAlert)
+		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
+		assert.Zero(t, nextFlight)
 	})
 
 	t.Run("RejectsMissingSignatureAlgorithms", func(t *testing.T) {
@@ -2528,7 +2523,7 @@ func TestFlight13_0ParseRequiresCertificateAuthClientHelloExtensions(t *testing.
 				cfg:   cfg,
 			})
 
-		require.ErrorIs(t, err, dtlserrors.ErrMissingClientHelloExtension)
+		require.ErrorIs(t, err, dtlserrors.ErrKeyShareWithoutSupportedGroups)
 		require.NotNil(t, dtlsAlert)
 		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
 		assert.Zero(t, nextFlight)
@@ -3649,6 +3644,7 @@ func TestFlight13_2ParseRejectsChangedConnectionIDOffer(t *testing.T) {
 		firstPresent bool
 		firstCID     []byte
 		secondCIDs   [][]byte
+		expectedErr  error
 	}{
 		"RemovedEmptyOffer": {
 			firstPresent: true,
@@ -3666,6 +3662,7 @@ func TestFlight13_2ParseRejectsChangedConnectionIDOffer(t *testing.T) {
 			firstPresent: true,
 			firstCID:     []byte{0x01},
 			secondCIDs:   [][]byte{{0x01}, {0x01}},
+			expectedErr:  dtlserrors.ErrDuplicateExtension,
 		},
 	}
 
@@ -3690,7 +3687,11 @@ func TestFlight13_2ParseRejectsChangedConnectionIDOffer(t *testing.T) {
 				t, dtlsflight13.Flight2, context.Background(), flight13_2Context(state, cache, cfg),
 			)
 
-			require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
+			expectedErr := test.expectedErr
+			if expectedErr == nil {
+				expectedErr = dtlserrors.ErrInvalidClientHello
+			}
+			require.ErrorIs(t, err, expectedErr)
 			require.NotNil(t, dtlsAlert)
 			assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
 			assert.Zero(t, nextFlight)
@@ -3915,7 +3916,7 @@ func TestFlight13_0ParseRejectsDuplicateConnectionID(t *testing.T) {
 		},
 	)
 
-	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
+	require.ErrorIs(t, err, dtlserrors.ErrDuplicateExtension)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
 	assert.Zero(t, nextFlight)
@@ -4068,7 +4069,7 @@ func TestFlight13_3ParseRejectsDuplicateConnectionID(t *testing.T) {
 		t, true, []byte{0x01}, [][]byte{{0x10}, {0x11}},
 	)
 
-	require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
+	require.ErrorIs(t, err, dtlserrors.ErrDuplicateExtension)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
 	assert.Zero(t, nextFlight)
@@ -4097,7 +4098,7 @@ func TestFlight13_1ParseRejectsConnectionIDInHelloRetryRequest(t *testing.T) {
 		},
 	)
 
-	require.ErrorIs(t, err, dtlserrors.ErrInvalidHelloRetryRequest)
+	require.ErrorIs(t, err, dtlserrors.ErrExtensionNotAllowed)
 	require.NotNil(t, dtlsAlert)
 	assert.Equal(t, alert.Fatal, dtlsAlert.Level)
 	assert.Equal(t, alert.IllegalParameter, dtlsAlert.Description)

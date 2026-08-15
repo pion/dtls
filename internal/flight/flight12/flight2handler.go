@@ -24,20 +24,22 @@ func flight2Parse(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
-	seq, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// Client may retransmit the first ClientHello when HelloVerifyRequest is dropped.
 		// Parse as flight 0 in this case.
 		return flight0Parse(ctx, conn, state, cache, cfg)
 	}
-	state.HandshakeRecvSequence = seq
-
-	var clientHello *handshake.MessageClientHello
+	state.HandshakeRecvSequence = pull.NextSequence
 
 	// Validate type
-	if clientHello, ok = msgs[handshake.TypeClientHello].(*handshake.MessageClientHello); !ok {
+	clientHello, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 

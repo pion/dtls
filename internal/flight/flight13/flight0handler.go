@@ -31,10 +31,13 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
 			dtlserrors.ErrInvalidProtocolVersionState
 	}
-	seq, msgs, items, ok := cache.FullPullMapItems(0, state.CipherSuite,
+	pull := cache.FullPullMapItems(0, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
@@ -43,12 +46,11 @@ func flight0Parse(
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
 	state.ResetConnectionIDs()
 
-	state.HandshakeRecvSequence = seq
-
-	var clientHello *handshake.MessageClientHello
+	state.HandshakeRecvSequence = pull.NextSequence
 
 	// Validate type
-	if clientHello, ok = msgs[handshake.TypeClientHello].(*handshake.MessageClientHello); !ok {
+	clientHello, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
@@ -100,7 +102,7 @@ func flight0Parse(
 	}
 
 	if flightCtx.inboundHandshakeHandler != nil {
-		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, items); err != nil {
+		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, pull.Items); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}

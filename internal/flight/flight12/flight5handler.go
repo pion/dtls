@@ -30,16 +30,19 @@ func flight5Parse(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) (Flight, *alert.Alert, error) {
-	_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence, state.CipherSuite,
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
 
-	var finished *handshake.MessageFinished
-	if finished, ok = msgs[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
+	finished, ok := pull.Messages[handshake.TypeFinished].(*handshake.MessageFinished)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 	plainText := cache.PullAndMerge(handshakeRulesThroughClientFinished(cfg.InitialEpoch)...)
@@ -72,13 +75,16 @@ func flight5Generate(
 	var signer crypto.Signer
 	var pkts []*dtlsflight.Packet
 	if state.RemoteRequestedCertificate { //nolint:nestif
-		_, msgs, ok := cache.FullPullMap(state.HandshakeRecvSequence-2, state.CipherSuite,
+		pull := cache.FullPullMapItems(state.HandshakeRecvSequence-2, state.CipherSuite,
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}) //nolint:lll
-		if !ok {
+		if pull.Err != nil {
+			return nil, nil, pull.Err
+		}
+		if !pull.Ready {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired //nolint:lll
 		}
 		reqInfo := dtlsconfig.CertificateRequestInfo{}
-		if r, ok2 := msgs[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
+		if r, ok2 := pull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
 			reqInfo.AcceptableCAs = r.CertificateAuthoritiesNames
 		} else {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired //nolint:lll
@@ -91,6 +97,7 @@ func flight5Generate(
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrNotAcceptableCertificateChain //nolint:lll
 		}
 		if certificate.Certificate != nil {
+			var ok bool
 			signer, ok = certificate.PrivateKey.(crypto.Signer)
 			if !ok {
 				return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrInvalidPrivateKey

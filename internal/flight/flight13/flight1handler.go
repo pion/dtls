@@ -187,15 +187,18 @@ func flight1Parse(
 		return flight3Parse(ctx, conn, flightCtx)
 	}
 
-	seq, msgs, items, ok := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
 
-	sh, ok := msgs[handshake.TypeServerHello].(*handshake.MessageServerHello)
+	sh, ok := pull.Messages[handshake.TypeServerHello].(*handshake.MessageServerHello)
 	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
@@ -213,8 +216,11 @@ func flight1Parse(
 	}
 	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions); err != nil {
 		description := alert.IllegalParameter
-		if errors.Is(err, dtlserrors.ErrUnsupportedProtocolVersion) {
+		switch {
+		case errors.Is(err, dtlserrors.ErrUnsupportedProtocolVersion):
 			description = alert.ProtocolVersion
+		case errors.Is(err, dtlserrors.ErrMissingSupportedVersionsExtension):
+			description = alert.MissingExtension
 		}
 
 		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
@@ -250,11 +256,11 @@ func flight1Parse(
 	}
 
 	if flightCtx.inboundHandshakeHandler != nil {
-		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, items); err != nil {
+		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, pull.Items); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}
-	state.HandshakeRecvSequence = seq
+	state.HandshakeRecvSequence = pull.NextSequence
 
 	return Flight3, nil, nil
 }

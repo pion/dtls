@@ -18,20 +18,23 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
-func flight2Parse(
+func flight2Parse( //nolint:cyclop
 	_ context.Context,
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) (Flight, *alert.Alert, error) {
-	seq, msgs, items, ok := flightCtx.cache.FullPullMapItems(
+	pull := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
-	if !ok {
+	if pull.Err != nil {
+		return 0, nil, pull.Err
+	}
+	if !pull.Ready {
 		return 0, nil, nil
 	}
 
-	clientHello, ok := msgs[handshake.TypeClientHello].(*handshake.MessageClientHello)
+	clientHello, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
 	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
@@ -59,10 +62,10 @@ func flight2Parse(
 	if failure := generateClientKeyShareSecret(flightCtx.state, flightCtx.cfg); failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	if failure := flightCtx.handleInboundHandshake(items); failure != nil {
+	if failure := flightCtx.handleInboundHandshake(pull.Items); failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	flightCtx.state.HandshakeRecvSequence = seq
+	flightCtx.state.HandshakeRecvSequence = pull.NextSequence
 
 	return Flight4, nil, nil
 }

@@ -2278,6 +2278,12 @@ func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 			return err
 		}
 		if ok, err := c.pickVersionFromClientHello(); err != nil {
+			var negotiationAlert *alert.Alert
+			errors.As(err, &negotiationAlert)
+			if alertErr := c.notify(ctx, negotiationAlert.Level, negotiationAlert.Description); alertErr != nil {
+				return errors.Join(err, alertErr)
+			}
+
 			return err
 		} else if ok {
 			return nil
@@ -2317,6 +2323,12 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet
 			return nil, err
 		}
 		if ok, err := c.pickVersionFromServerResponse(); err != nil {
+			var negotiationAlert *alert.Alert
+			errors.As(err, &negotiationAlert)
+			if alertErr := c.notify(ctx, negotiationAlert.Level, negotiationAlert.Description); alertErr != nil {
+				return nil, errors.Join(err, alertErr)
+			}
+
 			return nil, err
 		} else if ok {
 			return pkts, nil
@@ -2329,17 +2341,19 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet
 // ClientHello and, if found, sets localVersion and remoteVersions.
 // Returns true once the version can be decided.
 func (c *Conn) pickVersionFromClientHello() (bool, error) {
-	_, msgs, ok := c.handshakeCache.FullPullMap(0, dtlsstate.CommonState(c.state).CipherSuite,
+	pull := c.handshakeCache.FullPullMapItems(0, dtlsstate.CommonState(c.state).CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: c.handshakeConfig.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
 	)
+	if pull.Err != nil {
+		return false, pull.Err
+	}
+	if !pull.Ready {
+		return false, nil
+	}
+	ch, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
 	if !ok {
 		return false, nil
 	}
-	ch, ok := msgs[handshake.TypeClientHello].(*handshake.MessageClientHello)
-	if !ok {
-		return false, nil
-	}
-
 	var remote []protocol.Version
 	seenSupportedVersions := false
 	for _, e := range ch.Extensions {
@@ -2356,7 +2370,11 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 
 	chosen, ok := dtlsconfig.SelectVersion(remote, c.handshakeConfig.MinVersion, c.handshakeConfig.MaxVersion)
 	if !ok {
-		return false, dtlserrors.ErrNoCommonProtocolVersion
+		return false, fmt.Errorf(
+			"%w: %w",
+			dtlserrors.ErrNoCommonProtocolVersion,
+			&alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+		)
 	}
 
 	c.setNegotiatedVersion(remote, chosen)
@@ -2373,7 +2391,24 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 //   - ServerHello without supported_versions: fall back to ServerHello.Version.
 //   - HelloVerifyRequest (1.2 cookie request): version is 1.2.
 func (c *Conn) pickVersionFromServerResponse() (bool, error) {
-	if sh, ok := c.findCachedServerMessage(handshake.TypeServerHello).(*handshake.MessageServerHello); ok {
+	pull := c.handshakeCache.FullPullMapOneOfItems(
+		0,
+		dtlsstate.CommonState(c.state).CipherSuite,
+		dtlsflight.HandshakeCachePullRule{
+			Typ: handshake.TypeServerHello, Epoch: c.handshakeConfig.InitialEpoch, IsClient: false,
+		},
+		dtlsflight.HandshakeCachePullRule{
+			Typ: handshake.TypeHelloVerifyRequest, Epoch: c.handshakeConfig.InitialEpoch, IsClient: false,
+		},
+	)
+	if pull.Err != nil {
+		return false, pull.Err
+	}
+	if !pull.Ready {
+		return false, nil
+	}
+
+	if sh, ok := pull.Messages[handshake.TypeServerHello].(*handshake.MessageServerHello); ok {
 		if err := c.pickVersionFromServerHello(sh); err != nil {
 			return false, err
 		}
@@ -2381,7 +2416,7 @@ func (c *Conn) pickVersionFromServerResponse() (bool, error) {
 		return true, nil
 	}
 
-	if hvr, ok := c.findCachedServerMessage(handshake.TypeHelloVerifyRequest).(*handshake.MessageHelloVerifyRequest); ok {
+	if hvr, ok := pull.Messages[handshake.TypeHelloVerifyRequest].(*handshake.MessageHelloVerifyRequest); ok {
 		if err := c.selectRemoteVersion([]protocol.Version{hvr.Version}); err != nil {
 			return false, err
 		}
@@ -2407,7 +2442,11 @@ func remoteVersionsFromServerHello(sh *handshake.MessageServerHello) ([]protocol
 		return remoteVersionsFromHelloRetryRequest(remote, seenSupportedVersions, err)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(
+			"%w: %w",
+			err,
+			&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
+		)
 	}
 	if !seenSupportedVersions {
 		return []protocol.Version{sh.Version}, nil
@@ -2421,11 +2460,26 @@ func remoteVersionsFromHelloRetryRequest(
 	seenSupportedVersions bool,
 	err error,
 ) ([]protocol.Version, error) {
-	if err != nil || !seenSupportedVersions {
-		return nil, dtlserrors.ErrInvalidHelloRetryRequest
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%w: %w",
+			dtlserrors.ErrInvalidHelloRetryRequest,
+			&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
+		)
+	}
+	if !seenSupportedVersions {
+		return nil, fmt.Errorf(
+			"%w: %w",
+			dtlserrors.ErrInvalidHelloRetryRequest,
+			&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
+		)
 	}
 	if !remote[0].Equal(protocol.Version1_3) {
-		return nil, dtlserrors.ErrUnsupportedProtocolVersion
+		return nil, fmt.Errorf(
+			"%w: %w",
+			dtlserrors.ErrUnsupportedProtocolVersion,
+			&alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+		)
 	}
 
 	return remote, nil
@@ -2434,7 +2488,11 @@ func remoteVersionsFromHelloRetryRequest(
 func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
 	chosen, ok := dtlsconfig.SelectVersion(remote, c.handshakeConfig.MinVersion, c.handshakeConfig.MaxVersion)
 	if !ok {
-		return dtlserrors.ErrNoCommonProtocolVersion
+		return fmt.Errorf(
+			"%w: %w",
+			dtlserrors.ErrNoCommonProtocolVersion,
+			&alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
+		)
 	}
 	c.setNegotiatedVersion(remote, chosen)
 
@@ -2452,19 +2510,6 @@ func (c *Conn) setNegotiatedVersion(remote []protocol.Version, chosen protocol.V
 	}
 
 	c.state = dtlsstate.Activate12(c.state)
-}
-
-// findCachedServerMessage pulls the most recent handshake message of the
-// given type sent by the peer from the cache, if any.
-func (c *Conn) findCachedServerMessage(messageType handshake.Type) handshake.Message {
-	_, msgs, ok := c.handshakeCache.FullPullMap(0, dtlsstate.CommonState(c.state).CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: messageType, Epoch: c.handshakeConfig.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
-	)
-	if !ok {
-		return nil
-	}
-
-	return msgs[messageType]
 }
 
 // stampHandshakeSequence assigns the DTLS message_sequence to each handshake
