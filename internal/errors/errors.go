@@ -252,6 +252,27 @@ var (
 		"certificate list must not be longer than 2^24-1 bytes",
 	)
 	ErrInvalidExtensionsLength             = stderrors.New("extensions data must be between 2 and 2^16-1 bytes")
+	ErrDuplicateExtension                  = stderrors.New("duplicate extension")
+	ErrExtensionNotAllowed                 = stderrors.New("extension is not allowed in this handshake message")
+	ErrPreSharedKeyNotLast                 = stderrors.New("pre_shared_key must be the last ClientHello extension")
+	ErrMissingPSKKeyExchangeModesExtension = stderrors.New(
+		"pre_shared_key requires psk_key_exchange_modes",
+	)
+	ErrEarlyDataWithoutPreSharedKey   = stderrors.New("early_data requires pre_shared_key")
+	ErrKeyShareWithoutSupportedGroups = stderrors.New(
+		"key_share requires supported_groups",
+	)
+	ErrKeyShareGroupNotOffered = stderrors.New(
+		"key_share groups must be offered in supported_groups order",
+	)
+	ErrSupportedGroupsWithoutKeyShare = stderrors.New(
+		"supported_groups requires key_share when offering DTLS 1.3",
+	)
+	ErrDuplicateSupportedGroup           = stderrors.New("supported_groups contains a duplicate group")
+	ErrMissingSupportedVersionsExtension = stderrors.New(
+		"HelloRetryRequest requires supported_versions",
+	)
+	ErrUnexpectedHandshakeMessage          = stderrors.New("unexpected handshake message")
 	ErrMissingSignatureAlgorithmsExtension = stderrors.New(
 		"signature_algorithms extension is required in CertificateRequest",
 	)

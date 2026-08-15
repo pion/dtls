@@ -56,11 +56,6 @@ func TestMessageNewSessionTicketEmptyVectors(t *testing.T) {
 }
 
 func TestMessageNewSessionTicketMarshalErrors(t *testing.T) {
-	tooManyExtensions := make([]extension.Value, 16384)
-	for i := range tooManyExtensions {
-		tooManyExtensions[i] = extension.Raw{Type: extension.TypePostHandshakeAuth}
-	}
-
 	tests := map[string]*MessageNewSessionTicket{
 		"nonce too long": {TicketNonce: make([]byte, 256), Ticket: []byte{0x01}},
 		"empty ticket":   {},
@@ -68,8 +63,10 @@ func TestMessageNewSessionTicketMarshalErrors(t *testing.T) {
 			Ticket: make([]byte, 65536),
 		},
 		"extensions too long": {
-			Ticket:     []byte{0x01},
-			Extensions: tooManyExtensions,
+			Ticket: []byte{0x01},
+			Extensions: []extension.Value{
+				extension.Raw{Type: 0xfefe, Data: make([]byte, 65532)},
+			},
 		},
 	}
 

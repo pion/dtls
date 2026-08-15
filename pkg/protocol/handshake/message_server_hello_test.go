@@ -9,9 +9,55 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestMessageServerHelloExtensionFramingErrorIsClassified(t *testing.T) {
+	cipherSuiteID := uint16(0xc02b)
+	raw, err := (&MessageServerHello{
+		Version:           protocol.Version1_2,
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: &protocol.CompressionMethod{},
+	}).Marshal()
+	assert.NoError(t, err)
+	raw[len(raw)-1] = 1
+
+	err = (&MessageServerHello{}).Unmarshal(raw)
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+	var got *alert.Alert
+	assert.ErrorAs(t, err, &got)
+	assert.Equal(t, alert.DecodeError, got.Description)
+}
+
+func TestMessageServerHelloRejectsHelloRetryRequestWithoutSupportedVersions(t *testing.T) {
+	var randomFixed [RandomLength]byte
+	copy(randomFixed[:], HelloRetryRequestRandom())
+	var random Random
+	random.UnmarshalFixed(randomFixed)
+	cipherSuiteID := uint16(0x1301)
+	raw, err := (&MessageServerHello{
+		Version:           protocol.Version1_2,
+		Random:            random,
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: &protocol.CompressionMethod{},
+	}).Marshal()
+	assert.NoError(t, err)
+
+	for name, input := range map[string][]byte{
+		"empty vector":   raw,
+		"omitted vector": raw[:len(raw)-2],
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := (&MessageServerHello{}).Unmarshal(input)
+			assert.ErrorIs(t, err, dtlserrors.ErrMissingSupportedVersionsExtension)
+			var got *alert.Alert
+			assert.ErrorAs(t, err, &got)
+			assert.Equal(t, alert.MissingExtension, got.Description)
+		})
+	}
+}
 
 func TestHandshakeMessageServerHello(t *testing.T) {
 	rawServerHello := []byte{

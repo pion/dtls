@@ -130,13 +130,13 @@ func TestMessageCertificateRequest13_MaxContextLength(t *testing.T) {
 
 func TestMessageCertificateRequest13_MultipleExtensions(t *testing.T) {
 	// Build (valid) message with multiple extensions
-	// (signature_algorithms, which must be present, and server_name)
+	// (signature_algorithms, which must be present, and an unknown extension)
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
 		Extensions: []extension.Value{
 			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0503, 0x0601}},
 			extension.Raw{
-				Type: extension.TypeServerName,
+				Type: 0xfefe,
 				Data: []byte{
 					0x00, 0x0e, 0x00, 0x00, 0x0b, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
 				},

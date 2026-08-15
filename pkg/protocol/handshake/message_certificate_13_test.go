@@ -544,9 +544,9 @@ func TestParseCertificateEntry_GeneratedCertificateWithExtensions(t *testing.T) 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
 	require.NoError(t, err)
 
-	// Create extensions for the certificate entry
-	serverName := &extension.ServerNameOffer{ServerName: "test2.example.com"}
-	extensions := []extension.Value{serverName}
+	// Create an unknown extension for the certificate entry.
+	const unknownCertificateExtension extension.Type = 0xfefe
+	extensions := []extension.Value{extension.Raw{Type: unknownCertificateExtension, Data: []byte{0x01}}}
 	extensionsData, err := extension.MarshalList(extensions)
 	require.NoError(t, err)
 
@@ -570,7 +570,7 @@ func TestParseCertificateEntry_GeneratedCertificateWithExtensions(t *testing.T) 
 	assert.Equal(t, 0, len(str)) // Ensure all data was consumed
 	assert.Equal(t, certDER, entry.CertificateData)
 	assert.Equal(t, 1, len(entry.Extensions))
-	assert.Equal(t, extension.TypeServerName, entry.Extensions[0].ExtensionType())
+	assert.Equal(t, unknownCertificateExtension, entry.Extensions[0].ExtensionType())
 
 	// Verify the certificate is valid
 	parsedCert, err := x509.ParseCertificate(entry.CertificateData)

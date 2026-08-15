@@ -6,9 +6,11 @@ package handshake
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 )
 
@@ -70,7 +72,7 @@ func (m *MessageServerHello) Marshal() ([]byte, error) {
 }
 
 // Unmarshal populates the message from encoded data.
-func (m *MessageServerHello) Unmarshal(data []byte) error {
+func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if len(data) < 2+RandomLength {
 		return dtlserrors.ErrBufferTooSmall
 	}
@@ -113,21 +115,37 @@ func (m *MessageServerHello) Unmarshal(data []byte) error {
 	}
 
 	if len(data) <= currOffset {
-		m.Extensions = []extension.Value{}
+		context := serverHelloExtensionContext(m.Random, nil)
+		extensions, err := decodeRawExtensions(nil, context)
+		m.Extensions = extensions
+		if err != nil {
+			return err
+		}
 
 		return nil
 	}
 
 	rawExtensions, err := extension.ParseList(data[currOffset:])
 	if err != nil {
-		return err
+		context := extensionContextServerHello12
+		randomBytes := m.Random.MarshalFixed()
+		if bytes.Equal(randomBytes[:], HelloRetryRequestRandom()) {
+			context = extensionContextHelloRetryRequest
+		}
+
+		return fmt.Errorf(
+			"extensions in %s: %w: %w",
+			context,
+			err,
+			&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
+		)
 	}
 	context := serverHelloExtensionContext(m.Random, rawExtensions)
 	extensions, err := decodeRawExtensions(rawExtensions, context)
+	m.Extensions = extensions
 	if err != nil {
 		return err
 	}
-	m.Extensions = extensions
 
 	return nil
 }

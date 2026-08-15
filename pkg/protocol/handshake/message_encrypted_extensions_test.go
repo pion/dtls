@@ -8,12 +8,15 @@ import (
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var errMarshalEncryptedExtensionsTest = errors.New("marshal encrypted extensions test")
+
+const unknownEncryptedExtensionsType extension.Type = 0xfefe
 
 type failingEncryptedExtensionsExtension struct{}
 
@@ -41,7 +44,7 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 		raw, err := (&MessageEncryptedExtensions{
 			Extensions: []extension.Value{
 				&extension.ALPNSelection{Protocol: "h2"},
-				extension.Raw{Type: extension.TypeExtendedMasterSecret},
+				extension.Raw{Type: unknownEncryptedExtensionsType},
 			},
 		}).Marshal()
 		require.NoError(t, err)
@@ -51,8 +54,8 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 			0x00, 0x05, // ALPN extension length
 			0x00, 0x03, // ALPN protocol name list length
 			0x02, 0x68, 0x32, // h2
-			0x00, 0x17, // extended_master_secret
-			0x00, 0x00, // extended_master_secret extension length
+			0xfe, 0xfe, // unknown extension
+			0x00, 0x00, // unknown extension length
 		}, raw)
 	})
 
@@ -91,8 +94,8 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 			0x00, 0x05, // ALPN extension length
 			0x00, 0x03, // ALPN protocol name list length
 			0x02, 0x68, 0x32, // h2
-			0x00, 0x17, // extended_master_secret
-			0x00, 0x00, // extended_master_secret extension length
+			0xfe, 0xfe, // unknown extension
+			0x00, 0x00, // unknown extension length
 		})
 		require.NoError(t, err)
 		require.Len(t, msg.Extensions, 2)
@@ -101,14 +104,14 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "h2", alpn.Protocol)
 
-		extendedMasterSecret, ok := msg.Extensions[1].(extension.Raw)
+		unknown, ok := msg.Extensions[1].(extension.Raw)
 		require.True(t, ok)
-		assert.Equal(t, extension.TypeExtendedMasterSecret, extendedMasterSecret.Type)
+		assert.Equal(t, unknownEncryptedExtensionsType, unknown.Type)
 	})
 
 	t.Run("ShortExtensionListHeader", func(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
-			extension.Raw{Type: extension.TypeExtendedMasterSecret},
+			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
 		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 
@@ -119,7 +122,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 
 	t.Run("MismatchedExtensionListLength", func(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
-			extension.Raw{Type: extension.TypeExtendedMasterSecret},
+			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
 		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 
@@ -130,7 +133,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 
 	t.Run("ExtensionUnmarshalError", func(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
-			extension.Raw{Type: extension.TypeExtendedMasterSecret},
+			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
 		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 
@@ -142,5 +145,19 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		})
 		assert.ErrorIs(t, err, extension.ErrALPNInvalidFormat)
 		assert.Equal(t, previouslyParsedExts, msg.Extensions)
+	})
+
+	t.Run("KnownIllegalExtension", func(t *testing.T) {
+		msg := &MessageEncryptedExtensions{}
+		err := msg.Unmarshal([]byte{
+			0x00, 0x04,
+			0x00, 0x17,
+			0x00, 0x00,
+		})
+		assert.ErrorIs(t, err, dtlserrors.ErrExtensionNotAllowed)
+		var got *alert.Alert
+		require.ErrorAs(t, err, &got)
+		assert.Equal(t, alert.IllegalParameter, got.Description)
+		assert.Empty(t, msg.Extensions)
 	})
 }
