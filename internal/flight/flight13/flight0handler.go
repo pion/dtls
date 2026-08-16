@@ -45,6 +45,7 @@ func flight0Parse(
 	// Connection Identifiers must be negotiated afresh on session resumption.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
 	state.ResetConnectionIDs()
+	state.RemoteClientHelloSnapshots.Reset()
 
 	state.HandshakeRecvSequence = pull.NextSequence
 
@@ -58,7 +59,6 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}
-
 	state.RemoteRandom = clientHello.Random
 
 	cipherSuites := []dtlsconfig.CipherSuite{}
@@ -105,6 +105,9 @@ func flight0Parse(
 		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, pull.Items); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
+	}
+	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
+		return 0, nil, err
 	}
 
 	return nextFlight, nil, nil

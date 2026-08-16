@@ -151,6 +151,11 @@ func flight0Parse(
 		}
 	}
 
+	state.RemoteClientHelloSnapshots.Reset()
+	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
+		return 0, nil, err
+	}
+
 	nextFlight := Flight2
 
 	if cfg.InsecureSkipHelloVerify {

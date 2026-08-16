@@ -10,6 +10,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -29,6 +30,7 @@ func flight1Generate(
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 	state.ResetConnectionIDs()
+	state.LocalClientHelloSnapshots.Reset()
 
 	state.SetLocalEpoch(EpochInitial)
 	state.SetRemoteEpoch(EpochInitial)
@@ -148,14 +150,15 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	message := handshake.Message(clientHello)
-	if cfg.ClientHelloMessageHook != nil {
-		message = cfg.ClientHelloMessageHook(*clientHello)
-	}
-	if err := captureClientHelloConnectionIDOffer(state, message); err != nil {
+	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
+	if err != nil {
+		state.ResetConnectionIDs()
+
 		return nil, nil, err
 	}
-	content := handshake.Handshake{Message: message}
+	captureClientHelloConnectionIDOffer(state, clientHello)
+	state.LocalClientHelloSnapshots.Record(snapshot)
+	content := handshake.Handshake{Message: clientHello}
 
 	return []*dtlsflight.Packet{
 		{

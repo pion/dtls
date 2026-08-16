@@ -11,6 +11,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -388,14 +389,18 @@ func flight3Generate(
 		Extensions:         extensions,
 	}
 
-	message := handshake.Message(clientHello)
-	if flightCtx.cfg.ClientHelloMessageHook != nil {
-		message = flightCtx.cfg.ClientHelloMessageHook(*clientHello)
-	}
-	if err := validateRepeatedClientHelloConnectionIDOffer(flightCtx.state, message); err != nil {
+	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(
+		clientHello,
+		flightCtx.cfg.ClientHelloMessageHook,
+	)
+	if err != nil {
 		return nil, nil, err
 	}
-	content := handshake.Handshake{Message: message}
+	if err := validateRepeatedClientHelloConnectionIDOffer(flightCtx.state, clientHello); err != nil {
+		return nil, nil, err
+	}
+	flightCtx.state.LocalClientHelloSnapshots.Record(snapshot)
+	content := handshake.Handshake{Message: clientHello}
 
 	return []*dtlsflight.Packet{
 		{

@@ -55,6 +55,10 @@ func flight2Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, dtlserrors.ErrCookieMismatch
 	}
 
+	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
+		return 0, nil, err
+	}
+
 	return Flight4, nil, nil
 }
 

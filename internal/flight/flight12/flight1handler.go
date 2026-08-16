@@ -9,6 +9,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -70,6 +71,8 @@ func flight1Generate(
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
+	state.LocalClientHelloSnapshots.Reset()
+
 	var zeroEpoch uint16
 	state.SetLocalEpoch(zeroEpoch)
 	state.SetRemoteEpoch(zeroEpoch)
@@ -88,14 +91,13 @@ func flight1Generate(
 		state.LocalRandom.RandomBytes = cfg.HelloRandomBytesGenerator()
 	}
 
-	extensions := []extension.Value{
-		&extension.SignatureAlgorithms{
+	var extensions []extension.Value
+	if len(cfg.LocalSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithms{
 			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
-		},
-		&extension12.RenegotiationInfo{
-			RenegotiatedConnection: 0,
-		},
+		})
 	}
+	extensions = append(extensions, &extension12.RenegotiationInfo{RenegotiatedConnection: 0})
 
 	if len(cfg.LocalCertSignatureSchemes) > 0 {
 		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{
@@ -174,13 +176,12 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	var content handshake.Handshake
-
-	if cfg.ClientHelloMessageHook != nil {
-		content = handshake.Handshake{Message: cfg.ClientHelloMessageHook(*clientHello)}
-	} else {
-		content = handshake.Handshake{Message: clientHello}
+	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
+	if err != nil {
+		return nil, nil, err
 	}
+	state.LocalClientHelloSnapshots.Record(snapshot)
+	content := handshake.Handshake{Message: clientHello}
 
 	return []*dtlsflight.Packet{
 		{

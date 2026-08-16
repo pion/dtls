@@ -4343,7 +4343,7 @@ func TestDTLSDualStackClientRejectsNonClientHelloBeforeWrite(t *testing.T) {
 	defer cancel()
 
 	err = client.HandshakeContext(ctx)
-	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
 	assert.Equal(t, int32(0), writes.Load())
 }
 

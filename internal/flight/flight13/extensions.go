@@ -154,59 +154,20 @@ func connectionIDExtension(extensions []extension.Value) ([]byte, bool, bool) {
 
 func captureClientHelloConnectionIDOffer(
 	state *dtlsstate.State13,
-	message handshake.Message,
-) error {
-	clientHello, ok := message.(*handshake.MessageClientHello)
-	if !ok {
-		state.SetLocalConnectionID(nil)
-		state.LocalCIDOffered = false
-
-		return nil
-	}
-
-	localCID, present, duplicate := connectionIDExtension(clientHello.Extensions)
-	if duplicate {
-		state.SetLocalConnectionID(nil)
-		state.LocalCIDOffered = false
-
-		return dtlserrors.ErrInvalidClientHello
-	}
-	if !present {
-		state.SetLocalConnectionID(nil)
-		state.LocalCIDOffered = false
-
-		return nil
-	}
-
+	clientHello *handshake.MessageClientHello,
+) {
+	localCID, present, _ := connectionIDExtension(clientHello.Extensions)
 	state.SetLocalConnectionID(localCID)
-	state.LocalCIDOffered = true
-
-	return nil
+	state.LocalCIDOffered = present
 }
 
 func validateRepeatedClientHelloConnectionIDOffer(
 	state *dtlsstate.State13,
-	message handshake.Message,
+	clientHello *handshake.MessageClientHello,
 ) error {
-	clientHello, ok := message.(*handshake.MessageClientHello)
-	if !ok {
-		state.SetLocalConnectionID(nil)
-		state.LocalCIDOffered = false
-
-		return nil
-	}
-
-	localCID, present, duplicate := connectionIDExtension(clientHello.Extensions)
-	expectedCID := state.LocalConnectionID()
-	expectedPresent := state.LocalCIDOffered
-	if duplicate {
-		return fmt.Errorf("%w: duplicate connection_id extension", dtlserrors.ErrInvalidClientHello)
-	}
-	if present != expectedPresent {
-		return fmt.Errorf("%w: unexpected connection_id extension", dtlserrors.ErrInvalidClientHello)
-	}
-	if !bytes.Equal(localCID, expectedCID) {
-		return fmt.Errorf("%w: unexpected connection_id value", dtlserrors.ErrInvalidClientHello)
+	localCID, present, _ := connectionIDExtension(clientHello.Extensions)
+	if present != state.LocalCIDOffered || !bytes.Equal(localCID, state.LocalConnectionID()) {
+		return fmt.Errorf("%w: connection_id changed", dtlserrors.ErrInvalidClientHello)
 	}
 
 	return nil

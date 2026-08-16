@@ -16,7 +16,7 @@ import (
 
 func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testing.T) {
 	for name, cid := range map[string][]byte{
-		"Empty":    nil,
+		"Empty":    {},
 		"NonEmpty": {0xcc},
 	} {
 		t.Run(name, func(t *testing.T) {

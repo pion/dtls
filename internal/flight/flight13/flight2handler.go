@@ -43,7 +43,6 @@ func flight2Parse( //nolint:cyclop
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}
-
 	cookie := clientHelloCookie(clientHello.Extensions)
 
 	if len(cookie) == 0 {
@@ -64,6 +63,9 @@ func flight2Parse( //nolint:cyclop
 	}
 	if failure := flightCtx.handleInboundHandshake(pull.Items); failure != nil {
 		return 0, failure.alert, failure.err
+	}
+	if err := flightCtx.state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
+		return 0, nil, err
 	}
 	flightCtx.state.HandshakeRecvSequence = pull.NextSequence
 

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -63,6 +64,11 @@ type Common struct {
 	LocalVersion protocol.Version
 	// RemoteVersions are the DTLS versions advertised by the peer.
 	RemoteVersions []protocol.Version
+
+	// ClientHello snapshots are transient negotiation state.
+	// they aren't serialized with resumable connection state.
+	LocalClientHelloSnapshots  extensionnegotiation.ClientHelloSnapshots
+	RemoteClientHelloSnapshots extensionnegotiation.ClientHelloSnapshots
 }
 
 func (s *Common) RemoteEpoch() uint16 {
