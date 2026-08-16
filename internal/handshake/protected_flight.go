@@ -23,7 +23,7 @@ func VerifyAndAppendProtectedHandshakeCacheItems(
 	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,
 	cipherSuite dtlsconfig.CipherSuite,
-	items []*dtlsflight.HandshakeCacheItem,
+	items []dtlsflight.DecodedHandshakeCacheItem,
 ) error {
 	if transcript == nil {
 		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
@@ -71,21 +71,21 @@ type protectedHandshakeFlight struct {
 	hasFinished          bool
 }
 
-func (f *protectedHandshakeFlight) process(item *dtlsflight.HandshakeCacheItem) error {
-	hs, err := parseProtectedHandshakeCacheItem(item)
-	if err != nil {
+func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCacheItem) error {
+	if err := item.Validate(); err != nil {
 		return err
 	}
+	hs := item.Parsed
 
 	switch msg := hs.Message.(type) {
 	case *handshake.MessageCertificate13:
-		return f.processCertificate(item, hs, msg)
+		return f.processCertificate(item.Raw, hs, msg)
 	case *handshake.MessageCertificateVerify:
-		return f.processCertificateVerify(item, hs, msg)
+		return f.processCertificateVerify(item.Raw, hs, msg)
 	case *handshake.MessageFinished:
-		return f.processFinished(item, hs, msg)
+		return f.processFinished(item.Raw, hs, msg)
 	default:
-		return f.append(item, hs)
+		return f.append(item.Raw, hs)
 	}
 }
 
@@ -174,57 +174,6 @@ func (f *protectedHandshakeFlight) append(
 		parsedHandshake,
 		item.Data,
 	)
-}
-
-func parseProtectedHandshakeCacheItem(item *dtlsflight.HandshakeCacheItem) (*handshake.Handshake, error) {
-	if item == nil {
-		return nil, dtlserrors.ErrInvalidHandshakeTranscriptMessage
-	}
-
-	header := &handshake.Header{}
-	if err := header.Unmarshal(item.Data); err != nil {
-		return nil, err
-	}
-	if header.Type != item.Typ ||
-		header.MessageSequence != item.MessageSequence ||
-		header.FragmentOffset != 0 ||
-		header.FragmentLength != header.Length ||
-		len(item.Data) != handshake.HeaderLength+int(header.Length) {
-		return nil, dtlserrors.ErrInvalidHandshakeTranscriptMessage
-	}
-
-	msg, err := protectedHandshakeMessage(header.Type, item.Data[handshake.HeaderLength:])
-	if err != nil {
-		return nil, err
-	}
-
-	return &handshake.Handshake{
-		Header:  *header,
-		Message: msg,
-	}, nil
-}
-
-func protectedHandshakeMessage(typ handshake.Type, body []byte) (handshake.Message, error) {
-	var msg handshake.Message
-	switch typ {
-	case handshake.TypeEncryptedExtensions:
-		msg = &handshake.MessageEncryptedExtensions{}
-	case handshake.TypeCertificateRequest:
-		msg = &handshake.MessageCertificateRequest13{}
-	case handshake.TypeCertificate:
-		msg = &handshake.MessageCertificate13{}
-	case handshake.TypeCertificateVerify:
-		msg = &handshake.MessageCertificateVerify{}
-	case handshake.TypeFinished:
-		msg = &handshake.MessageFinished{}
-	default:
-		return nil, dtlserrors.ErrInvalidHandshakeTranscriptMessage
-	}
-	if err := msg.Unmarshal(body); err != nil {
-		return nil, err
-	}
-
-	return msg, nil
 }
 
 func rawCertificatesFromCertificate(certificate *handshake.MessageCertificate13) [][]byte {

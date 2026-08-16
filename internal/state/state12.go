@@ -7,6 +7,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
 // State12 holds state that is meaningful only for DTLS 1.2.
@@ -36,6 +37,19 @@ type State12 struct {
 	LocalKeySignature          []byte
 
 	PeerCertificatesVerified bool
+
+	remoteServerKeyExchange *handshake.MessageServerKeyExchange
+}
+
+// SetRemoteServerKeyExchange retains the parsed server key exchange for the
+// remainder of the handshake.
+func (s *State12) SetRemoteServerKeyExchange(message *handshake.MessageServerKeyExchange) {
+	s.remoteServerKeyExchange = message
+}
+
+// RemoteServerKeyExchange returns the parsed server key exchange.
+func (s *State12) RemoteServerKeyExchange() *handshake.MessageServerKeyExchange {
+	return s.remoteServerKeyExchange
 }
 
 // ShouldWrapConnectionID reports whether outgoing DTLS 1.2 records should

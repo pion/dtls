@@ -17,6 +17,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,6 +33,37 @@ func TestProtectedFlightParseFailureClientCertificateRequired(t *testing.T) {
 	var classified *alert.Alert
 	require.ErrorAs(t, failure.err, &classified)
 	assert.Equal(t, failure.alert, classified)
+}
+
+func TestPullProtectedHandshakeFlightReturnsDecodedItems(t *testing.T) {
+	cache := dtlsflight.NewCache()
+	rawEncryptedExtensions := marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{})
+	rawFinished := marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{VerifyData: []byte{0x01}})
+	cache.Push(rawEncryptedExtensions, EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
+	cache.Push(rawFinished, EpochHandshake, 1, handshake.TypeFinished, false)
+
+	pull := pullProtectedHandshakeFlight(cache, []dtlsflight.HandshakeCachePullRule{
+		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false},
+		{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false},
+	}, 0)
+
+	require.True(t, pull.ready)
+	require.Nil(t, pull.failure)
+	assert.Equal(t, 2, pull.nextHandshakeSequence)
+	require.Len(t, pull.items, 2)
+	assert.Equal(t, rawEncryptedExtensions, pull.items[0].Raw.Data)
+	assert.Equal(t, rawFinished, pull.items[1].Raw.Data)
+	require.IsType(t, &handshake.MessageEncryptedExtensions{}, pull.items[0].Parsed.Message)
+	require.IsType(t, &handshake.MessageFinished{}, pull.items[1].Parsed.Message)
+
+	secondPull := pullProtectedHandshakeFlight(cache, []dtlsflight.HandshakeCachePullRule{
+		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false},
+		{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false},
+	}, 0)
+	require.True(t, secondPull.ready)
+	require.Nil(t, secondPull.failure)
+	assert.Same(t, pull.items[0].Parsed, secondPull.items[0].Parsed)
+	assert.Same(t, pull.items[1].Parsed, secondPull.items[1].Parsed)
 }
 
 func TestPullProtectedHandshakeFlightDistinguishesIncompleteAndInvalid(t *testing.T) {
@@ -110,6 +142,52 @@ func marshalProtectedTestHandshake(t *testing.T, sequence uint16, message handsh
 	require.NoError(t, err)
 
 	return raw
+}
+
+func TestHandleFlight3ProtectedHandshakeRetainsCertificateRequest(t *testing.T) {
+	request := &handshake.MessageCertificateRequest13{
+		Extensions: []extension.Value{
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+		},
+	}
+	items := []dtlsflight.DecodedHandshakeCacheItem{{
+		Raw: &dtlsflight.HandshakeCacheItem{Typ: handshake.TypeCertificateRequest},
+		Parsed: &handshake.Handshake{
+			Message: request,
+		},
+	}}
+	flightCtx := &handshakeContext{
+		state: &dtlsstate.State13{Common: &dtlsstate.Common{}},
+		protectedHandshakeHandler: func(_ dtlsconfig.CipherSuite, got []dtlsflight.DecodedHandshakeCacheItem) error {
+			assert.Same(t, request, got[0].Parsed.Message)
+
+			return nil
+		},
+	}
+
+	failure := handleFlight3ProtectedHandshake(flightCtx, items)
+	require.Nil(t, failure)
+	assert.Same(t, request, flightCtx.state.RemoteCertificateRequest)
+}
+
+func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
+	authority := []byte{0x01, 0x02}
+	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{
+		&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+		&extension13.CertificateAuthorities{Authorities: [][]byte{authority}},
+	}}
+	cfg := &dtlsconfig.HandshakeConfig{
+		LocalGetClientCertificate: func(info *dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
+			info.AcceptableCAs[0][0] = 0xff
+
+			return &tls.Certificate{}, nil
+		},
+	}
+
+	_, err := flight5ClientCertificate(cfg, request)
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x01, 0x02}, authority)
+	assert.Equal(t, []byte{0x01, 0x02}, request.Extensions[1].(*extension13.CertificateAuthorities).Authorities[0]) //nolint:forcetypeassert,lll
 }
 
 func TestFlight4GenerateCertificateAuthenticatedFlight(t *testing.T) {

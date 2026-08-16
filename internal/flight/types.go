@@ -36,6 +36,17 @@ type HandshakeCacheItem struct {
 	Epoch           uint16
 	MessageSequence uint16
 	Data            []byte
+
+	parsed        *handshake.Handshake
+	decodeContext handshakeCacheDecodeContext
+	hasDecoded    bool
+}
+
+// DecodedHandshakeCacheItem retains the original cache bytes for the
+// transcript and the single parsed representation used by handshake logic.
+type DecodedHandshakeCacheItem struct {
+	Raw    *HandshakeCacheItem
+	Parsed *handshake.Handshake
 }
 
 // HandshakeCachePullResult distinguishes an incomplete flight from a complete
@@ -44,7 +55,7 @@ type HandshakeCacheItem struct {
 type HandshakeCachePullResult struct {
 	NextSequence int
 	Messages     map[handshake.Type]handshake.Message
-	Items        []*HandshakeCacheItem
+	Items        []DecodedHandshakeCacheItem
 	Ready        bool
 	// Err always wraps an *alert.Alert.
 	Err error

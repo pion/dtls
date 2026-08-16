@@ -9,6 +9,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
+	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
 type TrafficSecrets struct {
@@ -120,6 +121,10 @@ type State13 struct {
 
 	RemoteSignatureSchemes     []signaturehash.Algorithm // signature_algorithms from peer
 	RemoteCertSignatureSchemes []signaturehash.Algorithm // signature_algorithms_cert from peer
+
+	// RemoteCertificateRequest is the authenticated and decoded request
+	// kept for the client's final flight.
+	RemoteCertificateRequest *handshake.MessageCertificateRequest13
 }
 
 // ShouldWrapConnectionID reports whether outgoing records should use the

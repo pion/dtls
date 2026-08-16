@@ -201,7 +201,7 @@ func applyFlight3ServerKeyShare(
 	}
 	flightCtx.state.KeyAgreementSecret = keyAgreementSecret
 	flightCtx.state.SelectedGroup = serverShare.Group
-	flightCtx.state.RemoteKeyEntries = []extension13.KeyShareEntry{*serverShare}
+	flightCtx.state.RemoteKeyEntries = cloneKeyShareEntries([]extension13.KeyShareEntry{*serverShare})
 	flightCtx.state.HasRemoteKeyEntries = true
 
 	return nil
@@ -212,7 +212,7 @@ func initializeFlight3HandshakeProtection(
 	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
 	serverHelloSeq int,
-	items []*dtlsflight.HandshakeCacheItem,
+	items []dtlsflight.DecodedHandshakeCacheItem,
 ) *flightParseFailure {
 	if failure := flightCtx.handleInboundHandshake(items); failure != nil {
 		return failure
@@ -251,13 +251,24 @@ func initializeFlight3HandshakeProtection(
 
 func handleFlight3ProtectedHandshake(
 	flightCtx *handshakeContext,
-	items []*dtlsflight.HandshakeCacheItem,
+	items []dtlsflight.DecodedHandshakeCacheItem,
 ) *flightParseFailure {
 	if flightCtx.protectedHandshakeHandler == nil {
 		return newFlightParseFailure(alert.InternalError, dtlserrors.ErrHandshakeTranscriptHashNotSelected)
 	}
 	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
 		return protectedFlightParseFailure(err)
+	}
+	flightCtx.state.RemoteCertificateRequest = nil
+	for _, item := range items {
+		if item.Parsed == nil {
+			continue
+		}
+		if request, ok := item.Parsed.Message.(*handshake.MessageCertificateRequest13); ok {
+			flightCtx.state.RemoteCertificateRequest = request
+
+			break
+		}
 	}
 
 	return nil

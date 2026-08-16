@@ -4,8 +4,10 @@
 package flight12
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"slices"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
@@ -106,7 +108,7 @@ func flight0Parse(
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerNoMatchingSRTPProfile //nolint:lll
 			}
 			state.SetSRTPProtectionProfile(profile)
-			state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
+			state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(ext.MasterKeyIdentifier)
 		case *extension12.ExtendedMasterSecret:
 			if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 				state.ExtendedMasterSecret = true
@@ -116,12 +118,12 @@ func flight0Parse(
 		case *extension12.RenegotiationInfo:
 			state.RemoteSupportsRenegotiation = true
 		case *extension.ALPNOffer:
-			state.PeerSupportedProtocols = ext.Protocols
+			state.PeerSupportedProtocols = slices.Clone(ext.Protocols)
 		case *extension.ConnectionID:
 			// Only set connection ID to be sent if server supports connection
 			// IDs.
 			if cfg.ConnectionIDGenerator != nil {
-				state.RemoteConnectionID = ext.CID
+				state.RemoteConnectionID = bytes.Clone(ext.CID)
 				state.RemoteCIDOffered = true
 			}
 		case *extension.CertificateSignatureAlgorithms:

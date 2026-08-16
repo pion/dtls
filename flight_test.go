@@ -95,10 +95,10 @@ func flight13ParseForTestWithConn(
 			Cache:  flightCtx.cache,
 			Config: flightCtx.cfg,
 			Hooks: dtlsflight13.ParseHooks{
-				InboundHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+				InboundHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []dtlsflight.DecodedHandshakeCacheItem) error {
 					return dtlshandshake.AppendVerifiedInboundHandshakeCacheItems(flightCtx.transcript, cipherSuite, items)
 				},
-				ProtectedHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+				ProtectedHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []dtlsflight.DecodedHandshakeCacheItem) error {
 					return dtlshandshake.VerifyAndAppendProtectedHandshakeCacheItems(
 						flightCtx.transcript,
 						flightCtx.state,
@@ -554,32 +554,21 @@ func TestFlight13_5GenerateSelectsClientCertificateBySignatureScheme(t *testing.
 		Hash:      dtlshash.SHA256,
 		Signature: signature.ECDSA,
 	}
-	rawRequest, err := (&handshake.Handshake{
-		Message: &handshake.MessageCertificateRequest13{
-			CertificateRequestContext: []byte("request"),
-			Extensions: []extension.Value{
-				&extension.SignatureAlgorithms{
-					Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{ecdsaSHA256}),
-				},
+	request := &handshake.MessageCertificateRequest13{
+		CertificateRequestContext: []byte("request"),
+		Extensions: []extension.Value{
+			&extension.SignatureAlgorithms{
+				Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{ecdsaSHA256}),
 			},
 		},
-	}).Marshal()
-	require.NoError(t, err)
-
-	cache := dtlsflight.NewCache()
-	cache.Push(
-		rawRequest,
-		dtlsflight13.EpochHandshake,
-		0,
-		handshake.TypeCertificateRequest,
-		false,
-	)
+	}
 	cfg := testHandshakeConfig13(t)
 	cfg.LocalCertificates = []tls.Certificate{rsaCertificate, ecdsaCertificate}
+	state := newTestState13(true)
+	state.RemoteCertificateRequest = request
 
 	packets, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight5, &handshakeTestContext13{
-		state: newTestState13(true),
-		cache: cache,
+		state: state,
 		cfg:   cfg,
 	})
 	require.NoError(t, err)

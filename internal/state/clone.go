@@ -9,6 +9,7 @@ import (
 
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 )
 
 // Clone13ForVerification returns a DTLS 1.3 state snapshot containing the
@@ -58,8 +59,8 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 		TrafficKeys:                state.TrafficKeys.Clone(),
 		KeyAgreementSecret:         bytes.Clone(state.KeyAgreementSecret),
 		SelectedGroup:              state.SelectedGroup,
-		LocalKeyEntries:            slices.Clone(state.LocalKeyEntries),
-		RemoteKeyEntries:           slices.Clone(state.RemoteKeyEntries),
+		LocalKeyEntries:            cloneKeyShareEntries(state.LocalKeyEntries),
+		RemoteKeyEntries:           cloneKeyShareEntries(state.RemoteKeyEntries),
 		HasRemoteKeyEntries:        state.HasRemoteKeyEntries,
 		RemoteGroups:               slices.Clone(state.RemoteGroups),
 		Cookie:                     bytes.Clone(state.Cookie),
@@ -68,6 +69,16 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 		RemoteSignatureSchemes:     slices.Clone(state.RemoteSignatureSchemes),
 		RemoteCertSignatureSchemes: slices.Clone(state.RemoteCertSignatureSchemes),
 	}
+}
+
+func cloneKeyShareEntries(entries []extension13.KeyShareEntry) []extension13.KeyShareEntry {
+	cloned := make([]extension13.KeyShareEntry, len(entries))
+	for i := range entries {
+		cloned[i] = entries[i]
+		cloned[i].KeyExchange = bytes.Clone(entries[i].KeyExchange)
+	}
+
+	return cloned
 }
 
 func cloneKeySchedule(in KeySchedule) KeySchedule {

@@ -35,11 +35,8 @@ func flight5Generate(
 func flight5ClientAuthPackets(
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
-	certificateRequest, ok, err := flight5CertificateRequest(flightCtx.cache)
-	if err != nil {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-	}
-	if !ok {
+	certificateRequest := flightCtx.state.RemoteCertificateRequest
+	if certificateRequest == nil {
 		return []*dtlsflight.Packet{}, nil, nil
 	}
 
@@ -90,51 +87,6 @@ func flight5ClientAuthPackets(
 	}, nil, nil
 }
 
-func flight5CertificateRequest(
-	cache *dtlsflight.Cache,
-) (*handshake.MessageCertificateRequest13, bool, error) {
-	if cache == nil {
-		return nil, false, nil
-	}
-
-	items := cache.Pull(dtlsflight.HandshakeCachePullRule{
-		Typ:      handshake.TypeCertificateRequest,
-		Epoch:    EpochHandshake,
-		IsClient: false,
-		Optional: true,
-	})
-	if len(items) == 0 || items[0] == nil {
-		return nil, false, nil
-	}
-
-	item := items[0]
-	header := &handshake.Header{}
-	if err := header.Unmarshal(item.Data); err != nil {
-		return nil, false, err
-	}
-	if !validFlight5CertificateRequestItem(item, header) {
-		return nil, false, dtlserrors.ErrInvalidHandshakeTranscriptMessage
-	}
-
-	request := &handshake.MessageCertificateRequest13{}
-	if err := request.Unmarshal(item.Data[handshake.HeaderLength:]); err != nil {
-		return nil, false, err
-	}
-
-	return request, true, nil
-}
-
-func validFlight5CertificateRequestItem(
-	item *dtlsflight.HandshakeCacheItem,
-	header *handshake.Header,
-) bool {
-	return header.Type == handshake.TypeCertificateRequest &&
-		header.MessageSequence == item.MessageSequence &&
-		header.FragmentOffset == 0 &&
-		header.FragmentLength == header.Length &&
-		len(item.Data) == handshake.HeaderLength+int(header.Length)
-}
-
 func flight5ClientCertificate(
 	cfg *dtlsconfig.HandshakeConfig,
 	request *handshake.MessageCertificateRequest13,
@@ -144,7 +96,10 @@ func flight5ClientCertificate(
 	}
 	for _, ext := range request.Extensions {
 		if authorities, ok := ext.(*extension13.CertificateAuthorities); ok {
-			requestInfo.AcceptableCAs = authorities.Authorities
+			requestInfo.AcceptableCAs = make([][]byte, len(authorities.Authorities))
+			for i := range authorities.Authorities {
+				requestInfo.AcceptableCAs[i] = bytes.Clone(authorities.Authorities[i])
+			}
 
 			break
 		}

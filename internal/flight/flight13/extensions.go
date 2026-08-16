@@ -6,6 +6,7 @@ package flight13
 import (
 	"bytes"
 	"fmt"
+	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -81,19 +82,19 @@ func processClientHelloSecurityExtension(
 		if len(ext.Groups) == 0 {
 			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
 		}
-		state.RemoteGroups = ext.Groups
+		state.RemoteGroups = slices.Clone(ext.Groups)
 	case *extension.SRTPOffer:
 		profile, ok := dtlsflight.FindMatchingSRTPProfile(cfg.LocalSRTPProtectionProfiles, ext.ProtectionProfiles)
 		if !ok {
 			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrServerNoMatchingSRTPProfile)
 		}
 		state.SetSRTPProtectionProfile(profile)
-		state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
+		state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(ext.MasterKeyIdentifier)
 	case *extension.SignatureAlgorithms:
 		seen.hasSignatureAlgorithms = true
 		state.RemoteSignatureSchemes = dtlsflight.SignatureSchemes(ext.Schemes)
 	case *extension13.OfferedVersions:
-		state.RemoteVersions = ext.Versions
+		state.RemoteVersions = slices.Clone(ext.Versions)
 	case *extension13.OfferedPSKs:
 		seen.hasPreSharedKey = true
 	}
@@ -109,14 +110,24 @@ func processClientHelloStateExtension(
 	case *extension.ServerNameOffer:
 		state.ServerName = ext.ServerName // remote server name
 	case *extension.ALPNOffer:
-		state.PeerSupportedProtocols = ext.Protocols
+		state.PeerSupportedProtocols = slices.Clone(ext.Protocols)
 	case *extension.CertificateSignatureAlgorithms:
 		// Store the client's certificate signature schemes for later validation.
 		state.RemoteCertSignatureSchemes = dtlsflight.SignatureSchemes(ext.Schemes)
 	case *extension13.ClientKeyShare:
-		state.RemoteKeyEntries = ext.Shares
+		state.RemoteKeyEntries = cloneKeyShareEntries(ext.Shares)
 		state.HasRemoteKeyEntries = true
 	}
+}
+
+func cloneKeyShareEntries(entries []extension13.KeyShareEntry) []extension13.KeyShareEntry {
+	cloned := make([]extension13.KeyShareEntry, len(entries))
+	for i := range entries {
+		cloned[i] = entries[i]
+		cloned[i].KeyExchange = bytes.Clone(entries[i].KeyExchange)
+	}
+
+	return cloned
 }
 
 // connectionIDExtension extracts a connection_id extension while preserving

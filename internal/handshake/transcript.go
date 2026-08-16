@@ -528,17 +528,26 @@ func (t *Transcript) AppendVerifiedInbound(
 func AppendVerifiedInboundHandshakeCacheItems(
 	transcript *Transcript,
 	cipherSuite dtlsconfig.CipherSuite,
-	items []*dtlsflight.HandshakeCacheItem,
+	items []dtlsflight.DecodedHandshakeCacheItem,
 ) error {
 	if transcript == nil {
 		return nil
 	}
 
 	for _, item := range items {
-		if requiresExplicitAuthenticationBeforeTranscriptCommit(item.Typ) {
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		if requiresExplicitAuthenticationBeforeTranscriptCommit(item.Raw.Typ) {
 			return dtlserrors.ErrHandshakeTranscriptExplicitAuthenticationRequired
 		}
-		if err := transcript.AppendVerifiedInbound(item.IsClient, cipherSuite, item.Data); err != nil {
+		if err := appendParsedInboundHandshake(
+			transcript,
+			item.Raw.IsClient,
+			cipherSuite,
+			item.Parsed,
+			item.Raw.Data,
+		); err != nil {
 			return err
 		}
 	}

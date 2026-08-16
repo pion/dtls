@@ -4,6 +4,7 @@
 package flight12
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -15,6 +16,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -55,7 +57,7 @@ func flight4Parse(
 	}
 
 	if h, hasCert := pull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
-		state.PeerCertificates = h.Certificate
+		state.PeerCertificates = util.CloneByteSlices(h.Certificate)
 		// If the client offer its certificate, just disable session resumption.
 		// Otherwise, we have to store the certificate identitfication and expire time.
 		// And we have to check whether this certificate expired, revoked or changed.
@@ -128,10 +130,10 @@ func flight4Parse(
 		var preMasterSecret []byte
 		if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypePreSharedKey {
 			var psk []byte
-			if psk, err = cfg.LocalPSKCallback(clientKeyExchange.IdentityHint); err != nil {
+			if psk, err = cfg.LocalPSKCallback(bytes.Clone(clientKeyExchange.IdentityHint)); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
-			state.IdentityHint = clientKeyExchange.IdentityHint
+			state.IdentityHint = bytes.Clone(clientKeyExchange.IdentityHint)
 			switch state.CipherSuite.KeyExchangeAlgorithm() {
 			case ciphersuite.KeyExchangeAlgorithmPsk:
 				preMasterSecret = prf.PSKPreMasterSecret(psk)

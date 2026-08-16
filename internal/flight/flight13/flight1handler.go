@@ -248,7 +248,7 @@ func flight1Parse(
 			// TODO: negotiate version
 			state.RemoteVersions = []protocol.Version{ext.Version}
 		case *extension13.Cookie:
-			state.Cookie = ext.Cookie
+			state.Cookie = bytes.Clone(ext.Cookie)
 		case *extension13.RetryKeyShare:
 			state.RemoteKeyEntries = []extension13.KeyShareEntry{{Group: ext.SelectedGroup}}
 			state.HasRemoteKeyEntries = true

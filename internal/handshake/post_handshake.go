@@ -404,9 +404,23 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 			return nil
 		}
 
-		message := &handshake.Handshake{}
-		if err := message.Unmarshal(item.Data); err != nil {
-			description := alert.DecodeError
+		message, err := p.cache.DecodeProtectedHandshakeItem(
+			item,
+			item.Typ,
+			uint16(p.state.HandshakeRecvSequence), //nolint:gosec // bounded above
+			func(data []byte) (*handshake.Handshake, error) {
+				parsed := &handshake.Handshake{}
+				if err := parsed.Unmarshal(data); err != nil {
+					return nil, err
+				}
+
+				return parsed, nil
+			},
+		)
+		if err != nil {
+			var dtlsAlert *alert.Alert
+			errors.As(err, &dtlsAlert)
+			description := dtlsAlert.Description
 			if errors.Is(err, dtlserrors.ErrInvalidKeyUpdate) {
 				description = alert.IllegalParameter
 			}

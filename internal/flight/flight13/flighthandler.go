@@ -51,9 +51,9 @@ type Generator func(
 	*dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error)
 
-type InboundHandshakeHandler func(dtlsconfig.CipherSuite, []*dtlsflight.HandshakeCacheItem) error
+type InboundHandshakeHandler func(dtlsconfig.CipherSuite, []dtlsflight.DecodedHandshakeCacheItem) error
 
-type ProtectedHandshakeHandler func(dtlsconfig.CipherSuite, []*dtlsflight.HandshakeCacheItem) error
+type ProtectedHandshakeHandler func(dtlsconfig.CipherSuite, []dtlsflight.DecodedHandshakeCacheItem) error
 
 type HandshakeTrafficSecretDeriver func(*dtlsstate.State13) error
 
@@ -84,7 +84,7 @@ type flightParseFailure struct {
 
 type protectedFlightPull struct {
 	nextHandshakeSequence int
-	items                 []*dtlsflight.HandshakeCacheItem
+	items                 []dtlsflight.DecodedHandshakeCacheItem
 	ready                 bool
 	failure               *flightParseFailure
 }
@@ -100,7 +100,7 @@ type handshakeContext struct {
 }
 
 func (h *handshakeContext) handleInboundHandshake(
-	items []*dtlsflight.HandshakeCacheItem,
+	items []dtlsflight.DecodedHandshakeCacheItem,
 ) *flightParseFailure {
 	if h.inboundHandshakeHandler == nil {
 		return nil
@@ -155,22 +155,26 @@ func pullProtectedHandshakeFlight(
 		return protectedFlightPull{}
 	}
 
-	items := make([]*dtlsflight.HandshakeCacheItem, 0, len(selection.Items))
+	items := make([]dtlsflight.DecodedHandshakeCacheItem, 0, len(selection.Items))
 	sequence := nextHandshakeSequence
 	for i, item := range selection.Items {
 		if item == nil {
 			continue
 		}
-		failure := validateProtectedHandshakeItem(
+		parsed, err := cache.DecodeProtectedHandshakeItem(
 			item,
 			rules[i].Typ,
 			uint16(sequence), //nolint:gosec // PullSequential bounded sequence.
+			decodeProtectedHandshake,
 		)
-		if failure != nil {
-			return protectedFlightPull{ready: true, failure: failure}
+		if err != nil {
+			return protectedFlightPull{
+				ready:   true,
+				failure: &flightParseFailure{err: err},
+			}
 		}
 		sequence++
-		items = append(items, item)
+		items = append(items, dtlsflight.DecodedHandshakeCacheItem{Raw: item, Parsed: parsed})
 	}
 
 	return protectedFlightPull{
@@ -180,38 +184,21 @@ func pullProtectedHandshakeFlight(
 	}
 }
 
-func validateProtectedHandshakeItem(
-	item *dtlsflight.HandshakeCacheItem,
-	expectedType handshake.Type,
-	expectedSequence uint16,
-) *flightParseFailure {
-	if item.MessageSequence != expectedSequence || item.Typ != expectedType {
-		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
-	}
-
+func decodeProtectedHandshake(data []byte) (*handshake.Handshake, error) {
 	header := &handshake.Header{}
-	if err := header.Unmarshal(item.Data); err != nil {
-		return newFlightParseFailure(alert.DecodeError, err)
-	}
-	if header.Type != expectedType || header.MessageSequence != expectedSequence ||
-		header.FragmentOffset != 0 ||
-		header.FragmentLength != header.Length ||
-		len(item.Data) != handshake.HeaderLength+int(header.Length) {
-		return newFlightParseFailure(alert.DecodeError, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
+	if err := header.Unmarshal(data); err != nil {
+		return nil, err
 	}
 
-	if err := unmarshalProtectedHandshakeMessage(expectedType, item.Data[handshake.HeaderLength:]); err != nil {
-		return &flightParseFailure{err: fmt.Errorf(
-			"%w: %w",
-			err,
-			&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
-		)}
+	message, err := unmarshalProtectedHandshakeMessage(header.Type, data[handshake.HeaderLength:])
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	return &handshake.Handshake{Header: *header, Message: message}, nil
 }
 
-func unmarshalProtectedHandshakeMessage(typ handshake.Type, body []byte) error {
+func unmarshalProtectedHandshakeMessage(typ handshake.Type, body []byte) (handshake.Message, error) {
 	var msg handshake.Message
 	switch typ {
 	case handshake.TypeEncryptedExtensions:
@@ -225,10 +212,14 @@ func unmarshalProtectedHandshakeMessage(typ handshake.Type, body []byte) error {
 	case handshake.TypeFinished:
 		msg = &handshake.MessageFinished{}
 	default:
-		return dtlserrors.ErrInvalidHandshakeTranscriptMessage
+		return nil, dtlserrors.ErrInvalidHandshakeTranscriptMessage
 	}
 
-	return msg.Unmarshal(body)
+	if err := msg.Unmarshal(body); err != nil {
+		return nil, err
+	}
+
+	return msg, nil
 }
 
 func getFlightParser(f Flight) (flightParser, bool) {
@@ -328,7 +319,7 @@ func CertificateVerifyPacket(
 type serverHelloPull struct {
 	nextHandshakeSequence int
 	serverHello           *handshake.MessageServerHello
-	items                 []*dtlsflight.HandshakeCacheItem
+	items                 []dtlsflight.DecodedHandshakeCacheItem
 	ready                 bool
 	failure               *flightParseFailure
 }

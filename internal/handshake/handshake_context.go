@@ -144,10 +144,10 @@ func (c *handshakeContext) parseDependencies() dtlsflight13.ParseDependencies {
 		Cache:  c.cache,
 		Config: c.cfg,
 		Hooks: dtlsflight13.ParseHooks{
-			InboundHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+			InboundHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []dtlsflight.DecodedHandshakeCacheItem) error {
 				return AppendVerifiedInboundHandshakeCacheItems(c.transcript, cipherSuite, items)
 			},
-			ProtectedHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []*dtlsflight.HandshakeCacheItem) error {
+			ProtectedHandshake: func(cipherSuite dtlsconfig.CipherSuite, items []dtlsflight.DecodedHandshakeCacheItem) error {
 				return VerifyAndAppendProtectedHandshakeCacheItems(
 					c.transcript,
 					c.state,

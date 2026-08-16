@@ -145,6 +145,17 @@ func TestHandshakeCachePullExact(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestHandshakeCachePushCopiesData(t *testing.T) {
+	data := []byte{1, 2, 3}
+	cache := dtlsflight.NewCache()
+	cache.Push(data, 0, 0, handshake.TypeFinished, true)
+	data[0] = 9
+
+	item, ok := cache.PullExact(0, true)
+	require.True(t, ok)
+	assert.Equal(t, []byte{1, 2, 3}, item.Data)
+}
+
 func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
 	cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
 	rawClientHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
@@ -173,8 +184,21 @@ func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
 	require.IsType(t, &handshake.MessageClientHello{}, pull.Messages[handshake.TypeClientHello])
 	require.IsType(t, &handshake.MessageServerHello{}, pull.Messages[handshake.TypeServerHello])
 	require.Len(t, pull.Items, 2)
-	assert.Equal(t, rawClientHello, pull.Items[0].Data)
-	assert.Equal(t, rawServerHello, pull.Items[1].Data)
+	assert.Equal(t, rawClientHello, pull.Items[0].Raw.Data)
+	assert.Equal(t, rawServerHello, pull.Items[1].Raw.Data)
+	require.NotNil(t, pull.Items[0].Parsed)
+	require.NotNil(t, pull.Items[1].Parsed)
+	assert.Same(t, pull.Messages[handshake.TypeClientHello], pull.Items[0].Parsed.Message)
+	assert.Same(t, pull.Messages[handshake.TypeServerHello], pull.Items[1].Parsed.Message)
+
+	secondPull := cache.FullPullMapItems(0, nil,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: 0, IsClient: true, Optional: false},  //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: 0, IsClient: false, Optional: false}, //nolint:lll
+	)
+	require.NoError(t, secondPull.Err)
+	require.True(t, secondPull.Ready)
+	assert.Same(t, pull.Items[0].Parsed, secondPull.Items[0].Parsed)
+	assert.Same(t, pull.Items[1].Parsed, secondPull.Items[1].Parsed)
 }
 
 func TestHandshakeCachePullResultDistinguishesIncompleteAndMalformed(t *testing.T) {

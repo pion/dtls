@@ -181,18 +181,44 @@ func TestAppendVerifiedInboundHandshake13DuplicateHandling(t *testing.T) {
 func TestAppendVerifiedInboundHandshakeCacheItems13RequiresExplicitAuthentication(t *testing.T) {
 	transcript := NewTranscript()
 	rawFinished := rawHandshakeMessage13(t, 0, &handshake.MessageFinished{VerifyData: []byte{0x01}})
+	parsedFinished := &handshake.Handshake{}
+	require.NoError(t, parsedFinished.Unmarshal(rawFinished))
 
-	err := AppendVerifiedInboundHandshakeCacheItems(transcript, nil, []*dtlsflight.HandshakeCacheItem{
-		{
+	err := AppendVerifiedInboundHandshakeCacheItems(transcript, nil, []dtlsflight.DecodedHandshakeCacheItem{
+		{Raw: &dtlsflight.HandshakeCacheItem{
 			Typ:             handshake.TypeFinished,
 			MessageSequence: 0,
 			Data:            rawFinished,
-		},
+		}, Parsed: parsedFinished},
 	})
 	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptExplicitAuthenticationRequired)
 	assert.Empty(t, transcript.Bytes())
 	assert.Empty(t, transcript.pending)
 	assert.Empty(t, transcript.order)
+}
+
+func TestAppendVerifiedInboundHandshakeCacheItemsRejectsRawParsedMismatch(t *testing.T) {
+	transcript := NewTranscript()
+	rawEncryptedExtensions := rawHandshakeMessage13(t, 0, &handshake.MessageEncryptedExtensions{})
+	parsedFinished := &handshake.Handshake{}
+	require.NoError(t, parsedFinished.Unmarshal(rawHandshakeMessage13(
+		t,
+		0,
+		&handshake.MessageFinished{VerifyData: []byte{0x01}},
+	)))
+
+	err := AppendVerifiedInboundHandshakeCacheItems(transcript, nil, []dtlsflight.DecodedHandshakeCacheItem{
+		{
+			Raw: &dtlsflight.HandshakeCacheItem{
+				Typ:             handshake.TypeEncryptedExtensions,
+				MessageSequence: 0,
+				Data:            rawEncryptedExtensions,
+			},
+			Parsed: parsedFinished,
+		},
+	})
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
+	assert.Empty(t, transcript.Bytes())
 }
 
 func TestHandshakeTranscript13RejectsInvalidCanonicalMessage(t *testing.T) {

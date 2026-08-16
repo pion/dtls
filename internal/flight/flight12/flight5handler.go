@@ -85,7 +85,10 @@ func flight5Generate(
 		}
 		reqInfo := dtlsconfig.CertificateRequestInfo{}
 		if r, ok2 := pull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
-			reqInfo.AcceptableCAs = r.CertificateAuthoritiesNames
+			reqInfo.AcceptableCAs = make([][]byte, len(r.CertificateAuthoritiesNames))
+			for i := range r.CertificateAuthoritiesNames {
+				reqInfo.AcceptableCAs[i] = bytes.Clone(r.CertificateAuthoritiesNames[i])
+			}
 		} else {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired //nolint:lll
 		}
@@ -140,32 +143,14 @@ func flight5Generate(
 			},
 		})
 
-	serverKeyExchangeData := cache.PullAndMerge(
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
-	)
-
-	serverKeyExchange := &handshake.MessageServerKeyExchange{}
+	serverKeyExchange := state.RemoteServerKeyExchange()
 
 	// handshakeMessageServerKeyExchange is optional for PSK
-	if len(serverKeyExchangeData) == 0 {
-		alertPtr, err := handleServerKeyExchange(conn, state, cfg, &handshake.MessageServerKeyExchange{})
+	if serverKeyExchange == nil {
+		serverKeyExchange = &handshake.MessageServerKeyExchange{}
+		alertPtr, err := handleServerKeyExchange(conn, state, cfg, serverKeyExchange)
 		if err != nil {
 			return nil, alertPtr, err
-		}
-	} else {
-		rawHandshake := &handshake.Handshake{
-			KeyExchangeAlgorithm: state.CipherSuite.KeyExchangeAlgorithm(),
-		}
-		err := rawHandshake.Unmarshal(serverKeyExchangeData)
-		if err != nil {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, err
-		}
-
-		switch h := rawHandshake.Message.(type) {
-		case *handshake.MessageServerKeyExchange:
-			serverKeyExchange = h
-		default:
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, dtlserrors.ErrInvalidContentType
 		}
 	}
 

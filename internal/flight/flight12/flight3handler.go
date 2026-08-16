@@ -6,12 +6,14 @@ package flight12
 import (
 	"bytes"
 	"context"
+	"slices"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -75,7 +77,7 @@ func flight3Parse(
 					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrClientNoMatchingSRTPProfile //nolint:lll
 				}
 				state.SetSRTPProtectionProfile(profile)
-				state.RemoteSRTPMasterKeyIdentifier = ext.MasterKeyIdentifier
+				state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(ext.MasterKeyIdentifier)
 			case *extension12.ExtendedMasterSecret:
 				if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 					state.ExtendedMasterSecret = true
@@ -86,7 +88,7 @@ func flight3Parse(
 				// Only set connection ID to be sent if client supports connection
 				// IDs.
 				if state.LocalCIDOffered {
-					state.RemoteConnectionID = ext.CID
+					state.RemoteConnectionID = bytes.Clone(ext.CID)
 					state.RemoteCIDOffered = true
 				}
 			}
@@ -138,7 +140,7 @@ func flight3Parse(
 		if !cfg.HasSessionStore {
 			state.SessionID = []byte{}
 		} else {
-			state.SessionID = serverHelloMsg.SessionID
+			state.SessionID = bytes.Clone(serverHelloMsg.SessionID)
 		}
 
 		state.MasterSecret = []byte{}
@@ -168,20 +170,23 @@ func flight3Parse(
 	state.HandshakeRecvSequence = serverFlightPull.NextSequence
 
 	if h, ok := serverFlightPull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
-		state.PeerCertificates = h.Certificate
+		state.PeerCertificates = util.CloneByteSlices(h.Certificate)
 	} else if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrInvalidCertificate
 	}
 
 	if h, ok := serverFlightPull.Messages[handshake.TypeServerKeyExchange].(*handshake.MessageServerKeyExchange); ok {
+		state.SetRemoteServerKeyExchange(h)
 		alertPtr, err := handleServerKeyExchange(conn, state, cfg, h)
 		if err != nil {
 			return 0, alertPtr, err
 		}
+	} else {
+		state.SetRemoteServerKeyExchange(nil)
 	}
 
 	if creq, ok := serverFlightPull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok {
-		state.RemoteCertRequestAlgs = creq.SignatureHashAlgorithms
+		state.RemoteCertRequestAlgs = slices.Clone(creq.SignatureHashAlgorithms)
 		state.RemoteRequestedCertificate = true
 	}
 
@@ -256,10 +261,10 @@ func handleServerKeyExchange(
 
 	if cfg.LocalPSKCallback != nil { //nolint:nestif
 		var psk []byte
-		if psk, err = cfg.LocalPSKCallback(keyExchangeMessage.IdentityHint); err != nil {
+		if psk, err = cfg.LocalPSKCallback(bytes.Clone(keyExchangeMessage.IdentityHint)); err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
-		state.IdentityHint = keyExchangeMessage.IdentityHint
+		state.IdentityHint = bytes.Clone(keyExchangeMessage.IdentityHint)
 		switch state.CipherSuite.KeyExchangeAlgorithm() {
 		case ciphersuite.KeyExchangeAlgorithmPsk:
 			state.PreMasterSecret = prf.PSKPreMasterSecret(psk)

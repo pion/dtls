@@ -17,6 +17,8 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
@@ -384,6 +386,37 @@ func TestProcessPostHandshakeMessagesDecodeAlert(t *testing.T) {
 			assert.Zero(t, state.HandshakeRecvSequence)
 		})
 	}
+}
+
+func TestProcessPostHandshakeMessagesPreservesExtensionAlert(t *testing.T) {
+	wire, err := (&handshake.Handshake{
+		Message: &handshake.MessageNewSessionTicket{
+			Ticket: []byte{0x01},
+			Extensions: []extension.Value{
+				&extension13.MaxEarlyData{Size: 1},
+				&extension13.MaxEarlyData{Size: 2},
+			},
+		},
+	}).Marshal()
+	require.NoError(t, err)
+
+	state := dtlsstate.NewState13(true)
+	cache := dtlsflight.NewCache()
+	cache.Push(wire, dtlsflight13.EpochApplication, 0, handshake.TypeNewSessionTicket, false)
+	post := newPostHandshake(handshakeContext{
+		state: &state,
+		cache: cache,
+		cfg:   &dtlsconfig.HandshakeConfig{},
+	})
+	conn := &postHandshakeAlertConn{}
+
+	err = post.processPostHandshakeMessages(context.Background(), conn)
+	require.ErrorIs(t, err, dtlserrors.ErrDuplicateExtension)
+	assert.Equal(t, []postHandshakeAlert{{
+		level:       alert.Fatal,
+		description: alert.IllegalParameter,
+	}}, conn.notifications)
+	assert.Zero(t, state.HandshakeRecvSequence)
 }
 
 func TestHandleUnexpectedPostHandshakeMessageAlert(t *testing.T) {
