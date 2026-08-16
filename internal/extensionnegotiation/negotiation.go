@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"reflect"
 	"slices"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -108,7 +107,7 @@ func FinalizeClientHello(
 	base *handshake.MessageClientHello,
 	hook func(handshake.MessageClientHello) handshake.Message,
 ) (*handshake.MessageClientHello, ClientHelloSnapshot, error) {
-	clientHello, err := canonicalClientHello(base)
+	clientHello, err := validatedClientHello(base)
 	if err != nil {
 		return nil, ClientHelloSnapshot{}, err
 	}
@@ -117,7 +116,7 @@ func FinalizeClientHello(
 	if hook != nil {
 		message = hook(*clientHello)
 	}
-	clientHello, err = canonicalClientHello(message)
+	clientHello, err = validatedClientHello(message)
 	if err != nil {
 		return nil, ClientHelloSnapshot{}, err
 	}
@@ -180,7 +179,65 @@ func clientHelloExtensions(body []byte) ([]byte, error) {
 	return remainder, nil
 }
 
-func canonicalClientHello(message handshake.Message) (*handshake.MessageClientHello, error) {
+// ValidateServerHelloResponse validates response types against the exact final ClientHello
+// offer.
+//
+// DTLS 1.2:
+// "An extension type MUST NOT appear in the ServerHello unless the same
+// extension type appeared in the corresponding ClientHello."
+//
+// https://www.rfc-editor.org/rfc/rfc5246#section-7.4.1.4
+//
+// DTLS 1.3:
+// "Implementations MUST NOT send extension responses (i.e., in the ServerHello,
+// EncryptedExtensions, HelloRetryRequest, and Certificate messages)
+// if the remote endpoint did not send the corresponding extension requests"
+// https://www.rfc-editor.org/info/rfc9846/#section-4.3
+//
+// DTLS 1.2 exception:
+// "sending a "renegotiation_info" extension in response to a ClientHello
+// containing only the SCSV is an explicit exception"
+//
+// https://www.rfc-editor.org/rfc/rfc5746#section-3.6
+func ValidateServerHelloResponse(
+	offer ClientHelloSnapshot,
+	serverHello *handshake.MessageServerHello,
+) error {
+	random := serverHello.Random.MarshalFixed()
+	isHelloRetryRequest := bytes.Equal(random[:], handshake.HelloRetryRequestRandom())
+	offeredTypes := make(map[extension.Type]struct{}, len(offer.extensions))
+	for _, value := range offer.extensions {
+		offeredTypes[value.Type] = struct{}{}
+	}
+
+	for _, value := range serverHello.Extensions {
+		typ := value.ExtensionType()
+		_, offered := offeredTypes[typ]
+		if offered ||
+			(isHelloRetryRequest && typ == extension.TypeCookie) ||
+			(!isHelloRetryRequest && typ == extension.TypeRenegotiationInfo &&
+				clientHelloHasCipherSuite(offer, 0x00ff)) {
+			continue
+		}
+
+		return fmt.Errorf(
+			"extension %d: %w: %w",
+			typ,
+			dtlserrors.ErrUnsolicitedExtension,
+			&alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension},
+		)
+	}
+
+	return nil
+}
+
+func clientHelloHasCipherSuite(offer ClientHelloSnapshot, id uint16) bool {
+	var clientHello handshake.MessageClientHello
+
+	return clientHello.Unmarshal(offer.body) == nil && slices.Contains(clientHello.CipherSuiteIDs, id)
+}
+
+func validatedClientHello(message handshake.Message) (*handshake.MessageClientHello, error) {
 	clientHello, ok := message.(*handshake.MessageClientHello)
 	if !ok || clientHello == nil {
 		return nil, fmt.Errorf(
@@ -190,7 +247,7 @@ func canonicalClientHello(message handshake.Message) (*handshake.MessageClientHe
 			&alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
 		)
 	}
-	if slices.Contains(clientHello.CompressionMethods, nil) || containsNilExtension(clientHello.Extensions) {
+	if slices.Contains(clientHello.CompressionMethods, nil) {
 		return nil, fmt.Errorf(
 			"%w: hook returned a nil ClientHello value: %w",
 			dtlserrors.ErrInvalidClientHello,
@@ -218,18 +275,4 @@ func canonicalClientHello(message handshake.Message) (*handshake.MessageClientHe
 	}
 
 	return canonical, nil
-}
-
-func containsNilExtension(values []extension.Value) bool {
-	for _, value := range values {
-		if value == nil {
-			return true
-		}
-		reflected := reflect.ValueOf(value)
-		if reflected.Kind() == reflect.Pointer && reflected.IsNil() {
-			return true
-		}
-	}
-
-	return false
 }

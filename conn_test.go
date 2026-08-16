@@ -27,6 +27,7 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
@@ -2385,6 +2386,38 @@ func testVersionNegotiationHandshakeConfig13(t *testing.T) *dtlsconfig.Handshake
 		LocalCertSignatureSchemes:   nil,
 		LocalSRTPProtectionProfiles: nil,
 	}
+}
+
+func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
+	const offeredType extension.Type = 0xfefe
+	_, offer, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		CipherSuiteIDs:     []uint16{0x1301},
+		CompressionMethods: []*protocol.CompressionMethod{{}},
+		Extensions:         []extension.Value{extension.Raw{Type: offeredType, Data: []byte{0x01}}},
+	}, nil)
+	require.NoError(t, err)
+
+	cfg := testVersionNegotiationHandshakeConfig13(t)
+	cfg.MinVersion = protocol.Version1_2
+	common := &dtlsstate.Common{}
+	common.LocalClientHelloSnapshots.Record(offer)
+	conn := &Conn{
+		handshakeConfig: cfg,
+		state:           &dtlsstate.State13{Common: common},
+	}
+	err = conn.pickVersionFromServerHello(&handshake.MessageServerHello{
+		Version: protocol.Version1_2,
+		Extensions: []extension.Value{
+			extension.Raw{Type: 0xfefd, Data: []byte{0x02}},
+		},
+	})
+
+	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
+	var classified *alert.Alert
+	require.ErrorAs(t, err, &classified)
+	assert.Equal(t, alert.UnsupportedExtension, classified.Description)
+	assert.Equal(t, protocol.Version{}, common.LocalVersion)
 }
 
 func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVersions(t *testing.T) {

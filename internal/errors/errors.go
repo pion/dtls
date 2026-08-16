@@ -252,8 +252,10 @@ var (
 		"certificate list must not be longer than 2^24-1 bytes",
 	)
 	ErrInvalidExtensionsLength             = stderrors.New("extensions data must be between 2 and 2^16-1 bytes")
+	ErrNilExtension                        = stderrors.New("extension must not be nil")
 	ErrDuplicateExtension                  = stderrors.New("duplicate extension")
 	ErrExtensionNotAllowed                 = stderrors.New("extension is not allowed in this handshake message")
+	ErrUnsolicitedExtension                = stderrors.New("server sent an extension that was not offered")
 	ErrPreSharedKeyNotLast                 = stderrors.New("pre_shared_key must be the last ClientHello extension")
 	ErrMissingPSKKeyExchangeModesExtension = stderrors.New(
 		"pre_shared_key requires psk_key_exchange_modes",

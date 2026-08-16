@@ -13,6 +13,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,20 @@ func clientHelloForTest(extensions ...extension.Value) *handshake.MessageClientH
 		CompressionMethods: []*protocol.CompressionMethod{{}},
 		Extensions:         extensions,
 	}
+}
+
+func snapshotForTest(
+	t *testing.T,
+	cipherSuiteIDs []uint16,
+	extensions ...extension.Value,
+) ClientHelloSnapshot {
+	t.Helper()
+	clientHello := clientHelloForTest(extensions...)
+	clientHello.CipherSuiteIDs = cipherSuiteIDs
+	_, snapshot, err := FinalizeClientHello(clientHello, nil)
+	require.NoError(t, err)
+
+	return snapshot
 }
 
 func requireAlert(t *testing.T, err error, description alert.Description) {
@@ -94,9 +109,9 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 			description: alert.InternalError,
 		},
 		{
-			name: "typed nil extension",
+			name: "nil extension",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
-				ch.Extensions = []extension.Value{(*extension.ConnectionID)(nil)}
+				ch.Extensions = []extension.Value{nil}
 
 				return &ch
 			},
@@ -178,4 +193,75 @@ func TestClientHelloSnapshotsRetainInitialAndCurrentOffers(t *testing.T) {
 	initial.Data[0] = 0xff
 	initial, _ = history.Initial().Extension(unknownExtensionType)
 	assert.Equal(t, []byte{0x01}, initial.Data)
+}
+
+func TestValidateServerHelloResponse(t *testing.T) {
+	tests := map[string]struct {
+		offer       ClientHelloSnapshot
+		serverHello *handshake.MessageServerHello
+		wantError   bool
+	}{
+		"offered extension": {
+			offer: snapshotForTest(t, []uint16{0x1301},
+				&extension.ALPNOffer{Protocols: []string{"webrtc"}},
+			),
+			serverHello: serverHelloForTest(&extension.ALPNSelection{Protocol: "webrtc"}),
+		},
+		"offered unknown response": {
+			offer: snapshotForTest(t, []uint16{0x1301},
+				extension.Raw{Type: unknownExtensionType, Data: []byte{0x01}},
+			),
+			serverHello: serverHelloForTest(extension.Raw{Type: unknownExtensionType, Data: []byte{0x02}}),
+		},
+		"HRR cookie exception": {
+			offer:       snapshotForTest(t, []uint16{0x1301}),
+			serverHello: helloRetryRequestForTest(&extension13.Cookie{Cookie: []byte{0x01}}),
+		},
+		"SCSV renegotiation exception": {
+			offer:       snapshotForTest(t, []uint16{0x00ff}),
+			serverHello: serverHelloForTest(&extension12.RenegotiationInfo{}),
+		},
+		"unsolicited known response": {
+			offer:       snapshotForTest(t, []uint16{0x1301}),
+			serverHello: serverHelloForTest(&extension.ConnectionID{}),
+			wantError:   true,
+		},
+		"unsolicited unknown response": {
+			offer:       snapshotForTest(t, []uint16{0x1301}),
+			serverHello: serverHelloForTest(extension.Raw{Type: unknownExtensionType}),
+			wantError:   true,
+		},
+		"renegotiation without SCSV": {
+			offer:       snapshotForTest(t, []uint16{0x1301}),
+			serverHello: serverHelloForTest(&extension12.RenegotiationInfo{}),
+			wantError:   true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateServerHelloResponse(test.offer, test.serverHello)
+			if !test.wantError {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
+			requireAlert(t, err, alert.UnsupportedExtension)
+		})
+	}
+}
+
+func serverHelloForTest(extensions ...extension.Value) *handshake.MessageServerHello {
+	return &handshake.MessageServerHello{Extensions: extensions}
+}
+
+func helloRetryRequestForTest(extensions ...extension.Value) *handshake.MessageServerHello {
+	serverHello := serverHelloForTest(extensions...)
+	var hrrRandom [handshake.RandomLength]byte
+	copy(hrrRandom[:], handshake.HelloRetryRequestRandom())
+	serverHello.Random.UnmarshalFixed(hrrRandom)
+
+	return serverHello
 }

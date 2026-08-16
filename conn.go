@@ -17,6 +17,7 @@ import (
 	"github.com/pion/dtls/v3/internal/closer"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight12 "github.com/pion/dtls/v3/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
@@ -2428,6 +2429,13 @@ func (c *Conn) pickVersionFromServerResponse() (bool, error) {
 }
 
 func (c *Conn) pickVersionFromServerHello(sh *handshake.MessageServerHello) error {
+	common := dtlsstate.CommonState(c.state)
+	if err := extensionnegotiation.ValidateServerHelloResponse(
+		common.LocalClientHelloSnapshots.Current(),
+		sh,
+	); err != nil {
+		return err
+	}
 	remote, err := remoteVersionsFromServerHello(sh)
 	if err != nil {
 		return err

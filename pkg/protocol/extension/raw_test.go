@@ -68,6 +68,11 @@ func TestMarshalListBounds(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionsLength)
 }
 
+func TestMarshalListRejectsNilExtension(t *testing.T) {
+	_, err := MarshalList([]Value{nil})
+	assert.ErrorIs(t, err, dtlserrors.ErrNilExtension)
+}
+
 func FuzzParseList(f *testing.F) {
 	f.Add([]byte{0x00, 0x00})
 	f.Add([]byte{0x00, 0x04, 0xfa, 0xce, 0x00, 0x00})

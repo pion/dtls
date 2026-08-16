@@ -108,6 +108,10 @@ func MarshalList(values []Value) ([]byte, error) {
 	payloads := make([][]byte, len(values))
 	totalLen := 0
 	for i, value := range values {
+		if value == nil {
+			return nil, dtlserrors.ErrNilExtension
+		}
+
 		payload, err := value.MarshalData()
 		if err != nil {
 			return nil, err
