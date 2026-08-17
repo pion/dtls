@@ -13,6 +13,7 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
@@ -102,8 +103,20 @@ func (c *flightTestConn) SessionKey() []byte {
 	return nil
 }
 
-func newTestState13(isClient bool) *dtlsstate.State13 {
+func newTestState13(t *testing.T, isClient bool) *dtlsstate.State13 {
+	t.Helper()
 	state := dtlsstate.NewState13(isClient)
+	_, snapshot, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+		Extensions: []extension.Value{
+			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms13())},
+			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
+			&extension13.ClientKeyShare{},
+		},
+	}, nil)
+	require.NoError(t, err)
+	_ = state.LocalClientHelloSnapshots.Record(snapshot)  // The first snapshot cannot conflict.
+	_ = state.RemoteClientHelloSnapshots.Record(snapshot) // The first snapshot cannot conflict.
 
 	return &state
 }
@@ -170,7 +183,7 @@ func TestHandshakeFSMWaitCancellationResetsRetransmitInterval(t *testing.T) {
 }
 
 func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
-	state := newTestState13(true)
+	state := newTestState13(t, true)
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
@@ -186,7 +199,7 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 }
 
 func TestHandshakeFSM13SendACKUsesCurrentEpoch(t *testing.T) {
-	state := newTestState13(true)
+	state := newTestState13(t, true)
 	state.SetLocalEpoch(dtlsflight13.EpochApplication)
 	conn := &flightTestConn{}
 	fsm := &fsm13{handshakeContext: handshakeContext{state: state}}
@@ -203,7 +216,7 @@ func TestHandshakeFSM13SendACKUsesCurrentEpoch(t *testing.T) {
 
 func TestHandshakeFSM13DoesNotSendEmptyACK(t *testing.T) {
 	conn := &flightTestConn{}
-	fsm := &fsm13{handshakeContext: handshakeContext{state: newTestState13(false)}}
+	fsm := &fsm13{handshakeContext: handshakeContext{state: newTestState13(t, false)}}
 
 	require.NoError(t, sendACK(context.Background(), conn, fsm.state.LocalEpoch(), nil))
 	assert.Empty(t, conn.writtenPackets)
@@ -237,7 +250,7 @@ func TestHandshakeFSM13ACKProgress(t *testing.T) {
 }
 
 func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
-	state := newTestState13(true)
+	state := newTestState13(t, true)
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 	cfg.ClientHelloMessageHook = func(ch handshake.MessageClientHello) handshake.Message {
@@ -278,7 +291,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 }
 
 func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testing.T) {
-	state := newTestState13(true)
+	state := newTestState13(t, true)
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
@@ -312,7 +325,7 @@ func TestHandshakeFSM13TranscriptSurvivesStateChangesAndRetransmitSeed(t *testin
 }
 
 func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
-	state := newTestState13(true)
+	state := newTestState13(t, true)
 	cache := dtlsflight.NewCache()
 	cfg := testHandshakeConfig13(t)
 
@@ -325,7 +338,7 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 
 func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := newTestState13(false)
+	state := newTestState13(t, false)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	cache := dtlsflight.NewCache()
 
@@ -343,7 +356,7 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 
 func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := newTestState13(true)
+	state := newTestState13(t, true)
 	cache := dtlsflight.NewCache()
 
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, nil, nil)
@@ -364,7 +377,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 
 func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscript(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
-	state := newTestState13(false)
+	state := newTestState13(t, false)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	cache := dtlsflight.NewCache()
 	transcript := NewTranscript()
@@ -397,7 +410,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	keypair, err := elliptic.GenerateKeypair(group)
 	require.NoError(t, err)
 
-	state := newTestState13(false)
+	state := newTestState13(t, false)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	state.LocalKeypair = keypair
 	state.RemoteSignatureSchemes = append([]signaturehash.Algorithm(nil), cfg.LocalSignatureSchemes...)
@@ -544,7 +557,7 @@ func TestHandshakeFSM13ServerFlight4KeepsReaderPausedThroughQueueDrain(t *testin
 	cfg := testHandshakeConfig13(t)
 	cfg.InsecureSkipHelloVerify = true
 	_, clientHello, _ := newFlight13ClientHelloFixture(t, cfg)
-	serverState := newTestState13(false)
+	serverState := newTestState13(t, false)
 	cache := dtlsflight.NewCache()
 	fsm, err := newFSM13(serverState, cache, cfg, dtlsflight13.Flight0, nil, nil)
 	require.NoError(t, err)
@@ -601,7 +614,7 @@ func TestHandshakeFSM13NonDrainingTransitionReleasesReaderAfterWait(t *testing.T
 	cfg := testHandshakeConfig13(t)
 	cfg.InsecureSkipHelloVerify = false
 	_, clientHello, _ := newFlight13ClientHelloFixture(t, cfg)
-	serverState := newTestState13(false)
+	serverState := newTestState13(t, false)
 	cache := dtlsflight.NewCache()
 	fsm, err := newFSM13(serverState, cache, cfg, dtlsflight13.Flight0, nil, nil)
 	require.NoError(t, err)
@@ -660,7 +673,7 @@ func TestHandshakeFSM13ReaderPauseRequiredOnlyForQueueDrainingTransitions(t *tes
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			state := newTestState13(test.isClient)
+			state := newTestState13(t, test.isClient)
 			state.SetRemoteEpoch(test.remoteEpoch)
 			flightContext := handshakeContext{state: state}
 			assert.Equal(t, test.expected, flightContext.transitionRequiresReaderPause(test.nextFlight))
@@ -1468,7 +1481,7 @@ func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
 	cfg.InsecureSkipHelloVerify = true
 
 	clientState, clientHello, transcript := newFlight13ClientHelloFixture(t, cfg)
-	serverState := newTestState13(false)
+	serverState := newTestState13(t, false)
 	serverCache := dtlsflight.NewCache()
 
 	_, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight0, &handshakeContext{
@@ -1524,7 +1537,7 @@ func newFlight13ClientHelloFixture(
 ) (*dtlsstate.State13, []*dtlsflight.Packet, *Transcript) {
 	t.Helper()
 
-	clientState := newTestState13(true)
+	clientState := newTestState13(t, true)
 	clientHello, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeContext{
 		state: clientState,
 		cache: dtlsflight.NewCache(),

@@ -6,6 +6,7 @@
 package state
 
 import (
+	"bytes"
 	"sync/atomic"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
@@ -51,6 +52,8 @@ type Common struct {
 	// RemoteCIDOffered reports whether the peer sent a connection_id
 	// extension.
 	RemoteCIDOffered bool
+	// pendingLocalConnectionID is the uncommitted CID offered by this client.
+	pendingLocalConnectionID atomic.Pointer[[]byte]
 
 	IsClient bool
 
@@ -105,6 +108,55 @@ func (s *Common) LocalConnectionID() []byte {
 
 func (s *Common) SetLocalConnectionID(v []byte) {
 	s.localConnectionID.Store(v)
+}
+
+// RecordLocalClientHello retains an offer and publishes its pending CID.
+func (s *Common) RecordLocalClientHello(snapshot extensionnegotiation.ClientHelloSnapshot) error {
+	if err := s.LocalClientHelloSnapshots.Record(snapshot); err != nil {
+		return err
+	}
+	if cid, offered := extensionnegotiation.ConnectionIDOffer(snapshot); offered {
+		s.pendingLocalConnectionID.Store(&cid)
+	} else {
+		s.pendingLocalConnectionID.Store(nil)
+	}
+
+	return nil
+}
+
+// ResetConnectionIDs clears committed CID state and starts a new decision.
+func (s *Common) ResetConnectionIDs() {
+	s.SetLocalConnectionID(nil)
+	s.RemoteConnectionID, s.LocalCIDOffered, s.RemoteCIDOffered = nil, false, false
+	s.pendingLocalConnectionID.Store(nil)
+}
+
+// CommitNegotiatedExtensions applies a fully validated extension decision.
+func (s *Common) CommitNegotiatedExtensions(decision *extensionnegotiation.ConnectionID) {
+	if decision == nil {
+		s.ResetConnectionIDs()
+
+		return
+	}
+
+	localCID, remoteCID := decision.ServerCID, decision.ClientCID
+	if s.IsClient {
+		localCID, remoteCID = remoteCID, localCID
+	}
+	s.SetLocalConnectionID(bytes.Clone(localCID))
+	s.RemoteConnectionID = bytes.Clone(remoteCID)
+	s.LocalCIDOffered, s.RemoteCIDOffered = true, true
+	s.pendingLocalConnectionID.Store(nil)
+}
+
+// LocalConnectionIDForInboundRecords returns the negotiated CID, or the
+// pending wire offer while a client is still waiting for ServerHello.
+func (s *Common) LocalConnectionIDForInboundRecords() []byte {
+	if cid := s.pendingLocalConnectionID.Load(); s.IsClient && cid != nil {
+		return *cid
+	}
+
+	return s.LocalConnectionID()
 }
 
 // State is retained as the DTLS 1.2 state alias for callers that still only

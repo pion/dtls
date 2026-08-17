@@ -12,6 +12,7 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -235,33 +236,30 @@ func flight4Generate( //nolint:cyclop
 			KeyExchange: state.LocalKeypair.PublicKey,
 		},
 	})
-	if state.RemoteCIDOffered && cfg.ConnectionIDGenerator != nil {
-		if !state.LocalCIDOffered {
-			state.SetLocalConnectionID(bytes.Clone(cfg.ConnectionIDGenerator()))
-			state.LocalCIDOffered = true
+	offer := state.RemoteClientHelloSnapshots.Current()
+	if cfg.ConnectionIDGenerator != nil && offer.Offered(extension.TypeConnectionID) {
+		localCID := state.LocalConnectionID()
+		if !state.CID.Negotiated {
+			localCID = bytes.Clone(cfg.ConnectionIDGenerator())
 		}
-		state.NegotiateConnectionIDs(state.RemoteConnectionID)
-		serverHelloExtensions = append(serverHelloExtensions, &extension.ConnectionID{
-			CID: bytes.Clone(state.LocalConnectionID()),
-		})
-	} else {
-		state.ResetConnectionIDs()
+		serverHelloExtensions = append(serverHelloExtensions, &extension.ConnectionID{CID: bytes.Clone(localCID)})
 	}
+	serverHelloMessage := &handshake.MessageServerHello{
+		Version:           protocol.Version1_2,
+		Random:            state.LocalRandom,
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+		Extensions:        serverHelloExtensions,
+	}
+	if _, err = serverHelloMessage.Marshal(); err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	decision := extensionnegotiation.DecideConnectionID(offer, serverHelloExtensions)
 
 	serverHello := &dtlsflight.Packet{
 		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-			},
-			Content: &handshake.Handshake{
-				Message: &handshake.MessageServerHello{
-					Version:           protocol.Version1_2,
-					Random:            state.LocalRandom,
-					CipherSuiteID:     &cipherSuiteID,
-					CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-					Extensions:        serverHelloExtensions,
-				},
-			},
+			Header:  recordlayer.Header{Version: protocol.Version1_2},
+			Content: &handshake.Handshake{Message: serverHelloMessage},
 		},
 	}
 
@@ -306,6 +304,7 @@ func flight4Generate( //nolint:cyclop
 		),
 		HandshakePacket(&handshake.MessageFinished{}),
 	)
+	state.CommitNegotiatedExtensions(decision)
 
 	return pkts, nil, nil
 }

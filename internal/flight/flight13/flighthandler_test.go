@@ -10,11 +10,13 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
@@ -170,6 +172,26 @@ func TestHandleFlight3ProtectedHandshakeRetainsCertificateRequest(t *testing.T) 
 	assert.Same(t, request, flightCtx.state.RemoteCertificateRequest)
 }
 
+func TestFlight3ParseClearsConnectionIDAfterInvalidEncryptedExtensions(t *testing.T) {
+	state := dtlsstate.NewState13(true)
+	state.CommitNegotiatedExtensions(&extensionnegotiation.ConnectionID{ClientCID: []byte{1}, ServerCID: []byte{2}})
+	state.SetRemoteEpoch(EpochHandshake)
+
+	cache := dtlsflight.NewCache()
+	cache.Push(marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{
+		Extensions: []extension.Value{extension.Raw{Type: 0xfafa}},
+	}), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
+	cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}), EpochHandshake, 1, handshake.TypeFinished, false) //nolint:lll
+	next, dtlsAlert, err := flight3Parse(t.Context(), nil, &handshakeContext{state: &state, cache: cache})
+
+	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, dtlsAlert)
+	assert.Zero(t, next)
+	assert.Nil(t, state.LocalConnectionIDForInboundRecords())
+	assert.Nil(t, state.RemoteConnectionID)
+	assert.Equal(t, dtlsstate.CIDState{}, state.CID)
+}
+
 func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
 	authority := []byte{0x01, 0x02}
 	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{
@@ -284,11 +306,23 @@ func flight4TestContext(t *testing.T) (*handshakeContext, tls.Certificate) {
 	keypair, err := elliptic.GenerateKeypair(elliptic.X25519)
 	require.NoError(t, err)
 	signatureSchemes := signaturehash.Algorithms13()
+	_, offer, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+		Extensions: []extension.Value{
+			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms13())},
+			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
+			&extension13.ClientKeyShare{},
+		},
+	}, nil)
+	require.NoError(t, err)
+	var remoteOffers extensionnegotiation.ClientHelloSnapshots
+	require.NoError(t, remoteOffers.Record(offer))
 
 	return &handshakeContext{
 		state: &dtlsstate.State13{
 			Common: &dtlsstate.Common{
-				CipherSuite: ciphersuite.NewTLSAes128GcmSha256(),
+				CipherSuite:                ciphersuite.NewTLSAes128GcmSha256(),
+				RemoteClientHelloSnapshots: remoteOffers,
 			},
 			LocalKeypair:           keypair,
 			RemoteSignatureSchemes: append([]signaturehash.Algorithm(nil), signatureSchemes...),

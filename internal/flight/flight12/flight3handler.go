@@ -32,7 +32,7 @@ func flight3Parse(
 	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) (Flight, *alert.Alert, error) {
+) (next Flight, dtlsAlert *alert.Alert, err error) {
 	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
 	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response
 	// to the new HelloVerifyRequest. RFC 6347 Section 4.2.1
@@ -63,17 +63,29 @@ func flight3Parse(
 
 	serverResponse = serverResponsePull.Messages[handshake.TypeServerHello]
 	serverHelloMsg, hasServerHello := serverResponse.(*handshake.MessageServerHello)
+	var decision *extensionnegotiation.ConnectionID
 	if hasServerHello { //nolint:nestif
 		if !serverHelloMsg.Version.Equal(protocol.Version1_2) {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 				dtlserrors.ErrUnsupportedProtocolVersion
 		}
-		if err := extensionnegotiation.ValidateServerHelloResponse(
-			state.LocalClientHelloSnapshots.Current(), serverHelloMsg,
-		); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension},
-				err
+		offer := state.LocalClientHelloSnapshots.Current()
+		if validationErr := extensionnegotiation.ValidateServerHello12Context(serverHelloMsg); validationErr != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, validationErr
 		}
+		if validationErr := extensionnegotiation.ValidateServerHelloResponse(offer, serverHelloMsg); validationErr != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, validationErr
+		}
+		decision = extensionnegotiation.DecideConnectionID(offer, serverHelloMsg.Extensions)
+		if decision == nil {
+			state.CommitNegotiatedExtensions(nil)
+		}
+		defer func() {
+			if err != nil || dtlsAlert != nil {
+				state.ResetConnectionIDs()
+			}
+		}()
+
 		for _, v := range serverHelloMsg.Extensions {
 			switch ext := v.(type) {
 			case *extension.SRTPSelection:
@@ -91,20 +103,7 @@ func flight3Parse(
 				}
 			case *extension.ALPNSelection:
 				state.NegotiatedProtocol = ext.Protocol
-			case *extension.ConnectionID:
-				// Only set connection ID to be sent if client supports connection
-				// IDs.
-				if state.LocalCIDOffered {
-					state.RemoteConnectionID = bytes.Clone(ext.CID)
-					state.RemoteCIDOffered = true
-				}
 			}
-		}
-		// If the server doesn't support connection IDs, the client should not
-		// expect one to be sent.
-		if !state.RemoteCIDOffered {
-			state.SetLocalConnectionID(nil)
-			state.LocalCIDOffered = false
 		}
 
 		if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
@@ -134,7 +133,12 @@ func flight3Parse(
 		cfg.Log.Tracef("[handshake] use cipher suite: %s", selectedCipherSuite.String())
 
 		if len(serverHelloMsg.SessionID) > 0 && bytes.Equal(state.SessionID, serverHelloMsg.SessionID) {
-			return handleResumption(ctx, conn, state, cache, cfg)
+			next, dtlsAlert, err := handleResumption(ctx, conn, state, cache, cfg)
+			if next != 0 && err == nil {
+				state.CommitNegotiatedExtensions(decision)
+			}
+
+			return next, dtlsAlert, err
 		}
 
 		if cfg.HasSessionStore && len(state.SessionID) > 0 {
@@ -196,6 +200,7 @@ func flight3Parse(
 		state.RemoteCertRequestAlgs = slices.Clone(creq.SignatureHashAlgorithms)
 		state.RemoteRequestedCertificate = true
 	}
+	state.CommitNegotiatedExtensions(decision)
 
 	return Flight5, nil, nil
 }
@@ -367,10 +372,11 @@ func flight3Generate(
 		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
 	}
 
-	// If we sent a connection ID on the first ClientHello, send it on the
-	// second.
-	if cfg.ConnectionIDGenerator != nil && state.LocalCIDOffered {
-		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
+	// If the generated first ClientHello offered a connection ID, use the
+	// exact post-hook value as the default in the second ClientHello.
+	cid, cidOffered := extensionnegotiation.ConnectionIDOffer(state.LocalClientHelloSnapshots.Initial())
+	if cfg.ConnectionIDGenerator != nil && cidOffered {
+		extensions = append(extensions, &extension.ConnectionID{CID: cid})
 	}
 
 	clientHello := &handshake.MessageClientHello{
@@ -387,7 +393,9 @@ func flight3Generate(
 	if err != nil {
 		return nil, nil, err
 	}
-	state.LocalClientHelloSnapshots.Record(snapshot)
+	if err := state.RecordLocalClientHello(snapshot); err != nil {
+		return nil, nil, err
+	}
 	content := handshake.Handshake{Message: clientHello}
 
 	return []*dtlsflight.Packet{

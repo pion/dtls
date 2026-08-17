@@ -6,6 +6,7 @@ package state
 import (
 	"bytes"
 
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
@@ -134,32 +135,22 @@ func (*State13) ShouldWrapConnectionID() bool {
 }
 
 // ResetConnectionIDs clears the connection IDs and CID state.
-func (s *State13) ResetConnectionIDs() {
-	s.SetLocalConnectionID(nil)
-	s.LocalCIDOffered = false
-	s.RemoteConnectionID = nil
-	s.RemoteCIDOffered = false
-	s.CID = CIDState{}
-}
+func (s *State13) ResetConnectionIDs() { s.CommitNegotiatedExtensions(nil) }
 
-// NegotiateConnectionIDs records the connection IDs negotiated.
-func (s *State13) NegotiateConnectionIDs(remoteCID []byte) {
-	localCID := bytes.Clone(s.LocalConnectionID())
+// CommitNegotiatedExtensions applies a fully validated extension decision.
+func (s *State13) CommitNegotiatedExtensions(decision *extensionnegotiation.ConnectionID) {
+	s.Common.CommitNegotiatedExtensions(decision)
+	if decision == nil {
+		s.CID = CIDState{}
 
-	s.SetLocalConnectionID(localCID)
-	s.LocalCIDOffered = true
-	s.RemoteConnectionID = bytes.Clone(remoteCID)
-	s.RemoteCIDOffered = true
+		return
+	}
+	localCID, remoteCID := s.LocalConnectionID(), s.RemoteConnectionID
 	s.CID = CIDState{
 		Negotiated: true,
 		Receive: CIDReceiveState{
-			Expected:               len(localCID) > 0,
-			Length:                 len(localCID),
-			CanSendNewConnectionID: len(localCID) > 0,
+			Expected: len(localCID) > 0, Length: len(localCID), CanSendNewConnectionID: len(localCID) > 0,
 		},
-		Send: CIDSendState{
-			UseCID: len(remoteCID) > 0,
-			Active: bytes.Clone(remoteCID),
-		},
+		Send: CIDSendState{UseCID: len(remoteCID) > 0, Active: bytes.Clone(remoteCID)},
 	}
 }

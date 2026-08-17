@@ -56,7 +56,7 @@ func flight2Parse(
 	}
 
 	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
-		return 0, nil, err
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 	}
 
 	return Flight4, nil, nil

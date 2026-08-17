@@ -47,10 +47,7 @@ func flight0Parse(
 
 	// Connection Identifiers must be negotiated afresh on session resumption.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
-	state.SetLocalConnectionID(nil)
-	state.LocalCIDOffered = false
-	state.RemoteConnectionID = nil
-	state.RemoteCIDOffered = false
+	state.ResetConnectionIDs()
 
 	state.HandshakeRecvSequence = pull.NextSequence
 
@@ -119,24 +116,10 @@ func flight0Parse(
 			state.RemoteSupportsRenegotiation = true
 		case *extension.ALPNOffer:
 			state.PeerSupportedProtocols = slices.Clone(ext.Protocols)
-		case *extension.ConnectionID:
-			// Only set connection ID to be sent if server supports connection
-			// IDs.
-			if cfg.ConnectionIDGenerator != nil {
-				state.RemoteConnectionID = bytes.Clone(ext.CID)
-				state.RemoteCIDOffered = true
-			}
 		case *extension.CertificateSignatureAlgorithms:
 			// Store the client's certificate signature schemes for later validation
 			state.RemoteCertSignatureSchemes = dtlsflight.SignatureSchemes(ext.Schemes)
 		}
-	}
-
-	// If the client doesn't support connection IDs, the server should not
-	// expect one to be sent.
-	if !state.RemoteCIDOffered {
-		state.SetLocalConnectionID(nil)
-		state.LocalCIDOffered = false
 	}
 
 	if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {

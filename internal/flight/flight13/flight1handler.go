@@ -130,10 +130,8 @@ func flight1Generate(
 	}
 
 	if cfg.ConnectionIDGenerator != nil {
-		state.SetLocalConnectionID(bytes.Clone(cfg.ConnectionIDGenerator()))
-		state.LocalCIDOffered = true
 		extensions = append(extensions, &extension.ConnectionID{
-			CID: bytes.Clone(state.LocalConnectionID()),
+			CID: bytes.Clone(cfg.ConnectionIDGenerator()),
 		})
 	}
 
@@ -152,12 +150,11 @@ func flight1Generate(
 
 	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
 	if err != nil {
-		state.ResetConnectionIDs()
-
 		return nil, nil, err
 	}
-	captureClientHelloConnectionIDOffer(state, clientHello)
-	state.LocalClientHelloSnapshots.Record(snapshot)
+	if err := state.RecordLocalClientHello(snapshot); err != nil {
+		return nil, nil, err
+	}
 	content := handshake.Handshake{Message: clientHello}
 
 	return []*dtlsflight.Packet{
@@ -231,8 +228,7 @@ func flight1Parse(
 	if err := extensionnegotiation.ValidateServerHelloResponse(
 		state.LocalClientHelloSnapshots.Current(), sh,
 	); err != nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension},
-			err
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, err
 	}
 	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(sh, cfg)
 	if err != nil {

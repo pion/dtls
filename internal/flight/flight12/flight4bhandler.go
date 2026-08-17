@@ -9,6 +9,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -69,10 +70,14 @@ func flight4bGenerate(
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	var pkts []*dtlsflight.Packet
+	offer := state.RemoteClientHelloSnapshots.Current()
 
-	extensions := []extension.Value{&extension12.RenegotiationInfo{
-		RenegotiatedConnection: 0,
-	}}
+	extensions := []extension.Value{}
+	if state.RemoteSupportsRenegotiation {
+		extensions = append(extensions, &extension12.RenegotiationInfo{
+			RenegotiatedConnection: 0,
+		})
+	}
 	if (cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
 		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
 		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
@@ -92,10 +97,11 @@ func flight4bGenerate(
 		extensions = append(extensions, &extension.ALPNSelection{Protocol: selectedProto})
 		state.NegotiatedProtocol = selectedProto
 	}
+	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
+		extensions = append(extensions, cid)
+	}
 
 	cipherSuiteID := uint16(state.CipherSuite.ID())
-	var serverHello handshake.Handshake
-
 	serverHelloMessage := &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
 		Random:            state.LocalRandom,
@@ -105,11 +111,12 @@ func flight4bGenerate(
 		Extensions:        extensions,
 	}
 
-	if cfg.ServerHelloMessageHook != nil {
-		serverHello = handshake.Handshake{Message: cfg.ServerHelloMessageHook(*serverHelloMessage)}
-	} else {
-		serverHello = handshake.Handshake{Message: serverHelloMessage}
+	serverHelloMessage, err = extensionnegotiation.FinalizeServerHello(serverHelloMessage, cfg.ServerHelloMessageHook, offer) //nolint:lll
+	if err != nil {
+		return nil, nil, err
 	}
+	decision := extensionnegotiation.DecideConnectionID(offer, serverHelloMessage.Extensions)
+	serverHello := handshake.Handshake{Message: serverHelloMessage}
 
 	serverHello.Header.MessageSequence = uint16(state.HandshakeSendSequence) //nolint:gosec // G115
 
@@ -159,9 +166,11 @@ func flight4bGenerate(
 				},
 			},
 			ShouldEncrypt:            true,
+			ShouldWrapCID:            decision != nil && len(decision.ClientCID) > 0,
 			ResetLocalSequenceNumber: true,
 		},
 	)
+	state.CommitNegotiatedExtensions(decision)
 
 	return pkts, nil, nil
 }

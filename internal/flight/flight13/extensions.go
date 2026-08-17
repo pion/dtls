@@ -5,7 +5,6 @@ package flight13
 
 import (
 	"bytes"
-	"fmt"
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
@@ -45,10 +44,6 @@ func processClientHelloExtensions(
 	clientHello *handshake.MessageClientHello,
 ) *clientHelloExtensionFailure {
 	var seen clientHelloExtensionSet
-	remoteCID, hasRemoteCID, duplicateCID := connectionIDExtension(clientHello.Extensions)
-	if duplicateCID {
-		return newClientHelloExtensionFailure(alert.IllegalParameter, dtlserrors.ErrInvalidClientHello)
-	}
 
 	for _, val := range clientHello.Extensions {
 		if failure := processClientHelloSecurityExtension(state, cfg, &seen, val); failure != nil {
@@ -60,12 +55,6 @@ func processClientHelloExtensions(
 	if !seen.hasPreSharedKey && (!seen.hasSignatureAlgorithms || !seen.hasSupportedGroups) {
 		return newClientHelloExtensionFailure(alert.MissingExtension, dtlserrors.ErrMissingClientHelloExtension)
 	}
-	if hasRemoteCID {
-		state.RemoteConnectionID = remoteCID
-	} else {
-		state.RemoteConnectionID = nil
-	}
-	state.RemoteCIDOffered = hasRemoteCID
 
 	return nil
 }
@@ -128,47 +117,4 @@ func cloneKeyShareEntries(entries []extension13.KeyShareEntry) []extension13.Key
 	}
 
 	return cloned
-}
-
-// connectionIDExtension extracts a connection_id extension while preserving
-// the distinction between an absent extension and a present, zero-length CID.
-func connectionIDExtension(extensions []extension.Value) ([]byte, bool, bool) {
-	var cid []byte
-	found := false
-	for _, val := range extensions {
-		ext, ok := val.(*extension.ConnectionID)
-		if !ok {
-			continue
-		}
-		if found {
-			return nil, false, true
-		}
-		if len(ext.CID) > 0 {
-			cid = bytes.Clone(ext.CID)
-		}
-		found = true
-	}
-
-	return cid, found, false
-}
-
-func captureClientHelloConnectionIDOffer(
-	state *dtlsstate.State13,
-	clientHello *handshake.MessageClientHello,
-) {
-	localCID, present, _ := connectionIDExtension(clientHello.Extensions)
-	state.SetLocalConnectionID(localCID)
-	state.LocalCIDOffered = present
-}
-
-func validateRepeatedClientHelloConnectionIDOffer(
-	state *dtlsstate.State13,
-	clientHello *handshake.MessageClientHello,
-) error {
-	localCID, present, _ := connectionIDExtension(clientHello.Extensions)
-	if present != state.LocalCIDOffered || !bytes.Equal(localCID, state.LocalConnectionID()) {
-		return fmt.Errorf("%w: connection_id changed", dtlserrors.ErrInvalidClientHello)
-	}
-
-	return nil
 }

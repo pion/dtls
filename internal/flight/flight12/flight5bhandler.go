@@ -88,6 +88,7 @@ func flight5bGenerate(
 				},
 			},
 			ShouldEncrypt:            true,
+			ShouldWrapCID:            state.ShouldWrapConnectionID(),
 			ResetLocalSequenceNumber: true,
 		})
 

@@ -180,7 +180,7 @@ func TestClientHelloSnapshotsRetainInitialAndCurrentOffers(t *testing.T) {
 			clientHelloForTest(extension.Raw{Type: unknownExtensionType, Data: []byte{value}}), nil,
 		)
 		require.NoError(t, err)
-		history.Record(snapshot)
+		require.NoError(t, history.Record(snapshot))
 	}
 
 	initial, ok := history.Initial().Extension(unknownExtensionType)
@@ -250,6 +250,21 @@ func TestValidateServerHelloResponse(t *testing.T) {
 			require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
 			requireAlert(t, err, alert.UnsupportedExtension)
 		})
+	}
+}
+
+func TestValidateServerHello12Context(t *testing.T) {
+	check := func(serverHello *handshake.MessageServerHello) {
+		err := ValidateServerHello12Context(serverHello)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
+		require.ErrorIs(t, err, dtlserrors.ErrExtensionNotAllowed)
+		requireAlert(t, err, alert.IllegalParameter)
+	}
+	check(helloRetryRequestForTest())
+	for _, typ := range []extension.Type{
+		extension.TypeSupportedVersions, extension.TypeKeyShare, extension.TypePreSharedKey,
+	} {
+		check(serverHelloForTest(extension.Raw{Type: typ}))
 	}
 }
 

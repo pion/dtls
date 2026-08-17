@@ -2401,7 +2401,7 @@ func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 	cfg := testVersionNegotiationHandshakeConfig13(t)
 	cfg.MinVersion = protocol.Version1_2
 	common := &dtlsstate.Common{}
-	common.LocalClientHelloSnapshots.Record(offer)
+	require.NoError(t, common.LocalClientHelloSnapshots.Record(offer))
 	conn := &Conn{
 		handshakeConfig: cfg,
 		state:           &dtlsstate.State13{Common: common},
@@ -3197,6 +3197,8 @@ func TestSessionResume(t *testing.T) {
 		secret, _ := hex.DecodeString(
 			"2e942a37aca5241deb2295b5fcedac221c7078d2503d2b62aeb48c880d7da73c001238b708559686b9da6e829c05ead7",
 		)
+		clientCID := []byte{0xc1}
+		serverCID := []byte{0x51}
 
 		s := Session{ID: id, Secret: secret}
 
@@ -3210,6 +3212,7 @@ func TestSessionResume(t *testing.T) {
 				WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 				WithServerName("example.com"),
 				WithSessionStore(ss),
+				WithConnectionIDGenerator(func() []byte { return clientCID }),
 				WithMTU(100),
 			}
 			c, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, false)
@@ -3220,6 +3223,7 @@ func TestSessionResume(t *testing.T) {
 			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 			WithServerName("example.com"),
 			WithSessionStore(ss),
+			WithConnectionIDGenerator(func() []byte { return serverCID }),
 			WithMTU(100),
 		}
 		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), opts, true)
@@ -3232,6 +3236,9 @@ func TestSessionResume(t *testing.T) {
 		actualMasterSecret := state.masterSecret
 		assert.Equal(t, actualSessionID, id, "TestSessionResumption SessionID mismatch")
 		assert.Equal(t, actualMasterSecret, secret, "TestSessionResumption masterSecret mismatch")
+		serverCommon := dtlsstate.CommonState(server.state)
+		assert.Equal(t, serverCID, serverCommon.LocalConnectionID())
+		assert.Equal(t, clientCID, serverCommon.RemoteConnectionID)
 
 		defer func() {
 			assert.NoError(t, server.Close())
@@ -3239,6 +3246,9 @@ func TestSessionResume(t *testing.T) {
 
 		res := <-clientRes
 		assert.NoError(t, res.err)
+		clientCommon := dtlsstate.CommonState(res.c.state)
+		assert.Equal(t, clientCID, clientCommon.LocalConnectionID())
+		assert.Equal(t, serverCID, clientCommon.RemoteConnectionID)
 		assert.NoError(t, res.c.Close())
 	})
 
@@ -4003,6 +4013,8 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 	// Setup client
 	clientCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
+	clientCID := []byte("client-cid")
+	serverCID := []byte("server-cid")
 
 	client, err := ClientWithOptions(
 		dtlsnet.PacketConnFromConn(ca),
@@ -4011,6 +4023,7 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 		WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_3),
 		WithMaxVersion(protocol.Version1_3),
+		WithConnectionIDGenerator(func() []byte { return clientCID }),
 	)
 	assert.NoError(t, err)
 	defer func() {
@@ -4032,6 +4045,7 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 		WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_3),
 		WithMaxVersion(protocol.Version1_3),
+		WithConnectionIDGenerator(func() []byte { return serverCID }),
 	)
 	assert.NoError(t, err)
 	defer func() {
@@ -4052,6 +4066,10 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 	}()
 	require.NoError(t, <-errorChannel)
 	require.NoError(t, <-errorChannel)
+	assert.Equal(t, clientCID, dtlsstate.CommonState(client.state).LocalConnectionID())
+	assert.Equal(t, serverCID, dtlsstate.CommonState(client.state).RemoteConnectionID)
+	assert.Equal(t, serverCID, dtlsstate.CommonState(server.state).LocalConnectionID())
+	assert.Equal(t, clientCID, dtlsstate.CommonState(server.state).RemoteConnectionID)
 
 	_, ok = client.ConnectionState()
 	require.True(t, ok)
@@ -4919,8 +4937,7 @@ func TestSealRecordContentUsesNegotiatedConnectionID(t *testing.T) {
 		Secret:     secret,
 		Protection: protection,
 	}, nil)
-	state.SetLocalConnectionID([]byte("local-cid"))
-	state.NegotiateConnectionIDs([]byte("remote-cid"))
+	state.CommitNegotiatedExtensions(&extensionnegotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid")}) //nolint:lll
 
 	rawRecord, err := conn.sealRecordContent(
 		dtlsflight13.EpochApplication, 0, protocol.ContentTypeApplicationData, []byte("application"),
@@ -4947,8 +4964,7 @@ func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
 		Protection: protection,
 	})
 	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
-	state.SetLocalConnectionID([]byte("local-cid"))
-	state.NegotiateConnectionIDs([]byte("remote-cid"))
+	state.CommitNegotiatedExtensions(&extensionnegotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid")}) //nolint:lll
 
 	sealed, err := protection.Seal(
 		recordlayer.UnifiedHeader{

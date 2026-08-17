@@ -19,6 +19,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,8 +31,7 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 	} {
 		t.Run(name, func(t *testing.T) {
 			state13 := dtlsstate.NewState13(true)
-			state13.SetLocalConnectionID(cid)
-			state13.LocalCIDOffered = true
+			recordCH12(t, &state13.LocalClientHelloSnapshots, &extension.ConnectionID{CID: cid})
 			state := dtlsstate.Activate12(&state13)
 			cfg := &dtlsconfig.HandshakeConfig{
 				ClientHelloMessageHook: func(clientHello handshake.MessageClientHello) handshake.Message {
@@ -64,6 +64,7 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 
 func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.T) {
 	state13 := dtlsstate.NewState13(true)
+	recordCH12(t, &state13.LocalClientHelloSnapshots)
 	state := dtlsstate.Activate12(&state13)
 	cfg := &dtlsconfig.HandshakeConfig{EllipticCurves: []elliptic.Curve{elliptic.X25519}}
 
@@ -90,25 +91,159 @@ func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	}
 	_, offer, err := extensionnegotiation.FinalizeClientHello(clientHello, nil)
-	assert.NoError(t, err)
-	state.LocalClientHelloSnapshots.Record(offer)
+	require.NoError(t, err)
+	require.NoError(t, state.LocalClientHelloSnapshots.Record(offer))
 
 	cipherSuiteID := uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	raw, err := (&handshake.Handshake{Message: &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions: []extension.Value{
-			extension.Raw{Type: 0xfafa},
-		},
+		Extensions:        []extension.Value{extension.Raw{Type: 0xfafa}},
 	}}).Marshal()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
 
 	_, dtlsAlert, err := parseForTest(
 		t, Flight3, context.Background(), nil, state, cache, &dtlsconfig.HandshakeConfig{},
 	)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
 	assert.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
 	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, dtlsAlert)
+}
+
+func TestFlight3DoesNotCommitConnectionIDBeforeSuccess(t *testing.T) {
+	state := newTestState12()
+	state.IsClient, state.SessionID = true, []byte{1}
+	recordCH12(t, &state.LocalClientHelloSnapshots, &extension.ConnectionID{CID: []byte{0xc1}})
+	suite := ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	cfg := &dtlsconfig.HandshakeConfig{
+		LocalCipherSuites: []dtlsconfig.CipherSuite{suite}, HasSessionStore: true,
+		DelSession: func([]byte) error { return dtlserrors.ErrInvalidPacket },
+		Log:        logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+	}
+	cipherSuiteID := uint16(suite.ID())
+	raw, err := (&handshake.Handshake{Message: &handshake.MessageServerHello{
+		Version: protocol.Version1_2, SessionID: []byte{2}, CipherSuiteID: &cipherSuiteID,
+		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+		Extensions:        []extension.Value{&extension.ConnectionID{CID: []byte{0x51}}},
+	}}).Marshal()
+	require.NoError(t, err)
+	cache := dtlsflight.NewCache()
+	cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
+
+	_, dtlsAlert, err := parseForTest(t, Flight3, t.Context(), nil, state, cache, cfg)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidPacket)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlsAlert)
+	assert.False(t, state.LocalCIDOffered || state.RemoteCIDOffered)
+	assert.Nil(t, state.LocalConnectionID())
+	assert.Nil(t, state.RemoteConnectionID)
+}
+
+func TestFlight2RejectsChangedConnectionID(t *testing.T) {
+	state := newTestState12()
+	state.Cookie, state.HandshakeRecvSequence = []byte{0xc0}, 1
+	recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: []byte{1}})
+	raw, err := (&handshake.Handshake{
+		Header: handshake.Header{MessageSequence: 1},
+		Message: &handshake.MessageClientHello{
+			Version: protocol.Version1_2, Cookie: state.Cookie,
+			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+			Extensions:         []extension.Value{&extension.ConnectionID{CID: []byte{2}}},
+		},
+	}).Marshal()
+	require.NoError(t, err)
+	cache := dtlsflight.NewCache()
+	cache.Push(raw, 0, 1, handshake.TypeClientHello, true)
+
+	_, dtlsAlert, err := parseForTest(t, Flight2, t.Context(), nil, state, cache, &dtlsconfig.HandshakeConfig{})
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
+	cid, present := extensionnegotiation.ConnectionIDOffer(state.RemoteClientHelloSnapshots.Current())
+	assert.Equal(t, []byte{1}, cid)
+	assert.True(t, present)
+}
+
+func TestFlight4bGenerateCommitsConnectionIDOnce(t *testing.T) {
+	for name, test := range map[string]struct {
+		clientCID, serverCID []byte
+	}{
+		"bidirectional":       {[]byte{0xc1}, []byte{0x51}},
+		"empty client CID":    {nil, []byte{0x51}},
+		"empty server CID":    {[]byte{0xc1}, nil},
+		"both CIDs are empty": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			state := newTestState12()
+			state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+			state.LocalVerifyData = []byte{1}
+			recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: test.clientCID})
+			calls := 0
+			cfg := &dtlsconfig.HandshakeConfig{ConnectionIDGenerator: func() []byte {
+				calls++
+
+				return test.serverCID
+			}}
+			for range 2 {
+				packets, _, err := generateForTest(t, Flight4b, nil, state, dtlsflight.NewCache(), cfg)
+				require.NoError(t, err)
+				require.Len(t, packets, 3)
+				assert.Equal(t, len(test.clientCID) > 0, packets[2].ShouldWrapCID)
+			}
+			assert.Equal(t, 1, calls)
+			assert.True(t, state.LocalCIDOffered && state.RemoteCIDOffered)
+			assert.Equal(t, string(test.serverCID), string(state.LocalConnectionID()))
+			assert.Equal(t, string(test.clientCID), string(state.RemoteConnectionID))
+		})
+	}
+}
+
+func TestFlight4bGenerateDoesNotCommitConnectionIDAfterLateResponseError(t *testing.T) {
+	state := newTestState12()
+	state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	state.LocalVerifyData = []byte{1}
+	recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: []byte{0xc1}})
+	cfg := &dtlsconfig.HandshakeConfig{
+		ConnectionIDGenerator: func() []byte { return []byte{0x51} },
+		ServerHelloMessageHook: func(serverHello handshake.MessageServerHello) handshake.Message {
+			serverHello.Extensions = append(serverHello.Extensions, extension.Raw{Type: 0xfafa})
+
+			return &serverHello
+		},
+	}
+
+	_, _, err := generateForTest(t, Flight4b, nil, state, nil, cfg)
+	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
+	var dtlsAlert *alert.Alert
+	require.ErrorAs(t, err, &dtlsAlert)
+	assert.Equal(t, alert.UnsupportedExtension, dtlsAlert.Description)
+	assert.False(t, state.LocalCIDOffered || state.RemoteCIDOffered)
+	assert.Nil(t, state.LocalConnectionID())
+	assert.Nil(t, state.RemoteConnectionID)
+}
+
+func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
+	for name, decision := range map[string]*extensionnegotiation.ConnectionID{
+		"not negotiated":   nil,
+		"bidirectional":    {ClientCID: []byte{0xc1}, ServerCID: []byte{0x51}},
+		"empty server CID": {ClientCID: []byte{0xc1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			state := newTestState12()
+			state.IsClient, state.LocalVerifyData = true, []byte{1}
+			state.CommitNegotiatedExtensions(decision)
+			packets, _, err := generateForTest(t, Flight5b, nil, state, nil, &dtlsconfig.HandshakeConfig{})
+			require.NoError(t, err)
+			require.Len(t, packets, 2)
+			assert.Equal(t, decision != nil && len(decision.ServerCID) > 0, packets[1].ShouldWrapCID)
+		})
+	}
+}
+
+func recordCH12(t *testing.T, snapshots *extensionnegotiation.ClientHelloSnapshots, extensions ...extension.Value) {
+	t.Helper()
+	_, snapshot, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{Extensions: extensions}, nil) //nolint:lll
+	require.NoError(t, err)
+	require.NoError(t, snapshots.Record(snapshot))
 }

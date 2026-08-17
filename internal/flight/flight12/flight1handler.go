@@ -71,6 +71,7 @@ func flight1Generate(
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
+	state.ResetConnectionIDs()
 	state.LocalClientHelloSnapshots.Reset()
 
 	var zeroEpoch uint16
@@ -161,9 +162,7 @@ func flight1Generate(
 	// in which case we are just requesting that the server send us a CID to
 	// use.
 	if cfg.ConnectionIDGenerator != nil {
-		state.SetLocalConnectionID(cfg.ConnectionIDGenerator())
-		state.LocalCIDOffered = true
-		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
+		extensions = append(extensions, &extension.ConnectionID{CID: cfg.ConnectionIDGenerator()})
 	}
 
 	clientHello := &handshake.MessageClientHello{
@@ -180,7 +179,9 @@ func flight1Generate(
 	if err != nil {
 		return nil, nil, err
 	}
-	state.LocalClientHelloSnapshots.Record(snapshot)
+	if err := state.RecordLocalClientHello(snapshot); err != nil {
+		return nil, nil, err
+	}
 	content := handshake.Handshake{Message: clientHello}
 
 	return []*dtlsflight.Packet{

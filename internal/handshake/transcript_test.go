@@ -632,7 +632,7 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 
 func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
-	state := newTestState13(false)
+	state := newTestState13(t, false)
 	state.CipherSuite = cipherSuite
 	state.KeyAgreementSecret = bytes.Repeat([]byte{0x11}, sha256.Size)
 
@@ -666,7 +666,7 @@ func TestInitHandshakeRecordProtection13InstallsDirectionalKeys(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 			secretLen := cipherSuite.HashFunc()().Size()
-			state := newTestState13(testCase.isClient)
+			state := newTestState13(t, testCase.isClient)
 			state.CipherSuite = cipherSuite
 			state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 				Client: bytes.Repeat([]byte{0x11}, secretLen),
@@ -699,7 +699,7 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 		Client: bytes.Repeat([]byte{0x33}, secretLen),
 		Server: bytes.Repeat([]byte{0x44}, secretLen),
 	}
-	state := newTestState13(true)
+	state := newTestState13(t, true)
 	state.CipherSuite = cipherSuite
 	state.KeySchedule.HandshakeTraffic = handshakeSecrets
 	state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
@@ -763,13 +763,13 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 		},
 		{
 			name:  "missing cipher suite",
-			state: newTestState13(false),
+			state: newTestState13(t, false),
 			err:   dtlserrors.ErrCipherSuiteNotSet,
 		},
 		{
 			name: "not tls 13",
 			state: func() *dtlsstate.State13 {
-				state := newTestState13(false)
+				state := newTestState13(t, false)
 				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
 				state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
 				state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
@@ -781,7 +781,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 		{
 			name: "missing client application secret",
 			state: func() *dtlsstate.State13 {
-				state := newTestState13(false)
+				state := newTestState13(t, false)
 				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 				state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
 
@@ -792,7 +792,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 		{
 			name: "missing server application secret",
 			state: func() *dtlsstate.State13 {
-				state := newTestState13(false)
+				state := newTestState13(t, false)
 				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 				state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
 
@@ -803,7 +803,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 		{
 			name: "handshake protection initialized without application secrets",
 			state: func() *dtlsstate.State13 {
-				state := newTestState13(false)
+				state := newTestState13(t, false)
 				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: bytes.Repeat([]byte{0x11}, sha256.Size),
@@ -837,13 +837,13 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 		},
 		{
 			name:  "missing cipher suite",
-			state: newTestState13(false),
+			state: newTestState13(t, false),
 			err:   dtlserrors.ErrCipherSuiteNotSet,
 		},
 		{
 			name: "not tls 13",
 			state: func() *dtlsstate.State13 {
-				state := newTestState13(false)
+				state := newTestState13(t, false)
 				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: []byte{0x11},
@@ -857,7 +857,7 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 		{
 			name: "missing client secret",
 			state: func() *dtlsstate.State13 {
-				state := newTestState13(false)
+				state := newTestState13(t, false)
 				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Server: []byte{0x22},
@@ -870,7 +870,7 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 		{
 			name: "missing server secret",
 			state: func() *dtlsstate.State13 {
-				state := newTestState13(false)
+				state := newTestState13(t, false)
 				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: []byte{0x11},
@@ -917,7 +917,7 @@ func TestCertificateVerifyInput13ServerAndClient(t *testing.T) {
 func TestHandshakeFinishedBaseKeys13(t *testing.T) {
 	clientSecret := bytes.Repeat([]byte{0x11}, sha256.Size)
 	serverSecret := bytes.Repeat([]byte{0x22}, sha256.Size)
-	state := newTestState13(false)
+	state := newTestState13(t, false)
 	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 		Client: clientSecret,
 		Server: serverSecret,
@@ -931,9 +931,9 @@ func TestHandshakeFinishedBaseKeys13(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, serverSecret, serverBaseKey)
 
-	_, err = ClientHandshakeFinishedBaseKey(newTestState13(false))
+	_, err = ClientHandshakeFinishedBaseKey(newTestState13(t, false))
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
-	_, err = ServerHandshakeFinishedBaseKey(newTestState13(false))
+	_, err = ServerHandshakeFinishedBaseKey(newTestState13(t, false))
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 }
 
@@ -1074,7 +1074,7 @@ func TestFinishedFailureDoesNotPoisonTranscript13(t *testing.T) {
 
 func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
-	state := newTestState13(false)
+	state := newTestState13(t, false)
 	state.CipherSuite = cipherSuite
 	state.KeyAgreementSecret = bytes.Repeat([]byte{0x77}, sha256.Size)
 	transcript := NewTranscript()

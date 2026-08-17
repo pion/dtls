@@ -13,6 +13,7 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
@@ -262,6 +263,7 @@ func flight4Generate(
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
+	offer := state.RemoteClientHelloSnapshots.Current()
 	extensions := []extension.Value{}
 
 	if (cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
@@ -279,7 +281,8 @@ func flight4Generate(
 			RenegotiatedConnection: 0,
 		})
 	}
-	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate {
+	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate &&
+		offer.Offered(extension.TypeSupportedPointFormats) {
 		extensions = append(extensions, &extension12.SupportedPointFormats{
 			PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 		})
@@ -294,14 +297,8 @@ func flight4Generate(
 		state.NegotiatedProtocol = selectedProto
 	}
 
-	// If we have a connection ID generator, we are willing to use connection
-	// IDs. We already know whether the client supports connection IDs from
-	// parsing the ClientHello, so avoid setting local connection ID if the
-	// client won't send it.
-	if cfg.ConnectionIDGenerator != nil && state.RemoteCIDOffered {
-		state.SetLocalConnectionID(cfg.ConnectionIDGenerator())
-		state.LocalCIDOffered = true
-		extensions = append(extensions, &extension.ConnectionID{CID: state.LocalConnectionID()})
+	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
+		extensions = append(extensions, cid)
 	}
 
 	var pkts []*dtlsflight.Packet
@@ -309,7 +306,7 @@ func flight4Generate(
 
 	if cfg.HasSessionStore {
 		state.SessionID = make([]byte, sessionLength)
-		if _, err := rand.Read(state.SessionID); err != nil {
+		if _, err = rand.Read(state.SessionID); err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}
@@ -323,13 +320,12 @@ func flight4Generate(
 		Extensions:        extensions,
 	}
 
-	var content handshake.Handshake
-
-	if cfg.ServerHelloMessageHook != nil {
-		content = handshake.Handshake{Message: cfg.ServerHelloMessageHook(*serverHello)}
-	} else {
-		content = handshake.Handshake{Message: serverHello}
+	serverHello, err = extensionnegotiation.FinalizeServerHello(serverHello, cfg.ServerHelloMessageHook, offer)
+	if err != nil {
+		return nil, nil, err
 	}
+	decision := extensionnegotiation.DecideConnectionID(offer, serverHello.Extensions)
+	content := handshake.Handshake{Message: serverHello}
 
 	pkts = append(pkts, &dtlsflight.Packet{
 		Record: &recordlayer.RecordLayer{
@@ -485,6 +481,19 @@ func flight4Generate(
 			},
 		},
 	})
+	state.CommitNegotiatedExtensions(decision)
 
 	return pkts, nil, nil
+}
+
+func serverCIDExtension(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, offer extensionnegotiation.ClientHelloSnapshot) *extension.ConnectionID { //nolint:lll
+	if cfg.ConnectionIDGenerator == nil || !offer.Offered(extension.TypeConnectionID) {
+		return nil
+	}
+	cid := state.LocalConnectionID()
+	if !state.LocalCIDOffered {
+		cid = cfg.ConnectionIDGenerator()
+	}
+
+	return &extension.ConnectionID{CID: cid}
 }

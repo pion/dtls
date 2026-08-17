@@ -51,7 +51,7 @@ func flight3Parse(
 			pull.items,
 		)
 		if failure != nil {
-			return 0, failure.alert, failure.err
+			return abortFlight3(flightCtx, failure)
 		}
 		nextHandshakeSequence = pull.nextHandshakeSequence
 	}
@@ -77,15 +77,21 @@ func flight3Parse(
 		return 0, nil, nil
 	}
 	if protectedFlight.failure != nil {
-		return 0, protectedFlight.failure.alert, protectedFlight.failure.err
+		return abortFlight3(flightCtx, protectedFlight.failure)
 	}
 	failure := handleFlight3ProtectedHandshake(flightCtx, protectedFlight.items)
 	if failure != nil {
-		return 0, failure.alert, failure.err
+		return abortFlight3(flightCtx, failure)
 	}
 	flightCtx.state.HandshakeRecvSequence = protectedFlight.nextHandshakeSequence
 
 	return Flight5, nil, nil
+}
+
+func abortFlight3(flightCtx *handshakeContext, failure *flightParseFailure) (Flight, *alert.Alert, error) {
+	flightCtx.state.ResetConnectionIDs()
+
+	return 0, failure.alert, failure.err
 }
 
 func flight3PullServerHello(
@@ -129,15 +135,11 @@ func processFlight3ServerHello(
 	if failure != nil {
 		return failure
 	}
-	if err := extensionnegotiation.ValidateServerHelloResponse(
-		flightCtx.state.LocalClientHelloSnapshots.Current(), serverHello,
-	); err != nil {
+	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
+	if err := extensionnegotiation.ValidateServerHelloResponse(offer, serverHello); err != nil {
 		return newFlightParseFailure(alert.UnsupportedExtension, err)
 	}
-	remoteCID, hasRemoteCID, duplicateCID := connectionIDExtension(serverHello.Extensions)
-	if duplicateCID {
-		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrInvalidServerHello)
-	}
+	decision := extensionnegotiation.DecideConnectionID(offer, serverHello.Extensions)
 	flightCtx.state.RemoteVersions = versions
 	flightCtx.state.LocalVersion = protocol.Version1_3
 
@@ -157,11 +159,7 @@ func processFlight3ServerHello(
 	if failure := applyFlight3ServerKeyShare(flightCtx, serverShare); failure != nil {
 		return failure
 	}
-	if hasRemoteCID {
-		flightCtx.state.NegotiateConnectionIDs(remoteCID)
-	} else {
-		flightCtx.state.ResetConnectionIDs()
-	}
+	flightCtx.state.CommitNegotiatedExtensions(decision)
 
 	return nil
 }
@@ -256,22 +254,26 @@ func handleFlight3ProtectedHandshake(
 	flightCtx *handshakeContext,
 	items []dtlsflight.DecodedHandshakeCacheItem,
 ) *flightParseFailure {
+	flightCtx.state.RemoteCertificateRequest = nil
+	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
+	for _, item := range items {
+		if item.Parsed == nil {
+			continue
+		}
+		switch message := item.Parsed.Message.(type) {
+		case *handshake.MessageEncryptedExtensions:
+			if err := extensionnegotiation.ValidateResponseExtensions(offer, message.Extensions, nil); err != nil {
+				return newFlightParseFailure(alert.UnsupportedExtension, err)
+			}
+		case *handshake.MessageCertificateRequest13:
+			flightCtx.state.RemoteCertificateRequest = message
+		}
+	}
 	if flightCtx.protectedHandshakeHandler == nil {
 		return newFlightParseFailure(alert.InternalError, dtlserrors.ErrHandshakeTranscriptHashNotSelected)
 	}
 	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
 		return protectedFlightParseFailure(err)
-	}
-	flightCtx.state.RemoteCertificateRequest = nil
-	for _, item := range items {
-		if item.Parsed == nil {
-			continue
-		}
-		if request, ok := item.Parsed.Message.(*handshake.MessageCertificateRequest13); ok {
-			flightCtx.state.RemoteCertificateRequest = request
-
-			break
-		}
 	}
 
 	return nil
@@ -370,11 +372,9 @@ func flight3Generate(
 		})
 	}
 
-	localCID := flightCtx.state.LocalConnectionID()
-	if flightCtx.cfg.ConnectionIDGenerator != nil && flightCtx.state.LocalCIDOffered {
-		extensions = append(extensions, &extension.ConnectionID{
-			CID: bytes.Clone(localCID),
-		})
+	localCID, localCIDOffered := extensionnegotiation.ConnectionIDOffer(flightCtx.state.LocalClientHelloSnapshots.Current()) //nolint:lll
+	if flightCtx.cfg.ConnectionIDGenerator != nil && localCIDOffered {
+		extensions = append(extensions, &extension.ConnectionID{CID: bytes.Clone(localCID)})
 	}
 
 	if len(flightCtx.state.Cookie) > 0 {
@@ -391,17 +391,13 @@ func flight3Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(
-		clientHello,
-		flightCtx.cfg.ClientHelloMessageHook,
-	)
+	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, flightCtx.cfg.ClientHelloMessageHook) //nolint:lll
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := validateRepeatedClientHelloConnectionIDOffer(flightCtx.state, clientHello); err != nil {
+	if err := flightCtx.state.RecordLocalClientHello(snapshot); err != nil {
 		return nil, nil, err
 	}
-	flightCtx.state.LocalClientHelloSnapshots.Record(snapshot)
 	content := handshake.Handshake{Message: clientHello}
 
 	return []*dtlsflight.Packet{

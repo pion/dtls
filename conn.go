@@ -1458,13 +1458,13 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 	common := dtlsstate.CommonState(c.state)
 	if common.LocalVersion.Equal(protocol.Version1_3) ||
 		protocol.IsDTLS13Ciphertext(protocol.ContentType(buf[0])) {
-		cidLength := len(common.LocalConnectionID())
+		cidLength := len(common.LocalConnectionIDForInboundRecords())
 		state13, is13 := c.state.(*dtlsstate.State13)
 
 		return recordlayer.UnpackDatagram13(buf, cidLength, is13 && state13.CID.Negotiated, true)
 	}
 
-	return recordlayer.ContentAwareUnpackDatagram(buf, len(common.LocalConnectionID()))
+	return recordlayer.ContentAwareUnpackDatagram(buf, len(common.LocalConnectionIDForInboundRecords()))
 }
 
 func (c *Conn) queueableCiphertextEpoch(epochLow uint8, remoteEpoch uint16) bool {
@@ -1480,7 +1480,7 @@ func (c *Conn) queueableCiphertextEpoch(epochLow uint8, remoteEpoch uint16) bool
 func (c *Conn) unmarshalCiphertextRecord(buf []byte) (recordlayer.CiphertextRecord13, error) {
 	record := recordlayer.CiphertextRecord13{}
 	hasCID := buf[0]&recordlayer.UnifiedHeaderCIDBit != 0
-	localCID := dtlsstate.CommonState(c.state).LocalConnectionID()
+	localCID := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
 	cidExpected, cidAllowed, err := c.ciphertextCIDPolicy(localCID)
 	if err != nil {
 		return record, err
@@ -1873,7 +1873,7 @@ func (c *Conn) unmarshalLegacyHeader(buf []byte) (*recordlayer.Header, bool) {
 	header := &recordlayer.Header{}
 	// Set connection ID size so that records of content type tls12_cid will
 	// be parsed correctly.
-	localCID := dtlsstate.CommonState(c.state).LocalConnectionID()
+	localCID := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
 	if len(localCID) > 0 {
 		header.ConnectionID = make([]byte, len(localCID))
 	}
@@ -1971,7 +1971,7 @@ func (c *Conn) decryptLegacyPacket(
 
 func (c *Conn) validateLegacyCIDPresence(header *recordlayer.Header) bool {
 	common := dtlsstate.CommonState(c.state)
-	if len(common.LocalConnectionID()) == 0 || header.ContentType == protocol.ContentTypeConnectionID {
+	if len(common.LocalConnectionIDForInboundRecords()) == 0 || header.ContentType == protocol.ContentTypeConnectionID {
 		return true
 	}
 
@@ -1984,7 +1984,7 @@ func (c *Conn) decryptLegacyRecord(header *recordlayer.Header, buf []byte) ([]by
 	var decryptHeader recordlayer.Header
 	common := dtlsstate.CommonState(c.state)
 	if header.ContentType == protocol.ContentTypeConnectionID {
-		decryptHeader.ConnectionID = make([]byte, len(common.LocalConnectionID()))
+		decryptHeader.ConnectionID = make([]byte, len(common.LocalConnectionIDForInboundRecords()))
 	}
 	decrypted, err := common.CipherSuite.Decrypt(decryptHeader, buf)
 	if err != nil {
@@ -1997,7 +1997,7 @@ func (c *Conn) decryptLegacyRecord(header *recordlayer.Header, buf []byte) ([]by
 }
 
 func (c *Conn) validateLegacyCID(header *recordlayer.Header) bool {
-	if bytes.Equal(dtlsstate.CommonState(c.state).LocalConnectionID(), header.ConnectionID) {
+	if bytes.Equal(dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords(), header.ConnectionID) {
 		return true
 	}
 
