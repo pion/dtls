@@ -876,6 +876,12 @@ func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 	)
 
 	state := newTestState13(false)
+	_, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{
+		state: state,
+		cfg:   cfg,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
 	cache := dtlsflight.NewCache()
 	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
 
@@ -893,6 +899,35 @@ func TestFlight13_1ParseStoresHelloRetryRequestSelectedGroup(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, selectedGroup, entries[0].Group)
 	assert.Empty(t, entries[0].KeyExchange)
+}
+
+func TestFlight13_1ParseRejectsUnsolicitedHelloRetryRequestExtension(t *testing.T) {
+	cfg := testHandshakeConfig13(t)
+	state := newTestState13(false)
+	_, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{
+		state: state,
+		cfg:   cfg,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+
+	rawServerHello := marshalHelloRetryRequestServerHello(t, cfg, []extension.Value{
+		&extension13.SelectedVersion{Version: protocol.Version1_3},
+		extension.Raw{Type: 0xfafa},
+	})
+	cache := dtlsflight.NewCache()
+	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+
+	nextFlight, dtlsAlert, err := flight13ParseForTest(
+		t, dtlsflight13.Flight1, context.Background(), &handshakeTestContext13{
+			state: state,
+			cache: cache,
+			cfg:   cfg,
+		})
+
+	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, dtlsAlert)
+	assert.Zero(t, nextFlight)
 }
 
 func TestFlight13_1ParseRejectsHelloRetryRequestWithoutSupportedVersions(t *testing.T) {
@@ -2132,8 +2167,14 @@ func TestFlight13_3ParseRejectsMissingKeyShare(t *testing.T) {
 func TestFlight13_3ParseRejectsUnofferedKeyShareGroup(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := newTestState13(false)
+	_, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{
+		state: state,
+		cfg:   cfg,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
 
-	group := cfg.EllipticCurves[0]
+	group := elliptic.X25519MLKEM768
 	serverKeypair, err := elliptic.GenerateKeypair(group)
 	require.NoError(t, err)
 
@@ -4040,7 +4081,7 @@ func TestFlight13_3ParseRejectsUnsolicitedConnectionID(t *testing.T) {
 				t, false, nil, [][]byte{cid},
 			)
 
-			require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
+			require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
 			require.NotNil(t, dtlsAlert)
 			assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, dtlsAlert)
 			assert.Zero(t, nextFlight)

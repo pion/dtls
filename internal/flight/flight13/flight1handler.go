@@ -228,9 +228,11 @@ func flight1Parse(
 
 		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
 	}
-	if _, present, duplicate := connectionIDExtension(sh.Extensions); present || duplicate {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-			dtlserrors.ErrInvalidHelloRetryRequest
+	if err := extensionnegotiation.ValidateServerHelloResponse(
+		state.LocalClientHelloSnapshots.Current(), sh,
+	); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension},
+			err
 	}
 	selectedCipherSuite, dtlsAlert, err := selectServerHelloCipherSuite(sh, cfg)
 	if err != nil {

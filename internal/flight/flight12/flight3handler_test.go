@@ -4,11 +4,18 @@
 package flight12
 
 import (
+	"context"
 	"testing"
 
+	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -73,4 +80,35 @@ func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.
 	assert.Contains(t, clientHello.Extensions, &extension12.SupportedPointFormats{
 		PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 	})
+}
+
+func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
+	state := newTestState12()
+	clientHello := &handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+	}
+	_, offer, err := extensionnegotiation.FinalizeClientHello(clientHello, nil)
+	assert.NoError(t, err)
+	state.LocalClientHelloSnapshots.Record(offer)
+
+	cipherSuiteID := uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+	raw, err := (&handshake.Handshake{Message: &handshake.MessageServerHello{
+		Version:           protocol.Version1_2,
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+		Extensions: []extension.Value{
+			extension.Raw{Type: 0xfafa},
+		},
+	}}).Marshal()
+	assert.NoError(t, err)
+	cache := dtlsflight.NewCache()
+	cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
+
+	_, dtlsAlert, err := parseForTest(
+		t, Flight3, context.Background(), nil, state, cache, &dtlsconfig.HandshakeConfig{},
+	)
+	assert.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, dtlsAlert)
 }

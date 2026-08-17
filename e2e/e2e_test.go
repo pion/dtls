@@ -858,6 +858,7 @@ func testPionE2ESimpleServerHelloHook(t *testing.T, server, client func(*comm), 
 
 		clientOpts := []dtls.ClientOption{
 			dtls.WithCertificates(cert),
+			dtls.WithSupportedProtocols(apln),
 			dtls.WithVerifyConnection(func(s *dtls.State) error {
 				if s.NegotiatedProtocol != apln {
 					return errHookAPLNFailed

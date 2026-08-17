@@ -129,12 +129,14 @@ func processFlight3ServerHello(
 	if failure != nil {
 		return failure
 	}
+	if err := extensionnegotiation.ValidateServerHelloResponse(
+		flightCtx.state.LocalClientHelloSnapshots.Current(), serverHello,
+	); err != nil {
+		return newFlightParseFailure(alert.UnsupportedExtension, err)
+	}
 	remoteCID, hasRemoteCID, duplicateCID := connectionIDExtension(serverHello.Extensions)
 	if duplicateCID {
 		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrInvalidServerHello)
-	}
-	if hasRemoteCID && !flightCtx.state.LocalCIDOffered {
-		return newFlightParseFailure(alert.UnsupportedExtension, dtlserrors.ErrInvalidServerHello)
 	}
 	flightCtx.state.RemoteVersions = versions
 	flightCtx.state.LocalVersion = protocol.Version1_3

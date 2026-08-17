@@ -12,6 +12,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -57,11 +58,15 @@ func TestFlight1_Process_RejectsInvalidLateServerFlight(t *testing.T) { //nolint
 	cache := dtlsflight.NewCache()
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalSRTPProtectionProfiles: []dtlsconfig.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM},
+		EllipticCurves:              []elliptic.Curve{elliptic.X25519},
+		ExtendedMasterSecret:        dtlsconfig.RequestExtendedMasterSecret,
 	}
 	cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{
 		ciphersuite.ForID(ciphersuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, nil),
 	}
 	cfg.Log = logging.NewDefaultLoggerFactory().NewLogger("dtls")
+	_, _, err := flight1Generate(mockConn, state, cache, cfg)
+	assert.NoError(t, err)
 
 	serverHello := []byte{
 		0x02, 0x00, 0x00, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

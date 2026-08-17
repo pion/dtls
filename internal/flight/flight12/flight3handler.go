@@ -68,6 +68,12 @@ func flight3Parse(
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 				dtlserrors.ErrUnsupportedProtocolVersion
 		}
+		if err := extensionnegotiation.ValidateServerHelloResponse(
+			state.LocalClientHelloSnapshots.Current(), serverHelloMsg,
+		); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension},
+				err
+		}
 		for _, v := range serverHelloMsg.Extensions {
 			switch ext := v.(type) {
 			case *extension.SRTPSelection:
