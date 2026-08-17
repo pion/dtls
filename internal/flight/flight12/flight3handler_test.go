@@ -8,7 +8,9 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,4 +53,24 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 			assert.Equal(t, cid, connectionIDs[0])
 		})
 	}
+}
+
+func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.T) {
+	state13 := dtlsstate.NewState13(true)
+	state := dtlsstate.Activate12(&state13)
+	cfg := &dtlsconfig.HandshakeConfig{EllipticCurves: []elliptic.Curve{elliptic.X25519}}
+
+	packets, dtlsAlert, err := generateForTest(t, Flight3, nil, state, nil, cfg)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, elliptic.X25519, state.NamedCurve)
+
+	handshakeMessage, ok := packets[0].Record.Content.(*handshake.Handshake)
+	require.True(t, ok)
+	clientHello, ok := handshakeMessage.Message.(*handshake.MessageClientHello)
+	require.True(t, ok)
+	assert.Contains(t, clientHello.Extensions, &extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
+	assert.Contains(t, clientHello.Extensions, &extension12.SupportedPointFormats{
+		PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
+	})
 }

@@ -37,7 +37,7 @@ func generateForTest(
 	flight Flight,
 	conn dtlsflight.Conn,
 	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
+	cache *dtlsflight.Cache, //nolint:unparam
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {

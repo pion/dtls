@@ -323,6 +323,12 @@ func flight3Generate(
 		})
 	}
 
+	if state.NamedCurve == 0 {
+		if curves := supportedEllipticCurves(cfg.EllipticCurves); len(curves) > 0 {
+			state.NamedCurve = curves[0]
+		}
+	}
+
 	if state.NamedCurve != 0 {
 		ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)
 
