@@ -115,8 +115,8 @@ func newTestState13(t *testing.T, isClient bool) *dtlsstate.State13 {
 		},
 	}, nil)
 	require.NoError(t, err)
-	_ = state.LocalClientHelloSnapshots.Record(snapshot)  // The first snapshot cannot conflict.
-	_ = state.RemoteClientHelloSnapshots.Record(snapshot) // The first snapshot cannot conflict.
+	require.NoError(t, state.RecordLocalClientHello(snapshot))
+	require.NoError(t, state.RemoteClientHelloSnapshots.Record(snapshot))
 
 	return &state
 }

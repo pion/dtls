@@ -182,12 +182,26 @@ func TestFlight3ParseClearsConnectionIDAfterInvalidEncryptedExtensions(t *testin
 		Extensions: []extension.Value{extension.Raw{Type: 0xfafa}},
 	}), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 	cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}), EpochHandshake, 1, handshake.TypeFinished, false) //nolint:lll
-	next, dtlsAlert, err := flight3Parse(t.Context(), nil, &handshakeContext{state: &state, cache: cache})
+	handlerCalled := false
+	next, dtlsAlert, err := flight3Parse(t.Context(), nil, &handshakeContext{
+		state: &state,
+		cache: cache,
+		protectedHandshakeHandler: func(
+			_ dtlsconfig.CipherSuite,
+			_ []dtlsflight.DecodedHandshakeCacheItem,
+		) error {
+			handlerCalled = true
+
+			return nil
+		},
+	})
 
 	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
 	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, dtlsAlert)
 	assert.Zero(t, next)
+	assert.False(t, handlerCalled)
 	assert.Nil(t, state.LocalConnectionIDForInboundRecords())
+	assert.Nil(t, state.LocalConnectionID())
 	assert.Nil(t, state.RemoteConnectionID)
 	assert.Equal(t, dtlsstate.CIDState{}, state.CID)
 }
@@ -252,6 +266,41 @@ func TestFlight4GenerateCertificateAuthenticatedFlight(t *testing.T) {
 	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
 	assert.Empty(t, certificateVerify.Signature)
 	assert.Same(t, certificate.PrivateKey, pkts[3].CertificateVerifySigner)
+}
+
+func TestFlight4GenerateReusesNegotiatedConnectionID(t *testing.T) {
+	flightCtx, _ := flight4TestContext(t)
+	_, offer, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+		Extensions: []extension.Value{
+			&extension.ConnectionID{CID: []byte{0x01}},
+		},
+	}, nil)
+	require.NoError(t, err)
+	flightCtx.state.RemoteClientHelloSnapshots.Reset()
+	require.NoError(t, flightCtx.state.RemoteClientHelloSnapshots.Record(offer))
+
+	generatorCalls := 0
+	flightCtx.cfg.ConnectionIDGenerator = func() []byte {
+		generatorCalls++
+
+		return []byte{0x01}
+	}
+
+	for range 2 {
+		packets, dtlsAlert, err := flight4Generate(nil, flightCtx)
+		require.NoError(t, err)
+		require.Nil(t, dtlsAlert)
+		require.NotEmpty(t, packets)
+		serverHelloHandshake, ok := packets[0].Record.Content.(*handshake.Handshake)
+		require.True(t, ok)
+		serverHello, ok := serverHelloHandshake.Message.(*handshake.MessageServerHello)
+		require.True(t, ok)
+		connectionID, ok := serverHello.Extensions[len(serverHello.Extensions)-1].(*extension.ConnectionID)
+		require.True(t, ok)
+		assert.Equal(t, []byte{0x01}, connectionID.CID)
+	}
+
+	assert.Equal(t, 1, generatorCalls)
 }
 
 func TestFlight4GenerateCertificateFailures(t *testing.T) {
