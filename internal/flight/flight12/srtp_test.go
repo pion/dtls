@@ -77,19 +77,17 @@ func TestFlight12ServerHelloUsesFinalSRTPOffer(t *testing.T) {
 	}
 }
 
-func TestFlight12ResumptionClearsStaleSRTPWithoutFinalOffer(t *testing.T) {
+func TestFlight12ResumptionRequiresFinalSRTPOffer(t *testing.T) {
 	state := newSRTPServerState12()
 	state.LocalVerifyData = []byte{1}
-	state.SetSRTPProtectionProfile(profile80)
-	state.RemoteSRTPMasterKeyIdentifier = []byte("stale")
 	recordCH12(t, &state.RemoteClientHelloSnapshots, srtpOffer12(profile80, initialMKI))
 	recordCH12(t, &state.RemoteClientHelloSnapshots)
 
 	packets, _, err := generateForTest(t, Flight4b, nil, state, dtlsflight.NewCache(), &dtlsconfig.HandshakeConfig{
 		LocalSRTPProtectionProfiles: []extension.SRTPProtectionProfile{profile80},
 	})
-	require.NoError(t, err)
-	assert.Nil(t, serverHelloSRTPSelection12(t, packets))
+	require.ErrorIs(t, err, dtlserrors.ErrServerNoMatchingSRTPProfile)
+	assert.Nil(t, packets)
 	assert.Zero(t, state.SRTPProtectionProfile())
 }
 

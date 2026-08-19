@@ -27,8 +27,15 @@ func NegotiateSRTP(
 	acceptedMKI []byte,
 ) (SRTPDecision, error) {
 	offer, offered, err := readSRTPOffer(snapshot)
-	if err != nil || !offered {
+	if err != nil {
 		return SRTPDecision{}, err
+	}
+	if !offered {
+		if len(localProfiles) > 0 {
+			return SRTPDecision{}, srtpError(dtlserrors.ErrServerNoMatchingSRTPProfile, alert.InsufficientSecurity)
+		}
+
+		return SRTPDecision{}, nil
 	}
 
 	var profile extension.SRTPProtectionProfile
@@ -55,6 +62,8 @@ func NegotiateSRTP(
 }
 
 // ValidateSRTPSelection validates one server selection against the exact offer.
+//
+//nolint:cyclop
 func ValidateSRTPSelection(
 	snapshot ClientHelloSnapshot,
 	responses []extension.Value,
@@ -65,6 +74,10 @@ func ValidateSRTPSelection(
 		return SRTPDecision{}, err
 	}
 	if !offered {
+		if len(localProfiles) > 0 {
+			return SRTPDecision{}, srtpError(dtlserrors.ErrRequestedButNoSRTPExtension, alert.InsufficientSecurity)
+		}
+
 		return SRTPDecision{}, nil
 	}
 

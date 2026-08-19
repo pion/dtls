@@ -984,23 +984,24 @@ func TestClientTimeout(t *testing.T) {
 	assert.True(t, netErr.Timeout(), "Client error exp(Timeout) failed")
 }
 
+type srtpConfigurationTest struct {
+	Name                          string
+	ClientSRTP                    []SRTPProtectionProfile
+	ServerSRTP                    []SRTPProtectionProfile
+	ClientSRTPMasterKeyIdentifier []byte
+	ServerSRTPMasterKeyIdentifier []byte
+	ExpectedClientMKI             []byte
+	ExpectedServerMKI             []byte
+	ExpectedProfile               SRTPProtectionProfile
+	WantClientError               error
+	WantServerError               error
+}
+
 func TestSRTPConfiguration(t *testing.T) {
-	// Check for leaking routines
 	report := test.CheckRoutines(t)
 	defer report()
 
-	for _, test := range []struct {
-		Name                          string
-		ClientSRTP                    []SRTPProtectionProfile
-		ServerSRTP                    []SRTPProtectionProfile
-		ClientSRTPMasterKeyIdentifier []byte
-		ServerSRTPMasterKeyIdentifier []byte
-		ExpectedClientMKI             []byte
-		ExpectedServerMKI             []byte
-		ExpectedProfile               SRTPProtectionProfile
-		WantClientError               error
-		WantServerError               error
-	}{
+	tests := []srtpConfigurationTest{
 		{
 			Name: "No SRTP in use",
 		},
@@ -1036,8 +1037,8 @@ func TestSRTPConfiguration(t *testing.T) {
 			ClientSRTP:      nil,
 			ServerSRTP:      []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			ExpectedProfile: 0,
-			WantClientError: nil,
-			WantServerError: nil,
+			WantClientError: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
+			WantServerError: dtlserrors.ErrServerNoMatchingSRTPProfile,
 		},
 		{
 			Name:            "Multiple Suites",
@@ -1055,76 +1056,84 @@ func TestSRTPConfiguration(t *testing.T) {
 			WantClientError: nil,
 			WantServerError: nil,
 		},
-	} {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		ca, cb := dpipe.Pipe()
-		type result struct {
-			c   *Conn
-			err error
-		}
-		resultCh := make(chan result)
-
-		go func() {
-			opts := []ClientOption{
-				WithMinVersion(protocol.Version1_2),
-				WithMaxVersion(protocol.Version1_2),
-				WithSRTPMasterKeyIdentifier(test.ClientSRTPMasterKeyIdentifier),
-			}
-			if len(test.ClientSRTP) > 0 {
-				opts = append(opts, WithSRTPProtectionProfiles(test.ClientSRTP...))
-			}
-			client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, true)
-			resultCh <- result{client, err}
-		}()
-
-		opts := []ServerOption{
-			WithMinVersion(protocol.Version1_2),
-			WithMaxVersion(protocol.Version1_2),
-			WithSRTPMasterKeyIdentifier(test.ServerSRTPMasterKeyIdentifier),
-		}
-		if len(test.ServerSRTP) > 0 {
-			opts = append(opts, WithSRTPProtectionProfiles(test.ServerSRTP...))
-		}
-		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), opts, true)
-		assert.ErrorIs(t, err, test.WantServerError, "TestSRTPConfiguration: Server Error Mismatch")
-
-		if err == nil {
-			defer func() {
-				_ = server.Close()
-			}()
-		}
-
-		res := <-resultCh
-		if res.err == nil {
-			defer func() {
-				_ = res.c.Close()
-			}()
-		}
-		assert.ErrorIsf(t, res.err, test.WantClientError, "TestSRTPConfiguration: Client Error Mismatch '%s'", test.Name)
-		if res.c == nil {
-			return
-		}
-
-		actualClientSRTP, _ := res.c.SelectedSRTPProtectionProfile()
-		assert.Equalf(t, test.ExpectedProfile, actualClientSRTP,
-			"TestSRTPConfiguration: Client SRTPProtectionProfile Mismatch '%s'", test.Name)
-
-		actualServerSRTP, _ := server.SelectedSRTPProtectionProfile()
-		assert.Equalf(t, test.ExpectedProfile, actualServerSRTP,
-			"TestSRTPConfiguration: Server SRTPProtectionProfile Mismatch '%s'", test.Name)
-
-		actualServerMKI, _ := server.RemoteSRTPMasterKeyIdentifier()
-		assert.True(t, bytes.Equal(test.ExpectedServerMKI, actualServerMKI), test.Name)
-		if len(actualServerMKI) > 0 {
-			actualServerMKI[0] ^= 0xff
-			actualServerMKI, _ = server.RemoteSRTPMasterKeyIdentifier()
-			assert.True(t, bytes.Equal(test.ExpectedServerMKI, actualServerMKI), test.Name)
-		}
-		actualClientMKI, _ := res.c.RemoteSRTPMasterKeyIdentifier()
-		assert.True(t, bytes.Equal(test.ExpectedClientMKI, actualClientMKI), test.Name)
 	}
+	for _, version := range []struct {
+		name  string
+		value protocol.Version
+	}{
+		{name: "DTLS12", value: protocol.Version1_2},
+		{name: "DTLS13", value: protocol.Version1_3},
+	} {
+		for _, test := range tests {
+			t.Run(version.name+"/"+test.Name, func(t *testing.T) {
+				runSRTPConfiguration(t, version.value, test)
+			})
+		}
+	}
+}
+
+func runSRTPConfiguration(t *testing.T, version protocol.Version, test srtpConfigurationTest) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ca, cb := dpipe.Pipe()
+	type result struct {
+		c   *Conn
+		err error
+	}
+	resultCh := make(chan result)
+
+	go func() {
+		opts := []ClientOption{
+			WithMinVersion(version),
+			WithMaxVersion(version),
+			WithSRTPMasterKeyIdentifier(test.ClientSRTPMasterKeyIdentifier),
+		}
+		if len(test.ClientSRTP) > 0 {
+			opts = append(opts, WithSRTPProtectionProfiles(test.ClientSRTP...))
+		}
+		client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, true)
+		resultCh <- result{client, err}
+	}()
+
+	opts := []ServerOption{
+		WithMinVersion(version),
+		WithMaxVersion(version),
+		WithSRTPMasterKeyIdentifier(test.ServerSRTPMasterKeyIdentifier),
+	}
+	if len(test.ServerSRTP) > 0 {
+		opts = append(opts, WithSRTPProtectionProfiles(test.ServerSRTP...))
+	}
+	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), opts, true)
+	assert.ErrorIs(t, err, test.WantServerError)
+	if server != nil {
+		defer func() { _ = server.Close() }()
+	}
+
+	res := <-resultCh
+	assert.ErrorIs(t, res.err, test.WantClientError)
+	if res.c != nil {
+		defer func() { _ = res.c.Close() }()
+	}
+	if res.c == nil || server == nil {
+		return
+	}
+
+	actualClientSRTP, _ := res.c.SelectedSRTPProtectionProfile()
+	assert.Equal(t, test.ExpectedProfile, actualClientSRTP)
+	actualServerSRTP, _ := server.SelectedSRTPProtectionProfile()
+	assert.Equal(t, test.ExpectedProfile, actualServerSRTP)
+
+	actualServerMKI, _ := server.RemoteSRTPMasterKeyIdentifier()
+	assert.True(t, bytes.Equal(test.ExpectedServerMKI, actualServerMKI))
+	if len(actualServerMKI) > 0 {
+		actualServerMKI[0] ^= 0xff
+		actualServerMKI, _ = server.RemoteSRTPMasterKeyIdentifier()
+		assert.True(t, bytes.Equal(test.ExpectedServerMKI, actualServerMKI))
+	}
+	actualClientMKI, _ := res.c.RemoteSRTPMasterKeyIdentifier()
+	assert.True(t, bytes.Equal(test.ExpectedClientMKI, actualClientMKI))
 }
 
 func TestClientCertificate(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
