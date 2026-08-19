@@ -237,6 +237,12 @@ func flight4Generate( //nolint:cyclop
 		},
 	})
 	offer := state.RemoteClientHelloSnapshots.Current()
+	srtpDecision, err := extensionnegotiation.NegotiateSRTP(
+		offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
 	if cfg.ConnectionIDGenerator != nil && offer.Offered(extension.TypeConnectionID) {
 		localCID := state.LocalConnectionID()
 		if !state.CID.Negotiated {
@@ -263,7 +269,16 @@ func flight4Generate( //nolint:cyclop
 		},
 	}
 
-	encryptedExtensions := HandshakePacket(&handshake.MessageEncryptedExtensions{})
+	encryptedExtensionsList := []extension.Value{}
+	if srtpDecision.ProtectionProfile != 0 {
+		encryptedExtensionsList = append(encryptedExtensionsList, &extension.SRTPSelection{
+			ProtectionProfile:   srtpDecision.ProtectionProfile,
+			MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier),
+		})
+	}
+	encryptedExtensions := HandshakePacket(&handshake.MessageEncryptedExtensions{
+		Extensions: encryptedExtensionsList,
+	})
 	encryptedExtensions.ResetLocalSequenceNumber = true
 
 	pkts := []*dtlsflight.Packet{
@@ -305,6 +320,7 @@ func flight4Generate( //nolint:cyclop
 		HandshakePacket(&handshake.MessageFinished{}),
 	)
 	state.CommitNegotiatedExtensions(decision)
+	dtlsflight.CommitSRTP(state.Common, srtpDecision)
 
 	return pkts, nil, nil
 }

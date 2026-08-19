@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"slices"
 
-	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
@@ -40,13 +39,12 @@ func newClientHelloExtensionFailure(
 
 func processClientHelloExtensions(
 	state *dtlsstate.State13,
-	cfg *dtlsconfig.HandshakeConfig,
 	clientHello *handshake.MessageClientHello,
 ) *clientHelloExtensionFailure {
 	var seen clientHelloExtensionSet
 
 	for _, val := range clientHello.Extensions {
-		if failure := processClientHelloSecurityExtension(state, cfg, &seen, val); failure != nil {
+		if failure := processClientHelloSecurityExtension(state, &seen, val); failure != nil {
 			return failure
 		}
 		processClientHelloStateExtension(state, val)
@@ -61,7 +59,6 @@ func processClientHelloExtensions(
 
 func processClientHelloSecurityExtension(
 	state *dtlsstate.State13,
-	cfg *dtlsconfig.HandshakeConfig,
 	seen *clientHelloExtensionSet,
 	val extension.Value,
 ) *clientHelloExtensionFailure {
@@ -72,13 +69,6 @@ func processClientHelloSecurityExtension(
 			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrNoSupportedEllipticCurves)
 		}
 		state.RemoteGroups = slices.Clone(ext.Groups)
-	case *extension.SRTPOffer:
-		profile, ok := dtlsflight.FindMatchingSRTPProfile(cfg.LocalSRTPProtectionProfiles, ext.ProtectionProfiles)
-		if !ok {
-			return newClientHelloExtensionFailure(alert.InsufficientSecurity, dtlserrors.ErrServerNoMatchingSRTPProfile)
-		}
-		state.SetSRTPProtectionProfile(profile)
-		state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(ext.MasterKeyIdentifier)
 	case *extension.SignatureAlgorithms:
 		seen.hasSignatureAlgorithms = true
 		state.RemoteSignatureSchemes = dtlsflight.SignatureSchemes(ext.Schemes)

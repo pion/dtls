@@ -358,7 +358,7 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 	}
 
 	if err := c.handshake(ctx, start); err != nil {
-		if common.LocalVersion.Equal(protocol.Version1_2) && !c.isHandshakeCompletedSuccessfully() {
+		if !c.isHandshakeCompletedSuccessfully() {
 			common.SetSRTPProtectionProfile(0)
 		}
 

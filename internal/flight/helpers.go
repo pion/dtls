@@ -4,11 +4,14 @@
 package flight
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/binary"
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 )
 
@@ -20,6 +23,14 @@ func FindMatchingSRTPProfile(a, b []dtlsconfig.SRTPProtectionProfile) (dtlsconfi
 	}
 
 	return 0, false
+}
+
+// CommitSRTP publishes a validated SRTP decision.
+func CommitSRTP(state *dtlsstate.Common, decision extensionnegotiation.SRTPDecision) {
+	if decision.ProtectionProfile != 0 {
+		state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(decision.PeerMasterKeyIdentifier)
+	}
+	state.SetSRTPProtectionProfile(decision.ProtectionProfile)
 }
 
 // SignatureSchemeIDs converts negotiated signature algorithms to their

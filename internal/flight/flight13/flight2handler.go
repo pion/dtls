@@ -8,6 +8,7 @@ import (
 	"context"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -54,8 +55,11 @@ func flight2Parse( //nolint:cyclop
 	if err := snapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 	}
+	if err := extensionnegotiation.ValidateSRTPRetry(snapshots.Initial(), snapshots.Current()); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+	}
 
-	if failure := processClientHelloExtensions(flightCtx.state, flightCtx.cfg, clientHello); failure != nil {
+	if failure := processClientHelloExtensions(flightCtx.state, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
 	}
 	if failure := generateClientKeyShareSecret(flightCtx.state, flightCtx.cfg); failure != nil {

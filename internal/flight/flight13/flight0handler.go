@@ -77,7 +77,7 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 
-	if failure := processClientHelloExtensions(state, cfg, clientHello); failure != nil {
+	if failure := processClientHelloExtensions(state, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
 	}
 
@@ -120,6 +120,7 @@ func flight0Generate(
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
+	state.SetSRTPProtectionProfile(0)
 
 	if !cfg.InsecureSkipHelloVerify {
 		state.Cookie = make([]byte, cookieLength)

@@ -64,7 +64,7 @@ func flight3Parse(
 	serverResponse = serverResponsePull.Messages[handshake.TypeServerHello]
 	serverHelloMsg, hasServerHello := serverResponse.(*handshake.MessageServerHello)
 	var decision *extensionnegotiation.ConnectionID
-	var srtpDecision srtpDecision
+	var srtpDecision extensionnegotiation.SRTPDecision
 	if hasServerHello { //nolint:nestif
 		if !serverHelloMsg.Version.Equal(protocol.Version1_2) {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
@@ -77,7 +77,7 @@ func flight3Parse(
 		if validationErr := extensionnegotiation.ValidateServerHelloResponse(offer, serverHelloMsg); validationErr != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, validationErr
 		}
-		if srtpDecision, err = validateSRTPSelection(
+		if srtpDecision, err = extensionnegotiation.ValidateSRTPSelection(
 			offer,
 			serverHelloMsg.Extensions,
 			cfg.LocalSRTPProtectionProfiles,
@@ -132,7 +132,7 @@ func flight3Parse(
 			next, dtlsAlert, err := handleResumption(ctx, conn, state, cache, cfg)
 			if next != 0 && err == nil {
 				state.CommitNegotiatedExtensions(decision)
-				commitSRTP(state, srtpDecision.profile, srtpDecision.peerMKI)
+				dtlsflight.CommitSRTP(state.Common, srtpDecision)
 			}
 
 			return next, dtlsAlert, err
@@ -198,7 +198,7 @@ func flight3Parse(
 		state.RemoteRequestedCertificate = true
 	}
 	state.CommitNegotiatedExtensions(decision)
-	commitSRTP(state, srtpDecision.profile, srtpDecision.peerMKI)
+	dtlsflight.CommitSRTP(state.Common, srtpDecision)
 
 	return Flight5, nil, nil
 }

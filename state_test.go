@@ -37,3 +37,18 @@ func TestUnmarshalBinaryRejectsDTLS13State(t *testing.T) {
 	err := state.UnmarshalBinary(buf.Bytes())
 	require.ErrorIs(t, err, ErrStateSerializationUnsupported)
 }
+
+func TestStatePreservesPeerSRTPMKI(t *testing.T) {
+	state := State{
+		CipherSuiteID:         TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		srtpProtectionProfile: SRTP_AES128_CM_HMAC_SHA1_80,
+		peerSRTPMKI:           []byte{1, 2},
+	}
+	serialized, err := state.serialize()
+	require.NoError(t, err)
+
+	var restored State
+	restored.deserialize(*serialized)
+	serialized.PeerSRTPMKI[0] = 0xff
+	require.Equal(t, []byte{1, 2}, restored.peerSRTPMKI)
+}

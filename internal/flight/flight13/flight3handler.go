@@ -6,6 +6,7 @@ package flight13
 import (
 	"bytes"
 	"context"
+	"errors"
 	"maps"
 	"slices"
 
@@ -90,6 +91,7 @@ func flight3Parse(
 
 func abortFlight3(flightCtx *handshakeContext, failure *flightParseFailure) (Flight, *alert.Alert, error) {
 	flightCtx.state.ResetConnectionIDs()
+	flightCtx.state.SetSRTPProtectionProfile(0)
 
 	return 0, failure.alert, failure.err
 }
@@ -256,6 +258,7 @@ func handleFlight3ProtectedHandshake(
 ) *flightParseFailure {
 	flightCtx.state.RemoteCertificateRequest = nil
 	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
+	var srtpDecision extensionnegotiation.SRTPDecision
 	for _, item := range items {
 		if item.Parsed == nil {
 			continue
@@ -265,6 +268,18 @@ func handleFlight3ProtectedHandshake(
 			if err := extensionnegotiation.ValidateResponseExtensions(offer, message.Extensions, nil); err != nil {
 				return newFlightParseFailure(alert.UnsupportedExtension, err)
 			}
+			var err error
+			srtpDecision, err = extensionnegotiation.ValidateSRTPSelection(
+				offer, message.Extensions, flightCtx.cfg.LocalSRTPProtectionProfiles,
+			)
+			if err != nil {
+				var dtlsAlert *alert.Alert
+				if !errors.As(err, &dtlsAlert) {
+					return newFlightParseFailure(alert.InternalError, err)
+				}
+
+				return &flightParseFailure{alert: dtlsAlert, err: err}
+			}
 		case *handshake.MessageCertificateRequest13:
 			flightCtx.state.RemoteCertificateRequest = message
 		}
@@ -272,6 +287,7 @@ func handleFlight3ProtectedHandshake(
 	if flightCtx.protectedHandshakeHandler == nil {
 		return newFlightParseFailure(alert.InternalError, dtlserrors.ErrHandshakeTranscriptHashNotSelected)
 	}
+	dtlsflight.CommitSRTP(flightCtx.state.Common, srtpDecision)
 	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
 		return protectedFlightParseFailure(err)
 	}
@@ -393,6 +409,11 @@ func flight3Generate(
 
 	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, flightCtx.cfg.ClientHelloMessageHook) //nolint:lll
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := extensionnegotiation.ValidateSRTPRetry(
+		flightCtx.state.LocalClientHelloSnapshots.Initial(), snapshot,
+	); err != nil {
 		return nil, nil, err
 	}
 	if err := flightCtx.state.RecordLocalClientHello(snapshot); err != nil {

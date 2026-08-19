@@ -71,7 +71,9 @@ func flight4bGenerate(
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	var pkts []*dtlsflight.Packet
 	offer := state.RemoteClientHelloSnapshots.Current()
-	srtpSelection, err := negotiateServerSRTP(offer, cfg)
+	srtpSelection, err := extensionnegotiation.NegotiateSRTP(
+		offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -175,7 +177,7 @@ func flight4bGenerate(
 		},
 	)
 	state.CommitNegotiatedExtensions(decision)
-	commitSRTP(state, srtpSelection.profile, srtpSelection.peerMKI)
+	dtlsflight.CommitSRTP(state.Common, srtpSelection)
 
 	return pkts, nil, nil
 }

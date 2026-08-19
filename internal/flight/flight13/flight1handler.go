@@ -30,6 +30,7 @@ func flight1Generate(
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 	state.ResetConnectionIDs()
+	state.SetSRTPProtectionProfile(0)
 	state.LocalClientHelloSnapshots.Reset()
 
 	state.SetLocalEpoch(EpochInitial)
