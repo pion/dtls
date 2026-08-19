@@ -4,7 +4,6 @@
 package flight12
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"slices"
@@ -99,13 +98,6 @@ func flight0Parse(
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
 			}
 			state.NamedCurve = namedCurve
-		case *extension.SRTPOffer:
-			profile, ok := dtlsflight.FindMatchingSRTPProfile(cfg.LocalSRTPProtectionProfiles, ext.ProtectionProfiles)
-			if !ok {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerNoMatchingSRTPProfile //nolint:lll
-			}
-			state.SetSRTPProtectionProfile(profile)
-			state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(ext.MasterKeyIdentifier)
 		case *extension12.ExtendedMasterSecret:
 			if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 				state.ExtendedMasterSecret = true
@@ -184,6 +176,7 @@ func flight0Generate(
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	// Initialize
+	state.SetSRTPProtectionProfile(0)
 	if !cfg.InsecureSkipHelloVerify {
 		state.Cookie = make([]byte, cookieLength)
 		if _, err := rand.Read(state.Cookie); err != nil {

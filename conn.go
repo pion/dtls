@@ -312,6 +312,8 @@ func (c *Conn) Handshake() error {
 //
 // Most uses of this package need not call HandshakeContext explicitly: the
 // first [Conn.Read] or [Conn.Write] will call it automatically.
+//
+//nolint:cyclop
 func (c *Conn) HandshakeContext(ctx context.Context) error {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
@@ -356,6 +358,10 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 	}
 
 	if err := c.handshake(ctx, start); err != nil {
+		if common.LocalVersion.Equal(protocol.Version1_2) && !c.isHandshakeCompletedSuccessfully() {
+			common.SetSRTPProtectionProfile(0)
+		}
+
 		return err
 	}
 
@@ -739,7 +745,7 @@ func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
 		return nil, false
 	}
 
-	return common.RemoteSRTPMasterKeyIdentifier, true
+	return bytes.Clone(common.RemoteSRTPMasterKeyIdentifier), true
 }
 
 func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {

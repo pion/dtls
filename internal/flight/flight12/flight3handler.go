@@ -64,6 +64,7 @@ func flight3Parse(
 	serverResponse = serverResponsePull.Messages[handshake.TypeServerHello]
 	serverHelloMsg, hasServerHello := serverResponse.(*handshake.MessageServerHello)
 	var decision *extensionnegotiation.ConnectionID
+	var srtpDecision srtpDecision
 	if hasServerHello { //nolint:nestif
 		if !serverHelloMsg.Version.Equal(protocol.Version1_2) {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
@@ -75,6 +76,13 @@ func flight3Parse(
 		}
 		if validationErr := extensionnegotiation.ValidateServerHelloResponse(offer, serverHelloMsg); validationErr != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, validationErr
+		}
+		if srtpDecision, err = validateSRTPSelection(
+			offer,
+			serverHelloMsg.Extensions,
+			cfg.LocalSRTPProtectionProfiles,
+		); err != nil {
+			return 0, nil, err
 		}
 		decision = extensionnegotiation.DecideConnectionID(offer, serverHelloMsg.Extensions)
 		if decision == nil {
@@ -88,15 +96,6 @@ func flight3Parse(
 
 		for _, v := range serverHelloMsg.Extensions {
 			switch ext := v.(type) {
-			case *extension.SRTPSelection:
-				profile, found := dtlsflight.FindMatchingSRTPProfile(
-					[]extension.SRTPProtectionProfile{ext.ProtectionProfile}, cfg.LocalSRTPProtectionProfiles,
-				)
-				if !found {
-					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrClientNoMatchingSRTPProfile //nolint:lll
-				}
-				state.SetSRTPProtectionProfile(profile)
-				state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(ext.MasterKeyIdentifier)
 			case *extension12.ExtendedMasterSecret:
 				if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 					state.ExtendedMasterSecret = true
@@ -108,9 +107,6 @@ func flight3Parse(
 
 		if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrClientRequiredButNoServerEMS //nolint:lll
-		}
-		if len(cfg.LocalSRTPProtectionProfiles) > 0 && state.SRTPProtectionProfile() == 0 {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrRequestedButNoSRTPExtension //nolint:lll
 		}
 
 		remoteCipherSuite := ciphersuite.ForID(ciphersuite.ID(*serverHelloMsg.CipherSuiteID), cfg.CustomCipherSuites)
@@ -136,6 +132,7 @@ func flight3Parse(
 			next, dtlsAlert, err := handleResumption(ctx, conn, state, cache, cfg)
 			if next != 0 && err == nil {
 				state.CommitNegotiatedExtensions(decision)
+				commitSRTP(state, srtpDecision.profile, srtpDecision.peerMKI)
 			}
 
 			return next, dtlsAlert, err
@@ -201,6 +198,7 @@ func flight3Parse(
 		state.RemoteRequestedCertificate = true
 	}
 	state.CommitNegotiatedExtensions(decision)
+	commitSRTP(state, srtpDecision.profile, srtpDecision.peerMKI)
 
 	return Flight5, nil, nil
 }

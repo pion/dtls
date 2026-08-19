@@ -25,6 +25,7 @@ type State struct {
 	masterSecret              []byte
 	sequenceNumber            uint64
 	srtpProtectionProfile     SRTPProtectionProfile
+	peerSRTPMKI               []byte
 	localConnectionID         []byte
 	remoteConnectionID        []byte
 	isClient                  bool
@@ -47,6 +48,7 @@ type serializedState struct {
 	MasterSecret          []byte
 	SequenceNumber        uint64
 	SRTPProtectionProfile uint16
+	PeerSRTPMKI           []byte
 	PeerCertificates      [][]byte
 	IdentityHint          []byte
 	SessionID             []byte
@@ -65,6 +67,11 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 	}
 
 	epoch := internalState.LocalEpoch()
+	profile := internalState.SRTPProtectionProfile()
+	var peerMKI []byte
+	if profile != 0 {
+		peerMKI = bytes.Clone(internalState.RemoteSRTPMasterKeyIdentifier)
+	}
 
 	return &State{
 		localEpoch:            internalState.LocalEpoch(),
@@ -73,7 +80,8 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 		remoteRandom:          internalState.RemoteRandom,
 		masterSecret:          internalState.MasterSecret,
 		sequenceNumber:        atomic.LoadUint64(&internalState.LocalSequenceNumber[epoch]),
-		srtpProtectionProfile: internalState.SRTPProtectionProfile(),
+		srtpProtectionProfile: profile,
+		peerSRTPMKI:           peerMKI,
 		localConnectionID:     internalState.LocalConnectionID(),
 		remoteConnectionID:    internalState.RemoteConnectionID,
 		isClient:              internalState.IsClient,
@@ -156,6 +164,7 @@ func (s *State) serialize() (*serializedState, error) {
 		LocalRandom:           s.localRandom.MarshalFixed(),
 		RemoteRandom:          s.remoteRandom.MarshalFixed(),
 		SRTPProtectionProfile: uint16(s.srtpProtectionProfile),
+		PeerSRTPMKI:           bytes.Clone(s.peerSRTPMKI),
 		PeerCertificates:      s.PeerCertificates,
 		IdentityHint:          s.IdentityHint,
 		SessionID:             s.SessionID,
@@ -178,6 +187,7 @@ func (s *State) deserialize(serialized serializedState) {
 	s.masterSecret = serialized.MasterSecret
 	s.sequenceNumber = serialized.SequenceNumber
 	s.srtpProtectionProfile = SRTPProtectionProfile(serialized.SRTPProtectionProfile)
+	s.peerSRTPMKI = bytes.Clone(serialized.PeerSRTPMKI)
 	s.localConnectionID = serialized.LocalConnectionID
 	s.remoteConnectionID = serialized.RemoteConnectionID
 	s.isClient = serialized.IsClient
@@ -241,6 +251,7 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	}
 	state.SetLocalEpoch(s.localEpoch)
 	state.SetRemoteEpoch(s.remoteEpoch)
+	state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(s.peerSRTPMKI)
 	state.SetSRTPProtectionProfile(s.srtpProtectionProfile)
 	state.SetLocalConnectionID(s.localConnectionID)
 

@@ -995,27 +995,33 @@ func TestSRTPConfiguration(t *testing.T) {
 		ServerSRTP                    []SRTPProtectionProfile
 		ClientSRTPMasterKeyIdentifier []byte
 		ServerSRTPMasterKeyIdentifier []byte
+		ExpectedClientMKI             []byte
+		ExpectedServerMKI             []byte
 		ExpectedProfile               SRTPProtectionProfile
 		WantClientError               error
 		WantServerError               error
 	}{
 		{
-			Name:            "No SRTP in use",
-			ClientSRTP:      nil,
-			ServerSRTP:      nil,
-			ExpectedProfile: 0,
-			WantClientError: nil,
-			WantServerError: nil,
+			Name: "No SRTP in use",
 		},
 		{
-			Name:                          "SRTP both ends",
+			Name:                          "SRTP with echoed MKI",
 			ClientSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			ServerSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
-			ExpectedProfile:               SRTP_AES128_CM_HMAC_SHA1_80,
 			ClientSRTPMasterKeyIdentifier: []byte("ClientSRTPMKI"),
-			ServerSRTPMasterKeyIdentifier: []byte("ServerSRTPMKI"),
-			WantClientError:               nil,
-			WantServerError:               nil,
+			ServerSRTPMasterKeyIdentifier: []byte("ClientSRTPMKI"),
+			ExpectedClientMKI:             []byte("ClientSRTPMKI"),
+			ExpectedServerMKI:             []byte("ClientSRTPMKI"),
+			ExpectedProfile:               SRTP_AES128_CM_HMAC_SHA1_80,
+		},
+		{
+			Name:                          "SRTP with declined MKI",
+			ClientSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ServerSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ClientSRTPMasterKeyIdentifier: []byte("ClientSRTPMKI"),
+			ServerSRTPMasterKeyIdentifier: []byte("OtherMKI"),
+			ExpectedServerMKI:             []byte("ClientSRTPMKI"),
+			ExpectedProfile:               SRTP_AES128_CM_HMAC_SHA1_80,
 		},
 		{
 			Name:            "SRTP client only",
@@ -1061,7 +1067,11 @@ func TestSRTPConfiguration(t *testing.T) {
 		resultCh := make(chan result)
 
 		go func() {
-			opts := []ClientOption{WithSRTPMasterKeyIdentifier(test.ServerSRTPMasterKeyIdentifier)}
+			opts := []ClientOption{
+				WithMinVersion(protocol.Version1_2),
+				WithMaxVersion(protocol.Version1_2),
+				WithSRTPMasterKeyIdentifier(test.ClientSRTPMasterKeyIdentifier),
+			}
 			if len(test.ClientSRTP) > 0 {
 				opts = append(opts, WithSRTPProtectionProfiles(test.ClientSRTP...))
 			}
@@ -1069,7 +1079,11 @@ func TestSRTPConfiguration(t *testing.T) {
 			resultCh <- result{client, err}
 		}()
 
-		opts := []ServerOption{WithSRTPMasterKeyIdentifier(test.ClientSRTPMasterKeyIdentifier)}
+		opts := []ServerOption{
+			WithMinVersion(protocol.Version1_2),
+			WithMaxVersion(protocol.Version1_2),
+			WithSRTPMasterKeyIdentifier(test.ServerSRTPMasterKeyIdentifier),
+		}
 		if len(test.ServerSRTP) > 0 {
 			opts = append(opts, WithSRTPProtectionProfiles(test.ServerSRTP...))
 		}
@@ -1102,12 +1116,14 @@ func TestSRTPConfiguration(t *testing.T) {
 			"TestSRTPConfiguration: Server SRTPProtectionProfile Mismatch '%s'", test.Name)
 
 		actualServerMKI, _ := server.RemoteSRTPMasterKeyIdentifier()
-		assert.Truef(t, bytes.Equal(test.ServerSRTPMasterKeyIdentifier, actualServerMKI),
-			"TestSRTPConfiguration: Server SRTPMKI Mismatch '%s'", test.Name)
-
+		assert.True(t, bytes.Equal(test.ExpectedServerMKI, actualServerMKI), test.Name)
+		if len(actualServerMKI) > 0 {
+			actualServerMKI[0] ^= 0xff
+			actualServerMKI, _ = server.RemoteSRTPMasterKeyIdentifier()
+			assert.True(t, bytes.Equal(test.ExpectedServerMKI, actualServerMKI), test.Name)
+		}
 		actualClientMKI, _ := res.c.RemoteSRTPMasterKeyIdentifier()
-		assert.Truef(t, bytes.Equal(test.ClientSRTPMasterKeyIdentifier, actualClientMKI),
-			"TestSRTPConfiguration: Client SRTPMKI Mismatch '%s'", test.Name)
+		assert.True(t, bytes.Equal(test.ExpectedClientMKI, actualClientMKI), test.Name)
 	}
 }
 

@@ -72,6 +72,7 @@ func flight1Generate(
 	cfg *dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	state.ResetConnectionIDs()
+	state.SetSRTPProtectionProfile(0)
 	state.LocalClientHelloSnapshots.Reset()
 
 	var zeroEpoch uint16

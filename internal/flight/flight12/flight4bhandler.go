@@ -71,6 +71,10 @@ func flight4bGenerate(
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	var pkts []*dtlsflight.Packet
 	offer := state.RemoteClientHelloSnapshots.Current()
+	srtpSelection, err := negotiateServerSRTP(offer, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	extensions := []extension.Value{}
 	if state.RemoteSupportsRenegotiation {
@@ -82,12 +86,7 @@ func flight4bGenerate(
 		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
 		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
-	if state.SRTPProtectionProfile() != 0 {
-		extensions = append(extensions, &extension.SRTPSelection{
-			ProtectionProfile:   state.SRTPProtectionProfile(),
-			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
-		})
-	}
+	extensions = appendSRTPSelection(extensions, srtpSelection)
 
 	selectedProto, err := extension.ALPNProtocolSelection(cfg.SupportedProtocols, state.PeerSupportedProtocols)
 	if err != nil {
@@ -113,6 +112,11 @@ func flight4bGenerate(
 
 	serverHelloMessage, err = extensionnegotiation.FinalizeServerHello(serverHelloMessage, cfg.ServerHelloMessageHook, offer) //nolint:lll
 	if err != nil {
+		return nil, nil, err
+	}
+	if err = validateServerSRTP(
+		offer, serverHelloMessage.Extensions, cfg.LocalSRTPProtectionProfiles, srtpSelection,
+	); err != nil {
 		return nil, nil, err
 	}
 	decision := extensionnegotiation.DecideConnectionID(offer, serverHelloMessage.Extensions)
@@ -171,6 +175,7 @@ func flight4bGenerate(
 		},
 	)
 	state.CommitNegotiatedExtensions(decision)
+	commitSRTP(state, srtpSelection.profile, srtpSelection.peerMKI)
 
 	return pkts, nil, nil
 }
