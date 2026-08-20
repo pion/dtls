@@ -4140,6 +4140,224 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 	assert.Equal(t, updatedServerPayload, buf[:n])
 }
 
+func TestDTLS13HelloRetryRequestRetransmissionAndReordering(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(10 * time.Second).Stop()
+
+	for _, testCase := range []struct {
+		name          string
+		impairNetwork func(*test.Bridge)
+	}{
+		{
+			name: "RetransmitDroppedClientHello2",
+			impairNetwork: func(br *test.Bridge) {
+				br.DropNextNWrites(0, 1)
+			},
+		},
+		{
+			name: "ReorderClientHello2Retransmission",
+			impairNetwork: func(br *test.Bridge) {
+				br.ReorderNextNWrites(0, 2)
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			testDTLS13HelloRetryRequestNetworkRecovery(t, testCase.impairNetwork)
+		})
+	}
+}
+
+func testDTLS13HelloRetryRequestNetworkRecovery(
+	t *testing.T,
+	impairNetwork func(*test.Bridge),
+) {
+	t.Helper()
+
+	const retryInterval = 20 * time.Millisecond
+	curves := []elliptic.Curve{elliptic.X25519, elliptic.P256}
+	br := test.NewBridge()
+
+	var initialClientHellos, retryClientHellos, retryClientHelloWrites atomic.Int32
+	clientTransport := &connWithCallback{
+		Conn: br.GetConn0(),
+		onWrite: func(raw []byte) {
+			if datagramContainsHandshake(raw, handshake.TypeClientHello, 1) {
+				retryClientHelloWrites.Add(1)
+			}
+		},
+	}
+	clientCert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	client, err := ClientWithOptions(
+		dtlsnet.PacketConnFromConn(clientTransport),
+		clientTransport.RemoteAddr(),
+		WithCertificates(clientCert),
+		WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+		WithEllipticCurves(curves...),
+		WithFlightInterval(retryInterval),
+		WithDisableRetransmitBackoff(true),
+		WithClientHelloMessageHook(func(clientHello handshake.MessageClientHello) handshake.Message {
+			for i, ext := range clientHello.Extensions {
+				keyShare, ok := ext.(*extension13.ClientKeyShare)
+				if !ok {
+					continue
+				}
+
+				if len(keyShare.Shares) == len(curves) {
+					initialClientHellos.Add(1)
+					clientHello.Extensions[i] = &extension13.ClientKeyShare{}
+				} else {
+					retryClientHellos.Add(1)
+				}
+			}
+
+			return &clientHello
+		}),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	serverCert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	server, err := ServerWithOptions(
+		dtlsnet.PacketConnFromConn(br.GetConn1()),
+		br.GetConn1().RemoteAddr(),
+		WithCertificates(serverCert),
+		WithInsecureSkipVerify(true),
+		WithInsecureSkipVerifyHello(true),
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+		WithEllipticCurves(curves...),
+		WithFlightInterval(retryInterval),
+		WithDisableRetransmitBackoff(true),
+	)
+	require.NoError(t, err)
+	defer func() { _ = server.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	handshakeResults := make(chan error, 2)
+	go func() { handshakeResults <- client.HandshakeContext(ctx) }()
+	go func() { handshakeResults <- server.HandshakeContext(ctx) }()
+
+	waitForBridgePacket(t, br, 0)
+	br.Tick()
+	waitForBridgePacket(t, br, 1)
+	impairNetwork(br)
+	br.Tick()
+
+	waitForBridgeHandshakes(t, ctx, br, handshakeResults)
+
+	clientState, ok := client.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	serverState, ok := server.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	for _, state := range []*dtlsstate.State13{clientState, serverState} {
+		require.True(t, state.HelloRetryRequest.HasSelectedGroup)
+		assert.Equal(t, elliptic.X25519, state.HelloRetryRequest.SelectedGroup)
+	}
+	assert.GreaterOrEqual(t, initialClientHellos.Load(), int32(1))
+	assert.GreaterOrEqual(t, retryClientHellos.Load(), int32(1))
+	assert.GreaterOrEqual(t, retryClientHelloWrites.Load(), int32(2))
+
+	assertDTLSApplicationDataOverBridge(t, br, client, server, []byte("client data after HRR retry"))
+	assertDTLSApplicationDataOverBridge(t, br, server, client, []byte("server data after HRR retry"))
+}
+
+func waitForBridgeHandshakes(
+	t *testing.T,
+	ctx context.Context,
+	br *test.Bridge,
+	results <-chan error,
+) {
+	t.Helper()
+
+	for completed := 0; completed < 2; {
+		br.Tick()
+		select {
+		case err := <-results:
+			require.NoError(t, err)
+			completed++
+		case <-ctx.Done():
+			require.NoError(t, ctx.Err())
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+func datagramContainsHandshake(raw []byte, typ handshake.Type, sequence uint16) bool {
+	records, err := recordlayer.UnpackDatagram(raw)
+	if err != nil {
+		return false
+	}
+	for _, rawRecord := range records {
+		var record recordlayer.RecordLayer
+		if err = record.Unmarshal(rawRecord); err != nil {
+			continue
+		}
+		handshakeRecord, ok := record.Content.(*handshake.Handshake)
+		if ok && handshakeRecord.Header.Type == typ && handshakeRecord.Header.MessageSequence == sequence {
+			return true
+		}
+	}
+
+	return false
+}
+
+func waitForBridgePacket(t *testing.T, br *test.Bridge, fromID int) {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	for br.Len(fromID) == 0 {
+		if time.Now().After(deadline) {
+			require.FailNow(t, "timed out waiting for bridge packet", "from endpoint %d", fromID)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func assertDTLSApplicationDataOverBridge(
+	t *testing.T,
+	br *test.Bridge,
+	sender, receiver *Conn,
+	payload []byte,
+) {
+	t.Helper()
+
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	result := make(chan readResult, 1)
+	go func() {
+		buf := make([]byte, len(payload))
+		n, readErr := io.ReadFull(receiver, buf)
+		result <- readResult{data: buf[:n], err: readErr}
+	}()
+
+	n, err := sender.Write(payload)
+	require.NoError(t, err)
+	require.Equal(t, len(payload), n)
+
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	for {
+		br.Tick()
+		select {
+		case read := <-result:
+			require.NoError(t, read.err)
+			assert.Equal(t, payload, read.data)
+
+			return
+		case <-deadline.C:
+			require.FailNow(t, "timed out reading application data after HRR")
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
 func TestDTLS13RetransmittedClientFinalFlight(t *testing.T) {
 	defer test.CheckRoutines(t)()
 	defer test.TimeOut(10 * time.Second).Stop()
