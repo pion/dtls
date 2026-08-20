@@ -8,8 +8,8 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -155,7 +155,7 @@ func TestValidateSRTPRetry(t *testing.T) {
 	initial := srtpSnapshot13(t, srtpProfile13, srtpMKI13)
 	for _, test := range []struct {
 		name      string
-		retry     extensionnegotiation.ClientHelloSnapshot
+		retry     negotiation.ClientHelloSnapshot
 		wantError bool
 	}{
 		{name: "identical", retry: srtpSnapshot13(t, srtpProfile13, srtpMKI13)},
@@ -163,7 +163,7 @@ func TestValidateSRTPRetry(t *testing.T) {
 		{name: "removed", retry: srtpSnapshot13(t, 0, ""), wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := extensionnegotiation.ValidateSRTPRetry(initial, test.retry)
+			err := negotiation.ValidateSRTPRetry(initial, test.retry)
 			if test.wantError {
 				require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
 				var dtlsAlert *alert.Alert
@@ -210,7 +210,7 @@ func srtpSnapshot13(
 	t *testing.T,
 	profile extension.SRTPProtectionProfile,
 	mki string,
-) extensionnegotiation.ClientHelloSnapshot {
+) negotiation.ClientHelloSnapshot {
 	t.Helper()
 	extensions := []extension.Value{}
 	if profile != 0 {
@@ -219,7 +219,7 @@ func srtpSnapshot13(
 			MasterKeyIdentifier: []byte(mki),
 		})
 	}
-	_, snapshot, err := extensionnegotiation.FinalizeClientHello(
+	_, snapshot, err := negotiation.FinalizeClientHello(
 		&handshake.MessageClientHello{Extensions: extensions}, nil,
 	)
 	require.NoError(t, err)

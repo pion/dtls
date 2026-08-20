@@ -12,8 +12,8 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -237,7 +237,7 @@ func flight4Generate( //nolint:cyclop
 		},
 	})
 	offer := state.RemoteClientHelloSnapshots.Current()
-	srtpDecision, err := extensionnegotiation.NegotiateSRTP(
+	srtpDecision, err := negotiation.NegotiateSRTP(
 		offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier,
 	)
 	if err != nil {
@@ -260,7 +260,7 @@ func flight4Generate( //nolint:cyclop
 	if _, err = serverHelloMessage.Marshal(); err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
-	decision := extensionnegotiation.DecideConnectionID(offer, serverHelloExtensions)
+	decision := negotiation.DecideConnectionID(offer, serverHelloExtensions)
 
 	serverHello := &dtlsflight.Packet{
 		Record: &recordlayer.RecordLayer{

@@ -10,7 +10,7 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 )
@@ -26,7 +26,7 @@ func FindMatchingSRTPProfile(a, b []dtlsconfig.SRTPProtectionProfile) (dtlsconfi
 }
 
 // CommitSRTP publishes a validated SRTP decision.
-func CommitSRTP(state *dtlsstate.Common, decision extensionnegotiation.SRTPDecision) {
+func CommitSRTP(state *dtlsstate.Common, decision negotiation.SRTPDecision) {
 	if decision.ProtectionProfile != 0 {
 		state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(decision.PeerMasterKeyIdentifier)
 	}

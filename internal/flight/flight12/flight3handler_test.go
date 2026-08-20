@@ -10,8 +10,8 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -90,7 +90,7 @@ func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
 		CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	}
-	_, offer, err := extensionnegotiation.FinalizeClientHello(clientHello, nil)
+	_, offer, err := negotiation.FinalizeClientHello(clientHello, nil)
 	require.NoError(t, err)
 	require.NoError(t, state.LocalClientHelloSnapshots.Record(offer))
 
@@ -160,7 +160,7 @@ func TestFlight2RejectsChangedConnectionID(t *testing.T) {
 	_, dtlsAlert, err := parseForTest(t, Flight2, t.Context(), nil, state, cache, &dtlsconfig.HandshakeConfig{})
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
 	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
-	cid, present := extensionnegotiation.ConnectionIDOffer(state.RemoteClientHelloSnapshots.Current())
+	cid, present := negotiation.ConnectionIDOffer(state.RemoteClientHelloSnapshots.Current())
 	assert.Equal(t, []byte{1}, cid)
 	assert.True(t, present)
 }
@@ -224,7 +224,7 @@ func TestFlight4bGenerateDoesNotCommitConnectionIDAfterLateResponseError(t *test
 }
 
 func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
-	for name, decision := range map[string]*extensionnegotiation.ConnectionID{
+	for name, decision := range map[string]*negotiation.ConnectionID{
 		"not negotiated":   nil,
 		"bidirectional":    {ClientCID: []byte{0xc1}, ServerCID: []byte{0x51}},
 		"empty server CID": {ClientCID: []byte{0xc1}},
@@ -241,9 +241,9 @@ func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
 	}
 }
 
-func recordCH12(t *testing.T, snapshots *extensionnegotiation.ClientHelloSnapshots, extensions ...extension.Value) {
+func recordCH12(t *testing.T, snapshots *negotiation.ClientHelloSnapshots, extensions ...extension.Value) {
 	t.Helper()
-	_, snapshot, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{Extensions: extensions}, nil) //nolint:lll
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{Extensions: extensions}, nil) //nolint:lll
 	require.NoError(t, err)
 	require.NoError(t, snapshots.Record(snapshot))
 }

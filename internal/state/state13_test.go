@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
@@ -61,9 +61,9 @@ func TestCommitNegotiatedExtensions(t *testing.T) {
 			if test.isClient {
 				local, remote = remote, local
 			}
-			var decision *extensionnegotiation.ConnectionID
+			var decision *negotiation.ConnectionID
 			if test.negotiated {
-				decision = &extensionnegotiation.ConnectionID{
+				decision = &negotiation.ConnectionID{
 					ClientCID: bytes.Clone(test.client), ServerCID: bytes.Clone(test.server),
 				}
 			}
@@ -71,7 +71,7 @@ func TestCommitNegotiatedExtensions(t *testing.T) {
 			state12.SetLocalConnectionID([]byte{0xff})
 			state12.LocalCIDOffered, state12.RemoteCIDOffered = true, true
 			state12.RemoteConnectionID = []byte{0xff}
-			state13.CommitNegotiatedExtensions(&extensionnegotiation.ConnectionID{ClientCID: []byte{0xff}, ServerCID: []byte{0xff}}) //nolint:lll
+			state13.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte{0xff}, ServerCID: []byte{0xff}}) //nolint:lll
 
 			state12.CommitNegotiatedExtensions(decision)
 			state13.CommitNegotiatedExtensions(decision)
@@ -104,7 +104,7 @@ func TestCommitNegotiatedExtensions(t *testing.T) {
 
 func TestRecordLocalClientHelloTracksCIDPresence(t *testing.T) {
 	for _, extensions := range [][]extension.Value{nil, {&extension.ConnectionID{}}} {
-		_, snapshot, err := extensionnegotiation.FinalizeClientHello(
+		_, snapshot, err := negotiation.FinalizeClientHello(
 			&handshake.MessageClientHello{Extensions: extensions}, nil,
 		)
 		require.NoError(t, err)

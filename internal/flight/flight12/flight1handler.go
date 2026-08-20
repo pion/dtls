@@ -9,8 +9,8 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -176,7 +176,7 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
+	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
 	if err != nil {
 		return nil, nil, err
 	}

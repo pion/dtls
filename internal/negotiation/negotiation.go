@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-// Package extensionnegotiation finalizes and retains ClientHello offers.
-package extensionnegotiation
+// Package negotiation finalizes ClientHello offers and validates handshake negotiation against them.
+package negotiation
 
 import (
 	"bytes"

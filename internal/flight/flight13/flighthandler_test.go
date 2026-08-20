@@ -10,8 +10,8 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
@@ -174,7 +174,7 @@ func TestHandleFlight3ProtectedHandshakeRetainsCertificateRequest(t *testing.T) 
 
 func TestFlight3ParseClearsConnectionIDAfterInvalidEncryptedExtensions(t *testing.T) {
 	state := dtlsstate.NewState13(true)
-	state.CommitNegotiatedExtensions(&extensionnegotiation.ConnectionID{ClientCID: []byte{1}, ServerCID: []byte{2}})
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte{1}, ServerCID: []byte{2}})
 	state.SetRemoteEpoch(EpochHandshake)
 
 	cache := dtlsflight.NewCache()
@@ -270,7 +270,7 @@ func TestFlight4GenerateCertificateAuthenticatedFlight(t *testing.T) {
 
 func TestFlight4GenerateReusesNegotiatedConnectionID(t *testing.T) {
 	flightCtx, _ := flight4TestContext(t)
-	_, offer, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+	_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		Extensions: []extension.Value{
 			&extension.ConnectionID{CID: []byte{0x01}},
 		},
@@ -355,7 +355,7 @@ func flight4TestContext(t *testing.T) (*handshakeContext, tls.Certificate) {
 	keypair, err := elliptic.GenerateKeypair(elliptic.X25519)
 	require.NoError(t, err)
 	signatureSchemes := signaturehash.Algorithms13()
-	_, offer, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+	_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		Extensions: []extension.Value{
 			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
 			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms13())},
@@ -364,7 +364,7 @@ func flight4TestContext(t *testing.T) (*handshakeContext, tls.Certificate) {
 		},
 	}, nil)
 	require.NoError(t, err)
-	var remoteOffers extensionnegotiation.ClientHelloSnapshots
+	var remoteOffers negotiation.ClientHelloSnapshots
 	require.NoError(t, remoteOffers.Record(offer))
 
 	return &handshakeContext{

@@ -21,12 +21,12 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -66,7 +66,7 @@ func newTestState13(tb testing.TB, isClient bool) *dtlsstate.State13 {
 	tb.Helper()
 
 	state := dtlsstate.NewState13(isClient)
-	_, snapshot, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		Extensions: []extension.Value{
 			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
 			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
@@ -3297,18 +3297,18 @@ func findConnectionID(exts []extension.Value) (*extension.ConnectionID, bool) {
 	return nil, false
 }
 
-func clientHello13SnapshotHistory(t *testing.T, extensions []extension.Value) (history extensionnegotiation.ClientHelloSnapshots) { //nolint:lll
+func clientHello13SnapshotHistory(t *testing.T, extensions []extension.Value) (history negotiation.ClientHelloSnapshots) { //nolint:lll
 	t.Helper()
-	_, snapshot, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{Extensions: extensions}, nil) //nolint:lll
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{Extensions: extensions}, nil) //nolint:lll
 	require.NoError(t, err)
 	require.NoError(t, history.Record(snapshot))
 
 	return history
 }
 
-func assertSnapshotConnectionID(t *testing.T, snapshot extensionnegotiation.ClientHelloSnapshot, expectedCID []byte, expectedPresent bool) { //nolint:lll
+func assertSnapshotConnectionID(t *testing.T, snapshot negotiation.ClientHelloSnapshot, expectedCID []byte, expectedPresent bool) { //nolint:lll
 	t.Helper()
-	cid, present := extensionnegotiation.ConnectionIDOffer(snapshot)
+	cid, present := negotiation.ConnectionIDOffer(snapshot)
 	assert.Equal(t, expectedPresent, present)
 	assert.True(t, bytes.Equal(expectedCID, cid))
 }

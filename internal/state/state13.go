@@ -6,7 +6,7 @@ package state
 import (
 	"bytes"
 
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
@@ -138,7 +138,7 @@ func (*State13) ShouldWrapConnectionID() bool {
 func (s *State13) ResetConnectionIDs() { s.CommitNegotiatedExtensions(nil) }
 
 // CommitNegotiatedExtensions applies a fully validated extension decision.
-func (s *State13) CommitNegotiatedExtensions(decision *extensionnegotiation.ConnectionID) {
+func (s *State13) CommitNegotiatedExtensions(decision *negotiation.ConnectionID) {
 	s.Common.CommitNegotiatedExtensions(decision)
 	if decision == nil {
 		s.CID = CIDState{}

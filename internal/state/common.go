@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -70,8 +70,8 @@ type Common struct {
 
 	// ClientHello snapshots are transient negotiation state.
 	// they aren't serialized with resumable connection state.
-	LocalClientHelloSnapshots  extensionnegotiation.ClientHelloSnapshots
-	RemoteClientHelloSnapshots extensionnegotiation.ClientHelloSnapshots
+	LocalClientHelloSnapshots  negotiation.ClientHelloSnapshots
+	RemoteClientHelloSnapshots negotiation.ClientHelloSnapshots
 }
 
 func (s *Common) RemoteEpoch() uint16 {
@@ -111,11 +111,11 @@ func (s *Common) SetLocalConnectionID(v []byte) {
 }
 
 // RecordLocalClientHello retains an offer and publishes its pending CID.
-func (s *Common) RecordLocalClientHello(snapshot extensionnegotiation.ClientHelloSnapshot) error {
+func (s *Common) RecordLocalClientHello(snapshot negotiation.ClientHelloSnapshot) error {
 	if err := s.LocalClientHelloSnapshots.Record(snapshot); err != nil {
 		return err
 	}
-	if cid, offered := extensionnegotiation.ConnectionIDOffer(snapshot); offered {
+	if cid, offered := negotiation.ConnectionIDOffer(snapshot); offered {
 		s.pendingLocalConnectionID.Store(&cid)
 	} else {
 		s.pendingLocalConnectionID.Store(nil)
@@ -132,7 +132,7 @@ func (s *Common) ResetConnectionIDs() {
 }
 
 // CommitNegotiatedExtensions applies a fully validated extension decision.
-func (s *Common) CommitNegotiatedExtensions(decision *extensionnegotiation.ConnectionID) {
+func (s *Common) CommitNegotiatedExtensions(decision *negotiation.ConnectionID) {
 	if decision == nil {
 		s.ResetConnectionIDs()
 

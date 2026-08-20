@@ -9,8 +9,8 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -71,7 +71,7 @@ func flight4bGenerate(
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
 	var pkts []*dtlsflight.Packet
 	offer := state.RemoteClientHelloSnapshots.Current()
-	srtpSelection, err := extensionnegotiation.NegotiateSRTP(
+	srtpSelection, err := negotiation.NegotiateSRTP(
 		offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier,
 	)
 	if err != nil {
@@ -112,7 +112,7 @@ func flight4bGenerate(
 		Extensions:        extensions,
 	}
 
-	serverHelloMessage, err = extensionnegotiation.FinalizeServerHello(serverHelloMessage, cfg.ServerHelloMessageHook, offer) //nolint:lll
+	serverHelloMessage, err = negotiation.FinalizeServerHello(serverHelloMessage, cfg.ServerHelloMessageHook, offer) //nolint:lll
 	if err != nil {
 		return nil, nil, err
 	}
@@ -121,7 +121,7 @@ func flight4bGenerate(
 	); err != nil {
 		return nil, nil, err
 	}
-	decision := extensionnegotiation.DecideConnectionID(offer, serverHelloMessage.Extensions)
+	decision := negotiation.DecideConnectionID(offer, serverHelloMessage.Extensions)
 	serverHello := handshake.Handshake{Message: serverHelloMessage}
 
 	serverHello.Header.MessageSequence = uint16(state.HandshakeSendSequence) //nolint:gosec // G115

@@ -13,10 +13,10 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
@@ -106,7 +106,7 @@ func (c *flightTestConn) SessionKey() []byte {
 func newTestState13(t *testing.T, isClient bool) *dtlsstate.State13 {
 	t.Helper()
 	state := dtlsstate.NewState13(isClient)
-	_, snapshot, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		Extensions: []extension.Value{
 			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
 			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms13())},

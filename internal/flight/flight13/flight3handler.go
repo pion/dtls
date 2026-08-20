@@ -12,8 +12,8 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -138,10 +138,10 @@ func processFlight3ServerHello(
 		return failure
 	}
 	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
-	if err := extensionnegotiation.ValidateServerHelloResponse(offer, serverHello); err != nil {
+	if err := negotiation.ValidateServerHelloResponse(offer, serverHello); err != nil {
 		return newFlightParseFailure(alert.UnsupportedExtension, err)
 	}
-	decision := extensionnegotiation.DecideConnectionID(offer, serverHello.Extensions)
+	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions)
 	flightCtx.state.RemoteVersions = versions
 	flightCtx.state.LocalVersion = protocol.Version1_3
 
@@ -258,18 +258,18 @@ func handleFlight3ProtectedHandshake(
 ) *flightParseFailure {
 	flightCtx.state.RemoteCertificateRequest = nil
 	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
-	var srtpDecision extensionnegotiation.SRTPDecision
+	var srtpDecision negotiation.SRTPDecision
 	for _, item := range items {
 		if item.Parsed == nil {
 			continue
 		}
 		switch message := item.Parsed.Message.(type) {
 		case *handshake.MessageEncryptedExtensions:
-			if err := extensionnegotiation.ValidateResponseExtensions(offer, message.Extensions, nil); err != nil {
+			if err := negotiation.ValidateResponseExtensions(offer, message.Extensions, nil); err != nil {
 				return newFlightParseFailure(alert.UnsupportedExtension, err)
 			}
 			var err error
-			srtpDecision, err = extensionnegotiation.ValidateSRTPSelection(
+			srtpDecision, err = negotiation.ValidateSRTPSelection(
 				offer, message.Extensions, flightCtx.cfg.LocalSRTPProtectionProfiles,
 			)
 			if err != nil {
@@ -388,7 +388,7 @@ func flight3Generate(
 		})
 	}
 
-	localCID, localCIDOffered := extensionnegotiation.ConnectionIDOffer(flightCtx.state.LocalClientHelloSnapshots.Current()) //nolint:lll
+	localCID, localCIDOffered := negotiation.ConnectionIDOffer(flightCtx.state.LocalClientHelloSnapshots.Current()) //nolint:lll
 	if flightCtx.cfg.ConnectionIDGenerator != nil && localCIDOffered {
 		extensions = append(extensions, &extension.ConnectionID{CID: bytes.Clone(localCID)})
 	}
@@ -407,11 +407,11 @@ func flight3Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, flightCtx.cfg.ClientHelloMessageHook) //nolint:lll
+	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, flightCtx.cfg.ClientHelloMessageHook) //nolint:lll
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := extensionnegotiation.ValidateSRTPRetry(
+	if err := negotiation.ValidateSRTPRetry(
 		flightCtx.state.LocalClientHelloSnapshots.Initial(), snapshot,
 	); err != nil {
 		return nil, nil, err

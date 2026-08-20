@@ -11,8 +11,8 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -63,28 +63,28 @@ func flight3Parse(
 
 	serverResponse = serverResponsePull.Messages[handshake.TypeServerHello]
 	serverHelloMsg, hasServerHello := serverResponse.(*handshake.MessageServerHello)
-	var decision *extensionnegotiation.ConnectionID
-	var srtpDecision extensionnegotiation.SRTPDecision
+	var decision *negotiation.ConnectionID
+	var srtpDecision negotiation.SRTPDecision
 	if hasServerHello { //nolint:nestif
 		if !serverHelloMsg.Version.Equal(protocol.Version1_2) {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 				dtlserrors.ErrUnsupportedProtocolVersion
 		}
 		offer := state.LocalClientHelloSnapshots.Current()
-		if validationErr := extensionnegotiation.ValidateServerHello12Context(serverHelloMsg); validationErr != nil {
+		if validationErr := negotiation.ValidateServerHello12Context(serverHelloMsg); validationErr != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, validationErr
 		}
-		if validationErr := extensionnegotiation.ValidateServerHelloResponse(offer, serverHelloMsg); validationErr != nil {
+		if validationErr := negotiation.ValidateServerHelloResponse(offer, serverHelloMsg); validationErr != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, validationErr
 		}
-		if srtpDecision, err = extensionnegotiation.ValidateSRTPSelection(
+		if srtpDecision, err = negotiation.ValidateSRTPSelection(
 			offer,
 			serverHelloMsg.Extensions,
 			cfg.LocalSRTPProtectionProfiles,
 		); err != nil {
 			return 0, nil, err
 		}
-		decision = extensionnegotiation.DecideConnectionID(offer, serverHelloMsg.Extensions)
+		decision = negotiation.DecideConnectionID(offer, serverHelloMsg.Extensions)
 		if decision == nil {
 			state.CommitNegotiatedExtensions(nil)
 		}
@@ -372,7 +372,7 @@ func flight3Generate(
 
 	// If the generated first ClientHello offered a connection ID, use the
 	// exact post-hook value as the default in the second ClientHello.
-	cid, cidOffered := extensionnegotiation.ConnectionIDOffer(state.LocalClientHelloSnapshots.Initial())
+	cid, cidOffered := negotiation.ConnectionIDOffer(state.LocalClientHelloSnapshots.Initial())
 	if cfg.ConnectionIDGenerator != nil && cidOffered {
 		extensions = append(extensions, &extension.ConnectionID{CID: cid})
 	}
@@ -387,7 +387,7 @@ func flight3Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
+	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
 	if err != nil {
 		return nil, nil, err
 	}

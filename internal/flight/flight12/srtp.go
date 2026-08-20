@@ -8,18 +8,18 @@ import (
 	"fmt"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 )
 
 func validateServerSRTP(
-	snapshot extensionnegotiation.ClientHelloSnapshot,
+	snapshot negotiation.ClientHelloSnapshot,
 	responses []extension.Value,
 	localProfiles []extension.SRTPProtectionProfile,
-	want extensionnegotiation.SRTPDecision,
+	want negotiation.SRTPDecision,
 ) error {
-	got, err := extensionnegotiation.ValidateSRTPSelection(snapshot, responses, localProfiles)
+	got, err := negotiation.ValidateSRTPSelection(snapshot, responses, localProfiles)
 	if err != nil {
 		return err
 	}
@@ -33,7 +33,7 @@ func validateServerSRTP(
 
 func appendSRTPSelection(
 	extensions []extension.Value,
-	decision extensionnegotiation.SRTPDecision,
+	decision negotiation.SRTPDecision,
 ) []extension.Value {
 	if decision.ProtectionProfile == 0 {
 		return extensions

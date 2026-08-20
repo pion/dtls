@@ -27,11 +27,11 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
@@ -2415,7 +2415,7 @@ func testVersionNegotiationHandshakeConfig13(t *testing.T) *dtlsconfig.Handshake
 
 func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 	const offeredType extension.Type = 0xfefe
-	_, offer, err := extensionnegotiation.FinalizeClientHello(&handshake.MessageClientHello{
+	_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
@@ -4962,7 +4962,7 @@ func TestSealRecordContentUsesNegotiatedConnectionID(t *testing.T) {
 		Secret:     secret,
 		Protection: protection,
 	}, nil)
-	state.CommitNegotiatedExtensions(&extensionnegotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid")}) //nolint:lll
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid")}) //nolint:lll
 
 	rawRecord, err := conn.sealRecordContent(
 		dtlsflight13.EpochApplication, 0, protocol.ContentTypeApplicationData, []byte("application"),
@@ -4989,7 +4989,7 @@ func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
 		Protection: protection,
 	})
 	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
-	state.CommitNegotiatedExtensions(&extensionnegotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid")}) //nolint:lll
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid")}) //nolint:lll
 
 	sealed, err := protection.Seal(
 		recordlayer.UnifiedHeader{

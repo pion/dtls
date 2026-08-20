@@ -10,8 +10,8 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/extensionnegotiation"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -149,7 +149,7 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := extensionnegotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
+	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -226,7 +226,7 @@ func flight1Parse(
 
 		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
 	}
-	if err := extensionnegotiation.ValidateServerHelloResponse(
+	if err := negotiation.ValidateServerHelloResponse(
 		state.LocalClientHelloSnapshots.Current(), sh,
 	); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, err
