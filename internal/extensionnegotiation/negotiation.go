@@ -18,8 +18,9 @@ import (
 
 // ClientHelloSnapshot is an immutable copy of a validated ClientHello body.
 type ClientHelloSnapshot struct {
-	body       []byte
-	extensions []extension.Raw
+	body            []byte
+	extensionOffset int
+	extensions      []extension.Raw
 }
 
 // Valid reports whether the snapshot contains a ClientHello.
@@ -138,7 +139,9 @@ func snapshotClientHello(body []byte) (ClientHelloSnapshot, error) {
 		return ClientHelloSnapshot{}, fmt.Errorf("extensions: %w", err)
 	}
 
-	return ClientHelloSnapshot{body: bytes.Clone(body), extensions: extensions}, nil
+	return ClientHelloSnapshot{
+		body: bytes.Clone(body), extensionOffset: len(body) - len(extensionData), extensions: extensions,
+	}, nil
 }
 
 func clientHelloExtensions(body []byte) ([]byte, error) {
