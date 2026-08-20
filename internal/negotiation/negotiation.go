@@ -349,7 +349,3 @@ func invalidHook(kind error, message handshake.Message, err error) error {
 
 	return negotiationError(kind, err, alert.InternalError)
 }
-
-func negotiationError(kind, err error, description alert.Description) error {
-	return fmt.Errorf("%w: %w: %w", kind, err, &alert.Alert{Level: alert.Fatal, Description: description})
-}
