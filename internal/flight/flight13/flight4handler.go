@@ -65,16 +65,6 @@ func flight4Parse(
 	return Flight4, nil, nil
 }
 
-func clientHelloCookie(extensions []extension.Value) []byte {
-	for _, ext := range extensions {
-		if cookieExt, ok := ext.(*extension13.Cookie); ok {
-			return cookieExt.Cookie
-		}
-	}
-
-	return nil
-}
-
 func selectClientKeyShare(
 	state *dtlsstate.State13,
 	cfg *dtlsconfig.HandshakeConfig,

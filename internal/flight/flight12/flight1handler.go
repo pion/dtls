@@ -56,6 +56,7 @@ func flight1Parse(
 				dtlserrors.ErrUnsupportedProtocolVersion
 		}
 		state.Cookie = bytes.Clone(h.Cookie)
+		state.HasHelloVerifyRequest = true
 		state.HandshakeRecvSequence = pull.NextSequence
 
 		return Flight3, nil, nil
@@ -84,6 +85,7 @@ func flight1Generate(
 	}
 	state.NamedCurve = ellipticCurves[0]
 	state.Cookie = nil
+	state.HasHelloVerifyRequest = false
 
 	if err := state.LocalRandom.Populate(); err != nil {
 		return nil, nil, err

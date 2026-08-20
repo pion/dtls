@@ -107,6 +107,7 @@ func newTestState13(t *testing.T, isClient bool) *dtlsstate.State13 {
 	t.Helper()
 	state := dtlsstate.NewState13(isClient)
 	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
+		CipherSuiteIDs: []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
 		Extensions: []extension.Value{
 			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
 			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms13())},
@@ -340,6 +341,7 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 	cfg := testHandshakeConfig13(t)
 	state := newTestState13(t, false)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.Cookie = []byte{0x01}
 	cache := dtlsflight.NewCache()
 
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight2, nil, nil)
@@ -379,6 +381,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	cfg := testHandshakeConfig13(t)
 	state := newTestState13(t, false)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
+	state.Cookie = []byte{0x01}
 	cache := dtlsflight.NewCache()
 	transcript := NewTranscript()
 	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)

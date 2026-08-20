@@ -4,13 +4,10 @@
 package flight13
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"maps"
 	"slices"
 
-	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/internal/negotiation"
@@ -18,8 +15,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
-	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
@@ -140,6 +135,11 @@ func processFlight3ServerHello(
 	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
 	if err := negotiation.ValidateServerHelloResponse(offer, serverHello); err != nil {
 		return newFlightParseFailure(alert.UnsupportedExtension, err)
+	}
+	if request := flightCtx.state.HelloRetryRequest; request.HasCookie || request.HasSelectedGroup {
+		if err := negotiation.ValidateServerHelloAfterRetry(request, serverHello); err != nil {
+			return newFlightParseFailure(alert.IllegalParameter, err)
+		}
 	}
 	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions)
 	flightCtx.state.RemoteVersions = versions
@@ -295,124 +295,39 @@ func handleFlight3ProtectedHandshake(
 	return nil
 }
 
-//nolint:cyclop,gocognit,nestif
 func flight3Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Packet, *alert.Alert, error) {
-	if len(flightCtx.cfg.LocalSignatureSchemes) == 0 {
-		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
-	}
-
-	extensions := []extension.Value{
-		&extension.SignatureAlgorithms{
-			Schemes: dtlsflight.SignatureSchemeIDs(flightCtx.cfg.LocalSignatureSchemes),
-		},
-	}
-
-	if flightCtx.cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
-		flightCtx.cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
-		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
-	}
-
-	extensions = append(extensions, &extension12.RenegotiationInfo{
-		RenegotiatedConnection: 0,
-	})
-
-	if flightCtx.state.SelectedGroup != 0 {
-		extensions = append(extensions, &extension12.SupportedPointFormats{
-			PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
-		})
-	}
-
-	if len(flightCtx.cfg.SupportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPNOffer{Protocols: flightCtx.cfg.SupportedProtocols})
-	}
-
-	var localGroups []elliptic.Curve
-	var newEntries []extension13.KeyShareEntry
-	newKeypairs := map[elliptic.Curve]*elliptic.Keypair{}
-	if flightCtx.state.HasRemoteKeyEntries {
-		for _, entry := range flightCtx.state.LocalKeyEntries {
-			localGroups = append(localGroups, entry.Group)
-		}
-
-		for _, entry := range flightCtx.state.RemoteKeyEntries {
-			if !slices.Contains(localGroups, entry.Group) && slices.Contains(flightCtx.cfg.EllipticCurves, entry.Group) {
-				keypair, err := elliptic.GenerateKeypair(entry.Group)
-				if err != nil {
-					return nil, nil, err
-				}
-				newEntries = append(newEntries, extension13.KeyShareEntry{
-					Group: keypair.Curve, KeyExchange: keypair.PublicKey,
-				})
-				newKeypairs[keypair.Curve] = keypair
-			}
-		}
-	}
-	if len(newEntries) > 0 {
-		flightCtx.state.LocalKeyEntries = append(newEntries, flightCtx.state.LocalKeyEntries...)
-		if flightCtx.state.LocalKeypairs == nil {
-			flightCtx.state.LocalKeypairs = make(map[elliptic.Curve]*elliptic.Keypair, len(newKeypairs))
-		}
-		maps.Copy(flightCtx.state.LocalKeypairs, newKeypairs)
-	}
-	extensions = append(extensions, &extension.SupportedGroups{
-		Groups: supportedGroupsForKeyShares(flightCtx.state.LocalKeyEntries, flightCtx.cfg.EllipticCurves),
-	})
-	extensions = append(extensions, &extension13.ClientKeyShare{
-		Shares: flightCtx.state.LocalKeyEntries,
-	})
-
 	if !slices.Contains(flightCtx.state.RemoteVersions, protocol.Version1_3) {
 		return nil, nil, dtlserrors.ErrNoCommonProtocolVersion
 	}
-	extensions = append(extensions, &extension13.OfferedVersions{
-		Versions: dtlsconfig.SupportedVersionsRange(flightCtx.cfg.MinVersion, flightCtx.cfg.MaxVersion),
-	})
 
-	if len(flightCtx.cfg.LocalCertSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{
-			Schemes: dtlsflight.SignatureSchemeIDs(flightCtx.cfg.LocalCertSignatureSchemes),
-		})
+	request := flightCtx.state.HelloRetryRequest
+	var freshShare *extension13.KeyShareEntry
+	if request.HasSelectedGroup {
+		keypair, err := elliptic.GenerateKeypair(request.SelectedGroup)
+		if err != nil {
+			return nil, nil, err
+		}
+		entry := extension13.KeyShareEntry{Group: keypair.Curve, KeyExchange: keypair.PublicKey}
+		freshShare = &entry
+		flightCtx.state.LocalKeyEntries = []extension13.KeyShareEntry{entry}
+		flightCtx.state.LocalKeypairs = map[elliptic.Curve]*elliptic.Keypair{entry.Group: keypair}
 	}
 
-	if len(flightCtx.cfg.ServerName) > 0 {
-		extensions = append(extensions, &extension.ServerNameOffer{ServerName: flightCtx.cfg.ServerName})
-	}
-
-	if len(flightCtx.cfg.LocalSRTPProtectionProfiles) > 0 {
-		extensions = append(extensions, &extension.SRTPOffer{
-			ProtectionProfiles:  flightCtx.cfg.LocalSRTPProtectionProfiles,
-			MasterKeyIdentifier: flightCtx.cfg.LocalSRTPMasterKeyIdentifier,
-		})
-	}
-
-	localCID, localCIDOffered := negotiation.ConnectionIDOffer(flightCtx.state.LocalClientHelloSnapshots.Current()) //nolint:lll
-	if flightCtx.cfg.ConnectionIDGenerator != nil && localCIDOffered {
-		extensions = append(extensions, &extension.ConnectionID{CID: bytes.Clone(localCID)})
-	}
-
-	if len(flightCtx.state.Cookie) > 0 {
-		extensions = append(extensions, &extension13.Cookie{Cookie: flightCtx.state.Cookie})
-	}
-
-	clientHello := &handshake.MessageClientHello{
-		Version:            protocol.Version1_2,
-		SessionID:          flightCtx.state.SessionID,
-		Cookie:             []byte{},
-		Random:             flightCtx.state.LocalRandom,
-		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(flightCtx.cfg.LocalCipherSuites),
-		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions:         extensions,
-	}
-
-	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, flightCtx.cfg.ClientHelloMessageHook) //nolint:lll
+	clientHello, err := negotiation.BuildClientHelloRetry(
+		flightCtx.state.LocalClientHelloSnapshots.Initial(), request, freshShare,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := negotiation.ValidateSRTPRetry(
-		flightCtx.state.LocalClientHelloSnapshots.Initial(), snapshot,
+	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, flightCtx.cfg.ClientHelloMessageHook)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := negotiation.ValidateClientHelloRetry(
+		flightCtx.state.LocalClientHelloSnapshots.Initial(), snapshot, request,
 	); err != nil {
 		return nil, nil, err
 	}
@@ -431,23 +346,4 @@ func flight3Generate(
 			},
 		},
 	}, nil, nil
-}
-
-func supportedGroupsForKeyShares(
-	shares []extension13.KeyShareEntry,
-	configured []elliptic.Curve,
-) []elliptic.Curve {
-	groups := make([]elliptic.Curve, 0, len(configured))
-	for _, share := range shares {
-		if !slices.Contains(groups, share.Group) {
-			groups = append(groups, share.Group)
-		}
-	}
-	for _, group := range configured {
-		if !slices.Contains(groups, group) {
-			groups = append(groups, group)
-		}
-	}
-
-	return groups
 }

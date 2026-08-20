@@ -12,6 +12,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	"github.com/pion/dtls/v3/internal/negotiation"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -46,6 +47,7 @@ func flight0Parse(
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-the-connection_id-extension
 	state.ResetConnectionIDs()
 	state.RemoteClientHelloSnapshots.Reset()
+	state.HelloRetryRequest = negotiation.RetryRequest{}
 
 	state.HandshakeRecvSequence = pull.NextSequence
 

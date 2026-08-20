@@ -183,15 +183,29 @@ func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 	require.NoError(t, state.RemoteClientHelloSnapshots.Record(
 		srtpSnapshot13(t, srtpProfile13, srtpMKI13),
 	))
+	id := uint16(0x1301)
+	request, err := negotiation.ValidateHelloRetryRequest(
+		state.RemoteClientHelloSnapshots.Initial(), &handshake.MessageServerHello{
+			CipherSuiteID: &id, Extensions: []extension.Value{
+				&extension13.SelectedVersion{Version: protocol.Version1_3},
+				&extension13.Cookie{Cookie: state.Cookie},
+			},
+		})
+	require.NoError(t, err)
+	state.HelloRetryRequest = request
 	message := &handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1},
-		Message: &handshake.MessageClientHello{Version: protocol.Version1_2, Extensions: []extension.Value{
-			&extension13.Cookie{Cookie: state.Cookie},
-			&extension.SRTPOffer{
-				ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
-				MasterKeyIdentifier: []byte("changed"),
+		Message: &handshake.MessageClientHello{
+			Version:        protocol.Version1_2,
+			CipherSuiteIDs: []uint16{0x1301},
+			Extensions: []extension.Value{
+				&extension13.Cookie{Cookie: state.Cookie},
+				&extension.SRTPOffer{
+					ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
+					MasterKeyIdentifier: []byte("changed"),
+				},
 			},
-		}},
+		},
 	}
 	raw, err := message.Marshal()
 	require.NoError(t, err)
@@ -220,7 +234,9 @@ func srtpSnapshot13(
 		})
 	}
 	_, snapshot, err := negotiation.FinalizeClientHello(
-		&handshake.MessageClientHello{Extensions: extensions}, nil,
+		&handshake.MessageClientHello{
+			Version: protocol.Version1_2, CipherSuiteIDs: []uint16{0x1301}, Extensions: extensions,
+		}, nil,
 	)
 	require.NoError(t, err)
 

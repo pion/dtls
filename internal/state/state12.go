@@ -24,6 +24,7 @@ type State12 struct {
 	LocalKeypair *elliptic.Keypair
 
 	Cookie                []byte
+	HasHelloVerifyRequest bool
 	HandshakeSendSequence int
 	HandshakeRecvSequence int
 

@@ -83,6 +83,28 @@ func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.
 	})
 }
 
+func TestFlight3GenerateValidatesRetryWithEmptyCookie(t *testing.T) {
+	state := newTestState12()
+	suite := ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	cfg := &dtlsconfig.HandshakeConfig{
+		LocalCipherSuites: []dtlsconfig.CipherSuite{suite},
+		EllipticCurves:    []elliptic.Curve{elliptic.X25519},
+	}
+	_, _, err := generateForTest(t, Flight1, nil, state, nil, cfg)
+	require.NoError(t, err)
+	state.HasHelloVerifyRequest = true
+
+	cfg.ClientHelloMessageHook = func(clientHello handshake.MessageClientHello) handshake.Message {
+		clientHello.Random.RandomBytes[0] ^= 0xff
+
+		return &clientHello
+	}
+	packets, dtlsAlert, err := generateForTest(t, Flight3, nil, state, nil, cfg)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
+	require.Nil(t, dtlsAlert)
+	require.Nil(t, packets)
+}
+
 func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
 	state := newTestState12()
 	clientHello := &handshake.MessageClientHello{
@@ -165,6 +187,39 @@ func TestFlight2RejectsChangedConnectionID(t *testing.T) {
 	assert.True(t, present)
 }
 
+func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
+	state := newTestState12()
+	state.Cookie, state.HandshakeRecvSequence = []byte{0xc0}, 1
+	recordCH12(t, &state.RemoteClientHelloSnapshots,
+		extension.Raw{Type: 0xfefe, Data: []byte{0x01}},
+	)
+	retry := &handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		Cookie:             state.Cookie,
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions: []extension.Value{
+			extension.Raw{Type: 0xfefe, Data: []byte{0x02}},
+		},
+	}
+	rawRetry, err := (&handshake.Handshake{
+		Header: handshake.Header{MessageSequence: 1}, Message: retry,
+	}).Marshal()
+	require.NoError(t, err)
+	cache := dtlsflight.NewCache()
+	cache.Push(rawRetry, 0, 1, handshake.TypeClientHello, true)
+
+	next, dtlsAlert, err := parseForTest(
+		t, Flight2, t.Context(), nil, state, cache,
+		&dtlsconfig.HandshakeConfig{EllipticCurves: []elliptic.Curve{elliptic.X25519}},
+	)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	assert.Equal(t, Flight4, next)
+	current, present := state.RemoteClientHelloSnapshots.Current().Extension(0xfefe)
+	require.True(t, present)
+	assert.Equal(t, []byte{0x02}, current.Data)
+}
+
 func TestFlight4bGenerateCommitsConnectionIDOnce(t *testing.T) {
 	for name, test := range map[string]struct {
 		clientCID, serverCID []byte
@@ -243,7 +298,9 @@ func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
 
 func recordCH12(t *testing.T, snapshots *negotiation.ClientHelloSnapshots, extensions ...extension.Value) {
 	t.Helper()
-	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{Extensions: extensions}, nil) //nolint:lll
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
+		Version: protocol.Version1_2, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions,
+	}, nil)
 	require.NoError(t, err)
 	require.NoError(t, snapshots.Record(snapshot))
 }

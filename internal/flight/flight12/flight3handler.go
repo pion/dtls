@@ -56,6 +56,7 @@ func flight3Parse(
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion //nolint:lll
 		}
 		state.Cookie = bytes.Clone(h.Cookie)
+		state.HasHelloVerifyRequest = true
 		state.HandshakeRecvSequence = serverResponsePull.NextSequence
 
 		return Flight3, nil, nil
@@ -386,10 +387,27 @@ func flight3Generate(
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 		Extensions:         extensions,
 	}
+	if state.HasHelloVerifyRequest {
+		retry, err := negotiation.ClientHelloFromSnapshot(
+			state.LocalClientHelloSnapshots.Initial(),
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		retry.Cookie = state.Cookie
+		clientHello = retry
+	}
 
 	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
 	if err != nil {
 		return nil, nil, err
+	}
+	if state.HasHelloVerifyRequest {
+		if err := negotiation.ValidateHelloVerifyRequestResponse(
+			state.LocalClientHelloSnapshots.Initial(), snapshot, state.Cookie,
+		); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err := state.RecordLocalClientHello(snapshot); err != nil {
 		return nil, nil, err

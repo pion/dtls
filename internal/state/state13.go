@@ -117,6 +117,7 @@ type State13 struct {
 	RemoteGroups        []elliptic.Curve
 
 	Cookie                []byte
+	HelloRetryRequest     negotiation.RetryRequest
 	HandshakeSendSequence int
 	HandshakeRecvSequence int
 
