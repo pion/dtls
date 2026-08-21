@@ -289,6 +289,7 @@ var (
 	ErrInvalidEpoch               = stderrors.New("invalid epoch")
 	ErrCIDTooBig                  = stderrors.New("connection ID size is too big")
 	ErrInvalidUnifiedHeaderFormat = stderrors.New("invalid dtls 1.3 unified header format")
+	ErrAntiAmplificationLimit     = stderrors.New("return routability check anti-amplification limit exceeded")
 
 	ErrCipherSuiteNotInit                        = stderrors.New("CipherSuite has not been initialized")
 	ErrCipherSuiteRecordProtectionNotImplemented = stderrors.New(
