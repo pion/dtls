@@ -179,6 +179,71 @@ func TestCIDDatagramRouter(t *testing.T) {
 	}
 }
 
+func TestCIDDatagramRouter13(t *testing.T) {
+	cid := []byte("abcd1234")
+	makeRecord := func(t *testing.T, connectionID []byte, sequenceNumber uint16) []byte {
+		t.Helper()
+
+		record, err := (&recordlayer.CiphertextRecord13{
+			Header: recordlayer.UnifiedHeader{
+				ConnectionID:   connectionID,
+				SequenceNumber: sequenceNumber,
+			},
+			EncryptedRecord: make([]byte, 16),
+		}).Marshal()
+		assert.NoError(t, err)
+
+		return record
+	}
+
+	recordWithCID := makeRecord(t, cid, 1)
+	recordWithoutCID := makeRecord(t, nil, 2)
+	otherCID := []byte("1234abcd")
+	recordWithOtherCID := makeRecord(t, otherCID, 3)
+
+	cases := map[string]struct {
+		reason   string
+		size     int
+		datagram []byte
+		ok       bool
+		want     string
+	}{
+		"OneRecordConnectionID": {
+			reason:   "A unified-header record with the C bit should expose its CID.",
+			size:     len(cid),
+			datagram: recordWithCID,
+			ok:       true,
+			want:     string(cid),
+		},
+		"NoConnectionIDBit": {
+			reason:   "A unified-header record without the C bit has no routing identifier.",
+			size:     len(cid),
+			datagram: recordWithoutCID,
+			ok:       false,
+		},
+		"WrongConfiguredLength": {
+			reason:   "A unified-header CID must have the listener's configured fixed length.",
+			size:     len(cid) - 1,
+			datagram: recordWithCID,
+			ok:       false,
+		},
+		"MultipleRecords": {
+			reason:   "The first CID in a datagram containing unified-header records should be used.",
+			size:     len(cid),
+			datagram: append(append([]byte{}, recordWithCID...), recordWithOtherCID...),
+			ok:       true,
+			want:     string(cid),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, ok := cidDatagramRouter(tc.size)(tc.datagram)
+			assert.Equal(t, tc.ok, ok, "%s\ncidDatagramRouter mismatch", tc.reason)
+			assert.Equal(t, tc.want, got, "%s\ncidDatagramRouter mismatch", tc.reason)
+		})
+	}
+}
+
 func TestCIDConnIdentifier(t *testing.T) {
 	cid := []byte("abcd1234")
 	cs := uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
@@ -212,6 +277,11 @@ func TestCIDConnIdentifier(t *testing.T) {
 		Content: &protocol.ApplicationData{
 			Data: []byte("application data"),
 		},
+	}).Marshal()
+	assert.NoError(t, err)
+	dtls13Ciphertext, err := (&recordlayer.CiphertextRecord13{
+		Header:          recordlayer.UnifiedHeader{SequenceNumber: 1},
+		EncryptedRecord: make([]byte, 16),
 	}).Marshal()
 	assert.NoError(t, err)
 
@@ -249,6 +319,13 @@ func TestCIDConnIdentifier(t *testing.T) {
 			//nolint:lll
 			reason:   "If datagram contains multiple records and the first is a ServerHello record, we should be able to extract an identifier.",
 			datagram: append(sh, appRecord...),
+			ok:       true,
+			want:     string(cid),
+		},
+		"DTLS13ServerFlight": {
+			//nolint:lll
+			reason:   "A ServerHello followed by DTLS 1.3 unified-header records should register its Connection ID.",
+			datagram: append(append([]byte{}, sh...), dtls13Ciphertext...),
 			ok:       true,
 			want:     string(cid),
 		},

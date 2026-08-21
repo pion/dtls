@@ -41,6 +41,13 @@ func OnlySendCIDGenerator() func() []byte {
 // constant size connection IDs.
 func cidDatagramRouter(size int) func([]byte) (string, bool) {
 	return func(packet []byte) (string, bool) {
+		if len(packet) == 0 {
+			return "", false
+		}
+		if protocol.IsDTLS13Ciphertext(protocol.ContentType(packet[0])) {
+			return cidDatagramRouter13(packet, size)
+		}
+
 		pkts, err := recordlayer.ContentAwareUnpackDatagram(packet, size)
 		if err != nil || len(pkts) == 0 {
 			return "", false
@@ -63,6 +70,35 @@ func cidDatagramRouter(size int) func([]byte) (string, bool) {
 	}
 }
 
+// cidDatagramRouter13 extracts the fixed-length connection ID from a DTLS 1.3
+// unified header. The CID bit is authenticated only when Conn opens the record,
+// so routing by it selects a candidate connection rather than authenticating a
+// peer address.
+//
+// https://datatracker.ietf.org/doc/html/rfc9147#section-4
+func cidDatagramRouter13(packet []byte, size int) (string, bool) {
+	pkts, err := recordlayer.UnpackDatagram13(packet, size, false, true)
+	if err != nil || len(pkts) == 0 {
+		return "", false
+	}
+	for _, pkt := range pkts {
+		if len(pkt) == 0 ||
+			!protocol.IsDTLS13Ciphertext(protocol.ContentType(pkt[0])) ||
+			pkt[0]&recordlayer.UnifiedHeaderCIDBit == 0 {
+			continue
+		}
+
+		h := recordlayer.UnifiedHeader{ConnectionID: make([]byte, size)}
+		if err := h.Unmarshal(pkt); err != nil {
+			continue
+		}
+
+		return string(h.ConnectionID), true
+	}
+
+	return "", false
+}
+
 // cidConnIdentifier extracts connection IDs from outgoing ServerHello records
 // and associates them with the associated connection.
 // NOTE: a ServerHello should always be the first record in a datagram if
@@ -70,28 +106,25 @@ func cidDatagramRouter(size int) func([]byte) (string, bool) {
 // is not a ServerHello.
 func cidConnIdentifier() func([]byte) (string, bool) { //nolint:cyclop
 	return func(packet []byte) (string, bool) {
-		pkts, err := recordlayer.UnpackDatagram(packet)
-		if err != nil || len(pkts) == 0 {
-			return "", false
-		}
 		var h recordlayer.Header
-		if hErr := h.Unmarshal(pkts[0]); hErr != nil {
+		if err := h.Unmarshal(packet); err != nil {
 			return "", false
 		}
 		if h.ContentType != protocol.ContentTypeHandshake {
 			return "", false
 		}
+		firstRecordSize := h.Size() + int(h.ContentLen)
+		if len(packet) < firstRecordSize {
+			return "", false
+		}
+		firstRecord := packet[:firstRecordSize]
+
 		var hh handshake.Header
 		var sh handshake.MessageServerHello
-		for _, pkt := range pkts {
-			if hhErr := hh.Unmarshal(pkt[recordlayer.FixedHeaderSize:]); hhErr != nil {
-				continue
-			}
-			if err = sh.Unmarshal(pkt[recordlayer.FixedHeaderSize+handshake.HeaderLength:]); err == nil {
-				break
-			}
+		if err := hh.Unmarshal(firstRecord[recordlayer.FixedHeaderSize:]); err != nil {
+			return "", false
 		}
-		if err != nil {
+		if err := sh.Unmarshal(firstRecord[recordlayer.FixedHeaderSize+handshake.HeaderLength:]); err != nil {
 			return "", false
 		}
 		for _, ext := range sh.Extensions {

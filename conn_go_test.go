@@ -12,12 +12,116 @@ import (
 	"testing"
 	"time"
 
+	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/transport/v4/dpipe"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+var errAcceptedConnectionNotDTLS = errors.New("accepted connection is not a DTLS Conn")
+
+func TestListenDTLS13ConnectionIDRebinding(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(10 * time.Second).Stop()
+
+	serverCert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	serverCID := []byte("server-cid")
+	listener, err := ListenWithOptions(
+		"udp4",
+		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+		WithCertificates(serverCert),
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+		WithConnectionIDGenerator(func() []byte { return serverCID }),
+	)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, listener.Close())
+	}()
+
+	initialSocket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	client, err := ClientWithOptions(
+		initialSocket,
+		listener.Addr(),
+		WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+		WithConnectionIDGenerator(func() []byte { return []byte("client-cid") }),
+	)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, client.Close())
+	}()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	type serverResult struct {
+		conn *Conn
+		err  error
+	}
+	serverCh := make(chan serverResult, 1)
+	go func() {
+		accepted, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverCh <- serverResult{err: acceptErr}
+
+			return
+		}
+		server, ok := accepted.(*Conn)
+		if !ok {
+			serverCh <- serverResult{err: errAcceptedConnectionNotDTLS}
+
+			return
+		}
+		serverCh <- serverResult{conn: server, err: server.HandshakeContext(ctx)}
+	}()
+
+	require.NoError(t, client.HandshakeContext(ctx))
+	result := <-serverCh
+	require.NoError(t, result.err)
+	server := result.conn
+	defer func() {
+		require.NoError(t, server.Close())
+	}()
+	initialRemoteAddr := server.RemoteAddr().String()
+
+	reboundSocket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, reboundSocket.Close())
+	}()
+
+	reboundPacket := client.newApplicationDataPacket([]byte("rebound"))
+	reboundPacket.Record.Header.Epoch = dtlsstate.CommonState(client.state).LocalEpoch()
+	datagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Packet{reboundPacket})
+	require.NoError(t, err)
+	require.Len(t, datagrams, 1)
+	_, err = reboundSocket.WriteTo(datagrams[0].raw, listener.Addr())
+	require.NoError(t, err)
+
+	require.NoError(t, server.SetReadDeadline(time.Now().Add(time.Second)))
+	buf := make([]byte, 64)
+	n, err := server.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("rebound"), buf[:n])
+	assert.NotEqual(t, initialRemoteAddr, server.RemoteAddr().String())
+	assert.Equal(t, reboundSocket.LocalAddr().String(), server.RemoteAddr().String())
+
+	_, err = server.Write([]byte("new path"))
+	require.NoError(t, err)
+	require.NoError(t, reboundSocket.SetReadDeadline(time.Now().Add(time.Second)))
+	n, source, err := reboundSocket.ReadFrom(buf)
+	require.NoError(t, err)
+	assert.Positive(t, n)
+	assert.Equal(t, listener.Addr().String(), source.String())
+}
 
 func TestContextConfig(t *testing.T) { //nolint:cyclop
 	// Limit runtime in case of deadlocks

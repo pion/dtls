@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	"github.com/pion/dtls/v3/internal/closer"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
@@ -5235,6 +5236,45 @@ func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
 	require.NoError(t, err)
 	_, err = conn.unmarshalCiphertextRecord(rawRecord)
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
+}
+
+func TestCiphertextConnectionIDPromotesAuthenticatedCandidateAddress(t *testing.T) {
+	conn, peerProtection := newTestConnWithReadProtection(t)
+	state, ok := conn.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	localCID := []byte("local-cid")
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
+		ClientCID: localCID,
+		ServerCID: []byte("remote-cid"),
+	})
+	conn.setRemoteEpoch(dtlsflight13.EpochApplication)
+	conn.decrypted = make(chan any, 1)
+	conn.closed = closer.NewCloser()
+	conn.rAddr = &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 5000}
+	candidateAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 6000}
+
+	sealed, err := peerProtection.Seal(
+		recordlayer.UnifiedHeader{
+			ConnectionID: localCID,
+			EpochLow:     uint8(dtlsflight13.EpochApplication & recordlayer.TwoLowBitsMask),
+		},
+		0,
+		protocol.ContentTypeApplicationData,
+		[]byte("application"),
+	)
+	require.NoError(t, err)
+	rawRecord, err := sealed.Marshal()
+	require.NoError(t, err)
+
+	invalidRecord := bytes.Clone(rawRecord)
+	invalidRecord[len(invalidRecord)-1] ^= 0xff
+	_, err = conn.handleIncomingPacket(t.Context(), invalidRecord, candidateAddr, nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, candidateAddr, conn.RemoteAddr())
+
+	_, err = conn.handleIncomingPacket(t.Context(), rawRecord, candidateAddr, nil)
+	require.NoError(t, err)
+	assert.Equal(t, candidateAddr, conn.RemoteAddr())
 }
 
 func TestOpenCiphertextRecordUsesReadTrafficGeneration(t *testing.T) {

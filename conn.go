@@ -1734,7 +1734,16 @@ func (c *Conn) prepareCiphertextPacket(
 		return incomingPacketState{}, false
 	}
 
-	return c.prepareInnerPlaintextRecord(epoch, sequenceNumber, innerPlaintext, markPacketAsValid)
+	prepared, ok := c.prepareInnerPlaintextRecord(epoch, sequenceNumber, innerPlaintext, markPacketAsValid)
+	if ok {
+		// The datagram's source address remains a candidate until the CID and
+		// ciphertext have both been authenticated and replay checks confirm this
+		// is the latest valid record.
+		// https://datatracker.ietf.org/doc/html/rfc9146#section-6
+		prepared.originalCID = len(ciphertext.Header.ConnectionID) > 0
+	}
+
+	return prepared, ok
 }
 
 func (c *Conn) prepareInnerPlaintextRecord(
