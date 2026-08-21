@@ -31,7 +31,7 @@ func main() {
 		dtls.WithPSKIdentityHint([]byte("Pion DTLS Server")),
 		dtls.WithCipherSuites(dtls.TLS_PSK_WITH_AES_128_CCM_8),
 		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
-		dtls.WithConnectionIDGenerator(dtls.RandomCIDGenerator(8)),
+		dtls.WithConnectionID(dtls.RandomCIDGenerator(8), dtls.CIDPathMigrationUnsafe),
 	)
 	util.Check(err)
 	defer func() {

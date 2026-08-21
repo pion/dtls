@@ -3453,6 +3453,7 @@ func TestFlight13_1GenerateConnectionIDOffer(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			cfg, calls := testHandshakeConfig13(t), 0
+			cfg.EnableRRC = true
 			if test.generator {
 				cfg.ConnectionIDGenerator = func() []byte {
 					calls++
@@ -3661,6 +3662,7 @@ func TestFlight13_4GenerateNegotiatesConnectionIDs(t *testing.T) { //nolint:cycl
 				serverCID = test.serverCIDs[0]
 			}
 			cfg := testHandshakeConfig13(t)
+			cfg.EnableRRC = true
 			certificate, err := selfsign.GenerateSelfSigned()
 			require.NoError(t, err)
 			cfg.LocalCertificates = []tls.Certificate{certificate}

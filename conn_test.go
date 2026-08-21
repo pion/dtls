@@ -1420,26 +1420,26 @@ func TestConnectionID(t *testing.T) {
 		serverConnectionID []byte
 	}{
 		"BidirectionalConnectionIDs": {
-			clientOpts:         []ClientOption{WithConnectionIDGenerator(cidEcho(clientCID))},
-			serverOpts:         []ServerOption{WithConnectionIDGenerator(cidEcho(serverCID))},
+			clientOpts:         []ClientOption{WithConnectionID(cidEcho(clientCID), CIDPathMigrationReject)},
+			serverOpts:         []ServerOption{WithConnectionID(cidEcho(serverCID), CIDPathMigrationReject)},
 			clientConnectionID: clientCID,
 			serverConnectionID: serverCID,
 		},
 		"BothSupportOnlyClientSends": {
-			clientOpts:         []ClientOption{WithConnectionIDGenerator(cidEcho(nil))},
-			serverOpts:         []ServerOption{WithConnectionIDGenerator(cidEcho(serverCID))},
+			clientOpts:         []ClientOption{WithConnectionID(cidEcho(nil), CIDPathMigrationReject)},
+			serverOpts:         []ServerOption{WithConnectionID(cidEcho(serverCID), CIDPathMigrationReject)},
 			serverConnectionID: serverCID,
 		},
 		"BothSupportOnlyServerSends": {
-			clientOpts:         []ClientOption{WithConnectionIDGenerator(cidEcho(clientCID))},
-			serverOpts:         []ServerOption{WithConnectionIDGenerator(cidEcho(nil))},
+			clientOpts:         []ClientOption{WithConnectionID(cidEcho(clientCID), CIDPathMigrationReject)},
+			serverOpts:         []ServerOption{WithConnectionID(cidEcho(nil), CIDPathMigrationReject)},
 			clientConnectionID: clientCID,
 		},
 		"ClientDoesNotSupport": {
-			serverOpts: []ServerOption{WithConnectionIDGenerator(cidEcho(serverCID))},
+			serverOpts: []ServerOption{WithConnectionID(cidEcho(serverCID), CIDPathMigrationReject)},
 		},
 		"ServerDoesNotSupport": {
-			clientOpts: []ClientOption{WithConnectionIDGenerator(cidEcho(clientCID))},
+			clientOpts: []ClientOption{WithConnectionID(cidEcho(clientCID), CIDPathMigrationReject)},
 		},
 		"NeitherSupport": {},
 	}
@@ -1482,6 +1482,8 @@ func TestConnectionID(t *testing.T) {
 				"Unexpected server local connection ID")
 			assert.True(t, bytes.Equal(tt.clientConnectionID, dtlsstate.CommonState(server.state).RemoteConnectionID),
 				"Unexpected server remote connection ID")
+			assert.False(t, dtlsstate.CommonState(res.c.state).RRCNegotiated)
+			assert.False(t, dtlsstate.CommonState(server.state).RRCNegotiated)
 		})
 	}
 }
@@ -3238,7 +3240,7 @@ func TestSessionResume(t *testing.T) {
 				WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 				WithServerName("example.com"),
 				WithSessionStore(ss),
-				WithConnectionIDGenerator(func() []byte { return clientCID }),
+				WithConnectionID(func() []byte { return clientCID }, CIDPathMigrationReject),
 				WithMTU(100),
 			}
 			c, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, false)
@@ -3249,7 +3251,7 @@ func TestSessionResume(t *testing.T) {
 			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 			WithServerName("example.com"),
 			WithSessionStore(ss),
-			WithConnectionIDGenerator(func() []byte { return serverCID }),
+			WithConnectionID(func() []byte { return serverCID }, CIDPathMigrationReject),
 			WithMTU(100),
 		}
 		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), opts, true)
@@ -4049,7 +4051,7 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 		WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_3),
 		WithMaxVersion(protocol.Version1_3),
-		WithConnectionIDGenerator(func() []byte { return clientCID }),
+		WithConnectionID(func() []byte { return clientCID }, CIDPathMigrationReject),
 	)
 	assert.NoError(t, err)
 	defer func() {
@@ -4071,7 +4073,7 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 		WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_3),
 		WithMaxVersion(protocol.Version1_3),
-		WithConnectionIDGenerator(func() []byte { return serverCID }),
+		WithConnectionID(func() []byte { return serverCID }, CIDPathMigrationReject),
 	)
 	assert.NoError(t, err)
 	defer func() {
@@ -4096,6 +4098,8 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 	assert.Equal(t, serverCID, dtlsstate.CommonState(client.state).RemoteConnectionID)
 	assert.Equal(t, serverCID, dtlsstate.CommonState(server.state).LocalConnectionID())
 	assert.Equal(t, clientCID, dtlsstate.CommonState(server.state).RemoteConnectionID)
+	assert.False(t, dtlsstate.CommonState(client.state).RRCNegotiated)
+	assert.False(t, dtlsstate.CommonState(server.state).RRCNegotiated)
 
 	_, ok = client.ConnectionState()
 	require.True(t, ok)
@@ -5379,6 +5383,7 @@ func testLatestCIDControlRecordStartsRRC(
 ) {
 	t.Helper()
 	conn, peerProtection := newTestConnWithReadProtection(t)
+	conn.cidPathMigrationPolicy = CIDPathMigrationRRC
 	state, ok := conn.state.(*dtlsstate.State13)
 	require.True(t, ok)
 	localCID := []byte("local-cid")
@@ -5433,33 +5438,111 @@ func testLatestCIDControlRecordStartsRRC(
 	assert.Equal(t, activeAddr.String(), conn.RemoteAddr().String())
 }
 
-func TestRRCRejectsUnprotectedRecord(t *testing.T) {
-	state := dtlsstate.NewState12(true)
-	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
-		ClientCID:              []byte("local-cid"),
-		ServerCID:              []byte("remote-cid"),
-		ReturnRoutabilityCheck: true,
-	})
-	marked := false
-	conn := &Conn{state: &state}
-	_, outcome, err := conn.handleRecordContent(
-		t.Context(),
-		&protocol.ReturnRoutabilityCheck{MessageType: protocol.ReturnRoutabilityCheckPathChallenge},
-		incomingPacketState{
-			header: &recordlayer.Header{Epoch: 0},
-			markPacketAsValid: func() bool {
-				marked = true
+func TestRRCRequiresProtectionPolicyAndNegotiation(t *testing.T) {
+	for name, test := range map[string]struct {
+		policy     cidPathMigrationPolicy
+		negotiated bool
+		epoch      uint16
+	}{
+		"Unprotected":    {policy: CIDPathMigrationRRC, negotiated: true},
+		"PolicyDisabled": {policy: CIDPathMigrationReject, negotiated: true, epoch: 1},
+		"NotNegotiated":  {policy: CIDPathMigrationRRC, epoch: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			state := dtlsstate.NewState12(true)
+			state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
+				ClientCID:              []byte("local-cid"),
+				ServerCID:              []byte("remote-cid"),
+				ReturnRoutabilityCheck: test.negotiated,
+			})
+			marked := false
+			conn := &Conn{state: &state, cidPathMigrationPolicy: test.policy}
+			_, outcome, err := conn.handleRecordContent(
+				t.Context(),
+				&protocol.ReturnRoutabilityCheck{MessageType: protocol.ReturnRoutabilityCheckPathChallenge},
+				incomingPacketState{
+					header: &recordlayer.Header{Epoch: test.epoch},
+					markPacketAsValid: func() bool {
+						marked = true
 
-				return true
-			},
+						return true
+					},
+				},
+				&net.UDPAddr{},
+				nil,
+			)
+
+			assert.ErrorIs(t, err, dtlserrors.ErrUnexpectedPostHandshakeMessage)
+			assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, outcome.responseAlert)
+			assert.False(t, marked)
+		})
+	}
+}
+
+func TestWriteRRCRequiresPolicyAndNegotiation(t *testing.T) {
+	for name, test := range map[string]struct {
+		policy     cidPathMigrationPolicy
+		negotiated bool
+	}{
+		"PolicyDisabled": {policy: CIDPathMigrationReject, negotiated: true},
+		"NotNegotiated":  {policy: CIDPathMigrationRRC},
+	} {
+		t.Run(name, func(t *testing.T) {
+			state := dtlsstate.NewState12(true)
+			state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
+				ClientCID:              []byte("local-cid"),
+				ServerCID:              []byte("remote-cid"),
+				ReturnRoutabilityCheck: test.negotiated,
+			})
+			conn := &Conn{state: &state, cidPathMigrationPolicy: test.policy}
+			err := (returnRoutabilityConn{conn: conn}).WriteRRC(
+				t.Context(), &net.UDPAddr{}, protocol.ReturnRoutabilityCheckPathChallenge,
+				[protocol.ReturnRoutabilityCheckCookieLength]byte{},
+			)
+			assert.ErrorIs(t, err, dtlserrors.ErrUnexpectedPostHandshakeMessage)
+		})
+	}
+}
+
+func TestCIDPathMigrationPolicies(t *testing.T) {
+	activeAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 5000}
+	candidateAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 6000}
+	for name, test := range map[string]struct {
+		policy       cidPathMigrationPolicy
+		expectedAddr net.Addr
+		expectedLog  string
+	}{
+		"Reject": {
+			policy: CIDPathMigrationReject, expectedAddr: activeAddr,
+			expectedLog: "rejected CID path migration",
 		},
-		&net.UDPAddr{},
-		nil,
-	)
+		"Unsafe": {policy: CIDPathMigrationUnsafe, expectedAddr: candidateAddr},
+		"RRCNotNegotiated": {
+			policy: CIDPathMigrationRRC, expectedAddr: activeAddr,
+			expectedLog: "RRC was not negotiated",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var logs bytes.Buffer
+			conn := &Conn{
+				rAddr:                  activeAddr,
+				cidPathMigrationPolicy: test.policy,
+				log: logging.NewDefaultLeveledLoggerForScope(
+					"dtls", logging.LogLevelError, &logs,
+				),
+			}
+			(returnRoutabilityConn{conn: conn}).HandleCandidate(
+				t.Context(), false, true, true, candidateAddr,
+			)
 
-	assert.ErrorIs(t, err, dtlserrors.ErrUnexpectedPostHandshakeMessage)
-	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, outcome.responseAlert)
-	assert.False(t, marked)
+			assert.Equal(t, test.expectedAddr.String(), conn.RemoteAddr().String())
+			if test.expectedLog == "" {
+				assert.Empty(t, logs.String())
+			} else {
+				assert.Contains(t, logs.String(), test.expectedLog)
+			}
+		})
+	}
 }
 
 func TestOpenCiphertextRecordUsesReadTrafficGeneration(t *testing.T) {

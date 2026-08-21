@@ -72,7 +72,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 		WithCertificates(serverCert),
 		WithMinVersion(serverMin),
 		WithMaxVersion(serverMax),
-		WithConnectionIDGenerator(func() []byte { return serverCID }),
+		WithConnectionID(func() []byte { return serverCID }, CIDPathMigrationRRC),
 	)
 	require.NoError(t, err)
 	defer func() {
@@ -87,7 +87,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 		WithInsecureSkipVerify(true),
 		WithMinVersion(clientMin),
 		WithMaxVersion(clientMax),
-		WithConnectionIDGenerator(func() []byte { return []byte("client-cid") }),
+		WithConnectionID(func() []byte { return []byte("client-cid") }, CIDPathMigrationRRC),
 	)
 	require.NoError(t, err)
 	defer func() {

@@ -99,10 +99,9 @@ func flight4bGenerate(
 		state.NegotiatedProtocol = selectedProto
 	}
 	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
-		extensions = append(extensions, cid)
-		if offer.Offered(extension.TypeReturnRoutabilityCheck) {
-			extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
-		}
+		extensions = dtlsflight.AppendConnectionIDExtensions(
+			extensions, cid.CID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck),
+		)
 	}
 
 	cipherSuiteID := uint16(state.CipherSuite.ID())
@@ -115,7 +114,9 @@ func flight4bGenerate(
 		Extensions:        extensions,
 	}
 
-	serverHelloMessage, err = negotiation.FinalizeServerHello(serverHelloMessage, cfg.ServerHelloMessageHook, offer) //nolint:lll
+	serverHelloMessage, err = dtlsflight.FinalizeServerHello(
+		serverHelloMessage, cfg.ServerHelloMessageHook, offer, cfg.EnableRRC,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

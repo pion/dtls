@@ -57,7 +57,7 @@ func (c returnRoutabilityConn) WriteRRC(
 
 	c.conn.lock.Lock()
 	common := dtlsstate.CommonState(c.conn.state)
-	if !common.RRCNegotiated {
+	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC || !common.RRCNegotiated {
 		c.conn.lock.Unlock()
 
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
@@ -99,7 +99,9 @@ func (c returnRoutabilityConn) HandleRecord(
 	prepared incomingPacketState,
 	addr net.Addr,
 ) (bool, packetOutcome, error) {
-	if prepared.header.Epoch == 0 || !dtlsstate.CommonState(c.conn.state).RRCNegotiated {
+	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC ||
+		prepared.header.Epoch == 0 ||
+		!dtlsstate.CommonState(c.conn.state).RRCNegotiated {
 		return false, packetOutcome{
 			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
 		}, dtlserrors.ErrUnexpectedPostHandshakeMessage
@@ -133,19 +135,78 @@ func (c returnRoutabilityConn) HandleRecord(
 
 func (c returnRoutabilityConn) HandleCandidate(
 	ctx context.Context,
-	enabled, hasCID, latest bool,
+	rrcNegotiated, hasCID, latest bool,
 	addr net.Addr,
 ) {
-	cookie, ok, err := c.conn.rrc.Start(enabled && hasCID && latest, addr, c.conn.RemoteAddr())
+	if !hasCID || !latest {
+		return
+	}
+
+	currentAddr := c.conn.RemoteAddr()
+	if sameNetworkAddress(currentAddr, addr) {
+		return
+	}
+	if !c.useCandidatePath(rrcNegotiated, currentAddr, addr) {
+		return
+	}
+
+	c.startCandidateRRC(ctx, currentAddr, addr)
+}
+
+func (c returnRoutabilityConn) useCandidatePath(
+	rrcNegotiated bool,
+	currentAddr, candidateAddr net.Addr,
+) bool {
+	switch c.conn.cidPathMigrationPolicy {
+	case CIDPathMigrationReject:
+		c.conn.log.Errorf(
+			"rejected CID path migration from %s to %s: path migration is disabled",
+			currentAddr,
+			candidateAddr,
+		)
+	case CIDPathMigrationUnsafe:
+		c.conn.lock.Lock()
+		c.conn.rAddr = candidateAddr
+		c.conn.lock.Unlock()
+	case CIDPathMigrationRRC:
+		if rrcNegotiated {
+			return true
+		}
+		c.conn.log.Errorf(
+			"rejected CID path migration from %s to %s: RRC was not negotiated",
+			currentAddr,
+			candidateAddr,
+		)
+	default:
+		c.conn.log.Errorf(
+			"rejected CID path migration from %s to %s: invalid path migration policy",
+			currentAddr,
+			candidateAddr,
+		)
+	}
+
+	return false
+}
+
+func (c returnRoutabilityConn) startCandidateRRC(ctx context.Context, currentAddr, candidateAddr net.Addr) {
+	cookie, ok, err := c.conn.rrc.Start(true, candidateAddr, currentAddr)
 	if err == nil && ok {
-		err = c.WriteRRC(ctx, addr, protocol.ReturnRoutabilityCheckPathChallenge, cookie)
+		err = c.WriteRRC(ctx, candidateAddr, protocol.ReturnRoutabilityCheckPathChallenge, cookie)
 		if err != nil {
-			c.conn.rrc.Cancel(addr, cookie)
+			c.conn.rrc.Cancel(candidateAddr, cookie)
 		}
 	}
 	if err != nil {
 		c.conn.log.Debugf("unable to start return routability check: %v", err)
 	}
+}
+
+func sameNetworkAddress(a, b net.Addr) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+
+	return a.Network() == b.Network() && a.String() == b.String()
 }
 
 // cidDatagramRouter extracts connection IDs from incoming datagram payloads and

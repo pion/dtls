@@ -375,10 +375,11 @@ func flight3Generate(
 	// exact post-hook value as the default in the second ClientHello.
 	cid, cidOffered := negotiation.ConnectionIDOffer(state.LocalClientHelloSnapshots.Initial())
 	if cfg.ConnectionIDGenerator != nil && cidOffered {
-		extensions = append(extensions, &extension.ConnectionID{CID: cid})
-		if state.LocalClientHelloSnapshots.Initial().Offered(extension.TypeReturnRoutabilityCheck) {
-			extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
-		}
+		extensions = dtlsflight.AppendConnectionIDExtensions(
+			extensions,
+			cid,
+			cfg.EnableRRC && state.LocalClientHelloSnapshots.Initial().Offered(extension.TypeReturnRoutabilityCheck),
+		)
 	}
 
 	clientHello := &handshake.MessageClientHello{
@@ -401,7 +402,9 @@ func flight3Generate(
 		clientHello = retry
 	}
 
-	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
+	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
+		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
