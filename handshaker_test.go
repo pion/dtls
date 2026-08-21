@@ -412,6 +412,13 @@ func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description)
 	return nil
 }
 
+func (c *flightTestConn) WriteHandshakePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*dtlshandshake.WriteResult, error) {
+	return c.WritePackets(ctx, pkts)
+}
+
 func (c *flightTestConn) WritePackets( //nolint:cyclop
 	_ context.Context,
 	pkts []*dtlsflight.Packet,

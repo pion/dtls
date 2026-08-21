@@ -146,6 +146,13 @@ func (c handshakeConn) WritePackets(
 	return c.conn.writePacketsWithResult(ctx, pkts)
 }
 
+func (c handshakeConn) WriteHandshakePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*dtlshandshake.WriteResult, error) {
+	return c.conn.writeHandshakePacketsWithResult(ctx, pkts)
+}
+
 func (c handshakeConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
 	return c.conn.recvHandshake()
 }
@@ -218,12 +225,19 @@ type Conn struct {
 
 	reading               chan struct{}
 	handshakeRecv         chan dtlshandshake.RecvHandshakeState
+	inboundPacketInject   chan addrPkt
+	pendingRead           chan readResult
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
 	fsm dtlshandshake.FSM
 
 	replayProtectionWindow uint
+
+	// Allows intercepting and rerouting outgoing handshake packets.
+	outboundHandshakePacketInterceptor func(packet []byte, end bool) bool
+	// Allows getting notified about incoming handshake packets.
+	inboundHandshakePacketNotifier func(packet []byte)
 
 	handshakeConfig *dtlsconfig.HandshakeConfig
 }
@@ -248,6 +262,8 @@ func createConn(
 
 	handshakeConfig := newHandshakeConfig(config, configValues, resumeState)
 	conn := newConn(nextConn, rAddr, configValues, handshakeConfig, isClient)
+	conn.outboundHandshakePacketInterceptor = config.OutboundHandshakePacketInterceptor
+	conn.inboundHandshakePacketNotifier = config.InboundHandshakePacketNotifier
 
 	conn.setRemoteEpoch(0)
 	conn.setLocalEpoch(0)
@@ -279,6 +295,7 @@ func newConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan dtlshandshake.RecvHandshakeState),
+		inboundPacketInject:   make(chan addrPkt),
 		handshakeEstablished:  dtlshandshake.NewEstablishment(),
 		closed:                closer.NewCloser(),
 		cancelHandshaker:      func() {},
@@ -754,6 +771,14 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Packet) erro
 	return err
 }
 
+// writeHandshakePackets writes packets belonging to the handshake. These are the
+// only ones offered to the handshake packet interceptor.
+func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
+	_, err := c.writeHandshakePacketsWithResult(ctx, pkts)
+
+	return err
+}
+
 func (c *Conn) writePacketsWithResult(
 	ctx context.Context,
 	pkts []*dtlsflight.Packet,
@@ -761,12 +786,23 @@ func (c *Conn) writePacketsWithResult(
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
-	return c.writePacketsWithResultLocked(ctx, pkts)
+	return c.writePacketsWithResultLocked(ctx, pkts, nil)
+}
+
+func (c *Conn) writeHandshakePacketsWithResult(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*dtlshandshake.WriteResult, error) {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
+
+	return c.writePacketsWithResultLocked(ctx, pkts, c.outboundHandshakePacketInterceptor)
 }
 
 func (c *Conn) writePacketsWithResultLocked(
 	ctx context.Context,
 	pkts []*dtlsflight.Packet,
+	interceptor func(packet []byte, end bool) bool,
 ) (*dtlshandshake.WriteResult, error) {
 	datagrams, rAddr, err := c.prepareRawPacketsTracked(pkts)
 	if err != nil {
@@ -774,13 +810,16 @@ func (c *Conn) writePacketsWithResultLocked(
 	}
 
 	result := &dtlshandshake.WriteResult{}
-	for _, datagram := range datagrams {
-		if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
-			if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
-				return nil, ErrConnClosed
-			}
+	for idx, datagram := range datagrams {
+		// The interceptor takes ownership of the datagram when it returns true.
+		if interceptor == nil || !interceptor(datagram.raw, idx == len(datagrams)-1) {
+			if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
+				if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
+					return nil, ErrConnClosed
+				}
 
-			return nil, netError(err)
+				return nil, netError(err)
+			}
 		}
 		result.TrackedRecords = append(result.TrackedRecords, datagram.tracked...)
 	}
@@ -1336,6 +1375,16 @@ var poolReadBuffer = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
+// InjectInboundPacket feeds a raw datagram into the connection as if it had been
+// received from rAddr. It is the counterpart of the handshake packet interceptor,
+// which allows packets to be carried over another transport.
+func (c *Conn) InjectInboundPacket(p []byte, rAddr net.Addr) {
+	select {
+	case c.inboundPacketInject <- addrPkt{rAddr, p}:
+	case <-c.closed.Done():
+	}
+}
+
 func (c *Conn) readAndBuffer(ctx context.Context) error {
 	summary, err := c.readAndProcessDatagram(ctx)
 	if err != nil {
@@ -1363,21 +1412,66 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 	return nil
 }
 
-func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) {
-	bufptr, ok := poolReadBuffer.Get().(*[]byte)
-	if !ok {
-		return datagramProcessingSummary{}, dtlserrors.ErrFailedToAccessPoolReadBuffer
+type readResult struct {
+	bufptr *[]byte
+	length int
+	rAddr  net.Addr
+	err    error
+}
+
+// readDatagram reads the next datagram, either from the underlying connection or
+// from a packet injected via InjectInboundPacket. The socket read outlives this
+// call when an injected packet wins the race, so it is kept in c.pendingRead and
+// picked up by the next call. Callers are serialized by the read loop.
+func (c *Conn) readDatagram(ctx context.Context) ([]byte, net.Addr, readBufferLease, error) {
+	if c.pendingRead == nil {
+		readCh := make(chan readResult, 1)
+		c.pendingRead = readCh
+		go func() {
+			bufptr, ok := poolReadBuffer.Get().(*[]byte)
+			if !ok {
+				readCh <- readResult{err: dtlserrors.ErrFailedToAccessPoolReadBuffer}
+
+				return
+			}
+
+			i, rAddr, err := c.nextConn.ReadFromContext(ctx, *bufptr)
+			if err != nil {
+				poolReadBuffer.Put(bufptr)
+				readCh <- readResult{err: err}
+
+				return
+			}
+
+			readCh <- readResult{bufptr: bufptr, length: i, rAddr: rAddr}
+		}()
 	}
-	bufferLease := readBufferLease{conn: c, recyclableReadBuffer: bufptr}
+
+	select {
+	case injected := <-c.inboundPacketInject:
+		return injected.data, injected.rAddr, readBufferLease{conn: c}, nil
+	case res := <-c.pendingRead:
+		c.pendingRead = nil
+		if res.err != nil {
+			return nil, nil, readBufferLease{conn: c}, res.err
+		}
+
+		return (*res.bufptr)[:res.length], res.rAddr,
+			readBufferLease{conn: c, recyclableReadBuffer: res.bufptr}, nil
+	case <-ctx.Done():
+		return nil, nil, readBufferLease{conn: c}, ctx.Err()
+	}
+}
+
+func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) {
+	buf, rAddr, bufferLease, err := c.readDatagram(ctx)
 	defer bufferLease.releaseReadBuffer()
 
-	b := *bufptr
-	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
 	if err != nil {
 		return datagramProcessingSummary{}, netError(err)
 	}
 
-	pkts, err := c.unpackDatagram(b[:i])
+	pkts, err := c.unpackDatagram(buf)
 	if err != nil {
 		return datagramProcessingSummary{}, err
 	}
@@ -1393,6 +1487,11 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 		if outcome.receivedACK != nil {
 			summary.receivedACKs = append(summary.receivedACKs, *outcome.receivedACK)
 		}
+	}
+
+	if summary.containsHandshake && c.inboundHandshakePacketNotifier != nil {
+		// buf is only valid for the duration of the callback.
+		c.inboundHandshakePacketNotifier(buf)
 	}
 
 	return summary, nil
@@ -2333,7 +2432,7 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet
 	if err := dtlshandshake.ValidateClientHelloInitialFlights(pkts); err != nil {
 		return nil, err
 	}
-	if err := c.writePackets(ctx, pkts); err != nil {
+	if err := c.writeHandshakePackets(ctx, pkts); err != nil {
 		return nil, err
 	}
 
@@ -2789,7 +2888,6 @@ func (c *Conn) close(byUser bool) error {
 
 	cancelHandshaker()
 	cancelHandshakeReader()
-
 	if closedByUser || isClosed {
 		return nil
 	}

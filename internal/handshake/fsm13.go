@@ -293,7 +293,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 func (s *fsm13) send(ctx context.Context, conn Conn) (State, error) {
 	defer s.received.release()
 
-	result, err := conn.WritePackets(ctx, s.flights)
+	result, err := conn.WriteHandshakePackets(ctx, s.flights)
 	if err != nil {
 		return StateErrored, err
 	}

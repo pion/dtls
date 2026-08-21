@@ -62,6 +62,13 @@ type postHandshakeKeyUpdateConn struct {
 	committed *dtlsstate.TrafficGeneration
 }
 
+func (c *postHandshakeKeyUpdateConn) WriteHandshakePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*WriteResult, error) {
+	return c.WritePackets(ctx, pkts)
+}
+
 func (c *postHandshakeKeyUpdateConn) WritePackets(
 	_ context.Context,
 	pkts []*dtlsflight.Packet,
@@ -110,6 +117,13 @@ func newPostHandshakeKeyUpdateTestState(t *testing.T, isClient bool) *dtlsstate.
 	)
 
 	return &state
+}
+
+func (c *postHandshakeWriteConn) WriteHandshakePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Packet,
+) (*WriteResult, error) {
+	return c.WritePackets(ctx, pkts)
 }
 
 func (c *postHandshakeWriteConn) WritePackets(
