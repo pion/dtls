@@ -135,6 +135,7 @@ func flight1Generate(
 		extensions = append(extensions, &extension.ConnectionID{
 			CID: bytes.Clone(cfg.ConnectionIDGenerator()),
 		})
+		extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
 	}
 
 	// Pre_shared_key must be last extension

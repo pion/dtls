@@ -52,6 +52,9 @@ type Common struct {
 	// RemoteCIDOffered reports whether the peer sent a connection_id
 	// extension.
 	RemoteCIDOffered bool
+	// RRCNegotiated reports whether both peers exchanged the RFC 9853
+	// extension. The negotiation is shared by DTLS 1.2 and DTLS 1.3.
+	RRCNegotiated bool
 	// pendingLocalConnectionID is the uncommitted CID offered by this client.
 	pendingLocalConnectionID atomic.Pointer[[]byte]
 
@@ -128,6 +131,7 @@ func (s *Common) RecordLocalClientHello(snapshot negotiation.ClientHelloSnapshot
 func (s *Common) ResetConnectionIDs() {
 	s.SetLocalConnectionID(nil)
 	s.RemoteConnectionID, s.LocalCIDOffered, s.RemoteCIDOffered = nil, false, false
+	s.RRCNegotiated = false
 	s.pendingLocalConnectionID.Store(nil)
 }
 
@@ -146,6 +150,7 @@ func (s *Common) CommitNegotiatedExtensions(decision *negotiation.ConnectionID) 
 	s.SetLocalConnectionID(bytes.Clone(localCID))
 	s.RemoteConnectionID = bytes.Clone(remoteCID)
 	s.LocalCIDOffered, s.RemoteCIDOffered = true, true
+	s.RRCNegotiated = decision.ReturnRoutabilityCheck
 	s.pendingLocalConnectionID.Store(nil)
 }
 

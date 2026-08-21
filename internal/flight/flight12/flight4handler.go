@@ -300,6 +300,9 @@ func flight4Generate(
 
 	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
 		extensions = append(extensions, cid)
+		if offer.Offered(extension.TypeReturnRoutabilityCheck) {
+			extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
+		}
 	}
 
 	var pkts []*dtlsflight.Packet

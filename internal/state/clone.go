@@ -35,6 +35,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	common.RemoteConnectionID = bytes.Clone(state.RemoteConnectionID)
 	common.LocalCIDOffered = state.LocalCIDOffered
 	common.RemoteCIDOffered = state.RemoteCIDOffered
+	common.RRCNegotiated = state.RRCNegotiated
 	common.IsClient = state.IsClient
 	common.ServerName = state.ServerName
 	common.PeerSupportedProtocols = slices.Clone(state.PeerSupportedProtocols)

@@ -239,6 +239,9 @@ func flight4Generate( //nolint:cyclop
 			localCID = bytes.Clone(cfg.ConnectionIDGenerator())
 		}
 		serverHelloExtensions = append(serverHelloExtensions, &extension.ConnectionID{CID: bytes.Clone(localCID)})
+		if offer.Offered(extension.TypeReturnRoutabilityCheck) {
+			serverHelloExtensions = append(serverHelloExtensions, &extension.ReturnRoutabilityCheck{})
+		}
 	}
 	serverHelloMessage := &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,

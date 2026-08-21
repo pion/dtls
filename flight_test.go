@@ -3403,7 +3403,9 @@ func clientHelloFromFlight13Packet(t *testing.T, packet *dtlsflight.Packet) *han
 func setConnectionIDs(clientHello *handshake.MessageClientHello, cids ...[]byte) {
 	extensions := clientHello.Extensions[:0]
 	for _, ext := range clientHello.Extensions {
-		if _, ok := ext.(*extension.ConnectionID); !ok {
+		_, isConnectionID := ext.(*extension.ConnectionID)
+		_, isRRC := ext.(*extension.ReturnRoutabilityCheck)
+		if !isConnectionID && (!isRRC || len(cids) != 0) {
 			extensions = append(extensions, ext)
 		}
 	}
@@ -3481,12 +3483,17 @@ func TestFlight13_1GenerateConnectionIDOffer(t *testing.T) {
 				require.NoError(t, err)
 				require.Nil(t, dtlsAlert)
 				require.Len(t, packets, 1)
-				cid, present := findConnectionID(clientHelloFromFlight13Packet(t, packets[0]).Extensions)
+				clientHelloExtensions := clientHelloFromFlight13Packet(t, packets[0]).Extensions
+				cid, present := findConnectionID(clientHelloExtensions)
 				expectedPresent := test.generator
 				if test.hook {
 					expectedPresent = len(test.hooked) == 1
 				}
 				assert.Equal(t, expectedPresent, present)
+				rrcPresent := slices.ContainsFunc(clientHelloExtensions, func(value extension.Value) bool {
+					return value.ExtensionType() == extension.TypeReturnRoutabilityCheck
+				})
+				assert.Equal(t, test.generator && expectedPresent, rrcPresent)
 				assertSnapshotConnectionID(t, state.LocalClientHelloSnapshots.Current(), test.expected, present)
 				assertConnectionIDValue(t, test.expected, state.LocalConnectionIDForInboundRecords())
 				if present {
@@ -3673,7 +3680,11 @@ func TestFlight13_4GenerateNegotiatesConnectionIDs(t *testing.T) { //nolint:cycl
 			state.RemoteSignatureSchemes = append([]signaturehash.Algorithm(nil), cfg.LocalSignatureSchemes...)
 			offerExtensions := requiredClientHello13Extensions(t, cfg)
 			if test.clientOffers {
-				offerExtensions = append(offerExtensions, &extension.ConnectionID{CID: test.clientCID})
+				offerExtensions = append(
+					offerExtensions,
+					&extension.ConnectionID{CID: test.clientCID},
+					&extension.ReturnRoutabilityCheck{},
+				)
 			}
 			state.RemoteClientHelloSnapshots = clientHello13SnapshotHistory(t, offerExtensions)
 
@@ -3705,6 +3716,7 @@ func TestFlight13_4GenerateNegotiatesConnectionIDs(t *testing.T) { //nolint:cycl
 				connectionID, present := findConnectionID(serverHello.Extensions)
 				assert.Equal(t, expectedNegotiated, present)
 				assert.Equal(t, expectedNegotiated, state.CID.Negotiated)
+				assert.Equal(t, expectedNegotiated, state.RRCNegotiated)
 				if expectedNegotiated {
 					require.NotNil(t, connectionID)
 					if len(serverCID) == 0 {

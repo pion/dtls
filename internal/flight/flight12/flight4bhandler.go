@@ -100,6 +100,9 @@ func flight4bGenerate(
 	}
 	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
 		extensions = append(extensions, cid)
+		if offer.Offered(extension.TypeReturnRoutabilityCheck) {
+			extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
+		}
 	}
 
 	cipherSuiteID := uint16(state.CipherSuite.ID())

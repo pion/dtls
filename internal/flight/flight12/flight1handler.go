@@ -166,6 +166,7 @@ func flight1Generate(
 	// use.
 	if cfg.ConnectionIDGenerator != nil {
 		extensions = append(extensions, &extension.ConnectionID{CID: cfg.ConnectionIDGenerator()})
+		extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
 	}
 
 	clientHello := &handshake.MessageClientHello{

@@ -268,6 +268,28 @@ func TestValidateServerHello12Context(t *testing.T) {
 	}
 }
 
+func TestDecideConnectionIDNegotiatesReturnRoutabilityCheck(t *testing.T) {
+	offer := snapshotForTest(
+		t,
+		[]uint16{0x1301},
+		&extension.ConnectionID{CID: []byte("client")},
+		&extension.ReturnRoutabilityCheck{},
+	)
+
+	withoutRRC := DecideConnectionID(offer, []extension.Value{
+		&extension.ConnectionID{CID: []byte("server")},
+	})
+	require.NotNil(t, withoutRRC)
+	assert.False(t, withoutRRC.ReturnRoutabilityCheck)
+
+	withRRC := DecideConnectionID(offer, []extension.Value{
+		&extension.ConnectionID{CID: []byte("server")},
+		&extension.ReturnRoutabilityCheck{},
+	})
+	require.NotNil(t, withRRC)
+	assert.True(t, withRRC.ReturnRoutabilityCheck)
+}
+
 func serverHelloForTest(extensions ...extension.Value) *handshake.MessageServerHello {
 	return &handshake.MessageServerHello{Extensions: extensions}
 }

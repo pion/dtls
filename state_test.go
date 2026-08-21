@@ -52,3 +52,16 @@ func TestStatePreservesPeerSRTPMKI(t *testing.T) {
 	serialized.PeerSRTPMKI[0] = 0xff
 	require.Equal(t, []byte{1, 2}, restored.peerSRTPMKI)
 }
+
+func TestStatePreservesReturnRoutabilityCheck(t *testing.T) {
+	state := State{
+		CipherSuiteID: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		rrcNegotiated: true,
+	}
+	serialized, err := state.serialize()
+	require.NoError(t, err)
+
+	var restored State
+	restored.deserialize(*serialized)
+	require.True(t, restored.rrcNegotiated)
+}

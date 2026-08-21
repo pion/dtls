@@ -28,6 +28,7 @@ type State struct {
 	peerSRTPMKI               []byte
 	localConnectionID         []byte
 	remoteConnectionID        []byte
+	rrcNegotiated             bool
 	isClient                  bool
 	version                   protocol.Version
 
@@ -54,6 +55,7 @@ type serializedState struct {
 	SessionID             []byte
 	LocalConnectionID     []byte
 	RemoteConnectionID    []byte
+	RRCNegotiated         bool
 	IsClient              bool
 	NegotiatedProtocol    string
 }
@@ -84,6 +86,7 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 		peerSRTPMKI:           peerMKI,
 		localConnectionID:     internalState.LocalConnectionID(),
 		remoteConnectionID:    internalState.RemoteConnectionID,
+		rrcNegotiated:         internalState.RRCNegotiated,
 		isClient:              internalState.IsClient,
 		version:               protocol.Version1_2,
 		CipherSuiteID:         internalState.CipherSuite.ID(),
@@ -130,6 +133,7 @@ func generateState13(internalState *dtlsstate.State13) (*State, error) {
 		srtpProtectionProfile: common.SRTPProtectionProfile(),
 		localConnectionID:     bytes.Clone(common.LocalConnectionID()),
 		remoteConnectionID:    bytes.Clone(common.RemoteConnectionID),
+		rrcNegotiated:         common.RRCNegotiated,
 		isClient:              common.IsClient,
 		version:               protocol.Version1_3,
 		CipherSuiteID:         internalState.CipherSuite.ID(),
@@ -170,6 +174,7 @@ func (s *State) serialize() (*serializedState, error) {
 		SessionID:             s.SessionID,
 		LocalConnectionID:     s.localConnectionID,
 		RemoteConnectionID:    s.remoteConnectionID,
+		RRCNegotiated:         s.rrcNegotiated,
 		IsClient:              s.isClient,
 		NegotiatedProtocol:    s.NegotiatedProtocol,
 	}, nil
@@ -190,6 +195,7 @@ func (s *State) deserialize(serialized serializedState) {
 	s.peerSRTPMKI = bytes.Clone(serialized.PeerSRTPMKI)
 	s.localConnectionID = serialized.LocalConnectionID
 	s.remoteConnectionID = serialized.RemoteConnectionID
+	s.rrcNegotiated = serialized.RRCNegotiated
 	s.isClient = serialized.IsClient
 
 	s.CipherSuiteID = CipherSuiteID(serialized.CipherSuiteID)
@@ -240,6 +246,7 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 			RemoteRandom:       s.remoteRandom,
 			CipherSuite:        ciphersuite.ForID(s.CipherSuiteID, nil),
 			RemoteConnectionID: s.remoteConnectionID,
+			RRCNegotiated:      s.rrcNegotiated,
 			IsClient:           s.isClient,
 			PeerCertificates:   s.PeerCertificates,
 			IdentityHint:       s.IdentityHint,

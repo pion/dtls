@@ -275,7 +275,8 @@ func ConnectionIDOffer(snapshot ClientHelloSnapshot) ([]byte, bool) {
 
 // ConnectionID is the session-wide CID negotiation decision.
 type ConnectionID struct {
-	ClientCID, ServerCID []byte
+	ClientCID, ServerCID   []byte
+	ReturnRoutabilityCheck bool
 }
 
 // DecideConnectionID derives a CID decision from an offer and final response.
@@ -284,7 +285,14 @@ func DecideConnectionID(offer ClientHelloSnapshot, responses []extension.Value) 
 	if offered {
 		for _, value := range responses {
 			if response, ok := value.(*extension.ConnectionID); ok && response != nil {
-				return &ConnectionID{ClientCID: clientCID, ServerCID: bytes.Clone(response.CID)}
+				return &ConnectionID{
+					ClientCID: clientCID,
+					ServerCID: bytes.Clone(response.CID),
+					ReturnRoutabilityCheck: offer.Offered(extension.TypeReturnRoutabilityCheck) &&
+						slices.ContainsFunc(responses, func(value extension.Value) bool {
+							return value.ExtensionType() == extension.TypeReturnRoutabilityCheck
+						}),
+				}
 			}
 		}
 	}

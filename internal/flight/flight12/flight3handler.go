@@ -376,6 +376,9 @@ func flight3Generate(
 	cid, cidOffered := negotiation.ConnectionIDOffer(state.LocalClientHelloSnapshots.Initial())
 	if cfg.ConnectionIDGenerator != nil && cidOffered {
 		extensions = append(extensions, &extension.ConnectionID{CID: cid})
+		if state.LocalClientHelloSnapshots.Initial().Offered(extension.TypeReturnRoutabilityCheck) {
+			extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
+		}
 	}
 
 	clientHello := &handshake.MessageClientHello{
