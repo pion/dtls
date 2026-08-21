@@ -162,6 +162,11 @@ var extensionRegistry = map[extension.Type]map[extensionContext]extensionPayload
 		extensionContextServerHello12: func() extensionPayloadValue { return &extension.ConnectionID{} },
 		extensionContextServerHello13: func() extensionPayloadValue { return &extension.ConnectionID{} },
 	},
+	extension.TypeReturnRoutabilityCheck: {
+		extensionContextClientHello:   func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
+		extensionContextServerHello12: func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
+		extensionContextServerHello13: func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
+	},
 	extension.TypeRenegotiationInfo: {
 		extensionContextClientHello:   func() extensionPayloadValue { return &extension12.RenegotiationInfo{} },
 		extensionContextServerHello12: func() extensionPayloadValue { return &extension12.RenegotiationInfo{} },
@@ -338,6 +343,17 @@ func validateSupportedGroups(groups *extension.SupportedGroups, context extensio
 func validateClientHelloDependencies(dependencies extensionDependencyValues) error {
 	if err := validatePSKDependencies(dependencies); err != nil {
 		return err
+	}
+	if dependencies.present[extension.TypeReturnRoutabilityCheck] &&
+		!dependencies.present[extension.TypeConnectionID] {
+		return fmt.Errorf(
+			"extension %d in %s requires extension %d: %w: %w",
+			extension.TypeReturnRoutabilityCheck,
+			extensionContextClientHello,
+			extension.TypeConnectionID,
+			dtlserrors.ErrMissingConnectionIDExtension,
+			&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
+		)
 	}
 	if err := validateTLS13ClientHelloDependencies(dependencies); err != nil {
 		return err

@@ -260,6 +260,7 @@ var (
 	ErrMissingPSKKeyExchangeModesExtension = stderrors.New(
 		"pre_shared_key requires psk_key_exchange_modes",
 	)
+	ErrMissingConnectionIDExtension   = stderrors.New("rrc requires connection_id")
 	ErrEarlyDataWithoutPreSharedKey   = stderrors.New("early_data requires pre_shared_key")
 	ErrKeyShareWithoutSupportedGroups = stderrors.New(
 		"key_share requires supported_groups",

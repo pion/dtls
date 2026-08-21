@@ -34,6 +34,7 @@ const (
 	TypeSignatureAlgorithmsCert Type = 50
 	TypeKeyShare                Type = 51
 	TypeConnectionID            Type = 54
+	TypeReturnRoutabilityCheck  Type = 61
 	TypeRenegotiationInfo       Type = 65281
 )
 

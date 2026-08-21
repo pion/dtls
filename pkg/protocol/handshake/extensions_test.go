@@ -153,6 +153,13 @@ func TestExtensionBlockOrderingAndDependencies(t *testing.T) {
 		assertExtensionAlert(t, err, alert.MissingExtension)
 	})
 
+	t.Run("return routability check requires connection ID", func(t *testing.T) {
+		rrc := rawExtensionValue(t, &extension.ReturnRoutabilityCheck{})
+		_, err := decodeRawExtensions([]extension.Raw{rrc}, extensionContextClientHello)
+		assert.ErrorIs(t, err, dtlserrors.ErrMissingConnectionIDExtension)
+		assertExtensionAlert(t, err, alert.MissingExtension)
+	})
+
 	t.Run("early data requires pre shared key", func(t *testing.T) {
 		earlyData := rawExtensionValue(t, &extension13.EarlyData{})
 		_, err := decodeRawExtensions([]extension.Raw{earlyData}, extensionContextClientHello)
@@ -359,6 +366,11 @@ func expectedExtensionRegistry() map[extension.Type]map[extensionContext]extensi
 			extensionContextClientHello:   &extension.ConnectionID{},
 			extensionContextServerHello12: &extension.ConnectionID{},
 			extensionContextServerHello13: &extension.ConnectionID{},
+		},
+		extension.TypeReturnRoutabilityCheck: {
+			extensionContextClientHello:   &extension.ReturnRoutabilityCheck{},
+			extensionContextServerHello12: &extension.ReturnRoutabilityCheck{},
+			extensionContextServerHello13: &extension.ReturnRoutabilityCheck{},
 		},
 		extension.TypeRenegotiationInfo: {
 			extensionContextClientHello:   &extension12.RenegotiationInfo{},
