@@ -23,6 +23,7 @@ import (
 	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	"github.com/pion/dtls/v3/internal/negotiation"
+	dtlsrrc "github.com/pion/dtls/v3/internal/rrc"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -226,6 +227,8 @@ type Conn struct {
 	replayProtectionWindow uint
 
 	handshakeConfig *dtlsconfig.HandshakeConfig
+
+	rrc dtlsrrc.Manager
 }
 
 // createConn creates a new DTLS connection.
@@ -2052,7 +2055,7 @@ func (c *Conn) bufferHandshakeRecord(
 	buf []byte,
 	header *recordlayer.Header,
 	markPacketAsValid func() bool,
-) (packetOutcome, bool) {
+) (packetOutcome, bool, bool) {
 	c.syncFragmentBufferHandshakeSequence()
 	isHandshake, isRetransmit, err := c.fragmentBuffer.Push(bytes.Clone(buf))
 	if err != nil {
@@ -2060,13 +2063,13 @@ func (c *Conn) bufferHandshakeRecord(
 		// [RFC6347 Section-4.1.2.7]
 		c.log.Debugf("defragment failed: %s", err)
 
-		return packetOutcome{}, true
+		return packetOutcome{}, true, false
 	}
 	if !isHandshake {
-		return packetOutcome{}, false
+		return packetOutcome{}, false, false
 	}
 
-	markPacketAsValid()
+	isLatestSeqNum := markPacketAsValid()
 	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
 		header.Epoch >= dtlsflight13.EpochHandshake {
 		c.lock.Lock()
@@ -2086,7 +2089,7 @@ func (c *Conn) bufferHandshakeRecord(
 		c.handshakeCache.Push(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient)
 	}
 
-	return packetOutcome{containsHandshake: true, retransmit: isRetransmit}, true
+	return packetOutcome{containsHandshake: true, retransmit: isRetransmit}, true, isLatestSeqNum
 }
 
 func (c *Conn) handleChangeCipherSpecRecord(
@@ -2146,9 +2149,9 @@ func (c *Conn) handleRecordContent(
 ) (bool, packetOutcome, error) {
 	switch content := content.(type) {
 	case *protocol.ACK:
-		prepared.markPacketAsValid()
+		isLatestSeqNum := prepared.markPacketAsValid()
 
-		return false, packetOutcome{
+		return isLatestSeqNum, packetOutcome{
 			receivedACK: &protocol.ACK{Records: append([]protocol.RecordNumber(nil), content.Records...)},
 		}, nil
 	case *alert.Alert:
@@ -2165,6 +2168,8 @@ func (c *Conn) handleRecordContent(
 		return c.handleChangeCipherSpecRecord(prepared, rAddr, bufferLease), packetOutcome{}, nil
 	case *protocol.ApplicationData:
 		return c.handleApplicationDataRecord(ctx, content, prepared)
+	case *protocol.ReturnRoutabilityCheck:
+		return returnRoutabilityConn{conn: c}.HandleRecord(ctx, content, prepared, rAddr)
 	default:
 		return false, packetOutcome{
 			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
@@ -2186,11 +2191,26 @@ func (c *Conn) handleIncomingPacket(
 	if !ok {
 		return packetOutcome{}, nil
 	}
-	if outcome, handled := c.bufferHandshakeRecord(
+	prepared.markPacketAsValid = c.rrc.WrapReplayMarker(
+		prepared.markPacketAsValid,
+		rAddr,
+		len(buf),
+		c.RemoteAddr,
+		dtlsstate.CommonState(c.state).RRCNegotiated,
+	)
+	if outcome, handled, isLatestSeqNum := c.bufferHandshakeRecord(
 		prepared.buf,
 		prepared.header,
 		prepared.markPacketAsValid,
 	); handled {
+		returnRoutabilityConn{conn: c}.HandleCandidate(
+			ctx,
+			dtlsstate.CommonState(c.state).RRCNegotiated,
+			prepared.originalCID,
+			isLatestSeqNum,
+			rAddr,
+		)
+
 		return outcome, nil
 	}
 
@@ -2206,14 +2226,13 @@ func (c *Conn) handleIncomingPacket(
 		return outcome, err
 	}
 
-	// Any valid connection ID record is a candidate for updating the remote
-	// address if it is the latest record received.
-	// https://datatracker.ietf.org/doc/html/rfc9146#peer-address-update
-	if prepared.originalCID && isLatestSeqNum && rAddr != c.RemoteAddr() {
-		c.lock.Lock()
-		c.rAddr = rAddr
-		c.lock.Unlock()
-	}
+	returnRoutabilityConn{conn: c}.HandleCandidate(
+		ctx,
+		dtlsstate.CommonState(c.state).RRCNegotiated,
+		prepared.originalCID,
+		isLatestSeqNum,
+		rAddr,
+	)
 
 	return outcome, nil
 }

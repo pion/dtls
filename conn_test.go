@@ -5238,7 +5238,7 @@ func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 }
 
-func TestCiphertextConnectionIDPromotesAuthenticatedCandidateAddress(t *testing.T) {
+func TestCiphertextConnectionIDDoesNotMigrateWithoutRRC(t *testing.T) {
 	conn, peerProtection := newTestConnWithReadProtection(t)
 	state, ok := conn.state.(*dtlsstate.State13)
 	require.True(t, ok)
@@ -5250,8 +5250,9 @@ func TestCiphertextConnectionIDPromotesAuthenticatedCandidateAddress(t *testing.
 	conn.setRemoteEpoch(dtlsflight13.EpochApplication)
 	conn.decrypted = make(chan any, 1)
 	conn.closed = closer.NewCloser()
-	conn.rAddr = &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 5000}
+	activeAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 5000}
 	candidateAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 6000}
+	conn.rAddr = activeAddr
 
 	sealed, err := peerProtection.Seal(
 		recordlayer.UnifiedHeader{
@@ -5266,15 +5267,124 @@ func TestCiphertextConnectionIDPromotesAuthenticatedCandidateAddress(t *testing.
 	rawRecord, err := sealed.Marshal()
 	require.NoError(t, err)
 
-	invalidRecord := bytes.Clone(rawRecord)
-	invalidRecord[len(invalidRecord)-1] ^= 0xff
-	_, err = conn.handleIncomingPacket(t.Context(), invalidRecord, candidateAddr, nil)
+	_, err = conn.handleIncomingPacket(t.Context(), rawRecord, candidateAddr, nil)
 	require.NoError(t, err)
-	assert.NotEqual(t, candidateAddr, conn.RemoteAddr())
+	assert.Equal(t, activeAddr.String(), conn.RemoteAddr().String())
+}
+
+func TestLatestCIDControlRecordStartsRRC(t *testing.T) {
+	keyUpdate, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: 0},
+		Message: &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateNotRequested},
+	}).Marshal()
+	require.NoError(t, err)
+	ack, err := (&protocol.ACK{Records: []protocol.RecordNumber{{
+		Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 0,
+	}}}).Marshal()
+	require.NoError(t, err)
+
+	tests := map[string]struct {
+		contentType protocol.ContentType
+		plaintext   []byte
+	}{
+		"ACK":       {contentType: protocol.ContentTypeACK, plaintext: ack},
+		"KeyUpdate": {contentType: protocol.ContentTypeHandshake, plaintext: keyUpdate},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			testLatestCIDControlRecordStartsRRC(t, test.contentType, test.plaintext)
+		})
+	}
+}
+
+func testLatestCIDControlRecordStartsRRC(
+	t *testing.T,
+	contentType protocol.ContentType,
+	plaintext []byte,
+) {
+	t.Helper()
+	conn, peerProtection := newTestConnWithReadProtection(t)
+	state, ok := conn.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	localCID := []byte("local-cid")
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
+		ClientCID:              localCID,
+		ServerCID:              []byte("remote-cid"),
+		ReturnRoutabilityCheck: true,
+	})
+	conn.setLocalEpoch(dtlsflight13.EpochApplication)
+	conn.setRemoteEpoch(dtlsflight13.EpochApplication)
+	activeAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 5000}
+	candidateAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 6000}
+	conn.rAddr = activeAddr
+
+	local, peer := dpipe.Pipe()
+	defer func() {
+		require.NoError(t, local.Close())
+		require.NoError(t, peer.Close())
+	}()
+	conn.nextConn = netctx.NewPacketConn(dtlsnet.PacketConnFromConn(local))
+	require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+
+	sealed, err := peerProtection.Seal(
+		recordlayer.UnifiedHeader{
+			ConnectionID: localCID,
+			EpochLow:     uint8(dtlsflight13.EpochApplication & recordlayer.TwoLowBitsMask),
+		},
+		0,
+		contentType,
+		plaintext,
+	)
+	require.NoError(t, err)
+	rawRecord, err := sealed.Marshal()
+	require.NoError(t, err)
+
+	type readResult struct {
+		n   int
+		err error
+	}
+	read := make(chan readResult, 1)
+	go func() {
+		buf := make([]byte, defaultMTU)
+		n, readErr := peer.Read(buf)
+		read <- readResult{n: n, err: readErr}
+	}()
 
 	_, err = conn.handleIncomingPacket(t.Context(), rawRecord, candidateAddr, nil)
 	require.NoError(t, err)
-	assert.Equal(t, candidateAddr, conn.RemoteAddr())
+	result := <-read
+	require.NoError(t, result.err)
+	assert.Positive(t, result.n)
+	assert.Equal(t, activeAddr.String(), conn.RemoteAddr().String())
+}
+
+func TestRRCRejectsUnprotectedRecord(t *testing.T) {
+	state := dtlsstate.NewState12(true)
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
+		ClientCID:              []byte("local-cid"),
+		ServerCID:              []byte("remote-cid"),
+		ReturnRoutabilityCheck: true,
+	})
+	marked := false
+	conn := &Conn{state: &state}
+	_, outcome, err := conn.handleRecordContent(
+		t.Context(),
+		&protocol.ReturnRoutabilityCheck{MessageType: protocol.ReturnRoutabilityCheckPathChallenge},
+		incomingPacketState{
+			header: &recordlayer.Header{Epoch: 0},
+			markPacketAsValid: func() bool {
+				marked = true
+
+				return true
+			},
+		},
+		&net.UDPAddr{},
+		nil,
+	)
+
+	assert.ErrorIs(t, err, dtlserrors.ErrUnexpectedPostHandshakeMessage)
+	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, outcome.responseAlert)
+	assert.False(t, marked)
 }
 
 func TestOpenCiphertextRecordUsesReadTrafficGeneration(t *testing.T) {

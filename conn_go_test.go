@@ -17,6 +17,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/transport/v4/dpipe"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,40 @@ import (
 
 var errAcceptedConnectionNotDTLS = errors.New("accepted connection is not a DTLS Conn")
 
-func TestListenDTLS13ConnectionIDRebinding(t *testing.T) {
+func TestListenConnectionIDRebindingRequiresRRC(t *testing.T) {
+	tests := map[string]struct {
+		clientMin, clientMax, serverMin, serverMax, negotiated protocol.Version
+	}{
+		"DTLS12": {
+			clientMin: protocol.Version1_2, clientMax: protocol.Version1_2,
+			serverMin: protocol.Version1_2, serverMax: protocol.Version1_2,
+			negotiated: protocol.Version1_2,
+		},
+		"DualStackToDTLS12": {
+			clientMin: protocol.Version1_2, clientMax: protocol.Version1_3,
+			serverMin: protocol.Version1_2, serverMax: protocol.Version1_2,
+			negotiated: protocol.Version1_2,
+		},
+		"DTLS13": {
+			clientMin: protocol.Version1_3, clientMax: protocol.Version1_3,
+			serverMin: protocol.Version1_3, serverMax: protocol.Version1_3,
+			negotiated: protocol.Version1_3,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			testListenConnectionIDRebindingRequiresRRC(
+				t, test.clientMin, test.clientMax, test.serverMin, test.serverMax, test.negotiated,
+			)
+		})
+	}
+}
+
+func testListenConnectionIDRebindingRequiresRRC(
+	t *testing.T,
+	clientMin, clientMax, serverMin, serverMax, negotiatedVersion protocol.Version,
+) {
+	t.Helper()
 	defer test.CheckRoutines(t)()
 	defer test.TimeOut(10 * time.Second).Stop()
 
@@ -36,8 +70,8 @@ func TestListenDTLS13ConnectionIDRebinding(t *testing.T) {
 		"udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
 		WithCertificates(serverCert),
-		WithMinVersion(protocol.Version1_3),
-		WithMaxVersion(protocol.Version1_3),
+		WithMinVersion(serverMin),
+		WithMaxVersion(serverMax),
 		WithConnectionIDGenerator(func() []byte { return serverCID }),
 	)
 	require.NoError(t, err)
@@ -51,8 +85,8 @@ func TestListenDTLS13ConnectionIDRebinding(t *testing.T) {
 		initialSocket,
 		listener.Addr(),
 		WithInsecureSkipVerify(true),
-		WithMinVersion(protocol.Version1_3),
-		WithMaxVersion(protocol.Version1_3),
+		WithMinVersion(clientMin),
+		WithMaxVersion(clientMax),
 		WithConnectionIDGenerator(func() []byte { return []byte("client-cid") }),
 	)
 	require.NoError(t, err)
@@ -90,6 +124,10 @@ func TestListenDTLS13ConnectionIDRebinding(t *testing.T) {
 	defer func() {
 		require.NoError(t, server.Close())
 	}()
+	require.Equal(t, negotiatedVersion, dtlsstate.CommonState(client.state).LocalVersion)
+	require.Equal(t, negotiatedVersion, dtlsstate.CommonState(server.state).LocalVersion)
+	require.True(t, dtlsstate.CommonState(client.state).RRCNegotiated)
+	require.True(t, dtlsstate.CommonState(server.state).RRCNegotiated)
 	initialRemoteAddr := server.RemoteAddr().String()
 
 	reboundSocket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -111,13 +149,73 @@ func TestListenDTLS13ConnectionIDRebinding(t *testing.T) {
 	n, err := server.Read(buf)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("rebound"), buf[:n])
-	assert.NotEqual(t, initialRemoteAddr, server.RemoteAddr().String())
+	assert.Equal(t, initialRemoteAddr, server.RemoteAddr().String())
+
+	require.NoError(t, reboundSocket.SetReadDeadline(time.Now().Add(time.Second)))
+	n, source, err := reboundSocket.ReadFrom(buf)
+	require.NoError(t, err)
+	assert.Equal(t, listener.Addr().String(), source.String())
+
+	challengeRecords, err := client.unpackDatagram(buf[:n])
+	require.NoError(t, err)
+	require.Len(t, challengeRecords, 1)
+	var challenge protocol.ReturnRoutabilityCheck
+	if negotiatedVersion.Equal(protocol.Version1_3) {
+		challengeRecord, unmarshalErr := client.unmarshalCiphertextRecord(challengeRecords[0])
+		require.NoError(t, unmarshalErr)
+		challengePlaintext, _, _, openErr := client.openCiphertextRecord(challengeRecord)
+		require.NoError(t, openErr)
+		require.Equal(t, protocol.ContentTypeReturnRoutabilityCheck, challengePlaintext.RealType)
+		require.NoError(t, challenge.Unmarshal(challengePlaintext.Content))
+	} else {
+		prepared, ok := client.prepareIncomingPacket(challengeRecords[0], source, nil)
+		require.True(t, ok)
+		var record recordlayer.RecordLayer
+		require.NoError(t, record.Unmarshal(prepared.buf))
+		rrc, ok := record.Content.(*protocol.ReturnRoutabilityCheck)
+		require.True(t, ok)
+		challenge = *rrc
+	}
+	assert.Equal(t, protocol.ReturnRoutabilityCheckPathChallenge, challenge.MessageType)
+
+	responsePacket := &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version: protocol.Version1_2,
+				Epoch:   dtlsstate.CommonState(client.state).LocalEpoch(),
+			},
+			Content: &protocol.ReturnRoutabilityCheck{
+				MessageType: protocol.ReturnRoutabilityCheckPathResponse,
+				Cookie:      challenge.Cookie,
+			},
+		},
+		ShouldWrapCID: negotiatedVersion.Equal(protocol.Version1_2) && client.state.ShouldWrapConnectionID(),
+		ShouldEncrypt: true,
+	}
+	responseDatagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Packet{responsePacket})
+	require.NoError(t, err)
+	require.Len(t, responseDatagrams, 1)
+	_, err = reboundSocket.WriteTo(responseDatagrams[0].raw, listener.Addr())
+	require.NoError(t, err)
+
+	secondReboundPacket := client.newApplicationDataPacket([]byte("validated"))
+	secondReboundPacket.Record.Header.Epoch = dtlsstate.CommonState(client.state).LocalEpoch()
+	secondDatagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Packet{secondReboundPacket})
+	require.NoError(t, err)
+	require.Len(t, secondDatagrams, 1)
+	_, err = reboundSocket.WriteTo(secondDatagrams[0].raw, listener.Addr())
+	require.NoError(t, err)
+
+	require.NoError(t, server.SetReadDeadline(time.Now().Add(time.Second)))
+	n, err = server.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("validated"), buf[:n])
 	assert.Equal(t, reboundSocket.LocalAddr().String(), server.RemoteAddr().String())
 
 	_, err = server.Write([]byte("new path"))
 	require.NoError(t, err)
 	require.NoError(t, reboundSocket.SetReadDeadline(time.Now().Add(time.Second)))
-	n, source, err := reboundSocket.ReadFrom(buf)
+	n, source, err = reboundSocket.ReadFrom(buf)
 	require.NoError(t, err)
 	assert.Positive(t, n)
 	assert.Equal(t, listener.Addr().String(), source.String())
