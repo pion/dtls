@@ -84,6 +84,8 @@ func (r *RecordLayer) Unmarshal(data []byte) error {
 		r.Content = &protocol.ApplicationData{}
 	case protocol.ContentTypeACK:
 		r.Content = &protocol.ACK{}
+	case protocol.ContentTypeReturnRoutabilityCheck:
+		r.Content = &protocol.ReturnRoutabilityCheck{}
 	default:
 		return dtlserrors.ErrInvalidContentType
 	}

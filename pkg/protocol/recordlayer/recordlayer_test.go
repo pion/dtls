@@ -76,6 +76,26 @@ func TestRecordLayerRoundTrip(t *testing.T) {
 				Content: &protocol.ChangeCipherSpec{},
 			},
 		},
+		{
+			Name: "Return Routability Check",
+			Data: []byte{
+				0x1b, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x09,
+				0x01, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+			},
+			Want: &RecordLayer{
+				Header: Header{
+					ContentType:    protocol.ContentTypeReturnRoutabilityCheck,
+					ContentLen:     9,
+					Version:        protocol.Version1_2,
+					Epoch:          0,
+					SequenceNumber: 18,
+				},
+				Content: &protocol.ReturnRoutabilityCheck{
+					MessageType: protocol.ReturnRoutabilityCheckPathResponse,
+					Cookie:      [protocol.ReturnRoutabilityCheckCookieLength]byte{1, 2, 3, 4, 5, 6, 7, 8},
+				},
+			},
+		},
 	} {
 		r := &RecordLayer{}
 		assert.ErrorIs(t, r.Unmarshal(test.Data), test.WantUnmarshalError)

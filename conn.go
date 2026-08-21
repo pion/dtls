@@ -1042,7 +1042,8 @@ func (c *Conn) processProtectedPacket(pkt *dtlsflight.Packet, seq uint64) ([]byt
 
 func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byte, error) {
 	switch content.(type) {
-	case *handshake.Handshake, *alert.Alert, *protocol.ApplicationData, *protocol.ACK:
+	case *handshake.Handshake, *alert.Alert, *protocol.ApplicationData, *protocol.ACK,
+		*protocol.ReturnRoutabilityCheck:
 	default:
 		return 0, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
@@ -1607,7 +1608,8 @@ func (c *Conn) openCiphertextWithGeneration(
 	case protocol.ContentTypeAlert,
 		protocol.ContentTypeHandshake,
 		protocol.ContentTypeApplicationData,
-		protocol.ContentTypeACK:
+		protocol.ContentTypeACK,
+		protocol.ContentTypeReturnRoutabilityCheck:
 		return innerPlaintext, sequenceNumber, nil
 	default:
 		return recordlayer.InnerPlaintext{}, 0, dtlserrors.ErrInvalidContentType
@@ -1754,7 +1756,8 @@ func (c *Conn) prepareInnerPlaintextRecord(
 ) (incomingPacketState, bool) {
 	switch innerPlaintext.RealType {
 	case protocol.ContentTypeHandshake, protocol.ContentTypeAlert,
-		protocol.ContentTypeApplicationData, protocol.ContentTypeACK:
+		protocol.ContentTypeApplicationData, protocol.ContentTypeACK,
+		protocol.ContentTypeReturnRoutabilityCheck:
 		plaintext, header, err := marshalInnerPlaintextRecord(remoteEpoch, sequenceNumber, innerPlaintext)
 		if err != nil {
 			c.log.Debugf("converting ciphertext record to inner plaintext failed: %s", err)
