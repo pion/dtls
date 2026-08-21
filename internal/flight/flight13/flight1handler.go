@@ -4,7 +4,6 @@
 package flight13
 
 import (
-	"bytes"
 	"context"
 	"errors"
 
@@ -132,10 +131,9 @@ func flight1Generate(
 	}
 
 	if cfg.ConnectionIDGenerator != nil {
-		extensions = append(extensions, &extension.ConnectionID{
-			CID: bytes.Clone(cfg.ConnectionIDGenerator()),
-		})
-		extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
+		extensions = dtlsflight.AppendConnectionIDExtensions(
+			extensions, cfg.ConnectionIDGenerator(), cfg.EnableRRC,
+		)
 	}
 
 	// Pre_shared_key must be last extension
@@ -151,7 +149,9 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
+	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
+		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -62,6 +62,7 @@ type dtlsConfig struct {
 	EllipticCurves                []elliptic.Curve
 	InsecureSkipVerifyHello       bool
 	ConnectionIDGenerator         func() []byte
+	CIDPathMigrationPolicy        cidPathMigrationPolicy
 	PaddingLengthGenerator        func(uint) uint
 	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
 	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
@@ -440,14 +441,34 @@ func WithGetClientCertificate(fn func(*CertificateRequestInfo) (*tls.Certificate
 	})
 }
 
-// WithConnectionIDGenerator sets the connection ID generator.
-// Returns an error if the generator is nil.
-func WithConnectionIDGenerator(fn func() []byte) Option {
+type cidPathMigrationPolicy uint8
+
+const (
+	// CIDPathMigrationReject retains the current peer address and logs CID path
+	// migration attempts. This is required when no reachability validation
+	// strategy is configured
+	// https://datatracker.ietf.org/doc/html/rfc9146#section-6
+	// https://datatracker.ietf.org/doc/html/rfc9147#section-11
+	CIDPathMigrationReject cidPathMigrationPolicy = iota
+	// CIDPathMigrationUnsafe immediately accepts an authenticated CID path.
+	// It is intended only for transports, such as ICE, that validate paths
+	// outside DTLS.
+	CIDPathMigrationUnsafe
+	// CIDPathMigrationRRC validates a CID path with return routability checks
+	// before accepting it. RRC is advertised and negotiated only in this mode.
+	// https://datatracker.ietf.org/doc/html/rfc9853
+	CIDPathMigrationRRC
+)
+
+// WithConnectionID enables connection IDs and configures how authenticated
+// connection ID records may change the peer address.
+func WithConnectionID(generator func() []byte, policy cidPathMigrationPolicy) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		if fn == nil {
+		if generator == nil {
 			return dtlserrors.ErrNilConnectionIDGenerator
 		}
-		c.ConnectionIDGenerator = fn
+		c.ConnectionIDGenerator = generator
+		c.CIDPathMigrationPolicy = policy
 
 		return nil
 	})

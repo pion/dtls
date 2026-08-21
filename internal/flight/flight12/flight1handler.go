@@ -10,7 +10,6 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
-	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -165,8 +164,9 @@ func flight1Generate(
 	// in which case we are just requesting that the server send us a CID to
 	// use.
 	if cfg.ConnectionIDGenerator != nil {
-		extensions = append(extensions, &extension.ConnectionID{CID: cfg.ConnectionIDGenerator()})
-		extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
+		extensions = dtlsflight.AppendConnectionIDExtensions(
+			extensions, cfg.ConnectionIDGenerator(), cfg.EnableRRC,
+		)
 	}
 
 	clientHello := &handshake.MessageClientHello{
@@ -179,7 +179,9 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, cfg.ClientHelloMessageHook)
+	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
+		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

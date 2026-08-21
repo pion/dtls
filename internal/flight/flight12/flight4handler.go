@@ -299,10 +299,9 @@ func flight4Generate(
 	}
 
 	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
-		extensions = append(extensions, cid)
-		if offer.Offered(extension.TypeReturnRoutabilityCheck) {
-			extensions = append(extensions, &extension.ReturnRoutabilityCheck{})
-		}
+		extensions = dtlsflight.AppendConnectionIDExtensions(
+			extensions, cid.CID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck),
+		)
 	}
 
 	var pkts []*dtlsflight.Packet
@@ -324,7 +323,9 @@ func flight4Generate(
 		Extensions:        extensions,
 	}
 
-	serverHello, err = negotiation.FinalizeServerHello(serverHello, cfg.ServerHelloMessageHook, offer)
+	serverHello, err = dtlsflight.FinalizeServerHello(
+		serverHello, cfg.ServerHelloMessageHook, offer, cfg.EnableRRC,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

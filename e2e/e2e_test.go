@@ -323,10 +323,10 @@ type dtlsTestOpts struct {
 	serverOpts []dtls.ServerOption
 }
 
-func withConnectionIDGenerator(g func() []byte) dtlsTestOpts {
+func withConnectionID(g func() []byte) dtlsTestOpts {
 	return dtlsTestOpts{
-		clientOpts: []dtls.ClientOption{dtls.WithConnectionIDGenerator(g)},
-		serverOpts: []dtls.ServerOption{dtls.WithConnectionIDGenerator(g)},
+		clientOpts: []dtls.ClientOption{dtls.WithConnectionID(g, dtls.CIDPathMigrationUnsafe)},
+		serverOpts: []dtls.ServerOption{dtls.WithConnectionID(g, dtls.CIDPathMigrationUnsafe)},
 	}
 }
 
@@ -941,43 +941,43 @@ func TestPionE2ESimpleRSAClientCert(t *testing.T) {
 }
 
 func TestPionE2ESimpleCID(t *testing.T) {
-	testPionE2ESimple(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2ESimple(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2EChaCha20Poly1305CID(t *testing.T) {
-	testPionE2EChaCha20Poly1305(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2EChaCha20Poly1305(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2EChaCha20Poly1305RSACID(t *testing.T) {
-	testPionE2EChaCha20Poly1305RSA(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2EChaCha20Poly1305RSA(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2ESimplePSKCID(t *testing.T) {
-	testPionE2ESimplePSK(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2ESimplePSK(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2EChaCha20Poly1305PSKCID(t *testing.T) {
-	testPionE2EChaCha20Poly1305PSK(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2EChaCha20Poly1305PSK(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2EMTUsCID(t *testing.T) {
-	testPionE2EMTUs(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2EMTUs(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2ESimpleED25519CID(t *testing.T) {
-	testPionE2ESimpleED25519(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2ESimpleED25519(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2ESimpleED25519ClientCertCID(t *testing.T) {
-	testPionE2ESimpleED25519ClientCert(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2ESimpleED25519ClientCert(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2ESimpleECDSAClientCertCID(t *testing.T) {
-	testPionE2ESimpleECDSAClientCert(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2ESimpleECDSAClientCert(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2ESimpleRSAClientCertCID(t *testing.T) {
-	testPionE2ESimpleRSAClientCert(t, serverPion, clientPion, withConnectionIDGenerator(dtls.RandomCIDGenerator(8)))
+	testPionE2ESimpleRSAClientCert(t, serverPion, clientPion, withConnectionID(dtls.RandomCIDGenerator(8)))
 }
 
 func TestPionE2ESimpleClientHelloHook(t *testing.T) {
