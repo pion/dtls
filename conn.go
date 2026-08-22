@@ -228,7 +228,8 @@ type Conn struct {
 
 	handshakeConfig *dtlsconfig.HandshakeConfig
 
-	rrc dtlsrrc.Manager
+	cidPathMigrationPolicy cidPathMigrationPolicy
+	rrc                    dtlsrrc.Manager
 }
 
 // createConn creates a new DTLS connection.
@@ -273,6 +274,7 @@ func newConn(
 		handshakeCache:          dtlsflight.NewCache(),
 		maximumTransmissionUnit: configValues.maximumTransmissionUnit,
 		paddingLengthGenerator:  configValues.paddingLengthGenerator,
+		cidPathMigrationPolicy:  configValues.cidPathMigrationPolicy,
 
 		decrypted: make(chan any, 1),
 		log:       configValues.logger,
@@ -2196,7 +2198,7 @@ func (c *Conn) handleIncomingPacket(
 		rAddr,
 		len(buf),
 		c.RemoteAddr,
-		dtlsstate.CommonState(c.state).RRCNegotiated,
+		c.cidPathMigrationPolicy == CIDPathMigrationRRC && dtlsstate.CommonState(c.state).RRCNegotiated,
 	)
 	if outcome, handled, isLatestSeqNum := c.bufferHandshakeRecord(
 		prepared.buf,

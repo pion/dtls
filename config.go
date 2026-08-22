@@ -46,6 +46,7 @@ type connConfigValues struct {
 	certificateSignatureSchemes []signaturehash.Algorithm
 	ellipticCurves              []elliptic.Curve
 	serverName                  string
+	cidPathMigrationPolicy      cidPathMigrationPolicy
 }
 
 func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
@@ -84,6 +85,7 @@ func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 		certificateSignatureSchemes: certSignatureSchemes,
 		ellipticCurves:              effectiveEllipticCurves(config.EllipticCurves),
 		serverName:                  effectiveServerName(config.ServerName),
+		cidPathMigrationPolicy:      config.CIDPathMigrationPolicy,
 	}, nil
 }
 
@@ -274,6 +276,7 @@ func newHandshakeConfig(
 		EllipticCurves:                configValues.ellipticCurves,
 		InsecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
 		ConnectionIDGenerator:         config.ConnectionIDGenerator,
+		EnableRRC:                     config.CIDPathMigrationPolicy == CIDPathMigrationRRC,
 		HelloRandomBytesGenerator:     config.HelloRandomBytesGenerator,
 		Log:                           configValues.logger,
 		KeyLogWriter:                  config.KeyLogWriter,

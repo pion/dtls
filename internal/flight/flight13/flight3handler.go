@@ -322,7 +322,9 @@ func flight3Generate(
 	if err != nil {
 		return nil, nil, err
 	}
-	clientHello, snapshot, err := negotiation.FinalizeClientHello(clientHello, flightCtx.cfg.ClientHelloMessageHook)
+	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
+		clientHello, flightCtx.cfg.ClientHelloMessageHook, flightCtx.cfg.EnableRRC,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

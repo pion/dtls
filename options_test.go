@@ -18,6 +18,7 @@ import (
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/transport/v4/dpipe"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -227,11 +228,11 @@ func TestNilCallbackOptionsReturnError(t *testing.T) {
 		require.ErrorIs(t, err, dtlserrors.ErrNilGetClientCertificate)
 	})
 
-	t.Run("NilConnectionIDGenerator", func(t *testing.T) {
-		err := clientOptionsError(t, WithConnectionIDGenerator(nil))
+	t.Run("InvalidConnectionID", func(t *testing.T) {
+		err := clientOptionsError(t, WithConnectionID(nil, CIDPathMigrationReject))
 		require.ErrorIs(t, err, dtlserrors.ErrNilConnectionIDGenerator)
 
-		err = serverOptionsError(t, WithConnectionIDGenerator(nil))
+		err = serverOptionsError(t, WithConnectionID(nil, CIDPathMigrationReject))
 		require.ErrorIs(t, err, dtlserrors.ErrNilConnectionIDGenerator)
 	})
 
@@ -258,6 +259,37 @@ func TestNilCallbackOptionsReturnError(t *testing.T) {
 		err = serverOptionsError(t, WithClientHelloMessageHook(nil))
 		require.ErrorIs(t, err, dtlserrors.ErrNilClientHelloMessageHook)
 	})
+}
+
+func TestWithConnectionID(t *testing.T) {
+	for name, test := range map[string]struct {
+		policy    cidPathMigrationPolicy
+		enableRRC bool
+	}{
+		"Reject": {policy: CIDPathMigrationReject},
+		"Unsafe": {policy: CIDPathMigrationUnsafe},
+		"RRC":    {policy: CIDPathMigrationRRC, enableRRC: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			expectedCID := []byte{0x01, 0x02}
+			cfg, err := buildConfig(WithConnectionID(
+				func() []byte { return expectedCID },
+				test.policy,
+			))
+			require.NoError(t, err)
+			assert.Equal(t, expectedCID, cfg.ConnectionIDGenerator())
+			assert.Equal(t, test.policy, cfg.CIDPathMigrationPolicy)
+
+			values, err := newConnConfigValues(cfg)
+			require.NoError(t, err)
+			assert.Equal(t, test.policy, values.cidPathMigrationPolicy)
+			assert.Equal(t, test.enableRRC, newHandshakeConfig(cfg, values, nil).EnableRRC)
+		})
+	}
+
+	cfg, err := buildConfig()
+	require.NoError(t, err)
+	assert.Equal(t, CIDPathMigrationReject, cfg.CIDPathMigrationPolicy)
 }
 
 // TestServerOnlyNilCallbackOptionsReturnError verifies server-only options

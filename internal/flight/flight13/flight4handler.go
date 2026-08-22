@@ -238,10 +238,11 @@ func flight4Generate( //nolint:cyclop
 		if !state.CID.Negotiated {
 			localCID = bytes.Clone(cfg.ConnectionIDGenerator())
 		}
-		serverHelloExtensions = append(serverHelloExtensions, &extension.ConnectionID{CID: bytes.Clone(localCID)})
-		if offer.Offered(extension.TypeReturnRoutabilityCheck) {
-			serverHelloExtensions = append(serverHelloExtensions, &extension.ReturnRoutabilityCheck{})
-		}
+		serverHelloExtensions = dtlsflight.AppendConnectionIDExtensions(
+			serverHelloExtensions,
+			localCID,
+			cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck),
+		)
 	}
 	serverHelloMessage := &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,

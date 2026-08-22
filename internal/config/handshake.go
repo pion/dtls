@@ -125,6 +125,7 @@ type HandshakeConfig struct {
 	EllipticCurves                []elliptic.Curve
 	InsecureSkipHelloVerify       bool
 	ConnectionIDGenerator         func() []byte
+	EnableRRC                     bool
 	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
 	Log                           logging.LeveledLogger
 	KeyLogWriter                  io.Writer
