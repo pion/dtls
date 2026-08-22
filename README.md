@@ -32,6 +32,7 @@ A long term goal is a professional security review, and maybe an inclusion in st
 - **RFC 6347**: [Datagram Transport Layer Security Version 1.2][rfc6347]
 - **RFC 9146**: [Connection Identifier for DTLS 1.2][rfc9146]
 - **RFC 9147**: [The Datagram Transport Layer Security (DTLS) Protocol Version 1.3][rfc9147]
+- **RFC 9853**: [Return Routability Check for DTLS 1.2 and 1.3][rfc9853]
 - **RFC 5705**: [Keying Material Exporters for Transport Layer Security (TLS)][rfc5705]
 - **RFC 7627**: [Transport Layer Security (TLS) - Session Hash and Extended Master Secret Extension][rfc7627]
 - **RFC 7301**: [Transport Layer Security (TLS) - Application-Layer Protocol Negotiation Extension][rfc7301]
@@ -49,6 +50,7 @@ A long term goal is a professional security review, and maybe an inclusion in st
 [rfc8446]: https://tools.ietf.org/html/rfc8446
 [rfc9146]: https://tools.ietf.org/html/rfc9146
 [rfc9147]: https://tools.ietf.org/html/rfc9147
+[rfc9853]: https://tools.ietf.org/html/rfc9853
 
 ### Features
 
