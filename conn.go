@@ -601,10 +601,13 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		c.newApplicationDataPacket(payload),
 	})
 	if errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
-		return len(payload), dtlserrors.ErrDeadlineExceeded
+		return 0, dtlserrors.ErrDeadlineExceeded
+	}
+	if err != nil {
+		return 0, err
 	}
 
-	return len(payload), err
+	return len(payload), nil
 }
 
 func (c *Conn) newApplicationDataPacket(payload []byte) *dtlsflight.Packet {

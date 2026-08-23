@@ -63,6 +63,7 @@ var (
 	errExpectedChain                = errors.New("expected chain")
 	errWrongCert                    = errors.New("wrong cert")
 	errConnectionAttemptFailed      = errors.New("connection attempt failed")
+	errWriteFailed                  = errors.New("write failed")
 )
 
 const renegotiationInfoSCSV uint16 = 0x00ff
@@ -162,8 +163,9 @@ func TestReadWriteDeadline(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NoError(t, ca.SetDeadline(time.Unix(0, 1)))
 
-	_, werr := ca.Write(make([]byte, 100))
+	n, werr := ca.Write(make([]byte, 100))
 	assert.ErrorAs(t, werr, &netErr, "Write must return net.Error")
+	assert.Zero(t, n)
 	assert.True(t, netErr.Timeout(), "Deadline exceeded Write must return Timeout")
 	assert.True(t, netErr.Temporary(), "Deadline exceeded Write must return Temporary") //nolint:staticcheck
 
@@ -179,6 +181,36 @@ func TestReadWriteDeadline(t *testing.T) {
 	assert.ErrorIs(t, err, ErrConnClosed)
 	_, err = ca.Read(make([]byte, 100))
 	assert.ErrorIs(t, err, io.EOF)
+}
+
+type writeErrorConn struct {
+	net.Conn
+	fail atomic.Bool
+}
+
+func (c *writeErrorConn) Write(b []byte) (int, error) {
+	if c.fail.Load() {
+		return 0, errWriteFailed
+	}
+
+	return c.Conn.Write(b)
+}
+
+func TestWriteReturnsZeroOnTransportError(t *testing.T) {
+	caRaw, cbRaw := dpipe.Pipe()
+	caTransport := &writeErrorConn{Conn: caRaw}
+	ca, cb, err := pipeConn(caTransport, cbRaw)
+	require.NoError(t, err)
+	defer func() {
+		caTransport.fail.Store(false)
+		require.NoError(t, ca.Close())
+		require.NoError(t, cb.Close())
+	}()
+
+	caTransport.fail.Store(true)
+	n, err := ca.Write([]byte("application data"))
+	require.ErrorIs(t, err, errWriteFailed)
+	require.Zero(t, n)
 }
 
 func TestApplicationDataPacketOwnsPayload(t *testing.T) {
@@ -206,10 +238,12 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		assert.NoError(t, err)
 
 		atomic.StoreUint64(&dtlsstate.CommonState(ca.state).LocalSequenceNumber[1], recordlayer.MaxSequenceNumber)
-		_, werr := ca.Write(make([]byte, 100))
+		n, werr := ca.Write(make([]byte, 100))
 		assert.NoError(t, werr, "Write must send message with maximum sequence number")
-		_, werr = ca.Write(make([]byte, 100))
+		assert.Equal(t, 100, n)
+		n, werr = ca.Write(make([]byte, 100))
 		assert.ErrorIs(t, werr, dtlserrors.ErrSequenceNumberOverflow, "Write must abandonsend message with maximum sequence number") //nolint:lll
+		assert.Zero(t, n)
 
 		assert.NoError(t, ca.Close())
 		assert.NoError(t, cb.Close())
