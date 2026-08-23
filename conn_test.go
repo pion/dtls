@@ -4749,6 +4749,81 @@ func TestProcessProtectedPacketWritesDTLS13HandshakeRecord(t *testing.T) {
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
 
+type sequenceRecordingCipherSuite struct {
+	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
+	sequences []uint64
+}
+
+func (c *sequenceRecordingCipherSuite) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
+	c.sequences = append(c.sequences, pkt.Header.SequenceNumber)
+
+	return bytes.Clone(raw), nil
+}
+
+func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testing.T) {
+	const (
+		epoch         uint16 = 1
+		firstSequence uint64 = 41
+		staleSequence uint64 = 7
+	)
+
+	remoteCID := []byte("remote-cid")
+	cipherSuite := &sequenceRecordingCipherSuite{}
+	commonState := &dtlsstate.Common{
+		LocalVersion:        protocol.Version1_2,
+		LocalSequenceNumber: []uint64{0, firstSequence},
+		RemoteConnectionID:  remoteCID,
+		CipherSuite:         cipherSuite,
+	}
+	conn := &Conn{
+		maximumTransmissionUnit: 10,
+		paddingLengthGenerator:  func(uint) uint { return 0 },
+		state:                   &dtlsstate.State12{Common: commonState},
+	}
+	dtlsHandshake := &handshake.Handshake{
+		Header: handshake.Header{MessageSequence: 9},
+		Message: &handshake.MessageCertificate{
+			Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)},
+		},
+	}
+	_, err := dtlsHandshake.Marshal()
+	require.NoError(t, err)
+
+	pkt := &dtlsflight.Packet{
+		Record: &recordlayer.RecordLayer{
+			Header: recordlayer.Header{
+				Version:        protocol.Version1_2,
+				Epoch:          epoch,
+				SequenceNumber: staleSequence,
+			},
+			Content: dtlsHandshake,
+		},
+		ShouldEncrypt: true,
+		ShouldWrapCID: true,
+	}
+	rawPackets, err := conn.processHandshakePacket(pkt, dtlsHandshake)
+	require.NoError(t, err)
+	require.Greater(t, len(rawPackets), 1)
+
+	expectedSequences := make([]uint64, len(rawPackets))
+	for i, rawPacket := range rawPackets {
+		expectedSequence := firstSequence + uint64(i)
+		expectedSequences[i] = expectedSequence
+
+		header := recordlayer.Header{ConnectionID: make([]byte, len(remoteCID))}
+		require.NoError(t, header.Unmarshal(rawPacket))
+		assert.Equal(t, protocol.ContentTypeConnectionID, header.ContentType)
+		assert.Equal(t, remoteCID, header.ConnectionID)
+		assert.Equal(t, epoch, header.Epoch)
+		assert.Equal(t, expectedSequence, header.SequenceNumber)
+	}
+
+	// Encrypt receives this record metadata for the nonce and MAC calculation.
+	assert.Equal(t, expectedSequences, cipherSuite.sequences)
+	assert.Equal(t, expectedSequences[len(expectedSequences)-1], pkt.Record.Header.SequenceNumber)
+	assert.Equal(t, firstSequence+uint64(len(expectedSequences)), commonState.LocalSequenceNumber[epoch])
+}
+
 func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithWriteProtection(t)
 	dtlsHandshake := &handshake.Handshake{

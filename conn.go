@@ -1145,7 +1145,7 @@ func (c *Conn) processHandshakePacket(pkt *dtlsflight.Packet, dtlsHandshake *han
 				Epoch:          pkt.Record.Header.Epoch,
 				ContentLen:     uint16(len(rawInner)), //nolint:gosec //G115
 				ConnectionID:   common.RemoteConnectionID,
-				SequenceNumber: pkt.Record.Header.SequenceNumber,
+				SequenceNumber: seq,
 			}
 			rawPacket, err = cidHeader.Marshal()
 			if err != nil {
