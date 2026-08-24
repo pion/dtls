@@ -26,7 +26,7 @@ type RecordProtection13 interface {
 		sequenceNumber uint64,
 		contentType protocol.ContentType,
 		plaintext []byte,
-	) (recordlayer.CiphertextRecord13, error)
+	) (recordlayer.CiphertextRecord, error)
 	Open(
 		header recordlayer.UnifiedHeader,
 		sequenceNumber uint64,

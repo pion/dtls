@@ -42,7 +42,7 @@ func (r *recordProtectionPair13) seal(
 	sequenceNumber uint64,
 	contentType protocol.ContentType,
 	plaintext []byte,
-) (recordlayer.CiphertextRecord13, error) {
+) (recordlayer.CiphertextRecord, error) {
 	return r.local.seal(header, sequenceNumber, contentType, plaintext)
 }
 
@@ -396,7 +396,7 @@ func assertTLS13RecordProtectionKnownVector(t *testing.T, vector tls13KnownVecto
 	require.NoError(t, applySequenceNumberMask13(&maskedHeader, mask))
 	assert.Equal(t, vector.expectedMaskedSequenceNumber, maskedHeader.SequenceNumber)
 
-	maskedRaw, err := (&recordlayer.CiphertextRecord13{
+	maskedRaw, err := (&recordlayer.CiphertextRecord{
 		Header:          maskedHeader,
 		EncryptedRecord: record.EncryptedRecord,
 	}).Marshal()

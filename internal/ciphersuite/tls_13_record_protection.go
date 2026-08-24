@@ -109,9 +109,9 @@ func (r *recordTrafficProtection13) seal(
 	sequenceNumber uint64,
 	contentType protocol.ContentType,
 	plaintext []byte,
-) (recordlayer.CiphertextRecord13, error) {
+) (recordlayer.CiphertextRecord, error) {
 	if len(plaintext) > maxDTLSPlaintextRecordLen13 {
-		return recordlayer.CiphertextRecord13{}, dtlserrors.ErrInvalidPacketLength
+		return recordlayer.CiphertextRecord{}, dtlserrors.ErrInvalidPacketLength
 	}
 
 	innerPlaintext, err := (&recordlayer.InnerPlaintext{
@@ -119,12 +119,12 @@ func (r *recordTrafficProtection13) seal(
 		RealType: contentType,
 	}).Marshal()
 	if err != nil {
-		return recordlayer.CiphertextRecord13{}, err
+		return recordlayer.CiphertextRecord{}, err
 	}
 
 	ciphertextLen := len(innerPlaintext) + r.aead.Overhead()
 	if ciphertextLen > maxDTLSCiphertextRecordLen13 {
-		return recordlayer.CiphertextRecord13{}, dtlserrors.ErrInvalidPacketLength
+		return recordlayer.CiphertextRecord{}, dtlserrors.ErrInvalidPacketLength
 	}
 
 	header.SeqBit = true
@@ -132,16 +132,16 @@ func (r *recordTrafficProtection13) seal(
 	header.LengthBit = true
 	additionalData, err := header.Marshal()
 	if err != nil {
-		return recordlayer.CiphertextRecord13{}, err
+		return recordlayer.CiphertextRecord{}, err
 	}
 
 	nonce, err := recordNonce13(r.iv, sequenceNumber)
 	if err != nil {
-		return recordlayer.CiphertextRecord13{}, err
+		return recordlayer.CiphertextRecord{}, err
 	}
 
 	// Sequence-number masking is kept separate until DTLS 1.3 record writer integration.
-	return recordlayer.CiphertextRecord13{
+	return recordlayer.CiphertextRecord{
 		Header:          header,
 		EncryptedRecord: r.aead.Seal(nil, nonce, innerPlaintext, additionalData),
 	}, nil
@@ -200,15 +200,15 @@ func (r *recordTrafficProtection13) Seal(
 	sequenceNumber uint64,
 	contentType protocol.ContentType,
 	plaintext []byte,
-) (recordlayer.CiphertextRecord13, error) {
+) (recordlayer.CiphertextRecord, error) {
 	header.SequenceNumber = uint16(sequenceNumber & 0xffff)
 	record, err := r.seal(header, sequenceNumber, contentType, plaintext)
 	if err != nil {
-		return recordlayer.CiphertextRecord13{}, err
+		return recordlayer.CiphertextRecord{}, err
 	}
 
 	if err = r.maskSequenceNumber(&record.Header, record.EncryptedRecord); err != nil {
-		return recordlayer.CiphertextRecord13{}, err
+		return recordlayer.CiphertextRecord{}, err
 	}
 
 	return record, nil

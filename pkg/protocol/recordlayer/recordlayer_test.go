@@ -451,7 +451,7 @@ func fixedRecordForScannerTest(
 func unifiedRecordForScannerTest(t *testing.T, cid []byte, sequenceNumber uint8) []byte {
 	t.Helper()
 
-	raw, err := (&CiphertextRecord13{
+	raw, err := (&CiphertextRecord{
 		Header: UnifiedHeader{
 			ConnectionID:   cid,
 			SequenceNumber: uint16(sequenceNumber),
@@ -465,7 +465,7 @@ func unifiedRecordForScannerTest(t *testing.T, cid []byte, sequenceNumber uint8)
 
 func TestCiphertextRecord13RoundTrip(t *testing.T) {
 	encryptedRecord := ciphertext13Payload(0xde)
-	record := &CiphertextRecord13{
+	record := &CiphertextRecord{
 		Header: UnifiedHeader{
 			EpochLow:       3,
 			SequenceNumber: 0xaabb,
@@ -496,7 +496,7 @@ func TestCiphertextRecord13RoundTrip(t *testing.T) {
 
 func TestCiphertextRecord13MarshalRefreshesLength(t *testing.T) {
 	encryptedRecord := ciphertext13Payload(0xaa)
-	record := &CiphertextRecord13{
+	record := &CiphertextRecord{
 		Header: UnifiedHeader{
 			SequenceNumber: 0x01,
 			Length:         4,
@@ -514,7 +514,7 @@ func TestCiphertextRecord13MarshalRefreshesLength(t *testing.T) {
 
 func TestCiphertextRecord13MarshalRejectsShortEncryptedRecord(t *testing.T) {
 	for recordLen := range minDTLSCiphertextRecordLen {
-		record := &CiphertextRecord13{
+		record := &CiphertextRecord{
 			EncryptedRecord: make([]byte, recordLen),
 		}
 
@@ -524,7 +524,7 @@ func TestCiphertextRecord13MarshalRejectsShortEncryptedRecord(t *testing.T) {
 }
 
 func TestCiphertextRecord13RejectsOversizedEncryptedRecord(t *testing.T) {
-	record := &CiphertextRecord13{
+	record := &CiphertextRecord{
 		EncryptedRecord: make([]byte, maxDTLSCiphertextRecordLen+1),
 	}
 
@@ -564,7 +564,7 @@ func TestUnpackDatagramPlaintext13(t *testing.T) {
 
 func TestUnpackDatagramCiphertext13(t *testing.T) {
 	encryptedRecord := ciphertext13Payload(0xaa)
-	ciphertextWithLength := &CiphertextRecord13{
+	ciphertextWithLength := &CiphertextRecord{
 		Header: UnifiedHeader{
 			SequenceNumber: 0x01,
 		},
@@ -611,7 +611,7 @@ func TestUnpackDatagramAutoTargetAllowsMixedFixedAndUnified(t *testing.T) {
 	plaintextRaw, err := plaintext.Marshal()
 	require.NoError(t, err)
 
-	ciphertext := &CiphertextRecord13{
+	ciphertext := &CiphertextRecord{
 		Header: UnifiedHeader{
 			SequenceNumber: 0x01,
 		},
@@ -795,7 +795,7 @@ func TestUnpackDatagramUnifiedWithCID(t *testing.T) {
 	plaintextRaw, err := plaintext.Marshal()
 	require.NoError(t, err)
 
-	ciphertext := &CiphertextRecord13{
+	ciphertext := &CiphertextRecord{
 		Header: UnifiedHeader{
 			ConnectionID:   []byte{0x01, 0x02, 0x03, 0x04},
 			SequenceNumber: 0x01,
@@ -812,7 +812,7 @@ func TestUnpackDatagramUnifiedWithCID(t *testing.T) {
 }
 
 func TestUnpackDatagramAllowsCIDLessUnifiedWithConfiguredCIDLength(t *testing.T) {
-	ciphertext := &CiphertextRecord13{
+	ciphertext := &CiphertextRecord{
 		Header: UnifiedHeader{
 			SequenceNumber: 0x01,
 		},
@@ -827,7 +827,7 @@ func TestUnpackDatagramAllowsCIDLessUnifiedWithConfiguredCIDLength(t *testing.T)
 }
 
 func TestUnpackDatagramRejectsUnifiedCIDWithoutConfiguredLength(t *testing.T) {
-	ciphertext := &CiphertextRecord13{
+	ciphertext := &CiphertextRecord{
 		Header: UnifiedHeader{
 			ConnectionID:   []byte{0x01, 0x02, 0x03, 0x04},
 			SequenceNumber: 0x01,
@@ -847,7 +847,7 @@ func TestUnpackDatagramRejectsTruncatedUnifiedCID(t *testing.T) {
 }
 
 func TestUnpackDatagramDoesNotApplyCIDAssociationPolicy(t *testing.T) {
-	first := &CiphertextRecord13{
+	first := &CiphertextRecord{
 		Header: UnifiedHeader{
 			ConnectionID:   []byte{0x01, 0x02, 0x03, 0x04},
 			SequenceNumber: 0x01,
@@ -857,7 +857,7 @@ func TestUnpackDatagramDoesNotApplyCIDAssociationPolicy(t *testing.T) {
 	firstRaw, err := first.Marshal()
 	require.NoError(t, err)
 
-	second := &CiphertextRecord13{
+	second := &CiphertextRecord{
 		Header: UnifiedHeader{
 			ConnectionID:   []byte{0x04, 0x03, 0x02, 0x01},
 			SequenceNumber: 0x02,
@@ -911,7 +911,7 @@ func TestUnpackDatagramAllRecordForms(t *testing.T) {
 	cidRaw := append([]byte{}, cidHeaderRaw...)
 	cidRaw = append(cidRaw, 0xb2)
 
-	unified := &CiphertextRecord13{
+	unified := &CiphertextRecord{
 		Header: UnifiedHeader{
 			ConnectionID:   cid,
 			SequenceNumber: 3,

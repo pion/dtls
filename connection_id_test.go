@@ -216,7 +216,7 @@ func TestCIDDatagramRouter13(t *testing.T) {
 	makeRecord := func(t *testing.T, connectionID []byte, sequenceNumber uint16) []byte {
 		t.Helper()
 
-		record, err := (&recordlayer.CiphertextRecord13{
+		record, err := (&recordlayer.CiphertextRecord{
 			Header: recordlayer.UnifiedHeader{
 				ConnectionID:   connectionID,
 				SequenceNumber: sequenceNumber,
@@ -325,7 +325,7 @@ func TestCIDConnIdentifier(t *testing.T) {
 		},
 	}).Marshal()
 	assert.NoError(t, err)
-	dtls13Ciphertext, err := (&recordlayer.CiphertextRecord13{
+	dtls13Ciphertext, err := (&recordlayer.CiphertextRecord{
 		Header:          recordlayer.UnifiedHeader{SequenceNumber: 1},
 		EncryptedRecord: make([]byte, 16),
 	}).Marshal()

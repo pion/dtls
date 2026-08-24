@@ -1567,8 +1567,8 @@ func (c *Conn) queueableCiphertextEpoch(epochLow uint8, remoteEpoch uint16) bool
 func (c *Conn) unmarshalCiphertextRecord(
 	buf []byte,
 	datagramContainsCID bool,
-) (recordlayer.CiphertextRecord13, error) {
-	record := recordlayer.CiphertextRecord13{}
+) (recordlayer.CiphertextRecord, error) {
+	record := recordlayer.CiphertextRecord{}
 	hasCID := buf[0]&recordlayer.UnifiedHeaderCIDBit != 0
 	localCID := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
 	cidExpected, cidAllowed, err := c.ciphertextCIDPolicy(localCID)
@@ -1611,7 +1611,7 @@ func (c *Conn) ciphertextCIDPolicy(localCID []byte) (expected, allowed bool, err
 }
 
 func (c *Conn) openCiphertextRecord(
-	record recordlayer.CiphertextRecord13,
+	record recordlayer.CiphertextRecord,
 ) (recordlayer.InnerPlaintext, uint64, uint16, error) {
 	var candidateBuffer [4]*dtlsstate.TrafficGeneration
 	candidates, remoteEpoch, err := c.readTrafficCandidates(record.Header.EpochLow, candidateBuffer[:0])
@@ -1667,7 +1667,7 @@ func (c *Conn) readTrafficCandidates(
 }
 
 func (c *Conn) openCiphertextWithGeneration(
-	record recordlayer.CiphertextRecord13,
+	record recordlayer.CiphertextRecord,
 	generation *dtlsstate.TrafficGeneration,
 ) (recordlayer.InnerPlaintext, uint64, error) {
 	clearHeader, err := generation.Protection.UnmaskSequenceNumber(record.Header, record.EncryptedRecord)

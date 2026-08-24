@@ -3819,7 +3819,7 @@ func TestReadAndBufferNoFSMQueuesExactRecordCopy(t *testing.T) {
 			LocalVersion: protocol.Version1_3,
 		}},
 	}
-	rawPacket, err := (&recordlayer.CiphertextRecord13{
+	rawPacket, err := (&recordlayer.CiphertextRecord{
 		Header: recordlayer.UnifiedHeader{
 			EpochLow:       uint8(dtlsflight13.EpochHandshake),
 			SequenceNumber: 1,
@@ -5002,26 +5002,26 @@ func TestOpenCiphertextRecordHandshake(t *testing.T) {
 func TestOpenCiphertextRecordRejectsInvalidRecords(t *testing.T) {
 	tests := []struct {
 		name    string
-		mutate  func(*Conn, *recordlayer.CiphertextRecord13)
+		mutate  func(*Conn, *recordlayer.CiphertextRecord)
 		wantErr error
 	}{
 		{
 			name: "wrong sequence number",
-			mutate: func(conn *Conn, _ *recordlayer.CiphertextRecord13) {
+			mutate: func(conn *Conn, _ *recordlayer.CiphertextRecord) {
 				conn.updateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
 			},
 			wantErr: dtlserrors.ErrDecryptPacket,
 		},
 		{
 			name: "wrong epoch",
-			mutate: func(_ *Conn, record *recordlayer.CiphertextRecord13) {
+			mutate: func(_ *Conn, record *recordlayer.CiphertextRecord) {
 				record.Header.EpochLow ^= 0x01
 			},
 			wantErr: dtlserrors.ErrInvalidEpoch,
 		},
 		{
 			name: "tampered ciphertext",
-			mutate: func(_ *Conn, record *recordlayer.CiphertextRecord13) {
+			mutate: func(_ *Conn, record *recordlayer.CiphertextRecord) {
 				record.EncryptedRecord[0] ^= 0x80
 			},
 			wantErr: dtlserrors.ErrDecryptPacket,
@@ -5230,7 +5230,7 @@ func sealTestProtectedHandshakeRecord(
 	t *testing.T,
 	protection ciphersuite.RecordProtection13,
 	plaintext []byte,
-) recordlayer.CiphertextRecord13 {
+) recordlayer.CiphertextRecord {
 	t.Helper()
 
 	return sealTestProtectedHandshakeRecordWithSequence(t, protection, plaintext, 0)
@@ -5241,7 +5241,7 @@ func sealTestProtectedHandshakeRecordWithSequence(
 	protection ciphersuite.RecordProtection13,
 	plaintext []byte,
 	sequenceNumber uint64,
-) recordlayer.CiphertextRecord13 {
+) recordlayer.CiphertextRecord {
 	t.Helper()
 
 	record, err := protection.Seal(
@@ -5280,7 +5280,7 @@ func unmarshalCiphertextRecordForTest(
 	t *testing.T,
 	raw []byte,
 	cidLength int,
-) recordlayer.CiphertextRecord13 {
+) recordlayer.CiphertextRecord {
 	t.Helper()
 
 	records, err := recordlayer.UnpackDatagram(raw, recordlayer.UnpackDatagramConfig{
@@ -5290,7 +5290,7 @@ func unmarshalCiphertextRecordForTest(
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
-	record := recordlayer.CiphertextRecord13{}
+	record := recordlayer.CiphertextRecord{}
 	if records[0][0]&recordlayer.UnifiedHeaderCIDBit != 0 {
 		record.Header.ConnectionID = make([]byte, cidLength)
 	}
@@ -5766,7 +5766,7 @@ func sealTrafficKeyTestRecord(
 	epoch uint16,
 	contentType protocol.ContentType,
 	plaintext []byte,
-) recordlayer.CiphertextRecord13 {
+) recordlayer.CiphertextRecord {
 	t.Helper()
 
 	record, err := protection.Seal(

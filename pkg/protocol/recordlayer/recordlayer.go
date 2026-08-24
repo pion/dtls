@@ -264,14 +264,14 @@ func unpackDatagramRecord(buf []byte, headerSize int) ([]byte, int, error) {
 	return buf[:consumed], consumed, nil
 }
 
-// CiphertextRecord13 implements DTLSCiphertext for protected records.
-type CiphertextRecord13 struct {
+// CiphertextRecord implements DTLSCiphertext for protected records.
+type CiphertextRecord struct {
 	Header          UnifiedHeader
 	EncryptedRecord []byte
 }
 
 // Marshal encodes a DTLS 1.3 DTLSCiphertext record.
-func (r *CiphertextRecord13) Marshal() ([]byte, error) {
+func (r *CiphertextRecord) Marshal() ([]byte, error) {
 	if !isValidDTLSCiphertextRecordLen(len(r.EncryptedRecord)) {
 		return nil, ErrInvalidPacketLength
 	}
