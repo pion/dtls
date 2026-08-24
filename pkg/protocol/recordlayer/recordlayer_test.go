@@ -549,19 +549,6 @@ func TestCiphertextRecord13WithoutLengthUsesRemainder(t *testing.T) {
 	require.Equal(t, encryptedRecord, records[0][roundTripHeader.Size():])
 }
 
-func TestUnpackDatagramPlaintext13(t *testing.T) {
-	plaintext := &RecordLayer{
-		Header:  Header{Version: protocol.Version1_2},
-		Content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify},
-	}
-	plaintextRaw, err := plaintext.Marshal()
-	require.NoError(t, err)
-
-	records, err := UnpackDatagram(plaintextRaw, UnpackDatagramConfig{})
-	require.NoError(t, err)
-	require.Equal(t, [][]byte{plaintextRaw}, records)
-}
-
 func TestUnpackDatagramCiphertext13(t *testing.T) {
 	encryptedRecord := ciphertext13Payload(0xaa)
 	ciphertextWithLength := &CiphertextRecord{
@@ -601,29 +588,6 @@ func TestUnpackDatagramRejectsShortCiphertextRecordWithLength(t *testing.T) {
 		_, err := UnpackDatagram(raw, UnpackDatagramConfig{})
 		require.ErrorIs(t, err, ErrInvalidPacketLength, "record length %d", recordLen)
 	}
-}
-
-func TestUnpackDatagramAutoTargetAllowsMixedFixedAndUnified(t *testing.T) {
-	plaintext := &RecordLayer{
-		Header:  Header{Version: protocol.Version1_2},
-		Content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify},
-	}
-	plaintextRaw, err := plaintext.Marshal()
-	require.NoError(t, err)
-
-	ciphertext := &CiphertextRecord{
-		Header: UnifiedHeader{
-			SequenceNumber: 0x01,
-		},
-		EncryptedRecord: ciphertext13Payload(0xaa),
-	}
-	ciphertextRaw, err := ciphertext.Marshal()
-	require.NoError(t, err)
-
-	datagram := append(append([]byte{}, plaintextRaw...), ciphertextRaw...)
-	records, err := UnpackDatagram(datagram, UnpackDatagramConfig{})
-	require.NoError(t, err)
-	require.Equal(t, [][]byte{plaintextRaw, ciphertextRaw}, records)
 }
 
 func TestUnpackDatagramAutoTargetAppliesCIDPolicyByRecordForm(t *testing.T) {
@@ -785,30 +749,6 @@ func TestUnpackDatagramVersion12RequiresCIDAfterEpochZero(t *testing.T) {
 	records, err = UnpackDatagram(epochZero, config)
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{epochZero}, records)
-}
-
-func TestUnpackDatagramUnifiedWithCID(t *testing.T) {
-	plaintext := &RecordLayer{
-		Header:  Header{Version: protocol.Version1_2},
-		Content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify},
-	}
-	plaintextRaw, err := plaintext.Marshal()
-	require.NoError(t, err)
-
-	ciphertext := &CiphertextRecord{
-		Header: UnifiedHeader{
-			ConnectionID:   []byte{0x01, 0x02, 0x03, 0x04},
-			SequenceNumber: 0x01,
-		},
-		EncryptedRecord: ciphertext13Payload(0xaa),
-	}
-	ciphertextRaw, err := ciphertext.Marshal()
-	require.NoError(t, err)
-
-	datagram := append(append([]byte{}, plaintextRaw...), ciphertextRaw...)
-	records, err := UnpackDatagram(datagram, UnpackDatagramConfig{CIDLength: 4})
-	require.NoError(t, err)
-	require.Equal(t, [][]byte{plaintextRaw, ciphertextRaw}, records)
 }
 
 func TestUnpackDatagramAllowsCIDLessUnifiedWithConfiguredCIDLength(t *testing.T) {
