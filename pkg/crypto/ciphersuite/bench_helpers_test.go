@@ -6,15 +6,25 @@
 package ciphersuite
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
-type testCipher interface {
-	Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
-	Decrypt(header recordlayer.Header, in []byte) ([]byte, error)
+func runCipherBenchmark(
+	b *testing.B,
+	newCipher func() (testCipher, error),
+	benchmark func(*testing.B, testCipher),
+) {
+	b.Helper()
+
+	cipher, err := newCipher()
+	if err != nil {
+		b.Fatal(err)
+	}
+	benchmark(b, cipher)
 }
 
 // benchmarkEncrypt benchmarks a cipher's encryption with various payload sizes.
@@ -113,16 +123,16 @@ func formatSize(b *testing.B, size int) string {
 	b.Helper()
 
 	if size < 1024 {
-		return string(rune('0'+size/100)) + string(rune('0'+(size/10)%10)) + string(rune('0'+size%10)) + "B"
+		return fmt.Sprintf("%03dB", size)
 	} else if size < 10240 {
 		kb := size / 1024
 		remainder := (size % 1024) * 10 / 1024
 		if remainder > 0 {
-			return string(rune('0'+kb)) + "." + string(rune('0'+remainder)) + "KB"
+			return fmt.Sprintf("%d.%dKB", kb, remainder)
 		}
 
-		return string(rune('0'+kb)) + "KB"
+		return fmt.Sprintf("%dKB", kb)
 	}
 
-	return string(rune('0'+size/1024/10)) + string(rune('0'+(size/1024)%10)) + "KB"
+	return fmt.Sprintf("%02dKB", size/1024)
 }
