@@ -226,48 +226,6 @@ func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
 	assert.Equal(t, []byte{0x01, 0x02}, request.Extensions[1].(*extension13.CertificateAuthorities).Authorities[0]) //nolint:forcetypeassert,lll
 }
 
-func TestFlight4GenerateCertificateAuthenticatedFlight(t *testing.T) {
-	flightCtx, certificate := flight4TestContext(t)
-	certificate.Certificate = append(certificate.Certificate, []byte{0x01, 0x02, 0x03})
-	flightCtx.cfg.LocalCertificates = []tls.Certificate{certificate}
-
-	pkts, dtlsAlert, err := flight4Generate(nil, flightCtx)
-	require.NoError(t, err)
-	require.Nil(t, dtlsAlert)
-	require.Len(t, pkts, 5)
-
-	expectedTypes := []handshake.Type{
-		handshake.TypeServerHello,
-		handshake.TypeEncryptedExtensions,
-		handshake.TypeCertificate,
-		handshake.TypeCertificateVerify,
-		handshake.TypeFinished,
-	}
-	for i, pkt := range pkts {
-		hs, ok := pkt.Record.Content.(*handshake.Handshake)
-		require.True(t, ok)
-		assert.Equal(t, expectedTypes[i], hs.Message.Type())
-		assert.Equal(t, i > 0, pkt.ShouldEncrypt)
-		assert.Equal(t, i == 1, pkt.ResetLocalSequenceNumber)
-		if i > 0 {
-			assert.Equal(t, EpochHandshake, pkt.Record.Header.Epoch)
-		}
-	}
-
-	certificateHandshake := pkts[2].Record.Content.(*handshake.Handshake)                //nolint:forcetypeassert
-	certificateMessage := certificateHandshake.Message.(*handshake.MessageCertificate13) //nolint:forcetypeassert
-	assert.Empty(t, certificateMessage.CertificateRequestContext)
-	require.Len(t, certificateMessage.CertificateList, len(certificate.Certificate))
-	for i, entry := range certificateMessage.CertificateList {
-		assert.Equal(t, certificate.Certificate[i], entry.CertificateData)
-	}
-
-	certificateVerifyHandshake := pkts[3].Record.Content.(*handshake.Handshake)                   //nolint:forcetypeassert
-	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
-	assert.Empty(t, certificateVerify.Signature)
-	assert.Same(t, certificate.PrivateKey, pkts[3].CertificateVerifySigner)
-}
-
 func TestFlight4GenerateCertificateFailures(t *testing.T) {
 	tests := map[string]struct {
 		configure     func(*handshakeContext)

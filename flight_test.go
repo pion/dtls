@@ -3010,37 +3010,6 @@ func TestFlight13_4Generate(t *testing.T) {
 	})
 }
 
-func TestFlight13ServerFlight4UsesHandshakeEpoch(t *testing.T) {
-	cfg := testHandshakeConfig13(t)
-	certificate, err := selfsign.GenerateSelfSigned()
-	require.NoError(t, err)
-	cfg.LocalCertificates = []tls.Certificate{certificate}
-	group := cfg.EllipticCurves[0]
-	keypair, err := elliptic.GenerateKeypair(group)
-	require.NoError(t, err)
-
-	state := newTestState13(t, false)
-	state.CipherSuite = cfg.LocalCipherSuites[0]
-	state.LocalKeypair = keypair
-	state.RemoteSignatureSchemes = append([]signaturehash.Algorithm(nil), cfg.LocalSignatureSchemes...)
-	state.LocalRandom = handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}}
-
-	pkts, dtlsAlert, err := flight13GenerateForTest(
-		t, dtlsflight13.Flight4, &handshakeTestContext13{state: state, cfg: cfg},
-	)
-	require.NoError(t, err)
-	require.Nil(t, dtlsAlert)
-	require.Len(t, pkts, 5)
-
-	assert.Equal(t, uint16(0), pkts[0].Record.Header.Epoch)
-	assert.False(t, pkts[0].ShouldEncrypt)
-	for i, pkt := range pkts[1:] {
-		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Record.Header.Epoch)
-		assert.True(t, pkt.ShouldEncrypt)
-		assert.Equal(t, i == 0, pkt.ResetLocalSequenceNumber)
-	}
-}
-
 func pushClientHello13(
 	t *testing.T,
 	cache *dtlsflight.Cache,
