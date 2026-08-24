@@ -144,6 +144,32 @@ func generateState13(internalState *dtlsstate.State13) (*State, error) {
 	}, nil
 }
 
+// NegotiatedVersion returns the DTLS version negotiated for this connection.
+func (s *State) NegotiatedVersion() protocol.Version {
+	return s.version
+}
+
+// Role indicates which side of the DTLS handshake an endpoint took.
+type Role uint8
+
+const (
+	// RoleUnknown is the zero value, used when the role is not yet resolved.
+	RoleUnknown Role = iota
+	// RoleClient is the endpoint that sends the ClientHello.
+	RoleClient
+	// RoleServer is the endpoint that answers with the ServerHello.
+	RoleServer
+)
+
+// Role reports which side of the handshake the local endpoint took.
+func (s *State) Role() Role {
+	if s.isClient {
+		return RoleClient
+	}
+
+	return RoleServer
+}
+
 func (s *State) serialize() (*serializedState, error) {
 	// 0 (TLS_NULL_WITH_NULL_NULL) is never negotiated, so it signals an unset suite.
 	if s.CipherSuiteID == 0 {
