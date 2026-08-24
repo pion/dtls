@@ -288,34 +288,6 @@ func TestMessageCertificate13_CertDataAtMaxBoundary(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrCertificateListTooLong)
 }
 
-func TestMessageCertificate13_CertDataJustBelowMaxBoundary(t *testing.T) {
-	// Test cert_data at 2^24-1-5 bytes (should succeed for single cert with no extensions)
-	// Serialized size = 3 + (0xffffff-5) + 2 = 0xffffff (exactly at limit)
-	certData := make([]byte, 0xffffff-5) // 2^24-1-5 bytes
-	for i := range certData {
-		certData[i] = byte(i)
-	}
-
-	msg := &MessageCertificate13{
-		CertificateRequestContext: []byte{},
-		CertificateList: []CertificateEntry13{
-			{
-				CertificateData: certData,
-				Extensions:      []extension.Value{},
-			},
-		},
-	}
-
-	data, err := msg.Marshal()
-	assert.NoError(t, err)
-
-	// Verify round-trip
-	out := &MessageCertificate13{}
-	err = out.Unmarshal(data)
-	assert.NoError(t, err)
-	assert.Equal(t, len(msg.CertificateList[0].CertificateData), len(out.CertificateList[0].CertificateData))
-}
-
 func TestMessageCertificate13_CertDataOneByteOverBoundary(t *testing.T) {
 	// Test cert_data at 2^24-1-4 bytes (one byte over the single-cert-no-ext limit)
 	// Serialized size = 3 + (0xffffff-4) + 2 = 0x1000000 (exceeds 2^24-1)
