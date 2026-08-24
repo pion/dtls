@@ -535,6 +535,139 @@ func TestHandshakeWithInvalidRecord(t *testing.T) {
 	assert.NoError(t, errClient.err)
 }
 
+func TestHandshakeDiscardsProtectedRecordWithoutRequiredCID(t *testing.T) {
+	lim := test.TimeOut(20 * time.Second)
+	defer lim.Stop()
+
+	report := test.CheckRoutines(t)
+	defer report()
+
+	tests := []struct {
+		name    string
+		version protocol.Version
+	}{
+		{name: "DTLS12", version: protocol.Version1_2},
+		{name: "DTLS13", version: protocol.Version1_3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			clientCID := []byte("client-cid")
+			serverCID := []byte("server-cid")
+
+			type result struct {
+				c   *Conn
+				err error
+			}
+			clientResult := make(chan result, 1)
+			injectionResult := make(chan error, 1)
+			ca, cb := dpipe.Pipe()
+			clientTransport := &connWithCallback{Conn: ca}
+
+			var injected atomic.Bool
+			clientTransport.onWrite = func(datagram []byte) {
+				records, _ := recordlayer.UnpackDatagram(datagram, recordlayer.UnpackDatagramConfig{
+					TargetVersion: tt.version,
+					CIDLength:     len(serverCID),
+				})
+				for _, record := range records {
+					if !recordsContainCID([][]byte{record}) || !injected.CompareAndSwap(false, true) {
+						continue
+					}
+
+					var invalidRecord []byte
+					if tt.version.Equal(protocol.Version1_3) {
+						invalidRecord = append(invalidRecord, record[0]&^recordlayer.UnifiedHeaderCIDBit)
+						invalidRecord = append(invalidRecord, record[1+len(serverCID):]...)
+					} else {
+						invalidRecord = append(invalidRecord, byte(protocol.ContentTypeHandshake))
+						invalidRecord = append(invalidRecord, record[1:11]...)
+						invalidRecord = append(invalidRecord, record[11+len(serverCID):]...)
+					}
+
+					strictRecords, strictErr := recordlayer.UnpackDatagram(
+						invalidRecord,
+						recordlayer.UnpackDatagramConfig{
+							TargetVersion: tt.version,
+							CIDLength:     len(serverCID),
+							CIDRequired:   true,
+						},
+					)
+					if len(strictRecords) != 0 || !errors.Is(strictErr, dtlserrors.ErrInvalidCiphertextHeader) {
+						injectionResult <- fmt.Errorf(
+							"CID-less clone was not rejected by strict scanner: records=%d, err=%w",
+							len(strictRecords),
+							strictErr,
+						)
+
+						return
+					}
+
+					_, err := ca.Write(invalidRecord)
+					injectionResult <- err
+
+					return
+				}
+			}
+
+			go func() {
+				client, err := testClient(
+					ctx,
+					dtlsnet.PacketConnFromConn(clientTransport),
+					clientTransport.RemoteAddr(),
+					[]ClientOption{
+						WithMinVersion(tt.version),
+						WithMaxVersion(tt.version),
+						WithConnectionID(func() []byte { return bytes.Clone(clientCID) }, CIDPathMigrationReject),
+					},
+					true,
+				)
+				clientResult <- result{client, err}
+			}()
+
+			server, serverErr := testServer(
+				ctx,
+				dtlsnet.PacketConnFromConn(cb),
+				cb.RemoteAddr(),
+				[]ServerOption{
+					WithMinVersion(tt.version),
+					WithMaxVersion(tt.version),
+					WithConnectionID(func() []byte { return bytes.Clone(serverCID) }, CIDPathMigrationReject),
+				},
+				true,
+			)
+			client := <-clientResult
+
+			defer func() {
+				if server != nil {
+					assert.NoError(t, server.Close())
+				}
+				if client.c != nil {
+					assert.NoError(t, client.c.Close())
+				}
+			}()
+
+			require.NoError(t, serverErr)
+			require.NoError(t, client.err)
+			require.True(t, injected.Load(), "handshake did not send a CID-bearing protected record")
+			require.NoError(t, <-injectionResult)
+
+			payload := []byte("connection survived CID-less protected record")
+			n, err := client.c.Write(payload)
+			require.NoError(t, err)
+			require.Equal(t, len(payload), n)
+			require.NoError(t, server.SetReadDeadline(time.Now().Add(time.Second)))
+			readBuffer := make([]byte, len(payload))
+			n, err = server.Read(readBuffer)
+			require.NoError(t, err)
+			require.Equal(t, payload, readBuffer[:n])
+		})
+	}
+}
+
 func TestExportKeyingMaterial(t *testing.T) {
 	// Check for leaking routines
 	report := test.CheckRoutines(t)

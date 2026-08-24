@@ -1399,7 +1399,7 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 		return datagramProcessingSummary{}, netError(err)
 	}
 
-	pkts, unpackErr := c.unpackDatagram(b[:i])
+	pkts, err := c.unpackDatagram(b[:i])
 	if len(pkts) == 0 {
 		// discard missing negotiated CID without terminating the handshake.
 		if errors.Is(err, dtlserrors.ErrInvalidCiphertextHeader) {
@@ -1408,14 +1408,15 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 			return datagramProcessingSummary{}, nil
 		}
 
-		return datagramProcessingSummary{}, unpackErr
+		return datagramProcessingSummary{}, err
 	}
 	datagramContainsCID := recordsContainCID(pkts)
 	bufferLease.datagramContainsCID = datagramContainsCID
 
 	var summary datagramProcessingSummary
 	for _, p := range pkts {
-		outcome, err := c.processIncomingPacket(ctx, p, rAddr, &bufferLease, datagramContainsCID)
+		var outcome packetOutcome
+		outcome, err = c.processIncomingPacket(ctx, p, rAddr, &bufferLease, datagramContainsCID)
 		if err != nil {
 			return datagramProcessingSummary{}, err
 		}
@@ -1426,8 +1427,8 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 		}
 	}
 
-	if unpackErr != nil {
-		c.log.Debugf("discarded malformed datagram suffix: %v", unpackErr)
+	if err != nil {
+		c.log.Debugf("discarded malformed datagram suffix: %v", err)
 	}
 
 	return summary, nil
