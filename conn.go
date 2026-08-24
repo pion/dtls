@@ -71,8 +71,8 @@ type addrPkt struct {
 	datagramContainsCID bool
 }
 
-// readBufferLease owns a recyclable read buffer until a queued packet view
-// takes responsibility for keeping its backing array alive.
+// readBufferLease owns a recyclable read buffer for one datagram-processing
+// call. Anything retained beyond that call must take an exact owned copy.
 type readBufferLease struct {
 	conn                 *Conn
 	recyclableReadBuffer *[]byte
