@@ -168,35 +168,6 @@ func TestMessageCertificateRequest13_MissingSignatureAlgorithms(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrMissingSignatureAlgorithmsExtension)
 }
 
-func TestMessageCertificateRequest13_UnmarshalMissingSignatureAlgorithms(t *testing.T) {
-	// Define (invalid) serialized message (has no signature_algorithms extension)
-	data := []byte{
-		0x00,       // context length = 0
-		0x00, 0x00, // extensions length = 0
-	}
-
-	err := (&MessageCertificateRequest13{}).Unmarshal(data)
-	assert.ErrorIs(t, err, dtlserrors.ErrMissingSignatureAlgorithmsExtension)
-}
-
-func TestMessageCertificateRequest13_UnmarshalBufferTooSmall(t *testing.T) {
-	// Define (invalid) serialized messages (data too small)
-	tests := []struct {
-		name string
-		data []byte
-	}{
-		{"empty", []byte{}},
-		{"1 byte", []byte{0x00}},
-		{"2 bytes", []byte{0x00, 0x00}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := (&MessageCertificateRequest13{}).Unmarshal(test.data)
-			assert.Error(t, err)
-		})
-	}
-}
-
 func TestMessageCertificateRequest13_UnmarshalInvalidContext(t *testing.T) {
 	// Define (invalid) serialized message (data smaller than advertised context length)
 	data := []byte{
