@@ -8,9 +8,7 @@ import (
 	"bytes"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 const (
@@ -20,15 +18,32 @@ const (
 )
 
 type fragment struct {
-	recordLayerHeader recordlayer.Header
-	handshakeHeader   handshake.Header
-	data              []byte
+	handshakeHeader handshake.Header
+	data            []byte
+}
+
+type fragmentKey struct {
+	messageSequence uint16
+	fragmentOffset  uint32
+}
+
+type parsedFragment struct {
+	header handshake.Header
+	data   []byte
+}
+
+type batchMessage struct {
+	handshakeType handshake.Type
+	length        uint32
+	fragments     map[uint32]parsedFragment
 }
 
 type fragments struct {
 	fragmentByOffset map[uint32]*fragment
 	fragmentsLength  uint32
 	handshakeLength  uint32
+	handshakeType    handshake.Type
+	epoch            uint16
 }
 
 // FragmentBuffer stores and reassembles fragmented DTLS handshake messages.
@@ -70,76 +85,214 @@ func (f *FragmentBuffer) AdvanceTo(messageSequence uint16) {
 	f.currentMessageSequenceNumber = messageSequence
 }
 
-// Push attempts to add a DTLS packet to the fragment buffer.
-// when it returns true it means the fragmentBuffer has inserted and the buffer shouldn't be handled
-// when an error returns it is fatal, and the DTLS connection should be stopped.
-func (f *FragmentBuffer) Push(buf []byte) (isHandshake, isRetransmit bool, err error) {
-	if f.size()+len(buf) >= fragmentBufferMaxSize || f.totalFragmentCount >= fragmentBufferMaxCount {
-		return false, false, dtlserrors.ErrFragmentBufferOverflow
+// Push validates and adds handshake fragments from content to the buffer.
+// content starts with a handshake header.
+func (f *FragmentBuffer) Push(epoch uint16, content []byte) (isRetransmit bool, err error) {
+	parsed, err := parseFragments(content)
+	if err != nil {
+		return false, err
+	}
+	if err = f.validateFragments(epoch, parsed); err != nil {
+		return false, err
 	}
 
-	recordLayerHeader := recordlayer.Header{}
-	if err := recordLayerHeader.Unmarshal(buf); err != nil {
-		return false, false, err
+	isRetransmit, newFragmentCount, newBufferSize := f.prospectiveResourceUsage(parsed)
+	if f.size()+newBufferSize >= fragmentBufferMaxSize ||
+		f.totalFragmentCount+newFragmentCount > fragmentBufferMaxCount {
+		return false, dtlserrors.ErrFragmentBufferOverflow
 	}
 
-	// fragment isn't a handshake, we don't need to handle it
-	if recordLayerHeader.ContentType != protocol.ContentTypeHandshake {
-		return false, false, nil
-	}
+	f.commitFragments(epoch, parsed)
 
-	headerSize := recordLayerHeader.Size()
-	if len(buf) < headerSize {
-		return false, false, dtlserrors.ErrBufferTooSmall
-	}
-
-	return f.pushHandshakeFragments(recordLayerHeader, buf[headerSize:])
+	return isRetransmit, nil
 }
 
-func (f *FragmentBuffer) pushHandshakeFragments(
-	recordLayerHeader recordlayer.Header,
-	buf []byte,
-) (isHandshake, isRetransmit bool, err error) {
-	for len(buf) != 0 {
-		frag := new(fragment)
-		if err := frag.handshakeHeader.Unmarshal(buf); err != nil {
-			return false, false, err
+func parseFragments(content []byte) ([]parsedFragment, error) {
+	parsed := make([]parsedFragment, 0)
+	for remaining := content; len(remaining) != 0; {
+		var header handshake.Header
+		if err := header.Unmarshal(remaining); err != nil {
+			return nil, err
 		}
 
-		end := int(handshake.HeaderLength + frag.handshakeHeader.FragmentLength)
-		if end > len(buf) {
-			return false, false, dtlserrors.ErrBufferTooSmall
+		end := handshake.HeaderLength + int(header.FragmentLength)
+		if end > len(remaining) {
+			return nil, dtlserrors.ErrBufferTooSmall
 		}
-		if frag.handshakeHeader.MessageSequence < f.currentMessageSequenceNumber {
-			// any fragment from an already assembled message is a retransmission.
+		parsed = append(parsed, parsedFragment{
+			header: header,
+			data:   remaining[handshake.HeaderLength:end],
+		})
+		remaining = remaining[end:]
+	}
+
+	return parsed, nil
+}
+
+func (f *FragmentBuffer) validateFragments(epoch uint16, parsed []parsedFragment) error {
+	batch := map[uint16]*batchMessage{}
+	for _, candidate := range parsed {
+		if err := validateFragmentBounds(candidate.header); err != nil {
+			return err
+		}
+		if err := f.validateCachedFragment(epoch, candidate); err != nil {
+			return err
+		}
+		if err := validateBatchFragment(batch, candidate); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateFragmentBounds(header handshake.Header) error {
+	if header.FragmentOffset > header.Length ||
+		header.FragmentLength > header.Length-header.FragmentOffset {
+		return dtlserrors.ErrInvalidPacket
+	}
+
+	return nil
+}
+
+func (f *FragmentBuffer) validateCachedFragment(epoch uint16, candidate parsedFragment) error {
+	header := candidate.header
+	cached, ok := f.cache[header.MessageSequence]
+	if !ok {
+		return nil
+	}
+	if cached.handshakeType != header.Type ||
+		cached.handshakeLength != header.Length ||
+		cached.epoch != epoch {
+		return dtlserrors.ErrInvalidPacket
+	}
+
+	for _, existing := range cached.fragmentByOffset {
+		if err := validateFragmentPair(
+			existing.handshakeHeader,
+			existing.data,
+			header,
+			candidate.data,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateBatchFragment(batch map[uint16]*batchMessage, candidate parsedFragment) error {
+	header := candidate.header
+	message, ok := batch[header.MessageSequence]
+	if !ok {
+		batch[header.MessageSequence] = &batchMessage{
+			handshakeType: header.Type,
+			length:        header.Length,
+			fragments:     map[uint32]parsedFragment{header.FragmentOffset: candidate},
+		}
+
+		return nil
+	}
+	if message.handshakeType != header.Type || message.length != header.Length {
+		return dtlserrors.ErrInvalidPacket
+	}
+
+	for _, existing := range message.fragments {
+		if err := validateFragmentPair(existing.header, existing.data, header, candidate.data); err != nil {
+			return err
+		}
+	}
+	if _, ok = message.fragments[header.FragmentOffset]; !ok {
+		message.fragments[header.FragmentOffset] = candidate
+	}
+
+	return nil
+}
+
+func validateFragmentPair(
+	existingHeader handshake.Header,
+	existingData []byte,
+	candidateHeader handshake.Header,
+	candidateData []byte,
+) error {
+	if existingHeader.FragmentOffset == candidateHeader.FragmentOffset {
+		if existingHeader != candidateHeader || !bytes.Equal(existingData, candidateData) {
+			return dtlserrors.ErrInvalidPacket
+		}
+
+		return nil
+	}
+
+	existingEnd := existingHeader.FragmentOffset + existingHeader.FragmentLength
+	candidateEnd := candidateHeader.FragmentOffset + candidateHeader.FragmentLength
+	if existingHeader.FragmentOffset < candidateEnd && candidateHeader.FragmentOffset < existingEnd {
+		return dtlserrors.ErrInvalidPacket
+	}
+
+	return nil
+}
+
+func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (
+	isRetransmit bool,
+	newFragmentCount int,
+	newBufferSize int,
+) {
+	newFragments := map[fragmentKey]struct{}{}
+	for _, candidate := range parsed {
+		header := candidate.header
+		if header.MessageSequence < f.currentMessageSequenceNumber {
 			isRetransmit = true
-			buf = buf[end:]
 
 			continue
 		}
 
-		messageFragments, ok := f.cache[frag.handshakeHeader.MessageSequence]
-		if !ok {
-			messageFragments = &fragments{
-				fragmentByOffset: map[uint32]*fragment{}, handshakeLength: frag.handshakeHeader.Length,
+		if messageFragments, ok := f.cache[header.MessageSequence]; ok {
+			if _, ok = messageFragments.fragmentByOffset[header.FragmentOffset]; ok {
+				continue
 			}
-			f.cache[frag.handshakeHeader.MessageSequence] = messageFragments
 		}
 
-		// Discard all headers, when rebuilding the packet we will re-build
-		frag.data = bytes.Clone(buf[handshake.HeaderLength:end])
-		frag.recordLayerHeader = recordLayerHeader
-
-		if _, ok = messageFragments.fragmentByOffset[frag.handshakeHeader.FragmentOffset]; !ok {
-			messageFragments.fragmentByOffset[frag.handshakeHeader.FragmentOffset] = frag
-			messageFragments.fragmentsLength += frag.handshakeHeader.FragmentLength
-			f.totalBufferSize += int(frag.handshakeHeader.FragmentLength)
-			f.totalFragmentCount++
+		key := fragmentKey{
+			messageSequence: header.MessageSequence,
+			fragmentOffset:  header.FragmentOffset,
 		}
-		buf = buf[end:]
+		if _, ok := newFragments[key]; !ok {
+			newFragments[key] = struct{}{}
+			newFragmentCount++
+			newBufferSize += int(header.FragmentLength)
+		}
 	}
 
-	return true, isRetransmit, nil
+	return isRetransmit, newFragmentCount, newBufferSize
+}
+
+func (f *FragmentBuffer) commitFragments(epoch uint16, parsed []parsedFragment) {
+	for _, candidate := range parsed {
+		header := candidate.header
+		if header.MessageSequence < f.currentMessageSequenceNumber {
+			continue
+		}
+
+		messageFragments, ok := f.cache[header.MessageSequence]
+		if !ok {
+			messageFragments = &fragments{
+				fragmentByOffset: map[uint32]*fragment{},
+				handshakeLength:  header.Length,
+				handshakeType:    header.Type,
+				epoch:            epoch,
+			}
+			f.cache[header.MessageSequence] = messageFragments
+		}
+		if _, ok = messageFragments.fragmentByOffset[header.FragmentOffset]; !ok {
+			messageFragments.fragmentByOffset[header.FragmentOffset] = &fragment{
+				handshakeHeader: header,
+				data:            bytes.Clone(candidate.data),
+			}
+			messageFragments.fragmentsLength += header.FragmentLength
+			f.totalBufferSize += int(header.FragmentLength)
+			f.totalFragmentCount++
+		}
+	}
 }
 
 // Pop returns the next complete handshake message and its record epoch.
@@ -174,7 +327,7 @@ func (f *FragmentBuffer) Pop() (content []byte, epoch uint16) {
 
 	rawHeader, _ := firstHeader.Marshal()
 
-	messageEpoch := frags.fragmentByOffset[0].recordLayerHeader.Epoch
+	messageEpoch := frags.epoch
 
 	f.totalBufferSize -= int(frags.fragmentsLength)
 	f.totalFragmentCount -= len(frags.fragmentByOffset)

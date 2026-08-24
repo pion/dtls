@@ -215,18 +215,27 @@ func sameNetworkAddress(a, b net.Addr) bool {
 // constant size connection IDs.
 func cidDatagramRouter(size int) func([]byte) (string, bool) {
 	return func(packet []byte) (string, bool) {
-		if len(packet) == 0 {
-			return "", false
-		}
-		if protocol.IsDTLS13Ciphertext(protocol.ContentType(packet[0])) {
-			return cidDatagramRouter13(packet, size)
-		}
-
-		pkts, err := recordlayer.ContentAwareUnpackDatagram(packet, size)
-		if err != nil || len(pkts) == 0 {
+		pkts, _ := recordlayer.UnpackDatagram(packet, recordlayer.UnpackDatagramConfig{
+			CIDLength:   size,
+			CIDRequired: true,
+		})
+		if len(pkts) == 0 {
 			return "", false
 		}
 		for _, pkt := range pkts {
+			if protocol.IsDTLS13Ciphertext(protocol.ContentType(pkt[0])) {
+				if pkt[0]&recordlayer.UnifiedHeaderCIDBit == 0 {
+					continue
+				}
+
+				h := recordlayer.UnifiedHeader{ConnectionID: make([]byte, size)}
+				if err := h.Unmarshal(pkt); err != nil {
+					continue
+				}
+
+				return string(h.ConnectionID), true
+			}
+
 			h := &recordlayer.Header{
 				ConnectionID: make([]byte, size),
 			}
@@ -242,35 +251,6 @@ func cidDatagramRouter(size int) func([]byte) (string, bool) {
 
 		return "", false
 	}
-}
-
-// cidDatagramRouter13 extracts the fixed-length connection ID from a DTLS 1.3
-// unified header. The CID bit is authenticated only when Conn opens the record,
-// so routing by it selects a candidate connection rather than authenticating a
-// peer address.
-//
-// https://datatracker.ietf.org/doc/html/rfc9147#section-4
-func cidDatagramRouter13(packet []byte, size int) (string, bool) {
-	pkts, err := recordlayer.UnpackDatagram13(packet, size, false, true)
-	if err != nil || len(pkts) == 0 {
-		return "", false
-	}
-	for _, pkt := range pkts {
-		if len(pkt) == 0 ||
-			!protocol.IsDTLS13Ciphertext(protocol.ContentType(pkt[0])) ||
-			pkt[0]&recordlayer.UnifiedHeaderCIDBit == 0 {
-			continue
-		}
-
-		h := recordlayer.UnifiedHeader{ConnectionID: make([]byte, size)}
-		if err := h.Unmarshal(pkt); err != nil {
-			continue
-		}
-
-		return string(h.ConnectionID), true
-	}
-
-	return "", false
 }
 
 // cidConnIdentifier extracts connection IDs from outgoing ServerHello records

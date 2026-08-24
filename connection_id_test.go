@@ -9,6 +9,7 @@ import (
 
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
@@ -54,7 +55,18 @@ func TestOnlySendCIDGenerator(t *testing.T) {
 func TestCIDDatagramRouter(t *testing.T) {
 	cid := []byte("abcd1234")
 	cidLen := 8
-	appRecord, err := (&recordlayer.RecordLayer{
+	epochZeroRecord, err := (&recordlayer.RecordLayer{
+		Header: recordlayer.Header{
+			Epoch:   0,
+			Version: protocol.Version1_2,
+		},
+		Content: &alert.Alert{
+			Level:       alert.Warning,
+			Description: alert.CloseNotify,
+		},
+	}).Marshal()
+	assert.NoError(t, err)
+	protectedWithoutCIDRecord, err := (&recordlayer.RecordLayer{
 		Header: recordlayer.Header{
 			Epoch:   1,
 			Version: protocol.Version1_2,
@@ -110,9 +122,20 @@ func TestCIDDatagramRouter(t *testing.T) {
 		"NotAConnectionIDDatagram": {
 			reason:   "If datagram does not contain any Connection ID records, we cannot extract an identifier",
 			size:     cidLen,
-			datagram: appRecord,
+			datagram: epochZeroRecord,
 			ok:       false,
 			want:     "",
+		},
+		"ProtectedRecordWithoutCIDPrefix": {
+			//nolint:lll
+			reason: "A protected DTLS 1.2 record without type 25 is invalid after CID negotiation and must not route through a later CID.",
+			size:   cidLen,
+			datagram: append(
+				append(append([]byte{}, protectedWithoutCIDRecord...), cidHeader...),
+				inner...,
+			),
+			ok:   false,
+			want: "",
 		},
 		"OneRecordConnectionID": {
 			reason:   "If datagram contains one Connection ID record, we should be able to extract it.",
@@ -143,9 +166,9 @@ func TestCIDDatagramRouter(t *testing.T) {
 		},
 		"MultipleRecordOneConnectionID": {
 			//nolint:lll
-			reason:   "If datagram contains multiple records and one is a Connection ID record, we should be able to extract it.",
+			reason:   "An epoch-zero DTLS 1.2 record may precede a protected Connection ID record in the same datagram.",
 			size:     8,
-			datagram: append(append(appRecord, cidHeader...), inner...),
+			datagram: append(append(epochZeroRecord, cidHeader...), inner...),
 			ok:       true,
 			want:     string(cid),
 		},
@@ -153,7 +176,7 @@ func TestCIDDatagramRouter(t *testing.T) {
 			//nolint:lll
 			reason: "If datagram contains multiple records and multiple are Connection ID records, we should extract the first one.",
 			size:   8,
-			datagram: append(append(append(appRecord, func() []byte {
+			datagram: append(append(append(epochZeroRecord, func() []byte {
 				altCIDHeader, err := (&recordlayer.Header{
 					Epoch:          1,
 					Version:        protocol.Version1_2,
@@ -181,6 +204,15 @@ func TestCIDDatagramRouter(t *testing.T) {
 
 func TestCIDDatagramRouter13(t *testing.T) {
 	cid := []byte("abcd1234")
+	plaintextPrefix, err := (&recordlayer.RecordLayer{
+		Header: recordlayer.Header{Version: protocol.Version1_2},
+		Content: &alert.Alert{
+			Level:       alert.Warning,
+			Description: alert.CloseNotify,
+		},
+	}).Marshal()
+	assert.NoError(t, err)
+
 	makeRecord := func(t *testing.T, connectionID []byte, sequenceNumber uint16) []byte {
 		t.Helper()
 
@@ -231,6 +263,20 @@ func TestCIDDatagramRouter13(t *testing.T) {
 			reason:   "The first CID in a datagram containing unified-header records should be used.",
 			size:     len(cid),
 			datagram: append(append([]byte{}, recordWithCID...), recordWithOtherCID...),
+			ok:       true,
+			want:     string(cid),
+		},
+		"FixedPrefix": {
+			reason:   "A CID in a unified-header record should route after a fixed-header CID-less prefix.",
+			size:     len(cid),
+			datagram: append(append([]byte{}, plaintextPrefix...), recordWithCID...),
+			ok:       true,
+			want:     string(cid),
+		},
+		"MalformedSuffix": {
+			reason:   "A malformed suffix should not hide a CID in an already framed record.",
+			size:     len(cid),
+			datagram: append(append([]byte{}, recordWithCID...), 0xff),
 			ok:       true,
 			want:     string(cid),
 		},

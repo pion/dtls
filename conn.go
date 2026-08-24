@@ -66,8 +66,9 @@ func toConfigCipherSuites(cipherSuites []CipherSuite) []dtlsconfig.CipherSuite {
 }
 
 type addrPkt struct {
-	rAddr net.Addr
-	data  []byte
+	rAddr               net.Addr
+	data                []byte
+	datagramContainsCID bool
 }
 
 // readBufferLease owns a recyclable read buffer until a queued packet view
@@ -75,16 +76,13 @@ type addrPkt struct {
 type readBufferLease struct {
 	conn                 *Conn
 	recyclableReadBuffer *[]byte
+	datagramContainsCID  bool
 }
 
 func (w *readBufferLease) enqueue(packet addrPkt) bool {
-	if !w.conn.enqueueEncryptedPackets(packet) {
-		return false
-	}
+	packet.datagramContainsCID = w.datagramContainsCID
 
-	w.recyclableReadBuffer = nil
-
-	return true
+	return w.conn.enqueueEncryptedPackets(packet)
 }
 
 func (w *readBufferLease) releaseReadBuffer() {
@@ -96,7 +94,9 @@ func (w *readBufferLease) releaseReadBuffer() {
 }
 
 type incomingPacketState struct {
-	buf               []byte
+	raw               []byte
+	content           []byte
+	contentType       protocol.ContentType
 	header            *recordlayer.Header
 	markPacketAsValid func() bool
 	originalCID       bool
@@ -1371,7 +1371,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 	return nil
 }
 
-func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) {
+func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) { //nolint:cyclop
 	bufptr, ok := poolReadBuffer.Get().(*[]byte)
 	if !ok {
 		return datagramProcessingSummary{}, dtlserrors.ErrFailedToAccessPoolReadBuffer
@@ -1385,14 +1385,23 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 		return datagramProcessingSummary{}, netError(err)
 	}
 
-	pkts, err := c.unpackDatagram(b[:i])
-	if err != nil {
-		return datagramProcessingSummary{}, err
+	pkts, unpackErr := c.unpackDatagram(b[:i])
+	if len(pkts) == 0 {
+		// discard missing negotiated CID without terminating the handshake.
+		if errors.Is(err, dtlserrors.ErrInvalidCiphertextHeader) {
+			c.log.Debugf("discarded datagram that violates connection ID policy: %v", err)
+
+			return datagramProcessingSummary{}, nil
+		}
+
+		return datagramProcessingSummary{}, unpackErr
 	}
+	datagramContainsCID := recordsContainCID(pkts)
+	bufferLease.datagramContainsCID = datagramContainsCID
 
 	var summary datagramProcessingSummary
 	for _, p := range pkts {
-		outcome, err := c.processIncomingPacket(ctx, p, rAddr, &bufferLease)
+		outcome, err := c.processIncomingPacket(ctx, p, rAddr, &bufferLease, datagramContainsCID)
 		if err != nil {
 			return datagramProcessingSummary{}, err
 		}
@@ -1401,6 +1410,10 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 		if outcome.receivedACK != nil {
 			summary.receivedACKs = append(summary.receivedACKs, *outcome.receivedACK)
 		}
+	}
+
+	if unpackErr != nil {
+		c.log.Debugf("discarded malformed datagram suffix: %v", unpackErr)
 	}
 
 	return summary, nil
@@ -1423,7 +1436,13 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	c.lock.Unlock()
 
 	for _, p := range pkts {
-		_, err := c.processIncomingPacket(ctx, p.data, p.rAddr, nil) // don't re-enqueue
+		_, err := c.processIncomingPacket(
+			ctx,
+			p.data,
+			p.rAddr,
+			nil, // don't re-enqueue
+			p.datagramContainsCID,
+		)
 		if err != nil {
 			return err
 		}
@@ -1440,8 +1459,8 @@ func (c *Conn) enqueueEncryptedPackets(packet addrPkt) bool {
 		return false
 	}
 
-	// Prevent an append by a queue consumer from overwriting an adjacent record
-	// that shares the same datagram backing array.
+	// scanned records borrow the read datagram
+	packet.data = bytes.Clone(packet.data)
 	packet.data = packet.data[:len(packet.data):len(packet.data)]
 	c.encryptedPackets = append(c.encryptedPackets, packet)
 
@@ -1470,16 +1489,69 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 	if len(buf) == 0 {
 		return nil, nil
 	}
-	common := dtlsstate.CommonState(c.state)
-	if common.LocalVersion.Equal(protocol.Version1_3) ||
-		protocol.IsDTLS13Ciphertext(protocol.ContentType(buf[0])) {
-		cidLength := len(common.LocalConnectionIDForInboundRecords())
-		state13, is13 := c.state.(*dtlsstate.State13)
 
-		return recordlayer.UnpackDatagram13(buf, cidLength, is13 && state13.CID.Negotiated, true)
+	common := dtlsstate.CommonState(c.state)
+	cidLength := len(common.LocalConnectionIDForInboundRecords())
+	config := recordlayer.UnpackDatagramConfig{
+		TargetVersion: common.LocalVersion,
+		CIDLength:     cidLength,
+		CIDRequired:   c.inboundCIDRequired(),
+	}
+	records, err := recordlayer.UnpackDatagram(buf, config)
+	if cidLength == 0 {
+		return records, err
 	}
 
-	return recordlayer.ContentAwareUnpackDatagram(buf, len(common.LocalConnectionIDForInboundRecords()))
+	var firstCID []byte
+	seenCiphertext := false
+	for i, record := range records {
+		if !protocol.IsDTLS13Ciphertext(protocol.ContentType(record[0])) ||
+			record[0]&recordlayer.UnifiedHeaderCIDBit == 0 {
+			continue
+		}
+
+		header := recordlayer.UnifiedHeader{ConnectionID: make([]byte, cidLength)}
+		if unmarshalErr := header.Unmarshal(record); unmarshalErr != nil {
+			return records[:i], unmarshalErr
+		}
+		if !seenCiphertext {
+			firstCID = bytes.Clone(header.ConnectionID)
+			seenCiphertext = true
+
+			continue
+		}
+		if !bytes.Equal(firstCID, header.ConnectionID) {
+			return records[:i], nil
+		}
+	}
+
+	return records, err
+}
+
+func (c *Conn) inboundCIDRequired() bool {
+	common := dtlsstate.CommonState(c.state)
+	if common.LocalVersion.Equal(protocol.Version1_3) {
+		state13, ok := c.state.(*dtlsstate.State13)
+
+		return ok && state13.CID.Negotiated && state13.CID.Receive.Expected
+	}
+	if common.LocalVersion.Equal(protocol.Version1_2) {
+		return len(common.LocalConnectionID()) > 0
+	}
+
+	return false
+}
+
+func recordsContainCID(records [][]byte) bool {
+	for _, record := range records {
+		contentType := protocol.ContentType(record[0])
+		if contentType == protocol.ContentTypeConnectionID ||
+			protocol.IsDTLS13Ciphertext(contentType) && record[0]&recordlayer.UnifiedHeaderCIDBit != 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (c *Conn) queueableCiphertextEpoch(epochLow uint8, remoteEpoch uint16) bool {
@@ -1492,7 +1564,10 @@ func (c *Conn) queueableCiphertextEpoch(epochLow uint8, remoteEpoch uint16) bool
 	return false
 }
 
-func (c *Conn) unmarshalCiphertextRecord(buf []byte) (recordlayer.CiphertextRecord13, error) {
+func (c *Conn) unmarshalCiphertextRecord(
+	buf []byte,
+	datagramContainsCID bool,
+) (recordlayer.CiphertextRecord13, error) {
 	record := recordlayer.CiphertextRecord13{}
 	hasCID := buf[0]&recordlayer.UnifiedHeaderCIDBit != 0
 	localCID := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
@@ -1507,10 +1582,11 @@ func (c *Conn) unmarshalCiphertextRecord(buf []byte) (recordlayer.CiphertextReco
 		record.Header.ConnectionID = make([]byte, len(localCID))
 	}
 
-	if err := record.Unmarshal(buf); err != nil {
+	if err := record.Header.Unmarshal(buf); err != nil {
 		return record, err
 	}
-	if cidExpected && !hasCID {
+	record.EncryptedRecord = buf[record.Header.Size():]
+	if cidExpected && !hasCID && !datagramContainsCID {
 		return record, dtlserrors.ErrInvalidCiphertextHeader
 	}
 	if hasCID {
@@ -1670,44 +1746,46 @@ func (c *Conn) updateRemoteSequenceNumber(epoch uint16, sequenceNumber uint64) {
 	}
 }
 
-func marshalInnerPlaintextRecord(
-	epoch uint16,
-	sequenceNumber uint64,
-	innerPlaintext recordlayer.InnerPlaintext,
-) ([]byte, *recordlayer.Header, error) {
-	header := &recordlayer.Header{
-		ContentType:    innerPlaintext.RealType,
-		ContentLen:     uint16(len(innerPlaintext.Content)), //nolint:gosec // G115
-		Version:        protocol.Version1_2,
-		Epoch:          epoch,
-		SequenceNumber: sequenceNumber,
-	}
-	rawHeader, err := header.Marshal()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return append(rawHeader, innerPlaintext.Content...), header, nil
-}
-
 func (c *Conn) prepareIncomingPacket(
 	buf []byte,
 	rAddr net.Addr,
 	bufferLease *readBufferLease,
+	datagramContainsCID bool,
 ) (incomingPacketState, bool) {
 	if protocol.IsDTLS13Ciphertext(protocol.ContentType(buf[0])) {
-		return c.prepareCiphertextPacket(buf, rAddr, bufferLease)
+		version := dtlsstate.CommonState(c.state).LocalVersion
+		if version != (protocol.Version{}) && !version.Equal(protocol.Version1_3) {
+			c.log.Debug("discarded DTLS 1.3 ciphertext on a DTLS 1.2 connection")
+
+			return incomingPacketState{}, false
+		}
+
+		return c.prepareCiphertextPacket(buf, rAddr, bufferLease, datagramContainsCID)
+	}
+	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
+		(!isPlaintextRecord13ContentType(protocol.ContentType(buf[0])) ||
+			len(buf) < recordlayer.FixedHeaderSize || buf[3] != 0 || buf[4] != 0) {
+		c.log.Debug("discarded invalid DTLS 1.3 plaintext record")
+
+		return incomingPacketState{}, false
 	}
 
 	return c.prepareLegacyPacket(buf, rAddr, bufferLease)
+}
+
+func isPlaintextRecord13ContentType(contentType protocol.ContentType) bool {
+	return contentType == protocol.ContentTypeAlert ||
+		contentType == protocol.ContentTypeHandshake ||
+		contentType == protocol.ContentTypeACK
 }
 
 func (c *Conn) prepareCiphertextPacket(
 	buf []byte,
 	rAddr net.Addr,
 	bufferLease *readBufferLease,
+	datagramContainsCID bool,
 ) (incomingPacketState, bool) {
-	ciphertext, err := c.unmarshalCiphertextRecord(buf)
+	ciphertext, err := c.unmarshalCiphertextRecord(buf, datagramContainsCID)
 	if err != nil {
 		c.log.Debugf("discarded broken ciphertext packet: %v", err)
 
@@ -1746,6 +1824,7 @@ func (c *Conn) prepareCiphertextPacket(
 
 	prepared, ok := c.prepareInnerPlaintextRecord(epoch, sequenceNumber, innerPlaintext, markPacketAsValid)
 	if ok {
+		prepared.raw = buf
 		// The datagram's source address remains a candidate until the CID and
 		// ciphertext have both been authenticated and replay checks confirm this
 		// is the latest valid record.
@@ -1766,16 +1845,16 @@ func (c *Conn) prepareInnerPlaintextRecord(
 	case protocol.ContentTypeHandshake, protocol.ContentTypeAlert,
 		protocol.ContentTypeApplicationData, protocol.ContentTypeACK,
 		protocol.ContentTypeReturnRoutabilityCheck:
-		plaintext, header, err := marshalInnerPlaintextRecord(remoteEpoch, sequenceNumber, innerPlaintext)
-		if err != nil {
-			c.log.Debugf("converting ciphertext record to inner plaintext failed: %s", err)
-
-			return incomingPacketState{}, false
-		}
-
 		return incomingPacketState{
-			buf:               plaintext,
-			header:            header,
+			content:     innerPlaintext.Content,
+			contentType: innerPlaintext.RealType,
+			header: &recordlayer.Header{
+				ContentType:    innerPlaintext.RealType,
+				ContentLen:     uint16(len(innerPlaintext.Content)), //nolint:gosec // G115
+				Version:        protocol.Version1_2,
+				Epoch:          remoteEpoch,
+				SequenceNumber: sequenceNumber,
+			},
 			markPacketAsValid: markPacketAsValid,
 		}, true
 	default:
@@ -1865,6 +1944,7 @@ func (c *Conn) prepareLegacyPacket(
 	rAddr net.Addr,
 	bufferLease *readBufferLease,
 ) (incomingPacketState, bool) {
+	raw := buf
 	header, ok := c.unmarshalLegacyHeader(buf)
 	if !ok {
 		return incomingPacketState{}, false
@@ -1878,17 +1958,21 @@ func (c *Conn) prepareLegacyPacket(
 		return incomingPacketState{}, false
 	}
 
+	contentType := header.ContentType
+	content := buf[header.Size():]
 	originalCID := false
 	if header.Epoch != 0 {
 		var decryptOK bool
-		buf, originalCID, decryptOK = c.decryptLegacyPacket(header, buf, rAddr, bufferLease)
+		contentType, content, originalCID, decryptOK = c.decryptLegacyPacket(header, buf, rAddr, bufferLease)
 		if !decryptOK {
 			return incomingPacketState{}, false
 		}
 	}
 
 	return incomingPacketState{
-		buf:               buf,
+		raw:               raw,
+		content:           content,
+		contentType:       contentType,
 		header:            header,
 		markPacketAsValid: markPacketAsValid,
 		originalCID:       originalCID,
@@ -1964,35 +2048,43 @@ func (c *Conn) decryptLegacyPacket(
 	buf []byte,
 	rAddr net.Addr,
 	bufferLease *readBufferLease,
-) ([]byte, bool, bool) {
+) (protocol.ContentType, []byte, bool, bool) {
 	if c.queueIfCipherSuiteUninitialized(
 		rAddr,
 		buf,
 		bufferLease,
 		"handshake not finished, queuing packet",
 	) {
-		return nil, false, false
+		return 0, nil, false, false
 	}
 
 	if !c.validateLegacyCIDPresence(header) {
-		return nil, false, false
+		return 0, nil, false, false
 	}
 
 	decrypted, ok := c.decryptLegacyRecord(header, buf)
 	if !ok {
-		return nil, false, false
+		return 0, nil, false, false
 	}
+	if len(decrypted) < header.Size() {
+		c.log.Debug("decrypted record is shorter than its header")
+
+		return 0, nil, false, false
+	}
+	content := decrypted[header.Size():]
 
 	if header.ContentType == protocol.ContentTypeConnectionID {
-		decrypted, ok = c.unpackLegacyCIDPacket(header, decrypted)
-		if !ok {
-			return nil, false, false
+		innerPlaintext := &recordlayer.InnerPlaintext{}
+		if err := innerPlaintext.Unmarshal(content); err != nil {
+			c.log.Debugf("unpacking inner plaintext failed: %s", err)
+
+			return 0, nil, false, false
 		}
 
-		return decrypted, true, c.validateLegacyCID(header)
+		return innerPlaintext.RealType, innerPlaintext.Content, true, c.validateLegacyCID(header)
 	}
 
-	return decrypted, false, c.validateLegacyCID(header)
+	return header.ContentType, content, false, c.validateLegacyCID(header)
 }
 
 func (c *Conn) validateLegacyCIDPresence(header *recordlayer.Header) bool {
@@ -2012,7 +2104,7 @@ func (c *Conn) decryptLegacyRecord(header *recordlayer.Header, buf []byte) ([]by
 	if header.ContentType == protocol.ContentTypeConnectionID {
 		decryptHeader.ConnectionID = make([]byte, len(common.LocalConnectionIDForInboundRecords()))
 	}
-	decrypted, err := common.CipherSuite.Decrypt(decryptHeader, buf)
+	decrypted, err := common.CipherSuite.Decrypt(decryptHeader, bytes.Clone(buf))
 	if err != nil {
 		c.log.Debugf("%s: decrypt failed: %s", srvCliStr(common.IsClient), err)
 
@@ -2032,46 +2124,19 @@ func (c *Conn) validateLegacyCID(header *recordlayer.Header) bool {
 	return false
 }
 
-func (c *Conn) unpackLegacyCIDPacket(header *recordlayer.Header, buf []byte) ([]byte, bool) {
-	ip := &recordlayer.InnerPlaintext{}
-	if err := ip.Unmarshal(buf[header.Size():]); err != nil {
-		c.log.Debugf("unpacking inner plaintext failed: %s", err)
-
-		return nil, false
-	}
-	unpacked := &recordlayer.Header{
-		ContentType:    ip.RealType,
-		ContentLen:     uint16(len(ip.Content)), //nolint:gosec // G115
-		Version:        header.Version,
-		Epoch:          header.Epoch,
-		SequenceNumber: header.SequenceNumber,
-	}
-	rawHeader, err := unpacked.Marshal()
-	if err != nil {
-		c.log.Debugf("converting CID record to inner plaintext failed: %s", err)
-
-		return nil, false
-	}
-
-	return append(rawHeader, ip.Content...), true
-}
-
 func (c *Conn) bufferHandshakeRecord(
-	buf []byte,
+	content []byte,
 	header *recordlayer.Header,
 	markPacketAsValid func() bool,
-) (packetOutcome, bool, bool) {
+) (packetOutcome, bool) {
 	c.syncFragmentBufferHandshakeSequence()
-	isHandshake, isRetransmit, err := c.fragmentBuffer.Push(bytes.Clone(buf))
+	isRetransmit, err := c.fragmentBuffer.Push(header.Epoch, content)
 	if err != nil {
 		// Decode error must be silently discarded
 		// [RFC6347 Section-4.1.2.7]
 		c.log.Debugf("defragment failed: %s", err)
 
-		return packetOutcome{}, true, false
-	}
-	if !isHandshake {
-		return packetOutcome{}, false, false
+		return packetOutcome{}, false
 	}
 
 	isLatestSeqNum := markPacketAsValid()
@@ -2094,7 +2159,7 @@ func (c *Conn) bufferHandshakeRecord(
 		c.handshakeCache.Push(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient)
 	}
 
-	return packetOutcome{containsHandshake: true, retransmit: isRetransmit}, true, isLatestSeqNum
+	return packetOutcome{containsHandshake: true, retransmit: isRetransmit}, isLatestSeqNum
 }
 
 func (c *Conn) handleChangeCipherSpecRecord(
@@ -2105,7 +2170,7 @@ func (c *Conn) handleChangeCipherSpecRecord(
 	common := dtlsstate.CommonState(c.state)
 	if !c.hasInboundRecordProtection() {
 		if bufferLease != nil {
-			if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: prepared.buf}); ok {
+			if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: prepared.raw}); ok {
 				c.log.Debugf("CipherSuite not initialized, queuing packet")
 			}
 		}
@@ -2182,17 +2247,41 @@ func (c *Conn) handleRecordContent(
 	}
 }
 
+func unmarshalRecordContent(contentType protocol.ContentType, data []byte) (protocol.Content, error) {
+	var content protocol.Content
+	switch contentType {
+	case protocol.ContentTypeChangeCipherSpec:
+		content = &protocol.ChangeCipherSpec{}
+	case protocol.ContentTypeAlert:
+		content = &alert.Alert{}
+	case protocol.ContentTypeApplicationData:
+		content = &protocol.ApplicationData{}
+	case protocol.ContentTypeACK:
+		content = &protocol.ACK{}
+	case protocol.ContentTypeReturnRoutabilityCheck:
+		content = &protocol.ReturnRoutabilityCheck{}
+	default:
+		return nil, dtlserrors.ErrInvalidContentType
+	}
+	if err := content.Unmarshal(data); err != nil {
+		return nil, err
+	}
+
+	return content, nil
+}
+
 func (c *Conn) handleIncomingPacket(
 	ctx context.Context,
 	buf []byte,
 	rAddr net.Addr,
 	bufferLease *readBufferLease,
+	datagramContainsCID bool,
 ) (packetOutcome, error) {
 	if len(buf) == 0 {
 		return packetOutcome{}, nil
 	}
 
-	prepared, ok := c.prepareIncomingPacket(buf, rAddr, bufferLease)
+	prepared, ok := c.prepareIncomingPacket(buf, rAddr, bufferLease, datagramContainsCID)
 	if !ok {
 		return packetOutcome{}, nil
 	}
@@ -2203,11 +2292,12 @@ func (c *Conn) handleIncomingPacket(
 		c.RemoteAddr,
 		c.cidPathMigrationPolicy == CIDPathMigrationRRC && dtlsstate.CommonState(c.state).RRCNegotiated,
 	)
-	if outcome, handled, isLatestSeqNum := c.bufferHandshakeRecord(
-		prepared.buf,
-		prepared.header,
-		prepared.markPacketAsValid,
-	); handled {
+	if prepared.contentType == protocol.ContentTypeHandshake {
+		outcome, isLatestSeqNum := c.bufferHandshakeRecord(
+			prepared.content,
+			prepared.header,
+			prepared.markPacketAsValid,
+		)
 		returnRoutabilityConn{conn: c}.HandleCandidate(
 			ctx,
 			dtlsstate.CommonState(c.state).RRCNegotiated,
@@ -2219,14 +2309,14 @@ func (c *Conn) handleIncomingPacket(
 		return outcome, nil
 	}
 
-	r := &recordlayer.RecordLayer{}
-	if err := r.Unmarshal(prepared.buf); err != nil {
+	content, err := unmarshalRecordContent(prepared.contentType, prepared.content)
+	if err != nil {
 		return packetOutcome{
 			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
 		}, err
 	}
 
-	isLatestSeqNum, outcome, err := c.handleRecordContent(ctx, r.Content, prepared, rAddr, bufferLease)
+	isLatestSeqNum, outcome, err := c.handleRecordContent(ctx, content, prepared, rAddr, bufferLease)
 	if err != nil || outcome.responseAlert != nil {
 		return outcome, err
 	}
@@ -2247,8 +2337,9 @@ func (c *Conn) processIncomingPacket(
 	buf []byte,
 	rAddr net.Addr,
 	bufferLease *readBufferLease,
+	datagramContainsCID bool,
 ) (packetOutcome, error) {
-	outcome, err := c.handleIncomingPacket(ctx, buf, rAddr, bufferLease)
+	outcome, err := c.handleIncomingPacket(ctx, buf, rAddr, bufferLease, datagramContainsCID)
 	if outcome.responseAlert != nil {
 		responseAlert := outcome.responseAlert
 		if alertErr := c.notify(ctx, responseAlert.Level, responseAlert.Description); alertErr != nil && err == nil {

@@ -913,7 +913,9 @@ func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
 			ca, cb := dpipe.Pipe()
 			cbAnalyzer := &connWithCallback{Conn: cb}
 			cbAnalyzer.onWrite = func(in []byte) {
-				messages, err := recordlayer.UnpackDatagram(in)
+				messages, err := recordlayer.UnpackDatagram(in, recordlayer.UnpackDatagramConfig{
+					TargetVersion: protocol.Version1_2,
+				})
 				assert.NoError(t, err)
 
 				for i := range messages {
@@ -2656,7 +2658,7 @@ func readVersionNegotiationAlert(t *testing.T, conn net.Conn) alert.Description 
 		raw := make([]byte, 8192)
 		n, err := conn.Read(raw)
 		require.NoError(t, err)
-		records, err := recordlayer.UnpackDatagram(raw[:n])
+		records, err := recordlayer.UnpackDatagram(raw[:n], recordlayer.UnpackDatagramConfig{})
 		require.NoError(t, err)
 		for _, rawRecord := range records {
 			header := &recordlayer.Header{}
@@ -2665,14 +2667,40 @@ func readVersionNegotiationAlert(t *testing.T, conn net.Conn) alert.Description 
 				continue
 			}
 
-			record := &recordlayer.RecordLayer{}
-			require.NoError(t, record.Unmarshal(rawRecord))
-			dtlsAlert, ok := record.Content.(*alert.Alert)
-			require.True(t, ok)
+			var dtlsAlert alert.Alert
+			require.NoError(t, dtlsAlert.Unmarshal(rawRecord[header.Size():]))
 
 			return dtlsAlert.Description
 		}
 	}
+}
+
+func unmarshalHandshakeRecord(t *testing.T, raw []byte) (recordlayer.Header, *handshake.Handshake) {
+	t.Helper()
+
+	var header recordlayer.Header
+	require.NoError(t, header.Unmarshal(raw))
+	require.Equal(t, protocol.ContentTypeHandshake, header.ContentType)
+	require.GreaterOrEqual(t, len(raw), header.Size())
+
+	var content handshake.Handshake
+	require.NoError(t, content.Unmarshal(raw[header.Size():]))
+
+	return header, &content
+}
+
+func unmarshalAlertRecord(t *testing.T, raw []byte) *alert.Alert {
+	t.Helper()
+
+	var header recordlayer.Header
+	require.NoError(t, header.Unmarshal(raw))
+	require.Equal(t, protocol.ContentTypeAlert, header.ContentType)
+	require.GreaterOrEqual(t, len(raw), header.Size())
+
+	var content alert.Alert
+	require.NoError(t, content.Unmarshal(raw[header.Size():]))
+
+	return &content
 }
 
 func TestPickVersionFromServerResponseRejectsServerHelloWithClientHelloSupportedVersionsEncoding(t *testing.T) {
@@ -2794,10 +2822,8 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 		n, err := cb.Read(resp)
 		assert.NoError(t, err)
 
-		record := &recordlayer.RecordLayer{}
-		assert.NoError(t, record.Unmarshal(resp[:n]))
-
-		clientHello, ok := record.Content.(*handshake.Handshake).Message.(*handshake.MessageClientHello)
+		_, handshakeRecord := unmarshalHandshakeRecord(t, resp[:n])
+		clientHello, ok := handshakeRecord.Message.(*handshake.MessageClientHello)
 		assert.True(t, ok)
 		assert.Equal(t, cookie, clientHello.Cookie)
 		if len(packets) <= i {
@@ -2882,10 +2908,8 @@ func TestRenegotiationInfo(t *testing.T) {
 			n, err := ca.Read(resp)
 			assert.NoError(t, err)
 
-			record := &recordlayer.RecordLayer{}
-			assert.NoError(t, record.Unmarshal(resp[:n]))
-
-			helloVerifyRequest, ok := record.Content.(*handshake.Handshake).Message.(*handshake.MessageHelloVerifyRequest)
+			_, handshakeRecord := unmarshalHandshakeRecord(t, resp[:n])
+			helloVerifyRequest, ok := handshakeRecord.Message.(*handshake.MessageHelloVerifyRequest)
 			assert.True(t, ok)
 
 			err = sendClientHello(helloVerifyRequest.Cookie, ca, 1, extensions, cipherSuites...)
@@ -2894,11 +2918,13 @@ func TestRenegotiationInfo(t *testing.T) {
 			n, err = ca.Read(resp)
 			assert.NoError(t, err)
 
-			messages, err := recordlayer.UnpackDatagram(resp[:n])
+			messages, err := recordlayer.UnpackDatagram(resp[:n], recordlayer.UnpackDatagramConfig{
+				TargetVersion: protocol.Version1_2,
+			})
 			assert.NoError(t, err)
-			assert.NoError(t, record.Unmarshal(messages[0]))
+			_, handshakeRecord = unmarshalHandshakeRecord(t, messages[0])
 
-			serverHello, ok := record.Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello)
+			serverHello, ok := handshakeRecord.Message.(*handshake.MessageServerHello)
 			assert.True(t, ok)
 
 			actualNegotationInfo := false
@@ -2965,10 +2991,9 @@ func TestServerNameIndicationExtension(t *testing.T) {
 			n, err := cb.Read(resp)
 			assert.NoError(t, err)
 
-			r := &recordlayer.RecordLayer{}
-			assert.NoError(t, r.Unmarshal(resp[:n]))
+			_, handshakeRecord := unmarshalHandshakeRecord(t, resp[:n])
 
-			clientHello, ok := r.Content.(*handshake.Handshake).Message.(*handshake.MessageClientHello)
+			clientHello, ok := handshakeRecord.Message.(*handshake.MessageClientHello)
 			assert.True(t, ok)
 
 			gotSNI := false
@@ -3106,18 +3131,17 @@ func TestALPNExtension(t *testing.T) {
 			n, err = ca2.Read(resp4)
 			assert.NoError(t, err)
 
-			messages, err := recordlayer.UnpackDatagram(resp4[:n])
+			messages, err := recordlayer.UnpackDatagram(resp4[:n], recordlayer.UnpackDatagramConfig{
+				TargetVersion: protocol.Version1_2,
+			})
 			assert.NoError(t, err)
 
-			record := &recordlayer.RecordLayer{}
-			assert.NoError(t, record.Unmarshal(messages[0]))
-
 			if test.ExpectAlertFromServer { //nolint:nestif
-				a, ok := record.Content.(*alert.Alert)
-				assert.True(t, ok)
+				a := unmarshalAlertRecord(t, messages[0])
 				assert.Equalf(t, test.Alert, a.Description, "ALPN %v", test.Name)
 			} else {
-				serverHello, ok := record.Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello)
+				recordHeader, handshakeRecord := unmarshalHandshakeRecord(t, messages[0])
+				serverHello, ok := handshakeRecord.Message.(*handshake.MessageServerHello)
 				assert.True(t, ok)
 
 				var negotiatedProtocol string
@@ -3140,7 +3164,10 @@ func TestALPNExtension(t *testing.T) {
 
 				assert.Equalf(t, test.ExpectedProtocol, negotiatedProtocol, "ALPN %v", test.Name)
 
-				s, err := record.Marshal()
+				s, err := (&recordlayer.RecordLayer{
+					Header:  recordHeader,
+					Content: handshakeRecord,
+				}).Marshal()
 				assert.NoError(t, err)
 
 				// Forward ServerHello
@@ -3152,11 +3179,7 @@ func TestALPNExtension(t *testing.T) {
 					n, err = cb.Read(resp5)
 					assert.NoError(t, err)
 
-					r2 := &recordlayer.RecordLayer{}
-					assert.NoError(t, r2.Unmarshal(resp5[:n]))
-
-					a, ok := r2.Content.(*alert.Alert)
-					assert.True(t, ok)
+					a := unmarshalAlertRecord(t, resp5[:n])
 					assert.Equalf(t, test.Alert, a.Description, "ALPN %v", test.Name)
 				}
 			}
@@ -3204,10 +3227,9 @@ func TestSupportedGroupsExtension(t *testing.T) {
 		n, err := ca.Read(resp)
 		assert.NoError(t, err)
 
-		record := &recordlayer.RecordLayer{}
-		assert.NoError(t, record.Unmarshal(resp[:n]))
+		_, handshakeRecord := unmarshalHandshakeRecord(t, resp[:n])
 
-		helloVerifyRequest, ok := record.Content.(*handshake.Handshake).Message.(*handshake.MessageHelloVerifyRequest)
+		helloVerifyRequest, ok := handshakeRecord.Message.(*handshake.MessageHelloVerifyRequest)
 		assert.True(t, ok, "Failed to cast MessageHelloVerifyRequest")
 
 		err = sendClientHello(helloVerifyRequest.Cookie, ca, 1, extensions)
@@ -3216,11 +3238,13 @@ func TestSupportedGroupsExtension(t *testing.T) {
 		n, err = ca.Read(resp)
 		assert.NoError(t, err)
 
-		messages, err := recordlayer.UnpackDatagram(resp[:n])
+		messages, err := recordlayer.UnpackDatagram(resp[:n], recordlayer.UnpackDatagramConfig{
+			TargetVersion: protocol.Version1_2,
+		})
 		assert.NoError(t, err)
-		assert.NoError(t, record.Unmarshal(messages[0]))
+		_, handshakeRecord = unmarshalHandshakeRecord(t, messages[0])
 
-		serverHello, ok := record.Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello)
+		serverHello, ok := handshakeRecord.Message.(*handshake.MessageServerHello)
 		assert.True(t, ok, "TestSupportedGroups: Failed to cast MessageServerHello")
 
 		gotGroups := false
@@ -3754,16 +3778,23 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 	<-done
 }
 
-func TestPacketQueueWriterRetiresReadBufferOnlyWhenQueued(t *testing.T) {
+func TestPacketQueueWriterCopiesExactRecord(t *testing.T) {
 	readBuffer := []byte{1, 2, 3}
 	conn := &Conn{}
-	lease := readBufferLease{conn: conn, recyclableReadBuffer: &readBuffer}
+	lease := readBufferLease{
+		conn:                 conn,
+		recyclableReadBuffer: &readBuffer,
+		datagramContainsCID:  true,
+	}
 
 	require.True(t, lease.enqueue(addrPkt{data: readBuffer}))
-	assert.Nil(t, lease.recyclableReadBuffer)
+	assert.Same(t, &readBuffer, lease.recyclableReadBuffer)
 	require.Len(t, conn.encryptedPackets, 1)
-	assert.Same(t, &readBuffer[0], &conn.encryptedPackets[0].data[0])
+	assert.NotSame(t, &readBuffer[0], &conn.encryptedPackets[0].data[0])
 	assert.Equal(t, len(conn.encryptedPackets[0].data), cap(conn.encryptedPackets[0].data))
+	assert.True(t, conn.encryptedPackets[0].datagramContainsCID)
+	readBuffer[0] = 9
+	assert.Equal(t, []byte{1, 2, 3}, conn.encryptedPackets[0].data)
 
 	rejectedReadBuffer := []byte{4, 5, 6}
 	fullConn := &Conn{encryptedPackets: make([]addrPkt, maxAppDataPacketQueueSize)}
@@ -3772,7 +3803,7 @@ func TestPacketQueueWriterRetiresReadBufferOnlyWhenQueued(t *testing.T) {
 	assert.Same(t, &rejectedReadBuffer, rejectedLease.recyclableReadBuffer)
 }
 
-func TestReadAndBufferNoFSMQueuesWithoutCopy(t *testing.T) {
+func TestReadAndBufferNoFSMQueuesExactRecordCopy(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 	defer func() {
 		assert.NoError(t, ca.Close())
@@ -3788,15 +3819,12 @@ func TestReadAndBufferNoFSMQueuesWithoutCopy(t *testing.T) {
 			LocalVersion: protocol.Version1_3,
 		}},
 	}
-	rawPacket, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{
-			Version: protocol.Version1_2,
-			Epoch:   dtlsflight13.EpochHandshake,
+	rawPacket, err := (&recordlayer.CiphertextRecord13{
+		Header: recordlayer.UnifiedHeader{
+			EpochLow:       uint8(dtlsflight13.EpochHandshake),
+			SequenceNumber: 1,
 		},
-		Content: &handshake.Handshake{
-			Header:  handshake.Header{MessageSequence: 1},
-			Message: &handshake.MessageEncryptedExtensions{},
-		},
+		EncryptedRecord: bytes.Repeat([]byte{0xa5}, 16),
 	}).Marshal()
 	require.NoError(t, err)
 
@@ -3811,9 +3839,10 @@ func TestReadAndBufferNoFSMQueuesWithoutCopy(t *testing.T) {
 	require.NoError(t, <-writeResult)
 	require.Len(t, conn.encryptedPackets, 1)
 	assert.Equal(t, rawPacket, conn.encryptedPackets[0].data)
+	assert.Equal(t, len(rawPacket), cap(conn.encryptedPackets[0].data))
 }
 
-func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T) {
+func TestHandleIncomingPacket13RejectsFixedHandshakeEpoch(t *testing.T) {
 	commonState := &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3}
 	conn := &Conn{
 		fragmentBuffer:         dtlsfragmentbuffer.New(),
@@ -3844,14 +3873,14 @@ func TestHandleIncomingPacket13QueuesHandshakeEpochBeforeProtection(t *testing.T
 		rawPacket,
 		nil,
 		bufferLease,
+		false,
 	)
 	assert.NoError(t, err)
 	assert.Nil(t, outcome.responseAlert)
 	assert.False(t, outcome.containsHandshake)
 	assert.False(t, outcome.retransmit)
-	assert.Nil(t, bufferLease.recyclableReadBuffer)
-	assert.Len(t, conn.encryptedPackets, 1)
-	assert.Equal(t, rawPacket, conn.encryptedPackets[0].data)
+	assert.Same(t, &rawPacket, bufferLease.recyclableReadBuffer)
+	assert.Empty(t, conn.encryptedPackets)
 }
 
 func TestHelloRandom(t *testing.T) {
@@ -3948,14 +3977,14 @@ func TestFragmentBuffer_Retransmission(t *testing.T) {
 		0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xfe, 0xff, 0x01, 0x01,
 	}
 
-	_, isRetransmission, err := fragmentBuffer.Push(frag)
+	isRetransmission, err := fragmentBuffer.Push(0, frag[recordlayer.FixedHeaderSize:])
 	assert.NoError(t, err)
 	assert.False(t, isRetransmission)
 
 	v, _ := fragmentBuffer.Pop()
 	assert.NotNil(t, v)
 
-	_, isRetransmission, err = fragmentBuffer.Push(frag)
+	isRetransmission, err = fragmentBuffer.Push(0, frag[recordlayer.FixedHeaderSize:])
 	assert.NoError(t, err)
 	assert.True(t, isRetransmission)
 }
@@ -4327,17 +4356,22 @@ func waitForBridgeHandshakes(
 }
 
 func datagramContainsHandshake(raw []byte, typ handshake.Type, sequence uint16) bool {
-	records, err := recordlayer.UnpackDatagram(raw)
+	records, err := recordlayer.UnpackDatagram(raw, recordlayer.UnpackDatagramConfig{
+		TargetVersion: protocol.Version1_3,
+	})
 	if err != nil {
 		return false
 	}
 	for _, rawRecord := range records {
-		var record recordlayer.RecordLayer
-		if err = record.Unmarshal(rawRecord); err != nil {
+		var header recordlayer.Header
+		if err = header.Unmarshal(rawRecord); err != nil || header.ContentType != protocol.ContentTypeHandshake {
 			continue
 		}
-		handshakeRecord, ok := record.Content.(*handshake.Handshake)
-		if ok && handshakeRecord.Header.Type == typ && handshakeRecord.Header.MessageSequence == sequence {
+		var handshakeRecord handshake.Handshake
+		if err = handshakeRecord.Unmarshal(rawRecord[header.Size():]); err != nil {
+			continue
+		}
+		if handshakeRecord.Header.Type == typ && handshakeRecord.Header.MessageSequence == sequence {
 			return true
 		}
 	}
@@ -4534,8 +4568,7 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	case <-time.After(time.Second):
 		require.FailNow(t, "server did not write an application-epoch ACK")
 	}
-	var ciphertext recordlayer.CiphertextRecord13
-	require.NoError(t, ciphertext.Unmarshal(rawACK))
+	ciphertext := unmarshalCiphertextRecordForTest(t, rawACK, 0)
 	clientState, ok := client.state.(*dtlsstate.State13)
 	require.True(t, ok)
 	readGeneration, ok := clientState.TrafficKeys.Read(dtlsflight13.EpochApplication)
@@ -5022,7 +5055,7 @@ func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 
 	bufferLease := &readBufferLease{conn: conn}
 	outcome, err := conn.handleIncomingPacket(
-		context.Background(), rawPacket, nil, bufferLease,
+		context.Background(), rawPacket, nil, bufferLease, false,
 	)
 	assert.NoError(t, err)
 	assert.Nil(t, outcome.responseAlert)
@@ -5050,14 +5083,16 @@ func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	rawPacket, err := record.Marshal()
 	assert.NoError(t, err)
 
-	prepared, ok := conn.prepareIncomingPacket(rawPacket, nil, &readBufferLease{conn: conn})
+	prepared, ok := conn.prepareIncomingPacket(rawPacket, nil, &readBufferLease{conn: conn}, false)
 	assert.True(t, ok)
 	if assert.NotNil(t, prepared.header) {
 		assert.Equal(t, protocol.ContentTypeHandshake, prepared.header.ContentType)
 		assert.Equal(t, dtlsflight13.EpochHandshake, prepared.header.Epoch)
 		assert.Equal(t, sequenceNumber, prepared.header.SequenceNumber)
 		assert.Equal(t, uint16(len(expectedPlaintext)), prepared.header.ContentLen) //nolint:gosec
-		assert.Equal(t, appendProtectedRecordHeader(t, prepared.header, expectedPlaintext), prepared.buf)
+		assert.Equal(t, protocol.ContentTypeHandshake, prepared.contentType)
+		assert.Equal(t, expectedPlaintext, prepared.content)
+		assert.Equal(t, rawPacket, prepared.raw)
 	}
 }
 
@@ -5222,15 +5257,6 @@ func sealTestProtectedHandshakeRecordWithSequence(
 	return record
 }
 
-func appendProtectedRecordHeader(t *testing.T, header *recordlayer.Header, content []byte) []byte {
-	t.Helper()
-
-	headerRaw, err := header.Marshal()
-	assert.NoError(t, err)
-
-	return append(headerRaw, content...)
-}
-
 func openTestProtectedRecord(
 	t *testing.T,
 	protection ciphersuite.RecordProtection13,
@@ -5238,8 +5264,7 @@ func openTestProtectedRecord(
 ) recordlayer.InnerPlaintext {
 	t.Helper()
 
-	var ciphertext recordlayer.CiphertextRecord13
-	assert.NoError(t, ciphertext.Unmarshal(rawPacket))
+	ciphertext := unmarshalCiphertextRecordForTest(t, rawPacket, 0)
 
 	innerPlaintext, err := protection.Open(
 		ciphertext.Header,
@@ -5249,6 +5274,30 @@ func openTestProtectedRecord(
 	assert.NoError(t, err)
 
 	return innerPlaintext
+}
+
+func unmarshalCiphertextRecordForTest(
+	t *testing.T,
+	raw []byte,
+	cidLength int,
+) recordlayer.CiphertextRecord13 {
+	t.Helper()
+
+	records, err := recordlayer.UnpackDatagram(raw, recordlayer.UnpackDatagramConfig{
+		TargetVersion: protocol.Version1_3,
+		CIDLength:     cidLength,
+	})
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	record := recordlayer.CiphertextRecord13{}
+	if records[0][0]&recordlayer.UnifiedHeaderCIDBit != 0 {
+		record.Header.ConnectionID = make([]byte, cidLength)
+	}
+	require.NoError(t, record.Header.Unmarshal(records[0]))
+	record.EncryptedRecord = records[0][record.Header.Size():]
+
+	return record
 }
 
 func TestSealRecordContentUsesWriteTrafficGeneration(t *testing.T) {
@@ -5301,10 +5350,7 @@ func TestSealRecordContentUsesNegotiatedConnectionID(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	record := recordlayer.CiphertextRecord13{
-		Header: recordlayer.UnifiedHeader{ConnectionID: make([]byte, len("remote-cid"))},
-	}
-	require.NoError(t, record.Unmarshal(rawRecord))
+	record := unmarshalCiphertextRecordForTest(t, rawRecord, len("remote-cid"))
 	assert.Equal(t, []byte("remote-cid"), record.Header.ConnectionID)
 	innerPlaintext, err := protection.Open(record.Header, 0, record.EncryptedRecord)
 	require.NoError(t, err)
@@ -5336,7 +5382,7 @@ func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
 	rawRecord, err := sealed.Marshal()
 	require.NoError(t, err)
 
-	record, err := conn.unmarshalCiphertextRecord(rawRecord)
+	record, err := conn.unmarshalCiphertextRecord(rawRecord, true)
 	require.NoError(t, err)
 	innerPlaintext, sequenceNumber, epoch, err := conn.openCiphertextRecord(record)
 	require.NoError(t, err)
@@ -5347,7 +5393,7 @@ func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
 	sealed.Header.ConnectionID = nil
 	rawRecord, err = sealed.Marshal()
 	require.NoError(t, err)
-	_, err = conn.unmarshalCiphertextRecord(rawRecord)
+	_, err = conn.unmarshalCiphertextRecord(rawRecord, false)
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
 }
 
@@ -5380,7 +5426,7 @@ func TestCiphertextConnectionIDDoesNotMigrateWithoutRRC(t *testing.T) {
 	rawRecord, err := sealed.Marshal()
 	require.NoError(t, err)
 
-	_, err = conn.handleIncomingPacket(t.Context(), rawRecord, candidateAddr, nil)
+	_, err = conn.handleIncomingPacket(t.Context(), rawRecord, candidateAddr, nil, true)
 	require.NoError(t, err)
 	assert.Equal(t, activeAddr.String(), conn.RemoteAddr().String())
 }
@@ -5464,7 +5510,7 @@ func testLatestCIDControlRecordStartsRRC(
 		read <- readResult{n: n, err: readErr}
 	}()
 
-	_, err = conn.handleIncomingPacket(t.Context(), rawRecord, candidateAddr, nil)
+	_, err = conn.handleIncomingPacket(t.Context(), rawRecord, candidateAddr, nil, true)
 	require.NoError(t, err)
 	result := <-read
 	require.NoError(t, result.err)
@@ -5742,8 +5788,7 @@ func assertTrafficKeyTestRecord(
 ) {
 	t.Helper()
 
-	var record recordlayer.CiphertextRecord13
-	require.NoError(t, record.Unmarshal(rawRecord))
+	record := unmarshalCiphertextRecordForTest(t, rawRecord, 0)
 	innerPlaintext, err := protection.Open(record.Header, 0, record.EncryptedRecord)
 	require.NoError(t, err)
 	assert.Equal(t, want, innerPlaintext.Content)

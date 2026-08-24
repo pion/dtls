@@ -11,6 +11,7 @@ import (
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
@@ -57,7 +58,9 @@ func TestSupportedEllipticCurves(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 	caAnalyzer := &connWithCallback{Conn: ca}
 	caAnalyzer.onWrite = func(in []byte) {
-		messages, err := recordlayer.UnpackDatagram(in)
+		messages, err := recordlayer.UnpackDatagram(in, recordlayer.UnpackDatagramConfig{
+			TargetVersion: protocol.Version1_2,
+		})
 		assert.NoError(t, err)
 
 		for i := range messages {

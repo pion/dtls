@@ -15,8 +15,8 @@ import (
 func listenWithConfig(network string, laddr *net.UDPAddr, config *dtlsConfig) (net.Listener, error) {
 	lc := udp.ListenConfig{
 		AcceptFilter: func(packet []byte) bool {
-			pkts, err := recordlayer.UnpackDatagram(packet)
-			if err != nil || len(pkts) == 0 {
+			pkts, _ := recordlayer.UnpackDatagram(packet, recordlayer.UnpackDatagramConfig{})
+			if len(pkts) == 0 {
 				return false
 			}
 			h := &recordlayer.Header{}

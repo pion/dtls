@@ -159,22 +159,23 @@ func testListenConnectionIDRebindingRequiresRRC(
 	challengeRecords, err := client.unpackDatagram(buf[:n])
 	require.NoError(t, err)
 	require.Len(t, challengeRecords, 1)
+	datagramContainsCID := recordsContainCID(challengeRecords)
 	var challenge protocol.ReturnRoutabilityCheck
 	if negotiatedVersion.Equal(protocol.Version1_3) {
-		challengeRecord, unmarshalErr := client.unmarshalCiphertextRecord(challengeRecords[0])
+		challengeRecord, unmarshalErr := client.unmarshalCiphertextRecord(
+			challengeRecords[0],
+			datagramContainsCID,
+		)
 		require.NoError(t, unmarshalErr)
 		challengePlaintext, _, _, openErr := client.openCiphertextRecord(challengeRecord)
 		require.NoError(t, openErr)
 		require.Equal(t, protocol.ContentTypeReturnRoutabilityCheck, challengePlaintext.RealType)
 		require.NoError(t, challenge.Unmarshal(challengePlaintext.Content))
 	} else {
-		prepared, ok := client.prepareIncomingPacket(challengeRecords[0], source, nil)
+		prepared, ok := client.prepareIncomingPacket(challengeRecords[0], source, nil, datagramContainsCID)
 		require.True(t, ok)
-		var record recordlayer.RecordLayer
-		require.NoError(t, record.Unmarshal(prepared.buf))
-		rrc, ok := record.Content.(*protocol.ReturnRoutabilityCheck)
-		require.True(t, ok)
-		challenge = *rrc
+		require.Equal(t, protocol.ContentTypeReturnRoutabilityCheck, prepared.contentType)
+		require.NoError(t, challenge.Unmarshal(prepared.content))
 	}
 	assert.Equal(t, protocol.ReturnRoutabilityCheckPathChallenge, challenge.MessageType)
 
