@@ -110,7 +110,7 @@ func newTestState13(t *testing.T, isClient bool) *dtlsstate.State13 {
 		CipherSuiteIDs: []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
 		Extensions: []extension.Value{
 			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
-			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms13())},
+			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms())},
 			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
 			&extension13.ClientKeyShare{},
 		},
@@ -1643,7 +1643,7 @@ func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 		Log:                         loggerFactory.NewLogger("dtls"),
 		MinVersion:                  protocol.Version1_3,
 		MaxVersion:                  protocol.Version1_3,
-		LocalSignatureSchemes:       signaturehash.Algorithms13(),
+		LocalSignatureSchemes:       signaturehash.Algorithms(),
 		LocalCertSignatureSchemes:   nil,
 		LocalSRTPProtectionProfiles: nil,
 	}

@@ -92,10 +92,6 @@ func (a *Algorithm) isCompatible(signer crypto.Signer) bool {
 // ParseSignatureSchemes translates []tls.SignatureScheme to []signatureHashAlgorithm.
 // It returns default signature scheme list if no SignatureScheme is passed.
 // This function handles both TLS 1.2 byte-split encoding and TLS 1.3 PSS full uint16 schemes.
-//
-// For DTLS 1.2 / TLS 1.2, this returns Algorithms() which excludes TLS 1.3-specific
-// schemes like RSA-PSS for compatibility with implementations like OpenSSL.
-// When DTLS 1.3 is implemented, use Algorithms13() or create ParseSignatureSchemes13().
 func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]Algorithm, error) {
 	if len(sigs) == 0 {
 		return Algorithms(), nil

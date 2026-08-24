@@ -594,7 +594,7 @@ func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 		Log:                         loggerFactory.NewLogger("dtls"),
 		MinVersion:                  protocol.Version1_3,
 		MaxVersion:                  protocol.Version1_3,
-		LocalSignatureSchemes:       signaturehash.Algorithms13(),
+		LocalSignatureSchemes:       signaturehash.Algorithms(),
 		LocalCertSignatureSchemes:   nil,
 		LocalSRTPProtectionProfiles: nil,
 	}

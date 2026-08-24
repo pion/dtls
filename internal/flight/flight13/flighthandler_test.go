@@ -277,11 +277,11 @@ func flight4TestContext(t *testing.T) *handshakeContext {
 	require.NoError(t, err)
 	keypair, err := elliptic.GenerateKeypair(elliptic.X25519)
 	require.NoError(t, err)
-	signatureSchemes := signaturehash.Algorithms13()
+	signatureSchemes := signaturehash.Algorithms()
 	_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		Extensions: []extension.Value{
 			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
-			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms13())},
+			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms())},
 			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
 			&extension13.ClientKeyShare{},
 		},
