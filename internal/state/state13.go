@@ -70,8 +70,9 @@ type CIDState struct {
 // CIDReceiveState describes locally generated CIDs carried in protected
 // records sent by the peer.
 type CIDReceiveState struct {
-	// Expected reports whether records from the peer must set the C bit in the
-	// DTLS 1.3 unified header and carry a CID.
+	// Expected reports whether protected peer datagrams must contain a CID.
+	// CID-less unified records are allowed alongside a CID-carrying record.
+	// Epoch-zero plaintext records have no CID field.
 	Expected bool
 	// Length is the number of CID bytes to parse after the C bit. DTLS 1.3
 	// records do not encode this lengt
