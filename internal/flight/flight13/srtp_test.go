@@ -36,7 +36,7 @@ func TestFlight4GenerateNegotiatesSRTPInEncryptedExtensions(t *testing.T) {
 		{name: "not offered", wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			flightCtx, _ := flight4TestContext(t)
+			flightCtx := flight4TestContext(t)
 			flightCtx.cfg.LocalSRTPProtectionProfiles = []extension.SRTPProtectionProfile{srtpProfile13}
 			flightCtx.cfg.LocalSRTPMasterKeyIdentifier = []byte(test.serverMKI)
 			if test.offer {
