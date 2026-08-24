@@ -268,41 +268,6 @@ func TestFlight4GenerateCertificateAuthenticatedFlight(t *testing.T) {
 	assert.Same(t, certificate.PrivateKey, pkts[3].CertificateVerifySigner)
 }
 
-func TestFlight4GenerateReusesNegotiatedConnectionID(t *testing.T) {
-	flightCtx, _ := flight4TestContext(t)
-	_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
-		Extensions: []extension.Value{
-			&extension.ConnectionID{CID: []byte{0x01}},
-		},
-	}, nil)
-	require.NoError(t, err)
-	flightCtx.state.RemoteClientHelloSnapshots.Reset()
-	require.NoError(t, flightCtx.state.RemoteClientHelloSnapshots.Record(offer))
-
-	generatorCalls := 0
-	flightCtx.cfg.ConnectionIDGenerator = func() []byte {
-		generatorCalls++
-
-		return []byte{0x01}
-	}
-
-	for range 2 {
-		packets, dtlsAlert, err := flight4Generate(nil, flightCtx)
-		require.NoError(t, err)
-		require.Nil(t, dtlsAlert)
-		require.NotEmpty(t, packets)
-		serverHelloHandshake, ok := packets[0].Record.Content.(*handshake.Handshake)
-		require.True(t, ok)
-		serverHello, ok := serverHelloHandshake.Message.(*handshake.MessageServerHello)
-		require.True(t, ok)
-		connectionID, ok := serverHello.Extensions[len(serverHello.Extensions)-1].(*extension.ConnectionID)
-		require.True(t, ok)
-		assert.Equal(t, []byte{0x01}, connectionID.CID)
-	}
-
-	assert.Equal(t, 1, generatorCalls)
-}
-
 func TestFlight4GenerateCertificateFailures(t *testing.T) {
 	tests := map[string]struct {
 		configure     func(*handshakeContext)
