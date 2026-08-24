@@ -36,6 +36,7 @@ var defaultCurves = []elliptic.Curve{ //nolint:gochecknoglobals
 type connConfigValues struct {
 	logger                      logging.LeveledLogger
 	maximumTransmissionUnit     int
+	receiveBufferSize           int
 	paddingLengthGenerator      func(uint) uint
 	replayProtectionWindow      int
 	initialRetransmitInterval   time.Duration
@@ -74,10 +75,11 @@ func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 
 	return connConfigValues{
 		logger:                      newConnLogger(config),
-		maximumTransmissionUnit:     effectiveMTU(config.MTU),
-		paddingLengthGenerator:      effectivePaddingLengthGenerator(config.PaddingLengthGenerator),
+		maximumTransmissionUnit:     config.MTU,
+		receiveBufferSize:           config.ReceiveBufferSize,
+		paddingLengthGenerator:      config.PaddingLengthGenerator,
 		replayProtectionWindow:      effectiveReplayProtectionWindow(config.ReplayProtectionWindow),
-		initialRetransmitInterval:   effectiveFlightInterval(config.FlightInterval),
+		initialRetransmitInterval:   config.FlightInterval,
 		minVersion:                  minVersion,
 		maxVersion:                  maxVersion,
 		cipherSuites:                cipherSuites,
@@ -120,36 +122,12 @@ func newConnLogger(config *dtlsConfig) logging.LeveledLogger {
 	return loggerFactory.NewLogger("dtls")
 }
 
-func effectiveMTU(mtu int) int {
-	if mtu <= 0 {
-		return defaultMTU
-	}
-
-	return mtu
-}
-
 func effectiveReplayProtectionWindow(replayProtectionWindow int) int {
 	if replayProtectionWindow <= 0 {
 		return defaultReplayProtectionWindow
 	}
 
 	return replayProtectionWindow
-}
-
-func effectivePaddingLengthGenerator(generator func(uint) uint) func(uint) uint {
-	if generator == nil {
-		return func(uint) uint { return 0 }
-	}
-
-	return generator
-}
-
-func effectiveFlightInterval(flightInterval time.Duration) time.Duration {
-	if flightInterval <= 0 {
-		return initialTickerInterval
-	}
-
-	return flightInterval
 }
 
 func effectiveServerName(serverName string) string {

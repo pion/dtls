@@ -3814,6 +3814,7 @@ func TestReadAndBufferNoFSMQueuesExactRecordCopy(t *testing.T) {
 		nextConn:       netctx.NewPacketConn(dtlsnet.PacketConnFromConn(cb)),
 		fragmentBuffer: dtlsfragmentbuffer.New(),
 		handshakeCache: dtlsflight.NewCache(),
+		readBufferPool: readBufferPoolForSize(defaultReceiveBufferSize),
 		log:            logging.NewDefaultLoggerFactory().NewLogger("dtls"),
 		state: &dtlsstate.State13{Common: &dtlsstate.Common{
 			LocalVersion: protocol.Version1_3,
