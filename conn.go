@@ -72,6 +72,11 @@ type addrPkt struct {
 	datagramContainsCID bool
 }
 
+type injectedPkt struct {
+	addrPkt
+	done chan struct{}
+}
+
 // readBufferLease owns a recyclable read buffer for one datagram-processing
 // call. Anything retained beyond that call must take an exact owned copy.
 type readBufferLease struct {
@@ -227,9 +232,12 @@ type Conn struct {
 
 	log logging.LeveledLogger
 
-	reading               chan struct{}
-	handshakeRecv         chan dtlshandshake.RecvHandshakeState
-	inboundPacketInject   chan addrPkt
+	reading             chan struct{}
+	handshakeRecv       chan dtlshandshake.RecvHandshakeState
+	inboundPacketInject chan injectedPkt
+	// injectDone is set by the read loop and closed by the handshake goroutine.
+	injectMu              sync.Mutex
+	injectDone            chan struct{}
 	pendingRead           chan readResult
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
@@ -304,7 +312,7 @@ func newConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan dtlshandshake.RecvHandshakeState),
-		inboundPacketInject:   make(chan addrPkt),
+		inboundPacketInject:   make(chan injectedPkt),
 		handshakeEstablished:  dtlshandshake.NewEstablishment(),
 		closed:                closer.NewCloser(),
 		cancelHandshaker:      func() {},
@@ -350,6 +358,8 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 
 	handshakeDone := make(chan struct{})
 	defer close(handshakeDone)
+	defer c.finishInject() // the FSM stops asking for datagrams once it is done
+
 	c.closeLock.Lock()
 	c.handshakeDone = handshakeDone
 	c.closeLock.Unlock()
@@ -1256,9 +1266,30 @@ func readBufferPoolForSize(size int) *sync.Pool {
 // received from rAddr. It is the counterpart of the handshake packet interceptor,
 // which allows packets to be carried over another transport.
 func (c *Conn) InjectInboundPacket(p []byte, rAddr net.Addr) {
+	done := make(chan struct{})
 	select {
-	case c.inboundPacketInject <- addrPkt{rAddr: rAddr, data: p}:
+	case c.inboundPacketInject <- injectedPkt{addrPkt{rAddr: rAddr, data: p}, done}:
 	case <-c.closed.Done():
+		return
+	}
+	c.closeLock.Lock()
+	handshakeDone := c.handshakeDone
+	c.closeLock.Unlock()
+
+	select {
+	case <-done:
+	case <-handshakeDone:
+	case <-c.closed.Done():
+	}
+}
+
+func (c *Conn) finishInject() {
+	c.injectMu.Lock()
+	defer c.injectMu.Unlock()
+
+	if c.injectDone != nil {
+		close(c.injectDone)
+		c.injectDone = nil
 	}
 }
 
@@ -1326,6 +1357,10 @@ func (c *Conn) readDatagram(ctx context.Context) ([]byte, net.Addr, readBufferLe
 
 	select {
 	case injected := <-c.inboundPacketInject:
+		c.injectMu.Lock()
+		c.injectDone = injected.done
+		c.injectMu.Unlock()
+
 		return injected.data, injected.rAddr, readBufferLease{conn: c}, nil
 	case res := <-c.pendingRead:
 		c.pendingRead = nil
@@ -2358,6 +2393,9 @@ func (c *Conn) syncFragmentBufferHandshakeSequence() {
 }
 
 func (c *Conn) recvHandshake() <-chan dtlshandshake.RecvHandshakeState {
+	// The previous datagram is processed, including any flight it produced.
+	c.finishInject()
+
 	return c.handshakeRecv
 }
 
@@ -2680,6 +2718,8 @@ func (c *Conn) primeHandshakeRecv(ctx context.Context) {
 // version negotiation phase. It reads and processes a datagram, but does not
 // signal an FSM (there is none yet) or wait for its Done channel.
 func (c *Conn) readAndBufferNoFSM(ctx context.Context) error {
+	defer c.finishInject()
+
 	_, err := c.readAndProcessDatagram(ctx)
 
 	return err

@@ -5902,48 +5902,98 @@ func assertTrafficKeyTestRecord(
 	assert.Equal(t, want, innerPlaintext.Content)
 }
 
-func TestOutboundInterceptor(t *testing.T) {
-	defer test.CheckRoutines(t)()
-	defer test.TimeOut(time.Second * 10).Stop()
+// Injecting waits for the peer, so it must not happen in the interceptor.
+func injectOverPipe(t *testing.T, deliver func([]byte)) (func([]byte) bool, func()) {
+	t.Helper()
 
-	ca, cb := dpipe.Pipe()
-	serverCert, err := selfsign.GenerateSelfSigned()
-	assert.NoError(t, err)
-
-	var client *Conn
-	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
-		WithCertificates(serverCert),
-		WithOutboundHandshakePacketInterceptor(func(packet []byte, _ bool) bool {
-			client.InjectInboundPacket(packet, ca.RemoteAddr())
-
-			return true
-		}),
-		WithInsecureSkipVerify(true),
-		WithInsecureSkipVerifyHello(true),
-	)
-	assert.NoError(t, err)
-
+	near, far := dpipe.Pipe()
+	done := make(chan struct{})
 	go func() {
-		_ = server.Handshake()
+		defer close(done)
+		buf := make([]byte, 2048)
+		for {
+			n, err := far.Read(buf)
+			if err != nil {
+				return
+			}
+			deliver(buf[:n])
+		}
 	}()
 
-	clientCert, err := selfsign.GenerateSelfSigned()
-	assert.NoError(t, err)
-
-	client, err = ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
-		WithCertificates(clientCert),
-		WithOutboundHandshakePacketInterceptor(func(packet []byte, _ bool) bool {
-			server.InjectInboundPacket(packet, cb.RemoteAddr())
+	return func(packet []byte) bool {
+			_, err := near.Write(packet)
+			assert.NoError(t, err)
 
 			return true
-		}),
-		WithInsecureSkipVerify(true),
-	)
-	assert.NoError(t, err)
+		}, func() {
+			assert.NoError(t, near.Close())
+			assert.NoError(t, far.Close())
+			<-done
+		}
+}
 
-	assert.NoError(t, client.Handshake())
-	assert.NoError(t, server.Close())
-	assert.NoError(t, client.Close())
+func TestOutboundInterceptor(t *testing.T) {
+	for name, version := range map[string]protocol.Version{
+		"1.2": protocol.Version1_2,
+		"1.3": protocol.Version1_3,
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer test.CheckRoutines(t)()
+			defer test.TimeOut(time.Second * 10).Stop()
+
+			ca, cb := dpipe.Pipe()
+			serverCert, err := selfsign.GenerateSelfSigned()
+			assert.NoError(t, err)
+
+			var client *Conn
+			toClient, stopToClient := injectOverPipe(t, func(packet []byte) {
+				client.InjectInboundPacket(packet, ca.RemoteAddr())
+			})
+			defer stopToClient()
+
+			server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
+				WithCertificates(serverCert),
+				WithOutboundHandshakePacketInterceptor(func(packet []byte, _ bool) bool {
+					return toClient(packet)
+				}),
+				WithInsecureSkipVerify(true),
+				WithInsecureSkipVerifyHello(true),
+				WithMinVersion(version),
+				WithMaxVersion(version),
+			)
+			assert.NoError(t, err)
+
+			go func() {
+				_ = server.Handshake()
+			}()
+
+			clientCert, err := selfsign.GenerateSelfSigned()
+			assert.NoError(t, err)
+
+			toServer, stopToServer := injectOverPipe(t, func(packet []byte) {
+				server.InjectInboundPacket(packet, cb.RemoteAddr())
+			})
+			defer stopToServer()
+
+			client, err = ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
+				WithCertificates(clientCert),
+				WithOutboundHandshakePacketInterceptor(func(packet []byte, _ bool) bool {
+					return toServer(packet)
+				}),
+				WithInsecureSkipVerify(true),
+				WithMinVersion(version),
+				WithMaxVersion(version),
+			)
+			assert.NoError(t, err)
+
+			assert.NoError(t, client.Handshake())
+			state, ok := client.ConnectionState()
+			assert.True(t, ok)
+			assert.Equal(t, version, state.NegotiatedVersion())
+			assert.NoError(t, server.Close())
+			assert.NoError(t, client.Close())
+		})
+	}
 }
 
 func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
@@ -5955,6 +6005,11 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	assert.NoError(t, err)
 
 	var client *Conn
+	toClient, stopToClient := injectOverPipe(t, func(packet []byte) {
+		client.InjectInboundPacket(packet, ca.RemoteAddr())
+	})
+	defer stopToClient()
+
 	serverPackets, serverFlights := 0, 0
 	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
 		WithCertificates(serverCert),
@@ -5963,9 +6018,8 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 			if end {
 				serverFlights++
 			}
-			client.InjectInboundPacket(packet, ca.RemoteAddr())
 
-			return true
+			return toClient(packet)
 		}),
 		WithInsecureSkipVerify(true),
 		WithInsecureSkipVerifyHello(true),
@@ -5980,6 +6034,11 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	clientCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
+	toServer, stopToServer := injectOverPipe(t, func(packet []byte) {
+		server.InjectInboundPacket(packet, cb.RemoteAddr())
+	})
+	defer stopToServer()
+
 	clientPackets, clientFlights := 0, 0
 	client, err = ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithCertificates(clientCert),
@@ -5988,9 +6047,8 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 			if end {
 				clientFlights++
 			}
-			server.InjectInboundPacket(packet, cb.RemoteAddr())
 
-			return true
+			return toServer(packet)
 		}),
 		WithInsecureSkipVerify(true),
 		WithMTU(500),
