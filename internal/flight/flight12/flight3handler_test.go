@@ -45,7 +45,7 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 			require.NoError(t, err)
 			require.Nil(t, dtlsAlert)
 			require.Len(t, packets, 1)
-			hand, ok := packets[0].Record.Content.(*handshake.Handshake)
+			hand, ok := packets[0].Content.(*handshake.Handshake)
 			require.True(t, ok)
 			clientHello, ok := hand.Message.(*handshake.MessageClientHello)
 			require.True(t, ok)
@@ -73,7 +73,7 @@ func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, elliptic.X25519, state.NamedCurve)
 
-	handshakeMessage, ok := packets[0].Record.Content.(*handshake.Handshake)
+	handshakeMessage, ok := packets[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	clientHello, ok := handshakeMessage.Message.(*handshake.MessageClientHello)
 	require.True(t, ok)
@@ -244,7 +244,7 @@ func TestFlight4bGenerateCommitsConnectionIDOnce(t *testing.T) {
 				packets, _, err := generateForTest(t, Flight4b, nil, state, dtlsflight.NewCache(), cfg)
 				require.NoError(t, err)
 				require.Len(t, packets, 3)
-				assert.Equal(t, len(test.clientCID) > 0, packets[2].ShouldWrapCID)
+				assert.Equal(t, len(test.clientCID) > 0, state.ShouldWrapConnectionID())
 			}
 			assert.Equal(t, 1, calls)
 			assert.True(t, state.LocalCIDOffered && state.RemoteCIDOffered)
@@ -291,7 +291,7 @@ func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
 			packets, _, err := generateForTest(t, Flight5b, nil, state, nil, &dtlsconfig.HandshakeConfig{})
 			require.NoError(t, err)
 			require.Len(t, packets, 2)
-			assert.Equal(t, decision != nil && len(decision.ServerCID) > 0, packets[1].ShouldWrapCID)
+			assert.Equal(t, decision != nil && len(decision.ServerCID) > 0, state.ShouldWrapConnectionID())
 		})
 	}
 }

@@ -27,7 +27,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 //nolint:gocognit,gocyclo,lll,cyclop,maintidx
@@ -262,7 +261,7 @@ func flight4Generate(
 	state *dtlsstate.State12,
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	offer := state.RemoteClientHelloSnapshots.Current()
 	extensions := []extension.Value{}
 	srtpSelection, err := negotiation.NegotiateSRTP(
@@ -304,7 +303,7 @@ func flight4Generate(
 		)
 	}
 
-	var pkts []*dtlsflight.Packet
+	var pkts []*dtlsflight.Outbound
 	cipherSuiteID := uint16(state.CipherSuite.ID())
 
 	if cfg.HasSessionStore {
@@ -337,13 +336,8 @@ func flight4Generate(
 	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions)
 	content := handshake.Handshake{Message: serverHello}
 
-	pkts = append(pkts, &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-			},
-			Content: &content,
-		},
+	pkts = append(pkts, &dtlsflight.Outbound{
+		Content: &content,
 	})
 
 	switch {
@@ -357,15 +351,10 @@ func flight4Generate(
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 		}
 
-		pkts = append(pkts, &dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageCertificate{
-						Certificate: certificate.Certificate,
-					},
+		pkts = append(pkts, &dtlsflight.Outbound{
+			Content: &handshake.Handshake{
+				Message: &handshake.MessageCertificate{
+					Certificate: certificate.Certificate,
 				},
 			},
 		})
@@ -402,20 +391,15 @@ func flight4Generate(
 		}
 		state.LocalKeySignature = signature
 
-		pkts = append(pkts, &dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageServerKeyExchange{
-						EllipticCurveType:  elliptic.CurveTypeNamedCurve,
-						NamedCurve:         state.NamedCurve,
-						PublicKey:          state.LocalKeypair.PublicKey,
-						HashAlgorithm:      signatureHashAlgo.Hash,
-						SignatureAlgorithm: signatureHashAlgo.Signature,
-						Signature:          state.LocalKeySignature,
-					},
+		pkts = append(pkts, &dtlsflight.Outbound{
+			Content: &handshake.Handshake{
+				Message: &handshake.MessageServerKeyExchange{
+					EllipticCurveType:  elliptic.CurveTypeNamedCurve,
+					NamedCurve:         state.NamedCurve,
+					PublicKey:          state.LocalKeypair.PublicKey,
+					HashAlgorithm:      signatureHashAlgo.Hash,
+					SignatureAlgorithm: signatureHashAlgo.Signature,
+					Signature:          state.LocalKeySignature,
 				},
 			},
 		})
@@ -448,13 +432,8 @@ func flight4Generate(
 				content = handshake.Handshake{Message: certReq}
 			}
 
-			pkts = append(pkts, &dtlsflight.Packet{
-				Record: &recordlayer.RecordLayer{
-					Header: recordlayer.Header{
-						Version: protocol.Version1_2,
-					},
-					Content: &content,
-				},
+			pkts = append(pkts, &dtlsflight.Outbound{
+				Content: &content,
 			})
 		}
 	case cfg.LocalPSKIdentityHint != nil ||
@@ -473,26 +452,16 @@ func flight4Generate(
 			srvExchange.NamedCurve = state.NamedCurve
 			srvExchange.PublicKey = state.LocalKeypair.PublicKey
 		}
-		pkts = append(pkts, &dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: srvExchange,
-				},
+		pkts = append(pkts, &dtlsflight.Outbound{
+			Content: &handshake.Handshake{
+				Message: srvExchange,
 			},
 		})
 	}
 
-	pkts = append(pkts, &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-			},
-			Content: &handshake.Handshake{
-				Message: &handshake.MessageServerHelloDone{},
-			},
+	pkts = append(pkts, &dtlsflight.Outbound{
+		Content: &handshake.Handshake{
+			Message: &handshake.MessageServerHelloDone{},
 		},
 	})
 	state.CommitNegotiatedExtensions(decision)

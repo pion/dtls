@@ -34,7 +34,7 @@ type Generator func(
 	*dtlsstate.State12,
 	*dtlsflight.Cache,
 	*dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error)
+) ([]*dtlsflight.Outbound, *alert.Alert, error)
 
 func getFlightParser(f Flight) (flightParser, bool) { //nolint:cyclop
 	switch f {

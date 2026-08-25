@@ -23,7 +23,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 // flight4Parse processes the client's protected final flight. The parser is
@@ -172,7 +171,7 @@ func needsClientKeypair(state *dtlsstate.State13) bool {
 func flight4Generate( //nolint:cyclop
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 
@@ -260,11 +259,8 @@ func flight4Generate( //nolint:cyclop
 	}
 	decision := negotiation.DecideConnectionID(offer, serverHelloExtensions)
 
-	serverHello := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header:  recordlayer.Header{Version: protocol.Version1_2},
-			Content: &handshake.Handshake{Message: serverHelloMessage},
-		},
+	serverHello := &dtlsflight.Outbound{
+		Content: &handshake.Handshake{Message: serverHelloMessage},
 	}
 
 	encryptedExtensionsList := []extension.Value{}
@@ -277,9 +273,8 @@ func flight4Generate( //nolint:cyclop
 	encryptedExtensions := HandshakePacket(&handshake.MessageEncryptedExtensions{
 		Extensions: encryptedExtensionsList,
 	})
-	encryptedExtensions.ResetLocalSequenceNumber = true
 
-	pkts := []*dtlsflight.Packet{
+	pkts := []*dtlsflight.Outbound{
 		serverHello,
 		encryptedExtensions,
 	}

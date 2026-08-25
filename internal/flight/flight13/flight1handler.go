@@ -18,14 +18,13 @@ import (
 	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 //nolint:cyclop
 func flight1Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 	state.ResetConnectionIDs()
@@ -160,14 +159,9 @@ func flight1Generate(
 	}
 	content := handshake.Handshake{Message: clientHello}
 
-	return []*dtlsflight.Packet{
+	return []*dtlsflight.Outbound{
 		{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &content,
-			},
+			Content: &content,
 		},
 	}, nil, nil
 }

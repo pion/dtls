@@ -20,7 +20,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 func flight5Parse(
@@ -71,9 +70,9 @@ func flight5Generate(
 	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	var signer crypto.Signer
-	var pkts []*dtlsflight.Packet
+	var pkts []*dtlsflight.Outbound
 	if state.RemoteRequestedCertificate { //nolint:nestif
 		pull := cache.FullPullMapItems(state.HandshakeRecvSequence-2, state.CipherSuite,
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}) //nolint:lll
@@ -107,15 +106,10 @@ func flight5Generate(
 			}
 		}
 		pkts = append(pkts,
-			&dtlsflight.Packet{
-				Record: &recordlayer.RecordLayer{
-					Header: recordlayer.Header{
-						Version: protocol.Version1_2,
-					},
-					Content: &handshake.Handshake{
-						Message: &handshake.MessageCertificate{
-							Certificate: certificate.Certificate,
-						},
+			&dtlsflight.Outbound{
+				Content: &handshake.Handshake{
+					Message: &handshake.MessageCertificate{
+						Certificate: certificate.Certificate,
 					},
 				},
 			})
@@ -132,14 +126,9 @@ func flight5Generate(
 	}
 
 	pkts = append(pkts,
-		&dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: clientKeyExchange,
-				},
+		&dtlsflight.Outbound{
+			Content: &handshake.Handshake{
+				Message: clientKeyExchange,
 			},
 		})
 
@@ -158,7 +147,7 @@ func flight5Generate(
 	merged := []byte{}
 	seqPred := uint16(state.HandshakeSendSequence) //nolint:gosec // G115
 	for _, p := range pkts {
-		h, ok := p.Record.Content.(*handshake.Handshake)
+		h, ok := p.Content.(*handshake.Handshake)
 		if !ok {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidContentType
 		}
@@ -206,23 +195,18 @@ func flight5Generate(
 		}
 		state.LocalCertificatesVerify = certVerify
 
-		pkt := &dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageCertificateVerify{
-						HashAlgorithm:      signatureHashAlgo.Hash,
-						SignatureAlgorithm: signatureHashAlgo.Signature,
-						Signature:          state.LocalCertificatesVerify,
-					},
+		pkt := &dtlsflight.Outbound{
+			Content: &handshake.Handshake{
+				Message: &handshake.MessageCertificateVerify{
+					HashAlgorithm:      signatureHashAlgo.Hash,
+					SignatureAlgorithm: signatureHashAlgo.Signature,
+					Signature:          state.LocalCertificatesVerify,
 				},
 			},
 		}
 		pkts = append(pkts, pkt)
 
-		h, ok := pkt.Record.Content.(*handshake.Handshake)
+		h, ok := pkt.Content.(*handshake.Handshake)
 		if !ok {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidContentType
 		}
@@ -236,13 +220,8 @@ func flight5Generate(
 	}
 
 	pkts = append(pkts,
-		&dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &protocol.ChangeCipherSpec{},
-			},
+		&dtlsflight.Outbound{
+			Content: &protocol.ChangeCipherSpec{},
 		})
 
 	if len(state.LocalVerifyData) == 0 {
@@ -260,21 +239,14 @@ func flight5Generate(
 	}
 
 	pkts = append(pkts,
-		&dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-					Epoch:   1,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageFinished{
-						VerifyData: state.LocalVerifyData,
-					},
+		&dtlsflight.Outbound{
+			Epoch: 1,
+			Content: &handshake.Handshake{
+				Message: &handshake.MessageFinished{
+					VerifyData: state.LocalVerifyData,
 				},
 			},
-			ShouldWrapCID:            state.ShouldWrapConnectionID(),
-			ShouldEncrypt:            true,
-			ResetLocalSequenceNumber: true,
+			Protection: dtlsflight.ProtectionCiphertext,
 		})
 
 	return pkts, nil, nil

@@ -18,7 +18,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 func flight4bParse(
@@ -68,8 +67,8 @@ func flight4bGenerate(
 	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
-	var pkts []*dtlsflight.Packet
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	var pkts []*dtlsflight.Outbound
 	offer := state.RemoteClientHelloSnapshots.Current()
 	srtpSelection, err := negotiation.NegotiateSRTP(
 		offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier,
@@ -147,37 +146,20 @@ func flight4bGenerate(
 	}
 
 	pkts = append(pkts,
-		&dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &serverHello,
-			},
+		&dtlsflight.Outbound{
+			Content: &serverHello,
 		},
-		&dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &protocol.ChangeCipherSpec{},
-			},
+		&dtlsflight.Outbound{
+			Content: &protocol.ChangeCipherSpec{},
 		},
-		&dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-					Epoch:   1,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageFinished{
-						VerifyData: state.LocalVerifyData,
-					},
+		&dtlsflight.Outbound{
+			Epoch: 1,
+			Content: &handshake.Handshake{
+				Message: &handshake.MessageFinished{
+					VerifyData: state.LocalVerifyData,
 				},
 			},
-			ShouldEncrypt:            true,
-			ShouldWrapCID:            decision != nil && len(decision.ClientCID) > 0,
-			ResetLocalSequenceNumber: true,
+			Protection: dtlsflight.ProtectionCiphertext,
 		},
 	)
 	state.CommitNegotiatedExtensions(decision)

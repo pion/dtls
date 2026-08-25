@@ -173,7 +173,7 @@ func flight13GenerateForTest(
 	testingT require.TestingT,
 	flight dtlsflight13.Flight,
 	flightCtx *handshakeTestContext13,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {
 		helper.Helper()
 	}
@@ -208,10 +208,10 @@ func retryRequestForTest(
 	return request
 }
 
-func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {
+func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Outbound) []byte {
 	t.Helper()
 
-	content, ok := p.Record.Content.(*handshake.Handshake)
+	content, ok := p.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := content.Marshal()
 	require.NoError(t, err)
@@ -633,14 +633,14 @@ func TestFlight13_5GenerateSelectsClientCertificateBySignatureScheme(t *testing.
 	require.Nil(t, dtlsAlert)
 	require.Len(t, packets, 3)
 
-	certificateHandshake, ok := packets[0].Record.Content.(*handshake.Handshake)
+	certificateHandshake, ok := packets[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	certificateMessage, ok := certificateHandshake.Message.(*handshake.MessageCertificate13)
 	require.True(t, ok)
 	require.Len(t, certificateMessage.CertificateList, 1)
 	assert.Equal(t, ecdsaCertificate.Certificate[0], certificateMessage.CertificateList[0].CertificateData)
 
-	verifyHandshake, ok := packets[1].Record.Content.(*handshake.Handshake)
+	verifyHandshake, ok := packets[1].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	verifyMessage, ok := verifyHandshake.Message.(*handshake.MessageCertificateVerify)
 	require.True(t, ok)
@@ -715,7 +715,7 @@ func generateFlight13_1ClientHello(t *testing.T, cfg *dtlsconfig.HandshakeConfig
 	require.Nil(t, dtlsAlert)
 	require.Len(t, pkts, 1)
 
-	hand, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	hand, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := hand.Marshal()
 	require.NoError(t, err)
@@ -728,7 +728,7 @@ func generateFlight13_1ClientHello(t *testing.T, cfg *dtlsconfig.HandshakeConfig
 	return clientHello
 }
 
-func TestFlight13_1GenerateClientHelloUsesSupportedVersionsVector(t *testing.T) {
+func TestFlight13_1GenerateClientHelloIncludesRequiredExtensions(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := newTestState13(t, false)
 
@@ -741,7 +741,7 @@ func TestFlight13_1GenerateClientHelloUsesSupportedVersionsVector(t *testing.T) 
 	require.Nil(t, dtlsAlert)
 	require.Len(t, pkts, 1)
 
-	hand, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	hand, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := hand.Marshal()
 	require.NoError(t, err)
@@ -752,15 +752,19 @@ func TestFlight13_1GenerateClientHelloUsesSupportedVersionsVector(t *testing.T) 
 	require.True(t, ok)
 
 	var supportedVersions *extension13.OfferedVersions
+	var supportedGroups *extension.SupportedGroups
 	for _, ext := range clientHello.Extensions {
-		if sv, ok := ext.(*extension13.OfferedVersions); ok {
-			supportedVersions = sv
-
-			break
+		switch typed := ext.(type) {
+		case *extension13.OfferedVersions:
+			supportedVersions = typed
+		case *extension.SupportedGroups:
+			supportedGroups = typed
 		}
 	}
 	require.NotNil(t, supportedVersions)
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, supportedVersions.Versions)
+	require.NotNil(t, supportedGroups)
+	assert.Equal(t, cfg.EllipticCurves, supportedGroups.Groups)
 }
 
 func TestFlight13_1GenerateClientHelloIncludesSignatureAlgorithms(t *testing.T) {
@@ -786,24 +790,6 @@ func TestFlight13_1GenerateClientHelloIncludesSignatureAlgorithms(t *testing.T) 
 	assert.Equal(t, dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes), signatureAlgorithmsCert.Schemes)
 }
 
-func TestFlight13_1GenerateClientHelloIncludesSupportedGroups(t *testing.T) {
-	cfg := testHandshakeConfig13(t)
-
-	clientHello := generateFlight13_1ClientHello(t, cfg)
-
-	var supportedGroups *extension.SupportedGroups
-	for _, ext := range clientHello.Extensions {
-		if typed, ok := ext.(*extension.SupportedGroups); ok {
-			supportedGroups = typed
-
-			break
-		}
-	}
-
-	require.NotNil(t, supportedGroups)
-	assert.Equal(t, cfg.EllipticCurves, supportedGroups.Groups)
-}
-
 func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 	state := newTestState13(t, false)
@@ -817,7 +803,7 @@ func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 	require.Nil(t, dtlsAlert)
 	require.Len(t, pkts, 1)
 
-	hand, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	hand, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := hand.Marshal()
 	require.NoError(t, err)
@@ -874,7 +860,7 @@ func TestFlight13_1GenerateClientHelloIncludesX25519MLKEM768KeyShare(t *testing.
 	require.Nil(t, dtlsAlert)
 	require.Len(t, pkts, 1)
 
-	hand, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	hand, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := hand.Marshal()
 	require.NoError(t, err)
@@ -1077,7 +1063,7 @@ func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 	require.Nil(t, dtlsAlert)
 	require.Len(t, pkts, 1)
 
-	hand, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	hand, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := hand.Marshal()
 	require.NoError(t, err)
@@ -1140,7 +1126,7 @@ func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.
 	require.Nil(t, dtlsAlert)
 	require.Len(t, pkts, 1)
 
-	hand, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	hand, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := hand.Marshal()
 	require.NoError(t, err)
@@ -1589,7 +1575,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	require.Len(t, clientHello2, 1)
-	clientHello2Handshake, ok := clientHello2[0].Record.Content.(*handshake.Handshake)
+	clientHello2Handshake, ok := clientHello2[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	clientHello2Handshake.Header.MessageSequence = 1
 	require.NoError(t, dtlshandshake.AppendOutboundHandshakeFlight(transcript, true, state.CipherSuite, clientHello2))
@@ -2634,10 +2620,9 @@ func serverHelloFromFlight13_2(
 	require.Nil(t, dtlsAlert)
 	require.Len(t, pkts, 1)
 
-	require.NotNil(t, pkts[0].Record)
-	assert.Equal(t, protocol.Version1_2, pkts[0].Record.Header.Version)
+	require.NotNil(t, pkts[0].Content)
 
-	content, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	content, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 
 	serverHello, ok := content.Message.(*handshake.MessageServerHello)
@@ -2874,7 +2859,7 @@ func TestFlight13_4Generate(t *testing.T) {
 
 				var certificateRequest *handshake.MessageCertificateRequest13
 				for _, pkt := range pkts {
-					handshakePacket, ok := pkt.Record.Content.(*handshake.Handshake)
+					handshakePacket, ok := pkt.Content.(*handshake.Handshake)
 					if !ok {
 						continue
 					}
@@ -2884,8 +2869,8 @@ func TestFlight13_4Generate(t *testing.T) {
 					}
 					require.Nil(t, certificateRequest, "server flight contains multiple CertificateRequest messages")
 					certificateRequest = request
-					assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Record.Header.Epoch)
-					assert.True(t, pkt.ShouldEncrypt)
+					assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Epoch)
+					assert.True(t, pkt.Protection == dtlsflight.ProtectionCiphertext)
 				}
 
 				if !test.wantRequest {
@@ -2925,10 +2910,10 @@ func TestFlight13_4Generate(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, dtlsAlert)
 		require.Len(t, pkts, 5)
-		assert.Equal(t, uint16(0), pkts[0].Record.Header.Epoch)
-		assert.False(t, pkts[0].ShouldEncrypt)
+		assert.Equal(t, uint16(0), pkts[0].Epoch)
+		assert.False(t, pkts[0].Protection == dtlsflight.ProtectionCiphertext)
 
-		serverHelloHandshake, ok := pkts[0].Record.Content.(*handshake.Handshake)
+		serverHelloHandshake, ok := pkts[0].Content.(*handshake.Handshake)
 		require.True(t, ok)
 		serverHello, ok := serverHelloHandshake.Message.(*handshake.MessageServerHello)
 		require.True(t, ok)
@@ -2946,40 +2931,36 @@ func TestFlight13_4Generate(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, protocol.Version1_3, supportedVersions.Version)
 
-		encryptedExtensionsHandshake, ok := pkts[1].Record.Content.(*handshake.Handshake)
+		encryptedExtensionsHandshake, ok := pkts[1].Content.(*handshake.Handshake)
 		require.True(t, ok)
-		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[1].Record.Header.Epoch)
-		assert.True(t, pkts[1].ShouldEncrypt)
-		assert.True(t, pkts[1].ResetLocalSequenceNumber)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[1].Epoch)
+		assert.True(t, pkts[1].Protection == dtlsflight.ProtectionCiphertext)
 		encryptedExtensions, ok := encryptedExtensionsHandshake.Message.(*handshake.MessageEncryptedExtensions)
 		require.True(t, ok)
 		assert.Empty(t, encryptedExtensions.Extensions)
 
-		certificateHandshake, ok := pkts[2].Record.Content.(*handshake.Handshake)
+		certificateHandshake, ok := pkts[2].Content.(*handshake.Handshake)
 		require.True(t, ok)
-		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[2].Record.Header.Epoch)
-		assert.True(t, pkts[2].ShouldEncrypt)
-		assert.False(t, pkts[2].ResetLocalSequenceNumber)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[2].Epoch)
+		assert.True(t, pkts[2].Protection == dtlsflight.ProtectionCiphertext)
 		certificateMessage, ok := certificateHandshake.Message.(*handshake.MessageCertificate13)
 		require.True(t, ok)
 		assert.Empty(t, certificateMessage.CertificateRequestContext)
 		require.Len(t, certificateMessage.CertificateList, len(certificate.Certificate))
 
-		certificateVerifyHandshake, ok := pkts[3].Record.Content.(*handshake.Handshake)
+		certificateVerifyHandshake, ok := pkts[3].Content.(*handshake.Handshake)
 		require.True(t, ok)
-		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[3].Record.Header.Epoch)
-		assert.True(t, pkts[3].ShouldEncrypt)
-		assert.False(t, pkts[3].ResetLocalSequenceNumber)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[3].Epoch)
+		assert.True(t, pkts[3].Protection == dtlsflight.ProtectionCiphertext)
 		certificateVerify, ok := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify)
 		require.True(t, ok)
 		assert.Empty(t, certificateVerify.Signature)
 		assert.NotNil(t, pkts[3].CertificateVerifySigner)
 
-		finishedHandshake, ok := pkts[4].Record.Content.(*handshake.Handshake)
+		finishedHandshake, ok := pkts[4].Content.(*handshake.Handshake)
 		require.True(t, ok)
-		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[4].Record.Header.Epoch)
-		assert.True(t, pkts[4].ShouldEncrypt)
-		assert.False(t, pkts[4].ResetLocalSequenceNumber)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[4].Epoch)
+		assert.True(t, pkts[4].Protection == dtlsflight.ProtectionCiphertext)
 		_, ok = finishedHandshake.Message.(*handshake.MessageFinished)
 		require.True(t, ok)
 	})
@@ -3353,10 +3334,10 @@ func assertConnectionIDs(t *testing.T, state *dtlsstate.State13, localCID, remot
 	assertConnectionIDValue(t, remoteCID, state.CID.Send.Active)
 }
 
-func clientHelloFromFlight13Packet(t *testing.T, packet *dtlsflight.Packet) *handshake.MessageClientHello {
+func clientHelloFromFlight13Packet(t *testing.T, packet *dtlsflight.Outbound) *handshake.MessageClientHello {
 	t.Helper()
 
-	hand, ok := packet.Record.Content.(*handshake.Handshake)
+	hand, ok := packet.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := hand.Marshal()
 	require.NoError(t, err)
@@ -3680,7 +3661,7 @@ func TestFlight13_4GenerateNegotiatesConnectionIDs(t *testing.T) { //nolint:cycl
 				require.NoError(t, err)
 				require.Nil(t, dtlsAlert)
 				require.NotEmpty(t, packets)
-				serverHelloHandshake, ok := packets[0].Record.Content.(*handshake.Handshake)
+				serverHelloHandshake, ok := packets[0].Content.(*handshake.Handshake)
 				require.True(t, ok)
 				serverHello, ok := serverHelloHandshake.Message.(*handshake.MessageServerHello)
 				require.True(t, ok)

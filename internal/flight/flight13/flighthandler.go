@@ -21,7 +21,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 const (
@@ -42,14 +41,14 @@ type flightParser func(
 	*handshakeContext,
 ) (Flight, *alert.Alert, error)
 
-type contextFlightGenerator func(dtlsflight.Conn, *handshakeContext) ([]*dtlsflight.Packet, *alert.Alert, error)
+type contextFlightGenerator func(dtlsflight.Conn, *handshakeContext) ([]*dtlsflight.Outbound, *alert.Alert, error)
 
 type Generator func(
 	dtlsflight.Conn,
 	*dtlsstate.State13,
 	*dtlsflight.Cache,
 	*dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error)
+) ([]*dtlsflight.Outbound, *alert.Alert, error)
 
 type InboundHandshakeHandler func(dtlsconfig.CipherSuite, []dtlsflight.DecodedHandshakeCacheItem) error
 
@@ -245,7 +244,7 @@ func adaptFlightGenerator(gen contextFlightGenerator) Generator {
 		state *dtlsstate.State13,
 		cache *dtlsflight.Cache,
 		cfg *dtlsconfig.HandshakeConfig,
-	) ([]*dtlsflight.Packet, *alert.Alert, error) {
+	) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 		return gen(conn, newHandshakeContext(ParseDependencies{
 			State:  state,
 			Cache:  cache,
@@ -293,23 +292,18 @@ func Parse(
 	return nextFlight, dtlsAlert, err, true
 }
 
-func HandshakePacket(message handshake.Message) *dtlsflight.Packet {
-	return &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   EpochHandshake,
-			},
-			Content: &handshake.Handshake{Message: message},
-		},
-		ShouldEncrypt: true,
+func HandshakePacket(message handshake.Message) *dtlsflight.Outbound {
+	return &dtlsflight.Outbound{
+		Epoch:      EpochHandshake,
+		Content:    &handshake.Handshake{Message: message},
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
 }
 
 func CertificateVerifyPacket(
 	message *handshake.MessageCertificateVerify,
 	signer crypto.Signer,
-) *dtlsflight.Packet {
+) *dtlsflight.Outbound {
 	pkt := HandshakePacket(message)
 	pkt.CertificateVerifySigner = signer
 

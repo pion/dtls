@@ -55,26 +55,20 @@ func TestOnlySendCIDGenerator(t *testing.T) {
 func TestCIDDatagramRouter(t *testing.T) {
 	cid := []byte("abcd1234")
 	cidLen := 8
-	epochZeroRecord, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{
-			Epoch:   0,
-			Version: protocol.Version1_2,
-		},
-		Content: &alert.Alert{
-			Level:       alert.Warning,
-			Description: alert.CloseNotify,
-		},
-	}).Marshal()
+	epochZeroRecord, err := marshalTestRecord(recordlayer.Header{
+		Epoch:   0,
+		Version: protocol.Version1_2,
+	}, &alert.Alert{
+		Level:       alert.Warning,
+		Description: alert.CloseNotify,
+	})
 	assert.NoError(t, err)
-	protectedWithoutCIDRecord, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{
-			Epoch:   1,
-			Version: protocol.Version1_2,
-		},
-		Content: &protocol.ApplicationData{
-			Data: []byte("application data"),
-		},
-	}).Marshal()
+	protectedWithoutCIDRecord, err := marshalTestRecord(recordlayer.Header{
+		Epoch:   1,
+		Version: protocol.Version1_2,
+	}, &protocol.ApplicationData{
+		Data: []byte("application data"),
+	})
 	assert.NoError(t, err)
 
 	appData, err := (&protocol.ApplicationData{
@@ -204,13 +198,10 @@ func TestCIDDatagramRouter(t *testing.T) {
 
 func TestCIDDatagramRouter13(t *testing.T) {
 	cid := []byte("abcd1234")
-	plaintextPrefix, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{Version: protocol.Version1_2},
-		Content: &alert.Alert{
-			Level:       alert.Warning,
-			Description: alert.CloseNotify,
-		},
-	}).Marshal()
+	plaintextPrefix, err := marshalTestRecord(recordlayer.Header{Version: protocol.Version1_2}, &alert.Alert{
+		Level:       alert.Warning,
+		Description: alert.CloseNotify,
+	})
 	assert.NoError(t, err)
 
 	makeRecord := func(t *testing.T, connectionID []byte, sequenceNumber uint16) []byte {
@@ -293,37 +284,31 @@ func TestCIDDatagramRouter13(t *testing.T) {
 func TestCIDConnIdentifier(t *testing.T) {
 	cid := []byte("abcd1234")
 	cs := uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
-	sh, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{
-			Epoch:   0,
-			Version: protocol.Version1_2,
-		},
-		Content: &handshake.Handshake{
-			Message: &handshake.MessageServerHello{
-				Version:           protocol.Version1_2,
-				Random:            handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: [28]byte{}},
-				SessionID:         []byte("hello"),
-				CipherSuiteID:     &cs,
-				CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-				Extensions: []extension.Value{
-					&extension.ConnectionID{
-						CID: cid,
-					},
+	sh, err := marshalTestRecord(recordlayer.Header{
+		Epoch:   0,
+		Version: protocol.Version1_2,
+	}, &handshake.Handshake{
+		Message: &handshake.MessageServerHello{
+			Version:           protocol.Version1_2,
+			Random:            handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: [28]byte{}},
+			SessionID:         []byte("hello"),
+			CipherSuiteID:     &cs,
+			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+			Extensions: []extension.Value{
+				&extension.ConnectionID{
+					CID: cid,
 				},
 			},
 		},
-	}).Marshal()
+	})
 	assert.NoError(t, err)
 
-	appRecord, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{
-			Epoch:   1,
-			Version: protocol.Version1_2,
-		},
-		Content: &protocol.ApplicationData{
-			Data: []byte("application data"),
-		},
-	}).Marshal()
+	appRecord, err := marshalTestRecord(recordlayer.Header{
+		Epoch:   1,
+		Version: protocol.Version1_2,
+	}, &protocol.ApplicationData{
+		Data: []byte("application data"),
+	})
 	assert.NoError(t, err)
 	dtls13Ciphertext, err := (&recordlayer.CiphertextRecord{
 		Header:          recordlayer.UnifiedHeader{SequenceNumber: 1},

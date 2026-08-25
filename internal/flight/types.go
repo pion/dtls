@@ -7,8 +7,8 @@ import (
 	"context"
 	"crypto"
 
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 type Conn interface {
@@ -16,14 +16,23 @@ type Conn interface {
 	SessionKey() []byte
 }
 
-type Packet struct {
-	Record         *recordlayer.RecordLayer
-	ShouldEncrypt  bool
-	ShouldWrapCID  bool
-	ShouldTrackACK bool
+// Protection describes the protection required for an outbound
+// record.
+type Protection uint8
+
+const (
+	ProtectionPlaintext Protection = iota
+	ProtectionCiphertext
+)
+
+// Outbound describes semantic record intent.
+type Outbound struct {
+	Epoch      uint16
+	Content    protocol.Content
+	Protection Protection
+	TrackACK   bool
 	// HandshakeFragmentOffsets limits a retransmission to offset:length pairs.
 	HandshakeFragmentOffsets map[uint32]uint32
-	ResetLocalSequenceNumber bool
 
 	// CertificateVerifySigner is local-only metadata used to populate an
 	// outbound CertificateVerify after the handshake messages have been committed.

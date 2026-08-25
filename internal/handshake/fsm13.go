@@ -68,7 +68,7 @@ import (
 
 type fsm13 struct {
 	currentFlight      dtlsflight13.Flight
-	flights            []*dtlsflight.Packet
+	flights            []*dtlsflight.Outbound
 	retransmit         bool
 	retransmitInterval time.Duration
 	flightACK          reliableFlight
@@ -84,7 +84,7 @@ func NewFSM13(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight13.Flight,
-	initialFlights []*dtlsflight.Packet,
+	initialFlights []*dtlsflight.Outbound,
 	establishment *Establishment,
 ) (FSM, error) {
 	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, initialFlights, nil, establishment)
@@ -95,7 +95,7 @@ func newFSM13(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight13.Flight,
-	initialFlights []*dtlsflight.Packet,
+	initialFlights []*dtlsflight.Outbound,
 	initialTranscript *Transcript,
 ) (*fsm13, error) {
 	return newFSM13WithEstablishment(
@@ -108,7 +108,7 @@ func newFSM13WithEstablishment(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight13.Flight,
-	initialFlights []*dtlsflight.Packet,
+	initialFlights []*dtlsflight.Outbound,
 	initialTranscript *Transcript,
 	establishment *Establishment,
 ) (*fsm13, error) {
@@ -178,20 +178,20 @@ type KeyUpdater interface {
 // ApplicationDataWriter serializes DTLS 1.3 application data with
 // post-handshake messages.
 type ApplicationDataWriter interface {
-	WriteApplicationData(context.Context, []*dtlsflight.Packet) error
+	WriteApplicationData(context.Context, []*dtlsflight.Outbound) error
 }
 
 // WriteApplicationData queues application records on the post-handshake state
 // machine. In particular, a required KeyUpdate response already in the queue is
 // emitted before these records.
-func (s *fsm13) WriteApplicationData(ctx context.Context, packets []*dtlsflight.Packet) error {
+func (s *fsm13) WriteApplicationData(ctx context.Context, packets []*dtlsflight.Outbound) error {
 	completion, completionCtx := newPostHandshakeCompletion()
 	command := postHandshakeCommand{
 		Kind:       commandSendApplicationData,
 		Canceled:   ctx.Done(),
 		Packets:    packets,
 		Completion: completion,
-		Write: func(conn Conn, packets []*dtlsflight.Packet) error {
+		Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
 			_, err := conn.WritePackets(ctx, packets)
 
 			return err
@@ -267,7 +267,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 	// Prepare flights
 	var (
 		dtlsAlert *alert.Alert
-		pkts      []*dtlsflight.Packet
+		pkts      []*dtlsflight.Outbound
 	)
 	gen, retransmit, ok := dtlsflight13.GetGenerator(s.currentFlight)
 	if !ok {
@@ -436,11 +436,11 @@ func (s *fsm13) handlePreviousFlightRetransmit(
 	return s.transitionAfterACK(ackResult, true), nil
 }
 
-func (s *fsm13) prepareFlightACKTracking(flights []*dtlsflight.Packet, retransmit bool) {
+func (s *fsm13) prepareFlightACKTracking(flights []*dtlsflight.Outbound, retransmit bool) {
 	s.flightACK.reset()
 	if retransmit {
 		for _, packet := range flights {
-			_, packet.ShouldTrackACK = packet.Record.Content.(*handshake.Handshake)
+			_, packet.TrackACK = packet.Content.(*handshake.Handshake)
 		}
 	}
 }
@@ -449,7 +449,7 @@ func (s *fsm13) applyACKProgress(result ACKResult) {
 	for _, progress := range result.Messages {
 		remaining := s.flights[:0]
 		for _, packet := range s.flights {
-			message, ok := packet.Record.Content.(*handshake.Handshake)
+			message, ok := packet.Content.(*handshake.Handshake)
 			if !ok || message.Header.MessageSequence != progress.MessageSequence {
 				remaining = append(remaining, packet)
 			} else if !progress.Complete {

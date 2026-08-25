@@ -68,6 +68,24 @@ var (
 
 const renegotiationInfoSCSV uint16 = 0x00ff
 
+func marshalTestRecord(header recordlayer.Header, content protocol.Content) ([]byte, error) {
+	payload, err := content.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	return recordlayer.MarshalRecord(header, content.ContentType(), payload)
+}
+
+type testRecord struct {
+	Header  recordlayer.Header
+	Content protocol.Content
+}
+
+func (r *testRecord) Marshal() ([]byte, error) {
+	return marshalTestRecord(r.Header, r.Content)
+}
+
 func TestStressDuplex(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
@@ -219,7 +237,7 @@ func TestApplicationDataPacketOwnsPayload(t *testing.T) {
 	packet := conn.newApplicationDataPacket(payload)
 	payload[0] = 'X'
 
-	applicationData, ok := packet.Record.Content.(*protocol.ApplicationData)
+	applicationData, ok := packet.Content.(*protocol.ApplicationData)
 	require.True(t, ok)
 	assert.Equal(t, []byte("application data"), applicationData.Data)
 }
@@ -258,19 +276,14 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		atomic.StoreUint64(&dtlsstate.CommonState(ca.state).LocalSequenceNumber[0], recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
-		werr := ca.writePackets(ctx, []*dtlsflight.Packet{
+		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{
 			{
-				Record: &recordlayer.RecordLayer{
-					Header: recordlayer.Header{
-						Version: protocol.Version1_2,
-					},
-					Content: &handshake.Handshake{
-						Message: &handshake.MessageClientHello{
-							Version:            protocol.Version1_2,
-							Cookie:             make([]byte, 64),
-							CipherSuiteIDs:     cipherSuiteIDs(defaultCipherSuites()),
-							CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-						},
+				Content: &handshake.Handshake{
+					Message: &handshake.MessageClientHello{
+						Version:            protocol.Version1_2,
+						Cookie:             make([]byte, 64),
+						CipherSuiteIDs:     cipherSuiteIDs(defaultCipherSuites()),
+						CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 					},
 				},
 			},
@@ -388,24 +401,21 @@ func sendClientHello(
 		cipherSuites = cipherSuiteIDs(defaultCipherSuites())
 	}
 
-	packet, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{
-			Version:        protocol.Version1_2,
-			SequenceNumber: sequenceNumber,
+	packet, err := marshalTestRecord(recordlayer.Header{
+		Version:        protocol.Version1_2,
+		SequenceNumber: sequenceNumber,
+	}, &handshake.Handshake{
+		Header: handshake.Header{
+			MessageSequence: uint16(sequenceNumber), //nolint:gosec // G115
 		},
-		Content: &handshake.Handshake{
-			Header: handshake.Header{
-				MessageSequence: uint16(sequenceNumber), //nolint:gosec // G115
-			},
-			Message: &handshake.MessageClientHello{
-				Version:            protocol.Version1_2,
-				Cookie:             cookie,
-				CipherSuiteIDs:     cipherSuites,
-				CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-				Extensions:         extensions,
-			},
+		Message: &handshake.MessageClientHello{
+			Version:            protocol.Version1_2,
+			Cookie:             cookie,
+			CipherSuiteIDs:     cipherSuites,
+			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+			Extensions:         extensions,
 		},
-	}).Marshal()
+	})
 	if err != nil {
 		return err
 	}
@@ -2220,7 +2230,7 @@ func TestServerTimeout(t *testing.T) {
 		},
 	}
 
-	record := &recordlayer.RecordLayer{
+	record := &testRecord{
 		Header: recordlayer.Header{
 			SequenceNumber: 0,
 			Version:        protocol.Version1_2,
@@ -2328,10 +2338,10 @@ func TestProtocolVersionValidation(t *testing.T) {
 
 	t.Run("Server", func(t *testing.T) {
 		serverCases := map[string]struct {
-			records []*recordlayer.RecordLayer
+			records []*testRecord
 		}{
 			"ClientHelloVersion": {
-				records: []*recordlayer.RecordLayer{
+				records: []*testRecord{
 					{
 						Header: recordlayer.Header{
 							Version: protocol.Version1_2,
@@ -2349,7 +2359,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 				},
 			},
 			"SecondsClientHelloVersion": {
-				records: []*recordlayer.RecordLayer{
+				records: []*testRecord{
 					{
 						Header: recordlayer.Header{
 							Version: protocol.Version1_2,
@@ -2435,10 +2445,10 @@ func TestProtocolVersionValidation(t *testing.T) {
 
 	t.Run("Client", func(t *testing.T) {
 		clientCases := map[string]struct {
-			records []*recordlayer.RecordLayer
+			records []*testRecord
 		}{
 			"ServerHelloVersion": {
-				records: []*recordlayer.RecordLayer{
+				records: []*testRecord{
 					{
 						Header: recordlayer.Header{
 							Version: protocol.Version1_2,
@@ -2773,12 +2783,9 @@ func TestDualStackVersionNegotiationSendsClassifiedAlerts(t *testing.T) {
 func marshalVersionNegotiationRecord(t *testing.T, message handshake.Message) []byte {
 	t.Helper()
 
-	raw, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{Version: protocol.Version1_2},
-		Content: &handshake.Handshake{
-			Message: message,
-		},
-	}).Marshal()
+	raw, err := marshalTestRecord(recordlayer.Header{Version: protocol.Version1_2}, &handshake.Handshake{
+		Message: message,
+	})
 	require.NoError(t, err)
 
 	return raw
@@ -2912,7 +2919,7 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 
 		cookies = append(cookies, cookie)
 
-		record := &recordlayer.RecordLayer{
+		record := &testRecord{
 			Header: recordlayer.Header{
 				SequenceNumber: uint64(i),
 				Version:        protocol.Version1_2,
@@ -3297,10 +3304,7 @@ func TestALPNExtension(t *testing.T) {
 
 				assert.Equalf(t, test.ExpectedProtocol, negotiatedProtocol, "ALPN %v", test.Name)
 
-				s, err := (&recordlayer.RecordLayer{
-					Header:  recordHeader,
-					Content: handshakeRecord,
-				}).Marshal()
+				s, err := marshalTestRecord(recordHeader, handshakeRecord)
 				assert.NoError(t, err)
 
 				// Forward ServerHello
@@ -3889,16 +3893,13 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 
 	for i := range 1000 {
 		// Send an application data packet
-		packet, err := (&recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version:        protocol.Version1_2,
-				SequenceNumber: uint64(3),
-				Epoch:          1, // use an epoch greater than 0
-			},
-			Content: &protocol.ApplicationData{
-				Data: []byte{1, 2, 3, 4},
-			},
-		}).Marshal()
+		packet, err := marshalTestRecord(recordlayer.Header{
+			Version:        protocol.Version1_2,
+			SequenceNumber: uint64(3),
+			Epoch:          1, // use an epoch greater than 0
+		}, &protocol.ApplicationData{
+			Data: []byte{1, 2, 3, 4},
+		})
 		assert.NoError(t, err)
 		_, err = ca.Write(packet)
 		assert.NoError(t, err)
@@ -3988,17 +3989,14 @@ func TestHandleIncomingPacket13RejectsFixedHandshakeEpoch(t *testing.T) {
 	}
 	conn.setRemoteEpoch(0)
 
-	rawPacket, err := (&recordlayer.RecordLayer{
-		Header: recordlayer.Header{
-			Version:        protocol.Version1_2,
-			Epoch:          dtlsflight13.EpochHandshake,
-			SequenceNumber: 0,
-		},
-		Content: &handshake.Handshake{
-			Header:  handshake.Header{MessageSequence: 1},
-			Message: &handshake.MessageEncryptedExtensions{},
-		},
-	}).Marshal()
+	rawPacket, err := marshalTestRecord(recordlayer.Header{
+		Version:        protocol.Version1_2,
+		Epoch:          dtlsflight13.EpochHandshake,
+		SequenceNumber: 0,
+	}, &handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: 1},
+		Message: &handshake.MessageEncryptedExtensions{},
+	})
 	assert.NoError(t, err)
 
 	bufferLease := &readBufferLease{conn: conn, recyclableReadBuffer: &rawPacket}
@@ -4935,15 +4933,10 @@ func TestProcessProtectedPacketWritesDTLS13HandshakeRecord(t *testing.T) {
 	expectedPlaintext, err := dtlsHandshake.Marshal()
 	assert.NoError(t, err)
 
-	rawPacket, err := conn.processPacket(&dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   dtlsflight13.EpochHandshake,
-			},
-			Content: dtlsHandshake,
-		},
-		ShouldEncrypt: true,
+	rawPacket, err := conn.prepareRecord(&dtlsflight.Outbound{
+		Epoch:      dtlsflight13.EpochHandshake,
+		Content:    dtlsHandshake,
+		Protection: dtlsflight.ProtectionCiphertext,
 	})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, rawPacket)
@@ -4957,10 +4950,12 @@ func TestProcessProtectedPacketWritesDTLS13HandshakeRecord(t *testing.T) {
 type sequenceRecordingCipherSuite struct {
 	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
 	sequences []uint64
+	headers   []recordlayer.Header
 }
 
 func (c *sequenceRecordingCipherSuite) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
 	c.sequences = append(c.sequences, pkt.Header.SequenceNumber)
+	c.headers = append(c.headers, pkt.Header)
 
 	return bytes.Clone(raw), nil
 }
@@ -4994,29 +4989,23 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 	_, err := dtlsHandshake.Marshal()
 	require.NoError(t, err)
 
-	pkt := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version:        protocol.Version1_2,
-				Epoch:          epoch,
-				SequenceNumber: staleSequence,
-			},
-			Content: dtlsHandshake,
-		},
-		ShouldEncrypt: true,
-		ShouldWrapCID: true,
+	pkt := &dtlsflight.Outbound{
+		Epoch:      epoch,
+		Content:    dtlsHandshake,
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
-	rawPackets, err := conn.processHandshakePacket(pkt, dtlsHandshake)
+	prepared, err := conn.prepareHandshakeRecords(pkt, dtlsHandshake)
 	require.NoError(t, err)
-	require.Greater(t, len(rawPackets), 1)
+	require.Greater(t, len(prepared), 1)
 
-	expectedSequences := make([]uint64, len(rawPackets))
-	for i, rawPacket := range rawPackets {
+	expectedSequences := make([]uint64, len(prepared))
+	for i, record := range prepared {
 		expectedSequence := firstSequence + uint64(i)
 		expectedSequences[i] = expectedSequence
 
 		header := recordlayer.Header{ConnectionID: make([]byte, len(remoteCID))}
-		require.NoError(t, header.Unmarshal(rawPacket))
+		require.NoError(t, header.Unmarshal(record.raw))
+		assert.Equal(t, header, cipherSuite.headers[i])
 		assert.Equal(t, protocol.ContentTypeConnectionID, header.ContentType)
 		assert.Equal(t, remoteCID, header.ConnectionID)
 		assert.Equal(t, epoch, header.Epoch)
@@ -5025,7 +5014,6 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 
 	// Encrypt receives this record metadata for the nonce and MAC calculation.
 	assert.Equal(t, expectedSequences, cipherSuite.sequences)
-	assert.Equal(t, expectedSequences[len(expectedSequences)-1], pkt.Record.Header.SequenceNumber)
 	assert.Equal(t, firstSequence+uint64(len(expectedSequences)), commonState.LocalSequenceNumber[epoch])
 }
 
@@ -5037,21 +5025,16 @@ func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
 	expectedPlaintext, err := dtlsHandshake.Marshal()
 	assert.NoError(t, err)
 
-	rawPackets, err := conn.processHandshakePacket(&dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   dtlsflight13.EpochHandshake,
-			},
-			Content: dtlsHandshake,
-		},
-		ShouldEncrypt: true,
+	prepared, err := conn.prepareHandshakeRecords(&dtlsflight.Outbound{
+		Epoch:      dtlsflight13.EpochHandshake,
+		Content:    dtlsHandshake,
+		Protection: dtlsflight.ProtectionCiphertext,
 	}, dtlsHandshake)
 	assert.NoError(t, err)
-	assert.Len(t, rawPackets, 1)
-	assert.True(t, protocol.IsDTLS13Ciphertext(protocol.ContentType(rawPackets[0][0])))
+	require.Len(t, prepared, 1)
+	assert.True(t, protocol.IsDTLS13Ciphertext(protocol.ContentType(prepared[0].raw[0])))
 
-	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPackets[0])
+	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, prepared[0].raw)
 	assert.Equal(t, protocol.ContentTypeHandshake, innerPlaintext.RealType)
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
@@ -5066,13 +5049,11 @@ func TestProcessProtectedHandshakePacketFiltersACKedFragments(t *testing.T) {
 	_, err := dtlsHandshake.Marshal()
 	require.NoError(t, err)
 
-	prepared, err := conn.processProtectedHandshakePacketTracked(&dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: dtlsflight13.EpochHandshake},
-			Content: dtlsHandshake,
-		},
-		ShouldEncrypt:            true,
-		ShouldTrackACK:           true,
+	prepared, err := conn.prepareHandshakeRecords(&dtlsflight.Outbound{
+		Epoch:                    dtlsflight13.EpochHandshake,
+		Content:                  dtlsHandshake,
+		Protection:               dtlsflight.ProtectionCiphertext,
+		TrackACK:                 true,
 		HandshakeFragmentOffsets: map[uint32]uint32{10: 10},
 	}, dtlsHandshake)
 	require.NoError(t, err)
@@ -5084,15 +5065,10 @@ func TestProcessProtectedPacketWritesApplicationData(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithWriteProtection(t)
 	payload := []byte("application data")
 
-	rawPacket, err := conn.processPacket(&dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   dtlsflight13.EpochApplication,
-			},
-			Content: &protocol.ApplicationData{Data: payload},
-		},
-		ShouldEncrypt: true,
+	rawPacket, err := conn.prepareRecord(&dtlsflight.Outbound{
+		Epoch:      dtlsflight13.EpochApplication,
+		Content:    &protocol.ApplicationData{Data: payload},
+		Protection: dtlsflight.ProtectionCiphertext,
 	})
 	require.NoError(t, err)
 
@@ -5107,12 +5083,10 @@ func TestProcessProtectedPacketWritesACK(t *testing.T) {
 	expected, err := ack.Marshal()
 	require.NoError(t, err)
 
-	rawPacket, err := conn.processPacket(&dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: dtlsflight13.EpochApplication},
-			Content: ack,
-		},
-		ShouldEncrypt: true,
+	rawPacket, err := conn.prepareRecord(&dtlsflight.Outbound{
+		Epoch:      dtlsflight13.EpochApplication,
+		Content:    ack,
+		Protection: dtlsflight.ProtectionCiphertext,
 	})
 	require.NoError(t, err)
 	innerPlaintext := openTestProtectedRecord(t, peerCipherSuite, rawPacket)

@@ -19,7 +19,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 const (
@@ -99,7 +98,7 @@ type reliablePostHandshakeFlight struct {
 
 	// Constructed once. Retransmissions will reuse these messages and their
 	// message_seq values.
-	Packets []*dtlsflight.Packet
+	Packets []*dtlsflight.Outbound
 
 	// All retransmissions will use this epoch/key generation.
 	Epoch uint16
@@ -138,8 +137,8 @@ type keyUpdateCommand struct {
 type postHandshakeCommand struct {
 	Kind postHandshakeCommandKind
 
-	Packets   []*dtlsflight.Packet
-	Write     func(Conn, []*dtlsflight.Packet) error
+	Packets   []*dtlsflight.Outbound
+	Write     func(Conn, []*dtlsflight.Outbound) error
 	KeyUpdate keyUpdateCommand
 	Canceled  <-chan struct{}
 
@@ -287,7 +286,7 @@ func (p *postHandshake) startPostHandshakeCommand(
 
 func (p *postHandshake) writeApplicationData(conn Conn, command postHandshakeCommand) error {
 	for _, packet := range command.Packets {
-		packet.Record.Header.Epoch = p.state.LocalEpoch()
+		packet.Epoch = p.state.LocalEpoch()
 	}
 	err := command.Write(conn, command.Packets)
 	command.Completion.complete(err)
@@ -595,24 +594,19 @@ func (p *postHandshake) buildKeyUpdateFlight(
 
 	messageSequence := uint16(p.state.HandshakeSendSequence) //nolint:gosec // bounded above
 	p.state.HandshakeSendSequence++
-	packet := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   current.Epoch,
+	packet := &dtlsflight.Outbound{
+		Epoch: current.Epoch,
+		Content: &handshake.Handshake{
+			Header: handshake.Header{
+				Type:            handshake.TypeKeyUpdate,
+				Length:          uint32(len(body)), //nolint:gosec // marshal limits the message size
+				MessageSequence: messageSequence,
+				FragmentLength:  uint32(len(body)), //nolint:gosec // marshal limits the message size
 			},
-			Content: &handshake.Handshake{
-				Header: handshake.Header{
-					Type:            handshake.TypeKeyUpdate,
-					Length:          uint32(len(body)), //nolint:gosec // marshal limits the message size
-					MessageSequence: messageSequence,
-					FragmentLength:  uint32(len(body)), //nolint:gosec // marshal limits the message size
-				},
-				Message: message,
-			},
+			Message: message,
 		},
-		ShouldEncrypt:  true,
-		ShouldTrackACK: true,
+		Protection: dtlsflight.ProtectionCiphertext,
+		TrackACK:   true,
 	}
 	id := postHandshakeFlightID{
 		Category:        postHandshakeKeyUpdate,
@@ -621,7 +615,7 @@ func (p *postHandshake) buildKeyUpdateFlight(
 
 	return &reliablePostHandshakeFlight{
 		ID:                 id,
-		Packets:            []*dtlsflight.Packet{packet},
+		Packets:            []*dtlsflight.Outbound{packet},
 		Epoch:              current.Epoch,
 		PendingFragments:   make(map[postHandshakeFragment]struct{}),
 		SentRecords:        make(map[protocol.RecordNumber]struct{}),
@@ -698,24 +692,19 @@ func (p *postHandshake) makeReliableNewSessionTicket(
 
 	messageSequence := uint16(p.state.HandshakeSendSequence) //nolint:gosec // bounded above
 	p.state.HandshakeSendSequence++
-	packet := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   p.state.LocalEpoch(),
+	packet := &dtlsflight.Outbound{
+		Epoch: p.state.LocalEpoch(),
+		Content: &handshake.Handshake{
+			Header: handshake.Header{
+				Type:            handshake.TypeNewSessionTicket,
+				Length:          uint32(len(body)), //nolint:gosec // marshal limits the message size
+				MessageSequence: messageSequence,
+				FragmentLength:  uint32(len(body)), //nolint:gosec // marshal limits the message size
 			},
-			Content: &handshake.Handshake{
-				Header: handshake.Header{
-					Type:            handshake.TypeNewSessionTicket,
-					Length:          uint32(len(body)), //nolint:gosec // marshal limits the message size
-					MessageSequence: messageSequence,
-					FragmentLength:  uint32(len(body)), //nolint:gosec // marshal limits the message size
-				},
-				Message: message,
-			},
+			Message: message,
 		},
-		ShouldEncrypt:  true,
-		ShouldTrackACK: true,
+		Protection: dtlsflight.ProtectionCiphertext,
+		TrackACK:   true,
 	}
 	id := postHandshakeFlightID{
 		Category:        postHandshakeNewSessionTicket,
@@ -724,7 +713,7 @@ func (p *postHandshake) makeReliableNewSessionTicket(
 
 	return &reliablePostHandshakeFlight{
 		ID:                 id,
-		Packets:            []*dtlsflight.Packet{packet},
+		Packets:            []*dtlsflight.Outbound{packet},
 		Epoch:              p.state.LocalEpoch(),
 		PendingFragments:   make(map[postHandshakeFragment]struct{}),
 		SentRecords:        make(map[protocol.RecordNumber]struct{}),
@@ -794,7 +783,7 @@ func (p *postHandshake) retransmitPostHandshakeFlight(
 	disableRetransmitBackoff bool,
 ) error {
 	for _, packet := range flight.Packets {
-		message, ok := packet.Record.Content.(*handshake.Handshake)
+		message, ok := packet.Content.(*handshake.Handshake)
 		if !ok {
 			continue
 		}

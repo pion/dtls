@@ -32,7 +32,7 @@ func TestClientHelloFiltersX25519MLKEM768(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, elliptic.P256, state.NamedCurve)
 
-	content, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	content, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	clientHello, ok := content.Message.(*handshake.MessageClientHello)
 	require.True(t, ok)

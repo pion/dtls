@@ -333,7 +333,7 @@ func (t *Transcript) Bytes() []byte {
 func seedTranscriptFromInitialFlights(
 	state *dtlsstate.State13,
 	transcript *Transcript,
-	flights []*dtlsflight.Packet,
+	flights []*dtlsflight.Outbound,
 	retransmit bool,
 ) error {
 	if !state.IsClient {
@@ -351,7 +351,7 @@ func seedTranscriptFromInitialFlights(
 	return nil
 }
 
-func AppendClientHelloInitialFlights(transcript *Transcript, flights []*dtlsflight.Packet) (bool, error) {
+func AppendClientHelloInitialFlights(transcript *Transcript, flights []*dtlsflight.Outbound) (bool, error) {
 	if transcript == nil {
 		return false, dtlserrors.ErrHandshakeTranscriptMissingClientHello
 	}
@@ -379,7 +379,7 @@ func AppendClientHelloInitialFlights(transcript *Transcript, flights []*dtlsflig
 
 // ValidateClientHelloInitialFlights verifies that the dual-stack initial flight
 // contains a canonical ClientHello before it is written.
-func ValidateClientHelloInitialFlights(flights []*dtlsflight.Packet) error {
+func ValidateClientHelloInitialFlights(flights []*dtlsflight.Outbound) error {
 	appended, err := AppendClientHelloInitialFlights(NewTranscript(), flights)
 	if err != nil {
 		return err
@@ -391,11 +391,11 @@ func ValidateClientHelloInitialFlights(flights []*dtlsflight.Packet) error {
 	return nil
 }
 
-func canonicalClientHelloInitialFlight(p *dtlsflight.Packet) (uint16, []byte, bool, error) {
-	if p == nil || p.Record == nil {
+func canonicalClientHelloInitialFlight(p *dtlsflight.Outbound) (uint16, []byte, bool, error) {
+	if p == nil || p.Content == nil {
 		return 0, nil, false, nil
 	}
-	hand, ok := p.Record.Content.(*handshake.Handshake)
+	hand, ok := p.Content.(*handshake.Handshake)
 	if !ok {
 		return 0, nil, false, nil
 	}
@@ -427,7 +427,7 @@ func AppendOutboundHandshakeFlight(
 	transcript *Transcript,
 	isClient bool,
 	cipherSuite dtlsconfig.CipherSuite,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) error {
 	if transcript == nil {
 		return nil
@@ -458,12 +458,12 @@ func AppendOutboundHandshakeFlight(
 	return nil
 }
 
-func canonicalOutboundHandshake(p *dtlsflight.Packet) (*handshake.Handshake, []byte, bool, error) {
-	if p == nil || p.Record == nil {
+func canonicalOutboundHandshake(p *dtlsflight.Outbound) (*handshake.Handshake, []byte, bool, error) {
+	if p == nil || p.Content == nil {
 		return nil, nil, false, nil
 	}
 
-	hs, ok := p.Record.Content.(*handshake.Handshake)
+	hs, ok := p.Content.(*handshake.Handshake)
 	if !ok || hs.Message == nil {
 		return nil, nil, false, nil
 	}

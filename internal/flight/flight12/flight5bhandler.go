@@ -13,7 +13,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 func flight5bParse(
@@ -47,17 +46,12 @@ func flight5bGenerate(
 	state *dtlsstate.State12,
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
-	var pkts []*dtlsflight.Packet
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	var pkts []*dtlsflight.Outbound
 
 	pkts = append(pkts,
-		&dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &protocol.ChangeCipherSpec{},
-			},
+		&dtlsflight.Outbound{
+			Content: &protocol.ChangeCipherSpec{},
 		})
 
 	if len(state.LocalVerifyData) == 0 {
@@ -75,21 +69,14 @@ func flight5bGenerate(
 	}
 
 	pkts = append(pkts,
-		&dtlsflight.Packet{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-					Epoch:   1,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageFinished{
-						VerifyData: state.LocalVerifyData,
-					},
+		&dtlsflight.Outbound{
+			Epoch: 1,
+			Content: &handshake.Handshake{
+				Message: &handshake.MessageFinished{
+					VerifyData: state.LocalVerifyData,
 				},
 			},
-			ShouldEncrypt:            true,
-			ShouldWrapCID:            state.ShouldWrapConnectionID(),
-			ResetLocalSequenceNumber: true,
+			Protection: dtlsflight.ProtectionCiphertext,
 		})
 
 	return pkts, nil, nil

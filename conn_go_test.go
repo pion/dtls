@@ -17,7 +17,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/transport/v4/dpipe"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
@@ -137,8 +136,8 @@ func testListenConnectionIDRebindingRequiresRRC(
 	}()
 
 	reboundPacket := client.newApplicationDataPacket([]byte("rebound"))
-	reboundPacket.Record.Header.Epoch = dtlsstate.CommonState(client.state).LocalEpoch()
-	datagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Packet{reboundPacket})
+	reboundPacket.Epoch = dtlsstate.CommonState(client.state).LocalEpoch()
+	datagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Outbound{reboundPacket})
 	require.NoError(t, err)
 	require.Len(t, datagrams, 1)
 	_, err = reboundSocket.WriteTo(datagrams[0].raw, listener.Addr())
@@ -179,29 +178,23 @@ func testListenConnectionIDRebindingRequiresRRC(
 	}
 	assert.Equal(t, protocol.ReturnRoutabilityCheckPathChallenge, challenge.MessageType)
 
-	responsePacket := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   dtlsstate.CommonState(client.state).LocalEpoch(),
-			},
-			Content: &protocol.ReturnRoutabilityCheck{
-				MessageType: protocol.ReturnRoutabilityCheckPathResponse,
-				Cookie:      challenge.Cookie,
-			},
+	responsePacket := &dtlsflight.Outbound{
+		Epoch: dtlsstate.CommonState(client.state).LocalEpoch(),
+		Content: &protocol.ReturnRoutabilityCheck{
+			MessageType: protocol.ReturnRoutabilityCheckPathResponse,
+			Cookie:      challenge.Cookie,
 		},
-		ShouldWrapCID: negotiatedVersion.Equal(protocol.Version1_2) && client.state.ShouldWrapConnectionID(),
-		ShouldEncrypt: true,
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
-	responseDatagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Packet{responsePacket})
+	responseDatagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Outbound{responsePacket})
 	require.NoError(t, err)
 	require.Len(t, responseDatagrams, 1)
 	_, err = reboundSocket.WriteTo(responseDatagrams[0].raw, listener.Addr())
 	require.NoError(t, err)
 
 	secondReboundPacket := client.newApplicationDataPacket([]byte("validated"))
-	secondReboundPacket.Record.Header.Epoch = dtlsstate.CommonState(client.state).LocalEpoch()
-	secondDatagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Packet{secondReboundPacket})
+	secondReboundPacket.Epoch = dtlsstate.CommonState(client.state).LocalEpoch()
+	secondDatagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Outbound{secondReboundPacket})
 	require.NoError(t, err)
 	require.Len(t, secondDatagrams, 1)
 	_, err = reboundSocket.WriteTo(secondDatagrams[0].raw, listener.Addr())

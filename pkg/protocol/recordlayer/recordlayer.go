@@ -5,6 +5,7 @@ package recordlayer
 
 import (
 	"encoding/binary"
+	"math"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -37,8 +38,7 @@ const (
 // RecordLayer describes a mutable outbound fixed-header DTLS record. Inbound
 // datagrams are framed with UnpackDatagram and opened by connection state.
 type RecordLayer struct {
-	Header  Header
-	Content protocol.Content
+	Header Header
 }
 
 // UnpackDatagramConfig configures datagram framing.
@@ -62,22 +62,19 @@ type unpackedDatagramRecord struct {
 	hasCID   bool
 }
 
-// Marshal encodes the RecordLayer to binary.
-func (r *RecordLayer) Marshal() ([]byte, error) {
-	contentRaw, err := r.Content.Marshal()
+// MarshalRecord encodes one fixed-header or DTLS 1.2 CID record.
+func MarshalRecord(header Header, contentType protocol.ContentType, content []byte) ([]byte, error) {
+	if len(content) > math.MaxUint16 {
+		return nil, ErrInvalidPacketLength
+	}
+	header.ContentLen = uint16(len(content)) //nolint:gosec // bounded above
+	header.ContentType = contentType
+	headerRaw, err := header.Marshal()
 	if err != nil {
 		return nil, err
 	}
 
-	r.Header.ContentLen = uint16(len(contentRaw)) //nolint:gosec // G115
-	r.Header.ContentType = r.Content.ContentType()
-
-	headerRaw, err := r.Header.Marshal()
-	if err != nil {
-		return nil, err
-	}
-
-	return append(headerRaw, contentRaw...), nil
+	return append(headerRaw, content...), nil
 }
 
 // UnpackDatagram extracts all records from a single datagram.

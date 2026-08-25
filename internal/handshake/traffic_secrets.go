@@ -42,7 +42,7 @@ func commitPreparedFlights(
 	state *dtlsstate.State13,
 	transcript *Transcript,
 	cfg *dtlsconfig.HandshakeConfig,
-	flights []*dtlsflight.Packet,
+	flights []*dtlsflight.Outbound,
 ) error {
 	nextEpoch, protectedFlightStart := prepareFlightPackets(state, cfg.InitialEpoch, flights)
 	if err := commitOutboundFlight(state, transcript, flights, protectedFlightStart); err != nil {
@@ -61,19 +61,19 @@ func commitPreparedFlights(
 func prepareFlightPackets(
 	state *dtlsstate.State13,
 	epoch uint16,
-	flights []*dtlsflight.Packet,
+	flights []*dtlsflight.Outbound,
 ) (uint16, int) {
 	nextEpoch := epoch
 	protectedFlightStart := len(flights)
 	for i, packet := range flights {
-		packet.Record.Header.Epoch += epoch
-		if packet.Record.Header.Epoch > nextEpoch {
-			nextEpoch = packet.Record.Header.Epoch
+		packet.Epoch += epoch
+		if packet.Epoch > nextEpoch {
+			nextEpoch = packet.Epoch
 		}
-		if packet.ShouldEncrypt && protectedFlightStart == len(flights) {
+		if packet.Protection == dtlsflight.ProtectionCiphertext && protectedFlightStart == len(flights) {
 			protectedFlightStart = i
 		}
-		if handshakeMessage, ok := packet.Record.Content.(*handshake.Handshake); ok {
+		if handshakeMessage, ok := packet.Content.(*handshake.Handshake); ok {
 			handshakeMessage.Header.MessageSequence = uint16(state.HandshakeSendSequence) //nolint:gosec // G115
 			state.HandshakeSendSequence++
 		}
@@ -85,7 +85,7 @@ func prepareFlightPackets(
 func commitOutboundFlight(
 	state *dtlsstate.State13,
 	transcript *Transcript,
-	flights []*dtlsflight.Packet,
+	flights []*dtlsflight.Outbound,
 	protectedFlightStart int,
 ) error {
 	if err := appendCommittedOutboundHandshakeFlight(state, transcript, flights[:protectedFlightStart]); err != nil {
@@ -116,7 +116,7 @@ func ensureHandshakeTrafficSecrets(state *dtlsstate.State13, transcript *Transcr
 func appendCommittedOutboundHandshakeFlight(
 	state *dtlsstate.State13,
 	transcript *Transcript,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) error {
 	for _, p := range pkts {
 		if err := populateOutboundCertificateVerify(state, transcript, p); err != nil {
@@ -129,7 +129,7 @@ func appendCommittedOutboundHandshakeFlight(
 			transcript,
 			state.IsClient,
 			state.CipherSuite,
-			[]*dtlsflight.Packet{p},
+			[]*dtlsflight.Outbound{p},
 		); err != nil {
 			return err
 		}
@@ -141,12 +141,12 @@ func appendCommittedOutboundHandshakeFlight(
 func populateOutboundCertificateVerify(
 	state *dtlsstate.State13,
 	transcript *Transcript,
-	pkt *dtlsflight.Packet,
+	pkt *dtlsflight.Outbound,
 ) error {
-	if pkt == nil || pkt.Record == nil {
+	if pkt == nil || pkt.Content == nil {
 		return nil
 	}
-	h, ok := pkt.Record.Content.(*handshake.Handshake)
+	h, ok := pkt.Content.(*handshake.Handshake)
 	if !ok {
 		return nil
 	}
@@ -175,12 +175,12 @@ func populateOutboundCertificateVerify(
 func populateOutboundFinished(
 	state *dtlsstate.State13,
 	transcript *Transcript,
-	p *dtlsflight.Packet,
+	p *dtlsflight.Outbound,
 ) error {
-	if p == nil || p.Record == nil {
+	if p == nil || p.Content == nil {
 		return nil
 	}
-	h, ok := p.Record.Content.(*handshake.Handshake)
+	h, ok := p.Content.(*handshake.Handshake)
 	if !ok {
 		return nil
 	}

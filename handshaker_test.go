@@ -22,7 +22,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
@@ -75,8 +74,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			const helloVerifyDrop = 5
 
 			clientEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Packet) bool {
-					h, ok := p.Record.Content.(*handshake.Handshake)
+				Filter: func(p *dtlsflight.Outbound) bool {
+					h, ok := p.Content.(*handshake.Handshake)
 					if !ok {
 						return true
 					}
@@ -91,8 +90,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			}
 
 			serverEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Packet) bool {
-					h, ok := p.Record.Content.(*handshake.Handshake)
+				Filter: func(p *dtlsflight.Outbound) bool {
+					h, ok := p.Content.(*handshake.Handshake)
 					if !ok {
 						return true
 					}
@@ -124,8 +123,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			)
 
 			clientEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Packet) bool {
-					h, ok := p.Record.Content.(*handshake.Handshake)
+				Filter: func(p *dtlsflight.Outbound) bool {
+					h, ok := p.Content.(*handshake.Handshake)
 					if !ok {
 						return true
 					}
@@ -138,8 +137,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			}
 
 			serverEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Packet) bool {
-					h, ok := p.Record.Content.(*handshake.Handshake)
+				Filter: func(p *dtlsflight.Outbound) bool {
+					h, ok := p.Content.(*handshake.Handshake)
 					if !ok {
 						return true
 					}
@@ -172,8 +171,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			)
 
 			clientEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Packet) bool {
-					h, ok := p.Record.Content.(*handshake.Handshake)
+				Filter: func(p *dtlsflight.Outbound) bool {
+					h, ok := p.Content.(*handshake.Handshake)
 					if !ok {
 						return true
 					}
@@ -195,8 +194,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			}
 
 			serverEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Packet) bool {
-					h, ok := p.Record.Content.(*handshake.Handshake)
+				Filter: func(p *dtlsflight.Outbound) bool {
+					h, ok := p.Content.(*handshake.Handshake)
 					if !ok {
 						return true
 					}
@@ -240,8 +239,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 
 		"RetransmitFinishedMessageLost": func() (TestEndpoint, TestEndpoint, func(t *testing.T)) { //nolint:unparam
 			serverEndpoint := TestEndpoint{
-				Retransmit: func(p *dtlsflight.Packet) bool {
-					h, ok := p.Record.Content.(*handshake.Handshake)
+				Retransmit: func(p *dtlsflight.Outbound) bool {
+					h, ok := p.Content.(*handshake.Handshake)
 					if !ok {
 						return false
 					}
@@ -341,7 +340,7 @@ func runHandshakeFSM12ForTest(
 	}
 }
 
-type packetFilter func(p *dtlsflight.Packet) bool
+type packetFilter func(p *dtlsflight.Outbound) bool
 
 type TestEndpoint struct {
 	Filter     packetFilter
@@ -414,7 +413,7 @@ func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description)
 
 func (c *flightTestConn) WritePackets( //nolint:cyclop
 	_ context.Context,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) (*dtlshandshake.WriteResult, error) {
 	time.Sleep(c.delay)
 	isRetransmit := false
@@ -425,15 +424,15 @@ func (c *flightTestConn) WritePackets( //nolint:cyclop
 		if c.retransmit != nil && c.retransmit(pkt) {
 			isRetransmit = true
 		}
-		if handshake, ok := pkt.Record.Content.(*handshake.Handshake); ok {
-			handshakeRaw, err := pkt.Record.Marshal()
+		if handshake, ok := pkt.Content.(*handshake.Handshake); ok {
+			handshakeRaw, err := handshake.Marshal()
 			if err != nil {
 				return nil, err
 			}
 
 			c.handshakeCache.Push(
-				handshakeRaw[recordlayer.FixedHeaderSize:],
-				pkt.Record.Header.Epoch,
+				handshakeRaw,
+				pkt.Epoch,
 				handshake.Header.MessageSequence,
 				handshake.Header.Type,
 				c.state.IsClient,
@@ -451,7 +450,7 @@ func (c *flightTestConn) WritePackets( //nolint:cyclop
 			}
 			c.otherEndCache.Push(
 				append(hdr, content...),
-				pkt.Record.Header.Epoch,
+				pkt.Epoch,
 				handshake.Header.MessageSequence,
 				handshake.Header.Type,
 				c.state.IsClient,

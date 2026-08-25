@@ -119,7 +119,7 @@ func flight0Parse(
 func flight0Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
 	state.SetSRTPProtectionProfile(0)

@@ -39,7 +39,7 @@ func generateForTest(
 	state *dtlsstate.State12,
 	cache *dtlsflight.Cache, //nolint:unparam
 	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {
 		helper.Helper()
 	}

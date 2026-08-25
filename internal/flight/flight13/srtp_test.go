@@ -56,9 +56,9 @@ func TestFlight4GenerateNegotiatesSRTPInEncryptedExtensions(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.GreaterOrEqual(t, len(packets), 2)
-			serverHello := packets[0].Record.Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello) //nolint:forcetypeassert,lll
+			serverHello := packets[0].Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello) //nolint:forcetypeassert,lll
 			assert.False(t, hasSRTPSelection13(serverHello.Extensions))
-			encryptedExtensions := packets[1].Record.Content.(*handshake.Handshake).Message.(*handshake.MessageEncryptedExtensions) //nolint:forcetypeassert,lll
+			encryptedExtensions := packets[1].Content.(*handshake.Handshake).Message.(*handshake.MessageEncryptedExtensions) //nolint:forcetypeassert,lll
 			selection := findSRTPSelection13(encryptedExtensions.Extensions)
 			require.NotNil(t, selection)
 			assert.Equal(t, srtpProfile13, selection.ProtectionProfile)

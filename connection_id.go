@@ -62,18 +62,15 @@ func (c returnRoutabilityConn) WriteRRC(
 
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
-	packet := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{Version: protocol.Version1_2, Epoch: common.LocalEpoch()},
-			Content: &protocol.ReturnRoutabilityCheck{
-				MessageType: messageType,
-				Cookie:      cookie,
-			},
+	packet := &dtlsflight.Outbound{
+		Epoch: common.LocalEpoch(),
+		Content: &protocol.ReturnRoutabilityCheck{
+			MessageType: messageType,
+			Cookie:      cookie,
 		},
-		ShouldWrapCID: common.LocalVersion.Equal(protocol.Version1_2) && c.conn.state.ShouldWrapConnectionID(),
-		ShouldEncrypt: true,
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
-	raw, err := c.conn.processPacket(packet)
+	raw, err := c.conn.prepareRecord(packet)
 	if err == nil {
 		err = c.conn.rrc.Reserve(addr, c.conn.rAddr, len(raw))
 	}

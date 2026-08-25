@@ -14,6 +14,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func marshalTestRecord(header Header, content protocol.Content) ([]byte, error) {
+	payload, err := content.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	return MarshalRecord(header, content.ContentType(), payload)
+}
+
+type testRecord struct {
+	Header  Header
+	Content protocol.Content
+}
+
+func (r *testRecord) Marshal() ([]byte, error) {
+	return marshalTestRecord(r.Header, r.Content)
+}
+
 func TestUDPDecode(t *testing.T) {
 	for _, test := range []struct {
 		Name      string
@@ -110,12 +128,12 @@ func TestRecordLayerMarshalAndScan(t *testing.T) {
 	for _, test := range []struct {
 		Name string
 		Data []byte
-		Want *RecordLayer
+		Want *testRecord
 	}{
 		{
 			Name: "Change Cipher Spec, single packet",
 			Data: []byte{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
-			Want: &RecordLayer{
+			Want: &testRecord{
 				Header: Header{
 					ContentType:    protocol.ContentTypeChangeCipherSpec,
 					ContentLen:     1,
@@ -132,7 +150,7 @@ func TestRecordLayerMarshalAndScan(t *testing.T) {
 				0x1b, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x09,
 				0x01, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 			},
-			Want: &RecordLayer{
+			Want: &testRecord{
 				Header: Header{
 					ContentType:    protocol.ContentTypeReturnRoutabilityCheck,
 					ContentLen:     9,
@@ -205,7 +223,7 @@ func FuzzRecordLayer_MarshalScan_RoundTrip(f *testing.F) {
 			payload = []byte{0}
 		}
 
-		recordLayer := &RecordLayer{
+		recordLayer := &testRecord{
 			Header: Header{
 				ContentType:    protocol.ContentTypeApplicationData,
 				Version:        protocol.Version1_2,
@@ -237,7 +255,7 @@ func FuzzRecordLayer_MarshalScan_RoundTrip(f *testing.F) {
 
 		require.Equal(t, payload, backContent.Data)
 
-		raw2, err := (&RecordLayer{Header: backHeader, Content: &backContent}).Marshal()
+		raw2, err := marshalTestRecord(backHeader, &backContent)
 		require.NoError(t, err)
 		require.Equal(t, raw, raw2)
 	})
@@ -264,7 +282,7 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 		var dat []byte
 		want := make([][]byte, 0, count)
 		for i := range count {
-			rl := &RecordLayer{
+			rl := &testRecord{
 				Header: Header{
 					ContentType:    protocol.ContentTypeApplicationData,
 					Version:        protocol.Version1_2,
@@ -831,7 +849,7 @@ func TestUnpackDatagramDoesNotApplyContentPolicy(t *testing.T) {
 }
 
 func TestUnpackDatagramAllRecordForms(t *testing.T) {
-	plaintext := &RecordLayer{
+	plaintext := &testRecord{
 		Header:  Header{Version: protocol.Version1_2},
 		Content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify},
 	}

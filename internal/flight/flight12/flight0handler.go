@@ -174,7 +174,7 @@ func flight0Generate(
 	state *dtlsstate.State12,
 	_ *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	// Initialize
 	state.SetSRTPProtectionProfile(0)
 	if !cfg.InsecureSkipHelloVerify {

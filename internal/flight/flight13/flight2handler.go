@@ -14,7 +14,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 func flight2Parse( //nolint:cyclop
@@ -70,7 +69,7 @@ func flight2Parse( //nolint:cyclop
 func flight2Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	flightCtx.state.HandshakeSendSequence = 0
 	if flightCtx.state.CipherSuite == nil {
 		return nil, nil, dtlserrors.ErrCipherSuiteUnset
@@ -119,15 +118,10 @@ func flight2Generate(
 	}
 	flightCtx.state.HelloRetryRequest = request
 
-	return []*dtlsflight.Packet{
+	return []*dtlsflight.Outbound{
 		{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: serverHello,
-				},
+			Content: &handshake.Handshake{
+				Message: serverHello,
 			},
 		},
 	}, nil, nil

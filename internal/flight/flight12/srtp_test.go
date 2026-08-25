@@ -180,10 +180,10 @@ func pushHandshake12(t *testing.T, cache *dtlsflight.Cache, sequence uint16, mes
 	cache.Push(raw, 0, sequence, message.Type(), false)
 }
 
-func serverHelloSRTPSelection12(t *testing.T, packets []*dtlsflight.Packet) *extension.SRTPSelection {
+func serverHelloSRTPSelection12(t *testing.T, packets []*dtlsflight.Outbound) *extension.SRTPSelection {
 	t.Helper()
 	require.NotEmpty(t, packets)
-	handshakePacket, ok := packets[0].Record.Content.(*handshake.Handshake)
+	handshakePacket, ok := packets[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	serverHello, ok := handshakePacket.Message.(*handshake.MessageServerHello)
 	require.True(t, ok)

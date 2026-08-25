@@ -20,7 +20,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +63,7 @@ type postHandshakeKeyUpdateConn struct {
 
 func (c *postHandshakeKeyUpdateConn) WritePackets(
 	_ context.Context,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) (*WriteResult, error) {
 	c.writtenPackets = append(c.writtenPackets, pkts...)
 	if c.result == nil {
@@ -114,7 +113,7 @@ func newPostHandshakeKeyUpdateTestState(t *testing.T, isClient bool) *dtlsstate.
 
 func (c *postHandshakeWriteConn) WritePackets(
 	_ context.Context,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) (*WriteResult, error) {
 	c.writtenPackets = append(c.writtenPackets, pkts...)
 
@@ -140,13 +139,13 @@ func TestMakeReliableNewSessionTicket(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, flight.Packets, 1)
 	packet := flight.Packets[0]
-	assert.True(t, packet.ShouldEncrypt)
-	assert.True(t, packet.ShouldTrackACK)
-	assert.Equal(t, uint16(7), packet.Record.Header.Epoch)
+	assert.True(t, packet.Protection == dtlsflight.ProtectionCiphertext)
+	assert.True(t, packet.TrackACK)
+	assert.Equal(t, uint16(7), packet.Epoch)
 	assert.Equal(t, uint16(12), flight.ID.MessageSequence)
 	assert.Equal(t, 13, state.HandshakeSendSequence)
 
-	wireHandshake, ok := packet.Record.Content.(*handshake.Handshake)
+	wireHandshake, ok := packet.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	assert.Equal(t, uint16(12), wireHandshake.Header.MessageSequence)
 	assert.Same(t, message, wireHandshake.Message)
@@ -330,14 +329,14 @@ func TestPostHandshakeReceiveNewSessionTicket(t *testing.T) {
 	require.NoError(t, receive())
 	assert.Equal(t, int(ticketRecvSequence)+1, state.HandshakeRecvSequence)
 	require.Len(t, conn.writtenPackets, 1)
-	firstACK, ok := conn.writtenPackets[0].Record.Content.(*protocol.ACK)
+	firstACK, ok := conn.writtenPackets[0].Content.(*protocol.ACK)
 	require.True(t, ok)
 	assert.Equal(t, []protocol.RecordNumber{record}, firstACK.Records)
 
 	require.NoError(t, receive())
 	assert.Equal(t, int(ticketRecvSequence)+1, state.HandshakeRecvSequence)
 	require.Len(t, conn.writtenPackets, 2)
-	retransmitACK, ok := conn.writtenPackets[1].Record.Content.(*protocol.ACK)
+	retransmitACK, ok := conn.writtenPackets[1].Content.(*protocol.ACK)
 	require.True(t, ok)
 	assert.Equal(t, []protocol.RecordNumber{record}, retransmitACK.Records)
 }
@@ -488,11 +487,11 @@ func TestPrepareNewSessionTicket(t *testing.T) {
 	require.NoError(t, err)
 	second, err := post.prepareNewSessionTicket(false)
 	require.NoError(t, err)
-	firstHandshake, ok := first.Packets[0].Record.Content.(*handshake.Handshake)
+	firstHandshake, ok := first.Packets[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	firstMessage, ok := firstHandshake.Message.(*handshake.MessageNewSessionTicket)
 	require.True(t, ok)
-	secondHandshake, ok := second.Packets[0].Record.Content.(*handshake.Handshake)
+	secondHandshake, ok := second.Packets[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	secondMessage, ok := secondHandshake.Message.(*handshake.MessageNewSessionTicket)
 	require.True(t, ok)
@@ -527,14 +526,14 @@ func TestKeyUpdateCommitsWriteKeysOnlyAfterACK(t *testing.T) {
 	}))
 	require.Len(t, conn.writtenPackets, 1)
 	packet := conn.writtenPackets[0]
-	assert.Equal(t, dtlsflight13.EpochApplication, packet.Record.Header.Epoch)
-	wireHandshake, ok := packet.Record.Content.(*handshake.Handshake)
+	assert.Equal(t, dtlsflight13.EpochApplication, packet.Epoch)
+	wireHandshake, ok := packet.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	wireKeyUpdate, ok := wireHandshake.Message.(*handshake.MessageKeyUpdate)
 	require.True(t, ok)
 	assert.Equal(t, handshake.KeyUpdateRequested, wireKeyUpdate.RequestUpdate)
 	assert.Equal(t, uint16(9), wireHandshake.Header.MessageSequence)
-	assert.True(t, packet.ShouldTrackACK)
+	assert.True(t, packet.TrackACK)
 	assert.Equal(t, dtlsflight13.EpochApplication, state.LocalEpoch())
 	current, ok := state.TrafficKeys.CurrentWrite()
 	require.True(t, ok)
@@ -598,12 +597,12 @@ func TestRequestedKeyUpdateInstallsReadKeysAndQueuesResponse(t *testing.T) {
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
 	require.Len(t, conn.writtenPackets, 1)
-	responseHandshake, ok := conn.writtenPackets[0].Record.Content.(*handshake.Handshake)
+	responseHandshake, ok := conn.writtenPackets[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	response, ok := responseHandshake.Message.(*handshake.MessageKeyUpdate)
 	require.True(t, ok)
 	assert.Equal(t, handshake.KeyUpdateNotRequested, response.RequestUpdate)
-	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Record.Header.Epoch)
+	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Epoch)
 	assert.Equal(t, dtlsflight13.EpochApplication, state.LocalEpoch())
 }
 
@@ -654,17 +653,14 @@ func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 			}},
 		}}},
 	}
-	applicationPacket := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header:  recordlayer.Header{Version: protocol.Version1_2},
-			Content: &protocol.ApplicationData{Data: []byte("after update")},
-		},
-		ShouldEncrypt: true,
+	applicationPacket := &dtlsflight.Outbound{
+		Content:    &protocol.ApplicationData{Data: []byte("after update")},
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
 	post.queue = append(post.queue, postHandshakeCommand{
 		Kind:    commandSendApplicationData,
-		Packets: []*dtlsflight.Packet{applicationPacket},
-		Write: func(conn Conn, packets []*dtlsflight.Packet) error {
+		Packets: []*dtlsflight.Outbound{applicationPacket},
+		Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
 			_, err := conn.WritePackets(context.Background(), packets)
 
 			return err
@@ -674,27 +670,24 @@ func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
 	require.Len(t, conn.writtenPackets, 2)
-	_, isKeyUpdate := conn.writtenPackets[0].Record.Content.(*handshake.Handshake)
+	_, isKeyUpdate := conn.writtenPackets[0].Content.(*handshake.Handshake)
 	assert.True(t, isKeyUpdate)
-	_, isApplicationData := conn.writtenPackets[1].Record.Content.(*protocol.ApplicationData)
+	_, isApplicationData := conn.writtenPackets[1].Content.(*protocol.ApplicationData)
 	assert.True(t, isApplicationData)
-	assert.Equal(t, dtlsflight13.EpochApplication, applicationPacket.Record.Header.Epoch)
+	assert.Equal(t, dtlsflight13.EpochApplication, applicationPacket.Epoch)
 	assert.Empty(t, post.queue)
 
 	completed := post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{record}})
 	require.Len(t, completed, 1)
 	require.NoError(t, post.completePostHandshakeFlight(conn, completed[0]))
-	afterACKPacket := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header:  recordlayer.Header{Version: protocol.Version1_2},
-			Content: &protocol.ApplicationData{Data: []byte("after ACK")},
-		},
-		ShouldEncrypt: true,
+	afterACKPacket := &dtlsflight.Outbound{
+		Content:    &protocol.ApplicationData{Data: []byte("after ACK")},
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
 	post.queue = append(post.queue, postHandshakeCommand{
 		Kind:    commandSendApplicationData,
-		Packets: []*dtlsflight.Packet{afterACKPacket},
-		Write: func(conn Conn, packets []*dtlsflight.Packet) error {
+		Packets: []*dtlsflight.Outbound{afterACKPacket},
+		Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
 			_, err := conn.WritePackets(context.Background(), packets)
 
 			return err
@@ -702,7 +695,7 @@ func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 	})
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
 	require.Len(t, conn.writtenPackets, 3)
-	assert.Equal(t, dtlsflight13.EpochApplication+1, afterACKPacket.Record.Header.Epoch)
+	assert.Equal(t, dtlsflight13.EpochApplication+1, afterACKPacket.Epoch)
 }
 
 func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
@@ -712,19 +705,16 @@ func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
 		state: &state,
 		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
 	})
-	applicationPacket := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header:  recordlayer.Header{Version: protocol.Version1_2},
-			Content: &protocol.ApplicationData{Data: []byte("after ticket")},
-		},
-		ShouldEncrypt: true,
+	applicationPacket := &dtlsflight.Outbound{
+		Content:    &protocol.ApplicationData{Data: []byte("after ticket")},
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
 	post.queue = append(post.queue,
 		postHandshakeCommand{Kind: commandSendNewSessionTicket},
 		postHandshakeCommand{
 			Kind:    commandSendApplicationData,
-			Packets: []*dtlsflight.Packet{applicationPacket},
-			Write: func(conn Conn, packets []*dtlsflight.Packet) error {
+			Packets: []*dtlsflight.Outbound{applicationPacket},
+			Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
 				_, err := conn.WritePackets(context.Background(), packets)
 
 				return err
@@ -737,11 +727,11 @@ func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
 	assert.Empty(t, post.queue)
 	require.Len(t, post.flights, 1)
 	require.Len(t, conn.writtenPackets, 2)
-	_, isTicket := conn.writtenPackets[0].Record.Content.(*handshake.Handshake)
+	_, isTicket := conn.writtenPackets[0].Content.(*handshake.Handshake)
 	assert.True(t, isTicket)
-	_, isApplicationData := conn.writtenPackets[1].Record.Content.(*protocol.ApplicationData)
+	_, isApplicationData := conn.writtenPackets[1].Content.(*protocol.ApplicationData)
 	assert.True(t, isApplicationData)
-	assert.Equal(t, dtlsflight13.EpochApplication, applicationPacket.Record.Header.Epoch)
+	assert.Equal(t, dtlsflight13.EpochApplication, applicationPacket.Epoch)
 }
 
 func TestRetransmittedKeyUpdateDoesNotRatchetReadKeysTwice(t *testing.T) {

@@ -53,7 +53,7 @@ import (
 
 type fsm12 struct {
 	currentFlight      dtlsflight12.Flight
-	flights            []*dtlsflight.Packet
+	flights            []*dtlsflight.Outbound
 	retransmit         bool
 	retransmitInterval time.Duration
 	state              *dtlsstate.State12
@@ -68,7 +68,7 @@ func NewFSM12(
 	cache *dtlsflight.Cache,
 	cfg *dtlsconfig.HandshakeConfig,
 	initialFlight dtlsflight12.Flight,
-	initialFlights []*dtlsflight.Packet,
+	initialFlights []*dtlsflight.Outbound,
 	establishment *Establishment,
 ) FSM {
 	return &fsm12{
@@ -116,7 +116,7 @@ func (s *fsm12) prepare(ctx context.Context, conn Conn) (State, error) {
 	var (
 		dtlsAlert *alert.Alert
 		err       error
-		pkts      []*dtlsflight.Packet
+		pkts      []*dtlsflight.Outbound
 	)
 	gen, retransmit, ok := dtlsflight12.GetGenerator(s.currentFlight)
 	if !ok {
@@ -134,11 +134,11 @@ func (s *fsm12) prepare(ctx context.Context, conn Conn) (State, error) {
 	epoch := s.cfg.InitialEpoch
 	nextEpoch := epoch
 	for _, p := range s.flights {
-		p.Record.Header.Epoch += epoch
-		if p.Record.Header.Epoch > nextEpoch {
-			nextEpoch = p.Record.Header.Epoch
+		p.Epoch += epoch
+		if p.Epoch > nextEpoch {
+			nextEpoch = p.Epoch
 		}
-		if h, ok := p.Record.Content.(*handshake.Handshake); ok {
+		if h, ok := p.Content.(*handshake.Handshake); ok {
 			h.Header.MessageSequence = uint16(s.state.HandshakeSendSequence) //nolint:gosec // G115
 			s.state.HandshakeSendSequence++
 		}

@@ -22,23 +22,22 @@ import (
 func flight5Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	pkts, dtlsAlert, err := flight5ClientAuthPackets(flightCtx)
 	if err != nil {
 		return nil, dtlsAlert, err
 	}
 	pkts = append(pkts, HandshakePacket(&handshake.MessageFinished{}))
-	pkts[0].ResetLocalSequenceNumber = true
 
 	return pkts, nil, nil
 }
 
 func flight5ClientAuthPackets(
 	flightCtx *handshakeContext,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	certificateRequest := flightCtx.state.RemoteCertificateRequest
 	if certificateRequest == nil {
-		return []*dtlsflight.Packet{}, nil, nil
+		return []*dtlsflight.Outbound{}, nil, nil
 	}
 
 	certificate, err := flight5ClientCertificate(flightCtx.cfg, certificateRequest)
@@ -46,7 +45,7 @@ func flight5ClientAuthPackets(
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 	}
 	if len(certificate.Certificate) == 0 {
-		return []*dtlsflight.Packet{
+		return []*dtlsflight.Outbound{
 			HandshakePacket(&handshake.MessageCertificate13{
 				CertificateRequestContext: append(
 					[]byte(nil),
@@ -71,7 +70,7 @@ func flight5ClientAuthPackets(
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 	}
 
-	return []*dtlsflight.Packet{
+	return []*dtlsflight.Outbound{
 		HandshakePacket(&handshake.MessageCertificate13{
 			CertificateRequestContext: append(
 				[]byte(nil),

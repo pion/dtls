@@ -45,21 +45,16 @@ func FuzzCCM_EncryptDecrypt_RoundTrip(f *testing.F) {
 		ccm, err := NewCCM(tag, key, iv, key, iv)
 		assert.NoError(t, err)
 
-		rl := &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				ContentType:    protocol.ContentTypeApplicationData,
-				Version:        protocol.Version1_2,
-				Epoch:          epoch,
-				SequenceNumber: seq,
-			},
-			Content: &protocol.ApplicationData{
-				Data: append([]byte(nil), payload...),
-			},
+		header := recordlayer.Header{
+			ContentType:    protocol.ContentTypeApplicationData,
+			Version:        protocol.Version1_2,
+			Epoch:          epoch,
+			SequenceNumber: seq,
 		}
-		raw, err := rl.Marshal()
+		raw, err := recordlayer.MarshalRecord(header, protocol.ContentTypeApplicationData, payload)
 		assert.NoError(t, err)
 
-		enc, err := ccm.Encrypt(rl, raw)
+		enc, err := ccm.Encrypt(&recordlayer.RecordLayer{Header: header}, raw)
 		assert.NoError(t, err)
 
 		var hdr recordlayer.Header
@@ -80,15 +75,13 @@ func FuzzCCM_Decrypt(f *testing.F) {
 	f.Add([]byte{})
 
 	f.Fuzz(func(t *testing.T, body []byte) {
-		recordLayer := &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				ContentType: protocol.ContentTypeChangeCipherSpec,
-				Version:     protocol.Version1_2,
-			},
-			Content: &protocol.ChangeCipherSpec{},
+		header := recordlayer.Header{
+			ContentType: protocol.ContentTypeChangeCipherSpec,
+			Version:     protocol.Version1_2,
 		}
-
-		raw, err := recordLayer.Marshal()
+		content, err := (&protocol.ChangeCipherSpec{}).Marshal()
+		assert.NoError(t, err)
+		raw, err := recordlayer.MarshalRecord(header, protocol.ContentTypeChangeCipherSpec, content)
 		assert.NoError(t, err)
 		raw = append(raw, body...) // arbitrary body after the header for fuzzing
 

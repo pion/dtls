@@ -24,14 +24,14 @@ type handshakeContext struct {
 	transcript *Transcript
 }
 
-func (c *handshakeContext) seedInitialFlights(flights []*dtlsflight.Packet, retransmit bool) error {
+func (c *handshakeContext) seedInitialFlights(flights []*dtlsflight.Outbound, retransmit bool) error {
 	return seedTranscriptFromInitialFlights(c.state, c.transcript, flights, retransmit)
 }
 
 func (c *handshakeContext) commitPreparedFlight(
 	conn Conn,
 	flight dtlsflight13.Flight,
-	flights []*dtlsflight.Packet,
+	flights []*dtlsflight.Outbound,
 ) error {
 	if err := commitPreparedFlights(conn, c.state, c.transcript, c.cfg, flights); err != nil {
 		return err

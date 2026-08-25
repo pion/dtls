@@ -14,7 +14,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 func flight2Parse(
@@ -67,20 +66,15 @@ func flight2Generate(
 	state *dtlsstate.State12,
 	_ *dtlsflight.Cache,
 	_ *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state.HandshakeSendSequence = 0
 
-	return []*dtlsflight.Packet{
+	return []*dtlsflight.Outbound{
 		{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
+			Content: &handshake.Handshake{
+				Message: &handshake.MessageHelloVerifyRequest{
 					Version: protocol.Version1_2,
-				},
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageHelloVerifyRequest{
-						Version: protocol.Version1_2,
-						Cookie:  state.Cookie,
-					},
+					Cookie:  state.Cookie,
 				},
 			},
 		},

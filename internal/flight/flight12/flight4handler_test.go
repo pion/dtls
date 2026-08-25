@@ -155,7 +155,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 	assert.NoError(t, err)
 
 	for _, p := range pkts {
-		if h, ok := p.Record.Content.(*handshake.Handshake); ok {
+		if h, ok := p.Content.(*handshake.Handshake); ok {
 			if h.Message.Type() == handshake.TypeCertificateRequest {
 				mcr := &handshake.MessageCertificateRequest{}
 				msg, err := h.Message.Marshal()

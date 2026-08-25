@@ -130,7 +130,7 @@ type handshakeStart struct {
 	flight12  dtlsflight12.Flight
 	flight13  dtlsflight13.Flight
 	fsmState  dtlshandshake.State
-	flights   []*dtlsflight.Packet
+	flights   []*dtlsflight.Outbound
 	postSetup func(context.Context)
 }
 
@@ -144,7 +144,7 @@ func (c handshakeConn) Notify(ctx context.Context, level alert.Level, desc alert
 
 func (c handshakeConn) WritePackets(
 	ctx context.Context,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) (*dtlshandshake.WriteResult, error) {
 	return c.conn.writePacketsWithResult(ctx, pkts)
 }
@@ -601,7 +601,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 	ctx, cancel := c.contextWithClose(c.writeDeadline)
 	defer cancel()
 
-	err := c.writeApplicationData(ctx, []*dtlsflight.Packet{
+	err := c.writeApplicationData(ctx, []*dtlsflight.Outbound{
 		c.newApplicationDataPacket(payload),
 	})
 	if errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
@@ -614,20 +614,14 @@ func (c *Conn) Write(payload []byte) (int, error) {
 	return len(payload), nil
 }
 
-func (c *Conn) newApplicationDataPacket(payload []byte) *dtlsflight.Packet {
-	return &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-			},
-			Content: &protocol.ApplicationData{
-				// The DTLS 1.3 FSM may retain this packet after Write returns on
-				// cancellation, so take ownership before queueing it.
-				Data: bytes.Clone(payload),
-			},
+func (c *Conn) newApplicationDataPacket(payload []byte) *dtlsflight.Outbound {
+	return &dtlsflight.Outbound{
+		Content: &protocol.ApplicationData{
+			// The DTLS 1.3 FSM may retain this packet after Write returns on
+			// cancellation, so take ownership before queueing it.
+			Data: bytes.Clone(payload),
 		},
-		ShouldWrapCID: c.state.ShouldWrapConnectionID(),
-		ShouldEncrypt: true,
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
 }
 
@@ -695,7 +689,7 @@ func (c *Conn) normalizeKeyUpdateError(ctx, operationCtx context.Context, err er
 	return err
 }
 
-func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Packet) error {
+func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Outbound) error {
 	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) {
 		writer, ok := c.fsm.(dtlshandshake.ApplicationDataWriter)
 		if !ok {
@@ -707,7 +701,7 @@ func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Pack
 
 	epoch := dtlsstate.CommonState(c.state).LocalEpoch()
 	for _, pkt := range pkts {
-		pkt.Record.Header.Epoch = epoch
+		pkt.Epoch = epoch
 	}
 	_, err := c.writePacketsWithResult(ctx, pkts)
 
@@ -760,7 +754,7 @@ func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
 	return bytes.Clone(common.RemoteSRTPMasterKeyIdentifier), true
 }
 
-func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Packet) error {
+func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Outbound) error {
 	_, err := c.writePacketsWithResult(ctx, pkts)
 
 	return err
@@ -768,7 +762,7 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Packet) erro
 
 func (c *Conn) writePacketsWithResult(
 	ctx context.Context,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) (*dtlshandshake.WriteResult, error) {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
@@ -778,7 +772,7 @@ func (c *Conn) writePacketsWithResult(
 
 func (c *Conn) writePacketsWithResultLocked(
 	ctx context.Context,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) (*dtlshandshake.WriteResult, error) {
 	datagrams, rAddr, err := c.prepareRawPacketsTracked(pkts)
 	if err != nil {
@@ -805,7 +799,7 @@ type preparedDatagram struct {
 	tracked []dtlshandshake.SentHandshakeRecord
 }
 
-func (c *Conn) prepareRawPacketsTracked(pkts []*dtlsflight.Packet) ([]preparedDatagram, net.Addr, error) {
+func (c *Conn) prepareRawPacketsTracked(pkts []*dtlsflight.Outbound) ([]preparedDatagram, net.Addr, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -820,10 +814,10 @@ func (c *Conn) prepareRawPacketsTracked(pkts []*dtlsflight.Packet) ([]preparedDa
 	return c.compactPreparedRecords(records), c.rAddr, nil
 }
 
-func (c *Conn) prepareRecordsTracked(pkts []*dtlsflight.Packet) ([]preparedRecord, error) {
+func (c *Conn) prepareRecordsTracked(pkts []*dtlsflight.Outbound) ([]preparedRecord, error) {
 	var records []preparedRecord
 	for _, pkt := range pkts {
-		prepared, err := c.prepareRecordsFromPacket(pkt)
+		prepared, err := c.prepareOutbound(pkt)
 		if err != nil {
 			return nil, err
 		}
@@ -833,59 +827,39 @@ func (c *Conn) prepareRecordsTracked(pkts []*dtlsflight.Packet) ([]preparedRecor
 	return records, nil
 }
 
-func (c *Conn) prepareRecordsFromPacket(pkt *dtlsflight.Packet) ([]preparedRecord, error) {
-	handshakeRecord, ok := pkt.Record.Content.(*handshake.Handshake)
-	if ok && dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) && pkt.ShouldEncrypt {
-		if err := c.cacheHandshakePacket(pkt, handshakeRecord); err != nil {
+func (c *Conn) prepareOutbound(outbound *dtlsflight.Outbound) ([]preparedRecord, error) {
+	if outbound == nil || outbound.Content == nil || !validProtection(outbound.Protection) {
+		return nil, dtlserrors.ErrInvalidPacket
+	}
+	if dtlsHandshake, ok := outbound.Content.(*handshake.Handshake); ok {
+		if err := c.cacheHandshake(outbound, dtlsHandshake); err != nil {
 			return nil, err
 		}
 
-		return c.processProtectedHandshakePacketTracked(pkt, handshakeRecord)
+		return c.prepareHandshakeRecords(outbound, dtlsHandshake)
 	}
 
-	rawPackets, err := c.prepareRawPacket(pkt)
-	if err != nil {
-		return nil, err
-	}
-	records := make([]preparedRecord, 0, len(rawPackets))
-	for _, raw := range rawPackets {
-		records = append(records, preparedRecord{raw: raw})
-	}
-
-	return records, nil
-}
-
-func (c *Conn) prepareRawPacket(pkt *dtlsflight.Packet) ([][]byte, error) {
-	dtlsHandshake, ok := pkt.Record.Content.(*handshake.Handshake)
-	if ok {
-		if err := c.cacheHandshakePacket(pkt, dtlsHandshake); err != nil {
-			return nil, err
-		}
-
-		return c.processHandshakePacket(pkt, dtlsHandshake)
-	}
-
-	rawPacket, err := c.processPacket(pkt)
+	raw, err := c.prepareRecord(outbound)
 	if err != nil {
 		return nil, err
 	}
 
-	return [][]byte{rawPacket}, nil
+	return []preparedRecord{{raw: raw}}, nil
 }
 
-func (c *Conn) cacheHandshakePacket(pkt *dtlsflight.Packet, dtlsHandshake *handshake.Handshake) error {
-	handshakeRaw, err := pkt.Record.Marshal()
+func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *handshake.Handshake) error {
+	handshakeRaw, err := dtlsHandshake.Marshal()
 	if err != nil {
 		return err
 	}
 
 	c.log.Tracef("[handshake:%v] -> %s (epoch: %d, seq: %d)",
 		srvCliStr(dtlsstate.CommonState(c.state).IsClient), dtlsHandshake.Header.Type.String(),
-		pkt.Record.Header.Epoch, dtlsHandshake.Header.MessageSequence)
+		outbound.Epoch, dtlsHandshake.Header.MessageSequence)
 
 	c.handshakeCache.Push(
-		handshakeRaw[recordlayer.FixedHeaderSize:],
-		pkt.Record.Header.Epoch,
+		handshakeRaw,
+		outbound.Epoch,
 		dtlsHandshake.Header.MessageSequence,
 		dtlsHandshake.Header.Type,
 		dtlsstate.CommonState(c.state).IsClient,
@@ -952,68 +926,22 @@ func (c *Conn) compactPreparedRecords(records []preparedRecord) []preparedDatagr
 	return datagrams
 }
 
-func (c *Conn) processPacket(pkt *dtlsflight.Packet) ([]byte, error) { //nolint:cyclop
-	epoch := pkt.Record.Header.Epoch
+func (c *Conn) prepareRecord(outbound *dtlsflight.Outbound) ([]byte, error) {
+	if outbound == nil || outbound.Content == nil || !validProtection(outbound.Protection) {
+		return nil, dtlserrors.ErrInvalidPacket
+	}
+	contentType, plaintext, err := marshalRecordContent(outbound.Content)
+	if err != nil {
+		return nil, err
+	}
+
+	epoch := outbound.Epoch
 	seq, err := c.nextLocalSequenceNumber(epoch)
 	if err != nil {
 		return nil, err
 	}
-	pkt.Record.Header.SequenceNumber = seq
 
-	common := dtlsstate.CommonState(c.state)
-	if common.LocalVersion.Equal(protocol.Version1_3) && pkt.ShouldEncrypt {
-		return c.processProtectedPacket(pkt, seq)
-	}
-
-	var rawPacket []byte
-	if pkt.ShouldWrapCID { //nolint:nestif
-		// Record must be marshaled to populate fields used in inner plaintext.
-		if _, err := pkt.Record.Marshal(); err != nil {
-			return nil, err
-		}
-		content, err := pkt.Record.Content.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		inner := &recordlayer.InnerPlaintext{
-			Content:  content,
-			RealType: pkt.Record.Header.ContentType,
-		}
-		rawInner, err := inner.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		cidHeader := &recordlayer.Header{
-			Version:        pkt.Record.Header.Version,
-			ContentType:    protocol.ContentTypeConnectionID,
-			Epoch:          pkt.Record.Header.Epoch,
-			ContentLen:     uint16(len(rawInner)), //nolint:gosec //G115
-			ConnectionID:   common.RemoteConnectionID,
-			SequenceNumber: pkt.Record.Header.SequenceNumber,
-		}
-		rawPacket, err = cidHeader.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		pkt.Record.Header = *cidHeader
-		rawPacket = append(rawPacket, rawInner...)
-	} else {
-		var err error
-		rawPacket, err = pkt.Record.Marshal()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if pkt.ShouldEncrypt {
-		var err error
-		rawPacket, err = common.CipherSuite.Encrypt(pkt.Record, rawPacket)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return rawPacket, nil
+	return c.encodeRecord(epoch, seq, contentType, plaintext, outbound.Protection)
 }
 
 func (c *Conn) nextLocalSequenceNumber(epoch uint16) (uint64, error) {
@@ -1032,29 +960,10 @@ func (c *Conn) nextLocalSequenceNumber(epoch uint16) (uint64, error) {
 	return seq, nil
 }
 
-// processProtectedPacket writes a DTLS 1.3 protected record. The helpers below
-// keep the AEAD plaintext at the DTLSInnerPlaintext content level: handshake
-// header plus body for handshake records, and alert bytes for alert records.
-// They intentionally do not pass a marshaled record-layer header as plaintext;
-// application data, ACK, and CID protected writes are left for their own
-// integrations.
-func (c *Conn) processProtectedPacket(pkt *dtlsflight.Packet, seq uint64) ([]byte, error) {
-	if pkt.ShouldWrapCID {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
-	}
-
-	epoch := pkt.Record.Header.Epoch
-	contentType, plaintext, err := marshalRecordContent(pkt.Record.Content)
-	if err != nil {
-		return nil, err
-	}
-
-	return c.sealRecordContent(epoch, seq, contentType, plaintext)
-}
-
 func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byte, error) {
 	switch content.(type) {
 	case *handshake.Handshake, *alert.Alert, *protocol.ApplicationData, *protocol.ACK,
+		*protocol.ChangeCipherSpec,
 		*protocol.ReturnRoutabilityCheck:
 	default:
 		return 0, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
@@ -1066,6 +975,62 @@ func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byt
 	}
 
 	return content.ContentType(), plaintext, nil
+}
+
+func validProtection(protection dtlsflight.Protection) bool {
+	return protection == dtlsflight.ProtectionPlaintext || protection == dtlsflight.ProtectionCiphertext
+}
+
+func (c *Conn) encodeRecord( //nolint:cyclop
+	epoch uint16,
+	seq uint64,
+	contentType protocol.ContentType,
+	plaintext []byte,
+	protection dtlsflight.Protection,
+) ([]byte, error) {
+	if !validProtection(protection) {
+		return nil, dtlserrors.ErrInvalidPacket
+	}
+	common := dtlsstate.CommonState(c.state)
+	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion.Equal(protocol.Version1_3) {
+		return c.sealRecordContent(epoch, seq, contentType, plaintext)
+	}
+
+	header := recordlayer.Header{
+		Version:        protocol.Version1_2,
+		ContentType:    contentType,
+		Epoch:          epoch,
+		SequenceNumber: seq,
+	}
+	payload := plaintext
+	if protection == dtlsflight.ProtectionCiphertext &&
+		common.LocalVersion.Equal(protocol.Version1_2) && c.state.ShouldWrapConnectionID() {
+		inner := recordlayer.InnerPlaintext{
+			Content:  plaintext,
+			RealType: contentType,
+			Zeros:    c.paddingLengthGenerator(uint(len(plaintext))),
+		}
+		var err error
+		payload, err = inner.Marshal()
+		if err != nil {
+			return nil, err
+		}
+		header.ContentType = protocol.ContentTypeConnectionID
+		header.ConnectionID = bytes.Clone(common.RemoteConnectionID)
+	}
+	raw, err := recordlayer.MarshalRecord(header, header.ContentType, payload)
+	if err != nil {
+		return nil, err
+	}
+	header.ContentLen = uint16(len(payload)) //nolint:gosec
+	if protection != dtlsflight.ProtectionCiphertext {
+		return raw, nil
+	}
+	if common.CipherSuite == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotInit
+	}
+
+	return common.CipherSuite.Encrypt(&recordlayer.RecordLayer{Header: header}, raw)
 }
 
 func (c *Conn) sealRecordContent(
@@ -1116,131 +1081,24 @@ func (c *Conn) writeTrafficGeneration(epoch uint16) (*dtlsstate.TrafficGeneratio
 	return generation, nil
 }
 
-//nolint:cyclop
-func (c *Conn) processHandshakePacket(pkt *dtlsflight.Packet, dtlsHandshake *handshake.Handshake) ([][]byte, error) {
-	common := dtlsstate.CommonState(c.state)
-	if common.LocalVersion.Equal(protocol.Version1_3) && pkt.ShouldEncrypt {
-		return c.processProtectedHandshakePacket(pkt, dtlsHandshake)
-	}
-
-	rawPackets := make([][]byte, 0)
-
-	handshakeFragments, err := c.fragmentHandshake(dtlsHandshake)
-	if err != nil {
-		return nil, err
-	}
-	epoch := pkt.Record.Header.Epoch
-
-	for _, handshakeFragment := range handshakeFragments {
-		seq, err := c.nextLocalSequenceNumber(epoch)
-		if err != nil {
-			return nil, err
-		}
-
-		var rawPacket []byte
-		if pkt.ShouldWrapCID {
-			inner := &recordlayer.InnerPlaintext{
-				Content:  handshakeFragment,
-				RealType: protocol.ContentTypeHandshake,
-				Zeros:    c.paddingLengthGenerator(uint(len(handshakeFragment))),
-			}
-			rawInner, err := inner.Marshal() //nolint:govet
-			if err != nil {
-				return nil, err
-			}
-			cidHeader := &recordlayer.Header{
-				Version:        pkt.Record.Header.Version,
-				ContentType:    protocol.ContentTypeConnectionID,
-				Epoch:          pkt.Record.Header.Epoch,
-				ContentLen:     uint16(len(rawInner)), //nolint:gosec //G115
-				ConnectionID:   common.RemoteConnectionID,
-				SequenceNumber: seq,
-			}
-			rawPacket, err = cidHeader.Marshal()
-			if err != nil {
-				return nil, err
-			}
-			pkt.Record.Header = *cidHeader
-			rawPacket = append(rawPacket, rawInner...)
-		} else {
-			recordlayerHeader := &recordlayer.Header{
-				Version:        pkt.Record.Header.Version,
-				ContentType:    pkt.Record.Header.ContentType,
-				ContentLen:     uint16(len(handshakeFragment)), //nolint:gosec // G115
-				Epoch:          pkt.Record.Header.Epoch,
-				SequenceNumber: seq,
-			}
-
-			rawPacket, err = recordlayerHeader.Marshal()
-			if err != nil {
-				return nil, err
-			}
-
-			pkt.Record.Header = *recordlayerHeader
-			rawPacket = append(rawPacket, handshakeFragment...)
-		}
-
-		if pkt.ShouldEncrypt {
-			var err error
-			rawPacket, err = common.CipherSuite.Encrypt(pkt.Record, rawPacket)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		rawPackets = append(rawPackets, rawPacket)
-	}
-
-	return rawPackets, nil
-}
-
-func (c *Conn) processProtectedHandshakePacket(
-	pkt *dtlsflight.Packet,
-	dtlsHandshake *handshake.Handshake,
-) ([][]byte, error) {
-	if pkt == nil || pkt.Record == nil || dtlsHandshake == nil {
-		// TODO: Replace this temporary error when CID protection is implemented.
-		// nolint:godox
-		return nil, dtlserrors.ErrInvalidPacket
-	}
-	if pkt.ShouldWrapCID {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
-	}
-
-	prepared, err := c.processProtectedHandshakePacketTracked(pkt, dtlsHandshake)
-	if err != nil {
-		return nil, err
-	}
-	rawPackets := make([][]byte, 0, len(prepared))
-	for _, record := range prepared {
-		rawPackets = append(rawPackets, record.raw)
-	}
-
-	return rawPackets, nil
-}
-
 type preparedRecord struct {
 	raw     []byte
 	tracked *dtlshandshake.SentHandshakeRecord
 }
 
-func (c *Conn) processProtectedHandshakePacketTracked(
-	pkt *dtlsflight.Packet,
+func (c *Conn) prepareHandshakeRecords(
+	outbound *dtlsflight.Outbound,
 	dtlsHandshake *handshake.Handshake,
 ) ([]preparedRecord, error) {
-	if pkt.ShouldWrapCID {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
-	}
-
 	handshakeFragments, err := c.fragmentHandshake(dtlsHandshake)
 	if err != nil {
 		return nil, err
 	}
 
 	rawPackets := make([]preparedRecord, 0, len(handshakeFragments))
-	epoch := pkt.Record.Header.Epoch
+	epoch := outbound.Epoch
 	for _, handshakeFragment := range handshakeFragments {
-		selected, err := selectHandshakeFragment(pkt.HandshakeFragmentOffsets, handshakeFragment)
+		selected, err := selectHandshakeFragment(outbound.HandshakeFragmentOffsets, handshakeFragment)
 		if err != nil {
 			return nil, err
 		}
@@ -1251,22 +1109,19 @@ func (c *Conn) processProtectedHandshakePacketTracked(
 		if err != nil {
 			return nil, err
 		}
-		pkt.Record.Header.ContentType = protocol.ContentTypeHandshake
-		pkt.Record.Header.ContentLen = uint16(len(handshakeFragment)) //nolint:gosec // G115
-		pkt.Record.Header.SequenceNumber = seq
-
-		rawPacket, err := c.sealRecordContent(
+		rawPacket, err := c.encodeRecord(
 			epoch,
 			seq,
 			protocol.ContentTypeHandshake,
 			handshakeFragment,
+			outbound.Protection,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		prepared := preparedRecord{raw: rawPacket}
-		if pkt.ShouldTrackACK {
+		if outbound.TrackACK {
 			fragmentHeader := &handshake.Header{}
 			if err = fragmentHeader.Unmarshal(handshakeFragment); err != nil {
 				return nil, err
@@ -2399,22 +2254,18 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 		}
 	}
 
-	return c.writePackets(ctx, []*dtlsflight.Packet{
-		{
-			Record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Epoch:   common.LocalEpoch(),
-					Version: protocol.Version1_2,
-				},
-				Content: &alert.Alert{
-					Level:       level,
-					Description: desc,
-				},
-			},
-			ShouldWrapCID: c.state.ShouldWrapConnectionID(),
-			ShouldEncrypt: c.isHandshakeCompletedSuccessfully(),
+	outbound := &dtlsflight.Outbound{
+		Epoch: common.LocalEpoch(),
+		Content: &alert.Alert{
+			Level:       level,
+			Description: desc,
 		},
-	})
+	}
+	if c.isHandshakeCompletedSuccessfully() {
+		outbound.Protection = dtlsflight.ProtectionCiphertext
+	}
+
+	return c.writePackets(ctx, []*dtlsflight.Outbound{outbound})
 }
 
 func (c *Conn) isHandshakeCompletedSuccessfully() bool {
@@ -2442,7 +2293,7 @@ func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 }
 
 //nolint:cyclop
-func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Packet, error) {
+func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbound, error) {
 	gen, _, ok := dtlsflight13.GetGenerator(dtlsflight13.Flight1)
 	if !ok {
 		return nil, dtlserrors.ErrFlightUnimplemented13
@@ -2671,11 +2522,11 @@ func (c *Conn) setNegotiatedVersion(remote []protocol.Version, chosen protocol.V
 // stampHandshakeSequence assigns the DTLS message_sequence to each handshake
 // record in pkts. This is the subset of handshakeFSM.prepare()'s bookkeeping
 // that generated dual-stack packets need before being passed to writePackets.
-func (c *Conn) stampHandshakeSequence(pkts []*dtlsflight.Packet) {
+func (c *Conn) stampHandshakeSequence(pkts []*dtlsflight.Outbound) {
 	epoch := c.handshakeConfig.InitialEpoch
 	for _, p := range pkts {
-		p.Record.Header.Epoch += epoch
-		if h, ok := p.Record.Content.(*handshake.Handshake); ok {
+		p.Epoch += epoch
+		if h, ok := p.Content.(*handshake.Handshake); ok {
 			h.Header.MessageSequence = dtlsstate.NextHandshakeSendSequence(c.state)
 		}
 	}

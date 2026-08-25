@@ -26,7 +26,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +41,7 @@ func flight13GenerateForTest(
 	testingT require.TestingT,
 	flight dtlsflight13.Flight,
 	flightCtx *handshakeContext,
-) ([]*dtlsflight.Packet, *alert.Alert, error) {
+) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {
 		helper.Helper()
 	}
@@ -57,9 +56,9 @@ type flightTestConn struct {
 	localEpoch          uint16
 	setLocalEpochCalled bool
 	handleQueuedPackets func(context.Context) error
-	writePackets        func(context.Context, []*dtlsflight.Packet) error
+	writePackets        func(context.Context, []*dtlsflight.Outbound) error
 	recvHandshake       chan RecvHandshakeState
-	writtenPackets      []*dtlsflight.Packet
+	writtenPackets      []*dtlsflight.Outbound
 }
 
 func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description) error {
@@ -68,7 +67,7 @@ func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description)
 
 func (c *flightTestConn) WritePackets(
 	ctx context.Context,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 ) (*WriteResult, error) {
 	c.writtenPackets = append(c.writtenPackets, pkts...)
 	if c.writePackets != nil {
@@ -208,9 +207,9 @@ func TestHandshakeFSM13SendACKUsesCurrentEpoch(t *testing.T) {
 
 	require.NoError(t, sendACK(context.Background(), conn, fsm.state.LocalEpoch(), records))
 	require.Len(t, conn.writtenPackets, 1)
-	assert.True(t, conn.writtenPackets[0].ShouldEncrypt)
-	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Record.Header.Epoch)
-	ack, ok := conn.writtenPackets[0].Record.Content.(*protocol.ACK)
+	assert.True(t, conn.writtenPackets[0].Protection == dtlsflight.ProtectionCiphertext)
+	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Epoch)
+	ack, ok := conn.writtenPackets[0].Content.(*protocol.ACK)
 	require.True(t, ok)
 	assert.Equal(t, records, ack.Records)
 }
@@ -270,7 +269,7 @@ func TestHandshakeFSM13DualStackClientHelloSeedsTranscript(t *testing.T) {
 	require.Len(t, pkts, 1)
 
 	const messageSequence = 7
-	content, ok := pkts[0].Record.Content.(*handshake.Handshake)
+	content, ok := pkts[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	content.Header.MessageSequence = messageSequence
 
@@ -331,7 +330,7 @@ func TestHandshakeFSM13DualStackClientHelloRequired(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 
 	fsm, err := newFSM13(
-		state, cache, cfg, dtlsflight13.Flight1, []*dtlsflight.Packet{}, nil,
+		state, cache, cfg, dtlsflight13.Flight1, []*dtlsflight.Outbound{}, nil,
 	)
 	require.Nil(t, fsm)
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMissingClientHello)
@@ -386,7 +385,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	transcript := NewTranscript()
 	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
-	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{clientHello}))
+	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{clientHello}))
 
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight2, nil, transcript)
 	require.NoError(t, err)
@@ -422,7 +421,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	transcript := NewTranscript()
 	clientHello := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
-	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{clientHello}))
+	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{clientHello}))
 
 	fsm, err := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight4, nil, transcript)
 	require.NoError(t, err)
@@ -434,10 +433,9 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	require.NoError(t, err)
 	assert.Equal(t, StateSending, nextState)
 	require.Len(t, fsm.flights, 5)
-	for i, pkt := range fsm.flights[1:] {
-		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Record.Header.Epoch)
-		assert.True(t, pkt.ShouldEncrypt)
-		assert.Equal(t, i == 0, pkt.ResetLocalSequenceNumber)
+	for _, pkt := range fsm.flights[1:] {
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Epoch)
+		assert.True(t, pkt.Protection == dtlsflight.ProtectionCiphertext)
 	}
 
 	serverHelloCanonical := canonicalPacketHandshake13(t, fsm.flights[0])
@@ -454,7 +452,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	require.NoError(t, err)
 	clientVerifyInput, err := CertificateVerifyInputFromTranscript(true, certificateVerifyTranscript)
 	require.NoError(t, err)
-	certificateVerifyHandshake := fsm.flights[3].Record.Content.(*handshake.Handshake)            //nolint:forcetypeassert
+	certificateVerifyHandshake := fsm.flights[3].Content.(*handshake.Handshake)                   //nolint:forcetypeassert
 	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
 	require.NoError(t, dtlscrypto.VerifyCertificateVerify(
 		serverVerifyInput,
@@ -471,7 +469,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 		cfg.LocalCertificates[0].Certificate,
 	))
 
-	finishedHandshake, ok := fsm.flights[4].Record.Content.(*handshake.Handshake)
+	finishedHandshake, ok := fsm.flights[4].Content.(*handshake.Handshake)
 	require.True(t, ok)
 	finished, ok := finishedHandshake.Message.(*handshake.MessageFinished)
 	require.True(t, ok)
@@ -544,12 +542,11 @@ func TestHandshakeFSM13SendsFlight4ProtectedRecords(t *testing.T) {
 	assert.Equal(t, StateWaiting, nextState)
 	require.Len(t, conn.writtenPackets, 5)
 
-	assert.False(t, conn.writtenPackets[0].ShouldEncrypt)
-	assert.Equal(t, dtlsflight13.EpochInitial, conn.writtenPackets[0].Record.Header.Epoch)
-	for i, pkt := range conn.writtenPackets[1:] {
-		assert.True(t, pkt.ShouldEncrypt)
-		assert.Equal(t, i == 0, pkt.ResetLocalSequenceNumber)
-		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Record.Header.Epoch)
+	assert.False(t, conn.writtenPackets[0].Protection == dtlsflight.ProtectionCiphertext)
+	assert.Equal(t, dtlsflight13.EpochInitial, conn.writtenPackets[0].Epoch)
+	for _, pkt := range conn.writtenPackets[1:] {
+		assert.True(t, pkt.Protection == dtlsflight.ProtectionCiphertext)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Epoch)
 	}
 	assert.True(t, fixture.serverState.CipherSuite.IsInitialized())
 	assert.True(t, conn.setLocalEpochCalled)
@@ -583,7 +580,7 @@ func TestHandshakeFSM13ServerFlight4KeepsReaderPausedThroughQueueDrain(t *testin
 	assertFlight13RecvDoneOpen(t, recvState)
 
 	queueDrains := 0
-	conn.writePackets = func(context.Context, []*dtlsflight.Packet) error {
+	conn.writePackets = func(context.Context, []*dtlsflight.Outbound) error {
 		assertFlight13RecvDoneOpen(t, recvState)
 
 		return nil
@@ -733,7 +730,7 @@ func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
 	assertFlight13RecvDoneOpen(t, recvState)
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
 
-	conn.writePackets = func(context.Context, []*dtlsflight.Packet) error {
+	conn.writePackets = func(context.Context, []*dtlsflight.Outbound) error {
 		assertFlight13RecvDoneOpen(t, recvState)
 
 		return nil
@@ -787,9 +784,9 @@ func TestHandshakeFSM13PartialProtectedServerFlightACKUsesHandshakeEpoch(t *test
 	assert.Equal(t, StateWaiting, transition.state)
 	require.Len(t, conn.writtenPackets, 1)
 	ackPacket := conn.writtenPackets[0]
-	assert.True(t, ackPacket.ShouldEncrypt)
-	assert.Equal(t, dtlsflight13.EpochHandshake, ackPacket.Record.Header.Epoch)
-	ack, ok := ackPacket.Record.Content.(*protocol.ACK)
+	assert.True(t, ackPacket.Protection == dtlsflight.ProtectionCiphertext)
+	assert.Equal(t, dtlsflight13.EpochHandshake, ackPacket.Epoch)
+	ack, ok := ackPacket.Content.(*protocol.ACK)
 	require.True(t, ok)
 	assert.Equal(t, []protocol.RecordNumber{record}, ack.Records)
 	fsm.received.release()
@@ -874,11 +871,10 @@ func TestHandshakeFSM13ClientFlight5GeneratesFinished(t *testing.T) {
 	require.Len(t, fsm.flights, 1)
 
 	pkt := fsm.flights[0]
-	assert.True(t, pkt.ShouldEncrypt)
-	assert.True(t, pkt.ResetLocalSequenceNumber)
-	assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Record.Header.Epoch)
+	assert.True(t, pkt.Protection == dtlsflight.ProtectionCiphertext)
+	assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Epoch)
 
-	finishedHandshake, ok := pkt.Record.Content.(*handshake.Handshake)
+	finishedHandshake, ok := pkt.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	assert.Equal(t, uint16(1), finishedHandshake.Header.MessageSequence)
 	finished, ok := finishedHandshake.Message.(*handshake.MessageFinished)
@@ -934,9 +930,9 @@ func TestHandshakeFSM13ClientFlight5HandlesPreviousFlightRetransmit(t *testing.T
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
 	require.Len(t, conn.writtenPackets, 1)
 	ackPacket := conn.writtenPackets[0]
-	assert.True(t, ackPacket.ShouldEncrypt)
-	assert.Equal(t, dtlsflight13.EpochHandshake, ackPacket.Record.Header.Epoch)
-	ack, ok := ackPacket.Record.Content.(*protocol.ACK)
+	assert.True(t, ackPacket.Protection == dtlsflight.ProtectionCiphertext)
+	assert.Equal(t, dtlsflight13.EpochHandshake, ackPacket.Epoch)
+	ack, ok := ackPacket.Content.(*protocol.ACK)
 	require.True(t, ok)
 	assert.Equal(t, []protocol.RecordNumber{record}, ack.Records)
 	fsm.received.release()
@@ -957,7 +953,7 @@ func TestHandshakeFSM13SendErrorReleasesReader(t *testing.T) {
 			fsm := clientFSMThroughServerFlight13(t, newNoHRRFlight13Fixture(t))
 			recvState := RecvHandshakeState{Done: fsm.received.done}
 			conn := &flightTestConn{
-				writePackets: func(context.Context, []*dtlsflight.Packet) error {
+				writePackets: func(context.Context, []*dtlsflight.Outbound) error {
 					assertFlight13RecvDoneOpen(t, recvState)
 
 					return test.writeErr
@@ -1006,17 +1002,16 @@ func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
 		handshake.TypeFinished,
 	}
 	for i, pkt := range fsm.flights {
-		assert.True(t, pkt.ShouldEncrypt)
-		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Record.Header.Epoch)
-		assert.Equal(t, i == 0, pkt.ResetLocalSequenceNumber)
+		assert.True(t, pkt.Protection == dtlsflight.ProtectionCiphertext)
+		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Epoch)
 
-		hs, ok := pkt.Record.Content.(*handshake.Handshake)
+		hs, ok := pkt.Content.(*handshake.Handshake)
 		require.True(t, ok)
 		assert.Equal(t, expectedTypes[i], hs.Message.Type())
 		assert.Equal(t, uint16(i+1), hs.Header.MessageSequence)
 	}
 
-	certificateHandshake := fsm.flights[0].Record.Content.(*handshake.Handshake)  //nolint:forcetypeassert
+	certificateHandshake := fsm.flights[0].Content.(*handshake.Handshake)         //nolint:forcetypeassert
 	certificate := certificateHandshake.Message.(*handshake.MessageCertificate13) //nolint:forcetypeassert
 	assert.Equal(t, []byte{0x01, 0x02, 0x03}, certificate.CertificateRequestContext)
 	require.Len(t, certificate.CertificateList, len(clientCertificate.Certificate))
@@ -1035,7 +1030,7 @@ func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
 	certificateVerifyInput, err := CertificateVerifyInputFromTranscript(true, expectedTranscript)
 	require.NoError(t, err)
 
-	certificateVerifyHandshake := fsm.flights[1].Record.Content.(*handshake.Handshake)            //nolint:forcetypeassert
+	certificateVerifyHandshake := fsm.flights[1].Content.(*handshake.Handshake)                   //nolint:forcetypeassert
 	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
 	require.NotEmpty(t, certificateVerify.Signature)
 	require.NoError(t, dtlscrypto.VerifyCertificateVerify(
@@ -1061,8 +1056,8 @@ func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	finishedHandshake := fsm.flights[2].Record.Content.(*handshake.Handshake) //nolint:forcetypeassert
-	finished := finishedHandshake.Message.(*handshake.MessageFinished)        //nolint:forcetypeassert
+	finishedHandshake := fsm.flights[2].Content.(*handshake.Handshake) //nolint:forcetypeassert
+	finished := finishedHandshake.Message.(*handshake.MessageFinished) //nolint:forcetypeassert
 	assert.Equal(t, expectedVerifyData, finished.VerifyData)
 
 	require.NoError(t, AppendOutboundHandshakeFlight(
@@ -1120,13 +1115,13 @@ func TestHandshakeFSM13ClientFlight5WithoutClientCertificate(t *testing.T) {
 			require.Len(t, fsm.flights, len(test.expectedTypes))
 
 			for i, expectedType := range test.expectedTypes {
-				hs, ok := fsm.flights[i].Record.Content.(*handshake.Handshake)
+				hs, ok := fsm.flights[i].Content.(*handshake.Handshake)
 				require.True(t, ok)
 				assert.Equal(t, expectedType, hs.Message.Type())
 			}
 
 			if test.expectedTypes[0] == handshake.TypeCertificate {
-				hs := fsm.flights[0].Record.Content.(*handshake.Handshake)  //nolint:forcetypeassert
+				hs := fsm.flights[0].Content.(*handshake.Handshake)         //nolint:forcetypeassert
 				certificate := hs.Message.(*handshake.MessageCertificate13) //nolint:forcetypeassert
 				assert.Empty(t, certificate.CertificateRequestContext)
 				assert.Empty(t, certificate.CertificateList)
@@ -1149,8 +1144,8 @@ func TestHandshakeFSM13ClientFlight5WithoutClientCertificate(t *testing.T) {
 					transcriptThroughServerFinished,
 				)
 				require.NoError(t, err)
-				finishedHandshake := fsm.flights[1].Record.Content.(*handshake.Handshake) //nolint:forcetypeassert
-				finished := finishedHandshake.Message.(*handshake.MessageFinished)        //nolint:forcetypeassert
+				finishedHandshake := fsm.flights[1].Content.(*handshake.Handshake) //nolint:forcetypeassert
+				finished := finishedHandshake.Message.(*handshake.MessageFinished) //nolint:forcetypeassert
 				assert.Equal(t, expectedVerifyData, finished.VerifyData)
 			}
 		})
@@ -1196,7 +1191,7 @@ func TestHandshakeFSM13ServerRejectsTamperedClientFinished(t *testing.T) {
 	require.Equal(t, StateSending, nextState)
 	require.Len(t, clientFSM.flights, 1)
 
-	finishedHandshake := clientFSM.flights[0].Record.Content.(*handshake.Handshake) //nolint:forcetypeassert
+	finishedHandshake := clientFSM.flights[0].Content.(*handshake.Handshake) //nolint:forcetypeassert
 	rawFinished, err := finishedHandshake.Marshal()
 	require.NoError(t, err)
 	rawFinished[len(rawFinished)-1] ^= 0xff
@@ -1293,7 +1288,7 @@ func TestHandshakeFSM13RetransmittedFinalFlightDoesNotChangeTranscript(t *testin
 func serverFSMForClientFlight13(
 	t *testing.T,
 	fixture noHRRFlight13Fixture,
-	clientFlight []*dtlsflight.Packet,
+	clientFlight []*dtlsflight.Outbound,
 	cacheCopies int,
 ) *fsm13 {
 	t.Helper()
@@ -1337,10 +1332,10 @@ func serverTranscriptThroughFlight4(t *testing.T, fixture noHRRFlight13Fixture) 
 	return transcript
 }
 
-func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Packet) []byte {
+func canonicalPacketHandshake13(t *testing.T, p *dtlsflight.Outbound) []byte {
 	t.Helper()
 
-	content, ok := p.Record.Content.(*handshake.Handshake)
+	content, ok := p.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	raw, err := content.Marshal()
 	require.NoError(t, err)
@@ -1385,28 +1380,23 @@ func addCertificateRequestToServerFlight13(
 ) noHRRFlight13Fixture {
 	t.Helper()
 
-	request := &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-				Epoch:   dtlsflight13.EpochHandshake,
-			},
-			Content: &handshake.Handshake{
-				Header: handshake.Header{MessageSequence: 2},
-				Message: &handshake.MessageCertificateRequest13{
-					CertificateRequestContext: requestContext,
-					Extensions: []extension.Value{
-						&extension.SignatureAlgorithms{
-							Schemes: dtlsflight.SignatureSchemeIDs(fixture.cfg.LocalSignatureSchemes),
-						},
+	request := &dtlsflight.Outbound{
+		Epoch: dtlsflight13.EpochHandshake,
+		Content: &handshake.Handshake{
+			Header: handshake.Header{MessageSequence: 2},
+			Message: &handshake.MessageCertificateRequest13{
+				CertificateRequestContext: requestContext,
+				Extensions: []extension.Value{
+					&extension.SignatureAlgorithms{
+						Schemes: dtlsflight.SignatureSchemeIDs(fixture.cfg.LocalSignatureSchemes),
 					},
 				},
 			},
 		},
-		ShouldEncrypt: true,
+		Protection: dtlsflight.ProtectionCiphertext,
 	}
 
-	fixture.serverFlight4 = []*dtlsflight.Packet{
+	fixture.serverFlight4 = []*dtlsflight.Outbound{
 		fixture.serverFlight4[0],
 		fixture.serverFlight4[1],
 		request,
@@ -1418,7 +1408,7 @@ func addCertificateRequestToServerFlight13(
 		setFlight13HandshakeSequence(t, pkt, uint16(i))
 	}
 
-	certificateVerifyHandshake := fixture.serverFlight4[4].Record.Content.(*handshake.Handshake)  //nolint:forcetypeassert
+	certificateVerifyHandshake := fixture.serverFlight4[4].Content.(*handshake.Handshake)         //nolint:forcetypeassert
 	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
 	signer, ok := fixture.cfg.LocalCertificates[0].PrivateKey.(crypto.Signer)
 	require.True(t, ok)
@@ -1443,8 +1433,8 @@ func addCertificateRequestToServerFlight13(
 	)
 	require.NoError(t, err)
 
-	finishedHandshake := fixture.serverFlight4[5].Record.Content.(*handshake.Handshake) //nolint:forcetypeassert
-	finished := finishedHandshake.Message.(*handshake.MessageFinished)                  //nolint:forcetypeassert
+	finishedHandshake := fixture.serverFlight4[5].Content.(*handshake.Handshake) //nolint:forcetypeassert
+	finished := finishedHandshake.Message.(*handshake.MessageFinished)           //nolint:forcetypeassert
 	finished.VerifyData = nil
 
 	serverTranscript, err := fixture.transcript.clone()
@@ -1472,9 +1462,9 @@ type noHRRFlight13Fixture struct {
 	clientState   *dtlsstate.State13
 	serverState   *dtlsstate.State13
 	cfg           *dtlsconfig.HandshakeConfig
-	clientHello   []*dtlsflight.Packet
+	clientHello   []*dtlsflight.Outbound
 	transcript    *Transcript
-	serverFlight4 []*dtlsflight.Packet
+	serverFlight4 []*dtlsflight.Outbound
 }
 
 func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
@@ -1537,7 +1527,7 @@ func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
 func newFlight13ClientHelloFixture(
 	t *testing.T,
 	cfg *dtlsconfig.HandshakeConfig,
-) (*dtlsstate.State13, []*dtlsflight.Packet, *Transcript) {
+) (*dtlsstate.State13, []*dtlsflight.Outbound, *Transcript) {
 	t.Helper()
 
 	clientState := newTestState13(t, true)
@@ -1561,19 +1551,19 @@ func newFlight13ClientHelloFixture(
 func pushFlight13HandshakePacketsToCache(
 	t *testing.T,
 	cache *dtlsflight.Cache,
-	pkts []*dtlsflight.Packet,
+	pkts []*dtlsflight.Outbound,
 	isClient bool,
 ) {
 	t.Helper()
 
 	for _, p := range pkts {
-		content, ok := p.Record.Content.(*handshake.Handshake)
+		content, ok := p.Content.(*handshake.Handshake)
 		require.True(t, ok)
 		raw, err := content.Marshal()
 		require.NoError(t, err)
 		cache.Push(
 			raw,
-			p.Record.Header.Epoch,
+			p.Epoch,
 			content.Header.MessageSequence,
 			content.Message.Type(),
 			isClient,
@@ -1581,10 +1571,10 @@ func pushFlight13HandshakePacketsToCache(
 	}
 }
 
-func setFlight13HandshakeSequence(t *testing.T, p *dtlsflight.Packet, seq uint16) {
+func setFlight13HandshakeSequence(t *testing.T, p *dtlsflight.Outbound, seq uint16) {
 	t.Helper()
 
-	content, ok := p.Record.Content.(*handshake.Handshake)
+	content, ok := p.Content.(*handshake.Handshake)
 	require.True(t, ok)
 	content.Header.MessageSequence = seq
 }
@@ -1654,7 +1644,7 @@ func TestAppendOutboundHandshakeFlight13ClientHello(t *testing.T) {
 	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 3)
 	expected := canonicalPacketHandshake13(t, pkt)
 
-	err := AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{pkt})
+	err := AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{pkt})
 	require.NoError(t, err)
 	require.Len(t, transcript.order, 1)
 	require.Len(t, transcript.pending, 1)
@@ -1669,10 +1659,10 @@ func TestAppendOutboundHandshakeFlight13DuplicateNoop(t *testing.T) {
 	transcript := NewTranscript()
 	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 
-	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{pkt}))
+	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{pkt}))
 	before := append([]byte(nil), transcript.Bytes()...)
 
-	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{pkt}))
+	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{pkt}))
 	assert.Equal(t, before, transcript.Bytes())
 	assert.Len(t, transcript.order, 1)
 }
@@ -1682,8 +1672,8 @@ func TestAppendOutboundHandshakeFlight13ChangedSameSequenceFails(t *testing.T) {
 	pkt := transcriptTestClientHelloPacket13([]byte{0x01}, 0)
 	changedPkt := transcriptTestClientHelloPacket13([]byte{0x02}, 0)
 
-	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{pkt}))
-	err := AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Packet{changedPkt})
+	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{pkt}))
+	err := AppendOutboundHandshakeFlight(transcript, true, nil, []*dtlsflight.Outbound{changedPkt})
 
 	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptMessageChanged)
 }
@@ -1698,9 +1688,9 @@ func TestAppendOutboundHandshakeFlight13HelloRetryRequest(t *testing.T) {
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello)
 	helloRetryRequestCanonical := canonicalPacketHandshake13(t, helloRetryRequest)
 
-	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, cipherSuite, []*dtlsflight.Packet{clientHello}))
+	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, cipherSuite, []*dtlsflight.Outbound{clientHello}))
 	require.NoError(t, AppendOutboundHandshakeFlight(
-		transcript, false, cipherSuite, []*dtlsflight.Packet{helloRetryRequest},
+		transcript, false, cipherSuite, []*dtlsflight.Outbound{helloRetryRequest},
 	))
 
 	clientHelloHash := hashTranscript13(clientHelloCanonical)
@@ -1717,26 +1707,21 @@ func TestAppendOutboundHandshakeFlight13HelloRetryRequest(t *testing.T) {
 
 	before := append([]byte(nil), transcript.Bytes()...)
 	require.NoError(t, AppendOutboundHandshakeFlight(
-		transcript, false, cipherSuite, []*dtlsflight.Packet{helloRetryRequest},
+		transcript, false, cipherSuite, []*dtlsflight.Outbound{helloRetryRequest},
 	))
 	assert.Equal(t, before, transcript.Bytes())
 	assert.Len(t, transcript.order, 2)
 }
 
-func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *dtlsflight.Packet {
-	return &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-			},
-			Content: &handshake.Handshake{
-				Header: handshake.Header{MessageSequence: seq},
-				Message: &handshake.MessageClientHello{
-					Version:            protocol.Version1_2,
-					SessionID:          sessionID,
-					CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
-					CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-				},
+func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *dtlsflight.Outbound {
+	return &dtlsflight.Outbound{
+		Content: &handshake.Handshake{
+			Header: handshake.Header{MessageSequence: seq},
+			Message: &handshake.MessageClientHello{
+				Version:            protocol.Version1_2,
+				SessionID:          sessionID,
+				CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+				CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 			},
 		},
 	}
@@ -1744,29 +1729,24 @@ func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *dtlsflight
 
 func transcriptTestHelloRetryRequestPacket13(
 	tb testing.TB, cipherSuite dtlsconfig.CipherSuite, seq uint16,
-) *dtlsflight.Packet {
+) *dtlsflight.Outbound {
 	tb.Helper()
 
 	random := handshake.Random{}
 	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
 	cipherSuiteID := uint16(cipherSuite.ID())
 
-	return &dtlsflight.Packet{
-		Record: &recordlayer.RecordLayer{
-			Header: recordlayer.Header{
-				Version: protocol.Version1_2,
-			},
-			Content: &handshake.Handshake{
-				Header: handshake.Header{MessageSequence: seq},
-				Message: &handshake.MessageServerHello{
-					Version:           protocol.Version1_2,
-					Random:            random,
-					CipherSuiteID:     &cipherSuiteID,
-					CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-					Extensions: []extension.Value{
-						&extension13.SelectedVersion{
-							Version: protocol.Version1_3,
-						},
+	return &dtlsflight.Outbound{
+		Content: &handshake.Handshake{
+			Header: handshake.Header{MessageSequence: seq},
+			Message: &handshake.MessageServerHello{
+				Version:           protocol.Version1_2,
+				Random:            random,
+				CipherSuiteID:     &cipherSuiteID,
+				CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+				Extensions: []extension.Value{
+					&extension13.SelectedVersion{
+						Version: protocol.Version1_3,
 					},
 				},
 			},
