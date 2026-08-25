@@ -139,12 +139,12 @@ func newComm(
 		messageRecvCount: &messageRecvCount,
 		clientMutex:      &sync.Mutex{},
 		serverMutex:      &sync.Mutex{},
-		serverReady:      make(chan struct{}),
-		serverDone:       make(chan error),
-		clientDone:       make(chan error),
-		errChan:          make(chan error),
-		clientChan:       make(chan string),
-		serverChan:       make(chan string),
+		serverReady:      make(chan struct{}, 1),
+		serverDone:       make(chan error, 1),
+		clientDone:       make(chan error, 1),
+		errChan:          make(chan error, 4),
+		clientChan:       make(chan string, 1),
+		serverChan:       make(chan string, 1),
 		server:           server,
 		client:           client,
 	}
@@ -197,63 +197,89 @@ func (c *comm) assert(t *testing.T) { //nolint:cyclop
 		}
 	}()
 
-	func() {
-		seenClient, seenServer := false, false
-		for {
-			select {
-			case err := <-c.errChan:
-				assert.NoError(t, err)
-			case <-time.After(testTimeLimit):
-				assert.Failf(t, "Test timeout", "seenClient %t seenServer %t", seenClient, seenServer)
-			case clientMsg := <-c.clientChan:
-				assert.Equal(t, testMessage, clientMsg)
+	timer := time.NewTimer(testTimeLimit)
+	defer timer.Stop()
 
-				seenClient = true
-				if seenClient && seenServer {
-					return
-				}
-			case serverMsg := <-c.serverChan:
-				assert.Equal(t, testMessage, serverMsg)
+	seenClient, seenServer := false, false
+	for {
+		select {
+		case err := <-c.errChan:
+			assert.NoError(t, err)
 
-				seenServer = true
-				if seenClient && seenServer {
-					return
-				}
+			return
+		case <-timer.C:
+			assert.Failf(t, "Test timeout", "seenClient %t seenServer %t", seenClient, seenServer)
+
+			return
+		case clientMsg := <-c.clientChan:
+			if !assert.Equal(t, testMessage, clientMsg) {
+				return
+			}
+
+			seenClient = true
+			if seenClient && seenServer {
+				return
+			}
+		case serverMsg := <-c.serverChan:
+			if !assert.Equal(t, testMessage, serverMsg) {
+				return
+			}
+
+			seenServer = true
+			if seenClient && seenServer {
+				return
 			}
 		}
-	}()
+	}
 }
 
 func (c *comm) cleanup(t *testing.T) {
 	t.Helper()
 
 	clientDone, serverDone := false, false
+	clientDoneCh, serverDoneCh := c.clientDone, c.serverDone
+	timer := time.NewTimer(testTimeLimit)
+	defer timer.Stop()
+
 	for {
 		select {
-		case err := <-c.clientDone:
+		case err := <-clientDoneCh:
 			assert.NoError(t, err)
 			clientDone = true
+			clientDoneCh = nil
 			if clientDone && serverDone {
 				return
 			}
-		case err := <-c.serverDone:
+		case err := <-serverDoneCh:
 			assert.NoError(t, err)
 			serverDone = true
+			serverDoneCh = nil
 			if clientDone && serverDone {
 				return
 			}
-		case <-time.After(testTimeLimit):
+		case <-timer.C:
 			assert.Fail(t, "Test timeout waiting for server shutdown")
+
+			return
 		}
 	}
 }
 
 func clientPion(c *comm) { //nolint:varnamelen
+	var result error
+	defer func() {
+		c.clientDone <- result
+		close(c.clientDone)
+	}()
+
 	select {
 	case <-c.serverReady:
 		// OK
 	case <-time.After(time.Second):
-		c.errChan <- errServerTimeout
+		result = errServerTimeout
+		c.errChan <- result
+
+		return
 	}
 
 	c.clientMutex.Lock()
@@ -264,25 +290,30 @@ func clientPion(c *comm) { //nolint:varnamelen
 		c.clientOpts...,
 	)
 	if err != nil {
-		c.errChan <- err
+		result = err
+		c.errChan <- result
 
 		return
 	}
-
-	if err := conn.HandshakeContext(c.ctx); err != nil {
-		c.errChan <- err
-
-		return
-	}
-
 	c.clientConn = conn
 
+	if err := conn.HandshakeContext(c.ctx); err != nil {
+		result = err
+		c.errChan <- result
+
+		return
+	}
+
 	simpleReadWrite(c.errChan, c.clientChan, c.clientConn, c.messageRecvCount)
-	c.clientDone <- nil
-	close(c.clientDone)
 }
 
 func serverPion(c *comm) { //nolint:varnamelen
+	var result error
+	defer func() {
+		c.serverDone <- result
+		close(c.serverDone)
+	}()
+
 	c.serverMutex.Lock()
 	defer c.serverMutex.Unlock()
 
@@ -292,14 +323,16 @@ func serverPion(c *comm) { //nolint:varnamelen
 		c.serverOpts...,
 	)
 	if err != nil {
-		c.errChan <- err
+		result = err
+		c.errChan <- result
 
 		return
 	}
 	c.serverReady <- struct{}{}
 	c.serverConn, err = c.serverListener.Accept()
 	if err != nil {
-		c.errChan <- err
+		result = err
+		c.errChan <- result
 
 		return
 	}
@@ -307,15 +340,14 @@ func serverPion(c *comm) { //nolint:varnamelen
 	dtlsConn, ok := c.serverConn.(*dtls.Conn)
 	if ok {
 		if err := dtlsConn.HandshakeContext(c.ctx); err != nil {
-			c.errChan <- err
+			result = err
+			c.errChan <- result
 
 			return
 		}
 	}
 
 	simpleReadWrite(c.errChan, c.serverChan, c.serverConn, c.messageRecvCount)
-	c.serverDone <- nil
-	close(c.serverDone)
 }
 
 type dtlsTestOpts struct {
@@ -1047,9 +1079,6 @@ func TestCertificateSignatureSchemesRSA(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	// Generate RSA certificate
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	assert.NoError(t, err)
@@ -1086,6 +1115,9 @@ func TestCertificateSignatureSchemesRSA(t *testing.T) {
 	}
 
 	serverPort := randomPort(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	comm := newComm(ctx, clientOpts, serverOpts, serverPort, serverPion, clientPion)
 	comm.setOpenSSLInfo(
 		[]dtls.CipherSuiteID{dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
