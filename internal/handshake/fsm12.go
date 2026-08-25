@@ -61,6 +61,7 @@ type fsm12 struct {
 	cfg                *dtlsconfig.HandshakeConfig
 	closed             chan struct{}
 	establishment      *Establishment
+	received           recvHandshakeLease // keeps the reader paused across a prepare/send transition
 }
 
 func NewFSM12(
@@ -85,6 +86,8 @@ func NewFSM12(
 }
 
 func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
+	defer s.received.release()
+
 	return runHandshakeFSM(
 		ctx,
 		conn,
@@ -110,12 +113,17 @@ func (s *fsm12) Done() <-chan struct{} {
 	return s.closed
 }
 
-func (s *fsm12) prepare(ctx context.Context, conn Conn) (State, error) {
+func (s *fsm12) prepare(ctx context.Context, conn Conn) (nextState State, err error) {
+	defer func() {
+		if err != nil {
+			s.received.release()
+		}
+	}()
+
 	s.flights = nil
 	// Prepare flights
 	var (
 		dtlsAlert *alert.Alert
-		err       error
 		pkts      []*dtlsflight.Outbound
 	)
 	gen, retransmit, ok := dtlsflight12.GetGenerator(s.currentFlight)
@@ -152,6 +160,8 @@ func (s *fsm12) prepare(ctx context.Context, conn Conn) (State, error) {
 }
 
 func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
+	defer s.received.release()
+
 	// Send flights
 	if _, err := c.WritePackets(ctx, s.flights); err != nil {
 		return StateErrored, err
@@ -190,7 +200,7 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 
 				return StateErrored, dtlserrors.ErrInvalidFlight
 			}
-			close(state.Done)
+			s.received.retain(state)
 			if dtlsAlert != nil {
 				if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
 					if err != nil {
@@ -199,9 +209,13 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				}
 			}
 			if err != nil {
+				s.received.release()
+
 				return StateErrored, err
 			}
 			if nextFlight == 0 {
+				s.received.release()
+
 				break
 			}
 			s.cfg.Log.Tracef(
@@ -211,6 +225,8 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				nextFlight.String(),
 			)
 			if nextFlight.IsLastRecvFlight() && s.currentFlight == nextFlight {
+				s.received.release()
+
 				return StateFinished, nil
 			}
 			s.currentFlight = nextFlight
@@ -228,8 +244,10 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 func (s *fsm12) finish(ctx context.Context, c Conn) (State, error) {
 	select {
 	case state := <-c.RecvHandshake():
-		close(state.Done)
+		s.received.retain(state)
 		if s.state.IsClient {
+			s.received.release()
+
 			return StateFinished, nil
 		}
 

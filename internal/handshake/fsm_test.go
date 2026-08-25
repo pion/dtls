@@ -14,6 +14,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight12 "github.com/pion/dtls/v3/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	"github.com/pion/dtls/v3/internal/negotiation"
@@ -577,24 +578,24 @@ func TestHandshakeFSM13ServerFlight4KeepsReaderPausedThroughQueueDrain(t *testin
 	require.NoError(t, err)
 	require.Equal(t, StatePreparing, nextState)
 	require.Equal(t, dtlsflight13.Flight4, fsm.currentFlight)
-	assertFlight13RecvDoneOpen(t, recvState)
+	assertRecvDoneOpen(t, recvState)
 
 	queueDrains := 0
 	conn.writePackets = func(context.Context, []*dtlsflight.Outbound) error {
-		assertFlight13RecvDoneOpen(t, recvState)
+		assertRecvDoneOpen(t, recvState)
 
 		return nil
 	}
 	conn.handleQueuedPackets = func(context.Context) error {
 		queueDrains++
-		assertFlight13RecvDoneOpen(t, recvState)
+		assertRecvDoneOpen(t, recvState)
 
 		return nil
 	}
 	nextState, err = fsm.prepare(context.Background(), conn)
 	require.NoError(t, err)
 	require.Equal(t, StateSending, nextState)
-	assertFlight13RecvDoneOpen(t, recvState)
+	assertRecvDoneOpen(t, recvState)
 	nextState, err = fsm.send(context.Background(), conn)
 	require.NoError(t, err)
 	require.Equal(t, StateWaiting, nextState)
@@ -727,23 +728,23 @@ func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
 	assert.Equal(t, 5, fixture.clientState.HandshakeRecvSequence)
 	assert.True(t, fixture.clientState.CipherSuite.IsInitialized())
 	assert.Equal(t, dtlsflight13.EpochHandshake, fixture.clientState.RemoteEpoch())
-	assertFlight13RecvDoneOpen(t, recvState)
+	assertRecvDoneOpen(t, recvState)
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
 
 	conn.writePackets = func(context.Context, []*dtlsflight.Outbound) error {
-		assertFlight13RecvDoneOpen(t, recvState)
+		assertRecvDoneOpen(t, recvState)
 
 		return nil
 	}
 	conn.handleQueuedPackets = func(context.Context) error {
-		assertFlight13RecvDoneOpen(t, recvState)
+		assertRecvDoneOpen(t, recvState)
 
 		return nil
 	}
 	nextState, err = fsm.prepare(context.Background(), conn)
 	require.NoError(t, err)
 	assert.Equal(t, StateSending, nextState)
-	assertFlight13RecvDoneOpen(t, recvState)
+	assertRecvDoneOpen(t, recvState)
 	nextState, err = fsm.send(context.Background(), conn)
 	require.NoError(t, err)
 	assert.Equal(t, StateFinished, nextState)
@@ -817,7 +818,7 @@ func TestHandshakeFSM13NoHRRReachesFlight5AfterEncryptedExtensions(t *testing.T)
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
 	assert.Equal(t, 5, fixture.clientState.HandshakeRecvSequence)
-	assertFlight13RecvDoneOpen(t, recvState)
+	assertRecvDoneOpen(t, recvState)
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
 	fsm.received.release()
 	assertFlight13RecvDoneClosed(t, recvState)
@@ -954,12 +955,12 @@ func TestHandshakeFSM13SendErrorReleasesReader(t *testing.T) {
 			recvState := RecvHandshakeState{Done: fsm.received.done}
 			conn := &flightTestConn{
 				writePackets: func(context.Context, []*dtlsflight.Outbound) error {
-					assertFlight13RecvDoneOpen(t, recvState)
+					assertRecvDoneOpen(t, recvState)
 
 					return test.writeErr
 				},
 				handleQueuedPackets: func(context.Context) error {
-					assertFlight13RecvDoneOpen(t, recvState)
+					assertRecvDoneOpen(t, recvState)
 
 					return test.queueErr
 				},
@@ -968,7 +969,7 @@ func TestHandshakeFSM13SendErrorReleasesReader(t *testing.T) {
 			nextState, err := fsm.prepare(context.Background(), conn)
 			require.NoError(t, err)
 			require.Equal(t, StateSending, nextState)
-			assertFlight13RecvDoneOpen(t, recvState)
+			assertRecvDoneOpen(t, recvState)
 			nextState, err = fsm.send(context.Background(), conn)
 			require.ErrorIs(t, err, context.Canceled)
 			assert.Equal(t, StateErrored, nextState)
@@ -1163,7 +1164,7 @@ func TestHandshakeFSM13ServerVerifiesClientFinishedAndCompletes(t *testing.T) {
 	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
 	recvState := RecvHandshakeState{Done: make(chan struct{})}
 	conn.handleQueuedPackets = func(context.Context) error {
-		assertFlight13RecvDoneOpen(t, recvState)
+		assertRecvDoneOpen(t, recvState)
 
 		return nil
 	}
@@ -1367,7 +1368,7 @@ func clientFSMThroughServerFlight13(t *testing.T, fixture noHRRFlight13Fixture) 
 	require.NoError(t, err)
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
-	assertFlight13RecvDoneOpen(t, recvState)
+	assertRecvDoneOpen(t, recvState)
 	t.Cleanup(fsm.received.release)
 
 	return fsm
@@ -1589,7 +1590,7 @@ func assertFlight13RecvDoneClosed(t *testing.T, state RecvHandshakeState) {
 	}
 }
 
-func assertFlight13RecvDoneOpen(t *testing.T, state RecvHandshakeState) {
+func assertRecvDoneOpen(t *testing.T, state RecvHandshakeState) {
 	t.Helper()
 
 	select {
@@ -1751,5 +1752,119 @@ func transcriptTestHelloRetryRequestPacket13(
 				},
 			},
 		},
+	}
+}
+
+func testHandshakeConfig12(t *testing.T) *dtlsconfig.HandshakeConfig {
+	t.Helper()
+
+	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	require.NotNil(t, cipherSuite)
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+
+	loggerFactory := logging.NewDefaultLoggerFactory()
+
+	return &dtlsconfig.HandshakeConfig{
+		LocalCertificates:         []tls.Certificate{certificate},
+		InsecureSkipVerify:        true,
+		LocalCipherSuites:         []dtlsconfig.CipherSuite{cipherSuite},
+		EllipticCurves:            testCurves13,
+		InitialRetransmitInterval: time.Second,
+		ExtendedMasterSecret:      dtlsconfig.DisableExtendedMasterSecret,
+		Log:                       loggerFactory.NewLogger("dtls"),
+		MinVersion:                protocol.Version1_2,
+		MaxVersion:                protocol.Version1_2,
+		LocalSignatureSchemes:     signaturehash.Algorithms(),
+	}
+}
+
+func pushClientHello12(t *testing.T, cache *dtlsflight.Cache) {
+	t.Helper()
+
+	content := &handshake.Handshake{
+		Header: handshake.Header{MessageSequence: 0},
+		Message: &handshake.MessageClientHello{
+			Version:            protocol.Version1_2,
+			Random:             handshake.Random{},
+			CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
+			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+			Extensions: []extension.Value{
+				&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
+			},
+		},
+	}
+
+	raw, err := content.Marshal()
+	require.NoError(t, err)
+	cache.Push(raw, 0, 0, handshake.TypeClientHello, true)
+}
+
+func TestHandshakeFSM12ServerKeepsReaderPausedUntilFlightSent(t *testing.T) {
+	cfg := testHandshakeConfig12(t)
+	cache := dtlsflight.NewCache()
+	pushClientHello12(t, cache)
+
+	state12 := dtlsstate.NewState12(false)
+	state := &state12
+	fsm, ok := NewFSM12(state, cache, cfg, dtlsflight12.Flight0, nil, nil).(*fsm12)
+	require.True(t, ok)
+	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+
+	recvState := RecvHandshakeState{Done: make(chan struct{})}
+	conn.recvHandshake <- recvState
+
+	nextState, err := fsm.wait(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StatePreparing, nextState)
+	assertRecvDoneOpen(t, recvState)
+
+	nextState, err = fsm.prepare(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateSending, nextState)
+	assertRecvDoneOpen(t, recvState)
+
+	conn.writePackets = func(context.Context, []*dtlsflight.Outbound) error {
+		assertRecvDoneOpen(t, recvState)
+
+		return nil
+	}
+	_, err = fsm.send(context.Background(), conn)
+	require.NoError(t, err)
+
+	select {
+	case <-recvState.Done:
+	default:
+		assert.Fail(t, "state.Done must be closed once the flight was sent")
+	}
+}
+
+func TestHandshakeFSM12ServerKeepsReaderPausedInFinishedState(t *testing.T) {
+	cfg := testHandshakeConfig12(t)
+	state12 := dtlsstate.NewState12(false)
+	fsm, ok := NewFSM12(&state12, dtlsflight.NewCache(), cfg, dtlsflight12.Flight6, nil, nil).(*fsm12)
+	require.True(t, ok)
+	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+
+	recvState := RecvHandshakeState{Done: make(chan struct{})}
+	conn.recvHandshake <- recvState
+
+	nextState, err := fsm.finish(context.Background(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StateSending, nextState)
+	assertRecvDoneOpen(t, recvState)
+
+	conn.writePackets = func(context.Context, []*dtlsflight.Outbound) error {
+		assertRecvDoneOpen(t, recvState)
+
+		return nil
+	}
+	_, err = fsm.send(context.Background(), conn)
+	require.NoError(t, err)
+
+	select {
+	case <-recvState.Done:
+	default:
+		assert.Fail(t, "state.Done must be closed once the flight was sent")
 	}
 }
