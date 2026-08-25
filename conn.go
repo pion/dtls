@@ -1240,7 +1240,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 	return nil
 }
 
-func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) { //nolint:cyclop
+func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) {
 	bufptr, ok := c.readBufferPool.Get().(*[]byte)
 	if !ok {
 		return datagramProcessingSummary{}, dtlserrors.ErrFailedToAccessPoolReadBuffer
@@ -1254,7 +1254,16 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 		return datagramProcessingSummary{}, netError(err)
 	}
 
-	pkts, err := c.unpackDatagram(b[:i])
+	return c.processDatagram(ctx, b[:i], rAddr, &bufferLease)
+}
+
+func (c *Conn) processDatagram(
+	ctx context.Context,
+	datagram []byte,
+	rAddr net.Addr,
+	bufferLease *readBufferLease,
+) (datagramProcessingSummary, error) {
+	pkts, err := c.unpackDatagram(datagram)
 	if len(pkts) == 0 {
 		// discard missing negotiated CID without terminating the handshake.
 		if errors.Is(err, dtlserrors.ErrInvalidCiphertextHeader) {
@@ -1265,13 +1274,26 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 
 		return datagramProcessingSummary{}, err
 	}
+
+	if err != nil {
+		c.log.Debugf("discarded malformed datagram suffix: %v", err)
+	}
+
+	return c.processDatagramPackets(ctx, pkts, rAddr, bufferLease)
+}
+
+func (c *Conn) processDatagramPackets(
+	ctx context.Context,
+	pkts [][]byte,
+	rAddr net.Addr,
+	bufferLease *readBufferLease,
+) (datagramProcessingSummary, error) {
 	datagramContainsCID := recordsContainCID(pkts)
 	bufferLease.datagramContainsCID = datagramContainsCID
 
 	var summary datagramProcessingSummary
 	for _, p := range pkts {
-		var outcome packetOutcome
-		outcome, err = c.processIncomingPacket(ctx, p, rAddr, &bufferLease, datagramContainsCID)
+		outcome, err := c.processIncomingPacket(ctx, p, rAddr, bufferLease, datagramContainsCID)
 		if err != nil {
 			return datagramProcessingSummary{}, err
 		}
@@ -1280,10 +1302,6 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 		if outcome.receivedACK != nil {
 			summary.receivedACKs = append(summary.receivedACKs, *outcome.receivedACK)
 		}
-	}
-
-	if err != nil {
-		c.log.Debugf("discarded malformed datagram suffix: %v", err)
 	}
 
 	return summary, nil
