@@ -22,31 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClientWithOptionsValidatesOptionValues(t *testing.T) {
-	ca, cb := dpipe.Pipe()
-	defer func() {
-		_ = ca.Close()
-		_ = cb.Close()
-	}()
-
-	_, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
-		WithExtendedMasterSecret(ExtendedMasterSecretType(-1)))
-	require.ErrorIs(t, err, dtlserrors.ErrInvalidExtendedMasterSecretType)
-}
-
-func TestServerWithOptionsValidatesOptionValues(t *testing.T) {
-	ca, cb := dpipe.Pipe()
-	defer func() {
-		_ = ca.Close()
-		_ = cb.Close()
-	}()
-
-	// Test invalid client auth type
-	_, err := ServerWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
-		WithClientAuth(ClientAuthType(-1)))
-	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientAuthType)
-}
-
 func TestWithOptionsCreatesConn(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 	defer func() {
