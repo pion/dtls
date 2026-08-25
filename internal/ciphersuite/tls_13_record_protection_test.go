@@ -840,7 +840,7 @@ func TestRecordProtection13SealRejectsOversizedPlaintext(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidPacketLength)
 }
 
-func TestRecordProtection13OpenRejectsWrongAdditionalData(t *testing.T) {
+func TestRecordProtection13OpenRejectsModifiedAuthenticationInputs(t *testing.T) {
 	for _, testCase := range recordProtection13TestCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			localTrafficSecret := trafficSecret13(testCase.suite, 0xb7)
@@ -858,33 +858,17 @@ func TestRecordProtection13OpenRejectsWrongAdditionalData(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			record.Header.SequenceNumber ^= 0x0001
-			_, err = peerProtection.open(record.Header, 0x0102030405060708, record.EncryptedRecord)
-			assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
-		})
-	}
-}
+			t.Run("modified additional data", func(t *testing.T) {
+				modifiedHeader := record.Header
+				modifiedHeader.SequenceNumber ^= 0x0001
+				_, err = peerProtection.open(modifiedHeader, 0x0102030405060708, record.EncryptedRecord)
+				assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+			})
 
-func TestRecordProtection13OpenRejectsWrongSequenceNumber(t *testing.T) {
-	for _, testCase := range recordProtection13TestCases() {
-		t.Run(testCase.name, func(t *testing.T) {
-			localTrafficSecret := trafficSecret13(testCase.suite, 0xbe)
-			remoteTrafficSecret := trafficSecret13(testCase.suite, 0xce)
-			protection, err := newRecordProtection13ForTest(testCase.suite, localTrafficSecret, remoteTrafficSecret)
-			require.NoError(t, err)
-			peerProtection, err := newRecordProtection13ForTest(testCase.suite, remoteTrafficSecret, localTrafficSecret)
-			require.NoError(t, err)
-
-			record, err := protection.seal(
-				recordlayer.UnifiedHeader{SequenceNumber: 0x4567, EpochLow: 1},
-				0x0102030405060708,
-				protocol.ContentTypeHandshake,
-				[]byte{0x01, 0x02, 0x03},
-			)
-			require.NoError(t, err)
-
-			_, err = peerProtection.open(record.Header, 0x0102030405060709, record.EncryptedRecord)
-			assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+			t.Run("wrong record sequence number", func(t *testing.T) {
+				_, err = peerProtection.open(record.Header, 0x0102030405060709, record.EncryptedRecord)
+				assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+			})
 		})
 	}
 }

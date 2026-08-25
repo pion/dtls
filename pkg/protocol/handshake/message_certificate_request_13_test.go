@@ -91,41 +91,31 @@ func TestMessageCertificateRequest13_Type(t *testing.T) {
 	assert.Equal(t, TypeCertificateRequest, m.Type())
 }
 
-func TestMessageCertificateRequest13_MinimalValid(t *testing.T) {
-	// Build (valid) message with empty context
-	msg := &MessageCertificateRequest13{
-		CertificateRequestContext: []byte{},
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0401}},
-		},
+func TestMessageCertificateRequest13_ValidContexts(t *testing.T) {
+	maxContext := make([]byte, certReq13ContextMaxLength)
+	for i := range maxContext {
+		maxContext[i] = byte(i)
 	}
-	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
-}
 
-func TestMessageCertificateRequest13_WithContext(t *testing.T) {
-	// Build (valid) message with non-empty context
-	msg := &MessageCertificateRequest13{
-		CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-		},
+	for _, test := range []struct {
+		name    string
+		context []byte
+		schemes []uint16
+	}{
+		{"empty", []byte{}, []uint16{0x0403, 0x0401}},
+		{"non-empty", []byte{0x01, 0x02, 0x03, 0x04}, []uint16{0x0403}},
+		{"maximum length", maxContext, []uint16{0x0403}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			msg := &MessageCertificateRequest13{
+				CertificateRequestContext: test.context,
+				Extensions: []extension.Value{
+					&extension.SignatureAlgorithms{Schemes: test.schemes},
+				},
+			}
+			marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
+		})
 	}
-	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
-}
-
-func TestMessageCertificateRequest13_MaxContextLength(t *testing.T) {
-	// Build (valid) message with context of exactly the max size
-	context := make([]byte, certReq13ContextMaxLength)
-	for i := range context {
-		context[i] = byte(i)
-	}
-	msg := &MessageCertificateRequest13{
-		CertificateRequestContext: context,
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-		},
-	}
-	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
 }
 
 func TestMessageCertificateRequest13_MultipleExtensions(t *testing.T) {

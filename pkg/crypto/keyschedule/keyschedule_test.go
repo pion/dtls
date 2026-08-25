@@ -38,21 +38,24 @@ func TestHKDFExtract_Nil_Hash_Error(t *testing.T) {
 	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleMissingHashFunction, err)
 }
 
-func TestHKDFExpandLabel_Simple(t *testing.T) {
-	secret := bytes.Repeat([]byte{0x11}, sha256.Size)
-	ctx := []byte{0xAA, 0xBB}
-
-	out, err := HkdfExpandLabel(sha256.New, secret, "client in", ctx, 16)
-	assert.NoError(t, err)
-	assert.NotNil(t, out)
-}
-
-func TestHKDFLabel_Encoding_Shape(t *testing.T) {
-	testStr := "key"
-
-	secret := make([]byte, sha256.Size)
-	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
-	assert.NoError(t, err)
+func TestHKDFExpandLabelValidInputs(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		secret  []byte
+		label   string
+		context []byte
+		length  int
+	}{
+		{"simple", bytes.Repeat([]byte{0x11}, sha256.Size), "client in", []byte{0xAA, 0xBB}, 16},
+		{"label encoding", make([]byte, sha256.Size), "key", nil, 32},
+		{"empty context", make([]byte, sha256.Size), "hi", []byte{}, 32},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			out, err := HkdfExpandLabel(sha256.New, test.secret, test.label, test.context, test.length)
+			assert.NoError(t, err)
+			assert.NotNil(t, out)
+		})
+	}
 }
 
 func TestHKDFLabel_Encoding_Shape_Label_Small(t *testing.T) {
@@ -69,17 +72,6 @@ func TestHKDFLabel_Encoding_Shape_Label_Big(t *testing.T) {
 	secret := make([]byte, sha256.Size)
 	_, err := HkdfExpandLabel(sha256.New, secret, testStr, nil, 32)
 	assert.ErrorIs(t, dtlserrors.ErrKeyScheduleLabelTooBig, err)
-}
-
-func TestHKDFLabel_Encoding_Shape_Context_Length_Zero(t *testing.T) {
-	validLabel := "hi"
-	zeroContext := bytes.NewBufferString("").Bytes()
-
-	secret := make([]byte, sha256.Size)
-	_, err := HkdfExpandLabel(sha256.New, secret, validLabel, zeroContext, 32)
-	assert.NoError(t, err)
-
-	assert.Equal(t, 0, len(zeroContext))
 }
 
 func TestHKDFLabel_Encoding_Shape_Context_Too_Big(t *testing.T) {
