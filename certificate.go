@@ -8,6 +8,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -60,5 +61,6 @@ func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certific
 	return (&dtlsconfig.CertificateRequestInfo{
 		AcceptableCAs:    cri.AcceptableCAs,
 		SignatureSchemes: signatureSchemes,
+		Version:          protocol.Version1_3,
 	}).SupportsCertificate(certificate)
 }

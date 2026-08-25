@@ -15,6 +15,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
+	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
 // Algorithm is a signature/hash algorithm pairs which may be used in
@@ -64,14 +65,38 @@ func Algorithms() []Algorithm {
 	}
 }
 
-// SelectSignatureScheme returns most preferred and compatible scheme for DTLS <= 1.2.
-func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey) (Algorithm, error) {
-	return selectSignatureScheme(sigs, privateKey, false)
-}
+// SelectSignatureScheme returns the most preferred compatible scheme for version.
+func SelectSignatureScheme(
+	sigs []Algorithm,
+	privateKey crypto.PrivateKey,
+	version protocol.Version,
+) (Algorithm, error) {
+	signer, ok := privateKey.(crypto.Signer)
+	if !ok {
+		return Algorithm{}, dtlserrors.ErrInvalidPrivateKey
+	}
 
-// SelectSignatureScheme13 returns most preferred and compatible scheme for DTLS 1.3.
-func SelectSignatureScheme13(sigs []Algorithm, privateKey crypto.PrivateKey) (Algorithm, error) {
-	return selectSignatureScheme(sigs, privateKey, true)
+	is13 := version.Equal(protocol.Version1_3)
+	for _, ss := range sigs {
+		// RSA-PSS is only supported in DTLS 1.3.
+		if !is13 && ss.Signature.IsPSS() {
+			continue
+		}
+		// TLS 1.3 CertificateVerify signatures made with RSA keys must use
+		// RSASSA-PSS.
+		if is13 && ss.Signature == signature.RSA {
+			continue
+		}
+		// Skip schemes understood but not supported by pion/dtls.
+		if ss.Signature.IsUnsupported() {
+			continue
+		}
+		if ss.isCompatible(signer) {
+			return ss, nil
+		}
+	}
+
+	return Algorithm{}, dtlserrors.ErrNoAvailableSignatureSchemes
 }
 
 // isCompatible checks that given private key is compatible with the signature scheme.

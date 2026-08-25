@@ -12,6 +12,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
@@ -61,9 +62,10 @@ func flight5ClientAuthPackets(
 			dtlserrors.ErrInvalidPrivateKey
 	}
 
-	signatureScheme, err := signaturehash.SelectSignatureScheme13(
+	signatureScheme, err := signaturehash.SelectSignatureScheme(
 		certificateRequestSignatureSchemes(certificateRequest),
 		signer,
+		protocol.Version1_3,
 	)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
@@ -93,6 +95,7 @@ func flight5ClientCertificate(
 ) (*tls.Certificate, error) {
 	requestInfo := &dtlsconfig.CertificateRequestInfo{
 		SignatureSchemes: certificateRequestSignatureSchemes(request),
+		Version:          protocol.Version1_3,
 	}
 	for _, ext := range request.Extensions {
 		if authorities, ok := ext.(*extension13.CertificateAuthorities); ok {

@@ -379,7 +379,11 @@ func flight4Generate(
 		}
 
 		// Find compatible signature scheme
-		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(cfg.LocalSignatureSchemes, signer)
+		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(
+			cfg.LocalSignatureSchemes,
+			signer,
+			protocol.Version1_2,
+		)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}

@@ -83,7 +83,7 @@ func flight5Generate(
 		if !pull.Ready {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired //nolint:lll
 		}
-		reqInfo := dtlsconfig.CertificateRequestInfo{}
+		reqInfo := dtlsconfig.CertificateRequestInfo{Version: protocol.Version1_2}
 		if r, ok2 := pull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
 			reqInfo.AcceptableCAs = make([][]byte, len(r.CertificateAuthoritiesNames))
 			for i := range r.CertificateAuthoritiesNames {
@@ -186,7 +186,11 @@ func flight5Generate(
 
 		// Find compatible signature scheme
 
-		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(state.RemoteCertRequestAlgs, signer)
+		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(
+			state.RemoteCertRequestAlgs,
+			signer,
+			protocol.Version1_2,
+		)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}

@@ -16,6 +16,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -190,7 +191,7 @@ func TestParseSignatureSchemes(t *testing.T) {
 	}
 }
 
-func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
+func TestSelectSignatureScheme_VersionAware(t *testing.T) {
 	// Generate test keys
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -202,7 +203,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 		name           string
 		schemes        []Algorithm
 		privateKey     crypto.PrivateKey
-		is13           bool
+		version        protocol.Version
 		expectedSigAlg signature.Algorithm
 		expectedError  error
 	}{
@@ -213,7 +214,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 				{hash.SHA256, signature.RSA_PSS_RSAE_SHA256},
 			},
 			privateKey:     rsaKey,
-			is13:           true,
+			version:        protocol.Version1_3,
 			expectedSigAlg: signature.RSA_PSS_RSAE_SHA256,
 			expectedError:  nil,
 		},
@@ -224,7 +225,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 				{hash.SHA256, signature.RSA},
 			},
 			privateKey:     rsaKey,
-			is13:           false,
+			version:        protocol.Version1_2,
 			expectedSigAlg: signature.RSA,
 			expectedError:  nil,
 		},
@@ -235,7 +236,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 				{hash.SHA384, signature.RSA_PSS_RSAE_SHA384},
 			},
 			privateKey:     rsaKey,
-			is13:           false,
+			version:        protocol.Version1_2,
 			expectedSigAlg: 0,
 			expectedError:  dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
@@ -245,7 +246,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 				{hash.SHA256, signature.ECDSA},
 			},
 			privateKey:     ecdsaKey,
-			is13:           false,
+			version:        protocol.Version1_2,
 			expectedSigAlg: signature.ECDSA,
 			expectedError:  nil,
 		},
@@ -257,7 +258,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 				{hash.SHA256, signature.RSA},
 			},
 			privateKey:     rsaKey,
-			is13:           true,
+			version:        protocol.Version1_3,
 			expectedSigAlg: signature.RSA_PSS_RSAE_SHA256,
 			expectedError:  nil,
 		},
@@ -269,7 +270,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 				{hash.SHA256, signature.RSA},
 			},
 			privateKey:     rsaKey,
-			is13:           true,
+			version:        protocol.Version1_3,
 			expectedSigAlg: 0,
 			expectedError:  dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
@@ -281,7 +282,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 				{hash.SHA512, signature.RSA_PSS_PSS_SHA512},
 			},
 			privateKey:     rsaKey,
-			is13:           true,
+			version:        protocol.Version1_3,
 			expectedSigAlg: 0,
 			expectedError:  dtlserrors.ErrNoAvailableSignatureSchemes,
 		},
@@ -289,7 +290,7 @@ func TestSelectSignatureScheme13_VersionAware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := selectSignatureScheme(tt.schemes, tt.privateKey, tt.is13)
+			result, err := SelectSignatureScheme(tt.schemes, tt.privateKey, tt.version)
 			if tt.expectedError != nil {
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.expectedError)

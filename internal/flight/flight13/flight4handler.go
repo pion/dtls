@@ -209,7 +209,11 @@ func flight4Generate( //nolint:cyclop
 		}
 	}
 
-	signatureScheme, err := signaturehash.SelectSignatureScheme13(commonSignatureSchemes, signer)
+	signatureScheme, err := signaturehash.SelectSignatureScheme(
+		commonSignatureSchemes,
+		signer,
+		protocol.Version1_3,
+	)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 	}
