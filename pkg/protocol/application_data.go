@@ -24,6 +24,18 @@ func (a *ApplicationData) Marshal() ([]byte, error) {
 	return a.Data, nil
 }
 
+// MarshalTo encodes the ApplicationData to binary into a pre-allocated buffer.
+func (a *ApplicationData) MarshalTo(out []byte) (int, error) {
+	copy(out, a.Data)
+
+	return len(a.Data), nil
+}
+
+// MarshalSize returns the size required for MarshalTo.
+func (a ApplicationData) MarshalSize() int {
+	return len(a.Data)
+}
+
 // Unmarshal populates the ApplicationData from binary.
 func (a *ApplicationData) Unmarshal(data []byte) error {
 	a.Data = bytes.Clone(data)

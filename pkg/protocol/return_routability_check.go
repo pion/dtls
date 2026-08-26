@@ -31,12 +31,24 @@ func (r ReturnRoutabilityCheck) ContentType() ContentType {
 	return ContentTypeReturnRoutabilityCheck
 }
 
-// Marshal encodes the RRC message to its wire format.
+// MarshalSize returns the minimal size required for MarshalTo.
+func (r *ReturnRoutabilityCheck) MarshalSize() int {
+	return 1 + len(r.Cookie)
+}
+
+// Marshal encodes to wire format.
 func (r *ReturnRoutabilityCheck) Marshal() ([]byte, error) {
-	out := make([]byte, 1, 1+len(r.Cookie))
+	out := make([]byte, r.MarshalSize())
+	_, err := r.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalTo encodes to wire format into a pre-allocated buffer.
+func (r *ReturnRoutabilityCheck) MarshalTo(out []byte) (int, error) {
 	out[0] = byte(r.MessageType)
 
-	return append(out, r.Cookie[:]...), nil
+	return copy(out[1:], r.Cookie[:]), nil
 }
 
 // Unmarshal decodes an RRC message.

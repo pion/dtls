@@ -2808,7 +2808,7 @@ func readVersionNegotiationAlert(t *testing.T, conn net.Conn) alert.Description 
 			}
 
 			var dtlsAlert alert.Alert
-			require.NoError(t, dtlsAlert.Unmarshal(rawRecord[header.Size():]))
+			require.NoError(t, dtlsAlert.Unmarshal(rawRecord[header.MarshalSize():]))
 
 			return dtlsAlert.Description
 		}
@@ -2821,10 +2821,10 @@ func unmarshalHandshakeRecord(t *testing.T, raw []byte) (recordlayer.Header, *ha
 	var header recordlayer.Header
 	require.NoError(t, header.Unmarshal(raw))
 	require.Equal(t, protocol.ContentTypeHandshake, header.ContentType)
-	require.GreaterOrEqual(t, len(raw), header.Size())
+	require.GreaterOrEqual(t, len(raw), header.MarshalSize())
 
 	var content handshake.Handshake
-	require.NoError(t, content.Unmarshal(raw[header.Size():]))
+	require.NoError(t, content.Unmarshal(raw[header.MarshalSize():]))
 
 	return header, &content
 }
@@ -2835,10 +2835,10 @@ func unmarshalAlertRecord(t *testing.T, raw []byte) *alert.Alert {
 	var header recordlayer.Header
 	require.NoError(t, header.Unmarshal(raw))
 	require.Equal(t, protocol.ContentTypeAlert, header.ContentType)
-	require.GreaterOrEqual(t, len(raw), header.Size())
+	require.GreaterOrEqual(t, len(raw), header.MarshalSize())
 
 	var content alert.Alert
-	require.NoError(t, content.Unmarshal(raw[header.Size():]))
+	require.NoError(t, content.Unmarshal(raw[header.MarshalSize():]))
 
 	return &content
 }
@@ -4500,7 +4500,7 @@ func datagramContainsHandshake(raw []byte, typ handshake.Type, sequence uint16) 
 			continue
 		}
 		var handshakeRecord handshake.Handshake
-		if err = handshakeRecord.Unmarshal(rawRecord[header.Size():]); err != nil {
+		if err = handshakeRecord.Unmarshal(rawRecord[header.MarshalSize():]); err != nil {
 			continue
 		}
 		if handshakeRecord.Header.Type == typ && handshakeRecord.Header.MessageSequence == sequence {
@@ -5403,7 +5403,7 @@ func unmarshalCiphertextRecordForTest(
 		record.Header.ConnectionID = make([]byte, cidLength)
 	}
 	require.NoError(t, record.Header.Unmarshal(records[0]))
-	record.EncryptedRecord = records[0][record.Header.Size():]
+	record.EncryptedRecord = records[0][record.Header.MarshalSize():]
 
 	return record
 }

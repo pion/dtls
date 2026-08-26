@@ -17,9 +17,24 @@ func (m MessageRequestConnectionID) Type() Type {
 	return TypeRequestConnectionID
 }
 
+// MarshalSize returns the minimal size required for MarshalTo.
+func (m *MessageRequestConnectionID) MarshalSize() int {
+	return 1
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageRequestConnectionID) Marshal() ([]byte, error) {
 	return []byte{m.NumCIDs}, nil
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageRequestConnectionID) MarshalTo(out []byte) (int, error) {
+	if len(out) < 1 {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+	out[0] = m.NumCIDs
+
+	return 1, nil
 }
 
 // Unmarshal populates the message from encoded data.

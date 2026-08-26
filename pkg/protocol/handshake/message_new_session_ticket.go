@@ -23,11 +23,13 @@ const (
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1
 type MessageNewSessionTicket struct {
-	TicketLifetime uint32
-	TicketAgeAdd   uint32
-	TicketNonce    []byte
-	Ticket         []byte
-	Extensions     []extension.Value
+	TicketLifetime      uint32
+	TicketAgeAdd        uint32
+	TicketNonce         []byte
+	Ticket              []byte
+	Extensions          []extension.Value
+	cachedExtensionData []byte
+	cachedExtensionErr  error
 }
 
 // Type returns the Handshake Type.
@@ -35,33 +37,70 @@ func (m MessageNewSessionTicket) Type() Type {
 	return TypeNewSessionTicket
 }
 
+// MarshalSize returns the minimal size required for MarshalTo.
+func (m *MessageNewSessionTicket) MarshalSize() int {
+	err := m.cacheExtensionMarshal()
+	if err != nil {
+		return 0
+	}
+
+	return 8 + 1 + len(m.TicketNonce) + 2 + len(m.Ticket) + len(m.cachedExtensionData)
+}
+
+func (m *MessageNewSessionTicket) cacheExtensionMarshal() error {
+	if m.cachedExtensionData == nil && m.cachedExtensionErr == nil {
+		m.cachedExtensionData, m.cachedExtensionErr = extension.MarshalList(m.Extensions)
+	}
+	if m.cachedExtensionErr != nil {
+		return m.cachedExtensionErr
+	}
+
+	return nil
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageNewSessionTicket) Marshal() ([]byte, error) {
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalTo encodes the Handshake.
+func (m *MessageNewSessionTicket) MarshalTo(out []byte) (int, error) {
+	if len(out) < m.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
 	if len(m.TicketNonce) > newSessionTicketMaxNonceLength {
-		return nil, dtlserrors.ErrTicketNonceTooLong
+		return 0, dtlserrors.ErrTicketNonceTooLong
 	}
 	if len(m.Ticket) == 0 || len(m.Ticket) > newSessionTicketMaxTicketLength {
-		return nil, dtlserrors.ErrInvalidTicketLength
+		return 0, dtlserrors.ErrInvalidTicketLength
 	}
 
-	extensions, err := extension.MarshalList(m.Extensions)
+	err := m.cacheExtensionMarshal()
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
+	extensions := m.cachedExtensionData
 	if len(extensions)-2 > newSessionTicketMaxExtensionsLength {
-		return nil, dtlserrors.ErrInvalidExtensionsLength
+		return 0, dtlserrors.ErrInvalidExtensionsLength
 	}
 
-	out := make([]byte, 0, 8+1+len(m.TicketNonce)+2+len(m.Ticket)+len(extensions))
-	out = binary.BigEndian.AppendUint32(out, m.TicketLifetime)
-	out = binary.BigEndian.AppendUint32(out, m.TicketAgeAdd)
-	out = append(out, byte(len(m.TicketNonce))) //nolint:gosec // length is checked above
-	out = append(out, m.TicketNonce...)
-	out = binary.BigEndian.AppendUint16(out, uint16(len(m.Ticket))) //nolint:gosec // length is checked above
-	out = append(out, m.Ticket...)
-	out = append(out, extensions...)
+	n := 0
+	binary.BigEndian.PutUint32(out[n:], m.TicketLifetime)
+	n += 4
+	binary.BigEndian.PutUint32(out[n:], m.TicketAgeAdd)
+	n += 4
+	out[n] = byte(len(m.TicketNonce)) //nolint:gosec // length is checked above
+	n += 1
+	n += copy(out[n:], m.TicketNonce)
+	binary.BigEndian.PutUint16(out[n:], uint16(len(m.Ticket))) //nolint:gosec // length is checked above
+	n += 2
+	n += copy(out[n:], m.Ticket)
+	copy(out[n:], extensions)
 
-	return out, nil
+	return m.MarshalSize(), nil
 }
 
 // Unmarshal populates the message from encoded data.

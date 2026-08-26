@@ -4,6 +4,8 @@
 package protocol
 
 import (
+	"encoding/binary"
+
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -29,18 +31,34 @@ func (a ACK) ContentType() ContentType {
 	return ContentTypeACK
 }
 
+// MarshalSize returns the minimal size required for MarshalTo.
+func (a *ACK) MarshalSize() int {
+	return 2 + 16*len(a.Records)
+}
+
 // Marshal encodes the ACK message to its wire format.
 func (a *ACK) Marshal() ([]byte, error) {
-	var out cryptobyte.Builder
+	out := make([]byte, a.MarshalSize())
+	_, err := a.MarshalTo(out)
 
-	out.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
-		for _, rec := range a.Records {
-			b.AddUint64(rec.Epoch)
-			b.AddUint64(rec.SequenceNumber)
-		}
-	})
+	return out, err
+}
 
-	return out.Bytes()
+// MarshalTo encodes the Handshake.
+func (a *ACK) MarshalTo(out []byte) (int, error) {
+	n := 0
+	out[0] = byte(16 * len(a.Records) >> 8) //nolint:gosec // G115
+	out[1] = byte(16 * len(a.Records))      //nolint:gosec // G115
+	n += 2
+
+	for _, rec := range a.Records {
+		binary.BigEndian.PutUint64(out[n:], rec.Epoch)
+		n += 8
+		binary.BigEndian.PutUint64(out[n:], rec.SequenceNumber)
+		n += 8
+	}
+
+	return a.MarshalSize(), nil
 }
 
 // Unmarshal decodes an ACK message from its wire format.

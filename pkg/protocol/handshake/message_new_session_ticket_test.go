@@ -40,6 +40,7 @@ func TestMessageNewSessionTicket(t *testing.T) {
 
 	decoded := &MessageNewSessionTicket{}
 	require.NoError(t, decoded.Unmarshal(want))
+	message.cachedExtensionData = nil // remove cache for comparison
 	assert.Equal(t, message, decoded)
 }
 

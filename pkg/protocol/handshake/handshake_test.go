@@ -84,7 +84,9 @@ func TestPostHandshakeMessageDispatch(t *testing.T) {
 
 			decoded := &handshake.Handshake{}
 			assert.NoError(t, decoded.Unmarshal(encoded))
-			assert.Equal(t, message, decoded.Message)
+			m1, _ := message.Marshal()
+			m2, _ := decoded.Message.Marshal()
+			assert.Equal(t, m1, m2)
 		})
 	}
 }

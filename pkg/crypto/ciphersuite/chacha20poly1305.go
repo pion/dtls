@@ -52,8 +52,8 @@ func NewChaCha20Poly1305(localKey, localWriteIV, remoteKey, remoteWriteIV []byte
 
 // Encrypt encrypts a DTLS RecordLayer message.
 func (c *ChaCha20Poly1305) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
-	payload := raw[pkt.Header.Size():]
-	raw = raw[:pkt.Header.Size()]
+	payload := raw[pkt.Header.MarshalSize():]
+	raw = raw[:pkt.Header.MarshalSize()]
 
 	var nonce [chachaNonceLength]byte
 	copy(nonce[:], c.localWriteIV)
@@ -81,7 +81,7 @@ func (c *ChaCha20Poly1305) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]
 	copy(result, raw)
 	copy(result[len(raw):], encrypted)
 
-	binary.BigEndian.PutUint16(result[pkt.Header.Size()-2:], uint16(len(encrypted))) //nolint:gosec
+	binary.BigEndian.PutUint16(result[pkt.Header.MarshalSize()-2:], uint16(len(encrypted))) //nolint:gosec
 
 	return result, nil
 }
@@ -109,7 +109,7 @@ func (c *ChaCha20Poly1305) Decrypt(header recordlayer.Header, in []byte) ([]byte
 	}
 
 	// NOTE: ChaCha20-Poly1305 has NO explicit nonce in the record
-	ciphertext := in[header.Size():]
+	ciphertext := in[header.MarshalSize():]
 
 	var additionalData []byte
 	if header.ContentType == protocol.ContentTypeConnectionID {
@@ -123,5 +123,5 @@ func (c *ChaCha20Poly1305) Decrypt(header recordlayer.Header, in []byte) ([]byte
 		return nil, fmt.Errorf("%w: %v", dtlserrors.ErrDecryptPacket, err) //nolint:errorlint
 	}
 
-	return append(in[:header.Size()], plaintext...), nil
+	return append(in[:header.MarshalSize()], plaintext...), nil
 }

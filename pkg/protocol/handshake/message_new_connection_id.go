@@ -34,32 +34,63 @@ func (m MessageNewConnectionID) Type() Type {
 	return TypeNewConnectionID
 }
 
+// MarshalSize returns the minimal size required for MarshalTo.
+func (m *MessageNewConnectionID) MarshalSize() int {
+	cidsLength := 0
+	for _, cid := range m.CIDs {
+		if len(cid) > 255 {
+			return 0
+		}
+		cidsLength += 1 + len(cid)
+		if cidsLength > newConnectionIDMaxListLength {
+			return 0
+		}
+	}
+
+	return 2 + cidsLength + 1
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageNewConnectionID) Marshal() ([]byte, error) {
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageNewConnectionID) MarshalTo(out []byte) (int, error) {
 	if m.Usage != ConnectionIDImmediate && m.Usage != ConnectionIDSpare {
-		return nil, dtlserrors.ErrInvalidConnectionIDUsage
+		return 0, dtlserrors.ErrInvalidConnectionIDUsage
+	}
+
+	if len(out) < m.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
 	cidsLength := 0
 	for _, cid := range m.CIDs {
 		if len(cid) > 255 {
-			return nil, dtlserrors.ErrCIDTooBig
+			return 0, dtlserrors.ErrCIDTooBig
 		}
 		cidsLength += 1 + len(cid)
 		if cidsLength > newConnectionIDMaxListLength {
-			return nil, dtlserrors.ErrCIDTooBig
+			return 0, dtlserrors.ErrCIDTooBig
 		}
 	}
 
-	out := make([]byte, 2, 2+cidsLength+1)
+	n := 0
 	binary.BigEndian.PutUint16(out, uint16(cidsLength)) //nolint:gosec // length is checked above
+	n += 2
 	for _, cid := range m.CIDs {
-		out = append(out, byte(len(cid))) //nolint:gosec // length is checked above
-		out = append(out, cid...)
+		out[n] = byte(len(cid)) //nolint:gosec // G115
+		n += 1
+		n += copy(out[n:], cid)
 	}
-	out = append(out, byte(m.Usage))
+	out[n] = byte(m.Usage)
+	n++
 
-	return out, nil
+	return n, nil
 }
 
 // Unmarshal populates the message from encoded data.

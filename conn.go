@@ -1473,7 +1473,7 @@ func (c *Conn) unmarshalCiphertextRecord(
 	if err := record.Header.Unmarshal(buf); err != nil {
 		return record, err
 	}
-	record.EncryptedRecord = buf[record.Header.Size():]
+	record.EncryptedRecord = buf[record.Header.MarshalSize():]
 	if cidExpected && !hasCID && !datagramContainsCID {
 		return record, dtlserrors.ErrInvalidCiphertextHeader
 	}
@@ -1847,7 +1847,7 @@ func (c *Conn) prepareLegacyPacket(
 	}
 
 	contentType := header.ContentType
-	content := buf[header.Size():]
+	content := buf[header.MarshalSize():]
 	originalCID := false
 	if header.Epoch != 0 {
 		var decryptOK bool
@@ -1954,12 +1954,12 @@ func (c *Conn) decryptLegacyPacket(
 	if !ok {
 		return 0, nil, false, false
 	}
-	if len(decrypted) < header.Size() {
+	if len(decrypted) < header.MarshalSize() {
 		c.log.Debug("decrypted record is shorter than its header")
 
 		return 0, nil, false, false
 	}
-	content := decrypted[header.Size():]
+	content := decrypted[header.MarshalSize():]
 
 	if header.ContentType == protocol.ContentTypeConnectionID {
 		innerPlaintext := &recordlayer.InnerPlaintext{}

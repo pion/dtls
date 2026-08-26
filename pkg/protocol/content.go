@@ -23,6 +23,8 @@ const (
 type Content interface {
 	ContentType() ContentType
 	Marshal() ([]byte, error)
+	MarshalTo([]byte) (int, error)
+	MarshalSize() int
 	Unmarshal(data []byte) error
 }
 

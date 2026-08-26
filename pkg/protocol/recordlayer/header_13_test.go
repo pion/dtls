@@ -90,13 +90,13 @@ func TestUnifiedHeaderSizeUsesEncodedBits(t *testing.T) {
 		SeqBit:    true,
 		LengthBit: true,
 	}
-	assert.Equal(t, 5, uh.Size())
+	assert.Equal(t, 5, uh.MarshalSize())
 
 	uh = UnifiedHeader{
 		SequenceNumber: 0x0100,
 		Length:         1,
 	}
-	assert.Equal(t, 2, uh.Size())
+	assert.Equal(t, 2, uh.MarshalSize())
 }
 
 func TestUnifiedHeaderUnmarshalClearsBits(t *testing.T) {
@@ -110,7 +110,7 @@ func TestUnifiedHeaderUnmarshalClearsBits(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, uh.SeqBit)
 	assert.False(t, uh.LengthBit)
-	assert.Equal(t, 2, uh.Size())
+	assert.Equal(t, 2, uh.MarshalSize())
 }
 
 func FuzzUnifiedHeaderUnmarshal(f *testing.F) {
@@ -209,6 +209,6 @@ func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
 
 		raw, err := uh.Marshal()
 		assert.NoError(t, err)
-		assert.Equal(t, data[:uh.Size()], raw)
+		assert.Equal(t, data[:uh.MarshalSize()], raw)
 	})
 }

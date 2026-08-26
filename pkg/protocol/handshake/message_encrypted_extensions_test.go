@@ -64,7 +64,7 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 			Extensions: []extension.Value{&failingEncryptedExtensionsExtension{}},
 		}).Marshal()
 		assert.ErrorIs(t, err, errMarshalEncryptedExtensionsTest)
-		assert.Nil(t, raw)
+		assert.Empty(t, raw)
 	})
 }
 

@@ -14,7 +14,9 @@ import (
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
 type MessageEncryptedExtensions struct {
-	Extensions []extension.Value
+	Extensions          []extension.Value
+	cachedExtensionData []byte
+	cachedExtensionErr  error
 }
 
 // Type returns the Handshake Type.
@@ -22,9 +24,46 @@ func (m MessageEncryptedExtensions) Type() Type {
 	return TypeEncryptedExtensions
 }
 
+// MarshalSize returns the minimal size required for MarshalTo.
+func (m *MessageEncryptedExtensions) MarshalSize() int {
+	err := m.cacheExtensionMarshal()
+	if err != nil {
+		return 0
+	}
+
+	return len(m.cachedExtensionData)
+}
+
+func (m *MessageEncryptedExtensions) cacheExtensionMarshal() error {
+	if m.cachedExtensionData == nil && m.cachedExtensionErr == nil {
+		m.cachedExtensionData, m.cachedExtensionErr = extension.MarshalList(m.Extensions)
+	}
+	if m.cachedExtensionErr != nil {
+		return m.cachedExtensionErr
+	}
+
+	return nil
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageEncryptedExtensions) Marshal() ([]byte, error) {
-	return extension.MarshalList(m.Extensions)
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageEncryptedExtensions) MarshalTo(out []byte) (int, error) {
+	err := m.cacheExtensionMarshal()
+	if err != nil {
+		return 0, err
+	}
+	if len(out) < m.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	return copy(out, m.cachedExtensionData), nil
 }
 
 // Unmarshal populates the message from encoded data.

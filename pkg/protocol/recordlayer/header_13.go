@@ -139,7 +139,7 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (u *UnifiedHeader) Size() int {
+func (u *UnifiedHeader) MarshalSize() int {
 	var size int
 	size += 1
 	size += len(u.ConnectionID)
