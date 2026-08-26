@@ -28,7 +28,7 @@ func TestExtensionPayloadRoundTrips(t *testing.T) {
 			name: "offered versions preserve unknown",
 			value: OfferedVersions{Versions: []protocol.Version{
 				protocol.Version1_3,
-				{Major: 0xfa, Minor: 0xfa},
+				protocol.VersionFromBytes(0xfa, 0xfa),
 			}},
 			out: &OfferedVersions{},
 		},

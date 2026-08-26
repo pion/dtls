@@ -160,7 +160,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 	require.Len(t, challengeRecords, 1)
 	datagramContainsCID := recordsContainCID(challengeRecords)
 	var challenge protocol.ReturnRoutabilityCheck
-	if negotiatedVersion.Equal(protocol.Version1_3) {
+	if negotiatedVersion == protocol.Version1_3 {
 		challengeRecord, unmarshalErr := client.unmarshalCiphertextRecord(
 			challengeRecords[0],
 			datagramContainsCID,

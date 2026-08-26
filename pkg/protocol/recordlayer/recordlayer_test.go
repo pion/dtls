@@ -364,7 +364,7 @@ func FuzzRecordLayer_UnpackDatagramCID_RoundTrip(f *testing.F) {
 				header[0] = byte(protocol.ContentTypeApplicationData)
 			}
 
-			header[1], header[2] = protocol.Version1_2.Major, protocol.Version1_2.Minor
+			header[1], header[2] = protocol.Version1_2.Major(), protocol.Version1_2.Minor()
 			binary.BigEndian.PutUint16(header[3:], epoch)
 
 			// 48-bit sequence number
@@ -688,7 +688,7 @@ func TestUnpackDatagramRejectsUnsupportedTargetVersion(t *testing.T) {
 
 	for _, target := range []protocol.Version{
 		protocol.Version1_0,
-		{Major: 0x01, Minor: 0x02},
+		protocol.Version(0x0102),
 	} {
 		records, err := UnpackDatagram(record, UnpackDatagramConfig{TargetVersion: target})
 		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)

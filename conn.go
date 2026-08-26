@@ -661,7 +661,7 @@ func (c *Conn) keyUpdateFSM(ctx context.Context) (dtlshandshake.KeyUpdater, erro
 	if err := c.HandshakeContext(ctx); err != nil {
 		return nil, err
 	}
-	if !dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) {
+	if dtlsstate.CommonState(c.state).LocalVersion != protocol.Version1_3 {
 		return nil, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
@@ -689,7 +689,7 @@ func (c *Conn) normalizeKeyUpdateError(ctx, operationCtx context.Context, err er
 }
 
 func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Outbound) error {
-	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) {
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
 		writer, ok := c.fsm.(dtlshandshake.ApplicationDataWriter)
 		if !ok {
 			return dtlserrors.ErrNotImplemented
@@ -1002,7 +1002,7 @@ func validProtection(protection dtlsflight.Protection) bool {
 
 func (c *Conn) shouldWrapConnectionID(protection dtlsflight.Protection) bool {
 	return protection == dtlsflight.ProtectionCiphertext &&
-		dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_2) &&
+		dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_2 &&
 		c.state.ShouldWrapConnectionID()
 }
 
@@ -1021,7 +1021,7 @@ func (c *Conn) encodeRecord( //nolint:cyclop
 		return nil, recordlayer.ErrInvalidPacketLength
 	}
 	common := dtlsstate.CommonState(c.state)
-	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion.Equal(protocol.Version1_3) {
+	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion == protocol.Version1_3 {
 		plaintext, err := materializeRecordContent(content, contentSize)
 		if err != nil {
 			return nil, err
@@ -1128,7 +1128,7 @@ func (c *Conn) encodeHandshakeFragment( //nolint:cyclop
 		return nil, recordlayer.ErrInvalidPacketLength
 	}
 	common := dtlsstate.CommonState(c.state)
-	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion.Equal(protocol.Version1_3) {
+	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion == protocol.Version1_3 {
 		plaintext := make([]byte, contentSize)
 		if err := marshalHandshakeFragmentTo(plaintext, fragmentHeader, body); err != nil {
 			return nil, err
@@ -1527,13 +1527,13 @@ func (c *Conn) maxQueueableFutureEpoch(remoteEpoch uint16) uint16 {
 	if remoteEpoch >= dtlsflight13.EpochHandshake {
 		return maxEpoch
 	}
-	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) {
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
 		return dtlsflight13.EpochHandshake
 	}
-	if !dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version{}) {
+	if dtlsstate.CommonState(c.state).LocalVersion != 0 {
 		return maxEpoch
 	}
-	if c.handshakeConfig != nil && c.handshakeConfig.MaxVersion.Equal(protocol.Version1_3) {
+	if c.handshakeConfig != nil && c.handshakeConfig.MaxVersion == protocol.Version1_3 {
 		return dtlsflight13.EpochHandshake
 	}
 
@@ -1585,12 +1585,12 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 
 func (c *Conn) inboundCIDRequired() bool {
 	common := dtlsstate.CommonState(c.state)
-	if common.LocalVersion.Equal(protocol.Version1_3) {
+	if common.LocalVersion == protocol.Version1_3 {
 		state13, ok := c.state.(*dtlsstate.State13)
 
 		return ok && state13.CID.Negotiated && state13.CID.Receive.Expected
 	}
-	if common.LocalVersion.Equal(protocol.Version1_2) {
+	if common.LocalVersion == protocol.Version1_2 {
 		return len(common.LocalConnectionID()) > 0
 	}
 
@@ -1809,7 +1809,7 @@ func (c *Conn) prepareIncomingPacket(
 ) (incomingPacketState, bool) {
 	if protocol.IsDTLS13Ciphertext(protocol.ContentType(buf[0])) {
 		version := dtlsstate.CommonState(c.state).LocalVersion
-		if version != (protocol.Version{}) && !version.Equal(protocol.Version1_3) {
+		if version != 0 && version != protocol.Version1_3 {
 			c.log.Debug("discarded DTLS 1.3 ciphertext on a DTLS 1.2 connection")
 
 			return incomingPacketState{}, false
@@ -1817,7 +1817,7 @@ func (c *Conn) prepareIncomingPacket(
 
 		return c.prepareCiphertextPacket(buf, rAddr, bufferLease, datagramContainsCID)
 	}
-	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 &&
 		(!isPlaintextRecord13ContentType(protocol.ContentType(buf[0])) ||
 			len(buf) < recordlayer.FixedHeaderSize || buf[3] != 0 || buf[4] != 0) {
 		c.log.Debug("discarded invalid DTLS 1.3 plaintext record")
@@ -1982,7 +1982,7 @@ func (c *Conn) queueIfCipherSuiteUninitialized(
 
 func (c *Conn) hasInboundRecordProtection() bool {
 	common := dtlsstate.CommonState(c.state)
-	if state13, ok := c.state.(*dtlsstate.State13); ok && common.LocalVersion.Equal(protocol.Version1_3) {
+	if state13, ok := c.state.(*dtlsstate.State13); ok && common.LocalVersion == protocol.Version1_3 {
 		if state13.TrafficKeys == nil {
 			return false
 		}
@@ -2195,7 +2195,7 @@ func (c *Conn) bufferHandshakeRecord(
 	}
 
 	isLatestSeqNum := markPacketAsValid()
-	if dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_3) &&
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 &&
 		header.Epoch >= dtlsflight13.EpochHandshake {
 		c.lock.Lock()
 		c.pendingACKs = append(c.pendingACKs, protocol.RecordNumber{
@@ -2666,7 +2666,7 @@ func remoteVersionsFromHelloRetryRequest(
 			&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
 		)
 	}
-	if !remote[0].Equal(protocol.Version1_3) {
+	if remote[0] != protocol.Version1_3 {
 		return nil, fmt.Errorf(
 			"%w: %w",
 			dtlserrors.ErrUnsupportedProtocolVersion,
@@ -2695,7 +2695,7 @@ func (c *Conn) setNegotiatedVersion(remote []protocol.Version, chosen protocol.V
 	common := dtlsstate.CommonState(c.state)
 	common.RemoteVersions = remote
 	common.LocalVersion = chosen
-	if chosen.Equal(protocol.Version1_3) {
+	if chosen == protocol.Version1_3 {
 		c.state = dtlsstate.Activate13(c.state)
 
 		return

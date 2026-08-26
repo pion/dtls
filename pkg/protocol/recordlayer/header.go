@@ -55,8 +55,8 @@ func (h *Header) MarshalTo(out []byte) (int, error) {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 	out[0] = byte(h.ContentType)
-	out[1] = h.Version.Major
-	out[2] = h.Version.Minor
+	out[1] = h.Version.Major()
+	out[2] = h.Version.Minor()
 	binary.BigEndian.PutUint16(out[3:], h.Epoch)
 	util.PutBigEndianUint48(out[5:], h.SequenceNumber)
 	copy(out[11:11+len(h.ConnectionID)], h.ConnectionID)
@@ -83,8 +83,7 @@ func (h *Header) Unmarshal(data []byte) error {
 		h.ConnectionID = nil
 	}
 
-	h.Version.Major = data[1]
-	h.Version.Minor = data[2]
+	h.Version = protocol.VersionFromBytes(data[1], data[2])
 	h.Epoch = binary.BigEndian.Uint16(data[3:])
 
 	// SequenceNumber is stored as uint48, make into uint64
@@ -93,7 +92,7 @@ func (h *Header) Unmarshal(data []byte) error {
 	h.SequenceNumber = binary.BigEndian.Uint64(seqCopy)
 	h.ContentLen = binary.BigEndian.Uint16(data[headerSize-2:])
 
-	if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
+	if h.Version != protocol.Version1_0 && h.Version != protocol.Version1_2 {
 		return dtlserrors.ErrUnsupportedProtocolVersion
 	}
 

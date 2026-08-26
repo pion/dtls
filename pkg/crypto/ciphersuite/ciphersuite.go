@@ -138,8 +138,8 @@ func generateAEADAdditionalData(h *recordlayer.Header, payloadLen int) []byte {
 	binary.BigEndian.PutUint64(additionalData[:], h.SequenceNumber)
 	binary.BigEndian.PutUint16(additionalData[:], h.Epoch)
 	additionalData[8] = byte(h.ContentType)
-	additionalData[9] = h.Version.Major
-	additionalData[10] = h.Version.Minor
+	additionalData[9] = h.Version.Major()
+	additionalData[10] = h.Version.Minor()
 	//nolint:gosec //G115
 	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(payloadLen))
 
@@ -155,8 +155,8 @@ func generateAEADAdditionalDataCID(h *recordlayer.Header, payloadLen int) []byte
 	builder.AddUint8(uint8(protocol.ContentTypeConnectionID))
 	builder.AddUint8(uint8(len(h.ConnectionID))) //nolint:gosec //G115
 	builder.AddUint8(uint8(protocol.ContentTypeConnectionID))
-	builder.AddUint8(h.Version.Major)
-	builder.AddUint8(h.Version.Minor)
+	builder.AddUint8(h.Version.Major())
+	builder.AddUint8(h.Version.Minor())
 	builder.AddUint16(h.Epoch)
 	builder.AddUint48(h.SequenceNumber)
 	builder.AddBytes(h.ConnectionID)

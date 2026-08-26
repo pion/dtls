@@ -192,8 +192,8 @@ func (c *CBC) hmac(
 	binary.BigEndian.PutUint16(msg, epoch)
 	util.PutBigEndianUint48(msg[2:], sequenceNumber)
 	msg[8] = byte(contentType)
-	msg[9] = protocolVersion.Major
-	msg[10] = protocolVersion.Minor
+	msg[9] = protocolVersion.Major()
+	msg[10] = protocolVersion.Minor()
 	binary.BigEndian.PutUint16(msg[11:], uint16(len(payload))) //nolint:gosec //G115
 
 	if _, err := hmacHash.Write(msg); err != nil {
@@ -231,8 +231,8 @@ func (c *CBC) hmacCID(
 	msg.AddUint8(uint8(protocol.ContentTypeConnectionID))
 	msg.AddUint8(uint8(len(cid))) //nolint:gosec //G115
 	msg.AddUint8(uint8(protocol.ContentTypeConnectionID))
-	msg.AddUint8(protocolVersion.Major)
-	msg.AddUint8(protocolVersion.Minor)
+	msg.AddUint8(protocolVersion.Major())
+	msg.AddUint8(protocolVersion.Minor())
 	msg.AddUint16(epoch)
 	msg.AddUint48(sequenceNumber)
 	msg.AddBytes(cid)

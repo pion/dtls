@@ -540,7 +540,7 @@ func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.
 // By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
 func WithMinVersion(version protocol.Version) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		if version.Equal(protocol.Version1_2) || version.Equal(protocol.Version1_3) {
+		if version == protocol.Version1_2 || version == protocol.Version1_3 {
 			c.MinVersion = version
 
 			return nil
@@ -554,7 +554,7 @@ func WithMinVersion(version protocol.Version) Option {
 // By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
 func WithMaxVersion(version protocol.Version) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		if version.Equal(protocol.Version1_2) || version.Equal(protocol.Version1_3) {
+		if version == protocol.Version1_2 || version == protocol.Version1_3 {
 			c.MaxVersion = version
 
 			return nil

@@ -122,8 +122,8 @@ func TestConnectionStateRoleAndVersion(t *testing.T) {
 
 			require.Equal(t, RoleClient, clientState.Role())
 			require.Equal(t, RoleServer, serverState.Role())
-			require.True(t, clientState.NegotiatedVersion().Equal(test.version))
-			require.True(t, serverState.NegotiatedVersion().Equal(test.version))
+			require.True(t, clientState.NegotiatedVersion() == test.version)
+			require.True(t, serverState.NegotiatedVersion() == test.version)
 		})
 	}
 }

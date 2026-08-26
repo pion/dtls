@@ -3253,7 +3253,7 @@ func TestFlight13_2Parse(t *testing.T) {
 		cache := dtlsflight.NewCache()
 		cfg := testHandshakeConfig13(t)
 
-		pushClientHello13(t, cache, protocol.Version{Major: 0xfe, Minor: 0xfd - 1}, []extension.Value{
+		pushClientHello13(t, cache, protocol.Version1_3, []extension.Value{
 			&extension13.Cookie{Cookie: cookie},
 		})
 

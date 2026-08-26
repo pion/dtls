@@ -611,7 +611,7 @@ func TestHandshakeDiscardsProtectedRecordWithoutRequiredCID(t *testing.T) {
 					}
 
 					var invalidRecord []byte
-					if tt.version.Equal(protocol.Version1_3) {
+					if tt.version == protocol.Version1_3 {
 						invalidRecord = append(invalidRecord, record[0]&^recordlayer.UnifiedHeaderCIDBit)
 						invalidRecord = append(invalidRecord, record[1+len(serverCID):]...)
 					} else {
@@ -2369,7 +2369,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 						},
 						Content: &handshake.Handshake{
 							Message: &handshake.MessageClientHello{
-								Version:            protocol.Version{Major: 0xfe, Minor: 0xff}, // try to downgrade
+								Version:            protocol.Version1_0, // try to downgrade
 								Cookie:             cookie,
 								Random:             random,
 								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
@@ -2405,7 +2405,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								MessageSequence: 1,
 							},
 							Message: &handshake.MessageClientHello{
-								Version:            protocol.Version{Major: 0xfe, Minor: 0xff}, // try to downgrade
+								Version:            protocol.Version1_0, // try to downgrade
 								Cookie:             cookie,
 								Random:             random,
 								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
@@ -2491,7 +2491,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								MessageSequence: 1,
 							},
 							Message: &handshake.MessageServerHello{
-								Version: protocol.Version{Major: 0xfe, Minor: 0xff}, // try to downgrade
+								Version: protocol.Version1_0, // try to downgrade
 								Random:  random,
 								CipherSuiteID: func() *uint16 {
 									id := uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
@@ -2650,7 +2650,7 @@ func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 	var classified *alert.Alert
 	require.ErrorAs(t, err, &classified)
 	assert.Equal(t, alert.UnsupportedExtension, classified.Description)
-	assert.Equal(t, protocol.Version{}, common.LocalVersion)
+	assert.Equal(t, protocol.Version(0), common.LocalVersion)
 }
 
 func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVersions(t *testing.T) {
@@ -2680,7 +2680,7 @@ func TestPickVersionFromServerResponseRejectsHelloRetryRequestWithoutSupportedVe
 	require.ErrorAs(t, err, &classified)
 	assert.Equal(t, alert.MissingExtension, classified.Description)
 	assert.False(t, ok)
-	assert.Equal(t, protocol.Version{}, dtlsstate.CommonState(conn.state).LocalVersion)
+	assert.Equal(t, protocol.Version(0), dtlsstate.CommonState(conn.state).LocalVersion)
 }
 
 func TestPickVersionFromServerResponseRejectsUnexpectedMessage(t *testing.T) {

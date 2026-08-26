@@ -207,7 +207,7 @@ func flight1Parse(
 	}
 	// Handle HelloRetryRequest
 
-	if !sh.Version.Equal(protocol.Version1_0) && !sh.Version.Equal(protocol.Version1_2) {
+	if sh.Version != protocol.Version1_0 && sh.Version != protocol.Version1_2 {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}

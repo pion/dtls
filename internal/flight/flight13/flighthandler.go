@@ -350,7 +350,7 @@ func validateHelloRetryRequestSelectedVersion(extensions []extension.Value) erro
 	if !seenSupportedVersions {
 		return dtlserrors.ErrMissingSupportedVersionsExtension
 	}
-	if !versions[0].Equal(protocol.Version1_3) {
+	if versions[0] != protocol.Version1_3 {
 		return dtlserrors.ErrUnsupportedProtocolVersion
 	}
 

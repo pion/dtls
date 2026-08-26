@@ -225,12 +225,12 @@ func SupportedVersionIDs(id ID) []uint16 {
 	versions := SupportedVersions(id)
 	ids := make([]uint16, 0, len(versions))
 	for _, version := range versions {
-		ids = append(ids, uint16(version.Major)<<8|uint16(version.Minor))
+		ids = append(ids, uint16(version.Major())<<8|uint16(version.Minor()))
 	}
 
 	return ids
 }
 
 func IDSupportsVersion(id ID, version protocol.Version) bool {
-	return slices.ContainsFunc(SupportedVersions(id), version.Equal)
+	return slices.Contains(SupportedVersions(id), version)
 }

@@ -49,7 +49,7 @@ func flight1Parse(
 	if h, ok := pull.Messages[handshake.TypeHelloVerifyRequest].(*handshake.MessageHelloVerifyRequest); ok {
 		// DTLS 1.2 clients must not assume that the server will use the protocol version
 		// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
-		if !h.Version.Equal(protocol.Version1_0) && !h.Version.Equal(protocol.Version1_2) {
+		if h.Version != protocol.Version1_0 && h.Version != protocol.Version1_2 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 				dtlserrors.ErrUnsupportedProtocolVersion
 		}

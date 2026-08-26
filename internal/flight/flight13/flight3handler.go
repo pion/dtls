@@ -173,7 +173,7 @@ func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]pr
 		)
 	}
 
-	if !serverHello.Version.Equal(protocol.Version1_2) {
+	if serverHello.Version != protocol.Version1_2 {
 		return nil, newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
 	}
 
@@ -181,7 +181,7 @@ func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]pr
 	if err != nil {
 		return nil, newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrInvalidServerHello)
 	}
-	if !seenSupportedVersions || !versions[0].Equal(protocol.Version1_3) {
+	if !seenSupportedVersions || versions[0] != protocol.Version1_3 {
 		return nil, newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
 	}
 

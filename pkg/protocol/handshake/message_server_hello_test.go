@@ -161,7 +161,7 @@ func TestHandshakeMessageServerHello(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 
 	parsedServerHello := &MessageServerHello{
-		Version: protocol.Version{Major: 0xFE, Minor: 0xFD},
+		Version: protocol.Version1_2,
 		Random: Random{
 			GMTUnixTime: time.Unix(560149025, 0),
 			RandomBytes: [28]byte{
@@ -215,7 +215,7 @@ func TestHandshakeMessageServerHelloSessionID(t *testing.T) {
 func TestHandshakeMessageServerHello_SessionIDTooLong(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 	c := &MessageServerHello{
-		Version:           protocol.Version{Major: 0xFE, Minor: 0xFD},
+		Version:           protocol.Version1_2,
 		SessionID:         make([]byte, 256),
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{ID: 0},

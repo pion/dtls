@@ -23,7 +23,7 @@ func TestHandshakeMessage(t *testing.T) {
 		0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
 	clientHello := &handshake.MessageClientHello{
-		Version: protocol.Version{Major: 0xFE, Minor: 0xFD},
+		Version: protocol.Version1_2,
 		Random: handshake.Random{
 			GMTUnixTime: time.Unix(3056586332, 0),
 			RandomBytes: [28]byte{

@@ -105,8 +105,8 @@ func (m *MessageServerHello) prepareMarshal() (preparedServerHello, error) {
 
 func (m *MessageServerHello) marshalTo(out []byte, extensions extension.PreparedList) {
 	offset := 0
-	out[0] = m.Version.Major
-	out[1] = m.Version.Minor
+	out[0] = m.Version.Major()
+	out[1] = m.Version.Minor()
 	offset += 2
 
 	rand := m.Random.MarshalFixed()
@@ -133,8 +133,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 		return dtlserrors.ErrBufferTooSmall
 	}
 
-	m.Version.Major = data[0]
-	m.Version.Minor = data[1]
+	m.Version = protocol.VersionFromBytes(data[0], data[1])
 
 	var random [RandomLength]byte
 	copy(random[:], data[2:])

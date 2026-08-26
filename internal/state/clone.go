@@ -40,7 +40,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	common.ServerName = state.ServerName
 	common.PeerSupportedProtocols = slices.Clone(state.PeerSupportedProtocols)
 	common.RemoteVersions = slices.Clone(state.RemoteVersions)
-	if !state.LocalVersion.Equal(protocol.Version{}) {
+	if state.LocalVersion != 0 {
 		common.LocalVersion = state.LocalVersion
 	}
 	common.SetLocalEpoch(state.LocalEpoch())

@@ -64,7 +64,7 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 	if internalState.CipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
-	if internalState.LocalVersion.Equal(protocol.Version1_3) {
+	if internalState.LocalVersion == protocol.Version1_3 {
 		return nil, ErrStateSerializationUnsupported
 	}
 
@@ -175,12 +175,12 @@ func (s *State) serialize() (*serializedState, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
-	if s.version.Equal(protocol.Version1_3) {
+	if s.version == protocol.Version1_3 {
 		return nil, ErrStateSerializationUnsupported
 	}
 
 	version := s.version
-	if version.Equal(protocol.Version{}) {
+	if version == 0 {
 		version = protocol.Version1_2
 	}
 
@@ -208,7 +208,7 @@ func (s *State) serialize() (*serializedState, error) {
 
 func (s *State) deserialize(serialized serializedState) {
 	s.version = serialized.Version
-	if s.version.Equal(protocol.Version{}) {
+	if s.version == 0 {
 		s.version = protocol.Version1_2
 	}
 	s.localEpoch = serialized.LocalEpoch
@@ -262,7 +262,7 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
-	if s.version.Equal(protocol.Version1_3) {
+	if s.version == protocol.Version1_3 {
 		return nil, ErrStateSerializationUnsupported
 	}
 
@@ -323,7 +323,7 @@ func (s *State) UnmarshalBinary(data []byte) error {
 	if err := enc.Decode(&serialized); err != nil {
 		return err
 	}
-	if serialized.Version.Equal(protocol.Version1_3) {
+	if serialized.Version == protocol.Version1_3 {
 		return ErrStateSerializationUnsupported
 	}
 

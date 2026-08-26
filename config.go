@@ -372,12 +372,12 @@ func effectiveProtocolVersionRange(config *dtlsConfig) (protocol.Version, protoc
 		dtlsconfig.SupportedVersionsRange(minVersion, maxVersion),
 	)
 	if len(config.EllipticCurves) != 0 && len(curveVersions) == 0 {
-		return protocol.Version{}, protocol.Version{}, dtlserrors.ErrUnsupportedEllipticCurveVersion
+		return 0, 0, dtlserrors.ErrUnsupportedEllipticCurveVersion
 	}
 	versions = intersectSupportedVersions(versions, curveVersions)
 
 	if len(versions) == 0 {
-		return protocol.Version{}, protocol.Version{}, dtlserrors.ErrNoCommonProtocolVersion
+		return 0, 0, dtlserrors.ErrNoCommonProtocolVersion
 	}
 
 	return versions[len(versions)-1], versions[0], nil
@@ -414,7 +414,7 @@ func supportedEllipticCurveVersions(
 
 	return filterSupportedVersions(versions, func(version protocol.Version) bool {
 		return slices.ContainsFunc(curves, func(curve elliptic.Curve) bool {
-			return curve != elliptic.X25519MLKEM768 || version.Equal(protocol.Version1_3)
+			return curve != elliptic.X25519MLKEM768 || version == protocol.Version1_3
 		})
 	})
 }
@@ -437,6 +437,6 @@ func intersectSupportedVersions(
 	left, right []protocol.Version,
 ) []protocol.Version {
 	return filterSupportedVersions(left, func(version protocol.Version) bool {
-		return slices.ContainsFunc(right, version.Equal)
+		return slices.Contains(right, version)
 	})
 }

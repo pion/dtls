@@ -57,8 +57,8 @@ func (m *MessageHelloVerifyRequest) MarshalTo(out []byte) (int, error) {
 	if len(out) < m.MarshalSize() {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
-	out[0] = m.Version.Major
-	out[1] = m.Version.Minor
+	out[0] = m.Version.Major()
+	out[1] = m.Version.Minor()
 	out[2] = byte(len(m.Cookie)) //nolint:gosec // G115: cookie length is validated to be <= 255 above.
 	copy(out[3:], m.Cookie)
 
@@ -70,8 +70,7 @@ func (m *MessageHelloVerifyRequest) Unmarshal(data []byte) error {
 	if len(data) < 3 {
 		return dtlserrors.ErrBufferTooSmall
 	}
-	m.Version.Major = data[0]
-	m.Version.Minor = data[1]
+	m.Version = protocol.VersionFromBytes(data[0], data[1])
 	cookieLength := int(data[2])
 	if len(data) < cookieLength+3 {
 		return dtlserrors.ErrBufferTooSmall

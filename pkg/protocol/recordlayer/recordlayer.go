@@ -181,7 +181,7 @@ func validateFixedRecordPolicy(
 	config UnpackDatagramConfig,
 ) error {
 	epoch := binary.BigEndian.Uint16(record[3:5])
-	if config.TargetVersion.Equal(protocol.Version1_3) && epoch != 0 {
+	if config.TargetVersion == protocol.Version1_3 && epoch != 0 {
 		return dtlserrors.ErrInvalidEpoch
 	}
 	if config.CIDRequired && epoch != 0 && contentType != protocol.ContentTypeConnectionID {
@@ -199,9 +199,9 @@ func validateUnpackDatagramConfig(config UnpackDatagramConfig) error {
 		return ErrInvalidPacketLength
 	}
 
-	if config.TargetVersion == (protocol.Version{}) ||
-		config.TargetVersion.Equal(protocol.Version1_2) ||
-		config.TargetVersion.Equal(protocol.Version1_3) {
+	if config.TargetVersion == 0 ||
+		config.TargetVersion == protocol.Version1_2 ||
+		config.TargetVersion == protocol.Version1_3 {
 		return nil
 	}
 
@@ -213,14 +213,12 @@ func validateRecordForm(
 	contentType protocol.ContentType,
 	isUnified bool,
 ) error {
-	switch {
-	case targetVersion == (protocol.Version{}):
-		return nil
-	case targetVersion.Equal(protocol.Version1_2):
+	switch targetVersion { //nolint:exhaustive
+	case protocol.Version1_2:
 		if isUnified {
 			return dtlserrors.ErrInvalidContentType
 		}
-	case targetVersion.Equal(protocol.Version1_3):
+	case protocol.Version1_3:
 		if !isUnified && !isDTLS13PlaintextContentType(contentType) {
 			return dtlserrors.ErrInvalidContentType
 		}

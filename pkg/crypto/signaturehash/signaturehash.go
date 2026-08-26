@@ -76,7 +76,7 @@ func SelectSignatureScheme(
 		return Algorithm{}, dtlserrors.ErrInvalidPrivateKey
 	}
 
-	is13 := version.Equal(protocol.Version1_3)
+	is13 := version == protocol.Version1_3
 	for _, ss := range sigs {
 		// RSA-PSS is only supported in DTLS 1.3.
 		if !is13 && ss.Signature.IsPSS() {

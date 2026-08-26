@@ -232,10 +232,10 @@ func configCipherSuiteIDs(cipherSuites []ciphersuite.CipherSuite) []uint16 {
 func defaultCipherSuitesForVersions(minVersion, maxVersion protocol.Version) []CipherSuite {
 	cipherSuites := []CipherSuite{}
 	for _, version := range dtlsconfig.SupportedVersionsRange(minVersion, maxVersion) {
-		switch {
-		case version.Equal(protocol.Version1_3):
+		switch version { //nolint:exhaustive
+		case protocol.Version1_3:
 			cipherSuites = append(cipherSuites, defaultCipherSuites13()...)
-		case version.Equal(protocol.Version1_2):
+		case protocol.Version1_2:
 			cipherSuites = append(cipherSuites, defaultCipherSuites()...)
 		}
 	}

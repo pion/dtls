@@ -341,10 +341,10 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 	})
 
 	t.Run("InvalidVersions", func(t *testing.T) {
-		err := clientOptionsError(t, WithMinVersion(protocol.Version{}))
+		err := clientOptionsError(t, WithMinVersion(protocol.Version(0)))
 		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 
-		err = clientOptionsError(t, WithMaxVersion(protocol.Version{}))
+		err = clientOptionsError(t, WithMaxVersion(protocol.Version(0)))
 		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
 	})
 }

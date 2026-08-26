@@ -42,7 +42,7 @@ func flight2Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if !clientHello.Version.Equal(protocol.Version1_2) {
+	if clientHello.Version != protocol.Version1_2 {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}

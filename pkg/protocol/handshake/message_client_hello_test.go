@@ -23,7 +23,7 @@ func TestHandshakeMessageClientHello(t *testing.T) {
 		0xc0, 0x0a, 0x01, 0x00, 0x00, 0x08, 0x00, 0x0a, 0x00, 0x04, 0x00, 0x02, 0x00, 0x1d,
 	}
 	parsedClientHello := &MessageClientHello{
-		Version: protocol.Version{Major: 0xFE, Minor: 0xFD},
+		Version: protocol.Version1_2,
 		Random: Random{
 			GMTUnixTime: time.Unix(3056586332, 0),
 			RandomBytes: [28]byte{
@@ -86,7 +86,7 @@ func TestHandshakeMessageClientHelloSessionID(t *testing.T) {
 
 func TestHandshakeMessageClientHello_SessionIDTooLong(t *testing.T) {
 	c := &MessageClientHello{
-		Version:            protocol.Version{Major: 0xFE, Minor: 0xFD},
+		Version:            protocol.Version1_2,
 		SessionID:          make([]byte, 256),
 		CompressionMethods: []*protocol.CompressionMethod{{ID: 0}},
 	}
@@ -102,7 +102,7 @@ func TestHandshakeMessageClientHello_CompressionMethodsTooLong(t *testing.T) {
 	}
 
 	c := &MessageClientHello{
-		Version:            protocol.Version{Major: 0xFE, Minor: 0xFD},
+		Version:            protocol.Version1_2,
 		CompressionMethods: compressionMethods,
 	}
 
