@@ -35,7 +35,9 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 			state := dtlsstate.Activate12(&state13)
 			cfg := &dtlsconfig.HandshakeConfig{
 				ClientHelloMessageHook: func(clientHello handshake.MessageClientHello) handshake.Message {
-					clientHello.Extensions = append(clientHello.Extensions, &extension.ConnectionID{CID: cid})
+					clientHello.CachedExtensions = extension.CachedList{
+						Values: append(clientHello.Extensions(), &extension.ConnectionID{CID: cid}),
+					}
 
 					return &clientHello
 				},
@@ -51,7 +53,7 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 			require.True(t, ok)
 
 			connectionIDs := make([][]byte, 0, 1)
-			for _, ext := range clientHello.Extensions {
+			for _, ext := range clientHello.Extensions() {
 				if connectionID, ok := ext.(*extension.ConnectionID); ok {
 					connectionIDs = append(connectionIDs, connectionID.CID)
 				}
@@ -77,8 +79,8 @@ func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.
 	require.True(t, ok)
 	clientHello, ok := handshakeMessage.Message.(*handshake.MessageClientHello)
 	require.True(t, ok)
-	assert.Contains(t, clientHello.Extensions, &extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
-	assert.Contains(t, clientHello.Extensions, &extension12.SupportedPointFormats{
+	assert.Contains(t, clientHello.Extensions(), &extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
+	assert.Contains(t, clientHello.Extensions(), &extension12.SupportedPointFormats{
 		PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 	})
 }
@@ -117,12 +119,16 @@ func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
 	require.NoError(t, state.LocalClientHelloSnapshots.Record(offer))
 
 	cipherSuiteID := uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
-	raw, err := (&handshake.Handshake{Message: &handshake.MessageServerHello{
-		Version:           protocol.Version1_2,
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions:        []extension.Value{extension.Raw{Type: 0xfafa}},
-	}}).Marshal()
+	raw, err := (&handshake.Handshake{
+		Message: &handshake.MessageServerHello{
+			Version:           protocol.Version1_2,
+			CipherSuiteID:     &cipherSuiteID,
+			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{extension.Raw{Type: 0xfafa}},
+			},
+		},
+	}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
@@ -146,11 +152,19 @@ func TestFlight3DoesNotCommitConnectionIDBeforeSuccess(t *testing.T) {
 		Log:        logging.NewDefaultLoggerFactory().NewLogger("dtls"),
 	}
 	cipherSuiteID := uint16(suite.ID())
-	raw, err := (&handshake.Handshake{Message: &handshake.MessageServerHello{
-		Version: protocol.Version1_2, SessionID: []byte{2}, CipherSuiteID: &cipherSuiteID,
-		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions:        []extension.Value{&extension.ConnectionID{CID: []byte{0x51}}},
-	}}).Marshal()
+	raw, err := (&handshake.Handshake{
+		Message: &handshake.MessageServerHello{
+			Version: protocol.Version1_2, SessionID: []byte{2}, CipherSuiteID: &cipherSuiteID,
+			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{
+					&extension.ConnectionID{
+						CID: []byte{0x51},
+					},
+				},
+			},
+		},
+	}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
@@ -172,7 +186,11 @@ func TestFlight2RejectsChangedConnectionID(t *testing.T) {
 		Message: &handshake.MessageClientHello{
 			Version: protocol.Version1_2, Cookie: state.Cookie,
 			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-			Extensions:         []extension.Value{&extension.ConnectionID{CID: []byte{2}}},
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{
+					&extension.ConnectionID{CID: []byte{2}},
+				},
+			},
 		},
 	}).Marshal()
 	require.NoError(t, err)
@@ -197,8 +215,10 @@ func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 		Version:            protocol.Version1_2,
 		Cookie:             state.Cookie,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions: []extension.Value{
-			extension.Raw{Type: 0xfefe, Data: []byte{0x02}},
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				extension.Raw{Type: 0xfefe, Data: []byte{0x02}},
+			},
 		},
 	}
 	rawRetry, err := (&handshake.Handshake{
@@ -262,7 +282,9 @@ func TestFlight4bGenerateDoesNotCommitConnectionIDAfterLateResponseError(t *test
 	cfg := &dtlsconfig.HandshakeConfig{
 		ConnectionIDGenerator: func() []byte { return []byte{0x51} },
 		ServerHelloMessageHook: func(serverHello handshake.MessageServerHello) handshake.Message {
-			serverHello.Extensions = append(serverHello.Extensions, extension.Raw{Type: 0xfafa})
+			serverHello.CachedExtensions = extension.CachedList{
+				Values: append(serverHello.Extensions(), extension.Raw{Type: 0xfafa}),
+			}
 
 			return &serverHello
 		},
@@ -299,7 +321,8 @@ func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
 func recordCH12(t *testing.T, snapshots *negotiation.ClientHelloSnapshots, extensions ...extension.Value) {
 	t.Helper()
 	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
-		Version: protocol.Version1_2, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions,
+		Version: protocol.Version1_2, CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		CachedExtensions: extension.CachedList{Values: extensions},
 	}, nil)
 	require.NoError(t, err)
 	require.NoError(t, snapshots.Record(snapshot))

@@ -79,12 +79,12 @@ func flight3Parse(
 		}
 		if srtpDecision, err = negotiation.ValidateSRTPSelection(
 			offer,
-			serverHelloMsg.Extensions,
+			serverHelloMsg.Extensions(),
 			cfg.LocalSRTPProtectionProfiles,
 		); err != nil {
 			return 0, nil, err
 		}
-		decision = negotiation.DecideConnectionID(offer, serverHelloMsg.Extensions)
+		decision = negotiation.DecideConnectionID(offer, serverHelloMsg.Extensions())
 		if decision == nil {
 			state.CommitNegotiatedExtensions(nil)
 		}
@@ -94,7 +94,7 @@ func flight3Parse(
 			}
 		}()
 
-		for _, v := range serverHelloMsg.Extensions {
+		for _, v := range serverHelloMsg.Extensions() {
 			switch ext := v.(type) {
 			case *extension12.ExtendedMasterSecret:
 				if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
@@ -388,7 +388,9 @@ func flight3Generate(
 		Random:             state.LocalRandom,
 		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions:         extensions,
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
+		},
 	}
 	if state.HasHelloVerifyRequest {
 		retry, err := negotiation.ClientHelloFromSnapshot(

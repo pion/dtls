@@ -391,9 +391,11 @@ func TestProcessPostHandshakeMessagesPreservesExtensionAlert(t *testing.T) {
 	wire, err := (&handshake.Handshake{
 		Message: &handshake.MessageNewSessionTicket{
 			Ticket: []byte{0x01},
-			Extensions: []extension.Value{
-				&extension13.MaxEarlyData{Size: 1},
-				&extension13.MaxEarlyData{Size: 2},
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{
+					&extension13.MaxEarlyData{Size: 1},
+					&extension13.MaxEarlyData{Size: 2},
+				},
 			},
 		},
 	}).Marshal()

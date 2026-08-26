@@ -48,6 +48,9 @@ func (m *MessageCertificate) Marshal() ([]byte, error) {
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageCertificate) MarshalTo(out []byte) (int, error) {
+	if len(out) < m.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
 	// Total Payload MarshalSize
 	//nolint:gosec // G115
 	util.PutBigEndianUint24(out, uint32(m.MarshalSize()-handshakeMessageCertificateLengthFieldSize))
@@ -60,8 +63,7 @@ func (m *MessageCertificate) MarshalTo(out []byte) (int, error) {
 		offset += handshakeMessageCertificateLengthFieldSize
 
 		// Certificate body
-		copy(out[offset:], cert)
-		offset += len(cert)
+		offset += copy(out[offset:], cert)
 	}
 
 	return m.MarshalSize(), nil

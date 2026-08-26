@@ -22,9 +22,9 @@ type CertificateEntry13 struct {
 	// Can be empty for certain contexts (e.g., RawPublicKey mode).
 	CertificateData []byte
 
-	// Extensions contains per-certificate extensions.
+	// extensions contains per-certificate extensions.
 	// Examples: OCSP status, SignedCertificateTimestamp, etc.
-	Extensions []extension.Value
+	CachedExtensions extension.CachedList
 }
 
 // MessageCertificate13 represents the Certificate handshake message for DTLS 1.3.
@@ -39,9 +39,7 @@ type MessageCertificate13 struct {
 
 	// CertificateList contains the certificate chain with each entry having
 	// optional per-certificate extensions.
-	CertificateList         []CertificateEntry13
-	marchalledExtensions    [][]byte
-	marchalledExtensionsErr error
+	CertificateList []CertificateEntry13
 }
 
 // Type returns the handshake message type.
@@ -57,6 +55,11 @@ const (
 	cert13ExtLengthFieldSize     = 2
 )
 
+// Extensions returns extensions.
+func (m CertificateEntry13) Extensions() []extension.Value {
+	return m.CachedExtensions.Values
+}
+
 // Marshal encodes the MessageCertificate13 into its wire format.
 //
 // Wire format:
@@ -70,11 +73,6 @@ const (
 //	  [2 bytes]  extensions length (from extension.MarshalList)
 //	  [variable] extensions data
 func (m *MessageCertificate13) Marshal() ([]byte, error) {
-	// Validate certificate_request_context length
-	if len(m.CertificateRequestContext) > cert13ContextMaxLength {
-		return nil, dtlserrors.ErrCertificateRequestContextTooLong
-	}
-
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
 
@@ -86,27 +84,12 @@ func (m *MessageCertificate13) MarshalSize() int {
 	return 1 + len(m.CertificateRequestContext) + cert13CertLengthFieldSize + m.certsSize()
 }
 
-func (m *MessageCertificate13) cacheMarshalExtensions() error {
-	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
-		m.marchalledExtensions = make([][]byte, len(m.CertificateList))
-		for i, entry := range m.CertificateList {
-			m.marchalledExtensions[i], m.marchalledExtensionsErr = extension.MarshalList(entry.Extensions)
-		}
-	}
-
-	return m.marchalledExtensionsErr
-}
-
 func (m *MessageCertificate13) certsSize() int {
-	err := m.cacheMarshalExtensions()
-	if err != nil {
-		return 0
-	}
 	certificateListSize := 0
-	for i, entry := range m.CertificateList {
+	for _, entry := range m.CertificateList {
 		certificateListSize += cert13CertLengthFieldSize
 		certificateListSize += len(entry.CertificateData)
-		certificateListSize += len(m.marchalledExtensions[i])
+		certificateListSize += entry.CachedExtensions.MarshalSize()
 	}
 
 	return certificateListSize
@@ -121,11 +104,6 @@ func (m *MessageCertificate13) MarshalTo(out []byte) (int, error) {
 
 	if len(out) < m.MarshalSize() {
 		return 0, dtlserrors.ErrBufferTooSmall
-	}
-
-	err := m.cacheMarshalExtensions()
-	if err != nil {
-		return 0, err
 	}
 
 	// Check size of certificate_list is still within bounds
@@ -145,7 +123,7 @@ func (m *MessageCertificate13) MarshalTo(out []byte) (int, error) {
 	offset += 3
 
 	// Build certificate_list
-	for i, entry := range m.CertificateList {
+	for _, entry := range m.CertificateList {
 		// Add cert_data as a 3-byte length prefix
 		certDataLen := len(entry.CertificateData)
 		if certDataLen == 0 || certDataLen > maxUint24 {
@@ -156,8 +134,11 @@ func (m *MessageCertificate13) MarshalTo(out []byte) (int, error) {
 		offset += copy(out[offset:], entry.CertificateData)
 
 		// Marshal extensions (includes a 2-byte length prefix)
-		extensionsData := m.marchalledExtensions[i]
-		offset += copy(out[offset:], extensionsData)
+		n, err := entry.CachedExtensions.MarshalTo(out[offset:])
+		if err != nil {
+			return offset, err
+		}
+		offset += n
 	}
 
 	return m.MarshalSize(), nil
@@ -204,7 +185,9 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 
 	return &CertificateEntry13{
 		CertificateData: certDataBytes,
-		Extensions:      extensions,
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
+		},
 	}, nil
 }
 

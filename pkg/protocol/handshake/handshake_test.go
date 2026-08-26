@@ -40,7 +40,7 @@ func TestHandshakeMessage(t *testing.T) {
 			Cookie:             []byte{},
 			CipherSuiteIDs:     []uint16{},
 			CompressionMethods: []*protocol.CompressionMethod{},
-			Extensions:         []extension.Value{},
+			CachedExtensions:   extension.CachedList{Values: []extension.Value{}},
 		},
 	}
 
@@ -61,8 +61,10 @@ func TestPostHandshakeMessageDispatch(t *testing.T) {
 			TicketAgeAdd:   2,
 			TicketNonce:    []byte{0x03},
 			Ticket:         []byte{0x04},
-			Extensions: []extension.Value{
-				&extension13.MaxEarlyData{Size: maxEarlyData},
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{
+					&extension13.MaxEarlyData{Size: maxEarlyData},
+				},
 			},
 		},
 		"KeyUpdate": &handshake.MessageKeyUpdate{

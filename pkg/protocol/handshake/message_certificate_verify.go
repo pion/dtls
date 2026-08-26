@@ -38,10 +38,6 @@ func (m MessageCertificateVerify) MarshalSize() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageCertificateVerify) Marshal() ([]byte, error) {
-	if m.HashAlgorithm > 0xFF || m.SignatureAlgorithm > 0xFF {
-		return nil, dtlserrors.ErrInvalidSignHashAlgorithm
-	}
-
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
 
@@ -50,6 +46,14 @@ func (m *MessageCertificateVerify) Marshal() ([]byte, error) {
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageCertificateVerify) MarshalTo(out []byte) (int, error) {
+	if len(out) < m.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	if m.HashAlgorithm > 0xFF || m.SignatureAlgorithm > 0xFF {
+		return 0, dtlserrors.ErrInvalidSignHashAlgorithm
+	}
+
 	// CertificateVerify in DTLS 1.2 encodes hash/signature as 1 byte each.
 	scheme := tls.SignatureScheme(uint16(m.HashAlgorithm)<<8 | uint16(m.SignatureAlgorithm))
 	var alg signaturehash.Algorithm

@@ -299,9 +299,11 @@ func TestHandshakeCachePullPreservesExtensionAlert(t *testing.T) {
 	raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions: []extension.Value{
-			extension.Raw{Type: 0xfefe},
-			extension.Raw{Type: 0xfefe},
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				extension.Raw{Type: 0xfefe},
+				extension.Raw{Type: 0xfefe},
+			},
 		},
 	})
 	cache := dtlsflight.NewCache()

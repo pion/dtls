@@ -71,6 +71,10 @@ func (m *MessageServerKeyExchange) MarshalSize() int { //nolint:cyclop
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) { //nolint:cyclop
+	if m.MarshalSize() == 0 {
+		return 0, dtlserrors.ErrInvalidSignHashAlgorithm
+	}
+
 	if len(out) < m.MarshalSize() {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
@@ -104,7 +108,7 @@ func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) { //nolint
 	case m.SignatureAlgorithm == signature.Anonymous && (m.HashAlgorithm != hash.None || len(m.Signature) > 0):
 		return 0, dtlserrors.ErrInvalidSignHashAlgorithm
 	case m.SignatureAlgorithm == signature.Anonymous:
-		return 0, nil
+		return offset, nil
 	}
 
 	alg := signaturehash.Algorithm{Hash: m.HashAlgorithm, Signature: m.SignatureAlgorithm}

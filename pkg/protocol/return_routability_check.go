@@ -46,9 +46,14 @@ func (r *ReturnRoutabilityCheck) Marshal() ([]byte, error) {
 
 // MarshalTo encodes to wire format into a pre-allocated buffer.
 func (r *ReturnRoutabilityCheck) MarshalTo(out []byte) (int, error) {
-	out[0] = byte(r.MessageType)
+	if len(out) < r.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
 
-	return copy(out[1:], r.Cookie[:]), nil
+	out[0] = byte(r.MessageType)
+	copy(out[1:], r.Cookie[:])
+
+	return r.MarshalSize(), nil
 }
 
 // Unmarshal decodes an RRC message.

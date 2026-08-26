@@ -906,7 +906,9 @@ func testPionE2ESimpleServerHelloHook(t *testing.T, server, client func(*comm), 
 			dtls.WithCertificates(cert),
 			dtls.WithCipherSuites(supportedList...),
 			dtls.WithServerHelloMessageHook(func(sh handshake.MessageServerHello) handshake.Message {
-				sh.Extensions = append(sh.Extensions, &extension.ALPNSelection{Protocol: apln})
+				sh.CachedExtensions = extension.CachedList{
+					Values: append(sh.Extensions(), &extension.ALPNSelection{Protocol: apln}),
+				}
 
 				return &sh
 			}),

@@ -319,7 +319,9 @@ func flight4Generate(
 		SessionID:         state.SessionID,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions:        extensions,
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
+		},
 	}
 
 	serverHello, err = dtlsflight.FinalizeServerHello(
@@ -329,11 +331,11 @@ func flight4Generate(
 		return nil, nil, err
 	}
 	if err = validateServerSRTP(
-		offer, serverHello.Extensions, cfg.LocalSRTPProtectionProfiles, srtpSelection,
+		offer, serverHello.Extensions(), cfg.LocalSRTPProtectionProfiles, srtpSelection,
 	); err != nil {
 		return nil, nil, err
 	}
-	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions)
+	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions())
 	content := handshake.Handshake{Message: serverHello}
 
 	pkts = append(pkts, &dtlsflight.Outbound{

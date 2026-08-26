@@ -105,7 +105,11 @@ func TestCommitNegotiatedExtensions(t *testing.T) {
 func TestRecordLocalClientHelloTracksCIDPresence(t *testing.T) {
 	for _, extensions := range [][]extension.Value{nil, {&extension.ConnectionID{}}} {
 		_, snapshot, err := negotiation.FinalizeClientHello(
-			&handshake.MessageClientHello{Extensions: extensions}, nil,
+			&handshake.MessageClientHello{
+				CachedExtensions: extension.CachedList{
+					Values: extensions,
+				},
+			}, nil,
 		)
 		require.NoError(t, err)
 		state := NewState12(true)

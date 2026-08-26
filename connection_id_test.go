@@ -294,9 +294,11 @@ func TestCIDConnIdentifier(t *testing.T) {
 			SessionID:         []byte("hello"),
 			CipherSuiteID:     &cs,
 			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-			Extensions: []extension.Value{
-				&extension.ConnectionID{
-					CID: cid,
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{
+					&extension.ConnectionID{
+						CID: cid,
+					},
 				},
 			},
 		},

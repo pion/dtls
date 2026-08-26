@@ -20,8 +20,10 @@ func TestMessageNewSessionTicket(t *testing.T) {
 		TicketAgeAdd:   0x05060708,
 		TicketNonce:    []byte{0xaa, 0xbb},
 		Ticket:         []byte{0xcc, 0xdd, 0xee},
-		Extensions: []extension.Value{
-			&extension13.MaxEarlyData{Size: maxEarlyData},
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				&extension13.MaxEarlyData{Size: maxEarlyData},
+			},
 		},
 	}
 	want := []byte{
@@ -40,7 +42,9 @@ func TestMessageNewSessionTicket(t *testing.T) {
 
 	decoded := &MessageNewSessionTicket{}
 	require.NoError(t, decoded.Unmarshal(want))
-	message.cachedExtensionData = nil // remove cache for comparison
+	message.CachedExtensions = extension.CachedList{
+		Values: message.Extensions(),
+	}
 	assert.Equal(t, message, decoded)
 }
 
@@ -53,7 +57,7 @@ func TestMessageNewSessionTicketEmptyVectors(t *testing.T) {
 	decoded := &MessageNewSessionTicket{}
 	require.NoError(t, decoded.Unmarshal(raw))
 	assert.Empty(t, decoded.TicketNonce)
-	assert.Empty(t, decoded.Extensions)
+	assert.Empty(t, decoded.Extensions())
 }
 
 func TestMessageNewSessionTicketMarshalErrors(t *testing.T) {
@@ -65,8 +69,10 @@ func TestMessageNewSessionTicketMarshalErrors(t *testing.T) {
 		},
 		"extensions too long": {
 			Ticket: []byte{0x01},
-			Extensions: []extension.Value{
-				extension.Raw{Type: 0xfefe, Data: make([]byte, 65532)},
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{
+					extension.Raw{Type: 0xfefe, Data: make([]byte, 65532)},
+				},
 			},
 		},
 	}

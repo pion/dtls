@@ -69,11 +69,13 @@ func newTestState13(tb testing.TB, isClient bool) *dtlsstate.State13 {
 	state := dtlsstate.NewState13(isClient)
 	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		CipherSuiteIDs: []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
-		Extensions: []extension.Value{
-			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
-			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-			&extension.SupportedGroups{Groups: slices.Clone(testCurves13)},
-			&extension13.ClientKeyShare{},
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+				&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+				&extension.SupportedGroups{Groups: slices.Clone(testCurves13)},
+				&extension13.ClientKeyShare{},
+			},
 		},
 	}, nil)
 	require.NoError(tb, err)
@@ -89,9 +91,9 @@ func omitInitialKeyShares() func(handshake.MessageClientHello) handshake.Message
 	return func(clientHello handshake.MessageClientHello) handshake.Message {
 		if initial {
 			initial = false
-			for i, value := range clientHello.Extensions {
+			for i, value := range clientHello.Extensions() {
 				if value.ExtensionType() == extension.TypeKeyShare {
-					clientHello.Extensions[i] = &extension13.ClientKeyShare{}
+					clientHello.CachedExtensions.Values[i] = &extension13.ClientKeyShare{}
 				}
 			}
 		}
@@ -201,7 +203,12 @@ func retryRequestForTest(
 		extensions = append(extensions, &extension13.Cookie{Cookie: state.Cookie})
 	}
 	request, err := negotiation.ValidateHelloRetryRequest(
-		initial, &handshake.MessageServerHello{CipherSuiteID: &id, Extensions: extensions},
+		initial, &handshake.MessageServerHello{
+			CipherSuiteID: &id,
+			CachedExtensions: extension.CachedList{
+				Values: extensions,
+			},
+		},
 	)
 	require.NoError(tb, err)
 
@@ -614,9 +621,11 @@ func TestFlight13_5GenerateSelectsClientCertificateBySignatureScheme(t *testing.
 	}
 	request := &handshake.MessageCertificateRequest13{
 		CertificateRequestContext: []byte("request"),
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{
-				Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{ecdsaSHA256}),
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				&extension.SignatureAlgorithms{
+					Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{ecdsaSHA256}),
+				},
 			},
 		},
 	}
@@ -690,7 +699,9 @@ func marshalServerHelloWithSequence(
 		Random:            random,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions:        extensions,
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
+		},
 	}
 	rawServerHello, err := (&handshake.Handshake{
 		Header:  handshake.Header{MessageSequence: seq},
@@ -753,7 +764,7 @@ func TestFlight13_1GenerateClientHelloIncludesRequiredExtensions(t *testing.T) {
 
 	var supportedVersions *extension13.OfferedVersions
 	var supportedGroups *extension.SupportedGroups
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		switch typed := ext.(type) {
 		case *extension13.OfferedVersions:
 			supportedVersions = typed
@@ -775,7 +786,7 @@ func TestFlight13_1GenerateClientHelloIncludesSignatureAlgorithms(t *testing.T) 
 
 	var signatureAlgorithms *extension.SignatureAlgorithms
 	var signatureAlgorithmsCert *extension.CertificateSignatureAlgorithms
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		switch typed := ext.(type) {
 		case *extension.SignatureAlgorithms:
 			signatureAlgorithms = typed
@@ -814,7 +825,7 @@ func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 	require.True(t, ok)
 
 	var keyShare *extension13.ClientKeyShare
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		if ks, ok := ext.(*extension13.ClientKeyShare); ok {
 			keyShare = ks
 
@@ -871,7 +882,7 @@ func TestFlight13_1GenerateClientHelloIncludesX25519MLKEM768KeyShare(t *testing.
 	require.True(t, ok)
 
 	var keyShare *extension13.ClientKeyShare
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		if ks, ok := ext.(*extension13.ClientKeyShare); ok {
 			keyShare = ks
 
@@ -1074,7 +1085,7 @@ func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 	require.True(t, ok)
 
 	var supportedVersions *extension13.OfferedVersions
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		if sv, ok := ext.(*extension13.OfferedVersions); ok {
 			supportedVersions = sv
 
@@ -1085,7 +1096,7 @@ func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 	assert.Equal(t, []protocol.Version{protocol.Version1_3}, supportedVersions.Versions)
 
 	var signatureAlgorithms *extension.SignatureAlgorithms
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		if sigAlgs, ok := ext.(*extension.SignatureAlgorithms); ok {
 			signatureAlgorithms = sigAlgs
 
@@ -1096,7 +1107,7 @@ func TestFlight13_3GenerateIncludesCookieAndSupportedVersions(t *testing.T) {
 	assert.Equal(t, []uint16{0x0403}, signatureAlgorithms.Schemes)
 
 	var cookieExt *extension13.Cookie
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		if c, ok := ext.(*extension13.Cookie); ok {
 			cookieExt = c
 
@@ -1137,7 +1148,7 @@ func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.
 	require.True(t, ok)
 
 	var keyShare *extension13.ClientKeyShare
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		if ks, ok := ext.(*extension13.ClientKeyShare); ok {
 			keyShare = ks
 
@@ -2036,9 +2047,11 @@ func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 		Random:            handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions: []extension.Value{
-			&extension13.SelectedVersion{Version: protocol.Version1_3},
-			&extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				&extension13.SelectedVersion{Version: protocol.Version1_3},
+				&extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+			},
 		},
 	}
 	rawServerHello, err := (&handshake.Handshake{Message: serverHello}).Marshal()
@@ -2177,6 +2190,18 @@ func TestFlight13_0ParseSelectsNegotiatedGroupWithoutGeneratingKeypair(t *testin
 	staleServerKeypair, err := elliptic.GenerateKeypair(elliptic.X25519)
 	require.NoError(t, err)
 
+	extensions := []extension.Value{
+		&extension.SignatureAlgorithms{
+			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
+		},
+		&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.P384}},
+		&extension13.ClientKeyShare{
+			Shares: []extension13.KeyShareEntry{
+				{Group: elliptic.P384, KeyExchange: clientKeypair.PublicKey},
+			},
+		},
+		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+	}
 	clientHello := &handshake.MessageClientHello{
 		Version: protocol.Version1_2,
 		Random:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
@@ -2184,15 +2209,8 @@ func TestFlight13_0ParseSelectsNegotiatedGroupWithoutGeneratingKeypair(t *testin
 			uint16(cfg.LocalCipherSuites[0].ID()),
 		},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)},
-			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.P384}},
-			&extension13.ClientKeyShare{
-				Shares: []extension13.KeyShareEntry{
-					{Group: elliptic.P384, KeyExchange: clientKeypair.PublicKey},
-				},
-			},
-			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
 		},
 	}
 	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
@@ -2226,6 +2244,16 @@ func TestFlight13_0ParseSelectsX25519MLKEM768WithoutGeneratingKeypair(t *testing
 	clientKeypair, err := elliptic.GenerateKeypair(elliptic.X25519MLKEM768)
 	require.NoError(t, err)
 
+	extensions := []extension.Value{
+		&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)},
+		&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519MLKEM768}},
+		&extension13.ClientKeyShare{
+			Shares: []extension13.KeyShareEntry{
+				{Group: elliptic.X25519MLKEM768, KeyExchange: clientKeypair.PublicKey},
+			},
+		},
+		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+	}
 	clientHello := &handshake.MessageClientHello{
 		Version: protocol.Version1_2,
 		Random:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
@@ -2233,15 +2261,8 @@ func TestFlight13_0ParseSelectsX25519MLKEM768WithoutGeneratingKeypair(t *testing
 			uint16(cfg.LocalCipherSuites[0].ID()),
 		},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)},
-			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519MLKEM768}},
-			&extension13.ClientKeyShare{
-				Shares: []extension13.KeyShareEntry{
-					{Group: elliptic.X25519MLKEM768, KeyExchange: clientKeypair.PublicKey},
-				},
-			},
-			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
 		},
 	}
 	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
@@ -2339,7 +2360,7 @@ func TestFlight13_0ParseRequestsPreferredGroupWhenShareMissing(t *testing.T) {
 	assert.Equal(t, elliptic.X25519MLKEM768, state.SelectedGroup)
 
 	serverHello := serverHelloFromFlight13_2(t, state, cfg)
-	keyShare, ok := findRetryKeyShare(serverHello.Extensions)
+	keyShare, ok := findRetryKeyShare(serverHello.Extensions())
 	require.True(t, ok)
 	assert.Equal(t, elliptic.X25519MLKEM768, keyShare.SelectedGroup)
 }
@@ -2347,6 +2368,9 @@ func TestFlight13_0ParseRequestsPreferredGroupWhenShareMissing(t *testing.T) {
 func TestFlight13_0ParseRejectsClientHelloWithSelectedSupportedVersion(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
 
+	extensions := []extension.Value{
+		&extension13.SelectedVersion{Version: protocol.Version1_3},
+	}
 	clientHello := &handshake.MessageClientHello{
 		Version: protocol.Version1_2,
 		Random:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
@@ -2354,8 +2378,8 @@ func TestFlight13_0ParseRejectsClientHelloWithSelectedSupportedVersion(t *testin
 			uint16(cfg.LocalCipherSuites[0].ID()),
 		},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions: []extension.Value{
-			&extension13.SelectedVersion{Version: protocol.Version1_3},
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
 		},
 	}
 	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
@@ -2381,7 +2405,9 @@ func pushFlight13_0ClientHello(
 			uint16(cfg.LocalCipherSuites[0].ID()),
 		},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions:         exts,
+		CachedExtensions: extension.CachedList{
+			Values: exts,
+		},
 	}
 	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
 	require.NoError(t, err)
@@ -2716,7 +2742,7 @@ func TestFlight13_2Generate(t *testing.T) {
 
 		serverHello := serverHelloFromFlight13_2(t, state, cfg)
 
-		supportedVersions, ok := findSupportedVersions(serverHello.Extensions)
+		supportedVersions, ok := findSupportedVersions(serverHello.Extensions())
 		require.True(t, ok, "SupportedVersions extension must always be present")
 		assert.Equal(t, protocol.Version1_3, supportedVersions.Version)
 	})
@@ -2763,7 +2789,7 @@ func TestFlight13_2Generate(t *testing.T) {
 
 		serverHello := serverHelloFromFlight13_2(t, state, cfg)
 
-		keyShare, ok := findRetryKeyShare(serverHello.Extensions)
+		keyShare, ok := findRetryKeyShare(serverHello.Extensions())
 		require.True(t, ok, "KeyShare must be present when remote key entries were offered")
 		assert.Equal(t, elliptic.X25519, keyShare.SelectedGroup)
 	})
@@ -2781,7 +2807,7 @@ func TestFlight13_2Generate(t *testing.T) {
 
 		serverHello := serverHelloFromFlight13_2(t, state, cfg)
 
-		_, hasKeyShare := findRetryKeyShare(serverHello.Extensions)
+		_, hasKeyShare := findRetryKeyShare(serverHello.Extensions())
 		assert.False(t, hasKeyShare, "KeyShare must be omitted when the selected group was already offered")
 	})
 
@@ -2793,7 +2819,7 @@ func TestFlight13_2Generate(t *testing.T) {
 
 		serverHello := serverHelloFromFlight13_2(t, state, cfg)
 
-		cookieExt, ok := findCookie(serverHello.Extensions)
+		cookieExt, ok := findCookie(serverHello.Extensions())
 		require.True(t, ok, "Cookie must be present when set on state")
 		assert.Equal(t, cookie, cookieExt.Cookie)
 	})
@@ -2807,17 +2833,17 @@ func TestFlight13_2Generate(t *testing.T) {
 
 		serverHello := serverHelloFromFlight13_2(t, state, cfg)
 
-		require.Len(t, serverHello.Extensions, 3)
+		require.Len(t, serverHello.Extensions(), 3)
 
-		supportedVersions, ok := findSupportedVersions(serverHello.Extensions)
+		supportedVersions, ok := findSupportedVersions(serverHello.Extensions())
 		require.True(t, ok)
 		assert.Equal(t, protocol.Version1_3, supportedVersions.Version)
 
-		keyShare, ok := findRetryKeyShare(serverHello.Extensions)
+		keyShare, ok := findRetryKeyShare(serverHello.Extensions())
 		require.True(t, ok)
 		assert.Equal(t, elliptic.P256, keyShare.SelectedGroup)
 
-		cookieExt, ok := findCookie(serverHello.Extensions)
+		cookieExt, ok := findCookie(serverHello.Extensions())
 		require.True(t, ok)
 		assert.Equal(t, cookie, cookieExt.Cookie)
 	})
@@ -2881,8 +2907,8 @@ func TestFlight13_4Generate(t *testing.T) {
 
 				require.NotNil(t, certificateRequest)
 				assert.Empty(t, certificateRequest.CertificateRequestContext)
-				require.Len(t, certificateRequest.Extensions, 1)
-				signatureAlgorithms, ok := certificateRequest.Extensions[0].(*extension.SignatureAlgorithms)
+				require.Len(t, certificateRequest.Extensions(), 1)
+				signatureAlgorithms, ok := certificateRequest.Extensions()[0].(*extension.SignatureAlgorithms)
 				require.True(t, ok)
 				assert.Equal(t, dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes), signatureAlgorithms.Schemes)
 			})
@@ -2922,12 +2948,12 @@ func TestFlight13_4Generate(t *testing.T) {
 		require.NotNil(t, serverHello.CipherSuiteID)
 		assert.Equal(t, uint16(cfg.LocalCipherSuites[0].ID()), *serverHello.CipherSuiteID)
 
-		keyShare, ok := findServerKeyShare(serverHello.Extensions)
+		keyShare, ok := findServerKeyShare(serverHello.Extensions())
 		require.True(t, ok)
 		assert.Equal(t, group, keyShare.Share.Group)
 		assert.Equal(t, keypair.PublicKey, keyShare.Share.KeyExchange)
 
-		supportedVersions, ok := findSupportedVersions(serverHello.Extensions)
+		supportedVersions, ok := findSupportedVersions(serverHello.Extensions())
 		require.True(t, ok)
 		assert.Equal(t, protocol.Version1_3, supportedVersions.Version)
 
@@ -2937,7 +2963,7 @@ func TestFlight13_4Generate(t *testing.T) {
 		assert.True(t, pkts[1].Protection == dtlsflight.ProtectionCiphertext)
 		encryptedExtensions, ok := encryptedExtensionsHandshake.Message.(*handshake.MessageEncryptedExtensions)
 		require.True(t, ok)
-		assert.Empty(t, encryptedExtensions.Extensions)
+		assert.Empty(t, encryptedExtensions.Extensions())
 
 		certificateHandshake, ok := pkts[2].Content.(*handshake.Handshake)
 		require.True(t, ok)
@@ -3018,7 +3044,9 @@ func pushClientHello13WithSequence(
 			Random:             handshake.Random{},
 			CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
 			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-			Extensions:         exts,
+			CachedExtensions: extension.CachedList{
+				Values: exts,
+			},
 		},
 	}
 
@@ -3060,9 +3088,11 @@ func seedFlight13RetryRequest(
 		return
 	}
 	clientHello := *retry
-	clientHello.Extensions = slices.DeleteFunc(slices.Clone(retry.Extensions), func(value extension.Value) bool {
-		return value.ExtensionType() == extension.TypeCookie
-	})
+	clientHello.CachedExtensions = extension.CachedList{
+		Values: slices.DeleteFunc(slices.Clone(retry.Extensions()), func(value extension.Value) bool {
+			return value.ExtensionType() == extension.TypeCookie
+		}),
+	}
 	_, initial, err := negotiation.FinalizeClientHello(&clientHello, nil)
 	if err != nil {
 		return
@@ -3072,11 +3102,14 @@ func seedFlight13RetryRequest(
 		return
 	}
 	id := uint16(cfg.LocalCipherSuites[0].ID())
+	extensions := []extension.Value{
+		&extension13.SelectedVersion{Version: protocol.Version1_3},
+		&extension13.Cookie{Cookie: state.Cookie},
+	}
 	request, err := negotiation.ValidateHelloRetryRequest(initial, &handshake.MessageServerHello{
 		CipherSuiteID: &id,
-		Extensions: []extension.Value{
-			&extension13.SelectedVersion{Version: protocol.Version1_3},
-			&extension13.Cookie{Cookie: state.Cookie},
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
 		},
 	})
 	if err == nil {
@@ -3295,7 +3328,10 @@ func clientHello13SnapshotHistory(t *testing.T, extensions []extension.Value) (h
 	t.Helper()
 	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{ //nolint:lll
 		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
-		CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions,
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		CachedExtensions: extension.CachedList{
+			Values: extensions,
+		},
 	}, nil)
 	require.NoError(t, err)
 	require.NoError(t, history.Record(snapshot))
@@ -3351,8 +3387,8 @@ func clientHelloFromFlight13Packet(t *testing.T, packet *dtlsflight.Outbound) *h
 }
 
 func setConnectionIDs(clientHello *handshake.MessageClientHello, cids ...[]byte) {
-	extensions := clientHello.Extensions[:0]
-	for _, ext := range clientHello.Extensions {
+	extensions := clientHello.Extensions()[:0]
+	for _, ext := range clientHello.Extensions() {
 		_, isConnectionID := ext.(*extension.ConnectionID)
 		_, isRRC := ext.(*extension.ReturnRoutabilityCheck)
 		if !isConnectionID && (!isRRC || len(cids) != 0) {
@@ -3362,7 +3398,9 @@ func setConnectionIDs(clientHello *handshake.MessageClientHello, cids ...[]byte)
 	for _, cid := range cids {
 		extensions = append(extensions, &extension.ConnectionID{CID: cid})
 	}
-	clientHello.Extensions = extensions
+	clientHello.CachedExtensions = extension.CachedList{
+		Values: extensions,
+	}
 }
 
 type connectionIDNegotiationCase struct {
@@ -3434,7 +3472,7 @@ func TestFlight13_1GenerateConnectionIDOffer(t *testing.T) {
 				require.NoError(t, err)
 				require.Nil(t, dtlsAlert)
 				require.Len(t, packets, 1)
-				clientHelloExtensions := clientHelloFromFlight13Packet(t, packets[0]).Extensions
+				clientHelloExtensions := clientHelloFromFlight13Packet(t, packets[0]).Extensions()
 				cid, present := findConnectionID(clientHelloExtensions)
 				expectedPresent := test.generator
 				if test.hook {
@@ -3525,8 +3563,8 @@ func TestFlight13_3GenerateConnectionIDOffer(t *testing.T) { //nolint:cyclop // 
 				require.NoError(t, err)
 				require.Nil(t, dtlsAlert)
 				require.Len(t, secondFlight, 1)
-				firstCID, firstPresent := findConnectionID(clientHelloFromFlight13Packet(t, firstFlight[0]).Extensions)
-				secondCID, secondPresent := findConnectionID(clientHelloFromFlight13Packet(t, secondFlight[0]).Extensions)
+				firstCID, firstPresent := findConnectionID(clientHelloFromFlight13Packet(t, firstFlight[0]).Extensions())
+				secondCID, secondPresent := findConnectionID(clientHelloFromFlight13Packet(t, secondFlight[0]).Extensions())
 				require.True(t, firstPresent)
 				require.True(t, secondPresent)
 				assert.Equal(t, firstCID.CID, secondCID.CID)
@@ -3570,7 +3608,7 @@ func TestFlight13_2ParseConnectionIDOffer(t *testing.T) {
 			cache := dtlsflight.NewCache()
 			initial, err := negotiation.ClientHelloFromSnapshot(state.RemoteClientHelloSnapshots.Initial())
 			require.NoError(t, err)
-			exts := slices.DeleteFunc(slices.Clone(initial.Extensions), func(value extension.Value) bool {
+			exts := slices.DeleteFunc(slices.Clone(initial.Extensions()), func(value extension.Value) bool {
 				return value.ExtensionType() == extension.TypeConnectionID
 			})
 			for _, cid := range test.secondCIDs {
@@ -3665,7 +3703,7 @@ func TestFlight13_4GenerateNegotiatesConnectionIDs(t *testing.T) { //nolint:cycl
 				require.True(t, ok)
 				serverHello, ok := serverHelloHandshake.Message.(*handshake.MessageServerHello)
 				require.True(t, ok)
-				connectionID, present := findConnectionID(serverHello.Extensions)
+				connectionID, present := findConnectionID(serverHello.Extensions())
 				assert.Equal(t, expectedNegotiated, present)
 				assert.Equal(t, expectedNegotiated, state.CID.Negotiated)
 				assert.Equal(t, expectedNegotiated, state.RRCNegotiated)

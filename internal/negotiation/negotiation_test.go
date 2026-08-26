@@ -27,7 +27,7 @@ func clientHelloForTest(extensions ...extension.Value) *handshake.MessageClientH
 		SessionID:          []byte{0x01, 0x02},
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-		Extensions:         extensions,
+		CachedExtensions:   extension.CachedList{Values: extensions},
 	}
 }
 
@@ -59,9 +59,9 @@ func TestFinalizeClientHelloDetachesHookValues(t *testing.T) {
 	var hookResult *handshake.MessageClientHello
 
 	final, snapshot, err := FinalizeClientHello(base, func(ch handshake.MessageClientHello) handshake.Message {
-		raw := ch.Extensions[0].(extension.Raw) //nolint:forcetypeassert
+		raw := ch.Extensions()[0].(extension.Raw) //nolint:forcetypeassert
 		raw.Data[0] = 0x20
-		ch.Extensions[0] = raw
+		ch.Extensions()[0] = raw
 		hookResult = &ch
 
 		return hookResult
@@ -69,9 +69,9 @@ func TestFinalizeClientHelloDetachesHookValues(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x10}, input)
 
-	hookRaw := hookResult.Extensions[0].(extension.Raw) //nolint:forcetypeassert
+	hookRaw := hookResult.Extensions()[0].(extension.Raw) //nolint:forcetypeassert
 	hookRaw.Data[0] = 0xff
-	finalRaw := final.Extensions[0].(extension.Raw) //nolint:forcetypeassert
+	finalRaw := final.Extensions()[0].(extension.Raw) //nolint:forcetypeassert
 	assert.Equal(t, []byte{0x20}, finalRaw.Data)
 	snapshotRaw, ok := snapshot.Extension(unknownExtensionType)
 	require.True(t, ok)
@@ -111,7 +111,7 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 		{
 			name: "nil extension",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
-				ch.Extensions = []extension.Value{nil}
+				ch.CachedExtensions = extension.CachedList{Values: []extension.Value{nil}}
 
 				return &ch
 			},
@@ -120,7 +120,12 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 		{
 			name: "duplicate extension",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
-				ch.Extensions = []extension.Value{&extension.ConnectionID{}, &extension.ConnectionID{}}
+				ch.CachedExtensions = extension.CachedList{
+					Values: []extension.Value{
+						&extension.ConnectionID{},
+						&extension.ConnectionID{},
+					},
+				}
 
 				return &ch
 			},
@@ -291,7 +296,9 @@ func TestDecideConnectionIDNegotiatesReturnRoutabilityCheck(t *testing.T) {
 }
 
 func serverHelloForTest(extensions ...extension.Value) *handshake.MessageServerHello {
-	return &handshake.MessageServerHello{Extensions: extensions}
+	return &handshake.MessageServerHello{
+		CachedExtensions: extension.CachedList{Values: extensions},
+	}
 }
 
 func helloRetryRequestForTest(extensions ...extension.Value) *handshake.MessageServerHello {

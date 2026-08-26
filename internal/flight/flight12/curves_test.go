@@ -38,7 +38,7 @@ func TestClientHelloFiltersX25519MLKEM768(t *testing.T) {
 	require.True(t, ok)
 
 	var supportedGroups *extension.SupportedGroups
-	for _, ext := range clientHello.Extensions {
+	for _, ext := range clientHello.Extensions() {
 		if groups, ok := ext.(*extension.SupportedGroups); ok {
 			supportedGroups = groups
 		}

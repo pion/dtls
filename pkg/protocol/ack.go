@@ -46,6 +46,10 @@ func (a *ACK) Marshal() ([]byte, error) {
 
 // MarshalTo encodes the Handshake.
 func (a *ACK) MarshalTo(out []byte) (int, error) {
+	if len(out) < a.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
 	n := 0
 	out[0] = byte(16 * len(a.Records) >> 8) //nolint:gosec // G115
 	out[1] = byte(16 * len(a.Records))      //nolint:gosec // G115

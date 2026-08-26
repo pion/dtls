@@ -194,7 +194,7 @@ func ValidateServerHelloResponse(
 	random := serverHello.Random.MarshalFixed()
 	isHelloRetryRequest := bytes.Equal(random[:], handshake.HelloRetryRequestRandom())
 
-	err := ValidateResponseExtensions(offer, serverHello.Extensions, func(typ extension.Type) bool {
+	err := ValidateResponseExtensions(offer, serverHello.Extensions(), func(typ extension.Type) bool {
 		return (isHelloRetryRequest && typ == extension.TypeCookie) ||
 			(!isHelloRetryRequest && typ == extension.TypeRenegotiationInfo &&
 				clientHelloHasCipherSuite(offer, 0x00ff))
@@ -210,7 +210,7 @@ func ValidateServerHelloResponse(
 // classified as HelloRetryRequest or DTLS 1.3 ServerHello.
 func ValidateServerHello12Context(serverHello *handshake.MessageServerHello) error {
 	random := serverHello.Random.MarshalFixed()
-	is13 := slices.ContainsFunc(serverHello.Extensions, func(value extension.Value) bool {
+	is13 := slices.ContainsFunc(serverHello.Extensions(), func(value extension.Value) bool {
 		typ := value.ExtensionType()
 
 		return typ == extension.TypeSupportedVersions || typ == extension.TypeKeyShare || typ == extension.TypePreSharedKey

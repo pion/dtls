@@ -44,6 +44,42 @@ type Value interface {
 	MarshalData() ([]byte, error)
 }
 
+// CachedList is a list of extensions that can be cached.
+type CachedList struct {
+	Values                  []Value // Never access this field directly
+	marshalledExtensions    []byte
+	marshalledExtensionsErr error
+}
+
+func (l *CachedList) MarshalSize() int {
+	err := l.cache()
+	if err != nil {
+		return 0
+	}
+
+	return len(l.marshalledExtensions)
+}
+
+func (l *CachedList) MarshalTo(out []byte) (int, error) {
+	err := l.cache()
+	if err != nil {
+		return 0, err
+	}
+	if len(out) < l.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	return copy(out, l.marshalledExtensions), nil
+}
+
+func (l *CachedList) cache() error {
+	if l.marshalledExtensions == nil && l.marshalledExtensionsErr == nil {
+		l.marshalledExtensions, l.marshalledExtensionsErr = MarshalList(l.Values)
+	}
+
+	return l.marshalledExtensionsErr
+}
+
 // PayloadUnmarshaller decodes extension_data without the extension header.
 type PayloadUnmarshaller interface {
 	UnmarshalData(data []byte) error

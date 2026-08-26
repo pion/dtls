@@ -26,11 +26,9 @@ type MessageServerHello struct {
 
 	SessionID []byte
 
-	CipherSuiteID           *uint16
-	CompressionMethod       *protocol.CompressionMethod
-	Extensions              []extension.Value
-	marchalledExtensions    []byte
-	marchalledExtensionsErr error
+	CipherSuiteID     *uint16
+	CompressionMethod *protocol.CompressionMethod
+	CachedExtensions  extension.CachedList
 }
 
 const messageServerHelloVariableWidthStart = 2 + RandomLength
@@ -40,23 +38,15 @@ func (m MessageServerHello) Type() Type {
 	return TypeServerHello
 }
 
-func (m *MessageServerHello) cacheMarshalExtensions() error {
-	if m.marchalledExtensions == nil && m.marchalledExtensionsErr == nil {
-		m.marchalledExtensions, m.marchalledExtensionsErr = extension.MarshalList(m.Extensions)
-	}
-
-	return m.marchalledExtensionsErr
+// Extensions returns the extensions.
+func (m *MessageServerHello) Extensions() []extension.Value {
+	return m.CachedExtensions.Values
 }
 
 // MarshalSize returns the size required by MarshalTo.
 func (m *MessageServerHello) MarshalSize() int {
-	err := m.cacheMarshalExtensions()
-	if err != nil {
-		return 0
-	}
-
 	total := 0
-	total += len(m.marchalledExtensions)
+	total += m.CachedExtensions.MarshalSize()
 	total += messageServerHelloVariableWidthStart + 1 + len(m.SessionID) + 2 + 1
 
 	return total
@@ -64,15 +54,6 @@ func (m *MessageServerHello) MarshalSize() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageServerHello) Marshal() ([]byte, error) {
-	switch {
-	case m.CipherSuiteID == nil:
-		return nil, dtlserrors.ErrCipherSuiteUnset
-	case m.CompressionMethod == nil:
-		return nil, dtlserrors.ErrCompressionMethodUnset
-	case len(m.SessionID) > 255:
-		return nil, dtlserrors.ErrSessionIDTooLong
-	}
-
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
 
@@ -92,11 +73,6 @@ func (m *MessageServerHello) MarshalTo(out []byte) (int, error) {
 		return 0, dtlserrors.ErrCompressionMethodUnset
 	case len(m.SessionID) > 255:
 		return 0, dtlserrors.ErrSessionIDTooLong
-	}
-
-	err := m.cacheMarshalExtensions()
-	if err != nil {
-		return 0, err
 	}
 
 	offset := 0
@@ -119,9 +95,9 @@ func (m *MessageServerHello) MarshalTo(out []byte) (int, error) {
 	out[offset] = byte(m.CompressionMethod.ID)
 	offset += 1
 
-	copy(out[offset:], m.marchalledExtensions)
+	_, err := m.CachedExtensions.MarshalTo(out[offset:])
 
-	return m.MarshalSize(), nil
+	return m.MarshalSize(), err
 }
 
 // Unmarshal populates the message from encoded data.
@@ -173,7 +149,9 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 		if err != nil {
 			return err
 		}
-		m.Extensions = extensions
+		m.CachedExtensions = extension.CachedList{
+			Values: extensions,
+		}
 
 		return nil
 	}
@@ -198,7 +176,9 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if err != nil {
 		return err
 	}
-	m.Extensions = extensions
+	m.CachedExtensions = extension.CachedList{
+		Values: extensions,
+	}
 
 	return nil
 }

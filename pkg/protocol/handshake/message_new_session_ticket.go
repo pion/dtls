@@ -23,13 +23,11 @@ const (
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1
 type MessageNewSessionTicket struct {
-	TicketLifetime      uint32
-	TicketAgeAdd        uint32
-	TicketNonce         []byte
-	Ticket              []byte
-	Extensions          []extension.Value
-	cachedExtensionData []byte
-	cachedExtensionErr  error
+	TicketLifetime   uint32
+	TicketAgeAdd     uint32
+	TicketNonce      []byte
+	Ticket           []byte
+	CachedExtensions extension.CachedList
 }
 
 // Type returns the Handshake Type.
@@ -39,23 +37,11 @@ func (m MessageNewSessionTicket) Type() Type {
 
 // MarshalSize returns the minimal size required for MarshalTo.
 func (m *MessageNewSessionTicket) MarshalSize() int {
-	err := m.cacheExtensionMarshal()
-	if err != nil {
-		return 0
-	}
-
-	return 8 + 1 + len(m.TicketNonce) + 2 + len(m.Ticket) + len(m.cachedExtensionData)
+	return 8 + 1 + len(m.TicketNonce) + 2 + len(m.Ticket) + m.CachedExtensions.MarshalSize()
 }
 
-func (m *MessageNewSessionTicket) cacheExtensionMarshal() error {
-	if m.cachedExtensionData == nil && m.cachedExtensionErr == nil {
-		m.cachedExtensionData, m.cachedExtensionErr = extension.MarshalList(m.Extensions)
-	}
-	if m.cachedExtensionErr != nil {
-		return m.cachedExtensionErr
-	}
-
-	return nil
+func (m MessageNewSessionTicket) Extensions() []extension.Value {
+	return m.CachedExtensions.Values
 }
 
 // Marshal encodes the Handshake.
@@ -78,15 +64,6 @@ func (m *MessageNewSessionTicket) MarshalTo(out []byte) (int, error) {
 		return 0, dtlserrors.ErrInvalidTicketLength
 	}
 
-	err := m.cacheExtensionMarshal()
-	if err != nil {
-		return 0, err
-	}
-	extensions := m.cachedExtensionData
-	if len(extensions)-2 > newSessionTicketMaxExtensionsLength {
-		return 0, dtlserrors.ErrInvalidExtensionsLength
-	}
-
 	n := 0
 	binary.BigEndian.PutUint32(out[n:], m.TicketLifetime)
 	n += 4
@@ -98,7 +75,13 @@ func (m *MessageNewSessionTicket) MarshalTo(out []byte) (int, error) {
 	binary.BigEndian.PutUint16(out[n:], uint16(len(m.Ticket))) //nolint:gosec // length is checked above
 	n += 2
 	n += copy(out[n:], m.Ticket)
-	copy(out[n:], extensions)
+	nn, err := m.CachedExtensions.MarshalTo(out[n:])
+	if err != nil {
+		return n, err
+	}
+	if nn-2 > newSessionTicketMaxExtensionsLength {
+		return n, dtlserrors.ErrInvalidExtensionsLength
+	}
 
 	return m.MarshalSize(), nil
 }
@@ -143,7 +126,9 @@ func (m *MessageNewSessionTicket) Unmarshal(data []byte) error {
 	m.TicketAgeAdd = ticketAgeAdd
 	m.TicketNonce = ticketNonce
 	m.Ticket = ticket
-	m.Extensions = extensions
+	m.CachedExtensions = extension.CachedList{
+		Values: extensions,
+	}
 
 	return nil
 }

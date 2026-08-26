@@ -57,9 +57,9 @@ func TestFlight4GenerateNegotiatesSRTPInEncryptedExtensions(t *testing.T) {
 			require.NoError(t, err)
 			require.GreaterOrEqual(t, len(packets), 2)
 			serverHello := packets[0].Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello) //nolint:forcetypeassert,lll
-			assert.False(t, hasSRTPSelection13(serverHello.Extensions))
+			assert.False(t, hasSRTPSelection13(serverHello.Extensions()))
 			encryptedExtensions := packets[1].Content.(*handshake.Handshake).Message.(*handshake.MessageEncryptedExtensions) //nolint:forcetypeassert,lll
-			selection := findSRTPSelection13(encryptedExtensions.Extensions)
+			selection := findSRTPSelection13(encryptedExtensions.Extensions())
 			require.NotNil(t, selection)
 			assert.Equal(t, srtpProfile13, selection.ProtectionProfile)
 			assert.Equal(t, test.wantMKI, string(selection.MasterKeyIdentifier))
@@ -110,7 +110,7 @@ func TestFlight3ParseValidatesAndRollsBackSRTP(t *testing.T) {
 			))
 			cache := dtlsflight.NewCache()
 			cache.Push(marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{
-				Extensions: test.extensions,
+				CachedExtensions: extension.CachedList{Values: test.extensions},
 			}), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 			cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}),
 				EpochHandshake, 1, handshake.TypeFinished, false)
@@ -186,9 +186,11 @@ func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 	id := uint16(0x1301)
 	request, err := negotiation.ValidateHelloRetryRequest(
 		state.RemoteClientHelloSnapshots.Initial(), &handshake.MessageServerHello{
-			CipherSuiteID: &id, Extensions: []extension.Value{
-				&extension13.SelectedVersion{Version: protocol.Version1_3},
-				&extension13.Cookie{Cookie: state.Cookie},
+			CipherSuiteID: &id, CachedExtensions: extension.CachedList{
+				Values: []extension.Value{
+					&extension13.SelectedVersion{Version: protocol.Version1_3},
+					&extension13.Cookie{Cookie: state.Cookie},
+				},
 			},
 		})
 	require.NoError(t, err)
@@ -198,11 +200,13 @@ func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 		Message: &handshake.MessageClientHello{
 			Version:        protocol.Version1_2,
 			CipherSuiteIDs: []uint16{0x1301},
-			Extensions: []extension.Value{
-				&extension13.Cookie{Cookie: state.Cookie},
-				&extension.SRTPOffer{
-					ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
-					MasterKeyIdentifier: []byte("changed"),
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{
+					&extension13.Cookie{Cookie: state.Cookie},
+					&extension.SRTPOffer{
+						ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
+						MasterKeyIdentifier: []byte("changed"),
+					},
 				},
 			},
 		},
@@ -235,7 +239,9 @@ func srtpSnapshot13(
 	}
 	_, snapshot, err := negotiation.FinalizeClientHello(
 		&handshake.MessageClientHello{
-			Version: protocol.Version1_2, CipherSuiteIDs: []uint16{0x1301}, Extensions: extensions,
+			Version:          protocol.Version1_2,
+			CipherSuiteIDs:   []uint16{0x1301},
+			CachedExtensions: extension.CachedList{Values: extensions},
 		}, nil,
 	)
 	require.NoError(t, err)

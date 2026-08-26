@@ -278,7 +278,7 @@ func cidConnIdentifier() func([]byte) (string, bool) { //nolint:cyclop
 		if err := sh.Unmarshal(firstRecord[recordlayer.FixedHeaderSize+handshake.HeaderLength:]); err != nil {
 			return "", false
 		}
-		for _, ext := range sh.Extensions {
+		for _, ext := range sh.Extensions() {
 			if e, ok := ext.(*extension.ConnectionID); ok {
 				return string(e.CID), true
 			}

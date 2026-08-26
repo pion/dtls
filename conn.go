@@ -2374,7 +2374,7 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 	}
 	var remote []protocol.Version
 	seenSupportedVersions := false
-	for _, e := range ch.Extensions {
+	for _, e := range ch.Extensions() {
 		if sv, ok := e.(*extension13.OfferedVersions); ok { //nolint:govet
 			seenSupportedVersions = true
 			remote = sv.Versions
@@ -2462,7 +2462,7 @@ func (c *Conn) pickVersionFromServerHello(sh *handshake.MessageServerHello) erro
 }
 
 func remoteVersionsFromServerHello(sh *handshake.MessageServerHello) ([]protocol.Version, error) {
-	remote, seenSupportedVersions, err := dtlsflight13.ServerHelloSelectedVersions(sh.Extensions)
+	remote, seenSupportedVersions, err := dtlsflight13.ServerHelloSelectedVersions(sh.Extensions())
 	if dtlsflight13.IsHelloRetryRequest(sh) {
 		return remoteVersionsFromHelloRetryRequest(remote, seenSupportedVersions, err)
 	}

@@ -120,7 +120,9 @@ func TestPullProtectedHandshakeFlightDistinguishesIncompleteAndInvalid(t *testin
 	t.Run("known illegal placement", func(t *testing.T) {
 		cache := dtlsflight.NewCache()
 		raw := marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{
-			Extensions: []extension.Value{extension.Raw{Type: extension.TypeExtendedMasterSecret}},
+			CachedExtensions: extension.CachedList{
+				Values: []extension.Value{extension.Raw{Type: extension.TypeExtendedMasterSecret}},
+			},
 		})
 		cache.Push(raw, EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 
@@ -148,8 +150,10 @@ func marshalProtectedTestHandshake(t *testing.T, sequence uint16, message handsh
 
 func TestHandleFlight3ProtectedHandshakeRetainsCertificateRequest(t *testing.T) {
 	request := &handshake.MessageCertificateRequest13{
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+			},
 		},
 	}
 	items := []dtlsflight.DecodedHandshakeCacheItem{{
@@ -179,7 +183,9 @@ func TestFlight3ParseClearsConnectionIDAfterInvalidEncryptedExtensions(t *testin
 
 	cache := dtlsflight.NewCache()
 	cache.Push(marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{
-		Extensions: []extension.Value{extension.Raw{Type: 0xfafa}},
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{extension.Raw{Type: 0xfafa}},
+		},
 	}), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 	cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}), EpochHandshake, 1, handshake.TypeFinished, false) //nolint:lll
 	handlerCalled := false
@@ -208,10 +214,14 @@ func TestFlight3ParseClearsConnectionIDAfterInvalidEncryptedExtensions(t *testin
 
 func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
 	authority := []byte{0x01, 0x02}
-	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{
-		&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-		&extension13.CertificateAuthorities{Authorities: [][]byte{authority}},
-	}}
+	request := &handshake.MessageCertificateRequest13{
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+				&extension13.CertificateAuthorities{Authorities: [][]byte{authority}},
+			},
+		},
+	}
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalGetClientCertificate: func(info *dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
 			info.AcceptableCAs[0][0] = 0xff
@@ -223,7 +233,7 @@ func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
 	_, err := flight5ClientCertificate(cfg, request)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x01, 0x02}, authority)
-	assert.Equal(t, []byte{0x01, 0x02}, request.Extensions[1].(*extension13.CertificateAuthorities).Authorities[0]) //nolint:forcetypeassert,lll
+	assert.Equal(t, []byte{0x01, 0x02}, request.CachedExtensions.Values[1].(*extension13.CertificateAuthorities).Authorities[0]) //nolint:forcetypeassert,lll
 }
 
 func TestFlight4GenerateCertificateFailures(t *testing.T) {
@@ -279,11 +289,13 @@ func flight4TestContext(t *testing.T) *handshakeContext {
 	require.NoError(t, err)
 	signatureSchemes := signaturehash.Algorithms()
 	_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
-		Extensions: []extension.Value{
-			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
-			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms())},
-			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
-			&extension13.ClientKeyShare{},
+		CachedExtensions: extension.CachedList{
+			Values: []extension.Value{
+				&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+				&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms())},
+				&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
+				&extension13.ClientKeyShare{},
+			},
 		},
 	}, nil)
 	require.NoError(t, err)
