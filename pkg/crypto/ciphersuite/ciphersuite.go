@@ -8,6 +8,7 @@ import (
 	"crypto/cipher"
 	"encoding/binary"
 	"fmt"
+	"sync"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -19,6 +20,9 @@ const (
 	// 8 bytes of 0xff.
 	// https://datatracker.ietf.org/doc/html/rfc9146#name-record-payload-protection
 	seqNumPlaceholder = 0xffffffffffffffff
+
+	// AEAD suites use 12-byte nonces.
+	maxAEADNonceLength = 12
 )
 
 // aead provides a generic API to Encrypt/Decrypt DTLS 1.2 Packets.
@@ -29,6 +33,7 @@ type aead struct {
 	remoteWriteIV []byte
 	nonceLength   int
 	tagLength     int
+	noncePool     sync.Pool
 }
 
 // newAEAD creates a generic DTLS AEAD-based Cipher.
@@ -47,6 +52,11 @@ func newAEAD(
 		remoteWriteIV: remoteWriteIV,
 		nonceLength:   nonceLength,
 		tagLength:     tagLength,
+		noncePool: sync.Pool{
+			New: func() any {
+				return new([maxAEADNonceLength]byte)
+			},
+		},
 	}
 }
 
@@ -55,13 +65,14 @@ func (a *aead) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
 	payload := raw[pkt.Header.MarshalSize():]
 	raw = raw[:pkt.Header.MarshalSize()]
 
-	nonce := make([]byte, a.nonceLength)
+	nonce := a.noncePool.Get().(*[maxAEADNonceLength]byte) //nolint:forcetypeassert // only nonce arrays are pooled
+	nonceBytes := nonce[:a.nonceLength]
 
-	copy(nonce, a.localWriteIV[:4])
+	copy(nonceBytes, a.localWriteIV[:4])
 
 	// https://www.rfc-editor.org/rfc/rfc9325#name-nonce-reuse-in-tls-12
 	seq64 := (uint64(pkt.Header.Epoch) << 48) | (pkt.Header.SequenceNumber & 0x0000ffffffffffff)
-	binary.BigEndian.PutUint64(nonce[4:], seq64)
+	binary.BigEndian.PutUint64(nonceBytes[4:], seq64)
 
 	var additionalData []byte
 	if pkt.Header.ContentType == protocol.ContentTypeConnectionID {
@@ -72,9 +83,10 @@ func (a *aead) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error)
 	finalSize := len(raw) + 8 + len(payload) + a.tagLength
 	r := make([]byte, finalSize)
 	copy(r, raw)
-	copy(r[len(raw):], nonce[4:])
+	copy(r[len(raw):], nonceBytes[4:])
 
-	a.localAEAD.Seal(r[len(raw)+8:len(raw)+8], nonce, payload, additionalData)
+	a.localAEAD.Seal(r[len(raw)+8:len(raw)+8], nonceBytes, payload, additionalData)
+	a.noncePool.Put(nonce)
 
 	// Update recordLayer size to include explicit nonce
 	binary.BigEndian.PutUint16(r[pkt.Header.MarshalSize()-2:],
@@ -96,10 +108,11 @@ func (a *aead) decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 		return nil, dtlserrors.ErrNotEnoughRoomForNonce
 	}
 
-	nonce := make([]byte, a.nonceLength)
+	nonce := a.noncePool.Get().(*[maxAEADNonceLength]byte) //nolint:forcetypeassert // only nonce arrays are pooled
+	nonceBytes := nonce[:a.nonceLength]
 
-	copy(nonce[:4], a.remoteWriteIV[:4])
-	copy(nonce[4:], in[header.MarshalSize():header.MarshalSize()+8])
+	copy(nonceBytes[:4], a.remoteWriteIV[:4])
+	copy(nonceBytes[4:], in[header.MarshalSize():header.MarshalSize()+8])
 	out := in[header.MarshalSize()+8:]
 
 	var additionalData []byte
@@ -108,7 +121,8 @@ func (a *aead) decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 	} else {
 		additionalData = generateAEADAdditionalData(&header, len(out)-a.tagLength)
 	}
-	out, err = a.remoteAEAD.Open(out[:0], nonce, out, additionalData)
+	out, err = a.remoteAEAD.Open(out[:0], nonceBytes, out, additionalData)
+	a.noncePool.Put(nonce)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", dtlserrors.ErrDecryptPacket, err) //nolint:errorlint
 	}
