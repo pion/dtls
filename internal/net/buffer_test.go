@@ -182,7 +182,7 @@ func TestResizeWraparound(t *testing.T) {
 }
 
 func TestWraparound(t *testing.T) {
-	buffer := NewPacketBuffer()
+	buffer := NewPacketBufferWithSize(4)
 	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:5684")
 	assert.NoError(t, err)
 
@@ -199,12 +199,6 @@ func TestWraparound(t *testing.T) {
 	assert.NoError(t, err)
 	equalInt(t, 3, n)
 
-	// Verify underlying buffer length.
-	// Packet 1: buffer does not grow.
-	// Packet 2: buffer doubles from 1 to 2.
-	// Packet 3: buffer doubles from 2 to 4.
-	equalInt(t, 4, len(buffer.packets))
-
 	// Read once.
 	packet := make([]byte, 4)
 	var raddr net.Addr
@@ -219,15 +213,14 @@ func TestWraparound(t *testing.T) {
 	assert.NoError(t, err)
 	equalInt(t, 3, n)
 
-	// Verify underlying buffer length.
-	// No change in buffer size.
-	equalInt(t, 4, len(buffer.packets))
-
 	// Write again and verify buffer grew.
 	n, err = buffer.WriteTo([]byte{12, 13, 14, 15, 16, 17, 18, 19}, addr)
 	assert.NoError(t, err)
 	equalInt(t, 8, n)
-	equalInt(t, 4, len(buffer.packets))
+
+	// Write again and verify packet dropped.
+	_, err = buffer.WriteTo([]byte{12, 13, 14, 15, 16, 17, 18, 19}, addr)
+	assert.Error(t, err)
 
 	// Close.
 	assert.NoError(t, buffer.Close())
@@ -355,7 +348,7 @@ func benchmarkBuffer(b *testing.B, size int64) {
 	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:5684")
 	assert.NoError(b, err)
 
-	buffer := NewPacketBuffer()
+	buffer := NewPacketBufferWithSize(b.N)
 	b.SetBytes(size)
 
 	done := make(chan struct{})
