@@ -45,16 +45,16 @@ func (m *MessageClientHello) Extensions() []extension.Value {
 
 // MarshalSize returns the size needed for MarshalTo.
 func (m *MessageClientHello) MarshalSize() int {
-	encodedCipherSuiteIDs := encodeCipherSuiteIDs(m.CipherSuiteIDs)
-	encodedCompressionMethods := protocol.EncodeCompressionMethods(m.CompressionMethods)
+	cipherSuitesSize := 2 + 2*len(m.CipherSuiteIDs)
+	compressionSize := 1 + len(m.CompressionMethods)
 
 	return handshakeMessageClientHelloVariableWidthStart +
 		1 +
 		len(m.SessionID) +
 		1 +
 		len(m.Cookie) +
-		len(encodedCipherSuiteIDs) +
-		len(encodedCompressionMethods) +
+		cipherSuitesSize +
+		compressionSize +
 		m.CachedExtensions.MarshalSize()
 }
 
@@ -78,12 +78,10 @@ func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
 		return 0, dtlserrors.ErrCompressionMethodsTooLong
 	}
 
-	if len(out) < m.MarshalSize() {
+	size := m.MarshalSize()
+	if len(out) < size {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
-
-	encodedCipherSuiteIDs := encodeCipherSuiteIDs(m.CipherSuiteIDs)
-	encodedCompressionMethods := protocol.EncodeCompressionMethods(m.CompressionMethods)
 
 	offset := 0
 	out[0] = m.Version.Major
@@ -105,15 +103,24 @@ func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
 	n = copy(out[offset:], m.Cookie)
 	offset += n
 
-	n = copy(out[offset:], encodedCipherSuiteIDs)
+	binary.BigEndian.PutUint16(out[offset:], uint16(2*len(m.CipherSuiteIDs))) //nolint:gosec // G115: length is uint16.
+	offset += 2
+	for _, id := range m.CipherSuiteIDs {
+		binary.BigEndian.PutUint16(out[offset:], id)
+		offset += 2
+	}
+
+	out[offset] = byte(len(m.CompressionMethods)) //nolint:gosec // G115: validated to be <= 255 above.
+	offset++
+	for i := len(m.CompressionMethods); i > 0; i-- {
+		out[offset] = byte(m.CompressionMethods[i-1].ID)
+		offset++
+	}
+
+	n, err := m.CachedExtensions.MarshalTo(out[offset:])
 	offset += n
 
-	n = copy(out[offset:], encodedCompressionMethods)
-	offset += n
-
-	_, err := m.CachedExtensions.MarshalTo(out[offset:])
-
-	return m.MarshalSize(), err
+	return offset, err
 }
 
 // Unmarshal populates the message from encoded data.
