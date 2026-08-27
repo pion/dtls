@@ -17,6 +17,9 @@ type EarlyData struct{}
 // ExtensionType returns the IANA extension type.
 func (EarlyData) ExtensionType() extension.Type { return extension.TypeEarlyData }
 
+// MarshalSize returns the encoded payload size.
+func (EarlyData) MarshalSize() int { return 0 }
+
 // MarshalData encodes extension_data.
 func (EarlyData) MarshalData() ([]byte, error) { return []byte{}, nil }
 
@@ -36,6 +39,9 @@ type MaxEarlyData struct {
 
 // ExtensionType returns the IANA extension type.
 func (MaxEarlyData) ExtensionType() extension.Type { return extension.TypeEarlyData }
+
+// MarshalSize returns the encoded payload size.
+func (MaxEarlyData) MarshalSize() int { return 4 }
 
 // MarshalData encodes extension_data.
 func (m MaxEarlyData) MarshalData() ([]byte, error) {

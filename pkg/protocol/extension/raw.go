@@ -41,6 +41,7 @@ const (
 // Value is an extension payload that can be framed in an extension list.
 type Value interface {
 	ExtensionType() Type
+	MarshalSize() int
 	MarshalData() ([]byte, error)
 }
 
@@ -58,6 +59,9 @@ type Raw struct {
 
 // ExtensionType returns the extension type.
 func (r Raw) ExtensionType() Type { return r.Type }
+
+// MarshalSize returns the encoded payload size without serializing it.
+func (r Raw) MarshalSize() int { return len(r.Data) }
 
 // MarshalData returns a copy of the undecoded payload.
 func (r Raw) MarshalData() ([]byte, error) { return bytes.Clone(r.Data), nil }
@@ -137,21 +141,15 @@ func MarshalList(values []Value) ([]byte, error) {
 	return out, nil
 }
 
-// MarshalListSize returns the size of a framed extension list. For invalid
-// values it returns the space needed before the value that fails to marshal;
-// MarshalListTo reports the corresponding error.
+// MarshalListSize returns the size of a framed extension list without
+// serializing extension payloads.
 func MarshalListSize(values []Value) int {
 	totalLen := 0
 	for _, value := range values {
 		if value == nil {
 			return 2 + totalLen
 		}
-
-		payload, err := value.MarshalData()
-		if err != nil || len(payload) > 0xffff || totalLen > 0xffff-4-len(payload) {
-			return 2 + totalLen
-		}
-		totalLen += 4 + len(payload)
+		totalLen += 4 + value.MarshalSize()
 	}
 
 	return 2 + totalLen

@@ -25,6 +25,9 @@ func (c ConnectionID) ExtensionType() Type {
 	return TypeConnectionID
 }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (c ConnectionID) MarshalSize() int { return 1 + len(c.CID) }
+
 // MarshalData encodes extension_data without the extension header.
 func (c ConnectionID) MarshalData() ([]byte, error) {
 	if len(c.CID) > 255 {

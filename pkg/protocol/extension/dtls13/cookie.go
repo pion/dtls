@@ -22,6 +22,9 @@ type Cookie struct {
 // ExtensionType returns the IANA extension type.
 func (Cookie) ExtensionType() extension.Type { return extension.TypeCookie }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (c Cookie) MarshalSize() int { return 2 + len(c.Cookie) }
+
 // MarshalData encodes extension_data.
 func (c Cookie) MarshalData() ([]byte, error) {
 	if len(c.Cookie) == 0 || len(c.Cookie) > maxCookieSize {

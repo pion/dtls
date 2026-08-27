@@ -17,6 +17,9 @@ func (ExtendedMasterSecret) ExtensionType() extension.Type {
 	return extension.TypeExtendedMasterSecret
 }
 
+// MarshalSize returns the encoded payload size.
+func (ExtendedMasterSecret) MarshalSize() int { return 0 }
+
 // MarshalData encodes extension_data.
 func (ExtendedMasterSecret) MarshalData() ([]byte, error) { return []byte{}, nil }
 

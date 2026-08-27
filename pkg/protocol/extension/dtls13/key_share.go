@@ -26,6 +26,16 @@ type ClientKeyShare struct {
 // ExtensionType returns the IANA extension type.
 func (ClientKeyShare) ExtensionType() extension.Type { return extension.TypeKeyShare }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (c ClientKeyShare) MarshalSize() int {
+	total := 2
+	for _, share := range c.Shares {
+		total += 4 + len(share.KeyExchange)
+	}
+
+	return total
+}
+
 // MarshalData encodes extension_data.
 func (c ClientKeyShare) MarshalData() ([]byte, error) {
 	entries, err := marshalKeyShareEntries(c.Shares, true)
@@ -63,6 +73,9 @@ type ServerKeyShare struct {
 // ExtensionType returns the IANA extension type.
 func (ServerKeyShare) ExtensionType() extension.Type { return extension.TypeKeyShare }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (s ServerKeyShare) MarshalSize() int { return 4 + len(s.Share.KeyExchange) }
+
 // MarshalData encodes extension_data.
 func (s ServerKeyShare) MarshalData() ([]byte, error) {
 	return marshalKeyShareEntry(s.Share)
@@ -86,6 +99,9 @@ type RetryKeyShare struct {
 
 // ExtensionType returns the IANA extension type.
 func (RetryKeyShare) ExtensionType() extension.Type { return extension.TypeKeyShare }
+
+// MarshalSize returns the encoded payload size.
+func (RetryKeyShare) MarshalSize() int { return 2 }
 
 // MarshalData encodes extension_data.
 func (r RetryKeyShare) MarshalData() ([]byte, error) {

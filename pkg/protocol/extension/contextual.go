@@ -20,6 +20,7 @@ type ServerNameOffer struct {
 }
 
 func (ServerNameOffer) ExtensionType() Type { return TypeServerName }
+func (s ServerNameOffer) MarshalSize() int  { return 5 + len(s.ServerName) }
 
 func (s ServerNameOffer) MarshalData() ([]byte, error) {
 	name := []byte(s.ServerName)
@@ -76,6 +77,7 @@ func (s *ServerNameOffer) UnmarshalData(data []byte) error { //nolint:cyclop
 type ServerNameAck struct{}
 
 func (ServerNameAck) ExtensionType() Type              { return TypeServerName }
+func (ServerNameAck) MarshalSize() int                 { return 0 }
 func (ServerNameAck) MarshalData() ([]byte, error)     { return []byte{}, nil }
 func (*ServerNameAck) UnmarshalData(data []byte) error { return requireEmptyPayload(data) }
 
@@ -85,6 +87,7 @@ type ALPNOffer struct {
 }
 
 func (ALPNOffer) ExtensionType() Type { return TypeALPN }
+func (a ALPNOffer) MarshalSize() int  { return alpnProtocolsSize(a.Protocols) }
 
 func (a ALPNOffer) MarshalData() ([]byte, error) { return marshalALPNProtocols(a.Protocols) }
 
@@ -104,6 +107,7 @@ type ALPNSelection struct {
 }
 
 func (ALPNSelection) ExtensionType() Type { return TypeALPN }
+func (a ALPNSelection) MarshalSize() int  { return 3 + len(a.Protocol) }
 
 func (a ALPNSelection) MarshalData() ([]byte, error) {
 	return marshalALPNProtocols([]string{a.Protocol})
@@ -140,6 +144,15 @@ func marshalALPNProtocols(protocols []string) ([]byte, error) {
 	return out, nil
 }
 
+func alpnProtocolsSize(protocols []string) int {
+	total := 2
+	for _, protocol := range protocols {
+		total += 1 + len(protocol)
+	}
+
+	return total
+}
+
 func unmarshalALPNProtocols(data []byte) ([]string, error) {
 	if len(data) < 2 || int(binary.BigEndian.Uint16(data)) != len(data)-2 || len(data) == 2 {
 		return nil, ErrALPNInvalidFormat
@@ -167,6 +180,9 @@ type SRTPOffer struct {
 }
 
 func (SRTPOffer) ExtensionType() Type { return TypeUseSRTP }
+func (s SRTPOffer) MarshalSize() int {
+	return 3 + (2 * len(s.ProtectionProfiles)) + len(s.MasterKeyIdentifier)
+}
 
 func (s SRTPOffer) MarshalData() ([]byte, error) {
 	return marshalSRTPPayload(s.ProtectionProfiles, s.MasterKeyIdentifier)
@@ -189,6 +205,7 @@ type SRTPSelection struct {
 }
 
 func (SRTPSelection) ExtensionType() Type { return TypeUseSRTP }
+func (s SRTPSelection) MarshalSize() int  { return 5 + len(s.MasterKeyIdentifier) }
 
 func (s SRTPSelection) MarshalData() ([]byte, error) {
 	return marshalSRTPPayload([]SRTPProtectionProfile{s.ProtectionProfile}, s.MasterKeyIdentifier)
@@ -250,6 +267,7 @@ type SupportedGroups struct {
 }
 
 func (SupportedGroups) ExtensionType() Type { return TypeSupportedGroups }
+func (s SupportedGroups) MarshalSize() int  { return 2 + (2 * len(s.Groups)) }
 
 func (s SupportedGroups) MarshalData() ([]byte, error) {
 	if len(s.Groups) == 0 || len(s.Groups) > 0x7fff {
@@ -283,6 +301,7 @@ type SignatureAlgorithms struct {
 }
 
 func (SignatureAlgorithms) ExtensionType() Type            { return TypeSignatureAlgorithms }
+func (s SignatureAlgorithms) MarshalSize() int             { return 2 + (2 * len(s.Schemes)) }
 func (s SignatureAlgorithms) MarshalData() ([]byte, error) { return marshalUint16List(s.Schemes) }
 func (s *SignatureAlgorithms) UnmarshalData(data []byte) error {
 	schemes, err := unmarshalUint16List(data)
@@ -299,6 +318,7 @@ type CertificateSignatureAlgorithms struct {
 }
 
 func (CertificateSignatureAlgorithms) ExtensionType() Type { return TypeSignatureAlgorithmsCert }
+func (s CertificateSignatureAlgorithms) MarshalSize() int  { return 2 + (2 * len(s.Schemes)) }
 func (s CertificateSignatureAlgorithms) MarshalData() ([]byte, error) {
 	return marshalUint16List(s.Schemes)
 }

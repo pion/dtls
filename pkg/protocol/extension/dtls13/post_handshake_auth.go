@@ -16,6 +16,9 @@ func (PostHandshakeAuth) ExtensionType() extension.Type {
 	return extension.TypePostHandshakeAuth
 }
 
+// MarshalSize returns the encoded payload size.
+func (PostHandshakeAuth) MarshalSize() int { return 0 }
+
 // MarshalData encodes extension_data.
 func (PostHandshakeAuth) MarshalData() ([]byte, error) { return []byte{}, nil }
 

@@ -25,6 +25,16 @@ type OIDFilters struct {
 // ExtensionType returns the IANA extension type.
 func (OIDFilters) ExtensionType() extension.Type { return extension.TypeOIDFilters }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (o OIDFilters) MarshalSize() int {
+	total := 2
+	for _, filter := range o.Filters {
+		total += 3 + len(filter.OID) + len(filter.Values)
+	}
+
+	return total
+}
+
 // MarshalData encodes extension_data.
 func (o OIDFilters) MarshalData() ([]byte, error) {
 	filters := make([]byte, 0)

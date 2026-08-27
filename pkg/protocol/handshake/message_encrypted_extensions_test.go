@@ -18,9 +18,15 @@ var errMarshalEncryptedExtensionsTest = errors.New("marshal encrypted extensions
 
 const unknownEncryptedExtensionsType extension.Type = 0xfefe
 
-type failingEncryptedExtensionsExtension struct{}
+type failingEncryptedExtensionsExtension struct {
+	marshalCalls int
+}
+
+func (f *failingEncryptedExtensionsExtension) MarshalSize() int { return 7 }
 
 func (f *failingEncryptedExtensionsExtension) MarshalData() ([]byte, error) {
+	f.marshalCalls++
+
 	return nil, errMarshalEncryptedExtensionsTest
 }
 
@@ -60,11 +66,15 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 	})
 
 	t.Run("ExtensionMarshalError", func(t *testing.T) {
-		raw, err := (&MessageEncryptedExtensions{
-			extensions: []extension.Value{&failingEncryptedExtensionsExtension{}},
-		}).Marshal()
+		ext := &failingEncryptedExtensionsExtension{}
+		message := &MessageEncryptedExtensions{extensions: []extension.Value{ext}}
+		assert.Equal(t, 13, message.MarshalSize())
+		assert.Zero(t, ext.marshalCalls, "MarshalSize must not serialize extensions")
+
+		raw, err := message.Marshal()
 		assert.ErrorIs(t, err, errMarshalEncryptedExtensionsTest)
 		assert.Empty(t, raw)
+		assert.Equal(t, 1, ext.marshalCalls)
 	})
 }
 
