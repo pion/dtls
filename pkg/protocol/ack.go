@@ -26,6 +26,9 @@ type RecordNumber struct {
 	SequenceNumber uint64
 }
 
+// (1<<16 - 1) / 16
+const maxACKRecords = 4095
+
 // ContentType returns the content type for ACK records (26).
 func (a ACK) ContentType() ContentType {
 	return ContentTypeACK
@@ -38,21 +41,27 @@ func (a *ACK) MarshalSize() int {
 
 // Marshal encodes the ACK message to its wire format.
 func (a *ACK) Marshal() ([]byte, error) {
+	if len(a.Records) > maxACKRecords {
+		return nil, dtlserrors.ErrInvalidACK
+	}
+
 	out := make([]byte, a.MarshalSize())
 	_, err := a.MarshalTo(out)
 
 	return out, err
 }
 
-// MarshalTo encodes the Handshake.
+// MarshalTo encodes the ACK message into a pre-allocated buffer.
 func (a *ACK) MarshalTo(out []byte) (int, error) {
+	if len(a.Records) > maxACKRecords {
+		return 0, dtlserrors.ErrInvalidACK
+	}
 	if len(out) < a.MarshalSize() {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
 	n := 0
-	out[0] = byte(16 * len(a.Records) >> 8) //nolint:gosec // G115
-	out[1] = byte(16 * len(a.Records))      //nolint:gosec // G115
+	binary.BigEndian.PutUint16(out, uint16(16*len(a.Records))) //nolint:gosec // bounded above.
 	n += 2
 
 	for _, rec := range a.Records {
