@@ -71,8 +71,8 @@ func (m *MessageServerKeyExchange) MarshalSize() int { //nolint:cyclop
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) { //nolint:cyclop
-	if m.MarshalSize() == 0 {
-		return 0, dtlserrors.ErrInvalidSignHashAlgorithm
+	if err := m.validateMarshal(); err != nil {
+		return 0, err
 	}
 
 	if len(out) < m.MarshalSize() {
@@ -100,14 +100,7 @@ func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) { //nolint
 	offset += 1
 	n := copy(out[offset:], m.PublicKey)
 	offset += n
-	switch {
-	case m.HashAlgorithm != hash.None && len(m.Signature) == 0:
-		return 0, dtlserrors.ErrInvalidSignHashAlgorithm
-	case m.HashAlgorithm == hash.None && len(m.Signature) > 0:
-		return 0, dtlserrors.ErrInvalidSignHashAlgorithm
-	case m.SignatureAlgorithm == signature.Anonymous && (m.HashAlgorithm != hash.None || len(m.Signature) > 0):
-		return 0, dtlserrors.ErrInvalidSignHashAlgorithm
-	case m.SignatureAlgorithm == signature.Anonymous:
+	if m.SignatureAlgorithm == signature.Anonymous {
 		return offset, nil
 	}
 
@@ -124,10 +117,30 @@ func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) { //nolint
 
 // Marshal encodes the Handshake.
 func (m *MessageServerKeyExchange) Marshal() ([]byte, error) {
+	if err := m.validateMarshal(); err != nil {
+		return nil, err
+	}
+
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	return out, nil
+}
+
+func (m *MessageServerKeyExchange) validateMarshal() error {
+	switch {
+	case m.HashAlgorithm != hash.None && len(m.Signature) == 0:
+		return dtlserrors.ErrInvalidSignHashAlgorithm
+	case m.HashAlgorithm == hash.None && len(m.Signature) > 0:
+		return dtlserrors.ErrInvalidSignHashAlgorithm
+	case m.SignatureAlgorithm == signature.Anonymous && (m.HashAlgorithm != hash.None || len(m.Signature) > 0):
+		return dtlserrors.ErrInvalidSignHashAlgorithm
+	default:
+		return nil
+	}
 }
 
 // Unmarshal populates the message from encoded data.

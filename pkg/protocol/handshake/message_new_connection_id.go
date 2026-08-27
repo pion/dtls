@@ -52,31 +52,34 @@ func (m *MessageNewConnectionID) MarshalSize() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageNewConnectionID) Marshal() ([]byte, error) {
-	out := make([]byte, m.MarshalSize())
-	_, err := m.MarshalTo(out)
+	marshalSize, err := m.prepareMarshal()
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	out := make([]byte, marshalSize)
+	_, err = m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
 }
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageNewConnectionID) MarshalTo(out []byte) (int, error) {
-	if m.Usage != ConnectionIDImmediate && m.Usage != ConnectionIDSpare {
-		return 0, dtlserrors.ErrInvalidConnectionIDUsage
+	marshalSize, err := m.prepareMarshal()
+	if err != nil {
+		return 0, err
 	}
 
-	if len(out) < m.MarshalSize() {
+	if len(out) < marshalSize {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
 	cidsLength := 0
 	for _, cid := range m.CIDs {
-		if len(cid) > 255 {
-			return 0, dtlserrors.ErrCIDTooBig
-		}
 		cidsLength += 1 + len(cid)
-		if cidsLength > newConnectionIDMaxListLength {
-			return 0, dtlserrors.ErrCIDTooBig
-		}
 	}
 
 	n := 0
@@ -91,6 +94,25 @@ func (m *MessageNewConnectionID) MarshalTo(out []byte) (int, error) {
 	n++
 
 	return n, nil
+}
+
+func (m *MessageNewConnectionID) prepareMarshal() (int, error) {
+	if m.Usage != ConnectionIDImmediate && m.Usage != ConnectionIDSpare {
+		return 0, dtlserrors.ErrInvalidConnectionIDUsage
+	}
+
+	cidsLength := 0
+	for _, cid := range m.CIDs {
+		if len(cid) > 255 {
+			return 0, dtlserrors.ErrCIDTooBig
+		}
+		cidsLength += 1 + len(cid)
+		if cidsLength > newConnectionIDMaxListLength {
+			return 0, dtlserrors.ErrCIDTooBig
+		}
+	}
+
+	return 2 + cidsLength + 1, nil
 }
 
 // Unmarshal populates the message from encoded data.

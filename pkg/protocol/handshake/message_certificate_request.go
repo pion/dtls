@@ -57,16 +57,23 @@ func (m *MessageCertificateRequest) casLength() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
+	if err := m.validateMarshal(); err != nil {
+		return nil, err
+	}
+
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	return out, nil
 }
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageCertificateRequest) MarshalTo(out []byte) (int, error) {
-	if len(m.CertificateTypes) > 255 {
-		return 0, dtlserrors.ErrCertificateTypesTooLong
+	if err := m.validateMarshal(); err != nil {
+		return 0, err
 	}
 
 	if len(out) < m.MarshalSize() {
@@ -104,6 +111,14 @@ func (m *MessageCertificateRequest) MarshalTo(out []byte) (int, error) {
 	}
 
 	return m.MarshalSize(), nil
+}
+
+func (m *MessageCertificateRequest) validateMarshal() error {
+	if len(m.CertificateTypes) > 255 {
+		return dtlserrors.ErrCertificateTypesTooLong
+	}
+
+	return nil
 }
 
 // Unmarshal populates the message from encoded data.

@@ -34,12 +34,11 @@ func (m *MessageKeyUpdate) MarshalSize() int {
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageKeyUpdate) MarshalTo(out []byte) (int, error) {
-	if len(out) < 1 {
-		return 0, dtlserrors.ErrBufferTooSmall
-	}
-
 	if m.RequestUpdate != KeyUpdateNotRequested && m.RequestUpdate != KeyUpdateRequested {
 		return 0, dtlserrors.ErrInvalidKeyUpdate
+	}
+	if len(out) < 1 {
+		return 0, dtlserrors.ErrBufferTooSmall
 	}
 	out[0] = byte(m.RequestUpdate)
 
@@ -48,10 +47,17 @@ func (m *MessageKeyUpdate) MarshalTo(out []byte) (int, error) {
 
 // Marshal encodes the Handshake.
 func (m *MessageKeyUpdate) Marshal() ([]byte, error) {
+	if m.RequestUpdate != KeyUpdateNotRequested && m.RequestUpdate != KeyUpdateRequested {
+		return nil, dtlserrors.ErrInvalidKeyUpdate
+	}
+
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	return out, nil
 }
 
 // Unmarshal populates the message from encoded data.

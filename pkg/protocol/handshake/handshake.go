@@ -130,10 +130,27 @@ func (h *Handshake) MarshalSize() int {
 
 // Marshal encodes a handshake into a binary message.
 func (h *Handshake) Marshal() ([]byte, error) {
-	out := make([]byte, h.MarshalSize())
-	_, err := h.MarshalTo(out)
+	if h.Message == nil {
+		return nil, dtlserrors.ErrHandshakeMessageUnset
+	} else if h.Header.FragmentOffset != 0 {
+		return nil, dtlserrors.ErrUnableToMarshalFragmented
+	}
 
-	return out, err
+	message, err := h.Message.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, HeaderLength+len(message))
+	h.Header.Length = uint32(len(message)) //nolint:gosec // handshake messages are bounded to uint24 on the wire.
+	h.Header.FragmentLength = h.Header.Length
+	h.Header.Type = h.Message.Type()
+	if _, err = h.Header.MarshalTo(out); err != nil {
+		return nil, err
+	}
+	copy(out[HeaderLength:], message)
+
+	return out, nil
 }
 
 // MarshalTo encodes a handshake into a binary message into a pre-allocated buffer.

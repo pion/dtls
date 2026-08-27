@@ -51,27 +51,53 @@ func (m *MessageNewSessionTicket) SetExtensions(extensions []extension.Value) {
 
 // Marshal encodes the Handshake.
 func (m *MessageNewSessionTicket) Marshal() ([]byte, error) {
-	out := make([]byte, m.MarshalSize())
-	_, err := m.MarshalTo(out)
+	extensions, marshalSize, err := m.prepareMarshal()
 	if err != nil {
 		return nil, err
 	}
+
+	out := make([]byte, marshalSize)
+	m.marshalTo(out, extensions)
 
 	return out, nil
 }
 
 // MarshalTo encodes the Handshake.
 func (m *MessageNewSessionTicket) MarshalTo(out []byte) (int, error) {
-	if len(out) < m.MarshalSize() {
+	extensions, marshalSize, err := m.prepareMarshal()
+	if err != nil {
+		return 0, err
+	}
+	if len(out) < marshalSize {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
+
+	m.marshalTo(out, extensions)
+
+	return marshalSize, nil
+}
+
+func (m *MessageNewSessionTicket) prepareMarshal() ([]byte, int, error) {
 	if len(m.TicketNonce) > newSessionTicketMaxNonceLength {
-		return 0, dtlserrors.ErrTicketNonceTooLong
+		return nil, 0, dtlserrors.ErrTicketNonceTooLong
 	}
 	if len(m.Ticket) == 0 || len(m.Ticket) > newSessionTicketMaxTicketLength {
-		return 0, dtlserrors.ErrInvalidTicketLength
+		return nil, 0, dtlserrors.ErrInvalidTicketLength
+	}
+	extensions, err := extension.MarshalList(m.extensions)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(extensions)-2 > newSessionTicketMaxExtensionsLength {
+		return nil, 0, dtlserrors.ErrInvalidExtensionsLength
 	}
 
+	marshalSize := 8 + 1 + len(m.TicketNonce) + 2 + len(m.Ticket) + len(extensions)
+
+	return extensions, marshalSize, nil
+}
+
+func (m *MessageNewSessionTicket) marshalTo(out, extensions []byte) {
 	n := 0
 	binary.BigEndian.PutUint32(out[n:], m.TicketLifetime)
 	n += 4
@@ -83,15 +109,7 @@ func (m *MessageNewSessionTicket) MarshalTo(out []byte) (int, error) {
 	binary.BigEndian.PutUint16(out[n:], uint16(len(m.Ticket))) //nolint:gosec // length is checked above
 	n += 2
 	n += copy(out[n:], m.Ticket)
-	nn, err := extension.MarshalListTo(out[n:], m.extensions)
-	if err != nil {
-		return n, err
-	}
-	if nn-2 > newSessionTicketMaxExtensionsLength {
-		return n, dtlserrors.ErrInvalidExtensionsLength
-	}
-
-	return m.MarshalSize(), nil
+	copy(out[n:], extensions)
 }
 
 // Unmarshal populates the message from encoded data.
