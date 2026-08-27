@@ -271,23 +271,57 @@ type CiphertextRecord struct {
 
 // Marshal encodes a DTLS 1.3 DTLSCiphertext record.
 func (r *CiphertextRecord) Marshal() ([]byte, error) {
-	if !isValidDTLSCiphertextRecordLen(len(r.EncryptedRecord)) {
-		return nil, ErrInvalidPacketLength
+	if err := r.prepareMarshal(); err != nil {
+		return nil, err
 	}
+
+	out := make([]byte, r.MarshalSize())
+	_, err := r.marshalTo(out)
+
+	return out, err
+}
+
+// MarshalSize returns the minimal buffer size required for MarshalTo.
+func (r *CiphertextRecord) MarshalSize() int {
+	return 1 + len(r.Header.ConnectionID) + 2 + 2 + len(r.EncryptedRecord)
+}
+
+// MarshalTo encodes a DTLS 1.3 DTLSCiphertext record to a pre-allocated buffer.
+func (r *CiphertextRecord) MarshalTo(out []byte) (int, error) {
+	if err := r.prepareMarshal(); err != nil {
+		return 0, err
+	}
+
+	return r.marshalTo(out)
+}
+
+func (r *CiphertextRecord) prepareMarshal() error {
+	if !isValidDTLSCiphertextRecordLen(len(r.EncryptedRecord)) {
+		return ErrInvalidPacketLength
+	}
+	if len(r.Header.ConnectionID) > math.MaxUint8 {
+		return dtlserrors.ErrCIDTooBig
+	}
+
 	r.Header.SeqBit = true
 	r.Header.Length = uint16(len(r.EncryptedRecord)) //nolint:gosec // G115: checked above.
 	r.Header.LengthBit = true
 
-	headerRaw, err := r.Header.Marshal()
-	if err != nil {
-		return nil, err
+	return nil
+}
+
+func (r *CiphertextRecord) marshalTo(out []byte) (int, error) {
+	if len(out) < r.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
-	out := make([]byte, 0, len(headerRaw)+len(r.EncryptedRecord))
-	out = append(out, headerRaw...)
-	out = append(out, r.EncryptedRecord...)
+	headerSize, err := r.Header.MarshalTo(out)
+	if err != nil {
+		return 0, err
+	}
+	copy(out[headerSize:], r.EncryptedRecord)
 
-	return out, nil
+	return headerSize + len(r.EncryptedRecord), nil
 }
 
 func unpackUnifiedDatagramRecord(buf []byte, cidLength int) ([]byte, int, error) {

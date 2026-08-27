@@ -913,3 +913,30 @@ func TestUnpackDatagramOmittedUnifiedLengthConsumesRemainder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{datagram}, records)
 }
+
+func TestCiphertextRecord13MarshalTo(t *testing.T) {
+	encryptedRecord := ciphertext13Payload(0xde)
+	record := &CiphertextRecord{
+		Header: UnifiedHeader{
+			ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
+			EpochLow:       3,
+			SequenceNumber: 0xaabb,
+		},
+		EncryptedRecord: encryptedRecord,
+	}
+	wantRecord := &CiphertextRecord{
+		Header:          record.Header,
+		EncryptedRecord: encryptedRecord,
+	}
+	want, err := wantRecord.Marshal()
+	require.NoError(t, err)
+
+	out := make([]byte, record.MarshalSize())
+	n, err := record.MarshalTo(out)
+	require.NoError(t, err)
+	require.Equal(t, len(want), n)
+	require.Equal(t, want, out[:n])
+
+	_, err = record.MarshalTo(out[:n-1])
+	require.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+}

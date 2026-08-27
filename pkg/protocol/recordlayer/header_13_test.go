@@ -6,6 +6,7 @@ package recordlayer
 import (
 	"testing"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -211,4 +212,31 @@ func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
 		assert.NoError(t, err)
 		assert.Equal(t, data[:uh.MarshalSize()], raw)
 	})
+}
+
+func TestUnifiedHeaderMarshalTo(t *testing.T) {
+	header := UnifiedHeader{
+		ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
+		SequenceNumber: 0xaabb,
+		SeqBit:         true,
+		Length:         42,
+		LengthBit:      true,
+		EpochLow:       3,
+	}
+	want, err := header.Marshal()
+	assert.NoError(t, err)
+
+	out := make([]byte, header.MarshalSize()+1)
+	n, err := header.MarshalTo(out)
+	assert.NoError(t, err)
+	assert.Equal(t, len(want), n)
+	assert.Equal(t, want, out[:n])
+
+	_, err = header.MarshalTo(out[:n-1])
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+
+	header = UnifiedHeader{ConnectionID: make([]byte, 256)}
+
+	_, err = header.MarshalTo(make([]byte, header.MarshalSize()))
+	assert.ErrorIs(t, err, dtlserrors.ErrCIDTooBig)
 }
