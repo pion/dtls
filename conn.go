@@ -25,7 +25,6 @@ import (
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsrrc "github.com/pion/dtls/v3/internal/rrc"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
@@ -832,11 +831,14 @@ func (c *Conn) prepareOutbound(outbound *dtlsflight.Outbound) ([]preparedRecord,
 		return nil, dtlserrors.ErrInvalidPacket
 	}
 	if dtlsHandshake, ok := outbound.Content.(*handshake.Handshake); ok {
-		if err := c.cacheHandshake(outbound, dtlsHandshake); err != nil {
+		handshakeRaw, err := marshalHandshake(dtlsHandshake)
+		if err != nil {
 			return nil, err
 		}
 
-		return c.prepareHandshakeRecords(outbound, dtlsHandshake)
+		c.cacheHandshake(outbound, dtlsHandshake, handshakeRaw)
+
+		return c.prepareHandshakeRecordsFromRaw(outbound, dtlsHandshake, handshakeRaw)
 	}
 
 	raw, err := c.prepareRecord(outbound)
@@ -847,12 +849,11 @@ func (c *Conn) prepareOutbound(outbound *dtlsflight.Outbound) ([]preparedRecord,
 	return []preparedRecord{{raw: raw}}, nil
 }
 
-func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *handshake.Handshake) error {
-	handshakeRaw, err := dtlsHandshake.Marshal()
-	if err != nil {
-		return err
-	}
-
+func (c *Conn) cacheHandshake(
+	outbound *dtlsflight.Outbound,
+	dtlsHandshake *handshake.Handshake,
+	handshakeRaw []byte,
+) {
 	c.log.Tracef("[handshake:%v] -> %s (epoch: %d, seq: %d)",
 		srvCliStr(dtlsstate.CommonState(c.state).IsClient), dtlsHandshake.Header.Type.String(),
 		outbound.Epoch, dtlsHandshake.Header.MessageSequence)
@@ -864,8 +865,6 @@ func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *hand
 		dtlsHandshake.Header.Type,
 		dtlsstate.CommonState(c.state).IsClient,
 	)
-
-	return nil
 }
 
 func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -930,7 +929,7 @@ func (c *Conn) prepareRecord(outbound *dtlsflight.Outbound) ([]byte, error) {
 	if outbound == nil || outbound.Content == nil || !validProtection(outbound.Protection) {
 		return nil, dtlserrors.ErrInvalidPacket
 	}
-	contentType, plaintext, err := marshalRecordContent(outbound.Content)
+	contentType, content, err := marshalRecordContent(outbound.Content)
 	if err != nil {
 		return nil, err
 	}
@@ -941,7 +940,7 @@ func (c *Conn) prepareRecord(outbound *dtlsflight.Outbound) ([]byte, error) {
 		return nil, err
 	}
 
-	return c.encodeRecord(epoch, seq, contentType, plaintext, outbound.Protection)
+	return c.encodeRecord(epoch, seq, contentType, content, outbound.Protection)
 }
 
 func (c *Conn) nextLocalSequenceNumber(epoch uint16) (uint64, error) {
@@ -960,7 +959,19 @@ func (c *Conn) nextLocalSequenceNumber(epoch uint16) (uint64, error) {
 	return seq, nil
 }
 
-func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byte, error) {
+func marshalContentTo(content protocol.Content, out []byte) error {
+	n, err := content.MarshalTo(out)
+	if err != nil {
+		return err
+	}
+	if n != len(out) {
+		return dtlserrors.ErrLengthMismatch
+	}
+
+	return nil
+}
+
+func marshalRecordContent(content protocol.Content) (protocol.ContentType, protocol.Content, error) {
 	switch content.(type) {
 	case *handshake.Handshake, *alert.Alert, *protocol.ApplicationData, *protocol.ACK,
 		*protocol.ChangeCipherSpec,
@@ -969,31 +980,44 @@ func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byt
 		return 0, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
-	plaintext, err := content.Marshal()
-	if err != nil {
-		return 0, nil, err
-	}
-
-	return content.ContentType(), plaintext, nil
+	return content.ContentType(), content, nil
 }
 
 func validProtection(protection dtlsflight.Protection) bool {
 	return protection == dtlsflight.ProtectionPlaintext || protection == dtlsflight.ProtectionCiphertext
 }
 
+func (c *Conn) shouldWrapConnectionID(protection dtlsflight.Protection) bool {
+	return protection == dtlsflight.ProtectionCiphertext &&
+		dtlsstate.CommonState(c.state).LocalVersion.Equal(protocol.Version1_2) &&
+		c.state.ShouldWrapConnectionID()
+}
+
 func (c *Conn) encodeRecord( //nolint:cyclop
 	epoch uint16,
 	seq uint64,
 	contentType protocol.ContentType,
-	plaintext []byte,
+	content protocol.Content,
 	protection dtlsflight.Protection,
 ) ([]byte, error) {
 	if !validProtection(protection) {
 		return nil, dtlserrors.ErrInvalidPacket
 	}
+	contentSize := content.MarshalSize()
+	if contentSize < 0 || contentSize > int(^uint16(0)) {
+		return nil, recordlayer.ErrInvalidPacketLength
+	}
 	common := dtlsstate.CommonState(c.state)
 	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion.Equal(protocol.Version1_3) {
+		plaintext := make([]byte, contentSize)
+		if err := marshalContentTo(content, plaintext); err != nil {
+			return nil, err
+		}
+
 		return c.sealRecordContent(epoch, seq, contentType, plaintext)
+	}
+	if c.shouldWrapConnectionID(protection) {
+		return c.encodeRecordWithConnectionID(epoch, seq, contentType, content, contentSize)
 	}
 
 	header := recordlayer.Header{
@@ -1002,30 +1026,165 @@ func (c *Conn) encodeRecord( //nolint:cyclop
 		Epoch:          epoch,
 		SequenceNumber: seq,
 	}
-	payload := plaintext
-	if protection == dtlsflight.ProtectionCiphertext &&
-		common.LocalVersion.Equal(protocol.Version1_2) && c.state.ShouldWrapConnectionID() {
-		inner := recordlayer.InnerPlaintext{
-			Content:  plaintext,
-			RealType: contentType,
-			Zeros:    c.paddingLengthGenerator(uint(len(plaintext))),
-		}
-		var err error
-		payload, err = inner.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		header.ContentType = protocol.ContentTypeConnectionID
-		header.ConnectionID = bytes.Clone(common.RemoteConnectionID)
+	header.ContentLen = uint16(contentSize) //nolint:gosec // checked above.
+	raw := make([]byte, header.MarshalSize()+contentSize)
+	headerSize, err := header.MarshalTo(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err = marshalContentTo(content, raw[headerSize:]); err != nil {
+		return nil, err
+	}
+
+	if protection != dtlsflight.ProtectionCiphertext {
+		return raw, nil
+	}
+	if common.CipherSuite == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotInit
+	}
+
+	return common.CipherSuite.Encrypt(&recordlayer.RecordLayer{Header: header}, raw)
+}
+
+func (c *Conn) encodeRecordWithConnectionID(
+	epoch uint16,
+	seq uint64,
+	contentType protocol.ContentType,
+	content protocol.Content,
+	contentSize int,
+) ([]byte, error) {
+	plaintext := make([]byte, contentSize)
+	if err := marshalContentTo(content, plaintext); err != nil {
+		return nil, err
+	}
+
+	payload, err := (&recordlayer.InnerPlaintext{
+		Content:  plaintext,
+		RealType: contentType,
+		Zeros:    c.paddingLengthGenerator(uint(len(plaintext))),
+	}).Marshal()
+	if err != nil {
+		return nil, err
+	}
+	common := dtlsstate.CommonState(c.state)
+	header := recordlayer.Header{
+		Version:        protocol.Version1_2,
+		ContentType:    protocol.ContentTypeConnectionID,
+		Epoch:          epoch,
+		SequenceNumber: seq,
+		ConnectionID:   bytes.Clone(common.RemoteConnectionID),
 	}
 	raw, err := recordlayer.MarshalRecord(header, header.ContentType, payload)
 	if err != nil {
 		return nil, err
 	}
 	header.ContentLen = uint16(len(payload)) //nolint:gosec
+	if common.CipherSuite == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotInit
+	}
+
+	return common.CipherSuite.Encrypt(&recordlayer.RecordLayer{Header: header}, raw)
+}
+
+func marshalHandshakeFragmentTo(out []byte, header handshake.Header, body []byte) error {
+	if len(out) != handshake.HeaderLength+len(body) {
+		return dtlserrors.ErrLengthMismatch
+	}
+	if _, err := header.MarshalTo(out); err != nil {
+		return err
+	}
+	copy(out[handshake.HeaderLength:], body)
+
+	return nil
+}
+
+// encodeHandshakeFragment writes a handshake header and body directly into the
+// record buffer, without a temporary fragment byte slice.
+func (c *Conn) encodeHandshakeFragment( //nolint:cyclop
+	epoch uint16,
+	seq uint64,
+	fragmentHeader handshake.Header,
+	body []byte,
+	protection dtlsflight.Protection,
+) ([]byte, error) {
+	if !validProtection(protection) {
+		return nil, dtlserrors.ErrInvalidPacket
+	}
+	contentSize := handshake.HeaderLength + len(body)
+	if contentSize > int(^uint16(0)) {
+		return nil, recordlayer.ErrInvalidPacketLength
+	}
+	common := dtlsstate.CommonState(c.state)
+	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion.Equal(protocol.Version1_3) {
+		plaintext := make([]byte, contentSize)
+		if err := marshalHandshakeFragmentTo(plaintext, fragmentHeader, body); err != nil {
+			return nil, err
+		}
+
+		return c.sealRecordContent(epoch, seq, protocol.ContentTypeHandshake, plaintext)
+	}
+	if c.shouldWrapConnectionID(protection) {
+		return c.encodeHandshakeFragmentWithConnectionID(epoch, seq, fragmentHeader, body)
+	}
+
+	header := recordlayer.Header{
+		Version:        protocol.Version1_2,
+		ContentType:    protocol.ContentTypeHandshake,
+		Epoch:          epoch,
+		SequenceNumber: seq,
+	}
+	header.ContentLen = uint16(contentSize) //nolint:gosec // checked above.
+	raw := make([]byte, header.MarshalSize()+contentSize)
+	headerSize, err := header.MarshalTo(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err = marshalHandshakeFragmentTo(raw[headerSize:], fragmentHeader, body); err != nil {
+		return nil, err
+	}
+
 	if protection != dtlsflight.ProtectionCiphertext {
 		return raw, nil
 	}
+	if common.CipherSuite == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotInit
+	}
+
+	return common.CipherSuite.Encrypt(&recordlayer.RecordLayer{Header: header}, raw)
+}
+
+func (c *Conn) encodeHandshakeFragmentWithConnectionID(
+	epoch uint16,
+	seq uint64,
+	fragmentHeader handshake.Header,
+	body []byte,
+) ([]byte, error) {
+	plaintext := make([]byte, handshake.HeaderLength+len(body))
+	if err := marshalHandshakeFragmentTo(plaintext, fragmentHeader, body); err != nil {
+		return nil, err
+	}
+
+	payload, err := (&recordlayer.InnerPlaintext{
+		Content:  plaintext,
+		RealType: protocol.ContentTypeHandshake,
+		Zeros:    c.paddingLengthGenerator(uint(len(plaintext))),
+	}).Marshal()
+	if err != nil {
+		return nil, err
+	}
+	common := dtlsstate.CommonState(c.state)
+	header := recordlayer.Header{
+		Version:        protocol.Version1_2,
+		ContentType:    protocol.ContentTypeConnectionID,
+		Epoch:          epoch,
+		SequenceNumber: seq,
+		ConnectionID:   bytes.Clone(common.RemoteConnectionID),
+	}
+	raw, err := recordlayer.MarshalRecord(header, header.ContentType, payload)
+	if err != nil {
+		return nil, err
+	}
+	header.ContentLen = uint16(len(payload)) //nolint:gosec
 	if common.CipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotInit
 	}
@@ -1090,30 +1249,70 @@ func (c *Conn) prepareHandshakeRecords(
 	outbound *dtlsflight.Outbound,
 	dtlsHandshake *handshake.Handshake,
 ) ([]preparedRecord, error) {
-	handshakeFragments, err := c.fragmentHandshake(dtlsHandshake)
+	handshakeRaw, err := marshalHandshake(dtlsHandshake)
 	if err != nil {
 		return nil, err
 	}
 
-	rawPackets := make([]preparedRecord, 0, len(handshakeFragments))
+	return c.prepareHandshakeRecordsFromRaw(outbound, dtlsHandshake, handshakeRaw)
+}
+
+func isSelectedHandshakeFragment(offsets map[uint32]uint32, offset, length uint32) bool {
+	if offsets == nil {
+		return true
+	}
+	requestedLength, selected := offsets[offset]
+
+	return selected && requestedLength == length
+}
+
+func (c *Conn) prepareHandshakeRecordsFromRaw(
+	outbound *dtlsflight.Outbound,
+	dtlsHandshake *handshake.Handshake,
+	handshakeRaw []byte,
+) ([]preparedRecord, error) {
+	if len(handshakeRaw) < handshake.HeaderLength || c.maximumTransmissionUnit <= 0 {
+		return nil, dtlserrors.ErrInvalidPacket
+	}
+
+	body := handshakeRaw[handshake.HeaderLength:]
+	fragmentCount := 1
+	if len(body) > 0 {
+		fragmentCount = (len(body) + c.maximumTransmissionUnit - 1) / c.maximumTransmissionUnit
+	}
+
+	rawPackets := make([]preparedRecord, 0, fragmentCount)
 	epoch := outbound.Epoch
-	for _, handshakeFragment := range handshakeFragments {
-		selected, err := selectHandshakeFragment(outbound.HandshakeFragmentOffsets, handshakeFragment)
-		if err != nil {
-			return nil, err
-		}
-		if !selected {
+	for fragmentIndex := 0; fragmentIndex < fragmentCount; fragmentIndex++ {
+		offset := fragmentIndex * c.maximumTransmissionUnit
+		fragmentLength := min(c.maximumTransmissionUnit, len(body)-offset)
+		fragmentOffset := uint32(offset)               //nolint:gosec // bounded by the uint24 handshake wire format.
+		fragmentLengthUint32 := uint32(fragmentLength) //nolint:gosec // bounded by the uint24 handshake wire format.
+		if !isSelectedHandshakeFragment(
+			outbound.HandshakeFragmentOffsets,
+			fragmentOffset,
+			fragmentLengthUint32,
+		) {
 			continue
 		}
+
 		seq, err := c.nextLocalSequenceNumber(epoch)
 		if err != nil {
 			return nil, err
 		}
-		rawPacket, err := c.encodeRecord(
+		fragmentHeader := handshake.Header{
+			Type:            dtlsHandshake.Header.Type,
+			Length:          dtlsHandshake.Header.Length,
+			MessageSequence: dtlsHandshake.Header.MessageSequence,
+			FragmentOffset:  fragmentOffset,
+			FragmentLength:  fragmentLengthUint32,
+		}
+		fragment := body[offset : offset+fragmentLength]
+		rawPacket, err := c.encodeHandshakeFragment(
 			epoch,
 			seq,
-			protocol.ContentTypeHandshake,
-			handshakeFragment,
+			fragmentHeader,
+			fragment,
 			outbound.Protection,
 		)
 		if err != nil {
@@ -1122,10 +1321,6 @@ func (c *Conn) prepareHandshakeRecords(
 
 		prepared := preparedRecord{raw: rawPacket}
 		if outbound.TrackACK {
-			fragmentHeader := &handshake.Header{}
-			if err = fragmentHeader.Unmarshal(handshakeFragment); err != nil {
-				return nil, err
-			}
 			prepared.tracked = &dtlshandshake.SentHandshakeRecord{
 				Number: protocol.RecordNumber{Epoch: uint64(epoch), SequenceNumber: seq},
 				Fragments: []dtlshandshake.SentHandshakeFragment{{
@@ -1141,58 +1336,17 @@ func (c *Conn) prepareHandshakeRecords(
 	return rawPackets, nil
 }
 
-func selectHandshakeFragment(offsets map[uint32]uint32, raw []byte) (bool, error) {
-	if offsets == nil {
-		return true, nil
-	}
-	header := &handshake.Header{}
-	if err := header.Unmarshal(raw); err != nil {
-		return false, err
-	}
-	length, ok := offsets[header.FragmentOffset]
-
-	return ok && length == header.FragmentLength, nil
-}
-
-func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, error) {
-	content, err := dtlsHandshake.Message.Marshal()
+func marshalHandshake(dtlsHandshake *handshake.Handshake) ([]byte, error) {
+	raw := make([]byte, dtlsHandshake.MarshalSize())
+	n, err := dtlsHandshake.MarshalTo(raw)
 	if err != nil {
 		return nil, err
 	}
-
-	fragmentedHandshakes := make([][]byte, 0)
-
-	contentFragments := util.SplitBytes(content, c.maximumTransmissionUnit)
-	if len(contentFragments) == 0 {
-		contentFragments = [][]byte{
-			{},
-		}
+	if n != len(raw) {
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
-	offset := 0
-	for _, contentFragment := range contentFragments {
-		contentFragmentLen := len(contentFragment)
-
-		headerFragment := &handshake.Header{
-			Type:            dtlsHandshake.Header.Type,
-			Length:          dtlsHandshake.Header.Length,
-			MessageSequence: dtlsHandshake.Header.MessageSequence,
-			FragmentOffset:  uint32(offset),
-			FragmentLength:  uint32(contentFragmentLen), //nolint:gosec // G115
-		}
-
-		offset += contentFragmentLen
-
-		fragmentedHandshake, err := headerFragment.Marshal()
-		if err != nil {
-			return nil, err
-		}
-
-		fragmentedHandshake = append(fragmentedHandshake, contentFragment...)
-		fragmentedHandshakes = append(fragmentedHandshakes, fragmentedHandshake)
-	}
-
-	return fragmentedHandshakes, nil
+	return raw, nil
 }
 
 // readBufferPools caches read buffer pools by size so buffers are reused across

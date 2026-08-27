@@ -69,12 +69,14 @@ func MarshalRecord(header Header, contentType protocol.ContentType, content []by
 	}
 	header.ContentLen = uint16(len(content)) //nolint:gosec // bounded above
 	header.ContentType = contentType
-	headerRaw, err := header.Marshal()
+	out := make([]byte, header.MarshalSize()+len(content))
+	headerSize, err := header.MarshalTo(out)
 	if err != nil {
 		return nil, err
 	}
+	copy(out[headerSize:], content)
 
-	return append(headerRaw, content...), nil
+	return out, nil
 }
 
 // UnpackDatagram extracts all records from a single datagram.
