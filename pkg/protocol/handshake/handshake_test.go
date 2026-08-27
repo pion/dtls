@@ -4,6 +4,7 @@
 package handshake_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -89,6 +90,35 @@ func TestPostHandshakeMessageDispatch(t *testing.T) {
 			m1, _ := message.Marshal()
 			m2, _ := decoded.Message.Marshal()
 			assert.Equal(t, m1, m2)
+		})
+	}
+}
+
+type countingMessage struct {
+	*handshake.MessageFinished
+	err error
+}
+
+func (m *countingMessage) MarshalTo(out []byte) (int, error) {
+	copy(out, []byte{1, 2})
+
+	return 2, m.err
+}
+
+func TestHandshakeMarshalToReturnsChildByteCount(t *testing.T) {
+	errMessage := errors.New("message marshal failed") //nolint:err113
+	for name, messageErr := range map[string]error{"Success": nil, "MessageError": errMessage} {
+		t.Run(name, func(t *testing.T) {
+			message := &countingMessage{
+				MessageFinished: &handshake.MessageFinished{VerifyData: make([]byte, 3)},
+				err:             messageErr,
+			}
+			out := make([]byte, handshake.HeaderLength+message.MarshalSize())
+
+			n, err := (&handshake.Handshake{Message: message}).MarshalTo(out)
+
+			assert.ErrorIs(t, err, messageErr)
+			assert.Equal(t, handshake.HeaderLength+2, n)
 		})
 	}
 }

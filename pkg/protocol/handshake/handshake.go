@@ -168,17 +168,14 @@ func (h *Handshake) MarshalTo(out []byte) (int, error) {
 	h.Header.Length = uint32(h.Message.MarshalSize()) //nolint:gosec // G115
 	h.Header.FragmentLength = h.Header.Length
 	h.Header.Type = h.Message.Type()
-	_, err := h.Header.MarshalTo(out)
+	n, err := h.Header.MarshalTo(out)
 	if err != nil {
-		return 0, err
+		return n, err
 	}
 
-	_, err = h.Message.MarshalTo(out[HeaderLength:])
-	if err != nil {
-		return 0, err
-	}
+	nn, err := h.Message.MarshalTo(out[n:])
 
-	return h.MarshalSize(), nil
+	return n + nn, err
 }
 
 // Unmarshal decodes a handshake from a binary message.
