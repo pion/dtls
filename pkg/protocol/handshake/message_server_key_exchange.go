@@ -88,7 +88,7 @@ func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) { //nolint
 	}
 
 	if m.EllipticCurveType == 0 || len(m.PublicKey) == 0 {
-		return 0, nil
+		return offset, nil
 	}
 	out[offset] = byte(m.EllipticCurveType)
 	offset += 1
