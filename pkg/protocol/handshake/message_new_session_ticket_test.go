@@ -20,10 +20,8 @@ func TestMessageNewSessionTicket(t *testing.T) {
 		TicketAgeAdd:   0x05060708,
 		TicketNonce:    []byte{0xaa, 0xbb},
 		Ticket:         []byte{0xcc, 0xdd, 0xee},
-		CachedExtensions: extension.CachedList{
-			Values: []extension.Value{
-				&extension13.MaxEarlyData{Size: maxEarlyData},
-			},
+		extensions: []extension.Value{
+			&extension13.MaxEarlyData{Size: maxEarlyData},
 		},
 	}
 	want := []byte{
@@ -42,9 +40,7 @@ func TestMessageNewSessionTicket(t *testing.T) {
 
 	decoded := &MessageNewSessionTicket{}
 	require.NoError(t, decoded.Unmarshal(want))
-	message.CachedExtensions = extension.CachedList{
-		Values: message.Extensions(),
-	}
+	message.SetExtensions(message.Extensions())
 	assert.Equal(t, message, decoded)
 }
 
@@ -69,10 +65,8 @@ func TestMessageNewSessionTicketMarshalErrors(t *testing.T) {
 		},
 		"extensions too long": {
 			Ticket: []byte{0x01},
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{
-					extension.Raw{Type: 0xfefe, Data: make([]byte, 65532)},
-				},
+			extensions: []extension.Value{
+				extension.Raw{Type: 0xfefe, Data: make([]byte, 65532)},
 			},
 		},
 	}

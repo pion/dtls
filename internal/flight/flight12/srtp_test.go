@@ -51,11 +51,9 @@ func TestFlight12ServerHelloUsesFinalSRTPOffer(t *testing.T) {
 			}
 			if test.hookMKI != "" {
 				cfg.ServerHelloMessageHook = func(serverHello handshake.MessageServerHello) handshake.Message {
-					serverHello.CachedExtensions = extension.CachedList{
-						Values: []extension.Value{&extension.SRTPSelection{
-							ProtectionProfile: profile32, MasterKeyIdentifier: []byte(test.hookMKI),
-						}},
-					}
+					serverHello.SetExtensions([]extension.Value{&extension.SRTPSelection{
+						ProtectionProfile: profile32, MasterKeyIdentifier: []byte(test.hookMKI),
+					}})
 
 					return &serverHello
 				}
@@ -155,15 +153,12 @@ func newSRTPClientFlight3Test(
 	recordCH12(t, &state.LocalClientHelloSnapshots, srtpOffer12(profile32, finalMKI))
 	cipherSuiteID := uint16(suite.ID())
 	cache := dtlsflight.NewCache()
-	pushHandshake12(t, cache, 0, &handshake.MessageServerHello{
+	pushHandshake12(t, cache, 0, withExtensions(&handshake.MessageServerHello{
 		Version: protocol.Version1_2, CipherSuiteID: &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		CachedExtensions: extension.CachedList{
-			Values: []extension.Value{&extension.SRTPSelection{
-				ProtectionProfile: profile, MasterKeyIdentifier: []byte(mki),
-			}},
-		},
-	})
+	}, []extension.Value{&extension.SRTPSelection{
+		ProtectionProfile: profile, MasterKeyIdentifier: []byte(mki),
+	}}))
 
 	return state, cache, cfg
 }

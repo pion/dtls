@@ -24,7 +24,7 @@ type CertificateEntry13 struct {
 
 	// extensions contains per-certificate extensions.
 	// Examples: OCSP status, SignedCertificateTimestamp, etc.
-	CachedExtensions extension.CachedList
+	extensions []extension.Value
 }
 
 // MessageCertificate13 represents the Certificate handshake message for DTLS 1.3.
@@ -57,7 +57,12 @@ const (
 
 // Extensions returns extensions.
 func (m CertificateEntry13) Extensions() []extension.Value {
-	return m.CachedExtensions.Values
+	return m.extensions
+}
+
+// SetExtensions replaces the per-certificate extensions.
+func (m *CertificateEntry13) SetExtensions(extensions []extension.Value) {
+	m.extensions = extensions
 }
 
 // Marshal encodes the MessageCertificate13 into its wire format.
@@ -75,8 +80,11 @@ func (m CertificateEntry13) Extensions() []extension.Value {
 func (m *MessageCertificate13) Marshal() ([]byte, error) {
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	return out, nil
 }
 
 // MarshalSize returns the minimal size required for MarshalTo.
@@ -89,7 +97,7 @@ func (m *MessageCertificate13) certsSize() int {
 	for _, entry := range m.CertificateList {
 		certificateListSize += cert13CertLengthFieldSize
 		certificateListSize += len(entry.CertificateData)
-		certificateListSize += entry.CachedExtensions.MarshalSize()
+		certificateListSize += extension.MarshalListSize(entry.extensions)
 	}
 
 	return certificateListSize
@@ -134,7 +142,7 @@ func (m *MessageCertificate13) MarshalTo(out []byte) (int, error) {
 		offset += copy(out[offset:], entry.CertificateData)
 
 		// Marshal extensions (includes a 2-byte length prefix)
-		n, err := entry.CachedExtensions.MarshalTo(out[offset:])
+		n, err := extension.MarshalListTo(out[offset:], entry.extensions)
 		if err != nil {
 			return offset, err
 		}
@@ -183,12 +191,10 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 		return nil, dtlserrors.ErrInvalidCertificateEntry
 	}
 
-	return &CertificateEntry13{
-		CertificateData: certDataBytes,
-		CachedExtensions: extension.CachedList{
-			Values: extensions,
-		},
-	}, nil
+	entry := &CertificateEntry13{CertificateData: certDataBytes}
+	entry.SetExtensions(extensions)
+
+	return entry, nil
 }
 
 // Unmarshal decodes the MessageCertificate13 from its wire format.

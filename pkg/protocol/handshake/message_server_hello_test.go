@@ -81,7 +81,7 @@ func TestHandshakeMessageServerHello(t *testing.T) {
 		SessionID:         []byte{},
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{},
-		CachedExtensions:  extension.CachedList{Values: []extension.Value{}},
+		extensions:        []extension.Value{},
 	}
 
 	c := &MessageServerHello{}
@@ -128,7 +128,7 @@ func TestHandshakeMessageServerHello_SessionIDTooLong(t *testing.T) {
 		SessionID:         make([]byte, 256),
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{ID: 0},
-		CachedExtensions:  extension.CachedList{Values: []extension.Value{}},
+		extensions:        []extension.Value{},
 	}
 
 	_, err := c.Marshal()

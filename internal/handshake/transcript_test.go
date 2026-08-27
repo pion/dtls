@@ -1187,19 +1187,14 @@ func rawHelloRetryRequest13(
 	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
 	cipherSuiteID := uint16(cipherSuite.ID())
 
-	return rawHandshakeMessage13(tb, seq, &handshake.MessageServerHello{
+	return rawHandshakeMessage13(tb, seq, withExtensions(&handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
 		Random:            random,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{},
-		CachedExtensions: extension.CachedList{
-			Values: []extension.Value{
-				&extension13.SelectedVersion{
-					Version: protocol.Version1_3,
-				},
-			},
-		},
-	})
+	}, []extension.Value{
+		&extension13.SelectedVersion{Version: protocol.Version1_3},
+	}))
 }
 
 func canonicalTranscriptHandshake13(typ handshake.Type, body []byte) []byte {
@@ -1227,20 +1222,18 @@ func pskClientHelloTranscript13(tb testing.TB, binder []byte) ([]byte, []byte) {
 		Version:            protocol.Version1_2,
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-		CachedExtensions: extension.CachedList{
-			Values: []extension.Value{
-				&extension13.OfferedPSKs{
-					Identities: []extension13.PSKIdentity{
-						{
-							Identity:            []byte("psk-identity"),
-							ObfuscatedTicketAge: 0x01020304,
-						},
-					},
-					Binders: []extension13.PSKBinder{extension13.PSKBinder(binder)},
+	}
+	msg.SetExtensions([]extension.Value{
+		&extension13.OfferedPSKs{
+			Identities: []extension13.PSKIdentity{
+				{
+					Identity:            []byte("psk-identity"),
+					ObfuscatedTicketAge: 0x01020304,
 				},
 			},
+			Binders: []extension13.PSKBinder{extension13.PSKBinder(binder)},
 		},
-	}
+	})
 
 	body, err := msg.Marshal()
 	assert.NoError(tb, err)

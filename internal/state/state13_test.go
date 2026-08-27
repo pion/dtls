@@ -14,6 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+	message T,
+	extensions []extension.Value,
+) T {
+	message.SetExtensions(extensions)
+
+	return message
+}
+
 func assertConnectionIDs(t *testing.T, state *Common, local, remote []byte, negotiated bool) {
 	t.Helper()
 	assert.Equal(t, local, state.LocalConnectionID())
@@ -105,11 +114,7 @@ func TestCommitNegotiatedExtensions(t *testing.T) {
 func TestRecordLocalClientHelloTracksCIDPresence(t *testing.T) {
 	for _, extensions := range [][]extension.Value{nil, {&extension.ConnectionID{}}} {
 		_, snapshot, err := negotiation.FinalizeClientHello(
-			&handshake.MessageClientHello{
-				CachedExtensions: extension.CachedList{
-					Values: extensions,
-				},
-			}, nil,
+			withExtensions(&handshake.MessageClientHello{}, extensions), nil,
 		)
 		require.NoError(t, err)
 		state := NewState12(true)

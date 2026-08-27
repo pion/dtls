@@ -28,7 +28,7 @@ type MessageServerHello struct {
 
 	CipherSuiteID     *uint16
 	CompressionMethod *protocol.CompressionMethod
-	CachedExtensions  extension.CachedList
+	extensions        []extension.Value
 }
 
 const messageServerHelloVariableWidthStart = 2 + RandomLength
@@ -40,13 +40,18 @@ func (m MessageServerHello) Type() Type {
 
 // Extensions returns the extensions.
 func (m *MessageServerHello) Extensions() []extension.Value {
-	return m.CachedExtensions.Values
+	return m.extensions
+}
+
+// SetExtensions replaces the extensions.
+func (m *MessageServerHello) SetExtensions(extensions []extension.Value) {
+	m.extensions = extensions
 }
 
 // MarshalSize returns the size required by MarshalTo.
 func (m *MessageServerHello) MarshalSize() int {
 	total := 0
-	total += m.CachedExtensions.MarshalSize()
+	total += extension.MarshalListSize(m.extensions)
 	total += messageServerHelloVariableWidthStart + 1 + len(m.SessionID) + 2 + 1
 
 	return total
@@ -56,8 +61,11 @@ func (m *MessageServerHello) MarshalSize() int {
 func (m *MessageServerHello) Marshal() ([]byte, error) {
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	return out, nil
 }
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
@@ -95,7 +103,7 @@ func (m *MessageServerHello) MarshalTo(out []byte) (int, error) {
 	out[offset] = byte(m.CompressionMethod.ID)
 	offset += 1
 
-	_, err := m.CachedExtensions.MarshalTo(out[offset:])
+	_, err := extension.MarshalListTo(out[offset:], m.extensions)
 
 	return m.MarshalSize(), err
 }
@@ -149,9 +157,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 		if err != nil {
 			return err
 		}
-		m.CachedExtensions = extension.CachedList{
-			Values: extensions,
-		}
+		m.SetExtensions(extensions)
 
 		return nil
 	}
@@ -176,9 +182,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if err != nil {
 		return err
 	}
-	m.CachedExtensions = extension.CachedList{
-		Values: extensions,
-	}
+	m.SetExtensions(extensions)
 
 	return nil
 }

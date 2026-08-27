@@ -101,9 +101,7 @@ func BuildClientHelloRetry(
 		return nil, negotiationError(dtlserrors.ErrInvalidClientHello, err, alert.IllegalParameter)
 	}
 
-	clientHello.CachedExtensions = extension.CachedList{
-		Values: buildRetryExtensions(clientHello.Extensions(), request, freshShare),
-	}
+	clientHello.SetExtensions(buildRetryExtensions(clientHello.Extensions(), request, freshShare))
 
 	return clientHello, nil
 }

@@ -109,9 +109,9 @@ func TestFlight3ParseValidatesAndRollsBackSRTP(t *testing.T) {
 				srtpSnapshot13(t, srtpProfile13, srtpMKI13),
 			))
 			cache := dtlsflight.NewCache()
-			cache.Push(marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{
-				CachedExtensions: extension.CachedList{Values: test.extensions},
-			}), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
+			cache.Push(marshalProtectedTestHandshake(t, 0,
+				withExtensions(&handshake.MessageEncryptedExtensions{}, test.extensions),
+			), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 			cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}),
 				EpochHandshake, 1, handshake.TypeFinished, false)
 			handlerCalled := false
@@ -185,31 +185,25 @@ func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 	))
 	id := uint16(0x1301)
 	request, err := negotiation.ValidateHelloRetryRequest(
-		state.RemoteClientHelloSnapshots.Initial(), &handshake.MessageServerHello{
-			CipherSuiteID: &id, CachedExtensions: extension.CachedList{
-				Values: []extension.Value{
-					&extension13.SelectedVersion{Version: protocol.Version1_3},
-					&extension13.Cookie{Cookie: state.Cookie},
-				},
-			},
-		})
+		state.RemoteClientHelloSnapshots.Initial(),
+		withExtensions(&handshake.MessageServerHello{CipherSuiteID: &id}, []extension.Value{
+			&extension13.SelectedVersion{Version: protocol.Version1_3},
+			&extension13.Cookie{Cookie: state.Cookie},
+		}))
 	require.NoError(t, err)
 	state.HelloRetryRequest = request
 	message := &handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1},
-		Message: &handshake.MessageClientHello{
+		Message: withExtensions(&handshake.MessageClientHello{
 			Version:        protocol.Version1_2,
 			CipherSuiteIDs: []uint16{0x1301},
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{
-					&extension13.Cookie{Cookie: state.Cookie},
-					&extension.SRTPOffer{
-						ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
-						MasterKeyIdentifier: []byte("changed"),
-					},
-				},
+		}, []extension.Value{
+			&extension13.Cookie{Cookie: state.Cookie},
+			&extension.SRTPOffer{
+				ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
+				MasterKeyIdentifier: []byte("changed"),
 			},
-		},
+		}),
 	}
 	raw, err := message.Marshal()
 	require.NoError(t, err)
@@ -238,11 +232,10 @@ func srtpSnapshot13(
 		})
 	}
 	_, snapshot, err := negotiation.FinalizeClientHello(
-		&handshake.MessageClientHello{
-			Version:          protocol.Version1_2,
-			CipherSuiteIDs:   []uint16{0x1301},
-			CachedExtensions: extension.CachedList{Values: extensions},
-		}, nil,
+		withExtensions(&handshake.MessageClientHello{
+			Version:        protocol.Version1_2,
+			CipherSuiteIDs: []uint16{0x1301},
+		}, extensions), nil,
 	)
 	require.NoError(t, err)
 

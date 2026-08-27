@@ -23,11 +23,11 @@ const (
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.6.1
 type MessageNewSessionTicket struct {
-	TicketLifetime   uint32
-	TicketAgeAdd     uint32
-	TicketNonce      []byte
-	Ticket           []byte
-	CachedExtensions extension.CachedList
+	TicketLifetime uint32
+	TicketAgeAdd   uint32
+	TicketNonce    []byte
+	Ticket         []byte
+	extensions     []extension.Value
 }
 
 // Type returns the Handshake Type.
@@ -37,19 +37,27 @@ func (m MessageNewSessionTicket) Type() Type {
 
 // MarshalSize returns the minimal size required for MarshalTo.
 func (m *MessageNewSessionTicket) MarshalSize() int {
-	return 8 + 1 + len(m.TicketNonce) + 2 + len(m.Ticket) + m.CachedExtensions.MarshalSize()
+	return 8 + 1 + len(m.TicketNonce) + 2 + len(m.Ticket) + extension.MarshalListSize(m.extensions)
 }
 
 func (m MessageNewSessionTicket) Extensions() []extension.Value {
-	return m.CachedExtensions.Values
+	return m.extensions
+}
+
+// SetExtensions replaces the extensions.
+func (m *MessageNewSessionTicket) SetExtensions(extensions []extension.Value) {
+	m.extensions = extensions
 }
 
 // Marshal encodes the Handshake.
 func (m *MessageNewSessionTicket) Marshal() ([]byte, error) {
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	return out, nil
 }
 
 // MarshalTo encodes the Handshake.
@@ -75,7 +83,7 @@ func (m *MessageNewSessionTicket) MarshalTo(out []byte) (int, error) {
 	binary.BigEndian.PutUint16(out[n:], uint16(len(m.Ticket))) //nolint:gosec // length is checked above
 	n += 2
 	n += copy(out[n:], m.Ticket)
-	nn, err := m.CachedExtensions.MarshalTo(out[n:])
+	nn, err := extension.MarshalListTo(out[n:], m.extensions)
 	if err != nil {
 		return n, err
 	}
@@ -126,9 +134,7 @@ func (m *MessageNewSessionTicket) Unmarshal(data []byte) error {
 	m.TicketAgeAdd = ticketAgeAdd
 	m.TicketNonce = ticketNonce
 	m.Ticket = ticket
-	m.CachedExtensions = extension.CachedList{
-		Values: extensions,
-	}
+	m.SetExtensions(extensions)
 
 	return nil
 }

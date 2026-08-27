@@ -21,14 +21,22 @@ import (
 
 const unknownExtensionType extension.Type = 0xfefe
 
+func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+	message T,
+	extensions []extension.Value,
+) T {
+	message.SetExtensions(extensions)
+
+	return message
+}
+
 func clientHelloForTest(extensions ...extension.Value) *handshake.MessageClientHello {
-	return &handshake.MessageClientHello{
+	return withExtensions(&handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		SessionID:          []byte{0x01, 0x02},
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-		CachedExtensions:   extension.CachedList{Values: extensions},
-	}
+	}, extensions)
 }
 
 func snapshotForTest(
@@ -111,7 +119,7 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 		{
 			name: "nil extension",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
-				ch.CachedExtensions = extension.CachedList{Values: []extension.Value{nil}}
+				ch.SetExtensions([]extension.Value{nil})
 
 				return &ch
 			},
@@ -120,12 +128,10 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 		{
 			name: "duplicate extension",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
-				ch.CachedExtensions = extension.CachedList{
-					Values: []extension.Value{
-						&extension.ConnectionID{},
-						&extension.ConnectionID{},
-					},
-				}
+				ch.SetExtensions([]extension.Value{
+					&extension.ConnectionID{},
+					&extension.ConnectionID{},
+				})
 
 				return &ch
 			},
@@ -296,9 +302,7 @@ func TestDecideConnectionIDNegotiatesReturnRoutabilityCheck(t *testing.T) {
 }
 
 func serverHelloForTest(extensions ...extension.Value) *handshake.MessageServerHello {
-	return &handshake.MessageServerHello{
-		CachedExtensions: extension.CachedList{Values: extensions},
-	}
+	return withExtensions(&handshake.MessageServerHello{}, extensions)
 }
 
 func helloRetryRequestForTest(extensions ...extension.Value) *handshake.MessageServerHello {

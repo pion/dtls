@@ -24,6 +24,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+	message T,
+	extensions []extension.Value,
+) T {
+	message.SetExtensions(extensions)
+
+	return message
+}
+
 func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testing.T) {
 	for name, cid := range map[string][]byte{
 		"Empty":    {},
@@ -35,9 +44,7 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 			state := dtlsstate.Activate12(&state13)
 			cfg := &dtlsconfig.HandshakeConfig{
 				ClientHelloMessageHook: func(clientHello handshake.MessageClientHello) handshake.Message {
-					clientHello.CachedExtensions = extension.CachedList{
-						Values: append(clientHello.Extensions(), &extension.ConnectionID{CID: cid}),
-					}
+					clientHello.SetExtensions(append(clientHello.Extensions(), &extension.ConnectionID{CID: cid}))
 
 					return &clientHello
 				},
@@ -120,14 +127,11 @@ func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
 
 	cipherSuiteID := uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	raw, err := (&handshake.Handshake{
-		Message: &handshake.MessageServerHello{
+		Message: withExtensions(&handshake.MessageServerHello{
 			Version:           protocol.Version1_2,
 			CipherSuiteID:     &cipherSuiteID,
 			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{extension.Raw{Type: 0xfafa}},
-			},
-		},
+		}, []extension.Value{extension.Raw{Type: 0xfafa}}),
 	}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
@@ -153,17 +157,12 @@ func TestFlight3DoesNotCommitConnectionIDBeforeSuccess(t *testing.T) {
 	}
 	cipherSuiteID := uint16(suite.ID())
 	raw, err := (&handshake.Handshake{
-		Message: &handshake.MessageServerHello{
+		Message: withExtensions(&handshake.MessageServerHello{
 			Version: protocol.Version1_2, SessionID: []byte{2}, CipherSuiteID: &cipherSuiteID,
 			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{
-					&extension.ConnectionID{
-						CID: []byte{0x51},
-					},
-				},
-			},
-		},
+		}, []extension.Value{
+			&extension.ConnectionID{CID: []byte{0x51}},
+		}),
 	}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
@@ -183,15 +182,12 @@ func TestFlight2RejectsChangedConnectionID(t *testing.T) {
 	recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: []byte{1}})
 	raw, err := (&handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1},
-		Message: &handshake.MessageClientHello{
+		Message: withExtensions(&handshake.MessageClientHello{
 			Version: protocol.Version1_2, Cookie: state.Cookie,
 			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{
-					&extension.ConnectionID{CID: []byte{2}},
-				},
-			},
-		},
+		}, []extension.Value{
+			&extension.ConnectionID{CID: []byte{2}},
+		}),
 	}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
@@ -215,12 +211,8 @@ func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 		Version:            protocol.Version1_2,
 		Cookie:             state.Cookie,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		CachedExtensions: extension.CachedList{
-			Values: []extension.Value{
-				extension.Raw{Type: 0xfefe, Data: []byte{0x02}},
-			},
-		},
 	}
+	retry.SetExtensions([]extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}})
 	rawRetry, err := (&handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1}, Message: retry,
 	}).Marshal()
@@ -282,9 +274,7 @@ func TestFlight4bGenerateDoesNotCommitConnectionIDAfterLateResponseError(t *test
 	cfg := &dtlsconfig.HandshakeConfig{
 		ConnectionIDGenerator: func() []byte { return []byte{0x51} },
 		ServerHelloMessageHook: func(serverHello handshake.MessageServerHello) handshake.Message {
-			serverHello.CachedExtensions = extension.CachedList{
-				Values: append(serverHello.Extensions(), extension.Raw{Type: 0xfafa}),
-			}
+			serverHello.SetExtensions(append(serverHello.Extensions(), extension.Raw{Type: 0xfafa}))
 
 			return &serverHello
 		},
@@ -320,10 +310,9 @@ func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
 
 func recordCH12(t *testing.T, snapshots *negotiation.ClientHelloSnapshots, extensions ...extension.Value) {
 	t.Helper()
-	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
+	_, snapshot, err := negotiation.FinalizeClientHello(withExtensions(&handshake.MessageClientHello{
 		Version: protocol.Version1_2, CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		CachedExtensions: extension.CachedList{Values: extensions},
-	}, nil)
+	}, extensions), nil)
 	require.NoError(t, err)
 	require.NoError(t, snapshots.Record(snapshot))
 }

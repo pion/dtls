@@ -73,6 +73,37 @@ func TestMarshalListRejectsNilExtension(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrNilExtension)
 }
 
+func TestMarshalListTo(t *testing.T) {
+	values := []Value{
+		Raw{Type: 0xface, Data: []byte{0x01, 0x02, 0x03}},
+		Raw{Type: TypeALPN, Data: []byte{0xaa}},
+	}
+	want, err := MarshalList(values)
+	require.NoError(t, err)
+	assert.Equal(t, len(want), MarshalListSize(values))
+
+	out := make([]byte, MarshalListSize(values))
+	n, err := MarshalListTo(out, values)
+	require.NoError(t, err)
+	assert.Equal(t, len(want), n)
+	assert.Equal(t, want, out)
+}
+
+func TestMarshalListToErrors(t *testing.T) {
+	_, err := MarshalListTo([]byte{0x00}, nil)
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+
+	_, err = MarshalListTo(make([]byte, 2), []Value{nil})
+	assert.ErrorIs(t, err, dtlserrors.ErrNilExtension)
+
+	values := []Value{Raw{Type: 1, Data: []byte{0x01}}}
+	_, err = MarshalListTo(make([]byte, MarshalListSize(values)-1), values)
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+
+	_, err = MarshalListTo(make([]byte, 2), []Value{Raw{Type: 1, Data: make([]byte, 0x10000)}})
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionsLength)
+}
+
 func FuzzParseList(f *testing.F) {
 	f.Add([]byte{0x00, 0x00})
 	f.Add([]byte{0x00, 0x04, 0xfa, 0xce, 0x00, 0x00})

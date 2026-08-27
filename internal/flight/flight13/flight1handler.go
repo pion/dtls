@@ -145,10 +145,8 @@ func flight1Generate(
 		// Add DTLS 1.3 ciphersuites
 		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		CachedExtensions: extension.CachedList{
-			Values: extensions,
-		},
 	}
+	clientHello.SetExtensions(extensions)
 
 	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
 		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,

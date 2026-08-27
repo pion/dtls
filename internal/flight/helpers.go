@@ -61,9 +61,7 @@ func FinalizeClientHello(
 		return clientHello, snapshot, err
 	}
 
-	clientHello.CachedExtensions = extension.CachedList{
-		Values: withoutExtension(clientHello.Extensions(), extension.TypeReturnRoutabilityCheck),
-	}
+	clientHello.SetExtensions(withoutExtension(clientHello.Extensions(), extension.TypeReturnRoutabilityCheck))
 
 	return negotiation.FinalizeClientHello(clientHello, nil)
 }
@@ -81,9 +79,7 @@ func FinalizeServerHello(
 		return serverHello, err
 	}
 
-	serverHello.CachedExtensions = extension.CachedList{
-		Values: withoutExtension(serverHello.Extensions(), extension.TypeReturnRoutabilityCheck),
-	}
+	serverHello.SetExtensions(withoutExtension(serverHello.Extensions(), extension.TypeReturnRoutabilityCheck))
 
 	return serverHello, nil
 }

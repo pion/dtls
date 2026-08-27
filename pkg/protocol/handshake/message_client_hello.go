@@ -28,7 +28,7 @@ type MessageClientHello struct {
 
 	CipherSuiteIDs     []uint16
 	CompressionMethods []*protocol.CompressionMethod
-	CachedExtensions   extension.CachedList
+	extensions         []extension.Value
 }
 
 const handshakeMessageClientHelloVariableWidthStart = 34
@@ -40,7 +40,12 @@ func (m MessageClientHello) Type() Type {
 
 // Extensions returns the extensions.
 func (m *MessageClientHello) Extensions() []extension.Value {
-	return m.CachedExtensions.Values
+	return m.extensions
+}
+
+// SetExtensions replaces the extensions.
+func (m *MessageClientHello) SetExtensions(extensions []extension.Value) {
+	m.extensions = extensions
 }
 
 // MarshalSize returns the size needed for MarshalTo.
@@ -55,15 +60,18 @@ func (m *MessageClientHello) MarshalSize() int {
 		len(m.Cookie) +
 		cipherSuitesSize +
 		compressionSize +
-		m.CachedExtensions.MarshalSize()
+		extension.MarshalListSize(m.extensions)
 }
 
 // Marshal encodes the Handshake.
 func (m *MessageClientHello) Marshal() ([]byte, error) {
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	return out, nil
 }
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
@@ -117,7 +125,7 @@ func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
 		offset++
 	}
 
-	n, err := m.CachedExtensions.MarshalTo(out[offset:])
+	n, err := extension.MarshalListTo(out[offset:], m.extensions)
 	offset += n
 
 	return offset, err
@@ -194,9 +202,7 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if err != nil {
 		return err
 	}
-	m.CachedExtensions = extension.CachedList{
-		Values: extensions,
-	}
+	m.SetExtensions(extensions)
 
 	return nil
 }

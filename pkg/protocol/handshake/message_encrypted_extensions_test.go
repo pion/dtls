@@ -42,11 +42,9 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 
 	t.Run("WithExtensions", func(t *testing.T) {
 		raw, err := (&MessageEncryptedExtensions{
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{
-					&extension.ALPNSelection{Protocol: "h2"},
-					extension.Raw{Type: unknownEncryptedExtensionsType},
-				},
+			extensions: []extension.Value{
+				&extension.ALPNSelection{Protocol: "h2"},
+				extension.Raw{Type: unknownEncryptedExtensionsType},
 			},
 		}).Marshal()
 		require.NoError(t, err)
@@ -63,9 +61,7 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 
 	t.Run("ExtensionMarshalError", func(t *testing.T) {
 		raw, err := (&MessageEncryptedExtensions{
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{&failingEncryptedExtensionsExtension{}},
-			},
+			extensions: []extension.Value{&failingEncryptedExtensionsExtension{}},
 		}).Marshal()
 		assert.ErrorIs(t, err, errMarshalEncryptedExtensionsTest)
 		assert.Empty(t, raw)
@@ -117,11 +113,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
 			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
-		msg := &MessageEncryptedExtensions{
-			CachedExtensions: extension.CachedList{
-				Values: previouslyParsedExts,
-			},
-		}
+		msg := &MessageEncryptedExtensions{extensions: previouslyParsedExts}
 
 		err := msg.Unmarshal([]byte{0x00})
 		assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
@@ -132,11 +124,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
 			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
-		msg := &MessageEncryptedExtensions{
-			CachedExtensions: extension.CachedList{
-				Values: previouslyParsedExts,
-			},
-		}
+		msg := &MessageEncryptedExtensions{extensions: previouslyParsedExts}
 
 		err := msg.Unmarshal([]byte{0x00, 0x01})
 		assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
@@ -147,11 +135,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
 			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
-		msg := &MessageEncryptedExtensions{
-			CachedExtensions: extension.CachedList{
-				Values: previouslyParsedExts,
-			},
-		}
+		msg := &MessageEncryptedExtensions{extensions: previouslyParsedExts}
 
 		err := msg.Unmarshal([]byte{
 			0x00, 0x06, // extensions length

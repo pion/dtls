@@ -319,10 +319,8 @@ func flight4Generate(
 		SessionID:         state.SessionID,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		CachedExtensions: extension.CachedList{
-			Values: extensions,
-		},
 	}
+	serverHello.SetExtensions(extensions)
 
 	serverHello, err = dtlsflight.FinalizeServerHello(
 		serverHello, cfg.ServerHelloMessageHook, offer, cfg.EnableRRC,

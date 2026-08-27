@@ -21,27 +21,28 @@ func TestHandshakeMessage(t *testing.T) {
 		0x16, 0xc9, 0x15, 0x8d, 0x95, 0x71, 0x8a, 0xbb, 0x22, 0xd7, 0x47, 0xec, 0xd8, 0x3d, 0xdc,
 		0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
+	clientHello := &handshake.MessageClientHello{
+		Version: protocol.Version{Major: 0xFE, Minor: 0xFD},
+		Random: handshake.Random{
+			GMTUnixTime: time.Unix(3056586332, 0),
+			RandomBytes: [28]byte{
+				0x42, 0x54, 0xff, 0x86, 0xe1, 0x24, 0x41, 0x91, 0x42, 0x62, 0x15, 0xad, 0x16, 0xc9,
+				0x15, 0x8d, 0x95, 0x71, 0x8a, 0xbb, 0x22, 0xd7, 0x47, 0xec, 0xd8, 0x3d, 0xdc, 0x4b,
+			},
+		},
+		SessionID:          []byte{},
+		Cookie:             []byte{},
+		CipherSuiteIDs:     []uint16{},
+		CompressionMethods: []*protocol.CompressionMethod{},
+	}
+	clientHello.SetExtensions([]extension.Value{})
 	parsedHandshake := &handshake.Handshake{
 		Header: handshake.Header{
 			Length:         0x29,
 			FragmentLength: 0x29,
 			Type:           handshake.TypeClientHello,
 		},
-		Message: &handshake.MessageClientHello{
-			Version: protocol.Version{Major: 0xFE, Minor: 0xFD},
-			Random: handshake.Random{
-				GMTUnixTime: time.Unix(3056586332, 0),
-				RandomBytes: [28]byte{
-					0x42, 0x54, 0xff, 0x86, 0xe1, 0x24, 0x41, 0x91, 0x42, 0x62, 0x15, 0xad, 0x16, 0xc9,
-					0x15, 0x8d, 0x95, 0x71, 0x8a, 0xbb, 0x22, 0xd7, 0x47, 0xec, 0xd8, 0x3d, 0xdc, 0x4b,
-				},
-			},
-			SessionID:          []byte{},
-			Cookie:             []byte{},
-			CipherSuiteIDs:     []uint16{},
-			CompressionMethods: []*protocol.CompressionMethod{},
-			CachedExtensions:   extension.CachedList{Values: []extension.Value{}},
-		},
+		Message: clientHello,
 	}
 
 	h := &handshake.Handshake{}
@@ -55,18 +56,17 @@ func TestHandshakeMessage(t *testing.T) {
 
 func TestPostHandshakeMessageDispatch(t *testing.T) {
 	maxEarlyData := uint32(128)
+	newSessionTicket := &handshake.MessageNewSessionTicket{
+		TicketLifetime: 1,
+		TicketAgeAdd:   2,
+		TicketNonce:    []byte{0x03},
+		Ticket:         []byte{0x04},
+	}
+	newSessionTicket.SetExtensions([]extension.Value{
+		&extension13.MaxEarlyData{Size: maxEarlyData},
+	})
 	tests := map[string]handshake.Message{
-		"NewSessionTicket": &handshake.MessageNewSessionTicket{
-			TicketLifetime: 1,
-			TicketAgeAdd:   2,
-			TicketNonce:    []byte{0x03},
-			Ticket:         []byte{0x04},
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{
-					&extension13.MaxEarlyData{Size: maxEarlyData},
-				},
-			},
-		},
+		"NewSessionTicket": newSessionTicket,
 		"KeyUpdate": &handshake.MessageKeyUpdate{
 			RequestUpdate: handshake.KeyUpdateRequested,
 		},

@@ -17,6 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+	message T,
+	extensions []extension.Value,
+) T {
+	message.SetExtensions(extensions)
+
+	return message
+}
+
 func TestHandshakeCacheSinglePush(t *testing.T) {
 	for _, test := range []struct {
 		Name     string
@@ -296,16 +305,13 @@ func TestHandshakeCachePullValidatesMetadataAndHeader(t *testing.T) {
 }
 
 func TestHandshakeCachePullPreservesExtensionAlert(t *testing.T) {
-	raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
+	raw := marshalHandshakeCacheTestMessage(t, 0, withExtensions(&handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		CachedExtensions: extension.CachedList{
-			Values: []extension.Value{
-				extension.Raw{Type: 0xfefe},
-				extension.Raw{Type: 0xfefe},
-			},
-		},
-	})
+	}, []extension.Value{
+		extension.Raw{Type: 0xfefe},
+		extension.Raw{Type: 0xfefe},
+	}))
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeClientHello, true)
 

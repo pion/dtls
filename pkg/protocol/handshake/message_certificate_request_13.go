@@ -23,7 +23,7 @@ type MessageCertificateRequest13 struct {
 
 	// Extensions contains the list of extensions.
 	// The signature_algorithms extension is REQUIRED per RFC 8446.
-	CachedExtensions extension.CachedList
+	extensions []extension.Value
 }
 
 // Type returns the handshake message type.
@@ -39,7 +39,12 @@ const (
 
 // Extensions returns the extensions.
 func (m *MessageCertificateRequest13) Extensions() []extension.Value {
-	return m.CachedExtensions.Values
+	return m.extensions
+}
+
+// SetExtensions replaces the extensions.
+func (m *MessageCertificateRequest13) SetExtensions(extensions []extension.Value) {
+	m.extensions = extensions
 }
 
 // Marshal encodes the MessageCertificateRequest13 into its wire format.
@@ -53,13 +58,16 @@ func (m *MessageCertificateRequest13) Extensions() []extension.Value {
 func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 	out := make([]byte, m.MarshalSize())
 	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
 
-	return out, err
+	return out, nil
 }
 
 // MarshalSize returns the size needed for MarshalTo.
 func (m *MessageCertificateRequest13) MarshalSize() int {
-	return 1 + len(m.CertificateRequestContext) + m.CachedExtensions.MarshalSize()
+	return 1 + len(m.CertificateRequestContext) + extension.MarshalListSize(m.extensions)
 }
 
 // MarshalTo encodes like Marshal but in a pre-allocate buffer.
@@ -71,7 +79,7 @@ func (m *MessageCertificateRequest13) MarshalTo(out []byte) (int, error) {
 
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
 	hasSignatureAlgorithms := false
-	for _, ext := range m.CachedExtensions.Values {
+	for _, ext := range m.extensions {
 		if ext.ExtensionType() == extension.TypeSignatureAlgorithms {
 			hasSignatureAlgorithms = true
 
@@ -91,7 +99,7 @@ func (m *MessageCertificateRequest13) MarshalTo(out []byte) (int, error) {
 	n += 1
 	n += copy(out[1:], m.CertificateRequestContext)
 
-	extensionDataLen, err := m.CachedExtensions.MarshalTo(out[n:])
+	extensionDataLen, err := extension.MarshalListTo(out[n:], m.extensions)
 	if err != nil {
 		return 0, err
 	}
@@ -135,9 +143,7 @@ func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 		return err
 	}
 
-	m.CachedExtensions = extension.CachedList{
-		Values: extensions,
-	}
+	m.SetExtensions(extensions)
 
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
 	hasSignatureAlgorithms := false

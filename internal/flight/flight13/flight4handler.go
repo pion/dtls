@@ -252,10 +252,8 @@ func flight4Generate( //nolint:cyclop
 		Random:            state.LocalRandom,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		CachedExtensions: extension.CachedList{
-			Values: serverHelloExtensions,
-		},
 	}
+	serverHelloMessage.SetExtensions(serverHelloExtensions)
 	if _, err = serverHelloMessage.Marshal(); err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -272,11 +270,8 @@ func flight4Generate( //nolint:cyclop
 			MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier),
 		})
 	}
-	messageExtensions := handshake.MessageEncryptedExtensions{
-		CachedExtensions: extension.CachedList{
-			Values: encryptedExtensionsList,
-		},
-	}
+	messageExtensions := handshake.MessageEncryptedExtensions{}
+	messageExtensions.SetExtensions(encryptedExtensionsList)
 	encryptedExtensions := HandshakePacket(&messageExtensions)
 
 	pkts := []*dtlsflight.Outbound{
@@ -300,11 +295,8 @@ func flight4Generate( //nolint:cyclop
 				Authorities: cfg.ClientCAs.Subjects(),
 			})
 		}
-		m := handshake.MessageCertificateRequest13{
-			CachedExtensions: extension.CachedList{
-				Values: certificateRequestExtensions,
-			},
-		}
+		m := handshake.MessageCertificateRequest13{}
+		m.SetExtensions(certificateRequestExtensions)
 		pkts = append(pkts, HandshakePacket(&m))
 	}
 	pkts = append(pkts,

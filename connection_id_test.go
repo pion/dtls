@@ -288,20 +288,15 @@ func TestCIDConnIdentifier(t *testing.T) {
 		Epoch:   0,
 		Version: protocol.Version1_2,
 	}, &handshake.Handshake{
-		Message: &handshake.MessageServerHello{
+		Message: withExtensions(&handshake.MessageServerHello{
 			Version:           protocol.Version1_2,
 			Random:            handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: [28]byte{}},
 			SessionID:         []byte("hello"),
 			CipherSuiteID:     &cs,
 			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-			CachedExtensions: extension.CachedList{
-				Values: []extension.Value{
-					&extension.ConnectionID{
-						CID: cid,
-					},
-				},
-			},
-		},
+		}, []extension.Value{
+			&extension.ConnectionID{CID: cid},
+		}),
 	})
 	assert.NoError(t, err)
 
