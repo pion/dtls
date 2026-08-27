@@ -41,3 +41,70 @@ func TestHandshakeMessageClientKeyExchange_PublicKeyTooLong(t *testing.T) {
 	_, err := c.Marshal()
 	assert.ErrorIs(t, err, errPublicKeyTooLong)
 }
+
+func TestHandshakeMessageClientKeyExchangeECDHEPSK(t *testing.T) {
+	raw := []byte{
+		0x00, 0x04, 0x69, 0x64, 0x65, 0x6e, // identity hint: "iden"
+		0x03, 0xaa, 0xbb, 0xcc, // public key: 3 bytes
+	}
+	c := &MessageClientKeyExchange{
+		KeyExchangeAlgorithm: types.KeyExchangeAlgorithmPsk | types.KeyExchangeAlgorithmEcdhe,
+	}
+	assert.NoError(t, c.Unmarshal(raw))
+	assert.Equal(t, []byte("iden"), c.IdentityHint)
+	assert.Equal(t, []byte{0xaa, 0xbb, 0xcc}, c.PublicKey)
+
+	marshaled, err := c.Marshal()
+	assert.NoError(t, err)
+	assert.Equal(t, raw, marshaled)
+}
+
+func TestHandshakeMessageClientKeyExchangeUnmarshalErrors(t *testing.T) {
+	for _, test := range []struct {
+		name                 string
+		keyExchangeAlgorithm types.KeyExchangeAlgorithm
+		data                 []byte
+		expectedErr          error
+	}{
+		{
+			name:                 "BufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x00},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			name:                 "CipherSuiteUnset",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmNone,
+			data:                 []byte{0x00, 0x00},
+			expectedErr:          errCipherSuiteUnset,
+		},
+		{
+			// ECDHE_PSK where the (empty) identity hint consumes the whole body,
+			// leaving nothing for the ECDHE public key. Previously panicked.
+			name:                 "EcdhePskEmptyHintConsumesBody",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmPsk | types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x00, 0x00},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			// ECDHE_PSK where a non-empty identity hint consumes the whole body,
+			// leaving nothing for the ECDHE public key. Previously panicked.
+			name:                 "EcdhePskIdentityConsumesBody",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmPsk | types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x00, 0x04, 0x69, 0x64, 0x65, 0x6e},
+			expectedErr:          errBufferTooSmall,
+		},
+		{
+			// ECDHE with a public key length exceeding the remaining body.
+			name:                 "PublicKeyBufferTooSmall",
+			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
+			data:                 []byte{0x05, 0x01},
+			expectedErr:          errBufferTooSmall,
+		},
+	} {
+		c := &MessageClientKeyExchange{
+			KeyExchangeAlgorithm: test.keyExchangeAlgorithm,
+		}
+		assert.ErrorIs(t, c.Unmarshal(test.data), test.expectedErr, test.name)
+	}
+}
