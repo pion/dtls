@@ -65,42 +65,67 @@ func (m *MessageClientHello) MarshalSize() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageClientHello) Marshal() ([]byte, error) {
-	size := m.MarshalSize()
-	if size < 0 {
-		return nil, dtlserrors.ErrLengthMismatch
-	}
-	out := make([]byte, size)
-	n, err := m.MarshalTo(out)
+	prepared, err := m.prepareMarshal()
 	if err != nil {
 		return nil, err
 	}
-	if n != len(out) {
-		return nil, dtlserrors.ErrLengthMismatch
-	}
+
+	out := make([]byte, prepared.size)
+	m.marshalTo(out, prepared.extensions)
 
 	return out, nil
 }
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
-	if len(m.Cookie) > 255 {
-		return 0, dtlserrors.ErrCookieTooLong
+	prepared, err := m.prepareMarshal()
+	if err != nil {
+		return prepared.size, err
 	}
-	if len(m.SessionID) > 255 {
-		return 0, dtlserrors.ErrSessionIDTooLong
-	}
-	if len(m.CompressionMethods) > 255 {
-		return 0, dtlserrors.ErrCompressionMethodsTooLong
-	}
-
-	size := m.MarshalSize()
-	if size < 0 {
-		return 0, dtlserrors.ErrLengthMismatch
-	}
-	if len(out) < size {
+	if len(out) < prepared.size {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
+	m.marshalTo(out, prepared.extensions)
+
+	return prepared.size, nil
+}
+
+type preparedClientHello struct {
+	extensions extension.PreparedList
+	size       int
+}
+
+func (m *MessageClientHello) prepareMarshal() (preparedClientHello, error) {
+	if len(m.Cookie) > 255 {
+		return preparedClientHello{}, dtlserrors.ErrCookieTooLong
+	}
+	if len(m.SessionID) > 255 {
+		return preparedClientHello{}, dtlserrors.ErrSessionIDTooLong
+	}
+	if len(m.CompressionMethods) > 255 {
+		return preparedClientHello{}, dtlserrors.ErrCompressionMethodsTooLong
+	}
+
+	extensions, err := extension.PrepareList(m.extensions)
+	size := handshakeMessageClientHelloVariableWidthStart +
+		1 + len(m.SessionID) +
+		1 + len(m.Cookie) +
+		2 + 2*len(m.CipherSuiteIDs) +
+		1 + len(m.CompressionMethods) +
+		extensions.MarshalSize()
+	prepared := preparedClientHello{extensions: extensions, size: size}
+	if size < 0 {
+		return prepared, dtlserrors.ErrLengthMismatch
+	}
+	if err != nil {
+		return prepared, err
+	}
+
+	return prepared, nil
+}
+
+func (m *MessageClientHello) marshalTo(out []byte, extensions extension.PreparedList) {
 	offset := 0
 	out[0] = m.Version.Major
 	out[1] = m.Version.Minor
@@ -135,10 +160,7 @@ func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
 		offset++
 	}
 
-	n, err := extension.MarshalListTo(out[offset:], m.extensions)
-	offset += n
-
-	return offset, err
+	_, _ = extensions.MarshalTo(out[offset:])
 }
 
 // Unmarshal populates the message from encoded data.

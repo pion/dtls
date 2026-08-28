@@ -20,9 +20,16 @@ const unknownEncryptedExtensionsType extension.Type = 0xfefe
 
 type failingEncryptedExtensionsExtension struct {
 	marshalCalls int
+	marshalSize  int
 }
 
-func (f *failingEncryptedExtensionsExtension) MarshalSize() int { return 7 }
+func (f *failingEncryptedExtensionsExtension) MarshalSize() int {
+	if f.marshalSize != 0 {
+		return f.marshalSize
+	}
+
+	return 7
+}
 
 func (f *failingEncryptedExtensionsExtension) MarshalData() ([]byte, error) {
 	f.marshalCalls++
@@ -74,6 +81,18 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 		raw, err := message.Marshal()
 		assert.ErrorIs(t, err, errMarshalEncryptedExtensionsTest)
 		assert.Empty(t, raw)
+		assert.Equal(t, 1, ext.marshalCalls)
+	})
+
+	t.Run("ExtensionErrorBeforePredictedAllocation", func(t *testing.T) {
+		ext := &failingEncryptedExtensionsExtension{marshalSize: int(^uint(0) >> 1)}
+		message := &MessageEncryptedExtensions{extensions: []extension.Value{ext}}
+
+		assert.NotPanics(t, func() {
+			raw, err := message.Marshal()
+			assert.ErrorIs(t, err, errMarshalEncryptedExtensionsTest)
+			assert.Empty(t, raw)
+		})
 		assert.Equal(t, 1, ext.marshalCalls)
 	})
 }

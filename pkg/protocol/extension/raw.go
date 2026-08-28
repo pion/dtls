@@ -109,40 +109,89 @@ func ParseList(buf []byte) ([]Raw, error) {
 	return values, nil
 }
 
-// MarshalList frames extension payloads as a uint16-length-prefixed list.
-func MarshalList(values []Value) ([]byte, error) {
-	payloads := make([][]byte, len(values))
+// PreparedList contains validated extension payloads ready to be framed.
+type PreparedList struct {
+	entries []preparedExtension
+	size    int
+}
+
+type preparedExtension struct {
+	typ     Type
+	payload []byte
+}
+
+// PrepareList serializes and validates extension payloads without allocating
+// the final list.
+func PrepareList(values []Value) (PreparedList, error) {
+	prepared := PreparedList{
+		size: 2,
+	}
 	totalLen := 0
-	for i, value := range values {
+	for _, value := range values {
 		if value == nil {
-			return nil, dtlserrors.ErrNilExtension
+			return prepared, dtlserrors.ErrNilExtension
 		}
 
 		expected := value.MarshalSize()
 		payload, err := value.MarshalData()
 		if err != nil {
-			return nil, err
+			return prepared, err
 		}
 		if expected < 0 || len(payload) != expected {
-			return nil, dtlserrors.ErrLengthMismatch
+			return prepared, dtlserrors.ErrLengthMismatch
 		}
 		if len(payload) > 0xffff || totalLen > 0xffff-4-len(payload) {
-			return nil, dtlserrors.ErrInvalidExtensionsLength
+			return prepared, dtlserrors.ErrInvalidExtensionsLength
 		}
 
-		payloads[i] = payload
+		prepared.entries = append(prepared.entries, preparedExtension{payload: payload})
 		totalLen += 4 + len(payload)
+		prepared.size = 2 + totalLen
 	}
-
-	out := make([]byte, 2, 2+totalLen)
-	binary.BigEndian.PutUint16(out, uint16(totalLen)) //nolint:gosec // totalLen is bounded above.
 	for i, value := range values {
-		out = binary.BigEndian.AppendUint16(out, uint16(value.ExtensionType()))
-		out = binary.BigEndian.AppendUint16(out, uint16(len(payloads[i]))) //nolint:gosec // bounded above.
-		out = append(out, payloads[i]...)
+		prepared.entries[i].typ = value.ExtensionType()
 	}
 
-	return out, nil
+	return prepared, nil
+}
+
+// MarshalSize returns the exact size of the prepared framed extension list.
+func (p PreparedList) MarshalSize() int {
+	return p.size
+}
+
+// MarshalTo writes a prepared framed extension list to out.
+func (p PreparedList) MarshalTo(out []byte) (int, error) {
+	if p.size < 2 {
+		return 0, dtlserrors.ErrLengthMismatch
+	}
+	if len(out) < p.size {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	binary.BigEndian.PutUint16(out, uint16(p.size-2)) //nolint:gosec // size is bounded above.
+	offset := 2
+	for _, entry := range p.entries {
+		binary.BigEndian.PutUint16(out[offset:], uint16(entry.typ))
+		binary.BigEndian.PutUint16(out[offset+2:], uint16(len(entry.payload))) //nolint:gosec // bounded above.
+		copy(out[offset+4:], entry.payload)
+		offset += 4 + len(entry.payload)
+	}
+
+	return offset, nil
+}
+
+// MarshalList frames extension payloads as a uint16-length-prefixed list.
+func MarshalList(values []Value) ([]byte, error) {
+	prepared, err := PrepareList(values)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, prepared.MarshalSize())
+	_, err = prepared.MarshalTo(out)
+
+	return out, err
 }
 
 // MarshalListSize returns the size of a framed extension list without

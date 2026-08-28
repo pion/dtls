@@ -20,6 +20,90 @@ func (mismatchedExtension) ExtensionType() extension.Type { return extension.Typ
 func (mismatchedExtension) MarshalSize() int              { return 1 }
 func (mismatchedExtension) MarshalData() ([]byte, error)  { return nil, nil }
 
+type unexpectedMarshalExtension struct {
+	sizeCalls int
+	dataCalls int
+}
+
+func (*unexpectedMarshalExtension) ExtensionType() extension.Type { return extension.TypePadding }
+
+func (e *unexpectedMarshalExtension) MarshalSize() int {
+	e.sizeCalls++
+
+	return 0
+}
+
+func (e *unexpectedMarshalExtension) MarshalData() ([]byte, error) {
+	e.dataCalls++
+
+	return nil, nil
+}
+
+func TestHelloMarshalValidatesFieldsBeforePreparingExtensions(t *testing.T) {
+	cipherSuiteID := uint16(0xc02b)
+	compressionMethod := &protocol.CompressionMethod{}
+	unexpectedExtension := &unexpectedMarshalExtension{}
+	extensions := []extension.Value{unexpectedExtension}
+
+	tests := []struct {
+		name    string
+		message Message
+		err     error
+	}{
+		{
+			name:    "client cookie",
+			message: &MessageClientHello{Cookie: make([]byte, 256), extensions: extensions},
+			err:     dtlserrors.ErrCookieTooLong,
+		},
+		{
+			name:    "client session ID",
+			message: &MessageClientHello{SessionID: make([]byte, 256), extensions: extensions},
+			err:     dtlserrors.ErrSessionIDTooLong,
+		},
+		{
+			name: "client compression methods",
+			message: &MessageClientHello{
+				CompressionMethods: make([]*protocol.CompressionMethod, 256),
+				extensions:         extensions,
+			},
+			err: dtlserrors.ErrCompressionMethodsTooLong,
+		},
+		{
+			name:    "server cipher suite",
+			message: &MessageServerHello{CompressionMethod: compressionMethod, extensions: extensions},
+			err:     dtlserrors.ErrCipherSuiteUnset,
+		},
+		{
+			name: "server compression method",
+			message: &MessageServerHello{
+				CipherSuiteID: &cipherSuiteID,
+				extensions:    extensions,
+			},
+			err: dtlserrors.ErrCompressionMethodUnset,
+		},
+		{
+			name: "server session ID",
+			message: &MessageServerHello{
+				SessionID:         make([]byte, 256),
+				CipherSuiteID:     &cipherSuiteID,
+				CompressionMethod: compressionMethod,
+				extensions:        extensions,
+			},
+			err: dtlserrors.ErrSessionIDTooLong,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := test.message.Marshal()
+			assert.Nil(t, encoded)
+			assert.ErrorIs(t, err, test.err)
+			assert.Zero(t, unexpectedExtension.sizeCalls)
+			assert.Zero(t, unexpectedExtension.dataCalls)
+		})
+	}
+}
+
 func TestMessageServerHelloExtensionFramingErrorIsClassified(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 	raw, err := (&MessageServerHello{

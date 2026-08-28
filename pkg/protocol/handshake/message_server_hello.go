@@ -59,41 +59,61 @@ func (m *MessageServerHello) MarshalSize() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageServerHello) Marshal() ([]byte, error) {
-	size := m.MarshalSize()
-	if size < 0 {
-		return nil, dtlserrors.ErrLengthMismatch
-	}
-	out := make([]byte, size)
-	n, err := m.MarshalTo(out)
+	prepared, err := m.prepareMarshal()
 	if err != nil {
 		return nil, err
 	}
-	if n != len(out) {
-		return nil, dtlserrors.ErrLengthMismatch
-	}
+
+	out := make([]byte, prepared.size)
+	m.marshalTo(out, prepared.extensions)
 
 	return out, nil
 }
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageServerHello) MarshalTo(out []byte) (int, error) {
-	size := m.MarshalSize()
-	if size < 0 {
-		return 0, dtlserrors.ErrLengthMismatch
+	prepared, err := m.prepareMarshal()
+	if err != nil {
+		return prepared.size, err
 	}
-	if len(out) < size {
+	if len(out) < prepared.size {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
+	m.marshalTo(out, prepared.extensions)
+
+	return prepared.size, nil
+}
+
+type preparedServerHello struct {
+	extensions extension.PreparedList
+	size       int
+}
+
+func (m *MessageServerHello) prepareMarshal() (preparedServerHello, error) {
 	switch {
 	case m.CipherSuiteID == nil:
-		return 0, dtlserrors.ErrCipherSuiteUnset
+		return preparedServerHello{}, dtlserrors.ErrCipherSuiteUnset
 	case m.CompressionMethod == nil:
-		return 0, dtlserrors.ErrCompressionMethodUnset
+		return preparedServerHello{}, dtlserrors.ErrCompressionMethodUnset
 	case len(m.SessionID) > 255:
-		return 0, dtlserrors.ErrSessionIDTooLong
+		return preparedServerHello{}, dtlserrors.ErrSessionIDTooLong
 	}
 
+	extensions, err := extension.PrepareList(m.extensions)
+	size := messageServerHelloVariableWidthStart + 1 + len(m.SessionID) + 2 + 1 + extensions.MarshalSize()
+	prepared := preparedServerHello{extensions: extensions, size: size}
+	if size < 0 {
+		return prepared, dtlserrors.ErrLengthMismatch
+	}
+	if err != nil {
+		return prepared, err
+	}
+
+	return prepared, nil
+}
+
+func (m *MessageServerHello) marshalTo(out []byte, extensions extension.PreparedList) {
 	offset := 0
 	out[0] = m.Version.Major
 	out[1] = m.Version.Minor
@@ -114,16 +134,7 @@ func (m *MessageServerHello) MarshalTo(out []byte) (int, error) {
 	out[offset] = byte(m.CompressionMethod.ID)
 	offset += 1
 
-	nn, err := extension.MarshalListTo(out[offset:], m.extensions)
-	offset += nn
-	if err != nil {
-		return offset, err
-	}
-	if offset != size {
-		return offset, dtlserrors.ErrLengthMismatch
-	}
-
-	return offset, nil
+	_, _ = extensions.MarshalTo(out[offset:])
 }
 
 // Unmarshal populates the message from encoded data.
