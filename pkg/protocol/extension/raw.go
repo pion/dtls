@@ -169,7 +169,7 @@ func MarshalListTo(out []byte, values []Value) (int, error) {
 	offset := 2
 	for _, value := range values {
 		if value == nil {
-			return 0, dtlserrors.ErrNilExtension
+			return offset, dtlserrors.ErrNilExtension
 		}
 
 		expected := value.MarshalSize()

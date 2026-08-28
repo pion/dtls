@@ -4,6 +4,7 @@
 package extension
 
 import (
+	"errors"
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -102,6 +103,75 @@ func TestMarshalListToErrors(t *testing.T) {
 
 	_, err = MarshalListTo(make([]byte, 2), []Value{Raw{Type: 1, Data: make([]byte, 0x10000)}})
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionsLength)
+}
+
+type failingValue struct {
+	err error
+}
+
+func (f failingValue) ExtensionType() Type { return TypePadding }
+func (f failingValue) MarshalSize() int    { return 0 }
+func (f failingValue) MarshalData() ([]byte, error) {
+	return nil, f.err
+}
+
+func TestMarshalListToReturnsPartialCount(t *testing.T) {
+	marshalErr := errors.New("extension marshal failed") //nolint:err113
+	first := Raw{Type: 0xface, Data: []byte{0x01}}
+	firstWire, err := MarshalList([]Value{first})
+	require.NoError(t, err)
+	partialLen := len(firstWire)
+
+	tests := []struct {
+		name   string
+		second Value
+		outLen int
+		err    error
+	}{
+		{
+			name:   "nil extension",
+			outLen: partialLen,
+			err:    dtlserrors.ErrNilExtension,
+		},
+		{
+			name:   "marshal error",
+			second: failingValue{err: marshalErr},
+			outLen: partialLen,
+			err:    marshalErr,
+		},
+		{
+			name:   "length mismatch",
+			second: mismatchedValue{size: 1},
+			outLen: partialLen,
+			err:    dtlserrors.ErrLengthMismatch,
+		},
+		{
+			name:   "extensions length limit",
+			second: Raw{Type: TypePadding, Data: make([]byte, 0xffff)},
+			outLen: partialLen,
+			err:    dtlserrors.ErrInvalidExtensionsLength,
+		},
+		{
+			name:   "destination too small",
+			second: Raw{Type: TypePadding},
+			outLen: partialLen + 3,
+			err:    dtlserrors.ErrBufferTooSmall,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			out := make([]byte, test.outLen)
+			out[0], out[1] = 0xaa, 0xbb
+
+			n, err := MarshalListTo(out, []Value{first, test.second})
+
+			assert.ErrorIs(t, err, test.err)
+			assert.Equal(t, partialLen, n)
+			assert.Equal(t, []byte{0xaa, 0xbb}, out[:2], "list length is invalid until marshal succeeds")
+			assert.Equal(t, firstWire[2:], out[2:partialLen])
+		})
+	}
 }
 
 type mismatchedValue struct {
