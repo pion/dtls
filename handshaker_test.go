@@ -407,6 +407,10 @@ func (c *flightTestConn) SetLocalEpoch(epoch uint16) {
 	c.epoch = epoch
 }
 
+func (c *flightTestConn) LockState() {}
+
+func (c *flightTestConn) UnlockState() {}
+
 func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description) error {
 	return nil
 }

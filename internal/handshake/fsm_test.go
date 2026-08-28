@@ -14,6 +14,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight12 "github.com/pion/dtls/v3/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	"github.com/pion/dtls/v3/internal/negotiation"
@@ -89,6 +90,10 @@ func (c *flightTestConn) SetLocalEpoch(epoch uint16) {
 	c.localEpoch = epoch
 	c.setLocalEpochCalled = true
 }
+
+func (c *flightTestConn) LockState() {}
+
+func (c *flightTestConn) UnlockState() {}
 
 func (c *flightTestConn) HandleQueuedPackets(ctx context.Context) error {
 	if c.handleQueuedPackets != nil {
@@ -346,7 +351,7 @@ func TestHandshakeFSM13PrepareHelloRetryRequestRequiresSeededTranscript(t *testi
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight2, nil, nil)
 	require.NoError(t, err)
 
-	nextState, err := fsm.prepare(context.Background(), nil)
+	nextState, err := fsm.prepare(context.Background(), &flightTestConn{})
 	require.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptHelloRetryRequestInvalid)
 	assert.Equal(t, StateErrored, nextState)
 	require.Len(t, fsm.flights, 1)
@@ -363,7 +368,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundClientHello(t *testing.T) {
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight1, nil, nil)
 	require.NoError(t, err)
 
-	nextState, err := fsm.prepare(context.Background(), nil)
+	nextState, err := fsm.prepare(context.Background(), &flightTestConn{})
 	require.NoError(t, err)
 	assert.Equal(t, StateSending, nextState)
 	require.Len(t, fsm.flights, 1)
@@ -390,7 +395,7 @@ func TestHandshakeFSM13PrepareCommitsOutboundHelloRetryRequestWithSeededTranscri
 	fsm, err := newFSM13(state, cache, cfg, dtlsflight13.Flight2, nil, transcript)
 	require.NoError(t, err)
 
-	nextState, err := fsm.prepare(context.Background(), nil)
+	nextState, err := fsm.prepare(context.Background(), &flightTestConn{})
 	require.NoError(t, err)
 	assert.Equal(t, StateSending, nextState)
 	require.Len(t, fsm.flights, 1)
@@ -1637,6 +1642,68 @@ func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 		LocalCertSignatureSchemes:   nil,
 		LocalSRTPProtectionProfiles: nil,
 	}
+}
+
+func testHandshakeConfig12(t *testing.T) *dtlsconfig.HandshakeConfig {
+	t.Helper()
+
+	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	require.NotNil(t, cipherSuite)
+
+	loggerFactory := logging.NewDefaultLoggerFactory()
+
+	return &dtlsconfig.HandshakeConfig{
+		LocalCipherSuites:         []dtlsconfig.CipherSuite{cipherSuite},
+		EllipticCurves:            []elliptic.Curve{elliptic.X25519},
+		InitialRetransmitInterval: time.Millisecond,
+		ExtendedMasterSecret:      dtlsconfig.RequestExtendedMasterSecret,
+		Log:                       loggerFactory.NewLogger("dtls"),
+	}
+}
+
+func newTestFSM12(t *testing.T) *fsm12 {
+	t.Helper()
+
+	state := dtlsstate.NewState12(true)
+	fsm := NewFSM12(
+		&state,
+		dtlsflight.NewCache(),
+		testHandshakeConfig12(t),
+		dtlsflight12.Flight1,
+		nil,
+		NewEstablishment(),
+	)
+
+	return fsm.(*fsm12) //nolint:forcetypeassert // NewFSM12 always returns *fsm12.
+}
+
+func TestHandshakeFSM12PrepareLocksState(t *testing.T) {
+	conn := &flightTestConn{}
+	fsm := newTestFSM12(t)
+
+	nextState, err := fsm.prepare(context.Background(), conn)
+	require.NoError(t, err)
+	assert.Equal(t, StateSending, nextState)
+	require.Len(t, fsm.flights, 1)
+	hs, ok := fsm.flights[0].Content.(*handshake.Handshake)
+	require.True(t, ok)
+	assert.Equal(t, handshake.TypeClientHello, hs.Message.Type())
+}
+
+func TestHandshakeFSM12WaitLocksState(t *testing.T) {
+	conn := &flightTestConn{
+		recvHandshake: make(chan RecvHandshakeState, 1),
+	}
+	fsm := newTestFSM12(t)
+
+	conn.recvHandshake <- RecvHandshakeState{
+		Done:         make(chan struct{}),
+		HasHandshake: true,
+	}
+
+	nextState, err := fsm.wait(context.Background(), conn)
+	require.NoError(t, err)
+	assert.Equal(t, StateWaiting, nextState)
 }
 
 func TestAppendOutboundHandshakeFlight13ClientHello(t *testing.T) {

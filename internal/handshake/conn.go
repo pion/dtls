@@ -85,6 +85,12 @@ type Conn interface {
 	WritePackets(context.Context, []*dtlsflight.Outbound) (*WriteResult, error)
 	RecvHandshake() <-chan RecvHandshakeState
 	SetLocalEpoch(epoch uint16)
+	// LockState and UnlockState guard mutations of the connection state.
+	// The FSM acquires the write side while flight handlers mutate the
+	// shared state so that concurrent readers (e.g. ConnectionState) see a
+	// consistent snapshot.
+	LockState()
+	UnlockState()
 }
 
 func sideString(isClient bool) string {

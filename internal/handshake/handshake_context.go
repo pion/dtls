@@ -70,7 +70,9 @@ func (c *handshakeContext) parseReceivedFlight(
 	conn Conn,
 	currentFlight dtlsflight13.Flight,
 ) (dtlsflight13.Flight, error) {
+	conn.LockState()
 	nextFlight, dtlsAlert, err, ok := dtlsflight13.Parse(ctx, currentFlight, conn, c.parseDependencies())
+	conn.UnlockState()
 	if !ok {
 		if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
 			return 0, alertErr
@@ -98,14 +100,20 @@ func (c *handshakeContext) advanceAfterReceivedFlight(
 	receivedRecords []protocol.RecordNumber,
 ) (receivedFlightTransition, error) {
 	if c.state.IsClient && nextFlight.IsLastSendFlight() {
-		if err := DeriveAndStoreApplicationTrafficSecrets(c.state, c.transcript); err != nil {
+		conn.LockState()
+		err := DeriveAndStoreApplicationTrafficSecrets(c.state, c.transcript)
+		conn.UnlockState()
+		if err != nil {
 			return receivedFlightTransition{}, err
 		}
 	}
 	if !c.state.IsClient &&
 		currentFlight == nextFlight &&
 		nextFlight.IsLastRecvFlight() {
-		if err := activateApplicationRecordProtection(ctx, conn, c.state); err != nil {
+		conn.LockState()
+		err := activateApplicationRecordProtection(ctx, conn, c.state)
+		conn.UnlockState()
+		if err != nil {
 			return receivedFlightTransition{}, err
 		}
 		if err := sendACK(ctx, conn, c.state.LocalEpoch(), receivedRecords); err != nil {

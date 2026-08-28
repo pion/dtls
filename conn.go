@@ -173,6 +173,14 @@ func (c handshakeConn) SessionKey() []byte {
 	return c.conn.sessionKey()
 }
 
+func (c handshakeConn) LockState() {
+	c.conn.stateMu.Lock()
+}
+
+func (c handshakeConn) UnlockState() {
+	c.conn.stateMu.Unlock()
+}
+
 func adaptFlightConn(conn *Conn) dtlsflight.Conn {
 	if conn == nil {
 		return nil
@@ -214,6 +222,11 @@ type Conn struct {
 	connectionClosedByUser bool
 	closeLock              sync.Mutex
 	closed                 *closer.Closer
+
+	// stateMu guards the c.state field replacement and mutations of the
+	// shared connection state performed by the handshake FSM. Readers such
+	// as ConnectionState hold the read side.
+	stateMu sync.RWMutex
 
 	readDeadline  *deadline.Deadline
 	writeDeadline *deadline.Deadline
@@ -410,8 +423,10 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 func (c *Conn) prepareHandshakeStart12() handshakeStart {
 	isClient := dtlsstate.CommonState(c.state).IsClient
 	if c.handshakeConfig.ResumeState != nil {
+		c.stateMu.Lock()
 		c.state = c.handshakeConfig.ResumeState
 		dtlsstate.CommonState(c.state).LocalVersion = protocol.Version1_2
+		c.stateMu.Unlock()
 
 		if isClient {
 			return handshakeStart{flight12: dtlsflight12.Flight5, fsmState: dtlshandshake.StateFinished}
@@ -420,9 +435,11 @@ func (c *Conn) prepareHandshakeStart12() handshakeStart {
 		return handshakeStart{flight12: dtlsflight12.Flight6, fsmState: dtlshandshake.StateFinished}
 	}
 
+	c.stateMu.Lock()
 	state := dtlsstate.Activate12(c.state)
 	c.state = state
 	state.LocalVersion = protocol.Version1_2
+	c.stateMu.Unlock()
 	if isClient {
 		return handshakeStart{flight12: dtlsflight12.Flight1, fsmState: dtlshandshake.StatePreparing}
 	}
@@ -431,9 +448,11 @@ func (c *Conn) prepareHandshakeStart12() handshakeStart {
 }
 
 func (c *Conn) prepareHandshakeStart13() handshakeStart {
+	c.stateMu.Lock()
 	state := dtlsstate.Activate13(c.state)
 	c.state = state
 	state.LocalVersion = protocol.Version1_3
+	c.stateMu.Unlock()
 	if state.IsClient {
 		return handshakeStart{flight13: dtlsflight13.Flight1, fsmState: dtlshandshake.StatePreparing}
 	}
@@ -724,8 +743,8 @@ func (c *Conn) Close() error {
 // ConnectionState returns basic DTLS details about the connection.
 // Note that this replaced the `Export` function of v1.
 func (c *Conn) ConnectionState() (State, bool) {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
 	state, err := generateStateForVerifyConnection(c.state)
 	if err != nil {
 		return State{}, false
@@ -736,6 +755,8 @@ func (c *Conn) ConnectionState() (State, bool) {
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile.
 func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
 	profile := dtlsstate.CommonState(c.state).SRTPProtectionProfile()
 	if profile == 0 {
 		return 0, false
@@ -746,6 +767,8 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 
 // RemoteSRTPMasterKeyIdentifier returns the MasterKeyIdentifier value from the use_srtp.
 func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
 	common := dtlsstate.CommonState(c.state)
 	if profile := common.SRTPProtectionProfile(); profile == 0 {
 		return nil, false
@@ -945,6 +968,8 @@ func (c *Conn) prepareRecord(outbound *dtlsflight.Outbound) ([]byte, error) {
 }
 
 func (c *Conn) nextLocalSequenceNumber(epoch uint16) (uint64, error) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
 	common := dtlsstate.CommonState(c.state)
 	for len(common.LocalSequenceNumber) <= int(epoch) {
 		common.LocalSequenceNumber = append(common.LocalSequenceNumber, uint64(0))
@@ -2316,8 +2341,10 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 	if !ok {
 		return nil, dtlserrors.ErrFlightUnimplemented13
 	}
+	c.stateMu.Lock()
 	state13 := dtlsstate.Activate13(c.state)
 	c.state = state13
+	c.stateMu.Unlock()
 	pkts, dtlsAlert, err := gen(adaptFlightConn(c), state13, c.handshakeCache, c.handshakeConfig)
 	if dtlsAlert != nil {
 		if alertErr := c.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil && err == nil {
@@ -2525,6 +2552,8 @@ func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
 }
 
 func (c *Conn) setNegotiatedVersion(remote []protocol.Version, chosen protocol.Version) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
 	common := dtlsstate.CommonState(c.state)
 	common.RemoteVersions = remote
 	common.LocalVersion = chosen

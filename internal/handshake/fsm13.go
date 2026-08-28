@@ -274,7 +274,9 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 		err = dtlserrors.ErrFlightUnimplemented13
 		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
 	} else {
+		conn.LockState()
 		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
+		conn.UnlockState()
 		s.retransmit = retransmit
 	}
 	if err = notifyAlert(ctx, conn, dtlsAlert, err); err != nil {
@@ -283,7 +285,10 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 
 	s.flights = pkts
 	s.prepareFlightACKTracking(s.flights, s.retransmit)
-	if err := s.commitPreparedFlight(conn, s.currentFlight, s.flights); err != nil {
+	conn.LockState()
+	err = s.commitPreparedFlight(conn, s.currentFlight, s.flights)
+	conn.UnlockState()
+	if err != nil {
 		return StateErrored, err
 	}
 

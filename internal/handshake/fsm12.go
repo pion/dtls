@@ -123,7 +123,9 @@ func (s *fsm12) prepare(ctx context.Context, conn Conn) (State, error) {
 		err = dtlserrors.ErrInvalidFlight
 		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
 	} else {
+		conn.LockState()
 		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
+		conn.UnlockState()
 		s.retransmit = retransmit
 	}
 	if err = notifyAlert(ctx, conn, dtlsAlert, err); err != nil {
@@ -175,6 +177,7 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				s.retransmitInterval = s.cfg.InitialRetransmitInterval
 			}
 
+			conn.LockState()
 			nextFlight, dtlsAlert, err, ok := dtlsflight12.Parse(
 				ctx,
 				s.currentFlight,
@@ -183,6 +186,7 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 				s.cache,
 				s.cfg,
 			)
+			conn.UnlockState()
 			if !ok {
 				if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
 					return StateErrored, alertErr

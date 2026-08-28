@@ -75,13 +75,18 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 		peerMKI = bytes.Clone(internalState.RemoteSRTPMasterKeyIdentifier)
 	}
 
+	var sequenceNumber uint64
+	if int(epoch) < len(internalState.LocalSequenceNumber) {
+		sequenceNumber = atomic.LoadUint64(&internalState.LocalSequenceNumber[epoch])
+	}
+
 	return &State{
 		localEpoch:            internalState.LocalEpoch(),
 		remoteEpoch:           internalState.RemoteEpoch(),
 		localRandom:           internalState.LocalRandom,
 		remoteRandom:          internalState.RemoteRandom,
 		masterSecret:          internalState.MasterSecret,
-		sequenceNumber:        atomic.LoadUint64(&internalState.LocalSequenceNumber[epoch]),
+		sequenceNumber:        sequenceNumber,
 		srtpProtectionProfile: profile,
 		peerSRTPMKI:           peerMKI,
 		localConnectionID:     internalState.LocalConnectionID(),
