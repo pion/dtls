@@ -11,6 +11,9 @@ type ReturnRoutabilityCheck struct{}
 // ExtensionType returns the IANA extension type for RRC.
 func (ReturnRoutabilityCheck) ExtensionType() Type { return TypeReturnRoutabilityCheck }
 
+// MarshalSize returns the encoded payload size.
+func (ReturnRoutabilityCheck) MarshalSize() int { return 0 }
+
 // MarshalData returns the empty RRC extension_data.
 func (ReturnRoutabilityCheck) MarshalData() ([]byte, error) { return nil, nil }
 

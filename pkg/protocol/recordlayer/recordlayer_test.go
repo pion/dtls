@@ -173,7 +173,7 @@ func TestRecordLayerMarshalAndScan(t *testing.T) {
 		require.NoError(t, header.Unmarshal(records[0]))
 		assert.Equal(t, test.Want.Header, header)
 
-		content := records[0][header.Size():]
+		content := records[0][header.MarshalSize():]
 		switch want := test.Want.Content.(type) {
 		case *protocol.ChangeCipherSpec:
 			var got protocol.ChangeCipherSpec
@@ -243,14 +243,14 @@ func FuzzRecordLayer_MarshalScan_RoundTrip(f *testing.F) {
 		var backHeader Header
 		require.NoError(t, backHeader.Unmarshal(records[0]))
 		var backContent protocol.ApplicationData
-		require.NoError(t, backContent.Unmarshal(records[0][backHeader.Size():]))
+		require.NoError(t, backContent.Unmarshal(records[0][backHeader.MarshalSize():]))
 
 		require.Equal(t, recordLayer.Header.ContentType, backHeader.ContentType)
 		require.Equal(t, recordLayer.Header.Version, backHeader.Version)
 		require.Equal(t, recordLayer.Header.Epoch, backHeader.Epoch)
 		require.Equal(t, recordLayer.Header.SequenceNumber, backHeader.SequenceNumber)
 
-		bodyLen := len(raw) - backHeader.Size()
+		bodyLen := len(raw) - backHeader.MarshalSize()
 		require.Equal(t, bodyLen, len(backContent.Data))
 
 		require.Equal(t, payload, backContent.Data)
@@ -311,7 +311,7 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 			var header Header
 			require.NoError(t, header.Unmarshal(chunks[i]))
 			var content protocol.ApplicationData
-			require.NoError(t, content.Unmarshal(chunks[i][header.Size():]))
+			require.NoError(t, content.Unmarshal(chunks[i][header.MarshalSize():]))
 			require.Equal(t, all[i], content.Data)
 		}
 
@@ -509,7 +509,7 @@ func TestCiphertextRecord13RoundTrip(t *testing.T) {
 	require.True(t, roundTripHeader.SeqBit)
 	require.Equal(t, uint16(16), roundTripHeader.Length)
 	require.True(t, roundTripHeader.LengthBit)
-	require.Equal(t, encryptedRecord, records[0][roundTripHeader.Size():])
+	require.Equal(t, encryptedRecord, records[0][roundTripHeader.MarshalSize():])
 }
 
 func TestCiphertextRecord13MarshalRefreshesLength(t *testing.T) {
@@ -564,7 +564,7 @@ func TestCiphertextRecord13WithoutLengthUsesRemainder(t *testing.T) {
 	require.False(t, roundTripHeader.SeqBit)
 	require.Equal(t, uint16(0), roundTripHeader.Length)
 	require.False(t, roundTripHeader.LengthBit)
-	require.Equal(t, encryptedRecord, records[0][roundTripHeader.Size():])
+	require.Equal(t, encryptedRecord, records[0][roundTripHeader.MarshalSize():])
 }
 
 func TestUnpackDatagramCiphertext13(t *testing.T) {
@@ -912,4 +912,31 @@ func TestUnpackDatagramOmittedUnifiedLengthConsumesRemainder(t *testing.T) {
 	records, err := UnpackDatagram(datagram, UnpackDatagramConfig{})
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{datagram}, records)
+}
+
+func TestCiphertextRecord13MarshalTo(t *testing.T) {
+	encryptedRecord := ciphertext13Payload(0xde)
+	record := &CiphertextRecord{
+		Header: UnifiedHeader{
+			ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
+			EpochLow:       3,
+			SequenceNumber: 0xaabb,
+		},
+		EncryptedRecord: encryptedRecord,
+	}
+	wantRecord := &CiphertextRecord{
+		Header:          record.Header,
+		EncryptedRecord: encryptedRecord,
+	}
+	want, err := wantRecord.Marshal()
+	require.NoError(t, err)
+
+	out := make([]byte, record.MarshalSize())
+	n, err := record.MarshalTo(out)
+	require.NoError(t, err)
+	require.Equal(t, len(want), n)
+	require.Equal(t, want, out[:n])
+
+	_, err = record.MarshalTo(out[:n-1])
+	require.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
 }

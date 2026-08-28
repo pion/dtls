@@ -42,6 +42,7 @@ func TestExtensionPayloads(t *testing.T) {
 			data, err := test.value.MarshalData()
 			require.NoError(t, err)
 			assert.Equal(t, test.wire, data)
+			assert.Equal(t, len(data), test.value.MarshalSize())
 			require.NoError(t, test.out.UnmarshalData(data))
 		})
 	}

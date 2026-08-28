@@ -95,6 +95,8 @@ func (t Type) String() string { //nolint:cyclop
 // Message is the body of a Handshake datagram.
 type Message interface {
 	Marshal() ([]byte, error)
+	MarshalTo([]byte) (int, error)
+	MarshalSize() int
 	Unmarshal(data []byte) error
 	Type() Type
 }
@@ -117,6 +119,15 @@ func (h Handshake) ContentType() protocol.ContentType {
 	return protocol.ContentTypeHandshake
 }
 
+// MarshalSize returns the minimal buffer size required for MarshalTo.
+func (h *Handshake) MarshalSize() int {
+	if h.Message == nil {
+		return 0
+	}
+
+	return HeaderLength + h.Message.MarshalSize()
+}
+
 // Marshal encodes a handshake into a binary message.
 func (h *Handshake) Marshal() ([]byte, error) {
 	if h.Message == nil {
@@ -125,20 +136,46 @@ func (h *Handshake) Marshal() ([]byte, error) {
 		return nil, dtlserrors.ErrUnableToMarshalFragmented
 	}
 
-	msg, err := h.Message.Marshal()
+	message, err := h.Message.Marshal()
 	if err != nil {
 		return nil, err
 	}
 
-	h.Header.Length = uint32(len(msg)) //nolint:gosec // G115
+	out := make([]byte, HeaderLength+len(message))
+	h.Header.Length = uint32(len(message)) //nolint:gosec // handshake messages are bounded to uint24 on the wire.
 	h.Header.FragmentLength = h.Header.Length
 	h.Header.Type = h.Message.Type()
-	header, err := h.Header.Marshal()
-	if err != nil {
+	if _, err = h.Header.MarshalTo(out); err != nil {
 		return nil, err
 	}
+	copy(out[HeaderLength:], message)
 
-	return append(header, msg...), nil
+	return out, nil
+}
+
+// MarshalTo encodes a handshake into a binary message into a pre-allocated buffer.
+func (h *Handshake) MarshalTo(out []byte) (int, error) {
+	if h.Message == nil {
+		return 0, dtlserrors.ErrHandshakeMessageUnset
+	} else if h.Header.FragmentOffset != 0 {
+		return 0, dtlserrors.ErrUnableToMarshalFragmented
+	}
+
+	if len(out) < h.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	h.Header.Length = uint32(h.Message.MarshalSize()) //nolint:gosec // G115
+	h.Header.FragmentLength = h.Header.Length
+	h.Header.Type = h.Message.Type()
+	n, err := h.Header.MarshalTo(out)
+	if err != nil {
+		return n, err
+	}
+
+	nn, err := h.Message.MarshalTo(out[n:])
+
+	return n + nn, err
 }
 
 // Unmarshal decodes a handshake from a binary message.

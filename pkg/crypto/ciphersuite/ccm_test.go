@@ -65,7 +65,7 @@ func FuzzCCM_EncryptDecrypt_RoundTrip(f *testing.F) {
 		assert.NoError(t, outHeader.Unmarshal(dec))
 		assert.Equal(t, protocol.ContentTypeApplicationData, outHeader.ContentType)
 		var app protocol.ApplicationData
-		assert.NoError(t, app.Unmarshal(dec[outHeader.Size():]))
+		assert.NoError(t, app.Unmarshal(dec[outHeader.MarshalSize():]))
 		assert.Equal(t, payload, app.Data)
 	})
 }

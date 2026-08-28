@@ -31,27 +31,56 @@ func (m MessageCertificateVerify) Type() Type {
 	return TypeCertificateVerify
 }
 
+// MarshalSize returns the minimal required size for Marshalnto.
+func (m MessageCertificateVerify) MarshalSize() int {
+	return 1 + 1 + 2 + len(m.Signature)
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageCertificateVerify) Marshal() ([]byte, error) {
+	if err := m.validateMarshal(); err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, m.MarshalSize())
+	_, err := m.MarshalTo(out)
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageCertificateVerify) MarshalTo(out []byte) (int, error) {
+	if err := m.validateMarshal(); err != nil {
+		return 0, err
+	}
+	if len(out) < m.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	out[0] = byte(m.HashAlgorithm)                                //nolint:gosec // G115
+	out[1] = byte(m.SignatureAlgorithm)                           //nolint:gosec // G115
+	binary.BigEndian.PutUint16(out[2:], uint16(len(m.Signature))) //nolint:gosec // G115
+	copy(out[4:], m.Signature)
+
+	return m.MarshalSize(), nil
+}
+
+func (m *MessageCertificateVerify) validateMarshal() error {
 	if m.HashAlgorithm > 0xFF || m.SignatureAlgorithm > 0xFF {
-		return nil, dtlserrors.ErrInvalidSignHashAlgorithm
+		return dtlserrors.ErrInvalidSignHashAlgorithm
 	}
 
 	// CertificateVerify in DTLS 1.2 encodes hash/signature as 1 byte each.
 	scheme := tls.SignatureScheme(uint16(m.HashAlgorithm)<<8 | uint16(m.SignatureAlgorithm))
 	var alg signaturehash.Algorithm
 	if err := alg.Unmarshal(scheme); err != nil {
-		return nil, dtlserrors.ErrInvalidSignHashAlgorithm
+		return dtlserrors.ErrInvalidSignHashAlgorithm
 	}
 
-	out := make([]byte, 1+1+2+len(m.Signature))
-
-	out[0] = byte(m.HashAlgorithm)
-	out[1] = byte(m.SignatureAlgorithm)
-	binary.BigEndian.PutUint16(out[2:], uint16(len(m.Signature))) //nolint:gosec // G115
-	copy(out[4:], m.Signature)
-
-	return out, nil
+	return nil
 }
 
 // Unmarshal populates the message from encoded data.

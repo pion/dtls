@@ -27,8 +27,9 @@ func TestMessageKeyUpdate(t *testing.T) {
 }
 
 func TestMessageKeyUpdateErrors(t *testing.T) {
-	_, err := (&MessageKeyUpdate{RequestUpdate: 2}).Marshal()
+	raw, err := (&MessageKeyUpdate{RequestUpdate: 2}).Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidKeyUpdate)
+	assert.Nil(t, raw)
 
 	message := &MessageKeyUpdate{RequestUpdate: KeyUpdateRequested}
 	for _, raw := range [][]byte{nil, {0x00, 0x00}, {0x02}} {

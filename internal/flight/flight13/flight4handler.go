@@ -270,9 +270,9 @@ func flight4Generate( //nolint:cyclop
 			MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier),
 		})
 	}
-	encryptedExtensions := HandshakePacket(&handshake.MessageEncryptedExtensions{
-		Extensions: encryptedExtensionsList,
-	})
+	messageExtensions := handshake.MessageEncryptedExtensions{}
+	messageExtensions.Extensions = encryptedExtensionsList
+	encryptedExtensions := HandshakePacket(&messageExtensions)
 
 	pkts := []*dtlsflight.Outbound{
 		serverHello,
@@ -295,9 +295,9 @@ func flight4Generate( //nolint:cyclop
 				Authorities: cfg.ClientCAs.Subjects(),
 			})
 		}
-		pkts = append(pkts, HandshakePacket(&handshake.MessageCertificateRequest13{
-			Extensions: certificateRequestExtensions,
-		}))
+		m := handshake.MessageCertificateRequest13{}
+		m.Extensions = certificateRequestExtensions
+		pkts = append(pkts, HandshakePacket(&m))
 	}
 	pkts = append(pkts,
 		HandshakePacket(&handshake.MessageCertificate13{

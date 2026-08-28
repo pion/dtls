@@ -41,6 +41,7 @@ const (
 // Value is an extension payload that can be framed in an extension list.
 type Value interface {
 	ExtensionType() Type
+	MarshalSize() int
 	MarshalData() ([]byte, error)
 }
 
@@ -58,6 +59,9 @@ type Raw struct {
 
 // ExtensionType returns the extension type.
 func (r Raw) ExtensionType() Type { return r.Type }
+
+// MarshalSize returns the encoded payload size without serializing it.
+func (r Raw) MarshalSize() int { return len(r.Data) }
 
 // MarshalData returns a copy of the undecoded payload.
 func (r Raw) MarshalData() ([]byte, error) { return bytes.Clone(r.Data), nil }
@@ -105,36 +109,142 @@ func ParseList(buf []byte) ([]Raw, error) {
 	return values, nil
 }
 
-// MarshalList frames extension payloads as a uint16-length-prefixed list.
-func MarshalList(values []Value) ([]byte, error) {
-	payloads := make([][]byte, len(values))
+// PreparedList contains validated extension payloads ready to be framed.
+type PreparedList struct {
+	entries []preparedExtension
+	size    int
+}
+
+type preparedExtension struct {
+	typ     Type
+	payload []byte
+}
+
+// PrepareList serializes and validates extension payloads without allocating
+// the final list.
+func PrepareList(values []Value) (PreparedList, error) {
+	prepared := PreparedList{
+		size: 2,
+	}
 	totalLen := 0
-	for i, value := range values {
+	for _, value := range values {
 		if value == nil {
-			return nil, dtlserrors.ErrNilExtension
+			return prepared, dtlserrors.ErrNilExtension
 		}
 
+		expected := value.MarshalSize()
 		payload, err := value.MarshalData()
 		if err != nil {
-			return nil, err
+			return prepared, err
+		}
+		if expected < 0 || len(payload) != expected {
+			return prepared, dtlserrors.ErrLengthMismatch
 		}
 		if len(payload) > 0xffff || totalLen > 0xffff-4-len(payload) {
-			return nil, dtlserrors.ErrInvalidExtensionsLength
+			return prepared, dtlserrors.ErrInvalidExtensionsLength
 		}
 
-		payloads[i] = payload
+		prepared.entries = append(prepared.entries, preparedExtension{
+			typ:     value.ExtensionType(),
+			payload: payload,
+		})
 		totalLen += 4 + len(payload)
+		prepared.size = 2 + totalLen
 	}
 
-	out := make([]byte, 2, 2+totalLen)
-	binary.BigEndian.PutUint16(out, uint16(totalLen)) //nolint:gosec // totalLen is bounded above.
-	for i, value := range values {
-		out = binary.BigEndian.AppendUint16(out, uint16(value.ExtensionType()))
-		out = binary.BigEndian.AppendUint16(out, uint16(len(payloads[i]))) //nolint:gosec // bounded above.
-		out = append(out, payloads[i]...)
+	return prepared, nil
+}
+
+// MarshalSize returns the exact size of the prepared framed extension list.
+func (p PreparedList) MarshalSize() int {
+	return p.size
+}
+
+// MarshalTo writes a prepared framed extension list to out.
+func (p PreparedList) MarshalTo(out []byte) (int, error) {
+	if p.size < 2 {
+		return 0, dtlserrors.ErrLengthMismatch
+	}
+	if len(out) < p.size {
+		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
-	return out, nil
+	binary.BigEndian.PutUint16(out, uint16(p.size-2)) //nolint:gosec // size is bounded above.
+	offset := 2
+	for _, entry := range p.entries {
+		binary.BigEndian.PutUint16(out[offset:], uint16(entry.typ))
+		binary.BigEndian.PutUint16(out[offset+2:], uint16(len(entry.payload))) //nolint:gosec // bounded above.
+		copy(out[offset+4:], entry.payload)
+		offset += 4 + len(entry.payload)
+	}
+
+	return offset, nil
+}
+
+// MarshalList frames extension payloads as a uint16-length-prefixed list.
+func MarshalList(values []Value) ([]byte, error) {
+	prepared, err := PrepareList(values)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, prepared.MarshalSize())
+	_, err = prepared.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalListSize returns the size of a framed extension list without
+// serializing extension payloads.
+func MarshalListSize(values []Value) int {
+	totalLen := 0
+	for _, value := range values {
+		if value == nil {
+			return 2 + totalLen
+		}
+		totalLen += 4 + value.MarshalSize()
+	}
+
+	return 2 + totalLen
+}
+
+// MarshalListTo frames extension payloads into out without retaining another
+// encoded copy of the list.
+func MarshalListTo(out []byte, values []Value) (int, error) {
+	if len(out) < 2 {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	binary.BigEndian.PutUint16(out, 0)
+	offset := 2
+	for _, value := range values {
+		if value == nil {
+			return offset, dtlserrors.ErrNilExtension
+		}
+
+		expected := value.MarshalSize()
+		payload, err := value.MarshalData()
+		if err != nil {
+			return offset, err
+		}
+		if expected < 0 || len(payload) != expected {
+			return offset, dtlserrors.ErrLengthMismatch
+		}
+		if len(payload) > 0xffff || offset-2 > 0xffff-4-len(payload) {
+			return offset, dtlserrors.ErrInvalidExtensionsLength
+		}
+		if len(out)-offset < 4+len(payload) {
+			return offset, dtlserrors.ErrBufferTooSmall
+		}
+
+		binary.BigEndian.PutUint16(out[offset:], uint16(value.ExtensionType()))
+		binary.BigEndian.PutUint16(out[offset+2:], uint16(len(payload))) //nolint:gosec // bounded above.
+		copy(out[offset+4:], payload)
+		offset += 4 + len(payload)
+		binary.BigEndian.PutUint16(out, uint16(offset-2)) //nolint:gosec // bounded above.
+	}
+
+	return offset, nil
 }
 
 // MarshalRawList frames raw extensions without decoding their payloads.

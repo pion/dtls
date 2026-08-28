@@ -22,9 +22,35 @@ func (m MessageEncryptedExtensions) Type() Type {
 	return TypeEncryptedExtensions
 }
 
+// MarshalSize returns the minimal size required for MarshalTo.
+func (m *MessageEncryptedExtensions) MarshalSize() int {
+	return extension.MarshalListSize(m.Extensions)
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageEncryptedExtensions) Marshal() ([]byte, error) {
-	return extension.MarshalList(m.Extensions)
+	prepared, err := extension.PrepareList(m.Extensions)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, prepared.MarshalSize())
+	_, _ = prepared.MarshalTo(out)
+
+	return out, nil
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageEncryptedExtensions) MarshalTo(out []byte) (int, error) {
+	prepared, err := extension.PrepareList(m.Extensions)
+	if err != nil {
+		return 0, err
+	}
+	if len(out) < prepared.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	return prepared.MarshalTo(out)
 }
 
 // Unmarshal populates the message from encoded data.

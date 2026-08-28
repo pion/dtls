@@ -119,6 +119,13 @@ func TestHandshakeMessageCertificateRequest_CertificateTypesTooLong(t *testing.T
 		CertificateTypes: make([]clientcertificate.Type, 256),
 	}
 
-	_, err := c.Marshal()
+	raw, err := c.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrCertificateTypesTooLong)
+	assert.Nil(t, raw)
+
+	out := []byte{0xaa, 0xbb, 0xcc}
+	n, err := c.MarshalTo(out)
+	assert.ErrorIs(t, err, dtlserrors.ErrCertificateTypesTooLong)
+	assert.Zero(t, n)
+	assert.Equal(t, []byte{0xaa, 0xbb, 0xcc}, out)
 }

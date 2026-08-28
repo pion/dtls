@@ -61,8 +61,9 @@ func TestMessageNewConnectionIDMarshalErrors(t *testing.T) {
 
 	for name, message := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := message.Marshal()
+			raw, err := message.Marshal()
 			assert.Error(t, err)
+			assert.Nil(t, raw)
 		})
 	}
 }

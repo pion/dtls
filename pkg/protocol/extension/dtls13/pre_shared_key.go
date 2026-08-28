@@ -31,6 +31,19 @@ type OfferedPSKs struct {
 // ExtensionType returns the IANA extension type.
 func (OfferedPSKs) ExtensionType() extension.Type { return extension.TypePreSharedKey }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (o OfferedPSKs) MarshalSize() int {
+	total := 4
+	for _, identity := range o.Identities {
+		total += 6 + len(identity.Identity)
+	}
+	for _, binder := range o.Binders {
+		total += 1 + len(binder)
+	}
+
+	return total
+}
+
 // MarshalData encodes extension_data.
 func (o OfferedPSKs) MarshalData() ([]byte, error) { //nolint:cyclop
 	if len(o.Identities) == 0 || len(o.Identities) != len(o.Binders) {
@@ -134,6 +147,9 @@ type SelectedPSK struct {
 
 // ExtensionType returns the IANA extension type.
 func (SelectedPSK) ExtensionType() extension.Type { return extension.TypePreSharedKey }
+
+// MarshalSize returns the encoded payload size.
+func (SelectedPSK) MarshalSize() int { return 2 }
 
 // MarshalData encodes extension_data.
 func (s SelectedPSK) MarshalData() ([]byte, error) {

@@ -264,7 +264,7 @@ func cidConnIdentifier() func([]byte) (string, bool) { //nolint:cyclop
 		if h.ContentType != protocol.ContentTypeHandshake {
 			return "", false
 		}
-		firstRecordSize := h.Size() + int(h.ContentLen)
+		firstRecordSize := h.MarshalSize() + int(h.ContentLen)
 		if len(packet) < firstRecordSize {
 			return "", false
 		}

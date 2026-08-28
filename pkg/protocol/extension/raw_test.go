@@ -4,6 +4,7 @@
 package extension
 
 import (
+	"errors"
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -71,6 +72,142 @@ func TestMarshalListBounds(t *testing.T) {
 func TestMarshalListRejectsNilExtension(t *testing.T) {
 	_, err := MarshalList([]Value{nil})
 	assert.ErrorIs(t, err, dtlserrors.ErrNilExtension)
+}
+
+func TestMarshalListTo(t *testing.T) {
+	values := []Value{
+		Raw{Type: 0xface, Data: []byte{0x01, 0x02, 0x03}},
+		Raw{Type: TypeALPN, Data: []byte{0xaa}},
+	}
+	want, err := MarshalList(values)
+	require.NoError(t, err)
+	assert.Equal(t, len(want), MarshalListSize(values))
+
+	out := make([]byte, MarshalListSize(values))
+	n, err := MarshalListTo(out, values)
+	require.NoError(t, err)
+	assert.Equal(t, len(want), n)
+	assert.Equal(t, want, out)
+}
+
+func TestMarshalListToErrors(t *testing.T) {
+	_, err := MarshalListTo([]byte{0x00}, nil)
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+
+	_, err = MarshalListTo(make([]byte, 2), []Value{nil})
+	assert.ErrorIs(t, err, dtlserrors.ErrNilExtension)
+
+	values := []Value{Raw{Type: 1, Data: []byte{0x01}}}
+	_, err = MarshalListTo(make([]byte, MarshalListSize(values)-1), values)
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+
+	_, err = MarshalListTo(make([]byte, 2), []Value{Raw{Type: 1, Data: make([]byte, 0x10000)}})
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionsLength)
+}
+
+type failingValue struct {
+	err error
+}
+
+func (f failingValue) ExtensionType() Type { return TypePadding }
+func (f failingValue) MarshalSize() int    { return 0 }
+func (f failingValue) MarshalData() ([]byte, error) {
+	return nil, f.err
+}
+
+func TestMarshalListToReportsOnlyWrittenPrefix(t *testing.T) {
+	marshalErr := errors.New("extension marshal failed") //nolint:err113
+	first := Raw{Type: 0xface, Data: []byte{0x01}}
+	firstWire, err := MarshalList([]Value{first})
+	require.NoError(t, err)
+	partialLen := len(firstWire)
+
+	tests := []struct {
+		name   string
+		second Value
+		outLen int
+		err    error
+	}{
+		{
+			name:   "nil extension",
+			outLen: partialLen,
+			err:    dtlserrors.ErrNilExtension,
+		},
+		{
+			name:   "marshal error",
+			second: failingValue{err: marshalErr},
+			outLen: partialLen,
+			err:    marshalErr,
+		},
+		{
+			name:   "length mismatch",
+			second: mismatchedValue{size: 1},
+			outLen: partialLen,
+			err:    dtlserrors.ErrLengthMismatch,
+		},
+		{
+			name:   "extensions length limit",
+			second: Raw{Type: TypePadding, Data: make([]byte, 0xffff)},
+			outLen: partialLen,
+			err:    dtlserrors.ErrInvalidExtensionsLength,
+		},
+		{
+			name:   "destination too small",
+			second: Raw{Type: TypePadding},
+			outLen: partialLen + 3,
+			err:    dtlserrors.ErrBufferTooSmall,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			out := make([]byte, test.outLen)
+			out[0], out[1] = 0xaa, 0xbb
+
+			n, err := MarshalListTo(out, []Value{first, test.second})
+
+			assert.ErrorIs(t, err, test.err)
+			assert.Equal(t, partialLen, n)
+			assert.Equal(t, firstWire, out[:n])
+		})
+	}
+}
+
+type mismatchedValue struct {
+	size int
+	data []byte
+}
+
+func (m mismatchedValue) ExtensionType() Type { return TypePadding }
+func (m mismatchedValue) MarshalSize() int    { return m.size }
+func (m mismatchedValue) MarshalData() ([]byte, error) {
+	return m.data, nil
+}
+
+func TestMarshalListRejectsMismatchedPayloadSize(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value Value
+	}{
+		{name: "underreported data", value: mismatchedValue{size: 1}},
+		{name: "overreported data", value: mismatchedValue{size: 0, data: []byte{0}}},
+		{name: "negative size", value: mismatchedValue{size: -1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := MarshalList([]Value{test.value})
+			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+
+			out := make([]byte, 16)
+			for i := range out {
+				out[i] = 0xaa
+			}
+			n, err := MarshalListTo(out, []Value{test.value})
+			assert.Equal(t, 2, n)
+			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+			assert.Equal(t, []byte{0x00, 0x00}, out[:n])
+			assert.Equal(t, []byte{0xaa, 0xaa}, out[n:n+2])
+		})
+	}
 }
 
 func FuzzParseList(f *testing.F) {

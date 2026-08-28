@@ -401,6 +401,14 @@ func sendClientHello(
 		cipherSuites = cipherSuiteIDs(defaultCipherSuites())
 	}
 
+	clientHello := handshake.MessageClientHello{
+		Version:            protocol.Version1_2,
+		Cookie:             cookie,
+		CipherSuiteIDs:     cipherSuites,
+		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         extensions,
+	}
+
 	packet, err := marshalTestRecord(recordlayer.Header{
 		Version:        protocol.Version1_2,
 		SequenceNumber: sequenceNumber,
@@ -408,13 +416,7 @@ func sendClientHello(
 		Header: handshake.Header{
 			MessageSequence: uint16(sequenceNumber), //nolint:gosec // G115
 		},
-		Message: &handshake.MessageClientHello{
-			Version:            protocol.Version1_2,
-			Cookie:             cookie,
-			CipherSuiteIDs:     cipherSuites,
-			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-			Extensions:         extensions,
-		},
+		Message: &clientHello,
 	})
 	if err != nil {
 		return err
@@ -425,6 +427,26 @@ func sendClientHello(
 	}
 
 	return nil
+}
+
+func withExtensions[T any](
+	message T,
+	extensions []extension.Value,
+) T {
+	switch message := any(message).(type) {
+	case *handshake.MessageClientHello:
+		message.Extensions = extensions
+	case *handshake.MessageServerHello:
+		message.Extensions = extensions
+	case *handshake.MessageEncryptedExtensions:
+		message.Extensions = extensions
+	case *handshake.MessageNewSessionTicket:
+		message.Extensions = extensions
+	case *handshake.MessageCertificateRequest13:
+		message.Extensions = extensions
+	}
+
+	return message
 }
 
 func TestHandshakeWithAlert(t *testing.T) {
@@ -2240,14 +2262,13 @@ func TestServerTimeout(t *testing.T) {
 			Header: handshake.Header{
 				MessageSequence: 0,
 			},
-			Message: &handshake.MessageClientHello{
+			Message: withExtensions(&handshake.MessageClientHello{
 				Version:            protocol.Version1_2,
 				Cookie:             cookie,
 				Random:             random,
 				CipherSuiteIDs:     cipherSuiteIDs(cipherSuites),
 				CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-				Extensions:         extensions,
-			},
+			}, extensions),
 		},
 	}
 
@@ -2553,13 +2574,12 @@ func marshalVersionNegotiationServerHello13(
 	t.Helper()
 
 	cipherSuiteID := uint16(cfg.LocalCipherSuites[0].ID())
-	serverHello := &handshake.MessageServerHello{
+	serverHello := withExtensions(&handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
 		Random:            random,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions:        extensions,
-	}
+	}, extensions)
 	rawServerHello, err := (&handshake.Handshake{Message: serverHello}).Marshal()
 	assert.NoError(t, err)
 
@@ -2597,12 +2617,16 @@ func testVersionNegotiationHandshakeConfig13(t *testing.T) *dtlsconfig.Handshake
 
 func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 	const offeredType extension.Type = 0xfefe
-	_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
+	extensions := []extension.Value{
+		extension.Raw{Type: offeredType, Data: []byte{0x01}},
+	}
+	clientHello := handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-		Extensions:         []extension.Value{extension.Raw{Type: offeredType, Data: []byte{0x01}}},
-	}, nil)
+		Extensions:         extensions,
+	}
+	_, offer, err := negotiation.FinalizeClientHello(&clientHello, nil)
 	require.NoError(t, err)
 
 	cfg := testVersionNegotiationHandshakeConfig13(t)
@@ -2613,12 +2637,14 @@ func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 		handshakeConfig: cfg,
 		state:           &dtlsstate.State13{Common: common},
 	}
-	err = conn.pickVersionFromServerHello(&handshake.MessageServerHello{
-		Version: protocol.Version1_2,
-		Extensions: []extension.Value{
-			extension.Raw{Type: 0xfefd, Data: []byte{0x02}},
-		},
-	})
+	extensions = []extension.Value{
+		extension.Raw{Type: 0xfefd, Data: []byte{0x02}},
+	}
+	serverHello := handshake.MessageServerHello{
+		Version:    protocol.Version1_2,
+		Extensions: extensions,
+	}
+	err = conn.pickVersionFromServerHello(&serverHello)
 
 	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
 	var classified *alert.Alert
@@ -2731,15 +2757,14 @@ func TestDualStackVersionNegotiationSendsClassifiedAlerts(t *testing.T) {
 		result := make(chan error, 1)
 		go func() { result <- server.HandshakeContext(ctx) }()
 
-		raw := marshalVersionNegotiationRecord(t, &handshake.MessageClientHello{
+		raw := marshalVersionNegotiationRecord(t, withExtensions(&handshake.MessageClientHello{
 			Version:            protocol.Version1_2,
 			CipherSuiteIDs:     []uint16{uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
 			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-			Extensions: []extension.Value{
-				extension.Raw{Type: 0xfefe},
-				extension.Raw{Type: 0xfefe},
-			},
-		})
+		}, []extension.Value{
+			extension.Raw{Type: 0xfefe},
+			extension.Raw{Type: 0xfefe},
+		}))
 		_, err = ca.Write(raw)
 		require.NoError(t, err)
 
@@ -2808,7 +2833,7 @@ func readVersionNegotiationAlert(t *testing.T, conn net.Conn) alert.Description 
 			}
 
 			var dtlsAlert alert.Alert
-			require.NoError(t, dtlsAlert.Unmarshal(rawRecord[header.Size():]))
+			require.NoError(t, dtlsAlert.Unmarshal(rawRecord[header.MarshalSize():]))
 
 			return dtlsAlert.Description
 		}
@@ -2821,10 +2846,10 @@ func unmarshalHandshakeRecord(t *testing.T, raw []byte) (recordlayer.Header, *ha
 	var header recordlayer.Header
 	require.NoError(t, header.Unmarshal(raw))
 	require.Equal(t, protocol.ContentTypeHandshake, header.ContentType)
-	require.GreaterOrEqual(t, len(raw), header.Size())
+	require.GreaterOrEqual(t, len(raw), header.MarshalSize())
 
 	var content handshake.Handshake
-	require.NoError(t, content.Unmarshal(raw[header.Size():]))
+	require.NoError(t, content.Unmarshal(raw[header.MarshalSize():]))
 
 	return header, &content
 }
@@ -2835,10 +2860,10 @@ func unmarshalAlertRecord(t *testing.T, raw []byte) *alert.Alert {
 	var header recordlayer.Header
 	require.NoError(t, header.Unmarshal(raw))
 	require.Equal(t, protocol.ContentTypeAlert, header.ContentType)
-	require.GreaterOrEqual(t, len(raw), header.Size())
+	require.GreaterOrEqual(t, len(raw), header.MarshalSize())
 
 	var content alert.Alert
-	require.NoError(t, content.Unmarshal(raw[header.Size():]))
+	require.NoError(t, content.Unmarshal(raw[header.MarshalSize():]))
 
 	return &content
 }
@@ -4407,7 +4432,9 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 
 				if len(keyShare.Shares) == len(curves) {
 					initialClientHellos.Add(1)
-					clientHello.Extensions[i] = &extension13.ClientKeyShare{}
+					extensions := clientHello.Extensions
+					extensions[i] = &extension13.ClientKeyShare{}
+					clientHello.Extensions = extensions
 				} else {
 					retryClientHellos.Add(1)
 				}
@@ -4500,7 +4527,7 @@ func datagramContainsHandshake(raw []byte, typ handshake.Type, sequence uint16) 
 			continue
 		}
 		var handshakeRecord handshake.Handshake
-		if err = handshakeRecord.Unmarshal(rawRecord[header.Size():]); err != nil {
+		if err = handshakeRecord.Unmarshal(rawRecord[header.MarshalSize():]); err != nil {
 			continue
 		}
 		if handshakeRecord.Header.Type == typ && handshakeRecord.Header.MessageSequence == sequence {
@@ -5403,7 +5430,7 @@ func unmarshalCiphertextRecordForTest(
 		record.Header.ConnectionID = make([]byte, cidLength)
 	}
 	require.NoError(t, record.Header.Unmarshal(records[0]))
-	record.EncryptedRecord = records[0][record.Header.Size():]
+	record.EncryptedRecord = records[0][record.Header.MarshalSize():]
 
 	return record
 }

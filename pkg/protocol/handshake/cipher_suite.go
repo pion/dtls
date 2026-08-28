@@ -25,14 +25,3 @@ func decodeCipherSuiteIDs(buf []byte) ([]uint16, error) {
 
 	return ids, nil
 }
-
-func encodeCipherSuiteIDs(cipherSuiteIDs []uint16) []byte {
-	out := []byte{0x00, 0x00}
-	binary.BigEndian.PutUint16(out[len(out)-2:], uint16(len(cipherSuiteIDs)*2)) //nolint:gosec // G115
-	for _, id := range cipherSuiteIDs {
-		out = append(out, []byte{0x00, 0x00}...)
-		binary.BigEndian.PutUint16(out[len(out)-2:], id)
-	}
-
-	return out
-}

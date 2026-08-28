@@ -84,27 +84,63 @@ func TestACK_EmptyRecords(t *testing.T) {
 	assert.Empty(t, newACK.Records)
 }
 
-func TestACK_UnmarshalRejectsLengthMismatches(t *testing.T) {
-	for name, raw := range map[string][]byte{
+func TestACK_Unmarshal(t *testing.T) {
+	for name, test := range map[string]struct {
+		raw     []byte
+		wantErr error
+	}{
+		"empty": {
+			raw: []byte{0x00, 0x00}, // record list length = 0
+		},
 		"truncated record": {
-			0x00, 0x10, // record list length = 16
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // only 7 bytes of epoch
+			raw: []byte{
+				0x00, 0x10, // record list length = 16
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // only 7 bytes of epoch
+			},
+			wantErr: dtlserrors.ErrLengthMismatch,
 		},
 		"trailing data": {
-			0x00, 0x10, // record list length = 16 (one record)
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // epoch = 1
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // sequence_number = 1
-			0xde, 0xad, // trailing garbage
+			raw: []byte{
+				0x00, 0x10, // record list length = 16 (one record)
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // epoch = 1
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // sequence_number = 1
+				0xde, 0xad, // trailing garbage
+			},
+			wantErr: dtlserrors.ErrLengthMismatch,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			newACK := ACK{}
-			assert.ErrorIs(t, newACK.Unmarshal(raw), dtlserrors.ErrLengthMismatch)
+			err := newACK.Unmarshal(test.raw)
+			if test.wantErr != nil {
+				assert.ErrorIs(t, err, test.wantErr)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Empty(t, newACK.Records)
 		})
 	}
-}
 
-func TestACK_UnmarshalEmpty(t *testing.T) {
-	newACK := ACK{}
-	assert.NoError(t, newACK.Unmarshal([]byte{0x00, 0x00}))
+	t.Run("maximum records", func(t *testing.T) {
+		ack := ACK{Records: make([]RecordNumber, 4095)}
+
+		raw, err := ack.Marshal()
+		assert.NoError(t, err)
+		assert.Len(t, raw, 2+4095*16)
+		assert.Equal(t, ack.MarshalSize(), len(raw))
+		assert.Equal(t, []byte{0xff, 0xf0}, raw[:2])
+	})
+
+	t.Run("too many records", func(t *testing.T) {
+		ack := ACK{Records: make([]RecordNumber, 4096)}
+
+		raw, err := ack.Marshal()
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidACK)
+		assert.Nil(t, raw)
+
+		_, err = ack.MarshalTo(make([]byte, ack.MarshalSize()))
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidACK)
+	})
 }

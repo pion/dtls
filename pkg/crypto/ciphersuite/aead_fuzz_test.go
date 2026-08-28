@@ -119,5 +119,5 @@ func assertFuzzCipherRoundTrip(
 
 	var parsedHeader recordlayer.Header
 	require.NoError(t, parsedHeader.Unmarshal(decrypted))
-	require.Equal(t, plaintext, decrypted[parsedHeader.Size():])
+	require.Equal(t, plaintext, decrypted[parsedHeader.MarshalSize():])
 }

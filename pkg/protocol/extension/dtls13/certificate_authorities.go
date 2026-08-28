@@ -21,6 +21,16 @@ func (CertificateAuthorities) ExtensionType() extension.Type {
 	return extension.TypeCertificateAuthorities
 }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (c CertificateAuthorities) MarshalSize() int {
+	total := 2
+	for _, authority := range c.Authorities {
+		total += 2 + len(authority)
+	}
+
+	return total
+}
+
 // MarshalData encodes extension_data.
 func (c CertificateAuthorities) MarshalData() ([]byte, error) {
 	if len(c.Authorities) == 0 {

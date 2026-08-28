@@ -18,6 +18,9 @@ type OfferedVersions struct {
 // ExtensionType returns the IANA extension type.
 func (OfferedVersions) ExtensionType() extension.Type { return extension.TypeSupportedVersions }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (o OfferedVersions) MarshalSize() int { return 1 + (2 * len(o.Versions)) }
+
 // MarshalData encodes extension_data.
 func (o OfferedVersions) MarshalData() ([]byte, error) {
 	length := len(o.Versions) * 2
@@ -56,6 +59,9 @@ type SelectedVersion struct {
 
 // ExtensionType returns the IANA extension type.
 func (SelectedVersion) ExtensionType() extension.Type { return extension.TypeSupportedVersions }
+
+// MarshalSize returns the encoded payload size.
+func (SelectedVersion) MarshalSize() int { return 2 }
 
 // MarshalData encodes extension_data.
 func (s SelectedVersion) MarshalData() ([]byte, error) {

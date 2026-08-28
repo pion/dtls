@@ -45,6 +45,6 @@ func FuzzHeaderCIDUnmarshal(f *testing.F) {
 
 		raw, err := header.Marshal()
 		require.NoError(t, err)
-		require.Equal(t, data[:header.Size()], raw)
+		require.Equal(t, data[:header.MarshalSize()], raw)
 	})
 }

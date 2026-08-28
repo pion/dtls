@@ -72,8 +72,15 @@ func TestMessageNewSessionTicketMarshalErrors(t *testing.T) {
 
 	for name, message := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := message.Marshal()
+			raw, err := message.Marshal()
 			assert.Error(t, err)
+			assert.Nil(t, raw)
+
+			out := []byte{0xaa, 0xbb, 0xcc}
+			n, err := message.MarshalTo(out)
+			assert.Error(t, err)
+			assert.Zero(t, n)
+			assert.Equal(t, []byte{0xaa, 0xbb, 0xcc}, out)
 		})
 	}
 }

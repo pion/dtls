@@ -20,6 +20,9 @@ func (SupportedPointFormats) ExtensionType() extension.Type {
 	return extension.TypeSupportedPointFormats
 }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (s SupportedPointFormats) MarshalSize() int { return 1 + len(s.PointFormats) }
+
 // MarshalData encodes extension_data.
 func (s SupportedPointFormats) MarshalData() ([]byte, error) {
 	if len(s.PointFormats) > 255 {

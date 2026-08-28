@@ -50,42 +50,52 @@ const (
 
 // Marshal encodes a DTLS 1.3 Unified Header to binary.
 func (u *UnifiedHeader) Marshal() ([]byte, error) {
-	var contentType uint8
-	var head cryptobyte.Builder
-	contentType = UnifiedHeaderFixedBits
+	if len(u.ConnectionID) > math.MaxUint8 {
+		return []byte{}, dtlserrors.ErrCIDTooBig
+	}
 
-	cidSz := len(u.ConnectionID)
-	if cidSz > 0 {
+	out := make([]byte, u.MarshalSize())
+	_, err := u.MarshalTo(out)
+
+	return out, err
+}
+
+// MarshalTo encodes a DTLS 1.3 Unified Header to a pre-allocated buffer.
+func (u *UnifiedHeader) MarshalTo(out []byte) (int, error) {
+	cidSize := len(u.ConnectionID)
+	if cidSize > math.MaxUint8 {
+		return 0, dtlserrors.ErrCIDTooBig
+	}
+	if len(out) < u.MarshalSize() {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	contentType := byte(UnifiedHeaderFixedBits) | u.EpochLow&TwoLowBitsMask
+	offset := 1
+	if cidSize > 0 {
 		contentType |= UnifiedHeaderCIDBit
-		if cidSz > math.MaxUint8 {
-			return []byte{}, dtlserrors.ErrCIDTooBig
-		}
-		head.AddBytes(u.ConnectionID)
+		offset += copy(out[offset:], u.ConnectionID)
 	}
 
 	if u.SeqBit {
 		contentType |= UnifiedHeaderSeqBit
-		head.AddUint16(u.SequenceNumber)
+		out[offset] = byte(u.SequenceNumber >> 8)
+		out[offset+1] = byte(u.SequenceNumber) //nolint:gosec // validated above
+		offset += 2
 	} else {
-		head.AddUint8(uint8(u.SequenceNumber)) //nolint:gosec
+		out[offset] = byte(u.SequenceNumber) //nolint:gosec // truncation is prescribed by SeqBit
+		offset++
 	}
 
 	if u.LengthBit {
 		contentType |= UnifiedHeaderLengthBit
-		head.AddUint16(u.Length)
+		out[offset] = byte(u.Length >> 8)
+		out[offset+1] = byte(u.Length) //nolint:gosec // validated above
+		offset += 2
 	}
-
-	contentType |= u.EpochLow & TwoLowBitsMask
-
-	headBytes, err := head.Bytes()
-	if err != nil {
-		return []byte{}, err
-	}
-	out := make([]byte, 1+len(headBytes))
 	out[0] = contentType
-	copy(out[1:], headBytes)
 
-	return out, nil
+	return offset, nil
 }
 
 // Unmarshal populates a DTLS 1.3 Unified Header from binary.
@@ -139,7 +149,7 @@ func (u *UnifiedHeader) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (u *UnifiedHeader) Size() int {
+func (u *UnifiedHeader) MarshalSize() int {
 	var size int
 	size += 1
 	size += len(u.ConnectionID)

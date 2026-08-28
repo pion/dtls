@@ -140,9 +140,18 @@ func TestMessageCertificate13_MultipleCertificates(t *testing.T) {
 	msg := &MessageCertificate13{
 		CertificateRequestContext: []byte{},
 		CertificateList: []CertificateEntry13{
-			{CertificateData: []byte{0x01, 0x02, 0x03}, Extensions: []extension.Value{}},
-			{CertificateData: []byte{0x04, 0x05, 0x06, 0x07}, Extensions: []extension.Value{}},
-			{CertificateData: []byte{0x08, 0x09}, Extensions: []extension.Value{}},
+			{
+				CertificateData: []byte{0x01, 0x02, 0x03},
+				Extensions:      []extension.Value{},
+			},
+			{
+				CertificateData: []byte{0x04, 0x05, 0x06, 0x07},
+				Extensions:      []extension.Value{},
+			},
+			{
+				CertificateData: []byte{0x08, 0x09},
+				Extensions:      []extension.Value{},
+			},
 		},
 	}
 	marshalUnmarshalMessageCertificate13AndVerifyMatch(t, msg, nil)

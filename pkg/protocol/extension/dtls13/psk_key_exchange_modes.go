@@ -26,6 +26,9 @@ func (PSKKeyExchangeModes) ExtensionType() extension.Type {
 	return extension.TypePSKKeyExchangeModes
 }
 
+// MarshalSize returns the encoded payload size without serializing it.
+func (p PSKKeyExchangeModes) MarshalSize() int { return 1 + len(p.Modes) }
+
 // MarshalData encodes extension_data.
 func (p PSKKeyExchangeModes) MarshalData() ([]byte, error) {
 	if len(p.Modes) == 0 {

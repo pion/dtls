@@ -389,13 +389,12 @@ func TestProcessPostHandshakeMessagesDecodeAlert(t *testing.T) {
 
 func TestProcessPostHandshakeMessagesPreservesExtensionAlert(t *testing.T) {
 	wire, err := (&handshake.Handshake{
-		Message: &handshake.MessageNewSessionTicket{
+		Message: withExtensions(&handshake.MessageNewSessionTicket{
 			Ticket: []byte{0x01},
-			Extensions: []extension.Value{
-				&extension13.MaxEarlyData{Size: 1},
-				&extension13.MaxEarlyData{Size: 2},
-			},
-		},
+		}, []extension.Value{
+			&extension13.MaxEarlyData{Size: 1},
+			&extension13.MaxEarlyData{Size: 2},
+		}),
 	}).Marshal()
 	require.NoError(t, err)
 

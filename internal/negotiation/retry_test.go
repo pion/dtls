@@ -34,7 +34,9 @@ func retryClientHelloForTest(withEarlyData bool) *handshake.MessageClientHello {
 	clientHello.Random.RandomBytes[0] = 0xaa
 	if withEarlyData {
 		clientHello.Extensions = append(clientHello.Extensions,
-			&extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE}},
+			&extension13.PSKKeyExchangeModes{
+				Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE},
+			},
 			&extension13.EarlyData{},
 			&extension13.OfferedPSKs{
 				Identities: []extension13.PSKIdentity{{Identity: []byte("ticket")}},
@@ -108,7 +110,9 @@ func replaceRetryExtension(
 ) {
 	for i, value := range clientHello.Extensions {
 		if value.ExtensionType() == typ {
-			clientHello.Extensions[i] = replacement
+			extensions := clientHello.Extensions
+			extensions[i] = replacement
+			clientHello.Extensions = extensions
 		}
 	}
 }
@@ -164,11 +168,18 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 		valid  bool
 	}{
 		"authorized changes": {valid: true},
-		"padding change": {mutate: func(ch *handshake.MessageClientHello) {
-			ch.Extensions = slices.Insert(ch.Extensions, 2, extension.Value(extension.Raw{
-				Type: extension.TypePadding, Data: []byte{0x00, 0x00},
-			}))
-		}, valid: true},
+		"padding change": {
+			valid: true,
+			mutate: func(ch *handshake.MessageClientHello) {
+				ch.Extensions = slices.Insert(ch.Extensions, 2,
+					extension.Value(
+						extension.Raw{
+							Type: extension.TypePadding,
+							Data: []byte{0x00, 0x00},
+						},
+					))
+			},
+		},
 		"version": {mutate: func(ch *handshake.MessageClientHello) {
 			ch.Version = protocol.Version1_0
 		}},
@@ -197,7 +208,9 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 					second = i
 				}
 			}
-			ch.Extensions[first], ch.Extensions[second] = ch.Extensions[second], ch.Extensions[first]
+			extensions := ch.Extensions
+			extensions[first], extensions[second] = extensions[second], extensions[first]
+			ch.Extensions = extensions
 		}},
 		"supported groups": {mutate: func(ch *handshake.MessageClientHello) {
 			replaceRetryExtension(ch, extension.TypeSupportedGroups,
@@ -276,7 +289,9 @@ func TestValidateHelloVerifyRequestResponse(t *testing.T) {
 	retryHello, err := ClientHelloFromSnapshot(initial)
 	require.NoError(t, err)
 	retryHello.Cookie = []byte("cookie")
-	retryHello.Extensions[2] = extension.Raw{Type: unknownExtensionType, Data: []byte{0xff}}
+	retryExtensions := retryHello.Extensions
+	retryExtensions[2] = extension.Raw{Type: unknownExtensionType, Data: []byte{0xff}}
+	retryHello.Extensions = retryExtensions
 	retry := snapshotClientHelloForRetryTest(t, retryHello)
 
 	tests := map[string]struct {
@@ -347,7 +362,7 @@ func TestValidateServerHelloAfterRetry(t *testing.T) {
 			exts = append(exts, share)
 		}
 
-		return &handshake.MessageServerHello{CipherSuiteID: &cipherSuite, Extensions: exts}
+		return withExtensions(&handshake.MessageServerHello{CipherSuiteID: &cipherSuite}, exts)
 	}
 	validShare := &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{
 		Group: elliptic.X25519, KeyExchange: []byte{0x01},

@@ -38,46 +38,119 @@ func (m MessageClientHello) Type() Type {
 	return TypeClientHello
 }
 
+// MarshalSize returns the size needed for MarshalTo.
+func (m *MessageClientHello) MarshalSize() int {
+	cipherSuitesSize := 2 + 2*len(m.CipherSuiteIDs)
+	compressionSize := 1 + len(m.CompressionMethods)
+
+	return handshakeMessageClientHelloVariableWidthStart +
+		1 +
+		len(m.SessionID) +
+		1 +
+		len(m.Cookie) +
+		cipherSuitesSize +
+		compressionSize +
+		extension.MarshalListSize(m.Extensions)
+}
+
 // Marshal encodes the Handshake.
 func (m *MessageClientHello) Marshal() ([]byte, error) {
-	if len(m.Cookie) > 255 {
-		return nil, dtlserrors.ErrCookieTooLong
-	}
-	if len(m.SessionID) > 255 {
-		return nil, dtlserrors.ErrSessionIDTooLong
-	}
-	if len(m.CompressionMethods) > 255 {
-		return nil, dtlserrors.ErrCompressionMethodsTooLong
-	}
-
-	extensions, err := extension.MarshalList(m.Extensions)
+	prepared, err := m.prepareMarshal()
 	if err != nil {
 		return nil, err
 	}
 
-	encodedCipherSuiteIDs := encodeCipherSuiteIDs(m.CipherSuiteIDs)
-	encodedCompressionMethods := protocol.EncodeCompressionMethods(m.CompressionMethods)
+	out := make([]byte, prepared.size)
+	m.marshalTo(out, prepared.extensions)
 
-	out := make(
-		[]byte,
-		0,
-		handshakeMessageClientHelloVariableWidthStart+1+len(m.SessionID)+1+
-			len(m.Cookie)+len(encodedCipherSuiteIDs)+len(encodedCompressionMethods)+len(extensions),
-	)
-	out = append(out, m.Version.Major, m.Version.Minor)
+	return out, nil
+}
+
+// MarshalTo encodes the Handshake into a pre-allocated buffer.
+func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
+	prepared, err := m.prepareMarshal()
+	if err != nil {
+		return 0, err
+	}
+	if len(out) < prepared.size {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	m.marshalTo(out, prepared.extensions)
+
+	return prepared.size, nil
+}
+
+type preparedClientHello struct {
+	extensions extension.PreparedList
+	size       int
+}
+
+func (m *MessageClientHello) prepareMarshal() (preparedClientHello, error) {
+	if len(m.Cookie) > 255 {
+		return preparedClientHello{}, dtlserrors.ErrCookieTooLong
+	}
+	if len(m.SessionID) > 255 {
+		return preparedClientHello{}, dtlserrors.ErrSessionIDTooLong
+	}
+	if len(m.CompressionMethods) > 255 {
+		return preparedClientHello{}, dtlserrors.ErrCompressionMethodsTooLong
+	}
+
+	extensions, err := extension.PrepareList(m.Extensions)
+	size := handshakeMessageClientHelloVariableWidthStart +
+		1 + len(m.SessionID) +
+		1 + len(m.Cookie) +
+		2 + 2*len(m.CipherSuiteIDs) +
+		1 + len(m.CompressionMethods) +
+		extensions.MarshalSize()
+	prepared := preparedClientHello{extensions: extensions, size: size}
+	if size < 0 {
+		return prepared, dtlserrors.ErrLengthMismatch
+	}
+	if err != nil {
+		return prepared, err
+	}
+
+	return prepared, nil
+}
+
+func (m *MessageClientHello) marshalTo(out []byte, extensions extension.PreparedList) {
+	offset := 0
+	out[0] = m.Version.Major
+	out[1] = m.Version.Minor
+	offset += 2
 
 	rand := m.Random.MarshalFixed()
-	out = append(out, rand[:]...)
+	n := copy(out[offset:], rand[:])
+	offset += n
+	out[offset] = byte(len(m.SessionID)) //nolint:gosec // G115: session ID length is validated to be <= 255 above.
+	offset += 1
 
-	out = append(out, byte(len(m.SessionID))) //nolint:gosec // G115: session ID length is validated to be <= 255 above.
-	out = append(out, m.SessionID...)
+	n = copy(out[offset:], m.SessionID)
+	offset += n
 
-	out = append(out, byte(len(m.Cookie))) //nolint:gosec // G115: cookie length is validated to be <= 255 above.
-	out = append(out, m.Cookie...)
-	out = append(out, encodedCipherSuiteIDs...)
-	out = append(out, encodedCompressionMethods...)
+	out[offset] = byte(len(m.Cookie)) //nolint:gosec // G115: cookie length is validated to be <= 255 above.
+	offset += 1
 
-	return append(out, extensions...), nil
+	n = copy(out[offset:], m.Cookie)
+	offset += n
+
+	binary.BigEndian.PutUint16(out[offset:], uint16(2*len(m.CipherSuiteIDs))) //nolint:gosec // G115: length is uint16.
+	offset += 2
+	for _, id := range m.CipherSuiteIDs {
+		binary.BigEndian.PutUint16(out[offset:], id)
+		offset += 2
+	}
+
+	out[offset] = byte(len(m.CompressionMethods)) //nolint:gosec // G115: validated to be <= 255 above.
+	offset++
+	for i := len(m.CompressionMethods); i > 0; i-- {
+		out[offset] = byte(m.CompressionMethods[i-1].ID)
+		offset++
+	}
+
+	_, _ = extensions.MarshalTo(out[offset:])
 }
 
 // Unmarshal populates the message from encoded data.

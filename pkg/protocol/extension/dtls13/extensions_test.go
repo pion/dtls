@@ -88,10 +88,12 @@ func TestExtensionPayloadRoundTrips(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			data, err := test.value.MarshalData()
 			require.NoError(t, err)
+			assert.Equal(t, len(data), test.value.MarshalSize())
 			require.NoError(t, test.out.UnmarshalData(data))
 			roundTrip, err := test.out.MarshalData()
 			require.NoError(t, err)
 			assert.Equal(t, data, roundTrip)
+			assert.Equal(t, len(roundTrip), test.out.MarshalSize())
 			assert.Equal(t, test.value.ExtensionType(), test.out.ExtensionType())
 		})
 	}

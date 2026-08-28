@@ -21,14 +21,33 @@ import (
 
 const unknownExtensionType extension.Type = 0xfefe
 
+func withExtensions[T any](
+	message T,
+	extensions []extension.Value,
+) T {
+	switch message := any(message).(type) {
+	case *handshake.MessageClientHello:
+		message.Extensions = extensions
+	case *handshake.MessageServerHello:
+		message.Extensions = extensions
+	case *handshake.MessageEncryptedExtensions:
+		message.Extensions = extensions
+	case *handshake.MessageNewSessionTicket:
+		message.Extensions = extensions
+	case *handshake.MessageCertificateRequest13:
+		message.Extensions = extensions
+	}
+
+	return message
+}
+
 func clientHelloForTest(extensions ...extension.Value) *handshake.MessageClientHello {
-	return &handshake.MessageClientHello{
+	return withExtensions(&handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		SessionID:          []byte{0x01, 0x02},
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-		Extensions:         extensions,
-	}
+	}, extensions)
 }
 
 func snapshotForTest(
@@ -120,7 +139,10 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 		{
 			name: "duplicate extension",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
-				ch.Extensions = []extension.Value{&extension.ConnectionID{}, &extension.ConnectionID{}}
+				ch.Extensions = []extension.Value{
+					&extension.ConnectionID{},
+					&extension.ConnectionID{},
+				}
 
 				return &ch
 			},
@@ -291,7 +313,7 @@ func TestDecideConnectionIDNegotiatesReturnRoutabilityCheck(t *testing.T) {
 }
 
 func serverHelloForTest(extensions ...extension.Value) *handshake.MessageServerHello {
-	return &handshake.MessageServerHello{Extensions: extensions}
+	return withExtensions(&handshake.MessageServerHello{}, extensions)
 }
 
 func helloRetryRequestForTest(extensions ...extension.Value) *handshake.MessageServerHello {

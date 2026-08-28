@@ -3,7 +3,11 @@
 
 package protocol
 
-import "bytes"
+import (
+	"bytes"
+
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+)
 
 // ApplicationData messages are carried by the record layer and are
 // fragmented, compressed, and encrypted based on the current connection
@@ -22,6 +26,20 @@ func (a ApplicationData) ContentType() ContentType {
 // Marshal encodes the ApplicationData to binary.
 func (a *ApplicationData) Marshal() ([]byte, error) {
 	return a.Data, nil
+}
+
+// MarshalTo encodes the ApplicationData to binary into a pre-allocated buffer.
+func (a *ApplicationData) MarshalTo(out []byte) (int, error) {
+	if len(out) < len(a.Data) {
+		return 0, dtlserrors.ErrBufferTooSmall
+	}
+
+	return copy(out, a.Data), nil
+}
+
+// MarshalSize returns the size required for MarshalTo.
+func (a ApplicationData) MarshalSize() int {
+	return len(a.Data)
 }
 
 // Unmarshal populates the ApplicationData from binary.

@@ -18,6 +18,9 @@ func (RenegotiationInfo) ExtensionType() extension.Type {
 	return extension.TypeRenegotiationInfo
 }
 
+// MarshalSize returns the encoded payload size.
+func (RenegotiationInfo) MarshalSize() int { return 1 }
+
 // MarshalData encodes extension_data.
 func (r RenegotiationInfo) MarshalData() ([]byte, error) {
 	return []byte{r.RenegotiatedConnection}, nil

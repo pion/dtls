@@ -34,11 +34,22 @@ func TestHandshakeMessageClientKeyExchange(t *testing.T) {
 }
 
 func TestHandshakeMessageClientKeyExchange_PublicKeyTooLong(t *testing.T) {
-	c := &MessageClientKeyExchange{
+	cert := &MessageClientKeyExchange{
+		IdentityHint:         []byte("identity"),
 		PublicKey:            make([]byte, 256),
 		KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
 	}
 
-	_, err := c.Marshal()
+	raw, err := cert.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrPublicKeyTooLong)
+	assert.Nil(t, raw)
+
+	out := make([]byte, cert.MarshalSize())
+	for i := range out {
+		out[i] = 0xaa
+	}
+	n, err := cert.MarshalTo(out)
+	assert.ErrorIs(t, err, dtlserrors.ErrPublicKeyTooLong)
+	assert.Zero(t, n)
+	assert.NotContains(t, out, byte(0x00))
 }

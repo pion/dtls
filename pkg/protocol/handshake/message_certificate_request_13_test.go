@@ -146,16 +146,24 @@ func TestMessageCertificateRequest13_ContextTooLong(t *testing.T) {
 		},
 	}
 
-	_, err := msg.Marshal()
+	raw, err := msg.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrCertificateRequestContextTooLong)
+	assert.Nil(t, raw)
+
+	out := []byte{0xaa, 0xbb, 0xcc}
+	n, err := msg.MarshalTo(out)
+	assert.ErrorIs(t, err, dtlserrors.ErrCertificateRequestContextTooLong)
+	assert.Zero(t, n)
+	assert.Equal(t, []byte{0xaa, 0xbb, 0xcc}, out)
 }
 
 func TestMessageCertificateRequest13_MissingSignatureAlgorithms(t *testing.T) {
 	// Build (invalid) message with no signature_algorithms extension
 	msg := &MessageCertificateRequest13{}
 
-	_, err := msg.Marshal()
+	raw, err := msg.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrMissingSignatureAlgorithmsExtension)
+	assert.Nil(t, raw)
 }
 
 func TestMessageCertificateRequest13_UnmarshalInvalidContext(t *testing.T) {
