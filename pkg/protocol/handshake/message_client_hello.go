@@ -70,13 +70,7 @@ func (m *MessageClientHello) Marshal() ([]byte, error) {
 func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
 	prepared, err := m.prepareMarshal()
 	if err != nil {
-		if prepared.size <= 0 || len(out) < prepared.size {
-			return 0, err
-		}
-
-		m.marshalTo(out, prepared.extensions)
-
-		return prepared.size, err
+		return 0, err
 	}
 	if len(out) < prepared.size {
 		return 0, dtlserrors.ErrBufferTooSmall

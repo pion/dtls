@@ -13,7 +13,6 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type mismatchedExtension struct{}
@@ -250,7 +249,7 @@ func TestExtensionMessagesRejectMismatchedPayloadSize(t *testing.T) {
 	}
 }
 
-func TestMessageServerHelloMarshalToReportsActualExtensionCount(t *testing.T) {
+func TestMessageServerHelloMarshalToReportsNoBytesOnExtensionError(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 	compressionMethod := &protocol.CompressionMethod{}
 	message := &MessageServerHello{
@@ -258,71 +257,46 @@ func TestMessageServerHelloMarshalToReportsActualExtensionCount(t *testing.T) {
 		CompressionMethod: compressionMethod,
 		Extensions:        []extension.Value{mismatchedExtension{}},
 	}
-	partial := &MessageServerHello{
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: compressionMethod,
-	}
-	want, err := partial.Marshal()
-	require.NoError(t, err)
 	out := bytes.Repeat([]byte{0xaa}, message.MarshalSize())
+	want := bytes.Clone(out)
 
 	n, err := message.MarshalTo(out)
 
-	assert.Equal(t, len(want), n)
+	assert.Zero(t, n)
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
-	assert.Equal(t, want, out[:n])
+	assert.Equal(t, want, out)
 }
 
-func TestExtensionMessageMarshalToReportsOnlyWrittenPrefix(t *testing.T) {
+func TestExtensionMessageMarshalToReportsNoBytesOnPreparationError(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 	compressionMethod := &protocol.CompressionMethod{}
 	firstExtension := extension.Raw{Type: extension.TypePadding, Data: []byte{0x01}}
-	partialExtensions := []extension.Value{firstExtension}
 	extensions := []extension.Value{firstExtension, mismatchedExtension{}}
-	tests := map[string]struct {
-		message Message
-		partial Message
-	}{
-		"client hello": {
-			message: &MessageClientHello{Extensions: extensions},
-			partial: &MessageClientHello{Extensions: partialExtensions},
+	tests := map[string]Message{
+		"client hello": &MessageClientHello{Extensions: extensions},
+		"server hello": &MessageServerHello{
+			CipherSuiteID:     &cipherSuiteID,
+			CompressionMethod: compressionMethod,
+			Extensions:        extensions,
 		},
-		"server hello": {
-			message: &MessageServerHello{
-				CipherSuiteID:     &cipherSuiteID,
-				CompressionMethod: compressionMethod,
-				Extensions:        extensions,
-			},
-			partial: &MessageServerHello{
-				CipherSuiteID:     &cipherSuiteID,
-				CompressionMethod: compressionMethod,
-				Extensions:        partialExtensions,
-			},
-		},
-		"encrypted extensions": {
-			message: &MessageEncryptedExtensions{Extensions: extensions},
-			partial: &MessageEncryptedExtensions{Extensions: partialExtensions},
-		},
+		"encrypted extensions": &MessageEncryptedExtensions{Extensions: extensions},
 	}
 
-	for name, test := range tests {
+	for name, message := range tests {
 		t.Run(name, func(t *testing.T) {
-			want, err := test.partial.Marshal()
-			require.NoError(t, err)
-			out := bytes.Repeat([]byte{0xaa}, test.message.MarshalSize())
+			out := bytes.Repeat([]byte{0xaa}, message.MarshalSize())
+			want := bytes.Clone(out)
 
-			n, err := test.message.MarshalTo(out)
-			assert.Equal(t, len(want), n)
+			n, err := message.MarshalTo(out)
+			assert.Zero(t, n)
 			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
-			assert.Equal(t, want, out[:n])
-			assert.Equal(t, bytes.Repeat([]byte{0xaa}, len(out)-n), out[n:])
+			assert.Equal(t, want, out)
 
-			handshakeOut := bytes.Repeat([]byte{0xaa}, HeaderLength+test.message.MarshalSize())
-			n, err = (&Handshake{Message: test.message}).MarshalTo(handshakeOut)
-			assert.Equal(t, HeaderLength+len(want), n)
+			handshakeOut := bytes.Repeat([]byte{0xaa}, HeaderLength+message.MarshalSize())
+			n, err = (&Handshake{Message: message}).MarshalTo(handshakeOut)
+			assert.Equal(t, HeaderLength, n)
 			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
-			assert.Equal(t, want, handshakeOut[HeaderLength:n])
-			assert.Equal(t, bytes.Repeat([]byte{0xaa}, len(handshakeOut)-n), handshakeOut[n:])
+			assert.Equal(t, want, handshakeOut[HeaderLength:])
 		})
 	}
 }
