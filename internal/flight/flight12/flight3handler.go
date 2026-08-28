@@ -388,8 +388,8 @@ func flight3Generate(
 		Random:             state.LocalRandom,
 		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         extensions,
 	}
-	clientHello.Extensions = extensions
 	if state.HasHelloVerifyRequest {
 		retry, err := negotiation.ClientHelloFromSnapshot(
 			state.LocalClientHelloSnapshots.Initial(),

@@ -406,8 +406,8 @@ func sendClientHello(
 		Cookie:             cookie,
 		CipherSuiteIDs:     cipherSuites,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         extensions,
 	}
-	clientHello.Extensions = extensions
 
 	packet, err := marshalTestRecord(recordlayer.Header{
 		Version:        protocol.Version1_2,
@@ -2624,8 +2624,8 @@ func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 		Version:            protocol.Version1_2,
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
+		Extensions:         extensions,
 	}
-	clientHello.Extensions = extensions
 	_, offer, err := negotiation.FinalizeClientHello(&clientHello, nil)
 	require.NoError(t, err)
 
@@ -2640,8 +2640,10 @@ func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 	extensions = []extension.Value{
 		extension.Raw{Type: 0xfefd, Data: []byte{0x02}},
 	}
-	serverHello := handshake.MessageServerHello{Version: protocol.Version1_2}
-	serverHello.Extensions = extensions
+	serverHello := handshake.MessageServerHello{
+		Version:    protocol.Version1_2,
+		Extensions: extensions,
+	}
 	err = conn.pickVersionFromServerHello(&serverHello)
 
 	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)

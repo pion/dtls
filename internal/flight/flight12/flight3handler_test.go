@@ -222,8 +222,8 @@ func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 		Version:            protocol.Version1_2,
 		Cookie:             state.Cookie,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         []extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}},
 	}
-	retry.Extensions = []extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}}
 	rawRetry, err := (&handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1}, Message: retry,
 	}).Marshal()

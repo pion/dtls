@@ -252,8 +252,8 @@ func flight4Generate( //nolint:cyclop
 		Random:            state.LocalRandom,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+		Extensions:        serverHelloExtensions,
 	}
-	serverHelloMessage.Extensions = serverHelloExtensions
 	if _, err = serverHelloMessage.Marshal(); err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}

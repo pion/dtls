@@ -2037,10 +2037,10 @@ func TestFlight13_3ParseRejectsWrongLegacyVersion(t *testing.T) {
 		Random:            handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-	}
-	serverHello.Extensions = []extension.Value{
-		&extension13.SelectedVersion{Version: protocol.Version1_3},
-		&extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+		Extensions: []extension.Value{
+			&extension13.SelectedVersion{Version: protocol.Version1_3},
+			&extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
+		},
 	}
 	rawServerHello, err := (&handshake.Handshake{Message: serverHello}).Marshal()
 	require.NoError(t, err)
@@ -2197,8 +2197,8 @@ func TestFlight13_0ParseSelectsNegotiatedGroupWithoutGeneratingKeypair(t *testin
 			uint16(cfg.LocalCipherSuites[0].ID()),
 		},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         extensions,
 	}
-	clientHello.Extensions = extensions
 	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
 	require.NoError(t, err)
 
@@ -2247,8 +2247,8 @@ func TestFlight13_0ParseSelectsX25519MLKEM768WithoutGeneratingKeypair(t *testing
 			uint16(cfg.LocalCipherSuites[0].ID()),
 		},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         extensions,
 	}
-	clientHello.Extensions = extensions
 	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
 	require.NoError(t, err)
 
@@ -2362,8 +2362,8 @@ func TestFlight13_0ParseRejectsClientHelloWithSelectedSupportedVersion(t *testin
 			uint16(cfg.LocalCipherSuites[0].ID()),
 		},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         extensions,
 	}
-	clientHello.Extensions = extensions
 	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
 	require.NoError(t, err)
 
@@ -2387,8 +2387,8 @@ func pushFlight13_0ClientHello(
 			uint16(cfg.LocalCipherSuites[0].ID()),
 		},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
+		Extensions:         exts,
 	}
-	clientHello.Extensions = exts
 	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
 	require.NoError(t, err)
 

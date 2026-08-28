@@ -1222,16 +1222,16 @@ func pskClientHelloTranscript13(tb testing.TB, binder []byte) ([]byte, []byte) {
 		Version:            protocol.Version1_2,
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-	}
-	msg.Extensions = []extension.Value{
-		&extension13.OfferedPSKs{
-			Identities: []extension13.PSKIdentity{
-				{
-					Identity:            []byte("psk-identity"),
-					ObfuscatedTicketAge: 0x01020304,
+		Extensions: []extension.Value{
+			&extension13.OfferedPSKs{
+				Identities: []extension13.PSKIdentity{
+					{
+						Identity:            []byte("psk-identity"),
+						ObfuscatedTicketAge: 0x01020304,
+					},
 				},
+				Binders: []extension13.PSKBinder{extension13.PSKBinder(binder)},
 			},
-			Binders: []extension13.PSKBinder{extension13.PSKBinder(binder)},
 		},
 	}
 
