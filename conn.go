@@ -971,6 +971,19 @@ func marshalContentTo(content protocol.Content, out []byte) error {
 	return nil
 }
 
+func materializeRecordContent(content protocol.Content, contentSize int) ([]byte, error) {
+	if applicationData, ok := content.(*protocol.ApplicationData); ok {
+		return applicationData.Data, nil
+	}
+
+	plaintext := make([]byte, contentSize)
+	if err := marshalContentTo(content, plaintext); err != nil {
+		return nil, err
+	}
+
+	return plaintext, nil
+}
+
 func marshalRecordContent(content protocol.Content) (protocol.ContentType, protocol.Content, error) {
 	switch content.(type) {
 	case *handshake.Handshake, *alert.Alert, *protocol.ApplicationData, *protocol.ACK,
@@ -1009,8 +1022,8 @@ func (c *Conn) encodeRecord( //nolint:cyclop
 	}
 	common := dtlsstate.CommonState(c.state)
 	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion.Equal(protocol.Version1_3) {
-		plaintext := make([]byte, contentSize)
-		if err := marshalContentTo(content, plaintext); err != nil {
+		plaintext, err := materializeRecordContent(content, contentSize)
+		if err != nil {
 			return nil, err
 		}
 
@@ -1053,8 +1066,8 @@ func (c *Conn) encodeRecordWithConnectionID(
 	content protocol.Content,
 	contentSize int,
 ) ([]byte, error) {
-	plaintext := make([]byte, contentSize)
-	if err := marshalContentTo(content, plaintext); err != nil {
+	plaintext, err := materializeRecordContent(content, contentSize)
+	if err != nil {
 		return nil, err
 	}
 
