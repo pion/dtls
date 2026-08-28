@@ -43,7 +43,7 @@ func processClientHelloExtensions(
 ) *clientHelloExtensionFailure {
 	var seen clientHelloExtensionSet
 
-	for _, val := range clientHello.Extensions() {
+	for _, val := range clientHello.Extensions {
 		if failure := processClientHelloSecurityExtension(state, &seen, val); failure != nil {
 			return failure
 		}

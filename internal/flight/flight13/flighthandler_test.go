@@ -25,11 +25,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+func withExtensions[T any](
 	message T,
 	extensions []extension.Value,
 ) T {
-	message.SetExtensions(extensions)
+	switch message := any(message).(type) {
+	case *handshake.MessageClientHello:
+		message.Extensions = extensions
+	case *handshake.MessageServerHello:
+		message.Extensions = extensions
+	case *handshake.MessageEncryptedExtensions:
+		message.Extensions = extensions
+	case *handshake.MessageNewSessionTicket:
+		message.Extensions = extensions
+	case *handshake.MessageCertificateRequest13:
+		message.Extensions = extensions
+	}
 
 	return message
 }
@@ -234,7 +245,7 @@ func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
 	_, err := flight5ClientCertificate(cfg, request)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x01, 0x02}, authority)
-	assert.Equal(t, []byte{0x01, 0x02}, request.Extensions()[1].(*extension13.CertificateAuthorities).Authorities[0]) //nolint:forcetypeassert,lll
+	assert.Equal(t, []byte{0x01, 0x02}, request.Extensions[1].(*extension13.CertificateAuthorities).Authorities[0]) //nolint:forcetypeassert,lll
 }
 
 func TestFlight4GenerateCertificateFailures(t *testing.T) {

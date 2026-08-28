@@ -28,7 +28,7 @@ type MessageServerHello struct {
 
 	CipherSuiteID     *uint16
 	CompressionMethod *protocol.CompressionMethod
-	extensions        []extension.Value
+	Extensions        []extension.Value
 }
 
 const messageServerHelloVariableWidthStart = 2 + RandomLength
@@ -38,20 +38,10 @@ func (m MessageServerHello) Type() Type {
 	return TypeServerHello
 }
 
-// Extensions returns the extensions.
-func (m *MessageServerHello) Extensions() []extension.Value {
-	return m.extensions
-}
-
-// SetExtensions replaces the extensions.
-func (m *MessageServerHello) SetExtensions(extensions []extension.Value) {
-	m.extensions = extensions
-}
-
 // MarshalSize returns the size required by MarshalTo.
 func (m *MessageServerHello) MarshalSize() int {
 	total := 0
-	total += extension.MarshalListSize(m.extensions)
+	total += extension.MarshalListSize(m.Extensions)
 	total += messageServerHelloVariableWidthStart + 1 + len(m.SessionID) + 2 + 1
 
 	return total
@@ -106,7 +96,7 @@ func (m *MessageServerHello) prepareMarshal() (preparedServerHello, error) {
 		return preparedServerHello{}, dtlserrors.ErrSessionIDTooLong
 	}
 
-	extensions, err := extension.PrepareList(m.extensions)
+	extensions, err := extension.PrepareList(m.Extensions)
 	size := messageServerHelloVariableWidthStart + 1 + len(m.SessionID) + 2 + 1 + extensions.MarshalSize()
 	prepared := preparedServerHello{extensions: extensions, size: size}
 	if size < 0 {
@@ -192,7 +182,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 		if err != nil {
 			return err
 		}
-		m.SetExtensions(extensions)
+		m.Extensions = extensions
 
 		return nil
 	}
@@ -217,7 +207,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 	if err != nil {
 		return err
 	}
-	m.SetExtensions(extensions)
+	m.Extensions = extensions
 
 	return nil
 }

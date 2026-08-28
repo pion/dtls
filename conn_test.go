@@ -407,7 +407,7 @@ func sendClientHello(
 		CipherSuiteIDs:     cipherSuites,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	}
-	clientHello.SetExtensions(extensions)
+	clientHello.Extensions = extensions
 
 	packet, err := marshalTestRecord(recordlayer.Header{
 		Version:        protocol.Version1_2,
@@ -429,11 +429,22 @@ func sendClientHello(
 	return nil
 }
 
-func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+func withExtensions[T any](
 	message T,
 	extensions []extension.Value,
 ) T {
-	message.SetExtensions(extensions)
+	switch message := any(message).(type) {
+	case *handshake.MessageClientHello:
+		message.Extensions = extensions
+	case *handshake.MessageServerHello:
+		message.Extensions = extensions
+	case *handshake.MessageEncryptedExtensions:
+		message.Extensions = extensions
+	case *handshake.MessageNewSessionTicket:
+		message.Extensions = extensions
+	case *handshake.MessageCertificateRequest13:
+		message.Extensions = extensions
+	}
 
 	return message
 }
@@ -2614,7 +2625,7 @@ func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
 	}
-	clientHello.SetExtensions(extensions)
+	clientHello.Extensions = extensions
 	_, offer, err := negotiation.FinalizeClientHello(&clientHello, nil)
 	require.NoError(t, err)
 
@@ -2630,7 +2641,7 @@ func TestPickVersionFromServerHelloRejectsUnsolicitedExtension(t *testing.T) {
 		extension.Raw{Type: 0xfefd, Data: []byte{0x02}},
 	}
 	serverHello := handshake.MessageServerHello{Version: protocol.Version1_2}
-	serverHello.SetExtensions(extensions)
+	serverHello.Extensions = extensions
 	err = conn.pickVersionFromServerHello(&serverHello)
 
 	require.ErrorIs(t, err, dtlserrors.ErrUnsolicitedExtension)
@@ -3080,7 +3091,7 @@ func TestRenegotiationInfo(t *testing.T) {
 			assert.True(t, ok)
 
 			actualNegotationInfo := false
-			for _, v := range serverHello.Extensions() {
+			for _, v := range serverHello.Extensions {
 				if _, ok := v.(*extension12.RenegotiationInfo); ok {
 					actualNegotationInfo = true
 				}
@@ -3150,7 +3161,7 @@ func TestServerNameIndicationExtension(t *testing.T) {
 
 			gotSNI := false
 			var actualServerName string
-			for _, v := range clientHello.Extensions() {
+			for _, v := range clientHello.Extensions {
 				if _, ok := v.(*extension.ServerNameOffer); ok {
 					gotSNI = true
 					extensionServerName, ok := v.(*extension.ServerNameOffer)
@@ -3297,7 +3308,7 @@ func TestALPNExtension(t *testing.T) {
 				assert.True(t, ok)
 
 				var negotiatedProtocol string
-				for i, v := range serverHello.Extensions() {
+				for i, v := range serverHello.Extensions {
 					if _, ok := v.(*extension.ALPNSelection); ok {
 						e, ok := v.(*extension.ALPNSelection)
 						assert.True(t, ok)
@@ -3306,7 +3317,7 @@ func TestALPNExtension(t *testing.T) {
 
 						// Manipulate ServerHello
 						if test.ExpectAlertFromClient {
-							serverHello.Extensions()[i] = extension.Raw{
+							serverHello.Extensions[i] = extension.Raw{
 								Type: extension.TypeALPN,
 								Data: []byte{0x00, 0x08, 0x02, 'h', '2', 0x04, 'o', 'o', 'p', 's'},
 							}
@@ -3397,7 +3408,7 @@ func TestSupportedGroupsExtension(t *testing.T) {
 		assert.True(t, ok, "TestSupportedGroups: Failed to cast MessageServerHello")
 
 		gotGroups := false
-		for _, v := range serverHello.Extensions() {
+		for _, v := range serverHello.Extensions {
 			if _, ok := v.(*extension.SupportedGroups); ok {
 				gotGroups = true
 			}
@@ -4411,7 +4422,7 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 		WithFlightInterval(retryInterval),
 		WithDisableRetransmitBackoff(true),
 		WithClientHelloMessageHook(func(clientHello handshake.MessageClientHello) handshake.Message {
-			for i, ext := range clientHello.Extensions() {
+			for i, ext := range clientHello.Extensions {
 				keyShare, ok := ext.(*extension13.ClientKeyShare)
 				if !ok {
 					continue
@@ -4419,9 +4430,9 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 
 				if len(keyShare.Shares) == len(curves) {
 					initialClientHellos.Add(1)
-					extensions := clientHello.Extensions()
+					extensions := clientHello.Extensions
 					extensions[i] = &extension13.ClientKeyShare{}
-					clientHello.SetExtensions(extensions)
+					clientHello.Extensions = extensions
 				} else {
 					retryClientHellos.Add(1)
 				}

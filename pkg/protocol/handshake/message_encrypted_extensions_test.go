@@ -55,7 +55,7 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 
 	t.Run("WithExtensions", func(t *testing.T) {
 		raw, err := (&MessageEncryptedExtensions{
-			extensions: []extension.Value{
+			Extensions: []extension.Value{
 				&extension.ALPNSelection{Protocol: "h2"},
 				extension.Raw{Type: unknownEncryptedExtensionsType},
 			},
@@ -74,7 +74,7 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 
 	t.Run("ExtensionMarshalError", func(t *testing.T) {
 		ext := &failingEncryptedExtensionsExtension{}
-		message := &MessageEncryptedExtensions{extensions: []extension.Value{ext}}
+		message := &MessageEncryptedExtensions{Extensions: []extension.Value{ext}}
 		assert.Equal(t, 13, message.MarshalSize())
 		assert.Zero(t, ext.marshalCalls, "MarshalSize must not serialize extensions")
 
@@ -86,7 +86,7 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 
 	t.Run("ExtensionErrorBeforePredictedAllocation", func(t *testing.T) {
 		ext := &failingEncryptedExtensionsExtension{marshalSize: int(^uint(0) >> 1)}
-		message := &MessageEncryptedExtensions{extensions: []extension.Value{ext}}
+		message := &MessageEncryptedExtensions{Extensions: []extension.Value{ext}}
 
 		assert.NotPanics(t, func() {
 			raw, err := message.Marshal()
@@ -103,7 +103,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 
 		err := msg.Unmarshal([]byte{0x00, 0x00})
 		require.NoError(t, err)
-		assert.Empty(t, msg.Extensions())
+		assert.Empty(t, msg.Extensions)
 	})
 
 	t.Run("ZeroLengthBuffer", func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 
 		err := msg.Unmarshal([]byte{})
 		require.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
-		assert.Empty(t, msg.Extensions())
+		assert.Empty(t, msg.Extensions)
 	})
 
 	t.Run("WithExtensions", func(t *testing.T) {
@@ -127,13 +127,13 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 			0x00, 0x00, // unknown extension length
 		})
 		require.NoError(t, err)
-		require.Len(t, msg.Extensions(), 2)
+		require.Len(t, msg.Extensions, 2)
 
-		alpn, ok := msg.Extensions()[0].(*extension.ALPNSelection)
+		alpn, ok := msg.Extensions[0].(*extension.ALPNSelection)
 		require.True(t, ok)
 		assert.Equal(t, "h2", alpn.Protocol)
 
-		unknown, ok := msg.Extensions()[1].(extension.Raw)
+		unknown, ok := msg.Extensions[1].(extension.Raw)
 		require.True(t, ok)
 		assert.Equal(t, unknownEncryptedExtensionsType, unknown.Type)
 	})
@@ -142,29 +142,29 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
 			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
-		msg := &MessageEncryptedExtensions{extensions: previouslyParsedExts}
+		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 
 		err := msg.Unmarshal([]byte{0x00})
 		assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
-		assert.Equal(t, previouslyParsedExts, msg.Extensions())
+		assert.Equal(t, previouslyParsedExts, msg.Extensions)
 	})
 
 	t.Run("MismatchedExtensionListLength", func(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
 			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
-		msg := &MessageEncryptedExtensions{extensions: previouslyParsedExts}
+		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 
 		err := msg.Unmarshal([]byte{0x00, 0x01})
 		assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
-		assert.Equal(t, previouslyParsedExts, msg.Extensions())
+		assert.Equal(t, previouslyParsedExts, msg.Extensions)
 	})
 
 	t.Run("ExtensionUnmarshalError", func(t *testing.T) {
 		previouslyParsedExts := []extension.Value{
 			extension.Raw{Type: unknownEncryptedExtensionsType},
 		}
-		msg := &MessageEncryptedExtensions{extensions: previouslyParsedExts}
+		msg := &MessageEncryptedExtensions{Extensions: previouslyParsedExts}
 
 		err := msg.Unmarshal([]byte{
 			0x00, 0x06, // extensions length
@@ -173,7 +173,7 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 			0x00, 0x00, // empty ALPN protocol name list
 		})
 		assert.ErrorIs(t, err, extension.ErrALPNInvalidFormat)
-		assert.Equal(t, previouslyParsedExts, msg.Extensions())
+		assert.Equal(t, previouslyParsedExts, msg.Extensions)
 	})
 
 	t.Run("KnownIllegalExtension", func(t *testing.T) {
@@ -187,6 +187,6 @@ func TestMessageEncryptedExtensionsUnmarshal(t *testing.T) {
 		var got *alert.Alert
 		require.ErrorAs(t, err, &got)
 		assert.Equal(t, alert.IllegalParameter, got.Description)
-		assert.Empty(t, msg.Extensions())
+		assert.Empty(t, msg.Extensions)
 	})
 }

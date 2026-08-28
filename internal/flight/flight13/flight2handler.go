@@ -109,7 +109,7 @@ func flight2Generate(
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 	}
-	serverHello.SetExtensions(exts)
+	serverHello.Extensions = exts
 	request, err := negotiation.ValidateHelloRetryRequest(
 		flightCtx.state.RemoteClientHelloSnapshots.Initial(), serverHello,
 	)

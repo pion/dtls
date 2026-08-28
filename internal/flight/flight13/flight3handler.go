@@ -140,7 +140,7 @@ func processFlight3ServerHello(
 			return newFlightParseFailure(alert.IllegalParameter, err)
 		}
 	}
-	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions())
+	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions)
 	flightCtx.state.RemoteVersions = versions
 	flightCtx.state.LocalVersion = protocol.Version1_3
 
@@ -152,7 +152,7 @@ func processFlight3ServerHello(
 	flightCtx.state.RemoteRandom = serverHello.Random
 	flightCtx.cfg.Log.Tracef("[handshake13] use cipher suite: %s", selectedCipherSuite.String())
 
-	serverShare := serverHelloKeyShare(serverHello.Extensions())
+	serverShare := serverHelloKeyShare(serverHello.Extensions)
 	if serverShare == nil {
 		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareMissing)
 	}
@@ -177,7 +177,7 @@ func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]pr
 		return nil, newFlightParseFailure(alert.ProtocolVersion, dtlserrors.ErrUnsupportedProtocolVersion)
 	}
 
-	versions, seenSupportedVersions, err := ServerHelloSelectedVersions(serverHello.Extensions())
+	versions, seenSupportedVersions, err := ServerHelloSelectedVersions(serverHello.Extensions)
 	if err != nil {
 		return nil, newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrInvalidServerHello)
 	}
@@ -264,12 +264,12 @@ func handleFlight3ProtectedHandshake(
 		}
 		switch message := item.Parsed.Message.(type) {
 		case *handshake.MessageEncryptedExtensions:
-			if err := negotiation.ValidateResponseExtensions(offer, message.Extensions(), nil); err != nil {
+			if err := negotiation.ValidateResponseExtensions(offer, message.Extensions, nil); err != nil {
 				return newFlightParseFailure(alert.UnsupportedExtension, err)
 			}
 			var err error
 			srtpDecision, err = negotiation.ValidateSRTPSelection(
-				offer, message.Extensions(), flightCtx.cfg.LocalSRTPProtectionProfiles,
+				offer, message.Extensions, flightCtx.cfg.LocalSRTPProtectionProfiles,
 			)
 			if err != nil {
 				var dtlsAlert *alert.Alert

@@ -96,7 +96,7 @@ func flight5ClientCertificate(
 		SignatureSchemes: certificateRequestSignatureSchemes(request),
 		Version:          protocol.Version1_3,
 	}
-	for _, ext := range request.Extensions() {
+	for _, ext := range request.Extensions {
 		if authorities, ok := ext.(*extension13.CertificateAuthorities); ok {
 			requestInfo.AcceptableCAs = make([][]byte, len(authorities.Authorities))
 			for i := range authorities.Authorities {
@@ -121,7 +121,7 @@ func flight5ClientCertificate(
 func certificateRequestSignatureSchemes(
 	request *handshake.MessageCertificateRequest13,
 ) []signaturehash.Algorithm {
-	for _, ext := range request.Extensions() {
+	for _, ext := range request.Extensions {
 		if algorithms, ok := ext.(*extension.SignatureAlgorithms); ok {
 			return dtlsflight.SignatureSchemes(algorithms.Schemes)
 		}

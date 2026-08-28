@@ -65,7 +65,7 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 				CertificateList: []CertificateEntry13{
 					{
 						CertificateData: certDER,
-						extensions:      []extension.Value{},
+						Extensions:      []extension.Value{},
 					},
 				},
 			},
@@ -82,7 +82,7 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 				CertificateList: []CertificateEntry13{
 					{
 						CertificateData: certDER,
-						extensions:      []extension.Value{},
+						Extensions:      []extension.Value{},
 					},
 				},
 			},
@@ -142,15 +142,15 @@ func TestMessageCertificate13_MultipleCertificates(t *testing.T) {
 		CertificateList: []CertificateEntry13{
 			{
 				CertificateData: []byte{0x01, 0x02, 0x03},
-				extensions:      []extension.Value{},
+				Extensions:      []extension.Value{},
 			},
 			{
 				CertificateData: []byte{0x04, 0x05, 0x06, 0x07},
-				extensions:      []extension.Value{},
+				Extensions:      []extension.Value{},
 			},
 			{
 				CertificateData: []byte{0x08, 0x09},
-				extensions:      []extension.Value{},
+				Extensions:      []extension.Value{},
 			},
 		},
 	}
@@ -166,7 +166,7 @@ func TestMessageCertificate13_MaxContextLength(t *testing.T) {
 	msg := &MessageCertificate13{
 		CertificateRequestContext: context,
 		CertificateList: []CertificateEntry13{
-			{CertificateData: []byte{0x00}, extensions: []extension.Value{}},
+			{CertificateData: []byte{0x00}, Extensions: []extension.Value{}},
 		},
 	}
 	marshalUnmarshalMessageCertificate13AndVerifyMatch(t, msg, nil)
@@ -178,7 +178,7 @@ func TestMessageCertificate13_ContextTooLong(t *testing.T) {
 	msg := &MessageCertificate13{
 		CertificateRequestContext: context,
 		CertificateList: []CertificateEntry13{
-			{CertificateData: []byte{0x00}, extensions: nil},
+			{CertificateData: []byte{0x00}, Extensions: nil},
 		},
 	}
 
@@ -191,7 +191,7 @@ func TestMessageCertificate13_EmptyCertData(t *testing.T) {
 	msg := &MessageCertificate13{
 		CertificateRequestContext: []byte{},
 		CertificateList: []CertificateEntry13{
-			{CertificateData: []byte{}, extensions: []extension.Value{}},
+			{CertificateData: []byte{}, Extensions: []extension.Value{}},
 		},
 	}
 
@@ -212,7 +212,7 @@ func TestMessageCertificate13_CertDataOneByteOverBoundary(t *testing.T) {
 		CertificateList: []CertificateEntry13{
 			{
 				CertificateData: certData,
-				extensions:      []extension.Value{},
+				Extensions:      []extension.Value{},
 			},
 		},
 	}
@@ -236,11 +236,11 @@ func TestMessageCertificate13_MultipleCertsExceedingBoundary(t *testing.T) {
 		CertificateList: []CertificateEntry13{
 			{
 				CertificateData: certData1,
-				extensions:      []extension.Value{},
+				Extensions:      []extension.Value{},
 			},
 			{
 				CertificateData: certData2,
-				extensions:      []extension.Value{},
+				Extensions:      []extension.Value{},
 			},
 		},
 	}
@@ -264,7 +264,7 @@ func TestMessageCertificate13_CertListAtExactBoundary(t *testing.T) {
 		CertificateList: []CertificateEntry13{
 			{
 				CertificateData: certData,
-				extensions:      []extension.Value{},
+				Extensions:      []extension.Value{},
 			},
 		},
 	}
@@ -398,8 +398,8 @@ func TestParseCertificateEntry_GeneratedCertificateWithExtensions(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, 0, len(str)) // Ensure all data was consumed
 	assert.Equal(t, certDER, entry.CertificateData)
-	assert.Equal(t, 1, len(entry.Extensions()))
-	assert.Equal(t, unknownCertificateExtension, entry.Extensions()[0].ExtensionType())
+	assert.Equal(t, 1, len(entry.Extensions))
+	assert.Equal(t, unknownCertificateExtension, entry.Extensions[0].ExtensionType())
 
 	// Verify the certificate is valid
 	parsedCert, err := x509.ParseCertificate(entry.CertificateData)

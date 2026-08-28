@@ -33,7 +33,7 @@ func retryClientHelloForTest(withEarlyData bool) *handshake.MessageClientHello {
 	clientHello.CompressionMethods = []*protocol.CompressionMethod{{ID: 0}, {ID: 0}}
 	clientHello.Random.RandomBytes[0] = 0xaa
 	if withEarlyData {
-		clientHello.SetExtensions(append(clientHello.Extensions(),
+		clientHello.Extensions = append(clientHello.Extensions,
 			&extension13.PSKKeyExchangeModes{
 				Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE},
 			},
@@ -42,7 +42,7 @@ func retryClientHelloForTest(withEarlyData bool) *handshake.MessageClientHello {
 				Identities: []extension13.PSKIdentity{{Identity: []byte("ticket")}},
 				Binders:    []extension13.PSKBinder{make([]byte, 32)},
 			},
-		))
+		)
 	}
 
 	return clientHello
@@ -108,11 +108,11 @@ func mutateSnapshotForRetryTest(
 func replaceRetryExtension(
 	clientHello *handshake.MessageClientHello, typ extension.Type, replacement extension.Value,
 ) {
-	for i, value := range clientHello.Extensions() {
+	for i, value := range clientHello.Extensions {
 		if value.ExtensionType() == typ {
-			extensions := clientHello.Extensions()
+			extensions := clientHello.Extensions
 			extensions[i] = replacement
-			clientHello.SetExtensions(extensions)
+			clientHello.Extensions = extensions
 		}
 	}
 }
@@ -171,13 +171,13 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 		"padding change": {
 			valid: true,
 			mutate: func(ch *handshake.MessageClientHello) {
-				ch.SetExtensions(slices.Insert(ch.Extensions(), 2,
+				ch.Extensions = slices.Insert(ch.Extensions, 2,
 					extension.Value(
 						extension.Raw{
 							Type: extension.TypePadding,
 							Data: []byte{0x00, 0x00},
 						},
-					)))
+					))
 			},
 		},
 		"version": {mutate: func(ch *handshake.MessageClientHello) {
@@ -201,25 +201,25 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 		}},
 		"unknown order": {mutate: func(ch *handshake.MessageClientHello) {
 			first, second := -1, -1
-			for i, value := range ch.Extensions() {
+			for i, value := range ch.Extensions {
 				if value.ExtensionType() == unknownExtensionType {
 					first = i
 				} else if value.ExtensionType() == secondUnknownExtensionType {
 					second = i
 				}
 			}
-			extensions := ch.Extensions()
+			extensions := ch.Extensions
 			extensions[first], extensions[second] = extensions[second], extensions[first]
-			ch.SetExtensions(extensions)
+			ch.Extensions = extensions
 		}},
 		"supported groups": {mutate: func(ch *handshake.MessageClientHello) {
 			replaceRetryExtension(ch, extension.TypeSupportedGroups,
 				&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
 		}},
 		"missing cookie": {mutate: func(ch *handshake.MessageClientHello) {
-			ch.SetExtensions(slices.DeleteFunc(ch.Extensions(), func(value extension.Value) bool {
+			ch.Extensions = slices.DeleteFunc(ch.Extensions, func(value extension.Value) bool {
 				return value.ExtensionType() == extension.TypeCookie
-			}))
+			})
 		}},
 		"wrong cookie": {mutate: func(ch *handshake.MessageClientHello) {
 			replaceRetryExtension(ch, extension.TypeCookie, &extension13.Cookie{Cookie: []byte("wrong")})
@@ -238,9 +238,9 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 			})
 		}},
 		"early data retained": {mutate: func(ch *handshake.MessageClientHello) {
-			ch.SetExtensions(slices.Insert(
-				ch.Extensions(), len(ch.Extensions())-1, extension.Value(&extension13.EarlyData{}),
-			))
+			ch.Extensions = slices.Insert(
+				ch.Extensions, len(ch.Extensions)-1, extension.Value(&extension13.EarlyData{}),
+			)
 		}},
 	}
 
@@ -281,17 +281,17 @@ func TestValidateClientHelloRetryCookieOnlyKeepsKeyShare(t *testing.T) {
 
 func TestValidateHelloVerifyRequestResponse(t *testing.T) {
 	initialHello := retryClientHelloForTest(false)
-	initialHello.SetExtensions(append(initialHello.Extensions(),
+	initialHello.Extensions = append(initialHello.Extensions,
 		&extension.ConnectionID{CID: []byte{0x01}},
 		&extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM}},
-	))
+	)
 	initial := snapshotClientHelloForRetryTest(t, initialHello)
 	retryHello, err := ClientHelloFromSnapshot(initial)
 	require.NoError(t, err)
 	retryHello.Cookie = []byte("cookie")
-	retryExtensions := retryHello.Extensions()
+	retryExtensions := retryHello.Extensions
 	retryExtensions[2] = extension.Raw{Type: unknownExtensionType, Data: []byte{0xff}}
-	retryHello.SetExtensions(retryExtensions)
+	retryHello.Extensions = retryExtensions
 	retry := snapshotClientHelloForRetryTest(t, retryHello)
 
 	tests := map[string]struct {

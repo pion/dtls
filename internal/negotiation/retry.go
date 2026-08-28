@@ -58,7 +58,7 @@ func ValidateHelloRetryRequest(
 			alert.IllegalParameter,
 		)
 	}
-	request := retryRequest(*hrr.CipherSuiteID, hrr.Extensions())
+	request := retryRequest(*hrr.CipherSuiteID, hrr.Extensions)
 	if err = validateRetrySelectedGroup(initialHello, request); err != nil {
 		return RetryRequest{}, err
 	}
@@ -101,7 +101,7 @@ func BuildClientHelloRetry(
 		return nil, negotiationError(dtlserrors.ErrInvalidClientHello, err, alert.IllegalParameter)
 	}
 
-	clientHello.SetExtensions(buildRetryExtensions(clientHello.Extensions(), request, freshShare))
+	clientHello.Extensions = buildRetryExtensions(clientHello.Extensions, request, freshShare)
 
 	return clientHello, nil
 }
@@ -166,7 +166,7 @@ func ValidateServerHelloAfterRetry(request RetryRequest, serverHello *handshake.
 	}
 	if request.HasSelectedGroup {
 		var share *extension13.ServerKeyShare
-		for _, value := range serverHello.Extensions() {
+		for _, value := range serverHello.Extensions {
 			if candidate, ok := value.(*extension13.ServerKeyShare); ok {
 				share = candidate
 
@@ -226,7 +226,7 @@ func validateRetrySelectedGroup(initial *handshake.MessageClientHello, request R
 	}
 	var groups []elliptic.Curve
 	var shares []extension13.KeyShareEntry
-	for _, value := range initial.Extensions() {
+	for _, value := range initial.Extensions {
 		if supported, ok := value.(*extension.SupportedGroups); ok {
 			groups = supported.Groups
 		}

@@ -36,7 +36,7 @@ func TestHandshakeMessage(t *testing.T) {
 		CipherSuiteIDs:     []uint16{},
 		CompressionMethods: []*protocol.CompressionMethod{},
 	}
-	clientHello.SetExtensions([]extension.Value{})
+	clientHello.Extensions = []extension.Value{}
 	parsedHandshake := &handshake.Handshake{
 		Header: handshake.Header{
 			Length:         0x29,
@@ -63,9 +63,9 @@ func TestPostHandshakeMessageDispatch(t *testing.T) {
 		TicketNonce:    []byte{0x03},
 		Ticket:         []byte{0x04},
 	}
-	newSessionTicket.SetExtensions([]extension.Value{
+	newSessionTicket.Extensions = []extension.Value{
 		&extension13.MaxEarlyData{Size: maxEarlyData},
-	})
+	}
 	tests := map[string]handshake.Message{
 		"NewSessionTicket": newSessionTicket,
 		"KeyUpdate": &handshake.MessageKeyUpdate{

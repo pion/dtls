@@ -27,7 +27,7 @@ type MessageNewSessionTicket struct {
 	TicketAgeAdd   uint32
 	TicketNonce    []byte
 	Ticket         []byte
-	extensions     []extension.Value
+	Extensions     []extension.Value
 }
 
 // Type returns the Handshake Type.
@@ -37,16 +37,7 @@ func (m MessageNewSessionTicket) Type() Type {
 
 // MarshalSize returns the minimal size required for MarshalTo.
 func (m *MessageNewSessionTicket) MarshalSize() int {
-	return 8 + 1 + len(m.TicketNonce) + 2 + len(m.Ticket) + extension.MarshalListSize(m.extensions)
-}
-
-func (m MessageNewSessionTicket) Extensions() []extension.Value {
-	return m.extensions
-}
-
-// SetExtensions replaces the extensions.
-func (m *MessageNewSessionTicket) SetExtensions(extensions []extension.Value) {
-	m.extensions = extensions
+	return 8 + 1 + len(m.TicketNonce) + 2 + len(m.Ticket) + extension.MarshalListSize(m.Extensions)
 }
 
 // Marshal encodes the Handshake.
@@ -84,7 +75,7 @@ func (m *MessageNewSessionTicket) prepareMarshal() ([]byte, int, error) {
 	if len(m.Ticket) == 0 || len(m.Ticket) > newSessionTicketMaxTicketLength {
 		return nil, 0, dtlserrors.ErrInvalidTicketLength
 	}
-	extensions, err := extension.MarshalList(m.extensions)
+	extensions, err := extension.MarshalList(m.Extensions)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -152,7 +143,7 @@ func (m *MessageNewSessionTicket) Unmarshal(data []byte) error {
 	m.TicketAgeAdd = ticketAgeAdd
 	m.TicketNonce = ticketNonce
 	m.Ticket = ticket
-	m.SetExtensions(extensions)
+	m.Extensions = extensions
 
 	return nil
 }

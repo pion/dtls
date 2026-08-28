@@ -111,7 +111,7 @@ func flight4bGenerate(
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 	}
-	serverHelloMessage.SetExtensions(extensions)
+	serverHelloMessage.Extensions = extensions
 
 	serverHelloMessage, err = dtlsflight.FinalizeServerHello(
 		serverHelloMessage, cfg.ServerHelloMessageHook, offer, cfg.EnableRRC,
@@ -120,11 +120,11 @@ func flight4bGenerate(
 		return nil, nil, err
 	}
 	if err = validateServerSRTP(
-		offer, serverHelloMessage.Extensions(), cfg.LocalSRTPProtectionProfiles, srtpSelection,
+		offer, serverHelloMessage.Extensions, cfg.LocalSRTPProtectionProfiles, srtpSelection,
 	); err != nil {
 		return nil, nil, err
 	}
-	decision := negotiation.DecideConnectionID(offer, serverHelloMessage.Extensions())
+	decision := negotiation.DecideConnectionID(offer, serverHelloMessage.Extensions)
 	serverHello := handshake.Handshake{Message: serverHelloMessage}
 
 	serverHello.Header.MessageSequence = uint16(state.HandshakeSendSequence) //nolint:gosec // G115

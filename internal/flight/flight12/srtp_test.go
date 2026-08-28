@@ -51,9 +51,9 @@ func TestFlight12ServerHelloUsesFinalSRTPOffer(t *testing.T) {
 			}
 			if test.hookMKI != "" {
 				cfg.ServerHelloMessageHook = func(serverHello handshake.MessageServerHello) handshake.Message {
-					serverHello.SetExtensions([]extension.Value{&extension.SRTPSelection{
+					serverHello.Extensions = []extension.Value{&extension.SRTPSelection{
 						ProtectionProfile: profile32, MasterKeyIdentifier: []byte(test.hookMKI),
-					}})
+					}}
 
 					return &serverHello
 				}
@@ -186,7 +186,7 @@ func serverHelloSRTPSelection12(t *testing.T, packets []*dtlsflight.Outbound) *e
 	require.True(t, ok)
 	serverHello, ok := handshakePacket.Message.(*handshake.MessageServerHello)
 	require.True(t, ok)
-	for _, value := range serverHello.Extensions() {
+	for _, value := range serverHello.Extensions {
 		if selection, ok := value.(*extension.SRTPSelection); ok {
 			return selection
 		}

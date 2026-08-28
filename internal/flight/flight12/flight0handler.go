@@ -87,7 +87,7 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}
 
-	for _, val := range clientHello.Extensions() {
+	for _, val := range clientHello.Extensions {
 		switch ext := val.(type) {
 		case *extension.SupportedGroups:
 			if len(ext.Groups) == 0 {

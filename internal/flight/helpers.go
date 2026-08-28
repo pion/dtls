@@ -61,7 +61,7 @@ func FinalizeClientHello(
 		return clientHello, snapshot, err
 	}
 
-	clientHello.SetExtensions(withoutExtension(clientHello.Extensions(), extension.TypeReturnRoutabilityCheck))
+	clientHello.Extensions = withoutExtension(clientHello.Extensions, extension.TypeReturnRoutabilityCheck)
 
 	return negotiation.FinalizeClientHello(clientHello, nil)
 }
@@ -79,7 +79,7 @@ func FinalizeServerHello(
 		return serverHello, err
 	}
 
-	serverHello.SetExtensions(withoutExtension(serverHello.Extensions(), extension.TypeReturnRoutabilityCheck))
+	serverHello.Extensions = withoutExtension(serverHello.Extensions, extension.TypeReturnRoutabilityCheck)
 
 	return serverHello, nil
 }

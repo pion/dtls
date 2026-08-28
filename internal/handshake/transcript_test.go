@@ -1223,7 +1223,7 @@ func pskClientHelloTranscript13(tb testing.TB, binder []byte) ([]byte, []byte) {
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
 	}
-	msg.SetExtensions([]extension.Value{
+	msg.Extensions = []extension.Value{
 		&extension13.OfferedPSKs{
 			Identities: []extension13.PSKIdentity{
 				{
@@ -1233,7 +1233,7 @@ func pskClientHelloTranscript13(tb testing.TB, binder []byte) ([]byte, []byte) {
 			},
 			Binders: []extension13.PSKBinder{extension13.PSKBinder(binder)},
 		},
-	})
+	}
 
 	body, err := msg.Marshal()
 	assert.NoError(tb, err)

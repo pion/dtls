@@ -253,7 +253,7 @@ func flight4Generate( //nolint:cyclop
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
 	}
-	serverHelloMessage.SetExtensions(serverHelloExtensions)
+	serverHelloMessage.Extensions = serverHelloExtensions
 	if _, err = serverHelloMessage.Marshal(); err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -271,7 +271,7 @@ func flight4Generate( //nolint:cyclop
 		})
 	}
 	messageExtensions := handshake.MessageEncryptedExtensions{}
-	messageExtensions.SetExtensions(encryptedExtensionsList)
+	messageExtensions.Extensions = encryptedExtensionsList
 	encryptedExtensions := HandshakePacket(&messageExtensions)
 
 	pkts := []*dtlsflight.Outbound{
@@ -296,7 +296,7 @@ func flight4Generate( //nolint:cyclop
 			})
 		}
 		m := handshake.MessageCertificateRequest13{}
-		m.SetExtensions(certificateRequestExtensions)
+		m.Extensions = certificateRequestExtensions
 		pkts = append(pkts, HandshakePacket(&m))
 	}
 	pkts = append(pkts,

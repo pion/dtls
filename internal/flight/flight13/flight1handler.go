@@ -146,7 +146,7 @@ func flight1Generate(
 		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	}
-	clientHello.SetExtensions(extensions)
+	clientHello.Extensions = extensions
 
 	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
 		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,
@@ -211,7 +211,7 @@ func flight1Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
 			dtlserrors.ErrUnsupportedProtocolVersion
 	}
-	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions()); err != nil {
+	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions); err != nil {
 		description := alert.IllegalParameter
 		switch {
 		case errors.Is(err, dtlserrors.ErrUnsupportedProtocolVersion):

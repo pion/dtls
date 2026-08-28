@@ -21,11 +21,22 @@ import (
 
 const unknownExtensionType extension.Type = 0xfefe
 
-func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+func withExtensions[T any](
 	message T,
 	extensions []extension.Value,
 ) T {
-	message.SetExtensions(extensions)
+	switch message := any(message).(type) {
+	case *handshake.MessageClientHello:
+		message.Extensions = extensions
+	case *handshake.MessageServerHello:
+		message.Extensions = extensions
+	case *handshake.MessageEncryptedExtensions:
+		message.Extensions = extensions
+	case *handshake.MessageNewSessionTicket:
+		message.Extensions = extensions
+	case *handshake.MessageCertificateRequest13:
+		message.Extensions = extensions
+	}
 
 	return message
 }
@@ -67,9 +78,9 @@ func TestFinalizeClientHelloDetachesHookValues(t *testing.T) {
 	var hookResult *handshake.MessageClientHello
 
 	final, snapshot, err := FinalizeClientHello(base, func(ch handshake.MessageClientHello) handshake.Message {
-		raw := ch.Extensions()[0].(extension.Raw) //nolint:forcetypeassert
+		raw := ch.Extensions[0].(extension.Raw) //nolint:forcetypeassert
 		raw.Data[0] = 0x20
-		ch.Extensions()[0] = raw
+		ch.Extensions[0] = raw
 		hookResult = &ch
 
 		return hookResult
@@ -77,9 +88,9 @@ func TestFinalizeClientHelloDetachesHookValues(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x10}, input)
 
-	hookRaw := hookResult.Extensions()[0].(extension.Raw) //nolint:forcetypeassert
+	hookRaw := hookResult.Extensions[0].(extension.Raw) //nolint:forcetypeassert
 	hookRaw.Data[0] = 0xff
-	finalRaw := final.Extensions()[0].(extension.Raw) //nolint:forcetypeassert
+	finalRaw := final.Extensions[0].(extension.Raw) //nolint:forcetypeassert
 	assert.Equal(t, []byte{0x20}, finalRaw.Data)
 	snapshotRaw, ok := snapshot.Extension(unknownExtensionType)
 	require.True(t, ok)
@@ -119,7 +130,7 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 		{
 			name: "nil extension",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
-				ch.SetExtensions([]extension.Value{nil})
+				ch.Extensions = []extension.Value{nil}
 
 				return &ch
 			},
@@ -128,10 +139,10 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 		{
 			name: "duplicate extension",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
-				ch.SetExtensions([]extension.Value{
+				ch.Extensions = []extension.Value{
 					&extension.ConnectionID{},
 					&extension.ConnectionID{},
-				})
+				}
 
 				return &ch
 			},

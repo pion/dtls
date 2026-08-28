@@ -22,9 +22,9 @@ type CertificateEntry13 struct {
 	// Can be empty for certain contexts (e.g., RawPublicKey mode).
 	CertificateData []byte
 
-	// extensions contains per-certificate extensions.
+	// Extensions contains per-certificate extensions.
 	// Examples: OCSP status, SignedCertificateTimestamp, etc.
-	extensions []extension.Value
+	Extensions []extension.Value
 }
 
 // MessageCertificate13 represents the Certificate handshake message for DTLS 1.3.
@@ -54,16 +54,6 @@ const (
 	cert13CertLengthFieldSize    = 3
 	cert13ExtLengthFieldSize     = 2
 )
-
-// Extensions returns extensions.
-func (m CertificateEntry13) Extensions() []extension.Value {
-	return m.extensions
-}
-
-// SetExtensions replaces the per-certificate extensions.
-func (m *CertificateEntry13) SetExtensions(extensions []extension.Value) {
-	m.extensions = extensions
-}
 
 // Marshal encodes the MessageCertificate13 into its wire format.
 //
@@ -100,7 +90,7 @@ func (m *MessageCertificate13) certsSize() int {
 		entry := &m.CertificateList[i]
 		certificateListSize += cert13CertLengthFieldSize
 		certificateListSize += len(entry.CertificateData)
-		certificateListSize += extension.MarshalListSize(entry.extensions)
+		certificateListSize += extension.MarshalListSize(entry.Extensions)
 	}
 
 	return certificateListSize
@@ -136,7 +126,7 @@ func (m *MessageCertificate13) prepareMarshal() ([][]byte, int, int, error) {
 			return nil, 0, 0, dtlserrors.ErrInvalidCertificateEntry
 		}
 
-		encoded, err := extension.MarshalList(entry.extensions)
+		encoded, err := extension.MarshalList(entry.Extensions)
 		if err != nil {
 			return nil, 0, 0, err
 		}
@@ -221,7 +211,7 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 	}
 
 	entry := &CertificateEntry13{CertificateData: certDataBytes}
-	entry.SetExtensions(extensions)
+	entry.Extensions = extensions
 
 	return entry, nil
 }

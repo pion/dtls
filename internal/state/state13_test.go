@@ -14,11 +14,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+func withExtensions[T any](
 	message T,
 	extensions []extension.Value,
 ) T {
-	message.SetExtensions(extensions)
+	switch message := any(message).(type) {
+	case *handshake.MessageClientHello:
+		message.Extensions = extensions
+	case *handshake.MessageServerHello:
+		message.Extensions = extensions
+	case *handshake.MessageEncryptedExtensions:
+		message.Extensions = extensions
+	case *handshake.MessageNewSessionTicket:
+		message.Extensions = extensions
+	case *handshake.MessageCertificateRequest13:
+		message.Extensions = extensions
+	}
 
 	return message
 }

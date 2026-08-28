@@ -24,11 +24,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withExtensions[T interface{ SetExtensions([]extension.Value) }](
+func withExtensions[T any](
 	message T,
 	extensions []extension.Value,
 ) T {
-	message.SetExtensions(extensions)
+	switch message := any(message).(type) {
+	case *handshake.MessageClientHello:
+		message.Extensions = extensions
+	case *handshake.MessageServerHello:
+		message.Extensions = extensions
+	case *handshake.MessageEncryptedExtensions:
+		message.Extensions = extensions
+	case *handshake.MessageNewSessionTicket:
+		message.Extensions = extensions
+	case *handshake.MessageCertificateRequest13:
+		message.Extensions = extensions
+	}
 
 	return message
 }
@@ -44,7 +55,7 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 			state := dtlsstate.Activate12(&state13)
 			cfg := &dtlsconfig.HandshakeConfig{
 				ClientHelloMessageHook: func(clientHello handshake.MessageClientHello) handshake.Message {
-					clientHello.SetExtensions(append(clientHello.Extensions(), &extension.ConnectionID{CID: cid}))
+					clientHello.Extensions = append(clientHello.Extensions, &extension.ConnectionID{CID: cid})
 
 					return &clientHello
 				},
@@ -60,7 +71,7 @@ func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testi
 			require.True(t, ok)
 
 			connectionIDs := make([][]byte, 0, 1)
-			for _, ext := range clientHello.Extensions() {
+			for _, ext := range clientHello.Extensions {
 				if connectionID, ok := ext.(*extension.ConnectionID); ok {
 					connectionIDs = append(connectionIDs, connectionID.CID)
 				}
@@ -86,8 +97,8 @@ func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.
 	require.True(t, ok)
 	clientHello, ok := handshakeMessage.Message.(*handshake.MessageClientHello)
 	require.True(t, ok)
-	assert.Contains(t, clientHello.Extensions(), &extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
-	assert.Contains(t, clientHello.Extensions(), &extension12.SupportedPointFormats{
+	assert.Contains(t, clientHello.Extensions, &extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
+	assert.Contains(t, clientHello.Extensions, &extension12.SupportedPointFormats{
 		PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
 	})
 }
@@ -212,7 +223,7 @@ func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 		Cookie:             state.Cookie,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	}
-	retry.SetExtensions([]extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}})
+	retry.Extensions = []extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}}
 	rawRetry, err := (&handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1}, Message: retry,
 	}).Marshal()
@@ -274,7 +285,7 @@ func TestFlight4bGenerateDoesNotCommitConnectionIDAfterLateResponseError(t *test
 	cfg := &dtlsconfig.HandshakeConfig{
 		ConnectionIDGenerator: func() []byte { return []byte{0x51} },
 		ServerHelloMessageHook: func(serverHello handshake.MessageServerHello) handshake.Message {
-			serverHello.SetExtensions(append(serverHello.Extensions(), extension.Raw{Type: 0xfafa}))
+			serverHello.Extensions = append(serverHello.Extensions, extension.Raw{Type: 0xfafa})
 
 			return &serverHello
 		},

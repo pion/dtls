@@ -29,7 +29,7 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 			},
 			parsedCertificateRequest: &MessageCertificateRequest13{
 				CertificateRequestContext: []byte{},
-				extensions: []extension.Value{
+				Extensions: []extension.Value{
 					&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
 				},
 			},
@@ -48,7 +48,7 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 			},
 			parsedCertificateRequest: &MessageCertificateRequest13{
 				CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
-				extensions: []extension.Value{
+				Extensions: []extension.Value{
 					&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0401, 0x0503}},
 				},
 			},
@@ -76,7 +76,7 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, testCase.parsedCertificateRequest.CertificateRequestContext, c.CertificateRequestContext)
-				assert.Equal(t, len(testCase.parsedCertificateRequest.Extensions()), len(c.Extensions()))
+				assert.Equal(t, len(testCase.parsedCertificateRequest.Extensions), len(c.Extensions))
 
 				raw, err := c.Marshal()
 				assert.NoError(t, err)
@@ -109,7 +109,7 @@ func TestMessageCertificateRequest13_ValidContexts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			msg := &MessageCertificateRequest13{
 				CertificateRequestContext: test.context,
-				extensions: []extension.Value{
+				Extensions: []extension.Value{
 					&extension.SignatureAlgorithms{Schemes: test.schemes},
 				},
 			}
@@ -123,7 +123,7 @@ func TestMessageCertificateRequest13_MultipleExtensions(t *testing.T) {
 	// (signature_algorithms, which must be present, and an unknown extension)
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
-		extensions: []extension.Value{
+		Extensions: []extension.Value{
 			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0503, 0x0601}},
 			extension.Raw{
 				Type: 0xfefe,
@@ -141,7 +141,7 @@ func TestMessageCertificateRequest13_ContextTooLong(t *testing.T) {
 	tooLongContext := make([]byte, certReq13ContextMaxLength+1)
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: tooLongContext,
-		extensions: []extension.Value{
+		Extensions: []extension.Value{
 			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
 		},
 	}
@@ -269,11 +269,11 @@ func marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(
 
 	// Verify before/after marshal/unmarshal match
 	assert.Equal(t, in.CertificateRequestContext, out.CertificateRequestContext)
-	assert.EqualValues(t, in.Extensions(), out.Extensions())
+	assert.EqualValues(t, in.Extensions, out.Extensions)
 
 	// Verify has signature algorithms extension present
 	hasSignatureAlgorithms := false
-	for _, ext := range out.Extensions() {
+	for _, ext := range out.Extensions {
 		if ext.ExtensionType() == extension.TypeSignatureAlgorithms {
 			hasSignatureAlgorithms = true
 

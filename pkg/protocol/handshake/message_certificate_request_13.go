@@ -23,7 +23,7 @@ type MessageCertificateRequest13 struct {
 
 	// Extensions contains the list of extensions.
 	// The signature_algorithms extension is REQUIRED per RFC 8446.
-	extensions []extension.Value
+	Extensions []extension.Value
 }
 
 // Type returns the handshake message type.
@@ -36,16 +36,6 @@ const (
 	certReq13ContextMaxLength = 255
 	certReq13MinLength        = 3
 )
-
-// Extensions returns the extensions.
-func (m *MessageCertificateRequest13) Extensions() []extension.Value {
-	return m.extensions
-}
-
-// SetExtensions replaces the extensions.
-func (m *MessageCertificateRequest13) SetExtensions(extensions []extension.Value) {
-	m.extensions = extensions
-}
 
 // Marshal encodes the MessageCertificateRequest13 into its wire format.
 //
@@ -69,7 +59,7 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 
 // MarshalSize returns the size needed for MarshalTo.
 func (m *MessageCertificateRequest13) MarshalSize() int {
-	return 1 + len(m.CertificateRequestContext) + extension.MarshalListSize(m.extensions)
+	return 1 + len(m.CertificateRequestContext) + extension.MarshalListSize(m.Extensions)
 }
 
 // MarshalTo encodes like Marshal but in a pre-allocate buffer.
@@ -95,7 +85,7 @@ func (m *MessageCertificateRequest13) prepareMarshal() ([]byte, int, error) {
 
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
 	hasSignatureAlgorithms := false
-	for _, ext := range m.extensions {
+	for _, ext := range m.Extensions {
 		if ext.ExtensionType() == extension.TypeSignatureAlgorithms {
 			hasSignatureAlgorithms = true
 
@@ -106,7 +96,7 @@ func (m *MessageCertificateRequest13) prepareMarshal() ([]byte, int, error) {
 		return nil, 0, dtlserrors.ErrMissingSignatureAlgorithmsExtension
 	}
 
-	extensions, err := extension.MarshalList(m.extensions)
+	extensions, err := extension.MarshalList(m.Extensions)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -159,11 +149,11 @@ func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 		return err
 	}
 
-	m.SetExtensions(extensions)
+	m.Extensions = extensions
 
 	// Validate that signature_algorithms extension is present (required by RFC 8446)
 	hasSignatureAlgorithms := false
-	for _, ext := range m.Extensions() {
+	for _, ext := range m.Extensions {
 		if ext.ExtensionType() == extension.TypeSignatureAlgorithms {
 			hasSignatureAlgorithms = true
 

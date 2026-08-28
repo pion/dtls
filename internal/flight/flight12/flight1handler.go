@@ -176,7 +176,7 @@ func flight1Generate(
 		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	}
-	clientHello.SetExtensions(extensions)
+	clientHello.Extensions = extensions
 
 	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
 		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,

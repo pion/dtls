@@ -14,17 +14,7 @@ import (
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.1
 type MessageEncryptedExtensions struct {
-	extensions []extension.Value
-}
-
-// Extensions returns the extensions.
-func (m MessageEncryptedExtensions) Extensions() []extension.Value {
-	return m.extensions
-}
-
-// SetExtensions replaces the extensions.
-func (m *MessageEncryptedExtensions) SetExtensions(extensions []extension.Value) {
-	m.extensions = extensions
+	Extensions []extension.Value
 }
 
 // Type returns the Handshake Type.
@@ -34,12 +24,12 @@ func (m MessageEncryptedExtensions) Type() Type {
 
 // MarshalSize returns the minimal size required for MarshalTo.
 func (m *MessageEncryptedExtensions) MarshalSize() int {
-	return extension.MarshalListSize(m.extensions)
+	return extension.MarshalListSize(m.Extensions)
 }
 
 // Marshal encodes the Handshake.
 func (m *MessageEncryptedExtensions) Marshal() ([]byte, error) {
-	prepared, err := extension.PrepareList(m.extensions)
+	prepared, err := extension.PrepareList(m.Extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +42,7 @@ func (m *MessageEncryptedExtensions) Marshal() ([]byte, error) {
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageEncryptedExtensions) MarshalTo(out []byte) (int, error) {
-	prepared, err := extension.PrepareList(m.extensions)
+	prepared, err := extension.PrepareList(m.Extensions)
 	if err != nil {
 		if len(out) < prepared.MarshalSize() {
 			return 0, err
@@ -82,7 +72,7 @@ func (m *MessageEncryptedExtensions) Unmarshal(data []byte) error {
 	if err != nil {
 		return err
 	}
-	m.SetExtensions(extensions)
+	m.Extensions = extensions
 
 	return nil
 }

@@ -54,32 +54,32 @@ func TestHelloMarshalValidatesFieldsBeforePreparingExtensions(t *testing.T) {
 	}{
 		{
 			name:    "client cookie",
-			message: &MessageClientHello{Cookie: make([]byte, 256), extensions: extensions},
+			message: &MessageClientHello{Cookie: make([]byte, 256), Extensions: extensions},
 			err:     dtlserrors.ErrCookieTooLong,
 		},
 		{
 			name:    "client session ID",
-			message: &MessageClientHello{SessionID: make([]byte, 256), extensions: extensions},
+			message: &MessageClientHello{SessionID: make([]byte, 256), Extensions: extensions},
 			err:     dtlserrors.ErrSessionIDTooLong,
 		},
 		{
 			name: "client compression methods",
 			message: &MessageClientHello{
 				CompressionMethods: make([]*protocol.CompressionMethod, 256),
-				extensions:         extensions,
+				Extensions:         extensions,
 			},
 			err: dtlserrors.ErrCompressionMethodsTooLong,
 		},
 		{
 			name:    "server cipher suite",
-			message: &MessageServerHello{CompressionMethod: compressionMethod, extensions: extensions},
+			message: &MessageServerHello{CompressionMethod: compressionMethod, Extensions: extensions},
 			err:     dtlserrors.ErrCipherSuiteUnset,
 		},
 		{
 			name: "server compression method",
 			message: &MessageServerHello{
 				CipherSuiteID: &cipherSuiteID,
-				extensions:    extensions,
+				Extensions:    extensions,
 			},
 			err: dtlserrors.ErrCompressionMethodUnset,
 		},
@@ -89,7 +89,7 @@ func TestHelloMarshalValidatesFieldsBeforePreparingExtensions(t *testing.T) {
 				SessionID:         make([]byte, 256),
 				CipherSuiteID:     &cipherSuiteID,
 				CompressionMethod: compressionMethod,
-				extensions:        extensions,
+				Extensions:        extensions,
 			},
 			err: dtlserrors.ErrSessionIDTooLong,
 		},
@@ -173,7 +173,7 @@ func TestHandshakeMessageServerHello(t *testing.T) {
 		SessionID:         []byte{},
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{},
-		extensions:        []extension.Value{},
+		Extensions:        []extension.Value{},
 	}
 
 	c := &MessageServerHello{}
@@ -220,7 +220,7 @@ func TestHandshakeMessageServerHello_SessionIDTooLong(t *testing.T) {
 		SessionID:         make([]byte, 256),
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{ID: 0},
-		extensions:        []extension.Value{},
+		Extensions:        []extension.Value{},
 	}
 
 	_, err := c.Marshal()
@@ -232,13 +232,13 @@ func TestExtensionMessagesRejectMismatchedPayloadSize(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 
 	tests := map[string]Message{
-		"client hello": &MessageClientHello{extensions: extensions},
+		"client hello": &MessageClientHello{Extensions: extensions},
 		"server hello": &MessageServerHello{
 			CipherSuiteID:     &cipherSuiteID,
 			CompressionMethod: &protocol.CompressionMethod{},
-			extensions:        extensions,
+			Extensions:        extensions,
 		},
-		"encrypted extensions": &MessageEncryptedExtensions{extensions: extensions},
+		"encrypted extensions": &MessageEncryptedExtensions{Extensions: extensions},
 	}
 
 	for name, message := range tests {
@@ -256,7 +256,7 @@ func TestMessageServerHelloMarshalToReportsActualExtensionCount(t *testing.T) {
 	message := &MessageServerHello{
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: compressionMethod,
-		extensions:        []extension.Value{mismatchedExtension{}},
+		Extensions:        []extension.Value{mismatchedExtension{}},
 	}
 	partial := &MessageServerHello{
 		CipherSuiteID:     &cipherSuiteID,
@@ -284,24 +284,24 @@ func TestExtensionMessageMarshalToReportsOnlyWrittenPrefix(t *testing.T) {
 		partial Message
 	}{
 		"client hello": {
-			message: &MessageClientHello{extensions: extensions},
-			partial: &MessageClientHello{extensions: partialExtensions},
+			message: &MessageClientHello{Extensions: extensions},
+			partial: &MessageClientHello{Extensions: partialExtensions},
 		},
 		"server hello": {
 			message: &MessageServerHello{
 				CipherSuiteID:     &cipherSuiteID,
 				CompressionMethod: compressionMethod,
-				extensions:        extensions,
+				Extensions:        extensions,
 			},
 			partial: &MessageServerHello{
 				CipherSuiteID:     &cipherSuiteID,
 				CompressionMethod: compressionMethod,
-				extensions:        partialExtensions,
+				Extensions:        partialExtensions,
 			},
 		},
 		"encrypted extensions": {
-			message: &MessageEncryptedExtensions{extensions: extensions},
-			partial: &MessageEncryptedExtensions{extensions: partialExtensions},
+			message: &MessageEncryptedExtensions{Extensions: extensions},
+			partial: &MessageEncryptedExtensions{Extensions: partialExtensions},
 		},
 	}
 
