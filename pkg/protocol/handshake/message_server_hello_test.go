@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mismatchedExtension struct{}
@@ -250,14 +252,77 @@ func TestExtensionMessagesRejectMismatchedPayloadSize(t *testing.T) {
 
 func TestMessageServerHelloMarshalToReportsActualExtensionCount(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
+	compressionMethod := &protocol.CompressionMethod{}
 	message := &MessageServerHello{
 		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: &protocol.CompressionMethod{},
+		CompressionMethod: compressionMethod,
 		extensions:        []extension.Value{mismatchedExtension{}},
 	}
+	partial := &MessageServerHello{
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: compressionMethod,
+	}
+	want, err := partial.Marshal()
+	require.NoError(t, err)
+	out := bytes.Repeat([]byte{0xaa}, message.MarshalSize())
 
-	n, err := message.MarshalTo(make([]byte, message.MarshalSize()))
-	message.SetExtensions(nil)
-	assert.Equal(t, message.MarshalSize(), n)
+	n, err := message.MarshalTo(out)
+
+	assert.Equal(t, len(want), n)
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+	assert.Equal(t, want, out[:n])
+}
+
+func TestExtensionMessageMarshalToReportsOnlyWrittenPrefix(t *testing.T) {
+	cipherSuiteID := uint16(0xc02b)
+	compressionMethod := &protocol.CompressionMethod{}
+	firstExtension := extension.Raw{Type: extension.TypePadding, Data: []byte{0x01}}
+	partialExtensions := []extension.Value{firstExtension}
+	extensions := []extension.Value{firstExtension, mismatchedExtension{}}
+	tests := map[string]struct {
+		message Message
+		partial Message
+	}{
+		"client hello": {
+			message: &MessageClientHello{extensions: extensions},
+			partial: &MessageClientHello{extensions: partialExtensions},
+		},
+		"server hello": {
+			message: &MessageServerHello{
+				CipherSuiteID:     &cipherSuiteID,
+				CompressionMethod: compressionMethod,
+				extensions:        extensions,
+			},
+			partial: &MessageServerHello{
+				CipherSuiteID:     &cipherSuiteID,
+				CompressionMethod: compressionMethod,
+				extensions:        partialExtensions,
+			},
+		},
+		"encrypted extensions": {
+			message: &MessageEncryptedExtensions{extensions: extensions},
+			partial: &MessageEncryptedExtensions{extensions: partialExtensions},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			want, err := test.partial.Marshal()
+			require.NoError(t, err)
+			out := bytes.Repeat([]byte{0xaa}, test.message.MarshalSize())
+
+			n, err := test.message.MarshalTo(out)
+			assert.Equal(t, len(want), n)
+			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+			assert.Equal(t, want, out[:n])
+			assert.Equal(t, bytes.Repeat([]byte{0xaa}, len(out)-n), out[n:])
+
+			handshakeOut := bytes.Repeat([]byte{0xaa}, HeaderLength+test.message.MarshalSize())
+			n, err = (&Handshake{Message: test.message}).MarshalTo(handshakeOut)
+			assert.Equal(t, HeaderLength+len(want), n)
+			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+			assert.Equal(t, want, handshakeOut[HeaderLength:n])
+			assert.Equal(t, bytes.Repeat([]byte{0xaa}, len(handshakeOut)-n), handshakeOut[n:])
+		})
+	}
 }

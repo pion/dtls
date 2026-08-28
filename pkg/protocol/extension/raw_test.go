@@ -115,7 +115,7 @@ func (f failingValue) MarshalData() ([]byte, error) {
 	return nil, f.err
 }
 
-func TestMarshalListToReturnsPartialCount(t *testing.T) {
+func TestMarshalListToReportsOnlyWrittenPrefix(t *testing.T) {
 	marshalErr := errors.New("extension marshal failed") //nolint:err113
 	first := Raw{Type: 0xface, Data: []byte{0x01}}
 	firstWire, err := MarshalList([]Value{first})
@@ -168,8 +168,7 @@ func TestMarshalListToReturnsPartialCount(t *testing.T) {
 
 			assert.ErrorIs(t, err, test.err)
 			assert.Equal(t, partialLen, n)
-			assert.Equal(t, []byte{0xaa, 0xbb}, out[:2], "list length is invalid until marshal succeeds")
-			assert.Equal(t, firstWire[2:], out[2:partialLen])
+			assert.Equal(t, firstWire, out[:n])
 		})
 	}
 }
@@ -199,9 +198,14 @@ func TestMarshalListRejectsMismatchedPayloadSize(t *testing.T) {
 			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 
 			out := make([]byte, 16)
+			for i := range out {
+				out[i] = 0xaa
+			}
 			n, err := MarshalListTo(out, []Value{test.value})
 			assert.Equal(t, 2, n)
 			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+			assert.Equal(t, []byte{0x00, 0x00}, out[:n])
+			assert.Equal(t, []byte{0xaa, 0xaa}, out[n:n+2])
 		})
 	}
 }

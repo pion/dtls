@@ -144,12 +144,12 @@ func PrepareList(values []Value) (PreparedList, error) {
 			return prepared, dtlserrors.ErrInvalidExtensionsLength
 		}
 
-		prepared.entries = append(prepared.entries, preparedExtension{payload: payload})
+		prepared.entries = append(prepared.entries, preparedExtension{
+			typ:     value.ExtensionType(),
+			payload: payload,
+		})
 		totalLen += 4 + len(payload)
 		prepared.size = 2 + totalLen
-	}
-	for i, value := range values {
-		prepared.entries[i].typ = value.ExtensionType()
 	}
 
 	return prepared, nil
@@ -215,6 +215,7 @@ func MarshalListTo(out []byte, values []Value) (int, error) {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
+	binary.BigEndian.PutUint16(out, 0)
 	offset := 2
 	for _, value := range values {
 		if value == nil {
@@ -240,9 +241,8 @@ func MarshalListTo(out []byte, values []Value) (int, error) {
 		binary.BigEndian.PutUint16(out[offset+2:], uint16(len(payload))) //nolint:gosec // bounded above.
 		copy(out[offset+4:], payload)
 		offset += 4 + len(payload)
+		binary.BigEndian.PutUint16(out, uint16(offset-2)) //nolint:gosec // bounded above.
 	}
-
-	binary.BigEndian.PutUint16(out, uint16(offset-2)) //nolint:gosec // bounded above.
 
 	return offset, nil
 }

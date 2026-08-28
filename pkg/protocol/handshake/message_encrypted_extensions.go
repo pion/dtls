@@ -54,7 +54,16 @@ func (m *MessageEncryptedExtensions) Marshal() ([]byte, error) {
 func (m *MessageEncryptedExtensions) MarshalTo(out []byte) (int, error) {
 	prepared, err := extension.PrepareList(m.extensions)
 	if err != nil {
-		return prepared.MarshalSize(), err
+		if len(out) < prepared.MarshalSize() {
+			return 0, err
+		}
+
+		n, marshalErr := prepared.MarshalTo(out)
+		if marshalErr != nil {
+			return n, marshalErr
+		}
+
+		return n, err
 	}
 	if len(out) < prepared.MarshalSize() {
 		return 0, dtlserrors.ErrBufferTooSmall
