@@ -14,6 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type mismatchedExtension struct{}
+
+func (mismatchedExtension) ExtensionType() extension.Type { return extension.TypePadding }
+func (mismatchedExtension) MarshalSize() int              { return 1 }
+func (mismatchedExtension) MarshalData() ([]byte, error)  { return nil, nil }
+
 func TestMessageServerHelloExtensionFramingErrorIsClassified(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 	raw, err := (&MessageServerHello{
@@ -133,4 +139,41 @@ func TestHandshakeMessageServerHello_SessionIDTooLong(t *testing.T) {
 
 	_, err := c.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrSessionIDTooLong)
+}
+
+func TestExtensionMessagesRejectMismatchedPayloadSize(t *testing.T) {
+	extensions := []extension.Value{mismatchedExtension{}}
+	cipherSuiteID := uint16(0xc02b)
+
+	tests := map[string]Message{
+		"client hello": &MessageClientHello{extensions: extensions},
+		"server hello": &MessageServerHello{
+			CipherSuiteID:     &cipherSuiteID,
+			CompressionMethod: &protocol.CompressionMethod{},
+			extensions:        extensions,
+		},
+		"encrypted extensions": &MessageEncryptedExtensions{extensions: extensions},
+	}
+
+	for name, message := range tests {
+		t.Run(name, func(t *testing.T) {
+			encoded, err := message.Marshal()
+			assert.Nil(t, encoded)
+			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+		})
+	}
+}
+
+func TestMessageServerHelloMarshalToReportsActualExtensionCount(t *testing.T) {
+	cipherSuiteID := uint16(0xc02b)
+	message := &MessageServerHello{
+		CipherSuiteID:     &cipherSuiteID,
+		CompressionMethod: &protocol.CompressionMethod{},
+		extensions:        []extension.Value{mismatchedExtension{}},
+	}
+
+	n, err := message.MarshalTo(make([]byte, message.MarshalSize()))
+	message.SetExtensions(nil)
+	assert.Equal(t, message.MarshalSize(), n)
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 }

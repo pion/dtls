@@ -39,10 +39,17 @@ func (m *MessageEncryptedExtensions) MarshalSize() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageEncryptedExtensions) Marshal() ([]byte, error) {
-	out := make([]byte, m.MarshalSize())
-	_, err := m.MarshalTo(out)
+	size := m.MarshalSize()
+	if size < 0 {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+	out := make([]byte, size)
+	n, err := m.MarshalTo(out)
 	if err != nil {
 		return nil, err
+	}
+	if n != len(out) {
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
 	return out, nil
@@ -50,7 +57,11 @@ func (m *MessageEncryptedExtensions) Marshal() ([]byte, error) {
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageEncryptedExtensions) MarshalTo(out []byte) (int, error) {
-	if len(out) < m.MarshalSize() {
+	size := m.MarshalSize()
+	if size < 0 {
+		return 0, dtlserrors.ErrLengthMismatch
+	}
+	if len(out) < size {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 

@@ -118,9 +118,13 @@ func MarshalList(values []Value) ([]byte, error) {
 			return nil, dtlserrors.ErrNilExtension
 		}
 
+		expected := value.MarshalSize()
 		payload, err := value.MarshalData()
 		if err != nil {
 			return nil, err
+		}
+		if expected < 0 || len(payload) != expected {
+			return nil, dtlserrors.ErrLengthMismatch
 		}
 		if len(payload) > 0xffff || totalLen > 0xffff-4-len(payload) {
 			return nil, dtlserrors.ErrInvalidExtensionsLength
@@ -168,15 +172,19 @@ func MarshalListTo(out []byte, values []Value) (int, error) {
 			return 0, dtlserrors.ErrNilExtension
 		}
 
+		expected := value.MarshalSize()
 		payload, err := value.MarshalData()
 		if err != nil {
-			return 0, err
+			return offset, err
+		}
+		if expected < 0 || len(payload) != expected {
+			return offset, dtlserrors.ErrLengthMismatch
 		}
 		if len(payload) > 0xffff || offset-2 > 0xffff-4-len(payload) {
-			return 0, dtlserrors.ErrInvalidExtensionsLength
+			return offset, dtlserrors.ErrInvalidExtensionsLength
 		}
 		if len(out)-offset < 4+len(payload) {
-			return 0, dtlserrors.ErrBufferTooSmall
+			return offset, dtlserrors.ErrBufferTooSmall
 		}
 
 		binary.BigEndian.PutUint16(out[offset:], uint16(value.ExtensionType()))

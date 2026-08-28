@@ -59,10 +59,17 @@ func (m *MessageServerHello) MarshalSize() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageServerHello) Marshal() ([]byte, error) {
-	out := make([]byte, m.MarshalSize())
-	_, err := m.MarshalTo(out)
+	size := m.MarshalSize()
+	if size < 0 {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+	out := make([]byte, size)
+	n, err := m.MarshalTo(out)
 	if err != nil {
 		return nil, err
+	}
+	if n != len(out) {
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
 	return out, nil
@@ -70,7 +77,11 @@ func (m *MessageServerHello) Marshal() ([]byte, error) {
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
 func (m *MessageServerHello) MarshalTo(out []byte) (int, error) {
-	if len(out) < m.MarshalSize() {
+	size := m.MarshalSize()
+	if size < 0 {
+		return 0, dtlserrors.ErrLengthMismatch
+	}
+	if len(out) < size {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
@@ -103,9 +114,16 @@ func (m *MessageServerHello) MarshalTo(out []byte) (int, error) {
 	out[offset] = byte(m.CompressionMethod.ID)
 	offset += 1
 
-	_, err := extension.MarshalListTo(out[offset:], m.extensions)
+	nn, err := extension.MarshalListTo(out[offset:], m.extensions)
+	offset += nn
+	if err != nil {
+		return offset, err
+	}
+	if offset != size {
+		return offset, dtlserrors.ErrLengthMismatch
+	}
 
-	return m.MarshalSize(), err
+	return offset, nil
 }
 
 // Unmarshal populates the message from encoded data.

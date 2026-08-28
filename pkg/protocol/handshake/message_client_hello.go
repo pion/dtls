@@ -65,10 +65,17 @@ func (m *MessageClientHello) MarshalSize() int {
 
 // Marshal encodes the Handshake.
 func (m *MessageClientHello) Marshal() ([]byte, error) {
-	out := make([]byte, m.MarshalSize())
-	_, err := m.MarshalTo(out)
+	size := m.MarshalSize()
+	if size < 0 {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+	out := make([]byte, size)
+	n, err := m.MarshalTo(out)
 	if err != nil {
 		return nil, err
+	}
+	if n != len(out) {
+		return nil, dtlserrors.ErrLengthMismatch
 	}
 
 	return out, nil
@@ -87,6 +94,9 @@ func (m *MessageClientHello) MarshalTo(out []byte) (int, error) {
 	}
 
 	size := m.MarshalSize()
+	if size < 0 {
+		return 0, dtlserrors.ErrLengthMismatch
+	}
 	if len(out) < size {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}

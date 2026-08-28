@@ -104,6 +104,38 @@ func TestMarshalListToErrors(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionsLength)
 }
 
+type mismatchedValue struct {
+	size int
+	data []byte
+}
+
+func (m mismatchedValue) ExtensionType() Type { return TypePadding }
+func (m mismatchedValue) MarshalSize() int    { return m.size }
+func (m mismatchedValue) MarshalData() ([]byte, error) {
+	return m.data, nil
+}
+
+func TestMarshalListRejectsMismatchedPayloadSize(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value Value
+	}{
+		{name: "underreported data", value: mismatchedValue{size: 1}},
+		{name: "overreported data", value: mismatchedValue{size: 0, data: []byte{0}}},
+		{name: "negative size", value: mismatchedValue{size: -1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := MarshalList([]Value{test.value})
+			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+
+			out := make([]byte, 16)
+			n, err := MarshalListTo(out, []Value{test.value})
+			assert.Equal(t, 2, n)
+			assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+		})
+	}
+}
+
 func FuzzParseList(f *testing.F) {
 	f.Add([]byte{0x00, 0x00})
 	f.Add([]byte{0x00, 0x04, 0xfa, 0xce, 0x00, 0x00})
