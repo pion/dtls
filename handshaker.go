@@ -149,6 +149,12 @@ type flightConn interface {
 	setLocalEpoch(epoch uint16)
 	handleQueuedPackets(context.Context) error
 	sessionKey() []byte
+	// lockState and unlockState guard mutations of the connection state.
+	// The FSM acquires the write side while flight handlers mutate the
+	// shared state so that concurrent readers (e.g. ConnectionState) see a
+	// consistent snapshot.
+	lockState()
+	unlockState()
 }
 
 func (c *handshakeConfig) writeKeyLog(label string, clientRandom, secret []byte) {
@@ -231,7 +237,9 @@ func (s *handshakeFSM) prepare(ctx context.Context, conn flightConn) (handshakeS
 		err = errFlight
 		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
 	} else {
+		conn.lockState()
 		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
+		conn.unlockState()
 		s.retransmit = retransmit
 	}
 	if dtlsAlert != nil {
@@ -299,7 +307,9 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 				s.retransmitInterval = s.cfg.initialRetransmitInterval
 			}
 
+			conn.lockState()
 			nextFlight, alert, err := parse(ctx, conn, s.state, s.cache, s.cfg)
+			conn.unlockState()
 			close(state.done)
 			if alert != nil {
 				if alertErr := conn.notify(ctx, alert.Level, alert.Description); alertErr != nil {

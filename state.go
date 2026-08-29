@@ -117,12 +117,17 @@ func (s *State) serialize() (*serializedState, error) {
 
 	epoch := s.getLocalEpoch()
 
+	var sequenceNumber uint64
+	if int(epoch) < len(s.localSequenceNumber) {
+		sequenceNumber = atomic.LoadUint64(&s.localSequenceNumber[epoch])
+	}
+
 	return &serializedState{
 		LocalEpoch:            s.getLocalEpoch(),
 		RemoteEpoch:           s.getRemoteEpoch(),
 		CipherSuiteID:         cipherSuiteID,
 		MasterSecret:          s.masterSecret,
-		SequenceNumber:        atomic.LoadUint64(&s.localSequenceNumber[epoch]),
+		SequenceNumber:        sequenceNumber,
 		LocalRandom:           localRnd,
 		RemoteRandom:          remoteRnd,
 		SRTPProtectionProfile: uint16(s.getSRTPProtectionProfile()),

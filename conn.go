@@ -83,6 +83,13 @@ type Conn struct {
 	closeLock              sync.Mutex
 	closed                 *closer.Closer
 
+	// stateMu guards the c.state replacement and mutations of the shared
+	// connection state performed by the handshake FSM. Readers such as
+	// ConnectionState hold the read side. localSequenceNumber remains
+	// guarded by lock, whose writers are all reachable through the write
+	// path already holding it.
+	stateMu sync.RWMutex
+
 	readDeadline  *deadline.Deadline
 	writeDeadline *deadline.Deadline
 
@@ -333,7 +340,9 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 		}
 		initialFSMState = handshakeFinished
 
+		c.stateMu.Lock()
 		c.state = *c.handshakeConfig.resumeState
+		c.stateMu.Unlock()
 	} else {
 		if c.state.isClient {
 			initialFlight = flight1
@@ -533,9 +542,15 @@ func (c *Conn) Close() error {
 // ConnectionState returns basic DTLS details about the connection.
 // Note that this replaced the `Export` function of v1.
 func (c *Conn) ConnectionState() (State, bool) {
+	// lock guards localSequenceNumber writes on the send path while
+	// stateMu guards the handshake state mutations performed by the FSM.
+	// Both locks are acquired in the stateMu-then-lock order used by the
+	// FSM when it drains queued packets, avoiding lock-order inversion.
+	c.stateMu.RLock()
 	c.lock.RLock()
-	defer c.lock.RUnlock()
 	stateClone, err := c.state.clone()
+	c.lock.RUnlock()
+	c.stateMu.RUnlock()
 	if err != nil {
 		return State{}, false
 	}
@@ -545,6 +560,8 @@ func (c *Conn) ConnectionState() (State, bool) {
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile.
 func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
 	profile := c.state.getSRTPProtectionProfile()
 	if profile == 0 {
 		return 0, false
@@ -555,6 +572,8 @@ func (c *Conn) SelectedSRTPProtectionProfile() (SRTPProtectionProfile, bool) {
 
 // RemoteSRTPMasterKeyIdentifier returns the MasterKeyIdentifier value from the use_srtp.
 func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
 	if profile := c.state.getSRTPProtectionProfile(); profile == 0 {
 		return nil, false
 	}
@@ -1459,6 +1478,14 @@ func (c *Conn) isConnectionClosed() bool {
 
 func (c *Conn) setLocalEpoch(epoch uint16) {
 	c.state.localEpoch.Store(epoch)
+}
+
+func (c *Conn) lockState() {
+	c.stateMu.Lock()
+}
+
+func (c *Conn) unlockState() {
+	c.stateMu.Unlock()
 }
 
 func (c *Conn) setRemoteEpoch(epoch uint16) {

@@ -29,6 +29,8 @@ func (f *flight4TestMockFlightConn) recvHandshake() <-chan recvHandshakeState   
 func (f *flight4TestMockFlightConn) setLocalEpoch(uint16)                          {}
 func (f *flight4TestMockFlightConn) handleQueuedPackets(context.Context) error     { return nil }
 func (f *flight4TestMockFlightConn) sessionKey() []byte                            { return nil }
+func (f *flight4TestMockFlightConn) lockState()                                    {}
+func (f *flight4TestMockFlightConn) unlockState()                                  {}
 
 type flight4TestMockCipherSuite struct {
 	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
