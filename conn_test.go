@@ -4127,6 +4127,71 @@ func TestOnConnectionAttempt(t *testing.T) {
 	assert.Equal(t, int32(0), clientOnConnectionAttempt.Load(), "onConnectionAttempt fired for client")
 }
 
+func TestOnConnectionAttemptConnectionOwnership(t *testing.T) {
+	expectedErr := errors.New("connection rejected") //nolint:err113
+	config, err := buildServerConfig(WithOnConnectionAttempt(func(net.Addr) error { return expectedErr }))
+	assert.NoError(t, err)
+
+	t.Run("Server retains caller PacketConn", func(t *testing.T) {
+		ca, cb := dpipe.Pipe()
+		defer func() {
+			assert.NoError(t, ca.Close())
+		}()
+
+		conn := &closeTrackingPacketConn{PacketConn: dtlsnet.PacketConnFromConn(cb)}
+		defer func() {
+			assert.NoError(t, conn.Close())
+		}()
+
+		_, err = ServerWithOptions(conn, cb.RemoteAddr(), WithOnConnectionAttempt(func(net.Addr) error {
+			return expectedErr
+		}))
+		assert.ErrorIs(t, err, expectedErr)
+		assert.False(t, conn.closed.Load())
+	})
+
+	t.Run("Listener closes rejected accepted PacketConn", func(t *testing.T) {
+		ca, cb := dpipe.Pipe()
+		defer func() {
+			assert.NoError(t, ca.Close())
+		}()
+
+		conn := &closeTrackingPacketConn{PacketConn: dtlsnet.PacketConnFromConn(cb)}
+		l := &listener{
+			config: config,
+			parent: &singlePacketListener{conn: conn, raddr: cb.RemoteAddr()},
+		}
+
+		_, err := l.Accept()
+		assert.ErrorIs(t, err, expectedErr)
+		assert.True(t, conn.closed.Load())
+	})
+}
+
+type closeTrackingPacketConn struct {
+	net.PacketConn
+	closed atomic.Bool
+}
+
+func (c *closeTrackingPacketConn) Close() error {
+	c.closed.Store(true)
+
+	return c.PacketConn.Close()
+}
+
+type singlePacketListener struct {
+	conn  net.PacketConn
+	raddr net.Addr
+}
+
+func (l *singlePacketListener) Accept() (net.PacketConn, net.Addr, error) {
+	return l.conn, l.raddr, nil
+}
+
+func (*singlePacketListener) Close() error { return nil }
+
+func (*singlePacketListener) Addr() net.Addr { return nil }
+
 func TestFragmentBuffer_Retransmission(t *testing.T) {
 	fragmentBuffer := dtlsfragmentbuffer.New()
 	frag := []byte{
