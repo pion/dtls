@@ -46,8 +46,8 @@ func listenWithConfig(network string, laddr *net.UDPAddr, config *dtlsConfig) (n
 	}, nil
 }
 
-// ListenWithOptions creates a DTLS listener.
-func ListenWithOptions(network string, laddr *net.UDPAddr, opts ...ServerOption) (net.Listener, error) {
+// Listen creates a DTLS listener.
+func Listen(network string, laddr *net.UDPAddr, opts ...ServerOption) (net.Listener, error) {
 	config, err := buildServerConfig(opts...)
 	if err != nil {
 		return nil, err
@@ -59,8 +59,8 @@ func ListenWithOptions(network string, laddr *net.UDPAddr, opts ...ServerOption)
 	return listenWithConfig(network, laddr, config)
 }
 
-// NewListenerWithOptions creates a DTLS listener which accepts connections from an inner Listener.
-func NewListenerWithOptions(inner dtlsnet.PacketListener, opts ...ServerOption) (net.Listener, error) {
+// NewListener creates a DTLS listener which accepts connections from an inner Listener.
+func NewListener(inner dtlsnet.PacketListener, opts ...ServerOption) (net.Listener, error) {
 	config, err := buildServerConfig(opts...)
 	if err != nil {
 		return nil, err

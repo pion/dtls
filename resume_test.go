@@ -37,7 +37,7 @@ func resumeClient(conn net.PacketConn, rAddr net.Addr, opts []Option) (*Conn, er
 		clientOpts[i] = opt
 	}
 
-	return ClientWithOptions(conn, rAddr, clientOpts...)
+	return Client(conn, rAddr, clientOpts...)
 }
 
 func resumeServer(conn net.PacketConn, rAddr net.Addr, opts []Option) (*Conn, error) {
@@ -46,7 +46,7 @@ func resumeServer(conn net.PacketConn, rAddr net.Addr, opts []Option) (*Conn, er
 		serverOpts[i] = opt
 	}
 
-	return ServerWithOptions(conn, rAddr, serverOpts...)
+	return Server(conn, rAddr, serverOpts...)
 }
 
 func fatal(t *testing.T, errChan chan error, err error) {
@@ -160,7 +160,7 @@ func DoTestResume(
 
 	// Resume dtls connection
 	var resumed net.Conn
-	resumed, err = ResumeWithOptions(
+	resumed, err = Resume(
 		deserialized,
 		dtlsnet.PacketConnFromConn(localConn2),
 		localConn2.RemoteAddr(),

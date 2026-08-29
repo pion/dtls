@@ -22,7 +22,7 @@ func main() {
 	// Everything below is the pion-DTLS API! Thanks for using it ❤️.
 	//
 
-	listener, err := dtls.ListenWithOptions("udp", addr,
+	listener, err := dtls.Listen("udp", addr,
 		dtls.WithPSK(func(hint []byte) ([]byte, error) {
 			fmt.Printf("Client's hint: %s \n", hint)
 

@@ -34,7 +34,7 @@ func TestReceiveBufferSizeLargeDatagram(t *testing.T) {
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 
-	listener, err := ListenWithOptions("udp",
+	listener, err := Listen("udp",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		WithCertificates(serverCert),
 		WithReceiveBufferSize(bufferSize),
@@ -74,7 +74,7 @@ func TestReceiveBufferSizeLargeDatagram(t *testing.T) {
 	serverAddr, ok := listener.Addr().(*net.UDPAddr)
 	require.True(t, ok)
 
-	client, err := DialWithOptions("udp", serverAddr,
+	client, err := Dial("udp", serverAddr,
 		WithInsecureSkipVerify(true),
 		WithReceiveBufferSize(bufferSize),
 	)

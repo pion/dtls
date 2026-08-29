@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWithOptionsCreatesConn(t *testing.T) {
+func TestCreatesConn(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 	defer func() {
 		_ = ca.Close()
@@ -32,13 +32,13 @@ func TestWithOptionsCreatesConn(t *testing.T) {
 	cert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 
-	client, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithCertificates(cert),
 		WithInsecureSkipVerify(true),
 	)
 	require.NoError(t, err)
 
-	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
 		WithCertificates(cert),
 		WithInsecureSkipVerify(true),
 	)
@@ -57,7 +57,7 @@ func newOptionsClient(t *testing.T, opts ...ClientOption) (*Conn, error) {
 		_ = cb.Close()
 	})
 
-	client, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
 	if err == nil {
 		t.Cleanup(func() {
 			_ = client.Close()
@@ -76,7 +76,7 @@ func newOptionsServer(t *testing.T, opts ...ServerOption) (*Conn, error) {
 		_ = cb.Close()
 	})
 
-	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
+	server, err := Server(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
 	if err == nil {
 		t.Cleanup(func() {
 			_ = server.Close()

@@ -25,7 +25,7 @@ func main() {
 	// Connect to a DTLS server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	dtlsConn, err := dtls.DialWithOptions("udp", addr,
+	dtlsConn, err := dtls.Dial("udp", addr,
 		dtls.WithPSK(func(hint []byte) ([]byte, error) {
 			fmt.Printf("Server's hint: %s \n", hint)
 

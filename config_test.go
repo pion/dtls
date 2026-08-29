@@ -27,7 +27,7 @@ func clientConfigError(t *testing.T, opts ...ClientOption) error {
 		_ = cb.Close()
 	}()
 
-	client, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
 	if client != nil {
 		_ = client.Close()
 	}
@@ -44,7 +44,7 @@ func serverConfigError(t *testing.T, opts ...ServerOption) error {
 		_ = cb.Close()
 	}()
 
-	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
+	server, err := Server(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
 	if server != nil {
 		_ = server.Close()
 	}

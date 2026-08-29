@@ -285,7 +285,7 @@ func clientPion(c *comm) { //nolint:varnamelen
 	c.clientMutex.Lock()
 	defer c.clientMutex.Unlock()
 
-	conn, err := dtls.DialWithOptions("udp",
+	conn, err := dtls.Dial("udp",
 		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: c.serverPort},
 		c.clientOpts...,
 	)
@@ -318,7 +318,7 @@ func serverPion(c *comm) { //nolint:varnamelen
 	defer c.serverMutex.Unlock()
 
 	var err error
-	c.serverListener, err = dtls.ListenWithOptions("udp",
+	c.serverListener, err = dtls.Listen("udp",
 		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: c.serverPort},
 		c.serverOpts...,
 	)
@@ -1318,7 +1318,7 @@ func assertHandshakeFailsWithOpts(
 	serverDone := make(chan error, 1)
 
 	go func() {
-		listener, listenerErr := dtls.ListenWithOptions("udp",
+		listener, listenerErr := dtls.Listen("udp",
 			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
 			serverOpts...,
 		)
@@ -1351,7 +1351,7 @@ func assertHandshakeFailsWithOpts(
 		assert.FailNow(t, "server not ready in time")
 	}
 
-	conn, err := dtls.DialWithOptions("udp",
+	conn, err := dtls.Dial("udp",
 		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
 		clientOpts...,
 	)

@@ -482,8 +482,8 @@ func dialWithConfig(network string, rAddr *net.UDPAddr, config *dtlsConfig) (*Co
 	return clientWithConfig(pConn, rAddr, config)
 }
 
-// DialWithOptions connects to the given network address and establishes a DTLS connection on top.
-func DialWithOptions(network string, rAddr *net.UDPAddr, opts ...ClientOption) (*Conn, error) {
+// Dial connects to the given network address and establishes a DTLS connection on top.
+func Dial(network string, rAddr *net.UDPAddr, opts ...ClientOption) (*Conn, error) {
 	config, err := buildClientConfig(opts...)
 	if err != nil {
 		return nil, err
@@ -507,8 +507,8 @@ func clientWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (
 	return createConn(conn, rAddr, config, true, nil)
 }
 
-// ClientWithOptions establishes a DTLS connection over an existing connection.
-func ClientWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ClientOption) (*Conn, error) {
+// Client establishes a DTLS connection over an existing connection.
+func Client(conn net.PacketConn, rAddr net.Addr, opts ...ClientOption) (*Conn, error) {
 	config, err := buildClientConfig(opts...)
 	if err != nil {
 		return nil, err
@@ -530,8 +530,8 @@ func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (
 	return createConn(conn, rAddr, config, false, nil)
 }
 
-// ServerWithOptions listens for incoming DTLS connections.
-func ServerWithOptions(conn net.PacketConn, rAddr net.Addr, opts ...ServerOption) (*Conn, error) {
+// Server listens for incoming DTLS connections.
+func Server(conn net.PacketConn, rAddr net.Addr, opts ...ServerOption) (*Conn, error) {
 	config, err := buildServerConfig(opts...)
 	if err != nil {
 		return nil, err

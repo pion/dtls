@@ -27,7 +27,7 @@ func main() {
 	// Everything below is the pion-DTLS API! Thanks for using it ❤️.
 	//
 
-	listener, err := dtls.ListenWithOptions("udp", addr,
+	listener, err := dtls.Listen("udp", addr,
 		dtls.WithCertificates(certificate),
 		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 	)

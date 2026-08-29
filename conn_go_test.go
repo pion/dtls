@@ -65,7 +65,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 	serverCID := []byte("server-cid")
-	listener, err := ListenWithOptions(
+	listener, err := Listen(
 		"udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
 		WithCertificates(serverCert),
@@ -80,7 +80,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 
 	initialSocket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	require.NoError(t, err)
-	client, err := ClientWithOptions(
+	client, err := Client(
 		initialSocket,
 		listener.Addr(),
 		WithInsecureSkipVerify(true),
@@ -253,7 +253,7 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 
 				return func() (net.Conn, error) {
-						conn, err := DialWithOptions("udp", addr, clientOpts...)
+						conn, err := Dial("udp", addr, clientOpts...)
 						if err != nil {
 							return nil, err
 						}
@@ -270,7 +270,7 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 
 				return func() (net.Conn, error) {
-						conn, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientOpts...)
+						conn, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientOpts...)
 						if err != nil {
 							return nil, err
 						}
@@ -288,7 +288,7 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 
 				return func() (net.Conn, error) {
-						conn, err := ServerWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), serverOpts...)
+						conn, err := Server(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), serverOpts...)
 						if err != nil {
 							return nil, err
 						}

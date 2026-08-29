@@ -43,7 +43,7 @@ func main() {
 	util.Check(err)
 	certPool.AddCert(cert)
 
-	listener, err := dtls.ListenWithOptions("udp", addr,
+	listener, err := dtls.Listen("udp", addr,
 		dtls.WithCertificates(certificate),
 		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 		dtls.WithClientAuth(dtls.RequireAndVerifyClientCert),

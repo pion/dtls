@@ -163,7 +163,7 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 					clientOpts = append(clientOpts, dtls.WithCertificates(clientCert))
 				}
 
-				client, startupErr := dtls.ClientWithOptions(
+				client, startupErr := dtls.Client(
 					dtlsnet.PacketConnFromConn(br.GetConn0()),
 					br.GetConn0().RemoteAddr(),
 					clientOpts...,
@@ -189,7 +189,7 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 					serverOpts = append(serverOpts, dtls.WithFlightInterval(time.Hour))
 				}
 
-				server, startupErr := dtls.ServerWithOptions(
+				server, startupErr := dtls.Server(
 					dtlsnet.PacketConnFromConn(br.GetConn1()),
 					br.GetConn1().RemoteAddr(),
 					serverOpts...,

@@ -359,7 +359,7 @@ func testClient(
 		opts = append(opts, WithCertificates(clientCert))
 	}
 	opts = append(opts, WithInsecureSkipVerify(true))
-	conn, err := ClientWithOptions(pktConn, rAddr, opts...)
+	conn, err := Client(pktConn, rAddr, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +381,7 @@ func testServer(
 		}
 		opts = append(opts, WithCertificates(serverCert))
 	}
-	conn, err := ServerWithOptions(c, rAddr, opts...)
+	conn, err := Server(c, rAddr, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1533,7 +1533,7 @@ func TestClientCertificate(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 				clientCh := make(chan result)
 
 				go func() {
-					client, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), tt.clientOpts...)
+					client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), tt.clientOpts...)
 					var hsErr error
 					if err == nil {
 						hsErr = client.Handshake()
@@ -1541,7 +1541,7 @@ func TestClientCertificate(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 					clientCh <- result{client, err, hsErr}
 				}()
 
-				server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), tt.serverOpts...)
+				server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), tt.serverOpts...)
 				var hserr error
 				if err == nil {
 					hserr = server.Handshake()
@@ -1879,7 +1879,7 @@ func TestServerCertificate(t *testing.T) {
 				}
 				srvCh := make(chan result)
 				go func() {
-					s, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), tt.serverOpts...)
+					s, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), tt.serverOpts...)
 					var hsErr error
 					if err == nil {
 						hsErr = s.Handshake()
@@ -1887,7 +1887,7 @@ func TestServerCertificate(t *testing.T) {
 					srvCh <- result{s, err, hsErr}
 				}()
 
-				cli, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), tt.clientOpts...)
+				cli, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), tt.clientOpts...)
 				var hserr error
 				if err == nil {
 					hserr = cli.Handshake()
@@ -2742,7 +2742,7 @@ func TestDualStackVersionNegotiationSendsClassifiedAlerts(t *testing.T) {
 
 		certificate, err := selfsign.GenerateSelfSigned()
 		require.NoError(t, err)
-		server, err := ServerWithOptions(
+		server, err := Server(
 			dtlsnet.PacketConnFromConn(cb),
 			cb.RemoteAddr(),
 			WithCertificates(certificate),
@@ -2779,7 +2779,7 @@ func TestDualStackVersionNegotiationSendsClassifiedAlerts(t *testing.T) {
 			_ = cb.Close()
 		}()
 
-		client, err := ClientWithOptions(
+		client, err := Client(
 			dtlsnet.PacketConnFromConn(cb),
 			cb.RemoteAddr(),
 			WithInsecureSkipVerify(true),
@@ -3893,7 +3893,7 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 		serverCert, err := selfsign.GenerateSelfSigned()
 		assert.NoError(t, err)
 
-		dconn, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(serverCert))
+		dconn, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(serverCert))
 		assert.NoError(t, err)
 
 		go func() {
@@ -4143,7 +4143,7 @@ func TestOnConnectionAttemptConnectionOwnership(t *testing.T) {
 			assert.NoError(t, conn.Close())
 		}()
 
-		_, err = ServerWithOptions(conn, cb.RemoteAddr(), WithOnConnectionAttempt(func(net.Addr) error {
+		_, err = Server(conn, cb.RemoteAddr(), WithOnConnectionAttempt(func(net.Addr) error {
 			return expectedErr
 		}))
 		assert.ErrorIs(t, err, expectedErr)
@@ -4218,7 +4218,7 @@ func TestConnectionState(t *testing.T) {
 	clientCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
-	client, err := ClientWithOptions(
+	client, err := Client(
 		dtlsnet.PacketConnFromConn(ca),
 		ca.RemoteAddr(),
 		WithCertificates(clientCert),
@@ -4263,7 +4263,7 @@ func TestMultiHandshake(t *testing.T) {
 	serverCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
-	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(serverCert))
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(serverCert))
 	assert.NoError(t, err)
 
 	go func() {
@@ -4273,7 +4273,7 @@ func TestMultiHandshake(t *testing.T) {
 	clientCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
-	client, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), WithCertificates(clientCert))
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), WithCertificates(clientCert))
 	assert.NoError(t, err)
 	assert.Error(t, client.Handshake())
 	assert.Error(t, client.Handshake())
@@ -4290,7 +4290,7 @@ func TestCloseDuringHandshake(t *testing.T) {
 
 	for range 100 {
 		_, cb := dpipe.Pipe()
-		server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(serverCert))
+		server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(serverCert))
 		assert.NoError(t, err)
 
 		waitChan := make(chan struct{})
@@ -4312,7 +4312,7 @@ func TestCloseWithoutHandshake(t *testing.T) {
 	assert.NoError(t, err)
 
 	_, cb := dpipe.Pipe()
-	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(serverCert))
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(serverCert))
 	assert.NoError(t, err)
 	assert.NoError(t, server.Close())
 }
@@ -4329,7 +4329,7 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 	clientCID := []byte("client-cid")
 	serverCID := []byte("server-cid")
 
-	client, err := ClientWithOptions(
+	client, err := Client(
 		dtlsnet.PacketConnFromConn(ca),
 		ca.RemoteAddr(),
 		WithCertificates(clientCert),
@@ -4350,7 +4350,7 @@ func TestDTLS13HandshakeAndApplicationData(t *testing.T) {
 	serverCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
 
-	server, err := ServerWithOptions(
+	server, err := Server(
 		dtlsnet.PacketConnFromConn(cb),
 		cb.RemoteAddr(),
 		WithCertificates(serverCert),
@@ -4478,7 +4478,7 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 	}
 	clientCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	client, err := ClientWithOptions(
+	client, err := Client(
 		dtlsnet.PacketConnFromConn(clientTransport),
 		clientTransport.RemoteAddr(),
 		WithCertificates(clientCert),
@@ -4513,7 +4513,7 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	server, err := ServerWithOptions(
+	server, err := Server(
 		dtlsnet.PacketConnFromConn(br.GetConn1()),
 		br.GetConn1().RemoteAddr(),
 		WithCertificates(serverCert),
@@ -4678,7 +4678,7 @@ func TestDTLS13RetransmittedClientFinalFlight(t *testing.T) {
 
 	clientCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	client, err := ClientWithOptions(
+	client, err := Client(
 		dtlsnet.PacketConnFromConn(caDuplicateFinal),
 		caDuplicateFinal.RemoteAddr(),
 		WithCertificates(clientCert),
@@ -4693,7 +4693,7 @@ func TestDTLS13RetransmittedClientFinalFlight(t *testing.T) {
 
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	server, err := ServerWithOptions(
+	server, err := Server(
 		dtlsnet.PacketConnFromConn(cb),
 		cb.RemoteAddr(),
 		WithCertificates(serverCert),
@@ -4759,7 +4759,7 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 
 	clientCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	client, err := ClientWithOptions(
+	client, err := Client(
 		dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithCertificates(clientCert), WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3),
@@ -4769,7 +4769,7 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	server, err := ServerWithOptions(
+	server, err := Server(
 		dtlsnet.PacketConnFromConn(serverTransport), serverTransport.RemoteAddr(),
 		WithCertificates(serverCert), WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3),
@@ -4817,7 +4817,7 @@ func TestHandshakeCancellationWhilePostSetupBlocks(t *testing.T) {
 
 	clientCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	client, err := ClientWithOptions(
+	client, err := Client(
 		dtlsnet.PacketConnFromConn(ca),
 		ca.RemoteAddr(),
 		WithCertificates(clientCert),
@@ -4908,7 +4908,7 @@ func TestDTLSDualStackClientRejectsNonClientHelloBeforeWrite(t *testing.T) {
 	}
 
 	cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
-	client, err := ClientWithOptions(
+	client, err := Client(
 		dtlsnet.PacketConnFromConn(caCount),
 		caCount.RemoteAddr(),
 		WithInsecureSkipVerify(true),
@@ -4972,7 +4972,7 @@ func testDTLSDualStack(t *testing.T, clientOpts []ClientOption, serverOpts []Ser
 	t.Helper()
 	ca, cb := dpipe.Pipe()
 
-	client, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientOpts...)
+	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientOpts...)
 	assert.NoError(t, err)
 	defer func() {
 		_ = client.Close()
@@ -4985,7 +4985,7 @@ func testDTLSDualStack(t *testing.T, clientOpts []ClientOption, serverOpts []Ser
 	defer cancelClient()
 	errorChannel := make(chan error, 2)
 
-	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), serverOpts...)
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), serverOpts...)
 	assert.NoError(t, err)
 	defer func() {
 		_ = server.Close()

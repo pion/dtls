@@ -26,8 +26,8 @@ func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config 
 	return createConn(conn, rAddr, config, internalState.IsClient, internalState)
 }
 
-// ResumeWithOptions imports an already established dtls connection using a specific dtls state.
-func ResumeWithOptions(state *State, conn net.PacketConn, rAddr net.Addr, opts ...Option) (*Conn, error) {
+// Resume imports an already established dtls connection using a specific dtls state.
+func Resume(state *State, conn net.PacketConn, rAddr net.Addr, opts ...Option) (*Conn, error) {
 	config, err := buildConfig(opts...)
 	if err != nil {
 		return nil, err
