@@ -5,8 +5,6 @@ package dtls
 
 import (
 	"crypto/tls"
-	"net"
-	"syscall"
 	"testing"
 	"time"
 
@@ -556,11 +554,6 @@ func TestValidOptionsSucceed(t *testing.T) {
 			WithCertificates(cert),
 			WithClientAuth(RequireAndVerifyClientCert),
 			WithInsecureSkipVerifyHello(true),
-			WithListenConfig(net.ListenConfig{
-				Control: func(network, address string, c syscall.RawConn) error {
-					return nil
-				},
-			}),
 		)
 		require.NoError(t, err)
 

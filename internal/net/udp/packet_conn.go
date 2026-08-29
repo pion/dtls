@@ -42,7 +42,7 @@ var (
 
 // listener augments a connection-oriented Listener over a UDP PacketConn.
 type listener struct {
-	pConn *net.UDPConn
+	pConn net.PacketConn
 
 	accepting         atomic.Value // bool
 	acceptCh          chan *PacketConn
@@ -52,6 +52,7 @@ type listener struct {
 	datagramRouter    func([]byte) (string, bool)
 	connIdentifier    func([]byte) (string, bool)
 	receiveBufferSize int
+	backlog           int
 
 	connLock sync.Mutex
 	conns    map[string]*PacketConn
@@ -136,73 +137,63 @@ func (l *listener) Addr() net.Addr {
 	return l.pConn.LocalAddr()
 }
 
-// ListenConfig stores options for listening to an address.
-type ListenConfig struct {
-	// Backlog defines the maximum length of the queue of pending
-	// connections. It is equivalent of the backlog argument of
-	// POSIX listen function.
-	// If a connection request arrives when the queue is full,
-	// the request will be silently discarded, unlike TCP.
-	// Set zero to use default value 128 which is same as Linux default.
-	Backlog int
+// ListenerOption configures a packet listener.
+type ListenerOption func(*listener)
 
-	// AcceptFilter determines whether the new conn should be made for
-	// the incoming packet. If not set, any packet creates new conn.
-	AcceptFilter func([]byte) bool
-
-	// DatagramRouter routes an incoming datagram to a connection by extracting
-	// an identifier from its payload.
-	DatagramRouter func([]byte) (string, bool)
-
-	// ConnectionIdentifier extracts an identifier from an outgoing packet. If
-	// the identifier is not already associated with the connection, it will be
-	// added.
-	ConnectionIdentifier func([]byte) (string, bool)
-
-	// ReceiveBufferSize sets the size of the buffer used to read incoming
-	// datagrams. Datagrams larger than this size are truncated.
-	// If zero or negative, the default value 8192 is used.
-	ReceiveBufferSize int
-
-	// Internal listen config used to open the UDP socket.
-	ListenConfig net.ListenConfig
+// WithBacklog sets the maximum number of pending connections.
+func WithBacklog(backlog int) ListenerOption {
+	return func(l *listener) {
+		if backlog != 0 {
+			l.backlog = backlog
+		}
+	}
 }
 
-// Listen creates a new listener based on the ListenConfig.
-//
-//nolint:contextcheck
-func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.PacketListener, error) {
-	if lc.Backlog == 0 {
-		lc.Backlog = defaultListenBacklog
+// WithAcceptFilter sets the filter used to admit new connections.
+func WithAcceptFilter(filter func([]byte) bool) ListenerOption {
+	return func(l *listener) {
+		l.acceptFilter = filter
 	}
-	if lc.ReceiveBufferSize <= 0 {
-		lc.ReceiveBufferSize = defaultReceiveBufferSize
-	}
+}
 
-	laddrStr := ":0"
-	if laddr != nil {
-		laddrStr = laddr.String()
+// WithDatagramRouter sets the function used to route incoming datagrams.
+func WithDatagramRouter(router func([]byte) (string, bool)) ListenerOption {
+	return func(l *listener) {
+		l.datagramRouter = router
 	}
-	innerConn, err := lc.ListenConfig.ListenPacket(context.Background(), network, laddrStr)
-	if err != nil {
-		return nil, err
-	}
-	conn, ok := innerConn.(*net.UDPConn)
-	if !ok {
-		return nil, dtlserrors.ErrUDPListenPacketNotUDPConn
-	}
+}
 
+// WithConnectionIdentifier sets the function used to identify outgoing datagrams.
+func WithConnectionIdentifier(identifier func([]byte) (string, bool)) ListenerOption {
+	return func(l *listener) {
+		l.connIdentifier = identifier
+	}
+}
+
+// WithReceiveBufferSize sets the size of the buffer used to read incoming datagrams.
+func WithReceiveBufferSize(size int) ListenerOption {
+	return func(l *listener) {
+		if size > 0 {
+			l.receiveBufferSize = size
+		}
+	}
+}
+
+// Listen creates a new listener over conn.
+func Listen(conn net.PacketConn, opts ...ListenerOption) dtlsnet.PacketListener {
 	packetListener := &listener{
 		pConn:             conn,
-		acceptCh:          make(chan *PacketConn, lc.Backlog),
+		backlog:           defaultListenBacklog,
+		receiveBufferSize: defaultReceiveBufferSize,
 		conns:             make(map[string]*PacketConn),
 		doneCh:            make(chan struct{}),
-		acceptFilter:      lc.AcceptFilter,
-		datagramRouter:    lc.DatagramRouter,
-		connIdentifier:    lc.ConnectionIdentifier,
-		receiveBufferSize: lc.ReceiveBufferSize,
 		readDoneCh:        make(chan struct{}),
 	}
+	for _, opt := range opts {
+		opt(packetListener)
+	}
+
+	packetListener.acceptCh = make(chan *PacketConn, packetListener.backlog)
 
 	packetListener.accepting.Store(true)
 	packetListener.connWG.Add(1)
@@ -217,12 +208,7 @@ func (lc *ListenConfig) Listen(network string, laddr *net.UDPAddr) (dtlsnet.Pack
 		packetListener.readWG.Done()
 	}()
 
-	return packetListener, nil
-}
-
-// Listen creates a new listener using default ListenConfig.
-func Listen(network string, laddr *net.UDPAddr) (dtlsnet.PacketListener, error) {
-	return (&ListenConfig{}).Listen(network, laddr)
+	return packetListener
 }
 
 // readLoop dispatches packets to the proper connection, creating a new one if

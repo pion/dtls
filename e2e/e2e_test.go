@@ -319,7 +319,7 @@ func serverPion(c *comm) { //nolint:varnamelen
 	defer c.serverMutex.Unlock()
 
 	var err error
-	c.serverListener, err = dtls.Listen("udp",
+	c.serverListener, err = dtls.ListenAddr("udp",
 		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: c.serverPort},
 		c.serverOpts...,
 	)
@@ -1319,7 +1319,7 @@ func assertHandshakeFailsWithOpts(
 	serverDone := make(chan error, 1)
 
 	go func() {
-		listener, listenerErr := dtls.Listen("udp",
+		listener, listenerErr := dtls.ListenAddr("udp",
 			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
 			serverOpts...,
 		)

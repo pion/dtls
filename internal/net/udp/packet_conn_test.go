@@ -111,9 +111,7 @@ func TestListenerCloseUnaccepted(t *testing.T) {
 	const backlog = 2
 
 	network, addr := getConfig()
-	listener, err := (&ListenConfig{
-		Backlog: backlog,
-	}).Listen(network, addr)
+	listener, err := listenAddr(network, addr, WithBacklog(backlog))
 	assert.NoError(t, err)
 
 	for i := range backlog {
@@ -162,11 +160,9 @@ func TestListenerAcceptFilter(t *testing.T) {
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
 			network, addr := getConfig()
-			listener, err := (&ListenConfig{
-				AcceptFilter: func(pkt []byte) bool {
-					return pkt[0] == 0xAA
-				},
-			}).Listen(network, addr)
+			listener, err := listenAddr(network, addr, WithAcceptFilter(func(pkt []byte) bool {
+				return pkt[0] == 0xAA
+			}))
 			assert.NoError(t, err)
 
 			var wgAcceptLoop sync.WaitGroup
@@ -225,9 +221,7 @@ func TestListenerConcurrent(t *testing.T) {
 	const backlog = 2
 
 	network, addr := getConfig()
-	listener, err := (&ListenConfig{
-		Backlog: backlog,
-	}).Listen(network, addr)
+	listener, err := listenAddr(network, addr, WithBacklog(backlog))
 	assert.NoError(t, err)
 
 	for i := range backlog + 1 {
@@ -280,7 +274,7 @@ func TestListenerConcurrent(t *testing.T) {
 func pipe() (dtlsnet.PacketListener, net.PacketConn, *net.UDPConn, error) {
 	// Start listening
 	network, addr := getConfig()
-	listener, err := Listen(network, addr)
+	listener, err := listenAddr(network, addr)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to listen: %w", err)
 	}
@@ -326,6 +320,15 @@ func pipe() (dtlsnet.PacketListener, net.PacketConn, *net.UDPConn, error) {
 
 func getConfig() (string, *net.UDPAddr) {
 	return "udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
+}
+
+func listenAddr(network string, addr *net.UDPAddr, opts ...ListenerOption) (dtlsnet.PacketListener, error) {
+	conn, err := net.ListenUDP(network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return Listen(conn, opts...), nil
 }
 
 func TestConnClose(t *testing.T) {
@@ -422,10 +425,10 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 		Payload string
 	}
 	network, addr := getConfig()
-	listener, err := (&ListenConfig{
+	listener, err := listenAddr(network, addr,
 		// For all datagrams other than the initial "hello" packet, use the ID
 		// to route.
-		DatagramRouter: func(buf []byte) (string, bool) {
+		WithDatagramRouter(func(buf []byte) (string, bool) {
 			var p pkt
 			if err := json.Unmarshal(buf, &p); err != nil {
 				return "", false
@@ -435,9 +438,9 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			}
 
 			return fmt.Sprint(p.ID), true
-		},
+		}),
 		// Use the outgoing "set" payload to add an identifier for a connection.
-		ConnectionIdentifier: func(buf []byte) (string, bool) {
+		WithConnectionIdentifier(func(buf []byte) (string, bool) {
 			var p pkt
 			if err := json.Unmarshal(buf, &p); err != nil {
 				return "", false
@@ -447,8 +450,8 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			}
 
 			return "", false
-		},
-	}).Listen(network, addr)
+		}),
+	)
 	assert.NoError(t, err)
 
 	var clientWg sync.WaitGroup

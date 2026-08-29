@@ -334,11 +334,8 @@ var (
 
 	ErrSelfSignInvalidPrivateKey = stderrors.New("selfsign: invalid private key type")
 
-	ErrInvalidHashAlgorithm      = stderrors.New("invalid hash algorithm")
-	ErrNetBufferTimeout          = stderrors.New("buffer: i/o timeout")
-	ErrUDPClosedListener         = stderrors.New("udp: listener closed")
-	ErrUDPListenQueueExceeded    = stderrors.New("udp: listen queue exceeded")
-	ErrUDPListenPacketNotUDPConn = stderrors.New(
-		"listen packet not a *net.UDPConn",
-	)
+	ErrInvalidHashAlgorithm   = stderrors.New("invalid hash algorithm")
+	ErrNetBufferTimeout       = stderrors.New("buffer: i/o timeout")
+	ErrUDPClosedListener      = stderrors.New("udp: listener closed")
+	ErrUDPListenQueueExceeded = stderrors.New("udp: listen queue exceeded")
 )

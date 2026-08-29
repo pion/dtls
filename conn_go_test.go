@@ -65,7 +65,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 	serverCID := []byte("server-cid")
-	listener, err := Listen(
+	listener, err := ListenAddr(
 		"udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
 		WithCertificates(serverCert),

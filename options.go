@@ -71,7 +71,6 @@ type dtlsConfig struct {
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
 	OnConnectionAttempt           func(net.Addr) error
-	ListenConfig                  net.ListenConfig
 	MinVersion                    protocol.Version
 	MaxVersion                    protocol.Version
 
@@ -656,16 +655,6 @@ func WithOnConnectionAttempt(fn func(net.Addr) error) ServerOption {
 			return dtlserrors.ErrNilOnConnectionAttempt
 		}
 		c.OnConnectionAttempt = fn
-
-		return nil
-	})
-}
-
-// WithListenConfig sets the underlying listener config.
-// This option is only applicable to servers.
-func WithListenConfig(listenConfig net.ListenConfig) ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		c.ListenConfig = listenConfig
 
 		return nil
 	})

@@ -34,8 +34,13 @@ func TestReceiveBufferSizeLargeDatagram(t *testing.T) {
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 
-	listener, err := Listen("udp",
+	packetConn, err := net.ListenUDP("udp",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	)
+	require.NoError(t, err)
+
+	listener, err := Listen(
+		packetConn,
 		WithCertificates(serverCert),
 		WithReceiveBufferSize(bufferSize),
 	)

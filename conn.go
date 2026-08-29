@@ -513,14 +513,14 @@ func clientWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (
 	return createConn(conn, rAddr, config, true, nil)
 }
 
-// Client establishes a DTLS connection over an existing connection.
-func Client(conn net.PacketConn, rAddr net.Addr, opts ...ClientOption) (*Conn, error) {
+// Client establishes a DTLS connection over an existing packet connection.
+func Client(conn net.PacketConn, raddr net.Addr, opts ...ClientOption) (*Conn, error) {
 	config, err := buildClientConfig(opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	return clientWithConfig(conn, rAddr, config)
+	return clientWithConfig(conn, raddr, config)
 }
 
 func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
@@ -536,8 +536,8 @@ func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (
 	return createConn(conn, rAddr, config, false, nil)
 }
 
-// Server listens for incoming DTLS connections.
-func Server(conn net.PacketConn, rAddr net.Addr, opts ...ServerOption) (*Conn, error) {
+// Server establishes a server-side DTLS connection over an existing packet connection.
+func Server(conn net.PacketConn, raddr net.Addr, opts ...ServerOption) (*Conn, error) {
 	config, err := buildServerConfig(opts...)
 	if err != nil {
 		return nil, err
@@ -547,7 +547,7 @@ func Server(conn net.PacketConn, rAddr net.Addr, opts ...ServerOption) (*Conn, e
 		return nil, err
 	}
 
-	return serverWithConfig(conn, rAddr, config)
+	return serverWithConfig(conn, raddr, config)
 }
 
 // Read reads data from the connection.
