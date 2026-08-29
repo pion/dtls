@@ -71,6 +71,11 @@ type addrPkt struct {
 	datagramContainsCID bool
 }
 
+type injectedPkt struct {
+	addrPkt
+	done chan struct{}
+}
+
 // readBufferLease owns a recyclable read buffer for one datagram-processing
 // call. Anything retained beyond that call must take an exact owned copy.
 type readBufferLease struct {
@@ -148,6 +153,13 @@ func (c handshakeConn) WritePackets(
 	return c.conn.writePacketsWithResult(ctx, pkts)
 }
 
+func (c handshakeConn) WriteHandshakePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Outbound,
+) (*dtlshandshake.WriteResult, error) {
+	return c.conn.writeHandshakePacketsWithResult(ctx, pkts)
+}
+
 func (c handshakeConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
 	return c.conn.recvHandshake()
 }
@@ -219,14 +231,24 @@ type Conn struct {
 
 	log logging.LeveledLogger
 
-	reading               chan struct{}
-	handshakeRecv         chan dtlshandshake.RecvHandshakeState
+	reading             chan struct{}
+	handshakeRecv       chan dtlshandshake.RecvHandshakeState
+	inboundPacketInject chan injectedPkt
+	// injectDone is set by the read loop and closed by the handshake goroutine.
+	injectMu              sync.Mutex
+	injectDone            chan struct{}
+	pendingRead           chan readResult
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
 	fsm dtlshandshake.FSM
 
 	replayProtectionWindow uint
+
+	// Allows intercepting and rerouting outgoing handshake packets.
+	outboundHandshakePacketInterceptor func(packet []byte, end bool) bool
+	// Allows getting notified about incoming handshake packets.
+	inboundHandshakePacketNotifier func(packet []byte)
 
 	handshakeConfig *dtlsconfig.HandshakeConfig
 
@@ -254,6 +276,8 @@ func createConn(
 
 	handshakeConfig := newHandshakeConfig(config, configValues, resumeState)
 	conn := newConn(nextConn, rAddr, configValues, handshakeConfig, isClient)
+	conn.outboundHandshakePacketInterceptor = config.OutboundHandshakePacketInterceptor
+	conn.inboundHandshakePacketNotifier = config.InboundHandshakePacketNotifier
 
 	conn.setRemoteEpoch(0)
 	conn.setLocalEpoch(0)
@@ -287,6 +311,7 @@ func newConn(
 
 		reading:               make(chan struct{}, 1),
 		handshakeRecv:         make(chan dtlshandshake.RecvHandshakeState),
+		inboundPacketInject:   make(chan injectedPkt),
 		handshakeEstablished:  dtlshandshake.NewEstablishment(),
 		closed:                closer.NewCloser(),
 		cancelHandshaker:      func() {},
@@ -332,6 +357,8 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 
 	handshakeDone := make(chan struct{})
 	defer close(handshakeDone)
+	defer c.finishInject() // the FSM stops asking for datagrams once it is done
+
 	c.closeLock.Lock()
 	c.handshakeDone = handshakeDone
 	c.closeLock.Unlock()
@@ -759,6 +786,14 @@ func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Outbound) er
 	return err
 }
 
+// writeHandshakePackets writes packets belonging to the handshake. These are the
+// only ones offered to the handshake packet interceptor.
+func (c *Conn) writeHandshakePackets(ctx context.Context, pkts []*dtlsflight.Outbound) error {
+	_, err := c.writeHandshakePacketsWithResult(ctx, pkts)
+
+	return err
+}
+
 func (c *Conn) writePacketsWithResult(
 	ctx context.Context,
 	pkts []*dtlsflight.Outbound,
@@ -766,12 +801,23 @@ func (c *Conn) writePacketsWithResult(
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
-	return c.writePacketsWithResultLocked(ctx, pkts)
+	return c.writePacketsWithResultLocked(ctx, pkts, nil)
+}
+
+func (c *Conn) writeHandshakePacketsWithResult(
+	ctx context.Context,
+	pkts []*dtlsflight.Outbound,
+) (*dtlshandshake.WriteResult, error) {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
+
+	return c.writePacketsWithResultLocked(ctx, pkts, c.outboundHandshakePacketInterceptor)
 }
 
 func (c *Conn) writePacketsWithResultLocked(
 	ctx context.Context,
 	pkts []*dtlsflight.Outbound,
+	interceptor func(packet []byte, end bool) bool,
 ) (*dtlshandshake.WriteResult, error) {
 	datagrams, rAddr, err := c.prepareRawPacketsTracked(pkts)
 	if err != nil {
@@ -779,13 +825,16 @@ func (c *Conn) writePacketsWithResultLocked(
 	}
 
 	result := &dtlshandshake.WriteResult{}
-	for _, datagram := range datagrams {
-		if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
-			if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
-				return nil, ErrConnClosed
-			}
+	for idx, datagram := range datagrams {
+		// The interceptor takes ownership of the datagram when it returns true.
+		if interceptor == nil || !interceptor(datagram.raw, idx == len(datagrams)-1) {
+			if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
+				if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
+					return nil, ErrConnClosed
+				}
 
-			return nil, netError(err)
+				return nil, netError(err)
+			}
 		}
 		result.TrackedRecords = append(result.TrackedRecords, datagram.tracked...)
 	}
@@ -1380,6 +1429,37 @@ func readBufferPoolForSize(size int) *sync.Pool {
 	return pool.(*sync.Pool) //nolint:forcetypeassert // only *sync.Pool values are stored
 }
 
+// InjectInboundPacket feeds a raw datagram into the connection as if it had been
+// received from rAddr. It is the counterpart of the handshake packet interceptor,
+// which allows packets to be carried over another transport.
+func (c *Conn) InjectInboundPacket(p []byte, rAddr net.Addr) {
+	done := make(chan struct{})
+	select {
+	case c.inboundPacketInject <- injectedPkt{addrPkt{rAddr: rAddr, data: p}, done}:
+	case <-c.closed.Done():
+		return
+	}
+	c.closeLock.Lock()
+	handshakeDone := c.handshakeDone
+	c.closeLock.Unlock()
+
+	select {
+	case <-done:
+	case <-handshakeDone:
+	case <-c.closed.Done():
+	}
+}
+
+func (c *Conn) finishInject() {
+	c.injectMu.Lock()
+	defer c.injectMu.Unlock()
+
+	if c.injectDone != nil {
+		close(c.injectDone)
+		c.injectDone = nil
+	}
+}
+
 func (c *Conn) readAndBuffer(ctx context.Context) error {
 	summary, err := c.readAndProcessDatagram(ctx)
 	if err != nil {
@@ -1407,21 +1487,70 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 	return nil
 }
 
-func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) {
-	bufptr, ok := c.readBufferPool.Get().(*[]byte)
-	if !ok {
-		return datagramProcessingSummary{}, dtlserrors.ErrFailedToAccessPoolReadBuffer
+type readResult struct {
+	bufptr *[]byte
+	length int
+	rAddr  net.Addr
+	err    error
+}
+
+// readDatagram reads the next datagram, either from the underlying connection or
+// from a packet injected via InjectInboundPacket. The socket read outlives this
+// call when an injected packet wins the race, so it is kept in c.pendingRead and
+// picked up by the next call. Callers are serialized by the read loop.
+func (c *Conn) readDatagram(ctx context.Context) ([]byte, net.Addr, readBufferLease, error) {
+	if c.pendingRead == nil {
+		readCh := make(chan readResult, 1)
+		c.pendingRead = readCh
+		go func() {
+			bufptr, ok := c.readBufferPool.Get().(*[]byte)
+			if !ok {
+				readCh <- readResult{err: dtlserrors.ErrFailedToAccessPoolReadBuffer}
+
+				return
+			}
+
+			i, rAddr, err := c.nextConn.ReadFromContext(ctx, *bufptr)
+			if err != nil {
+				c.readBufferPool.Put(bufptr)
+				readCh <- readResult{err: err}
+
+				return
+			}
+
+			readCh <- readResult{bufptr: bufptr, length: i, rAddr: rAddr}
+		}()
 	}
-	bufferLease := readBufferLease{conn: c, pool: c.readBufferPool, recyclableReadBuffer: bufptr}
+
+	select {
+	case injected := <-c.inboundPacketInject:
+		c.injectMu.Lock()
+		c.injectDone = injected.done
+		c.injectMu.Unlock()
+
+		return injected.data, injected.rAddr, readBufferLease{conn: c}, nil
+	case res := <-c.pendingRead:
+		c.pendingRead = nil
+		if res.err != nil {
+			return nil, nil, readBufferLease{conn: c}, res.err
+		}
+
+		return (*res.bufptr)[:res.length], res.rAddr,
+			readBufferLease{conn: c, pool: c.readBufferPool, recyclableReadBuffer: res.bufptr}, nil
+	case <-ctx.Done():
+		return nil, nil, readBufferLease{conn: c}, ctx.Err()
+	}
+}
+
+func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) { //nolint:cyclop
+	buf, rAddr, bufferLease, err := c.readDatagram(ctx)
 	defer bufferLease.releaseReadBuffer()
 
-	b := *bufptr
-	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
 	if err != nil {
 		return datagramProcessingSummary{}, netError(err)
 	}
 
-	return c.processDatagram(ctx, b[:i], rAddr, &bufferLease)
+	return c.processDatagram(ctx, buf, rAddr, &bufferLease)
 }
 
 func (c *Conn) processDatagram(
@@ -1446,7 +1575,17 @@ func (c *Conn) processDatagram(
 		c.log.Debugf("discarded malformed datagram suffix: %v", err)
 	}
 
-	return c.processDatagramPackets(ctx, pkts, rAddr, bufferLease)
+	summary, err := c.processDatagramPackets(ctx, pkts, rAddr, bufferLease)
+	if err != nil {
+		return summary, err
+	}
+
+	if summary.containsHandshake && c.inboundHandshakePacketNotifier != nil {
+		// datagram is only valid for the duration of the callback.
+		c.inboundHandshakePacketNotifier(datagram)
+	}
+
+	return summary, nil
 }
 
 func (c *Conn) processDatagramPackets(
@@ -2421,6 +2560,9 @@ func (c *Conn) syncFragmentBufferHandshakeSequence() {
 }
 
 func (c *Conn) recvHandshake() <-chan dtlshandshake.RecvHandshakeState {
+	// The previous datagram is processed, including any flight it produced.
+	c.finishInject()
+
 	return c.handshakeRecv
 }
 
@@ -2499,7 +2641,7 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 	if err := dtlshandshake.ValidateClientHelloInitialFlights(pkts); err != nil {
 		return nil, err
 	}
-	if err := c.writePackets(ctx, pkts); err != nil {
+	if err := c.writeHandshakePackets(ctx, pkts); err != nil {
 		return nil, err
 	}
 
@@ -2743,6 +2885,8 @@ func (c *Conn) primeHandshakeRecv(ctx context.Context) {
 // version negotiation phase. It reads and processes a datagram, but does not
 // signal an FSM (there is none yet) or wait for its Done channel.
 func (c *Conn) readAndBufferNoFSM(ctx context.Context) error {
+	defer c.finishInject()
+
 	_, err := c.readAndProcessDatagram(ctx)
 
 	return err
@@ -2955,7 +3099,6 @@ func (c *Conn) close(byUser bool) error {
 
 	cancelHandshaker()
 	cancelHandshakeReader()
-
 	if closedByUser || isClosed {
 		return nil
 	}

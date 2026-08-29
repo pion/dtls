@@ -234,6 +234,22 @@ func TestNilCallbackOptionsReturnError(t *testing.T) {
 		err = serverOptionsError(t, WithClientHelloMessageHook(nil))
 		require.ErrorIs(t, err, dtlserrors.ErrNilClientHelloMessageHook)
 	})
+
+	t.Run("NilOutboundHandshakePacketInterceptor", func(t *testing.T) {
+		err := clientOptionsError(t, WithOutboundHandshakePacketInterceptor(nil))
+		require.ErrorIs(t, err, dtlserrors.ErrNilOutboundHandshakePacketInterceptor)
+
+		err = serverOptionsError(t, WithOutboundHandshakePacketInterceptor(nil))
+		require.ErrorIs(t, err, dtlserrors.ErrNilOutboundHandshakePacketInterceptor)
+	})
+
+	t.Run("NilInboundHandshakePacketNotifier", func(t *testing.T) {
+		err := clientOptionsError(t, WithInboundHandshakePacketNotifier(nil))
+		require.ErrorIs(t, err, dtlserrors.ErrNilInboundHandshakePacketNotifier)
+
+		err = serverOptionsError(t, WithInboundHandshakePacketNotifier(nil))
+		require.ErrorIs(t, err, dtlserrors.ErrNilInboundHandshakePacketNotifier)
+	})
 }
 
 func TestWithConnectionID(t *testing.T) {

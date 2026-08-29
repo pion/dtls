@@ -85,6 +85,13 @@ func (c *flightTestConn) Notify(context.Context, alert.Level, alert.Description)
 	return nil
 }
 
+func (c *flightTestConn) WriteHandshakePackets(
+	ctx context.Context,
+	pkts []*dtlsflight.Outbound,
+) (*WriteResult, error) {
+	return c.WritePackets(ctx, pkts)
+}
+
 func (c *flightTestConn) WritePackets(
 	ctx context.Context,
 	pkts []*dtlsflight.Outbound,
