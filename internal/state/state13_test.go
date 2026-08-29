@@ -30,8 +30,7 @@ func assertConnectionIDs13(t *testing.T, state *State13, local, remote []byte, n
 		return
 	}
 	hasLocal := len(local) > 0
-	assert.Equal(t, [3]bool{true, hasLocal, hasLocal},
-		[3]bool{state.CID.Negotiated, state.CID.Receive.Expected, state.CID.Receive.CanSendNewConnectionID})
+	assert.Equal(t, [3]bool{true, hasLocal, hasLocal}, [3]bool{state.CID.Negotiated, state.CID.Receive.Expected, state.CID.Receive.CanSendNewConnectionID})
 	assert.Equal(t, len(local), state.CID.Receive.Length)
 	assert.Equal(t, len(remote) > 0, state.CID.Send.UseCID)
 	assert.Equal(t, remote, state.CID.Send.Active)
@@ -71,7 +70,7 @@ func TestCommitNegotiatedExtensions(t *testing.T) {
 			state12.SetLocalConnectionID([]byte{0xff})
 			state12.LocalCIDOffered, state12.RemoteCIDOffered = true, true
 			state12.RemoteConnectionID = []byte{0xff}
-			state13.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte{0xff}, ServerCID: []byte{0xff}}) //nolint:lll
+			state13.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte{0xff}, ServerCID: []byte{0xff}})
 
 			state12.CommitNegotiatedExtensions(decision)
 			state13.CommitNegotiatedExtensions(decision)

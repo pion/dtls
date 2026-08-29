@@ -15,15 +15,9 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
-func flight6Parse(
-	_ context.Context,
-	_ dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) (Flight, *alert.Alert, error) {
+func flight6Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	pull := cache.FullPullMapItems(state.HandshakeRecvSequence-1, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false},
 	)
 	if pull.Err != nil {
 		return 0, nil, pull.Err
@@ -41,12 +35,7 @@ func flight6Parse(
 	return Flight6, nil, nil
 }
 
-func flight6Generate(
-	_ dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+func flight6Generate(_ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	var pkts []*dtlsflight.Outbound
 
 	pkts = append(pkts,
@@ -64,17 +53,7 @@ func flight6Generate(
 		}
 	}
 
-	pkts = append(pkts,
-		&dtlsflight.Outbound{
-			Epoch: 1,
-			Content: &handshake.Handshake{
-				Message: &handshake.MessageFinished{
-					VerifyData: state.LocalVerifyData,
-				},
-			},
-			Protection: dtlsflight.ProtectionCiphertext,
-		},
-	)
+	pkts = append(pkts, &dtlsflight.Outbound{Epoch: 1, Content: &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: state.LocalVerifyData}}, Protection: dtlsflight.ProtectionCiphertext})
 
 	return pkts, nil, nil
 }

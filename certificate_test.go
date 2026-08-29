@@ -29,64 +29,18 @@ func TestGetCertificate(t *testing.T) {
 		expectedCertificate tls.Certificate
 		getCertificate      func(info *ClientHelloInfo) (*tls.Certificate, error)
 	}{
-		{
-			desc: "Simple match in CN",
-			localCertificates: []tls.Certificate{
-				certificateRandom,
-				certificateTest,
-				certificateWildcard,
-			},
-			serverName:          "test.test",
-			expectedCertificate: certificateTest,
-		},
-		{
-			desc: "Simple match in SANs",
-			localCertificates: []tls.Certificate{
-				certificateRandom,
-				certificateTest,
-				certificateWildcard,
-			},
-			serverName:          "www.test.test",
-			expectedCertificate: certificateTest,
-		},
+		{desc: "Simple match in CN", localCertificates: []tls.Certificate{certificateRandom, certificateTest, certificateWildcard}, serverName: "test.test", expectedCertificate: certificateTest},
+		{desc: "Simple match in SANs", localCertificates: []tls.Certificate{certificateRandom, certificateTest, certificateWildcard}, serverName: "www.test.test", expectedCertificate: certificateTest},
 
-		{
-			desc: "Wildcard match",
-			localCertificates: []tls.Certificate{
-				certificateRandom,
-				certificateTest,
-				certificateWildcard,
-			},
-			serverName:          "foo.test.test",
-			expectedCertificate: certificateWildcard,
-		},
-		{
-			desc: "No match return first",
-			localCertificates: []tls.Certificate{
-				certificateRandom,
-				certificateTest,
-				certificateWildcard,
-			},
-			serverName:          "foo.bar",
-			expectedCertificate: certificateRandom,
-		},
-		{
-			desc: "Get certificate from callback",
-			getCertificate: func(*ClientHelloInfo) (*tls.Certificate, error) {
-				return &certificateTest, nil
-			},
-			expectedCertificate: certificateTest,
-		},
+		{desc: "Wildcard match", localCertificates: []tls.Certificate{certificateRandom, certificateTest, certificateWildcard}, serverName: "foo.test.test", expectedCertificate: certificateWildcard},
+		{desc: "No match return first", localCertificates: []tls.Certificate{certificateRandom, certificateTest, certificateWildcard}, serverName: "foo.bar", expectedCertificate: certificateRandom},
+		{desc: "Get certificate from callback", getCertificate: func(*ClientHelloInfo) (*tls.Certificate, error) { return &certificateTest, nil }, expectedCertificate: certificateTest},
 	}
 
 	for _, test := range testCases {
 		t.Run(test.desc, func(t *testing.T) {
 			getCertificate := func(info *dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
-				return test.getCertificate(&ClientHelloInfo{
-					ServerName:   info.ServerName,
-					CipherSuites: info.CipherSuites,
-					RandomBytes:  info.RandomBytes,
-				})
+				return test.getCertificate(&ClientHelloInfo{ServerName: info.ServerName, CipherSuites: info.CipherSuites, RandomBytes: info.RandomBytes})
 			}
 			if test.getCertificate == nil {
 				getCertificate = nil

@@ -104,8 +104,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 				t.Helper()
 
 				assert.Equal(t, cntHelloVerifyRequest, helloVerifyDrop+1, "Number of HelloVerifyRequest retransmit is wrong")
-				assert.Equal(t, cntHelloVerifyRequest, cntClientHelloNoCookie,
-					"Number of ClientHello without cookie should match the number of HelloVerifyRequest sent.")
+				assert.Equal(t, cntHelloVerifyRequest, cntClientHelloNoCookie, "Number of ClientHello without cookie should match the number of HelloVerifyRequest sent.")
 			}
 
 			return clientEndpoint, serverEndpoint, report
@@ -253,16 +252,12 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			ctxSrvFinished, cancelSrv := context.WithCancel(ctx)
 			go func() {
 				defer wg.Done()
-				runHandshakeFSM12ForTest(
-					t, ctx, ca, cipherSuites, clientCert, logger, clientEndpoint, cancelCli, dtlsflight12.Flight1,
-				)
+				runHandshakeFSM12ForTest(t, ctx, ca, cipherSuites, clientCert, logger, clientEndpoint, cancelCli, dtlsflight12.Flight1)
 			}()
 
 			go func() {
 				defer wg.Done()
-				runHandshakeFSM12ForTest(
-					t, ctx, cb, cipherSuites, clientCert, logger, serverEndpoint, cancelSrv, dtlsflight12.Flight0,
-				)
+				runHandshakeFSM12ForTest(t, ctx, cb, cipherSuites, clientCert, logger, serverEndpoint, cancelSrv, dtlsflight12.Flight0)
 			}()
 
 			<-ctxCliFinished.Done()
@@ -282,28 +277,10 @@ func filterHandshakeMessage(filter func(handshake.Message) bool) func(*dtlsfligh
 	}
 }
 
-func runHandshakeFSM12ForTest(
-	t *testing.T,
-	ctx context.Context,
-	conn *flightTestConn,
-	cipherSuites []dtlsconfig.CipherSuite,
-	clientCert tls.Certificate,
-	logger logging.LeveledLogger,
-	endpoint TestEndpoint,
-	cancel func(),
-	initialFlight dtlsflight12.Flight,
-) {
+func runHandshakeFSM12ForTest(t *testing.T, ctx context.Context, conn *flightTestConn, cipherSuites []dtlsconfig.CipherSuite, clientCert tls.Certificate, logger logging.LeveledLogger, endpoint TestEndpoint, cancel func(), initialFlight dtlsflight12.Flight) {
 	t.Helper()
 
-	cfg := &dtlsconfig.HandshakeConfig{
-		LocalCipherSuites:         cipherSuites,
-		LocalCertificates:         []tls.Certificate{clientCert},
-		EllipticCurves:            defaultCurves,
-		LocalSignatureSchemes:     signaturehash.Algorithms(),
-		InsecureSkipVerify:        true,
-		Log:                       logger,
-		InitialRetransmitInterval: nonZeroRetransmitInterval,
-	}
+	cfg := &dtlsconfig.HandshakeConfig{LocalCipherSuites: cipherSuites, LocalCertificates: []tls.Certificate{clientCert}, EllipticCurves: defaultCurves, LocalSignatureSchemes: signaturehash.Algorithms(), InsecureSkipVerify: true, Log: logger, InitialRetransmitInterval: nonZeroRetransmitInterval}
 	establishment := dtlshandshake.NewEstablishment()
 	go func() {
 		select {
@@ -337,11 +314,7 @@ type TestEndpoint struct {
 	FinishWait time.Duration
 }
 
-func flightTestPipe(
-	ctx context.Context,
-	clientEndpoint TestEndpoint,
-	serverEndpoint TestEndpoint,
-) (*flightTestConn, *flightTestConn) {
+func flightTestPipe(ctx context.Context, clientEndpoint TestEndpoint, serverEndpoint TestEndpoint) (*flightTestConn, *flightTestConn) {
 	ca := dtlsflight.NewCache()
 	cb := dtlsflight.NewCache()
 	chA := make(chan dtlshandshake.RecvHandshakeState)
@@ -417,13 +390,7 @@ func (c *flightTestConn) WritePackets( //nolint:cyclop
 				return nil, err
 			}
 
-			c.handshakeCache.Push(
-				handshakeRaw,
-				pkt.Epoch,
-				handshake.Header.MessageSequence,
-				handshake.Header.Type,
-				c.state.IsClient,
-			)
+			c.handshakeCache.Push(handshakeRaw, pkt.Epoch, handshake.Header.MessageSequence, handshake.Header.Type, c.state.IsClient)
 
 			content, err := handshake.Message.Marshal()
 			if err != nil {
@@ -435,13 +402,7 @@ func (c *flightTestConn) WritePackets( //nolint:cyclop
 			if err != nil {
 				return nil, err
 			}
-			c.otherEndCache.Push(
-				append(hdr, content...),
-				pkt.Epoch,
-				handshake.Header.MessageSequence,
-				handshake.Header.Type,
-				c.state.IsClient,
-			)
+			c.otherEndCache.Push(append(hdr, content...), pkt.Epoch, handshake.Header.MessageSequence, handshake.Header.Type, c.state.IsClient)
 		}
 	}
 	go func() {

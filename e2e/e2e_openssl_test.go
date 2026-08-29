@@ -35,14 +35,7 @@ func serverOpenSSL(c *comm) {
 		pskHint := c.serverPSKIdentityHint
 
 		// create openssl arguments
-		args := []string{
-			"s_server",
-			"-dtls1_2",
-			"-quiet",
-			"-verify_quiet",
-			"-verify_return_error",
-			fmt.Sprintf("-accept=%d", c.serverPort),
-		}
+		args := []string{"s_server", "-dtls1_2", "-quiet", "-verify_quiet", "-verify_return_error", fmt.Sprintf("-accept=%d", c.serverPort)}
 
 		// set ciphers
 		//
@@ -129,14 +122,7 @@ func clientOpenSSL(c *comm) {
 	insecureSkipVerify := c.clientInsecureSkipVerify
 
 	// create openssl arguments
-	args := []string{
-		"s_client",
-		"-dtls1_2",
-		"-quiet",
-		"-verify_quiet",
-		"-servername=localhost",
-		fmt.Sprintf("-connect=127.0.0.1:%d", c.serverPort),
-	}
+	args := []string{"s_client", "-dtls1_2", "-quiet", "-verify_quiet", "-servername=localhost", fmt.Sprintf("-connect=127.0.0.1:%d", c.serverPort)}
 
 	// set ciphers
 	//

@@ -32,13 +32,7 @@ type Manager struct {
 }
 
 // WrapReplayMarker counts a record once, after authentication and replay validation.
-func (m *Manager) WrapReplayMarker(
-	marker func() bool,
-	addr net.Addr,
-	wireBytes int,
-	activeAddress func() net.Addr,
-	enabled bool,
-) func() bool {
+func (m *Manager) WrapReplayMarker(marker func() bool, addr net.Addr, wireBytes int, activeAddress func() net.Addr, enabled bool) func() bool {
 	if marker == nil || !enabled {
 		return marker
 	}
@@ -58,10 +52,7 @@ func (m *Manager) WrapReplayMarker(
 }
 
 // Start creates a challenge for an unvalidated address.
-func (m *Manager) Start(
-	enabled bool,
-	addr, activeAddr net.Addr,
-) ([protocol.ReturnRoutabilityCheckCookieLength]byte, bool, error) {
+func (m *Manager) Start(enabled bool, addr, activeAddr net.Addr) ([protocol.ReturnRoutabilityCheckCookieLength]byte, bool, error) {
 	var cookie [protocol.ReturnRoutabilityCheckCookieLength]byte
 	if !enabled || sameAddress(addr, activeAddr) {
 		return cookie, false, nil

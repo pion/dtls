@@ -26,13 +26,5 @@ func handshakeRulesThroughClientKeyExchange(epoch uint16) []dtlsflight.Handshake
 // handshakeRulesThroughClientFinished returns the handshake transcript pull
 // rules through the client's Finished message.
 func handshakeRulesThroughClientFinished(epoch uint16) []dtlsflight.HandshakeCachePullRule {
-	return append(
-		handshakeRulesThroughClientKeyExchange(epoch),
-		dtlsflight.HandshakeCachePullRule{
-			Typ: handshake.TypeCertificateVerify, Epoch: epoch, IsClient: true, Optional: false,
-		},
-		dtlsflight.HandshakeCachePullRule{
-			Typ: handshake.TypeFinished, Epoch: epoch + 1, IsClient: true, Optional: false,
-		},
-	)
+	return append(handshakeRulesThroughClientKeyExchange(epoch), dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateVerify, Epoch: epoch, IsClient: true, Optional: false}, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: epoch + 1, IsClient: true, Optional: false})
 }

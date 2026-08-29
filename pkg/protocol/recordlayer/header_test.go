@@ -14,21 +14,8 @@ func FuzzHeaderCIDUnmarshal(f *testing.F) {
 	const cidLength = 4
 
 	for _, header := range []Header{
-		{
-			ContentType:    protocol.ContentTypeApplicationData,
-			ContentLen:     3,
-			Version:        protocol.Version1_2,
-			Epoch:          1,
-			SequenceNumber: 2,
-		},
-		{
-			ContentType:    protocol.ContentTypeConnectionID,
-			ContentLen:     3,
-			Version:        protocol.Version1_2,
-			Epoch:          1,
-			SequenceNumber: 2,
-			ConnectionID:   []byte{0x01, 0x02, 0x03, 0x04},
-		},
+		{ContentType: protocol.ContentTypeApplicationData, ContentLen: 3, Version: protocol.Version1_2, Epoch: 1, SequenceNumber: 2},
+		{ContentType: protocol.ContentTypeConnectionID, ContentLen: 3, Version: protocol.Version1_2, Epoch: 1, SequenceNumber: 2, ConnectionID: []byte{0x01, 0x02, 0x03, 0x04}},
 	} {
 		raw, err := header.Marshal()
 		if err != nil {

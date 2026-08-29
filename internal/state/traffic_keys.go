@@ -25,12 +25,7 @@ func (g *TrafficGeneration) Clone() *TrafficGeneration {
 		return nil
 	}
 
-	return &TrafficGeneration{
-		Epoch:      g.Epoch,
-		Generation: g.Generation,
-		Secret:     bytes.Clone(g.Secret),
-		Protection: g.Protection,
-	}
+	return &TrafficGeneration{Epoch: g.Epoch, Generation: g.Generation, Secret: bytes.Clone(g.Secret), Protection: g.Protection}
 }
 
 // TrafficKeyState owns directional DTLS 1.3 traffic generations.
@@ -118,11 +113,7 @@ func (s *TrafficKeyState) ReadCandidates(
 	return candidates
 }
 
-func installTrafficGeneration(
-	current **TrafficGeneration,
-	old *map[uint16]*TrafficGeneration,
-	generation *TrafficGeneration,
-) {
+func installTrafficGeneration(current **TrafficGeneration, old *map[uint16]*TrafficGeneration, generation *TrafficGeneration) {
 	if generation == nil {
 		return
 	}
@@ -142,12 +133,7 @@ func (s *TrafficKeyState) Clone() *TrafficKeyState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return &TrafficKeyState{
-		writeCurrent: s.writeCurrent.Clone(),
-		writeOld:     cloneTrafficGenerations(s.writeOld),
-		readCurrent:  s.readCurrent.Clone(),
-		readOld:      cloneTrafficGenerations(s.readOld),
-	}
+	return &TrafficKeyState{writeCurrent: s.writeCurrent.Clone(), writeOld: cloneTrafficGenerations(s.writeOld), readCurrent: s.readCurrent.Clone(), readOld: cloneTrafficGenerations(s.readOld)}
 }
 
 func cloneTrafficGenerations(in map[uint16]*TrafficGeneration) map[uint16]*TrafficGeneration {

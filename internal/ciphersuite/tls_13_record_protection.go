@@ -50,11 +50,7 @@ type recordTrafficProtection13 struct {
 	sequenceNumberMaskFn recordSequenceNumberMaskFunc13
 }
 
-func newAESGCMRecordTrafficProtection13(
-	hashFunc func() hash.Hash,
-	trafficSecret []byte,
-	keyLen int,
-) (*recordTrafficProtection13, error) {
+func newAESGCMRecordTrafficProtection13(hashFunc func() hash.Hash, trafficSecret []byte, keyLen int) (*recordTrafficProtection13, error) {
 	keys, err := deriveRecordTrafficKeys13(hashFunc, trafficSecret, keyLen)
 	if err != nil {
 		return nil, err
@@ -70,18 +66,10 @@ func newAESGCMRecordTrafficProtection13(
 		return nil, err
 	}
 
-	return &recordTrafficProtection13{
-		aead:                 aead,
-		iv:                   keys.iv,
-		sequenceNumberKey:    keys.sequenceNumberKey,
-		sequenceNumberMaskFn: recordSequenceNumberMaskAES13,
-	}, nil
+	return &recordTrafficProtection13{aead: aead, iv: keys.iv, sequenceNumberKey: keys.sequenceNumberKey, sequenceNumberMaskFn: recordSequenceNumberMaskAES13}, nil
 }
 
-func newChaCha20Poly1305RecordTrafficProtection13(
-	hashFunc func() hash.Hash,
-	trafficSecret []byte,
-) (*recordTrafficProtection13, error) {
+func newChaCha20Poly1305RecordTrafficProtection13(hashFunc func() hash.Hash, trafficSecret []byte) (*recordTrafficProtection13, error) {
 	keys, err := deriveRecordTrafficKeys13(hashFunc, trafficSecret, tls13ChaCha20Poly1305KeyLen)
 	if err != nil {
 		return nil, err
@@ -92,12 +80,7 @@ func newChaCha20Poly1305RecordTrafficProtection13(
 		return nil, err
 	}
 
-	return &recordTrafficProtection13{
-		aead:                 aead,
-		iv:                   keys.iv,
-		sequenceNumberKey:    keys.sequenceNumberKey,
-		sequenceNumberMaskFn: recordSequenceNumberMaskChaCha20Poly1305TLS13,
-	}, nil
+	return &recordTrafficProtection13{aead: aead, iv: keys.iv, sequenceNumberKey: keys.sequenceNumberKey, sequenceNumberMaskFn: recordSequenceNumberMaskChaCha20Poly1305TLS13}, nil
 }
 
 // Mask generates the record-number mask for a caller-validated ciphertext sample.
@@ -216,11 +199,7 @@ func recordNonce13(iv []byte, sequenceNumber uint64) ([]byte, error) {
 	return nonce, nil
 }
 
-func deriveRecordTrafficKeys13(
-	hashFunc func() hash.Hash,
-	trafficSecret []byte,
-	keyLen int,
-) (recordTrafficKeys13, error) {
+func deriveRecordTrafficKeys13(hashFunc func() hash.Hash, trafficSecret []byte, keyLen int) (recordTrafficKeys13, error) {
 	if keyLen <= 0 {
 		return recordTrafficKeys13{}, dtlserrors.ErrLengthMismatch
 	}
@@ -247,13 +226,7 @@ func deriveRecordTrafficKeys13(
 		return recordTrafficKeys13{}, err
 	}
 
-	sequenceNumberKey, err := keyschedule.HkdfExpandLabel(
-		hashFunc,
-		trafficSecret,
-		trafficSequenceNumberKeyLabel13,
-		nil,
-		keyLen,
-	)
+	sequenceNumberKey, err := keyschedule.HkdfExpandLabel(hashFunc, trafficSecret, trafficSequenceNumberKeyLabel13, nil, keyLen)
 	if err != nil {
 		return recordTrafficKeys13{}, err
 	}

@@ -62,11 +62,7 @@ type CertificateRequestInfo struct {
 
 func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certificate) error {
 	if len(cri.SignatureSchemes) > 0 {
-		if _, err := signaturehash.SelectSignatureScheme(
-			cri.SignatureSchemes,
-			certificate.PrivateKey,
-			cri.Version,
-		); err != nil {
+		if _, err := signaturehash.SelectSignatureScheme(cri.SignatureSchemes, certificate.PrivateKey, cri.Version); err != nil {
 			return err
 		}
 	}

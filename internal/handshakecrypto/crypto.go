@@ -99,13 +99,7 @@ func validateSignatureAlgOID(cert *x509.Certificate, sigAlg signature.Algorithm)
 // hash/signature algorithm pair that appears in that extension
 //
 // https://tools.ietf.org/html/rfc5246#section-7.4.2
-func GenerateKeySignature(
-	clientRandom, serverRandom, publicKey []byte,
-	namedCurve elliptic.Curve,
-	signer crypto.Signer,
-	hashAlgorithm hash.Algorithm,
-	signatureAlgorithm signature.Algorithm,
-) ([]byte, error) {
+func GenerateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCurve elliptic.Curve, signer crypto.Signer, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm) ([]byte, error) {
 	msg := ValueKeyMessage(clientRandom, serverRandom, publicKey, namedCurve)
 	switch signer.Public().(type) {
 	case ed25519.PublicKey:
@@ -135,12 +129,7 @@ func GenerateKeySignature(
 	return nil, dtlserrors.ErrKeySignatureGenerateUnimplemented
 }
 
-func VerifyKeySignature(
-	message, remoteKeySignature []byte,
-	hashAlgorithm hash.Algorithm,
-	signatureAlgorithm signature.Algorithm,
-	rawCertificates [][]byte,
-) error {
+func VerifyKeySignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte) error {
 	return verifyCertificateSignature(
 		message, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates,
 	)
@@ -155,12 +144,7 @@ func VerifyKeySignature(
 // CertificateVerify message is sent to explicitly verify possession of
 // the private key in the certificate.
 // https://tools.ietf.org/html/rfc5246#section-7.3
-func GenerateCertificateVerify(
-	handshakeBodies []byte,
-	signer crypto.Signer,
-	hashAlgorithm hash.Algorithm,
-	signatureAlgorithm signature.Algorithm,
-) ([]byte, error) {
+func GenerateCertificateVerify(handshakeBodies []byte, signer crypto.Signer, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm) ([]byte, error) {
 	if _, ok := signer.Public().(ed25519.PublicKey); ok {
 		// https://pkg.go.dev/crypto/ed25519#PrivateKey.Sign
 		// Sign signs the given message with priv. Ed25519 performs two passes over
@@ -191,25 +175,12 @@ func GenerateCertificateVerify(
 	return nil, dtlserrors.ErrInvalidSignatureAlgorithm
 }
 
-func VerifyCertificateVerify(
-	handshakeBodies []byte,
-	hashAlgorithm hash.Algorithm,
-	signatureAlgorithm signature.Algorithm,
-	remoteKeySignature []byte,
-	rawCertificates [][]byte,
-) error {
-	return verifyCertificateSignature(
-		handshakeBodies, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates,
-	)
+func VerifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, remoteKeySignature []byte, rawCertificates [][]byte) error {
+	return verifyCertificateSignature(handshakeBodies, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates)
 }
 
 //nolint:cyclop
-func verifyCertificateSignature(
-	message, remoteKeySignature []byte,
-	hashAlgorithm hash.Algorithm,
-	signatureAlgorithm signature.Algorithm,
-	rawCertificates [][]byte,
-) error {
+func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte) error {
 	if len(rawCertificates) == 0 {
 		return dtlserrors.ErrLengthMismatch
 	}
@@ -288,11 +259,7 @@ func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-func VerifyClientCert(
-	rawCertificates [][]byte,
-	roots *x509.CertPool,
-	certSignatureSchemes []signaturehash.Algorithm,
-) (chains [][]*x509.Certificate, err error) {
+func VerifyClientCert(rawCertificates [][]byte, roots *x509.CertPool, certSignatureSchemes []signaturehash.Algorithm) (chains [][]*x509.Certificate, err error) {
 	certificate, err := loadCerts(rawCertificates)
 	if err != nil {
 		return nil, err
@@ -301,12 +268,7 @@ func VerifyClientCert(
 	for _, cert := range certificate[1:] {
 		intermediateCAPool.AddCert(cert)
 	}
-	opts := x509.VerifyOptions{
-		Roots:         roots,
-		CurrentTime:   time.Now(),
-		Intermediates: intermediateCAPool,
-		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-	}
+	opts := x509.VerifyOptions{Roots: roots, CurrentTime: time.Now(), Intermediates: intermediateCAPool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
 
 	chains, err = certificate[0].Verify(opts)
 	if err != nil {
@@ -332,12 +294,7 @@ func VerifyClientCert(
 	return chains, nil
 }
 
-func VerifyServerCert(
-	rawCertificates [][]byte,
-	roots *x509.CertPool,
-	serverName string,
-	certSignatureSchemes []signaturehash.Algorithm,
-) (chains [][]*x509.Certificate, err error) {
+func VerifyServerCert(rawCertificates [][]byte, roots *x509.CertPool, serverName string, certSignatureSchemes []signaturehash.Algorithm) (chains [][]*x509.Certificate, err error) {
 	certificate, err := loadCerts(rawCertificates)
 	if err != nil {
 		return nil, err
@@ -346,12 +303,7 @@ func VerifyServerCert(
 	for _, cert := range certificate[1:] {
 		intermediateCAPool.AddCert(cert)
 	}
-	opts := x509.VerifyOptions{
-		Roots:         roots,
-		CurrentTime:   time.Now(),
-		DNSName:       serverName,
-		Intermediates: intermediateCAPool,
-	}
+	opts := x509.VerifyOptions{Roots: roots, CurrentTime: time.Now(), DNSName: serverName, Intermediates: intermediateCAPool}
 
 	chains, err = certificate[0].Verify(opts)
 	if err != nil {
@@ -380,10 +332,7 @@ func VerifyServerCert(
 // ValidateCertificateSignatureAlgorithms validates that all certificates in the chain
 // use signature algorithms that are in the allowed list. This implements the
 // signature_algorithms_cert extension validation per RFC 8446 Section 4.2.3.
-func ValidateCertificateSignatureAlgorithms(
-	certs []*x509.Certificate,
-	allowedAlgorithms []signaturehash.Algorithm,
-) error {
+func ValidateCertificateSignatureAlgorithms(certs []*x509.Certificate, allowedAlgorithms []signaturehash.Algorithm) error {
 	if len(allowedAlgorithms) == 0 {
 		// No restrictions specified
 		return nil

@@ -29,35 +29,18 @@ func TestListenConnectionIDRebindingRequiresRRC(t *testing.T) {
 	tests := map[string]struct {
 		clientMin, clientMax, serverMin, serverMax, negotiated protocol.Version
 	}{
-		"DTLS12": {
-			clientMin: protocol.Version1_2, clientMax: protocol.Version1_2,
-			serverMin: protocol.Version1_2, serverMax: protocol.Version1_2,
-			negotiated: protocol.Version1_2,
-		},
-		"DualStackToDTLS12": {
-			clientMin: protocol.Version1_2, clientMax: protocol.Version1_3,
-			serverMin: protocol.Version1_2, serverMax: protocol.Version1_2,
-			negotiated: protocol.Version1_2,
-		},
-		"DTLS13": {
-			clientMin: protocol.Version1_3, clientMax: protocol.Version1_3,
-			serverMin: protocol.Version1_3, serverMax: protocol.Version1_3,
-			negotiated: protocol.Version1_3,
-		},
+		"DTLS12":            {clientMin: protocol.Version1_2, clientMax: protocol.Version1_2, serverMin: protocol.Version1_2, serverMax: protocol.Version1_2, negotiated: protocol.Version1_2},
+		"DualStackToDTLS12": {clientMin: protocol.Version1_2, clientMax: protocol.Version1_3, serverMin: protocol.Version1_2, serverMax: protocol.Version1_2, negotiated: protocol.Version1_2},
+		"DTLS13":            {clientMin: protocol.Version1_3, clientMax: protocol.Version1_3, serverMin: protocol.Version1_3, serverMax: protocol.Version1_3, negotiated: protocol.Version1_3},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			testListenConnectionIDRebindingRequiresRRC(
-				t, test.clientMin, test.clientMax, test.serverMin, test.serverMax, test.negotiated,
-			)
+			testListenConnectionIDRebindingRequiresRRC(t, test.clientMin, test.clientMax, test.serverMin, test.serverMax, test.negotiated)
 		})
 	}
 }
 
-func testListenConnectionIDRebindingRequiresRRC(
-	t *testing.T,
-	clientMin, clientMax, serverMin, serverMax, negotiatedVersion protocol.Version,
-) {
+func testListenConnectionIDRebindingRequiresRRC(t *testing.T, clientMin, clientMax, serverMin, serverMax, negotiatedVersion protocol.Version) {
 	t.Helper()
 	defer test.CheckRoutines(t)()
 	defer test.TimeOut(10 * time.Second).Stop()
@@ -65,14 +48,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 	serverCID := []byte("server-cid")
-	listener, err := ListenAddr(
-		"udp4",
-		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
-		WithCertificates(serverCert),
-		WithMinVersion(serverMin),
-		WithMaxVersion(serverMax),
-		WithConnectionID(func() []byte { return serverCID }, CIDPathMigrationRRC),
-	)
+	listener, err := ListenAddr("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, WithCertificates(serverCert), WithMinVersion(serverMin), WithMaxVersion(serverMax), WithConnectionID(func() []byte { return serverCID }, CIDPathMigrationRRC))
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, listener.Close())
@@ -80,14 +56,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 
 	initialSocket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	require.NoError(t, err)
-	client, err := Client(
-		initialSocket,
-		listener.Addr(),
-		WithInsecureSkipVerify(true),
-		WithMinVersion(clientMin),
-		WithMaxVersion(clientMax),
-		WithConnectionID(func() []byte { return []byte("client-cid") }, CIDPathMigrationRRC),
-	)
+	client, err := Client(initialSocket, listener.Addr(), WithInsecureSkipVerify(true), WithMinVersion(clientMin), WithMaxVersion(clientMax), WithConnectionID(func() []byte { return []byte("client-cid") }, CIDPathMigrationRRC))
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, client.Close())
@@ -181,14 +150,7 @@ func testListenConnectionIDRebindingRequiresRRC(
 	}
 	assert.Equal(t, protocol.ReturnRoutabilityCheckPathChallenge, challenge.MessageType)
 
-	responsePacket := &dtlsflight.Outbound{
-		Epoch: dtlsstate.CommonState(client.state).LocalEpoch(),
-		Content: &protocol.ReturnRoutabilityCheck{
-			MessageType: protocol.ReturnRoutabilityCheckPathResponse,
-			Cookie:      challenge.Cookie,
-		},
-		Protection: dtlsflight.ProtectionCiphertext,
-	}
+	responsePacket := &dtlsflight.Outbound{Epoch: dtlsstate.CommonState(client.state).LocalEpoch(), Content: &protocol.ReturnRoutabilityCheck{MessageType: protocol.ReturnRoutabilityCheckPathResponse, Cookie: challenge.Cookie}, Protection: dtlsflight.ProtectionCiphertext}
 	responseDatagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Outbound{responsePacket})
 	require.NoError(t, err)
 	require.Len(t, responseDatagrams, 1)

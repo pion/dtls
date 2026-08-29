@@ -180,14 +180,7 @@ func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
 	for i := range cid {
 		cid[i] = byte(i)
 	}
-	raw, err := (&UnifiedHeader{
-		ConnectionID:   cid,
-		SequenceNumber: 0xaabb,
-		SeqBit:         true,
-		Length:         42,
-		LengthBit:      true,
-		EpochLow:       3,
-	}).Marshal()
+	raw, err := (&UnifiedHeader{ConnectionID: cid, SequenceNumber: 0xaabb, SeqBit: true, Length: 42, LengthBit: true, EpochLow: 3}).Marshal()
 	if err != nil {
 		f.Fatalf("marshal fuzz seed: %v", err)
 	}
@@ -215,14 +208,7 @@ func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
 }
 
 func TestUnifiedHeaderMarshalTo(t *testing.T) {
-	header := UnifiedHeader{
-		ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
-		SequenceNumber: 0xaabb,
-		SeqBit:         true,
-		Length:         42,
-		LengthBit:      true,
-		EpochLow:       3,
-	}
+	header := UnifiedHeader{ConnectionID: []byte{0xca, 0xfe, 0xba, 0xbe}, SequenceNumber: 0xaabb, SeqBit: true, Length: 42, LengthBit: true, EpochLow: 3}
 	want, err := header.Marshal()
 	assert.NoError(t, err)
 

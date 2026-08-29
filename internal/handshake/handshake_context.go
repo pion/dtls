@@ -28,11 +28,7 @@ func (c *handshakeContext) seedInitialFlights(flights []*dtlsflight.Outbound, re
 	return seedTranscriptFromInitialFlights(c.state, c.transcript, flights, retransmit)
 }
 
-func (c *handshakeContext) commitPreparedFlight(
-	conn Conn,
-	flight dtlsflight13.Flight,
-	flights []*dtlsflight.Outbound,
-) error {
+func (c *handshakeContext) commitPreparedFlight(conn Conn, flight dtlsflight13.Flight, flights []*dtlsflight.Outbound) error {
 	if err := commitPreparedFlights(conn, c.state, c.transcript, c.cfg, flights); err != nil {
 		return err
 	}
@@ -65,11 +61,7 @@ func (c *handshakeContext) afterSend(
 	return true, activateApplicationRecordProtection(ctx, conn, c.state)
 }
 
-func (c *handshakeContext) parseReceivedFlight(
-	ctx context.Context,
-	conn Conn,
-	currentFlight dtlsflight13.Flight,
-) (dtlsflight13.Flight, error) {
+func (c *handshakeContext) parseReceivedFlight(ctx context.Context, conn Conn, currentFlight dtlsflight13.Flight) (dtlsflight13.Flight, error) {
 	nextFlight, dtlsAlert, err, ok := dtlsflight13.Parse(ctx, currentFlight, conn, c.parseDependencies())
 	if !ok {
 		if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
@@ -91,12 +83,7 @@ type receivedFlightTransition struct {
 	retainPendingRecv bool
 }
 
-func (c *handshakeContext) advanceAfterReceivedFlight(
-	ctx context.Context,
-	conn Conn,
-	currentFlight, nextFlight dtlsflight13.Flight,
-	receivedRecords []protocol.RecordNumber,
-) (receivedFlightTransition, error) {
+func (c *handshakeContext) advanceAfterReceivedFlight(ctx context.Context, conn Conn, currentFlight, nextFlight dtlsflight13.Flight, receivedRecords []protocol.RecordNumber) (receivedFlightTransition, error) {
 	if c.state.IsClient && nextFlight.IsLastSendFlight() {
 		if err := DeriveAndStoreApplicationTrafficSecrets(c.state, c.transcript); err != nil {
 			return receivedFlightTransition{}, err
@@ -115,18 +102,9 @@ func (c *handshakeContext) advanceAfterReceivedFlight(
 		return receivedFlightTransition{state: StateFinished}, nil
 	}
 
-	c.cfg.Log.Tracef(
-		"[handshake13:%s] %s -> %s",
-		sideString(c.state.IsClient),
-		currentFlight.String(),
-		nextFlight.String(),
-	)
+	c.cfg.Log.Tracef("[handshake13:%s] %s -> %s", sideString(c.state.IsClient), currentFlight.String(), nextFlight.String())
 
-	return receivedFlightTransition{
-		state:             StatePreparing,
-		nextFlight:        nextFlight,
-		retainPendingRecv: c.transitionRequiresReaderPause(nextFlight),
-	}, nil
+	return receivedFlightTransition{state: StatePreparing, nextFlight: nextFlight, retainPendingRecv: c.transitionRequiresReaderPause(nextFlight)}, nil
 }
 
 func (c *handshakeContext) transitionRequiresReaderPause(nextFlight dtlsflight13.Flight) bool {

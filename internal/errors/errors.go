@@ -24,16 +24,12 @@ var (
 	ErrApplicationDataEpochZero     = stderrors.New("ApplicationData with epoch of 0")
 	ErrUnhandledContextType         = stderrors.New("unhandled contentType")
 
-	ErrCertificateVerifyNoCertificate = stderrors.New(
-		"client sent certificate verify but we have no certificate to verify",
-	)
-	ErrCipherSuiteNoIntersection    = stderrors.New("client+server do not support any shared cipher suites")
-	ErrClientCertificateNotVerified = stderrors.New("client sent certificate but did not verify it")
-	ErrClientCertificateRequired    = stderrors.New("server required client verification, but got none")
-	ErrClientNoMatchingSRTPProfile  = stderrors.New("server responded with SRTP Profile we do not support")
-	ErrClientRequiredButNoServerEMS = stderrors.New(
-		"client required Extended Master Secret extension, but server does not support it",
-	)
+	ErrCertificateVerifyNoCertificate       = stderrors.New("client sent certificate verify but we have no certificate to verify")
+	ErrCipherSuiteNoIntersection            = stderrors.New("client+server do not support any shared cipher suites")
+	ErrClientCertificateNotVerified         = stderrors.New("client sent certificate but did not verify it")
+	ErrClientCertificateRequired            = stderrors.New("server required client verification, but got none")
+	ErrClientNoMatchingSRTPProfile          = stderrors.New("server responded with SRTP Profile we do not support")
+	ErrClientRequiredButNoServerEMS         = stderrors.New("client required Extended Master Secret extension, but server does not support it")
 	ErrCookieMismatch                       = stderrors.New("client+server cookie does not match")
 	ErrIdentityNoPSK                        = stderrors.New("PSK Identity Hint provided but PSK is nil")
 	ErrInvalidCertificate                   = stderrors.New("no certificate provided")
@@ -56,20 +52,14 @@ var (
 	ErrNoAvailableCipherSuites = stderrors.New(
 		"connection can not be created, no CipherSuites satisfy this Config",
 	)
-	ErrNoAvailablePSKCipherSuite = stderrors.New(
-		"connection can not be created, pre-shared key present but no compatible CipherSuite",
-	)
-	ErrNoAvailableCertificateCipherSuite = stderrors.New(
-		"connection can not be created, certificate present but no compatible CipherSuite",
-	)
-	ErrNoAvailableSignatureSchemes = stderrors.New(
+	ErrNoAvailablePSKCipherSuite         = stderrors.New("connection can not be created, pre-shared key present but no compatible CipherSuite")
+	ErrNoAvailableCertificateCipherSuite = stderrors.New("connection can not be created, certificate present but no compatible CipherSuite")
+	ErrNoAvailableSignatureSchemes       = stderrors.New(
 		"connection can not be created, no SignatureScheme satisfy this Config",
 	)
-	ErrNoCertificates            = stderrors.New("no certificates configured")
-	ErrNoConfigProvided          = stderrors.New("no config provided")
-	ErrNoSupportedEllipticCurves = stderrors.New(
-		"client requested zero or more elliptic curves that are not supported by the server",
-	)
+	ErrNoCertificates                    = stderrors.New("no certificates configured")
+	ErrNoConfigProvided                  = stderrors.New("no config provided")
+	ErrNoSupportedEllipticCurves         = stderrors.New("client requested zero or more elliptic curves that are not supported by the server")
 	ErrUnsupportedProtocolVersion        = stderrors.New("unsupported protocol version")
 	ErrNoCommonProtocolVersion           = stderrors.New("no common DTLS version between peer and local")
 	ErrInvalidProtocolVersionState       = stderrors.New("invalid protocol version in state")
@@ -80,15 +70,11 @@ var (
 		"ServerHello key_share selected a group the client did not offer",
 	)
 	ErrPSKAndIdentityMustBeSetForClient = stderrors.New("PSK and PSK Identity Hint must both be set for client")
-	ErrRequestedButNoSRTPExtension      = stderrors.New(
-		"SRTP support was requested but server did not respond with use_srtp extension",
-	)
-	ErrServerNoMatchingSRTPProfile  = stderrors.New("client requested SRTP but we have no matching profiles")
-	ErrServerRequiredButNoClientEMS = stderrors.New(
-		"server requires the Extended Master Secret extension, but the client does not support it",
-	)
-	ErrVerifyDataMismatch            = stderrors.New("expected and actual verify data does not match")
-	ErrNotAcceptableCertificateChain = stderrors.New("certificate chain is not signed by an acceptable CA")
+	ErrRequestedButNoSRTPExtension      = stderrors.New("SRTP support was requested but server did not respond with use_srtp extension")
+	ErrServerNoMatchingSRTPProfile      = stderrors.New("client requested SRTP but we have no matching profiles")
+	ErrServerRequiredButNoClientEMS     = stderrors.New("server requires the Extended Master Secret extension, but the client does not support it")
+	ErrVerifyDataMismatch               = stderrors.New("expected and actual verify data does not match")
+	ErrNotAcceptableCertificateChain    = stderrors.New("certificate chain is not signed by an acceptable CA")
 
 	ErrInvalidFlight                         = stderrors.New("invalid flight number")
 	ErrFlightUnimplemented13                 = stderrors.New("unimplemented DTLS 1.3 flight")
@@ -119,10 +105,8 @@ var (
 	ErrEmptySignatureSchemes = stderrors.New(
 		"signature schemes option requires at least one scheme",
 	)
-	ErrEmptyCertificateSignatureSchemes = stderrors.New(
-		"certificate signature schemes option requires at least one scheme",
-	)
-	ErrEmptySRTPProtectionProfiles = stderrors.New(
+	ErrEmptyCertificateSignatureSchemes = stderrors.New("certificate signature schemes option requires at least one scheme")
+	ErrEmptySRTPProtectionProfiles      = stderrors.New(
 		"SRTP protection profiles option requires at least one profile",
 	)
 	ErrInvalidFlightInterval    = stderrors.New("flight interval must be positive")
@@ -168,10 +152,8 @@ var (
 	ErrNilServerHelloMessageHook = stderrors.New(
 		"server hello message hook option requires a non-nil function",
 	)
-	ErrNilCertificateRequestMessageHook = stderrors.New(
-		"certificate request message hook option requires a non-nil function",
-	)
-	ErrNilOnConnectionAttempt = stderrors.New(
+	ErrNilCertificateRequestMessageHook = stderrors.New("certificate request message hook option requires a non-nil function")
+	ErrNilOnConnectionAttempt           = stderrors.New(
 		"on connection attempt option requires a non-nil callback",
 	)
 
@@ -182,15 +164,9 @@ var (
 	ErrHandshakeTranscriptHashAlreadySelected = stderrors.New(
 		"DTLS 1.3 handshake transcript hash is already selected",
 	)
-	ErrHandshakeTranscriptMessageChanged = stderrors.New(
-		"DTLS 1.3 handshake transcript message changed during retransmission",
-	)
-	ErrHandshakeTranscriptExplicitAuthenticationRequired = stderrors.New(
-		"DTLS 1.3 handshake transcript message requires explicit authentication before commit",
-	)
-	ErrHandshakeTranscriptHelloRetryRequestInvalid = stderrors.New(
-		"invalid DTLS 1.3 HelloRetryRequest transcript transition",
-	)
+	ErrHandshakeTranscriptMessageChanged                 = stderrors.New("DTLS 1.3 handshake transcript message changed during retransmission")
+	ErrHandshakeTranscriptExplicitAuthenticationRequired = stderrors.New("DTLS 1.3 handshake transcript message requires explicit authentication before commit")
+	ErrHandshakeTranscriptHelloRetryRequestInvalid       = stderrors.New("invalid DTLS 1.3 HelloRetryRequest transcript transition")
 
 	ErrInvalidCipherSpec = stderrors.New("cipher spec invalid")
 	ErrInvalidACK        = stderrors.New("ack invalid")
@@ -223,9 +199,7 @@ var (
 
 	ErrUnableToMarshalFragmented = stderrors.New("unable to marshal fragmented handshakes")
 	ErrHandshakeMessageUnset     = stderrors.New("handshake message unset, unable to marshal")
-	ErrInvalidClientKeyExchange  = stderrors.New(
-		"unable to determine if ClientKeyExchange is a public key or PSK Identity",
-	)
+	ErrInvalidClientKeyExchange  = stderrors.New("unable to determine if ClientKeyExchange is a public key or PSK Identity")
 	ErrInvalidSignHashAlgorithm  = stderrors.New("invalid signature/hash algorithm")
 	ErrCookieTooLong             = stderrors.New("cookie must not be longer than 255 bytes")
 	ErrSessionIDTooLong          = stderrors.New("session ID must not be longer than 255 bytes")
@@ -277,13 +251,11 @@ var (
 		"HelloRetryRequest requires supported_versions",
 	)
 	ErrUnexpectedHandshakeMessage          = stderrors.New("unexpected handshake message")
-	ErrMissingSignatureAlgorithmsExtension = stderrors.New(
-		"signature_algorithms extension is required in CertificateRequest",
-	)
-	ErrInvalidKeyUpdate         = stderrors.New("invalid KeyUpdate request")
-	ErrInvalidConnectionIDUsage = stderrors.New("invalid connection ID usage")
-	ErrTicketNonceTooLong       = stderrors.New("ticket nonce must not be longer than 255 bytes")
-	ErrInvalidTicketLength      = stderrors.New("ticket must be between 1 and 65535 bytes")
+	ErrMissingSignatureAlgorithmsExtension = stderrors.New("signature_algorithms extension is required in CertificateRequest")
+	ErrInvalidKeyUpdate                    = stderrors.New("invalid KeyUpdate request")
+	ErrInvalidConnectionIDUsage            = stderrors.New("invalid connection ID usage")
+	ErrTicketNonceTooLong                  = stderrors.New("ticket nonce must not be longer than 255 bytes")
+	ErrInvalidTicketLength                 = stderrors.New("ticket must be between 1 and 65535 bytes")
 
 	ErrInvalidPacketLength        = stderrors.New("packet length and declared length do not match")
 	ErrInvalidProtectionInput     = stderrors.New("invalid record protection input")
@@ -294,13 +266,11 @@ var (
 	ErrAntiAmplificationLimit     = stderrors.New("return routability check anti-amplification limit exceeded")
 
 	ErrCipherSuiteNotInit                        = stderrors.New("CipherSuite has not been initialized")
-	ErrCipherSuiteRecordProtectionNotImplemented = stderrors.New(
-		"DTLS 1.3 cipher suite record protection is not implemented",
-	)
-	ErrNotEnoughRoomForNonce = stderrors.New("buffer not long enough to contain nonce")
-	ErrDecryptPacket         = stderrors.New("failed to decrypt packet")
-	ErrInvalidMAC            = stderrors.New("invalid mac")
-	ErrFailedToCast          = stderrors.New("failed to cast")
+	ErrCipherSuiteRecordProtectionNotImplemented = stderrors.New("DTLS 1.3 cipher suite record protection is not implemented")
+	ErrNotEnoughRoomForNonce                     = stderrors.New("buffer not long enough to contain nonce")
+	ErrDecryptPacket                             = stderrors.New("failed to decrypt packet")
+	ErrInvalidMAC                                = stderrors.New("invalid mac")
+	ErrFailedToCast                              = stderrors.New("failed to cast")
 
 	ErrCCMInvalidBlockSize   = stderrors.New("ccm: NewCCM requires 128-bit block cipher")
 	ErrCCMInvalidTagSize     = stderrors.New("ccm: tagsize must be 4, 6, 8, 10, 12, 14, or 16")

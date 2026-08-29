@@ -43,14 +43,7 @@ func (m *MessageClientHello) MarshalSize() int {
 	cipherSuitesSize := 2 + 2*len(m.CipherSuiteIDs)
 	compressionSize := 1 + len(m.CompressionMethods)
 
-	return handshakeMessageClientHelloVariableWidthStart +
-		1 +
-		len(m.SessionID) +
-		1 +
-		len(m.Cookie) +
-		cipherSuitesSize +
-		compressionSize +
-		extension.MarshalListSize(m.Extensions)
+	return handshakeMessageClientHelloVariableWidthStart + 1 + len(m.SessionID) + 1 + len(m.Cookie) + cipherSuitesSize + compressionSize + extension.MarshalListSize(m.Extensions)
 }
 
 // Marshal encodes the Handshake.
@@ -98,12 +91,7 @@ func (m *MessageClientHello) prepareMarshal() (preparedClientHello, error) {
 	}
 
 	extensions, err := extension.PrepareList(m.Extensions)
-	size := handshakeMessageClientHelloVariableWidthStart +
-		1 + len(m.SessionID) +
-		1 + len(m.Cookie) +
-		2 + 2*len(m.CipherSuiteIDs) +
-		1 + len(m.CompressionMethods) +
-		extensions.MarshalSize()
+	size := handshakeMessageClientHelloVariableWidthStart + 1 + len(m.SessionID) + 1 + len(m.Cookie) + 2 + 2*len(m.CipherSuiteIDs) + 1 + len(m.CompressionMethods) + extensions.MarshalSize()
 	prepared := preparedClientHello{extensions: extensions, size: size}
 	if size < 0 {
 		return prepared, dtlserrors.ErrLengthMismatch

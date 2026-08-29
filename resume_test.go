@@ -86,11 +86,7 @@ func DoTestResume(
 		err = <-errChan
 		assert.NoError(t, err)
 	}()
-	opts := []Option{
-		WithCertificates(certificate),
-		WithInsecureSkipVerify(true),
-		WithExtendedMasterSecret(RequireExtendedMasterSecret),
-	}
+	opts := []Option{WithCertificates(certificate), WithInsecureSkipVerify(true), WithExtendedMasterSecret(RequireExtendedMasterSecret)}
 	go func() {
 		var remote *Conn
 		var errR error

@@ -18,13 +18,7 @@ import (
 
 // VerifyAndAppendProtectedHandshakeCacheItems verifies a DTLS 1.3 protected
 // peer flight and commits it to the transcript only after Finished verifies.
-func VerifyAndAppendProtectedHandshakeCacheItems(
-	transcript *Transcript,
-	state *dtlsstate.State13,
-	cfg *dtlsconfig.HandshakeConfig,
-	cipherSuite dtlsconfig.CipherSuite,
-	items []dtlsflight.DecodedHandshakeCacheItem,
-) error {
+func VerifyAndAppendProtectedHandshakeCacheItems(transcript *Transcript, state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, cipherSuite dtlsconfig.CipherSuite, items []dtlsflight.DecodedHandshakeCacheItem) error {
 	if transcript == nil {
 		return dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
@@ -89,11 +83,7 @@ func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCache
 	}
 }
 
-func (f *protectedHandshakeFlight) processCertificate(
-	item *dtlsflight.HandshakeCacheItem,
-	parsedHandshake *handshake.Handshake,
-	certificate *handshake.MessageCertificate13,
-) error {
+func (f *protectedHandshakeFlight) processCertificate(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, certificate *handshake.MessageCertificate13) error {
 	f.hasCertificate = true
 	f.peerCertificates = rawCertificatesFromCertificate(certificate)
 	if len(f.peerCertificates) == 0 {
@@ -107,11 +97,7 @@ func (f *protectedHandshakeFlight) processCertificate(
 	return f.append(item, parsedHandshake)
 }
 
-func (f *protectedHandshakeFlight) processCertificateVerify(
-	item *dtlsflight.HandshakeCacheItem,
-	parsedHandshake *handshake.Handshake,
-	verify *handshake.MessageCertificateVerify,
-) error {
+func (f *protectedHandshakeFlight) processCertificateVerify(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, verify *handshake.MessageCertificateVerify) error {
 	if !f.hasCertificate {
 		return dtlserrors.ErrCertificateVerifyNoCertificate
 	}
@@ -135,11 +121,7 @@ func (f *protectedHandshakeFlight) processCertificateVerify(
 	return f.append(item, parsedHandshake)
 }
 
-func (f *protectedHandshakeFlight) processFinished(
-	item *dtlsflight.HandshakeCacheItem,
-	parsedHandshake *handshake.Handshake,
-	finished *handshake.MessageFinished,
-) error {
+func (f *protectedHandshakeFlight) processFinished(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, finished *handshake.MessageFinished) error {
 	if len(f.peerCertificates) != 0 && !f.hasCertificateVerify {
 		return dtlserrors.ErrClientCertificateNotVerified
 	}
@@ -163,10 +145,7 @@ func (f *protectedHandshakeFlight) processFinished(
 	return f.append(item, parsedHandshake)
 }
 
-func (f *protectedHandshakeFlight) append(
-	item *dtlsflight.HandshakeCacheItem,
-	parsedHandshake *handshake.Handshake,
-) error {
+func (f *protectedHandshakeFlight) append(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake) error {
 	return appendParsedInboundHandshake(
 		f.transcript,
 		item.IsClient,
@@ -262,13 +241,7 @@ func certificateVerificationError(err error) error {
 	return fmt.Errorf("%w: %w", dtlserrors.ErrCertificateVerificationFailed, err)
 }
 
-func verifyPeerCertificateVerify(
-	transcript *Transcript,
-	cfg *dtlsconfig.HandshakeConfig,
-	verify *handshake.MessageCertificateVerify,
-	peerCertificates [][]byte,
-	isClient bool,
-) error {
+func verifyPeerCertificateVerify(transcript *Transcript, cfg *dtlsconfig.HandshakeConfig, verify *handshake.MessageCertificateVerify, peerCertificates [][]byte, isClient bool) error {
 	if cfg == nil {
 		return dtlserrors.ErrNoAvailableSignatureSchemes
 	}
@@ -289,22 +262,10 @@ func verifyPeerCertificateVerify(
 		return err
 	}
 
-	return dtlscrypto.VerifyCertificateVerify(
-		input,
-		verify.HashAlgorithm,
-		verify.SignatureAlgorithm,
-		verify.Signature,
-		peerCertificates,
-	)
+	return dtlscrypto.VerifyCertificateVerify(input, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, peerCertificates)
 }
 
-func verifyPeerFinished(
-	transcript *Transcript,
-	state *dtlsstate.State13,
-	cipherSuite dtlsconfig.CipherSuite,
-	finished *handshake.MessageFinished,
-	isClient bool,
-) error {
+func verifyPeerFinished(transcript *Transcript, state *dtlsstate.State13, cipherSuite dtlsconfig.CipherSuite, finished *handshake.MessageFinished, isClient bool) error {
 	if state == nil || cipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -325,24 +286,11 @@ func verifyPeerFinished(
 	)
 }
 
-func appendParsedInboundHandshake(
-	transcript *Transcript,
-	isClient bool,
-	cipherSuite dtlsconfig.CipherSuite,
-	hs *handshake.Handshake,
-	raw []byte,
-) error {
+func appendParsedInboundHandshake(transcript *Transcript, isClient bool, cipherSuite dtlsconfig.CipherSuite, hs *handshake.Handshake, raw []byte) error {
 	canonical, err := canonicalHandshake(raw)
 	if err != nil {
 		return err
 	}
 
-	return appendHandshake(
-		transcript,
-		transcriptSenderForSide(isClient),
-		cipherSuite,
-		hs.Header.MessageSequence,
-		hs.Message,
-		canonical,
-	)
+	return appendHandshake(transcript, transcriptSenderForSide(isClient), cipherSuite, hs.Header.MessageSequence, hs.Message, canonical)
 }

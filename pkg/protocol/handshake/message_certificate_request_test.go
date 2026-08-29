@@ -21,11 +21,7 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 		expErr                   error
 	}{
 		"valid - with CertificateAuthoritiesNames": {
-			rawCertificateRequest: []byte{
-				0x02, 0x01, 0x40, 0x00, 0x0C, 0x04, 0x03, 0x04, 0x01, 0x05,
-				0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x00, 0x06, 0x00,
-				0x04, 0x74, 0x65, 0x73, 0x74,
-			},
+			rawCertificateRequest: []byte{0x02, 0x01, 0x40, 0x00, 0x0C, 0x04, 0x03, 0x04, 0x01, 0x05, 0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x00, 0x06, 0x00, 0x04, 0x74, 0x65, 0x73, 0x74},
 			parsedCertificateRequest: &MessageCertificateRequest{
 				CertificateTypes: []clientcertificate.Type{
 					clientcertificate.RSASign,
@@ -43,10 +39,7 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 			},
 		},
 		"valid - without CertificateAuthoritiesNames": {
-			rawCertificateRequest: []byte{
-				0x02, 0x01, 0x40, 0x00, 0x0C, 0x04, 0x03, 0x04, 0x01, 0x05,
-				0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x00, 0x00,
-			},
+			rawCertificateRequest: []byte{0x02, 0x01, 0x40, 0x00, 0x0C, 0x04, 0x03, 0x04, 0x01, 0x05, 0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x00, 0x00},
 			parsedCertificateRequest: &MessageCertificateRequest{
 				CertificateTypes: []clientcertificate.Type{
 					clientcertificate.RSASign,
@@ -62,13 +55,7 @@ func TestHandshakeMessageCertificateRequest(t *testing.T) {
 				},
 			},
 		},
-		"invalid - casLength CertificateAuthoritiesNames": {
-			rawCertificateRequest: []byte{
-				0x02, 0x01, 0x40, 0x00, 0x0C, 0x04, 0x03, 0x04, 0x01, 0x05,
-				0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x01,
-			},
-			expErr: dtlserrors.ErrBufferTooSmall,
-		},
+		"invalid - casLength CertificateAuthoritiesNames": {rawCertificateRequest: []byte{0x02, 0x01, 0x40, 0x00, 0x0C, 0x04, 0x03, 0x04, 0x01, 0x05, 0x03, 0x05, 0x01, 0x06, 0x01, 0x02, 0x01, 0x01}, expErr: dtlserrors.ErrBufferTooSmall},
 	}
 
 	for name, testCase := range cases {
@@ -108,10 +95,7 @@ func TestHandshakeMessageCertificateRequest_SkipsUnknownAlgorithms(t *testing.T)
 
 	c := &MessageCertificateRequest{}
 	assert.NoError(t, c.Unmarshal(raw))
-	assert.Equal(t, []signaturehash.Algorithm{
-		{Hash: hash.SHA256, Signature: signature.ECDSA},
-		{Hash: hash.SHA256, Signature: signature.RSA},
-	}, c.SignatureHashAlgorithms)
+	assert.Equal(t, []signaturehash.Algorithm{{Hash: hash.SHA256, Signature: signature.ECDSA}, {Hash: hash.SHA256, Signature: signature.RSA}}, c.SignatureHashAlgorithms)
 }
 
 func TestHandshakeMessageCertificateRequest_CertificateTypesTooLong(t *testing.T) {

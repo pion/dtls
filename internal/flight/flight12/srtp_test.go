@@ -46,15 +46,10 @@ func TestFlight12ServerHelloUsesFinalSRTPOffer(t *testing.T) {
 			recordCH12(t, &state.RemoteClientHelloSnapshots, srtpOffer12(profile80, initialMKI))
 			recordCH12(t, &state.RemoteClientHelloSnapshots, srtpOffer12(profile32, finalMKI))
 
-			cfg := &dtlsconfig.HandshakeConfig{
-				LocalSRTPProtectionProfiles:  []extension.SRTPProtectionProfile{profile80, profile32},
-				LocalSRTPMasterKeyIdentifier: []byte(test.serverMKI),
-			}
+			cfg := &dtlsconfig.HandshakeConfig{LocalSRTPProtectionProfiles: []extension.SRTPProtectionProfile{profile80, profile32}, LocalSRTPMasterKeyIdentifier: []byte(test.serverMKI)}
 			if test.hookMKI != "" {
 				cfg.ServerHelloMessageHook = func(serverHello handshake.MessageServerHello) handshake.Message {
-					serverHello.Extensions = []extension.Value{&extension.SRTPSelection{
-						ProtectionProfile: profile32, MasterKeyIdentifier: []byte(test.hookMKI),
-					}}
+					serverHello.Extensions = []extension.Value{&extension.SRTPSelection{ProtectionProfile: profile32, MasterKeyIdentifier: []byte(test.hookMKI)}}
 
 					return &serverHello
 				}
@@ -84,9 +79,7 @@ func TestFlight12ResumptionRequiresFinalSRTPOffer(t *testing.T) {
 	recordCH12(t, &state.RemoteClientHelloSnapshots, srtpOffer12(profile80, initialMKI))
 	recordCH12(t, &state.RemoteClientHelloSnapshots)
 
-	packets, _, err := generateForTest(t, Flight4b, nil, state, dtlsflight.NewCache(), &dtlsconfig.HandshakeConfig{
-		LocalSRTPProtectionProfiles: []extension.SRTPProtectionProfile{profile80},
-	})
+	packets, _, err := generateForTest(t, Flight4b, nil, state, dtlsflight.NewCache(), &dtlsconfig.HandshakeConfig{LocalSRTPProtectionProfiles: []extension.SRTPProtectionProfile{profile80}})
 	require.ErrorIs(t, err, dtlserrors.ErrServerNoMatchingSRTPProfile)
 	assert.Nil(t, packets)
 	assert.Zero(t, state.SRTPProtectionProfile())
@@ -132,11 +125,7 @@ func newSRTPServerState12() *dtlsstate.State12 {
 	return state
 }
 
-func newSRTPClientFlight3Test(
-	t *testing.T,
-	profile extension.SRTPProtectionProfile,
-	mki string,
-) (*dtlsstate.State12, *dtlsflight.Cache, *dtlsconfig.HandshakeConfig) {
+func newSRTPClientFlight3Test(t *testing.T, profile extension.SRTPProtectionProfile, mki string) (*dtlsstate.State12, *dtlsflight.Cache, *dtlsconfig.HandshakeConfig) {
 	t.Helper()
 	state := newTestState12()
 	state.IsClient = true
@@ -154,22 +143,13 @@ func newSRTPClientFlight3Test(
 	recordCH12(t, &state.LocalClientHelloSnapshots, srtpOffer12(profile32, finalMKI))
 	cipherSuiteID := uint16(suite.ID())
 	cache := dtlsflight.NewCache()
-	pushHandshake12(t, cache, 0, &handshake.MessageServerHello{
-		Version: protocol.Version1_2, CipherSuiteID: &cipherSuiteID,
-		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions: []extension.Value{&extension.SRTPSelection{
-			ProtectionProfile: profile, MasterKeyIdentifier: []byte(mki),
-		}},
-	})
+	pushHandshake12(t, cache, 0, &handshake.MessageServerHello{Version: protocol.Version1_2, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: []extension.Value{&extension.SRTPSelection{ProtectionProfile: profile, MasterKeyIdentifier: []byte(mki)}}})
 
 	return state, cache, cfg
 }
 
 func srtpOffer12(profile extension.SRTPProtectionProfile, mki string) *extension.SRTPOffer {
-	return &extension.SRTPOffer{
-		ProtectionProfiles:  []extension.SRTPProtectionProfile{profile},
-		MasterKeyIdentifier: []byte(mki),
-	}
+	return &extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{profile}, MasterKeyIdentifier: []byte(mki)}
 }
 
 func pushHandshake12(t *testing.T, cache *dtlsflight.Cache, sequence uint16, message handshake.Message) {

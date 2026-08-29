@@ -35,13 +35,7 @@ func TestACK(t *testing.T) {
 }
 
 func TestACK_MultipleRecords(t *testing.T) {
-	ack := ACK{
-		Records: []RecordNumber{
-			{Epoch: 1, SequenceNumber: 1},
-			{Epoch: 1, SequenceNumber: 2},
-			{Epoch: 2, SequenceNumber: 0},
-		},
-	}
+	ack := ACK{Records: []RecordNumber{{Epoch: 1, SequenceNumber: 1}, {Epoch: 1, SequenceNumber: 2}, {Epoch: 2, SequenceNumber: 0}}}
 
 	raw, err := ack.Marshal()
 	assert.NoError(t, err)

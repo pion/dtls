@@ -45,14 +45,7 @@ func flight5ClientAuthPackets(
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 	}
 	if len(certificate.Certificate) == 0 {
-		return []*dtlsflight.Outbound{
-			HandshakePacket(&handshake.MessageCertificate13{
-				CertificateRequestContext: append(
-					[]byte(nil),
-					certificateRequest.CertificateRequestContext...,
-				),
-			}),
-		}, nil, nil
+		return []*dtlsflight.Outbound{HandshakePacket(&handshake.MessageCertificate13{CertificateRequestContext: append([]byte(nil), certificateRequest.CertificateRequestContext...)})}, nil, nil
 	}
 
 	signer, ok := certificate.PrivateKey.(crypto.Signer)
@@ -61,11 +54,7 @@ func flight5ClientAuthPackets(
 			dtlserrors.ErrInvalidPrivateKey
 	}
 
-	signatureScheme, err := signaturehash.SelectSignatureScheme(
-		certificateRequestSignatureSchemes(certificateRequest),
-		signer,
-		protocol.Version1_3,
-	)
+	signatureScheme, err := signaturehash.SelectSignatureScheme(certificateRequestSignatureSchemes(certificateRequest), signer, protocol.Version1_3)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 	}
@@ -88,14 +77,8 @@ func flight5ClientAuthPackets(
 	}, nil, nil
 }
 
-func flight5ClientCertificate(
-	cfg *dtlsconfig.HandshakeConfig,
-	request *handshake.MessageCertificateRequest13,
-) (*tls.Certificate, error) {
-	requestInfo := &dtlsconfig.CertificateRequestInfo{
-		SignatureSchemes: certificateRequestSignatureSchemes(request),
-		Version:          protocol.Version1_3,
-	}
+func flight5ClientCertificate(cfg *dtlsconfig.HandshakeConfig, request *handshake.MessageCertificateRequest13) (*tls.Certificate, error) {
+	requestInfo := &dtlsconfig.CertificateRequestInfo{SignatureSchemes: certificateRequestSignatureSchemes(request), Version: protocol.Version1_3}
 	for _, ext := range request.Extensions {
 		if authorities, ok := ext.(*extension13.CertificateAuthorities); ok {
 			requestInfo.AcceptableCAs = make([][]byte, len(authorities.Authorities))

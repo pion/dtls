@@ -25,15 +25,9 @@ import (
 const renegotiationInfoSCSV uint16 = 0x00ff
 
 //nolint:cyclop,gocognit,gocyclo
-func flight0Parse(
-	_ context.Context,
-	_ dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) (Flight, *alert.Alert, error) {
+func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	pull := cache.FullPullMapItems(0, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
 	)
 	if pull.Err != nil {
 		return 0, nil, pull.Err
@@ -56,8 +50,7 @@ func flight0Parse(
 	}
 
 	if clientHello.Version != protocol.Version1_2 {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
-			dtlserrors.ErrUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	state.RemoteRandom = clientHello.Random
@@ -69,25 +62,24 @@ func flight0Parse(
 
 			continue
 		}
-		if c, found := dtlsflight.FindCipherSuiteByID(id, cfg.LocalCipherSuites); found &&
-			c.Capabilities().SupportsVersion(protocol.Version1_2) {
+		if c, found := dtlsflight.FindCipherSuiteByID(id, cfg.LocalCipherSuites); found && c.Capabilities().SupportsVersion(protocol.Version1_2) {
 			cipherSuites = append(cipherSuites, c)
 		}
 	}
 
 	if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, cfg.LocalCipherSuites); !ok {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection
 	}
 
 	for _, val := range clientHello.Extensions {
 		switch ext := val.(type) {
 		case *extension.SupportedGroups:
 			if len(ext.Groups) == 0 {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves
 			}
 			namedCurve, ok := selectEllipticCurve(cfg.EllipticCurves, ext.Groups)
 			if !ok {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves //nolint:lll
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves
 			}
 			state.NamedCurve = namedCurve
 		case *extension12.ExtendedMasterSecret:
@@ -107,7 +99,7 @@ func flight0Parse(
 	}
 
 	if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS //nolint:lll
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS
 	}
 
 	if state.LocalKeypair == nil {
@@ -132,12 +124,7 @@ func flight0Parse(
 	return handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
 }
 
-func handleHelloResume(
-	sessionID []byte,
-	state *dtlsstate.State12,
-	cfg *dtlsconfig.HandshakeConfig,
-	next Flight,
-) (Flight, *alert.Alert, error) {
+func handleHelloResume(sessionID []byte, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, next Flight) (Flight, *alert.Alert, error) {
 	if len(sessionID) > 0 && cfg.HasSessionStore {
 		if id, secret, err := cfg.GetSession(sessionID); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
@@ -161,12 +148,7 @@ func handleHelloResume(
 	return next, nil, nil
 }
 
-func flight0Generate(
-	_ dtlsflight.Conn,
-	state *dtlsstate.State12,
-	_ *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+func flight0Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	// Initialize
 	state.SetSRTPProtectionProfile(0)
 	if !cfg.InsecureSkipHelloVerify {

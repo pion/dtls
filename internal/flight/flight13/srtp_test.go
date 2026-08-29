@@ -41,9 +41,7 @@ func TestFlight4GenerateNegotiatesSRTPInEncryptedExtensions(t *testing.T) {
 			flightCtx.cfg.LocalSRTPMasterKeyIdentifier = []byte(test.serverMKI)
 			if test.offer {
 				flightCtx.state.RemoteClientHelloSnapshots.Reset()
-				require.NoError(t, flightCtx.state.RemoteClientHelloSnapshots.Record(
-					srtpSnapshot13(t, srtpProfile13, test.offerMKI),
-				))
+				require.NoError(t, flightCtx.state.RemoteClientHelloSnapshots.Record(srtpSnapshot13(t, srtpProfile13, test.offerMKI)))
 			}
 
 			packets, _, err := flight4Generate(nil, flightCtx)
@@ -56,9 +54,9 @@ func TestFlight4GenerateNegotiatesSRTPInEncryptedExtensions(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.GreaterOrEqual(t, len(packets), 2)
-			serverHello := packets[0].Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello) //nolint:forcetypeassert,lll
+			serverHello := packets[0].Content.(*handshake.Handshake).Message.(*handshake.MessageServerHello) //nolint:forcetypeassert
 			assert.False(t, hasSRTPSelection13(serverHello.Extensions))
-			encryptedExtensions := packets[1].Content.(*handshake.Handshake).Message.(*handshake.MessageEncryptedExtensions) //nolint:forcetypeassert,lll
+			encryptedExtensions := packets[1].Content.(*handshake.Handshake).Message.(*handshake.MessageEncryptedExtensions) //nolint:forcetypeassert
 			selection := findSRTPSelection13(encryptedExtensions.Extensions)
 			require.NotNil(t, selection)
 			assert.Equal(t, srtpProfile13, selection.ProtectionProfile)
@@ -78,29 +76,10 @@ func TestFlight3ParseValidatesAndRollsBackSRTP(t *testing.T) {
 		wantError  error
 		wantCommit bool
 	}{
-		{
-			name: "valid",
-			extensions: []extension.Value{&extension.SRTPSelection{
-				ProtectionProfile: srtpProfile13, MasterKeyIdentifier: []byte(srtpMKI13),
-			}},
-			wantCommit: true,
-		},
-		{
-			name: "mismatched MKI",
-			extensions: []extension.Value{&extension.SRTPSelection{
-				ProtectionProfile: srtpProfile13, MasterKeyIdentifier: []byte("other"),
-			}},
-			wantError: dtlserrors.ErrClientNoMatchingSRTPProfile,
-		},
+		{name: "valid", extensions: []extension.Value{&extension.SRTPSelection{ProtectionProfile: srtpProfile13, MasterKeyIdentifier: []byte(srtpMKI13)}}, wantCommit: true},
+		{name: "mismatched MKI", extensions: []extension.Value{&extension.SRTPSelection{ProtectionProfile: srtpProfile13, MasterKeyIdentifier: []byte("other")}}, wantError: dtlserrors.ErrClientNoMatchingSRTPProfile},
 		{name: "missing selection", wantError: dtlserrors.ErrRequestedButNoSRTPExtension},
-		{
-			name: "later failure",
-			extensions: []extension.Value{&extension.SRTPSelection{
-				ProtectionProfile: srtpProfile13, MasterKeyIdentifier: []byte(srtpMKI13),
-			}},
-			handlerErr: laterFailure,
-			wantError:  laterFailure,
-		},
+		{name: "later failure", extensions: []extension.Value{&extension.SRTPSelection{ProtectionProfile: srtpProfile13, MasterKeyIdentifier: []byte(srtpMKI13)}}, handlerErr: laterFailure, wantError: laterFailure},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state := dtlsstate.NewState13(true)
@@ -109,11 +88,8 @@ func TestFlight3ParseValidatesAndRollsBackSRTP(t *testing.T) {
 				srtpSnapshot13(t, srtpProfile13, srtpMKI13),
 			))
 			cache := dtlsflight.NewCache()
-			cache.Push(marshalProtectedTestHandshake(t, 0,
-				&handshake.MessageEncryptedExtensions{Extensions: test.extensions},
-			), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
-			cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}),
-				EpochHandshake, 1, handshake.TypeFinished, false)
+			cache.Push(marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{Extensions: test.extensions}), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
+			cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}), EpochHandshake, 1, handshake.TypeFinished, false)
 			handlerCalled := false
 			next, dtlsAlert, err := flight3Parse(t.Context(), nil, &handshakeContext{
 				state: &state,
@@ -184,13 +160,7 @@ func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 		srtpSnapshot13(t, srtpProfile13, srtpMKI13),
 	))
 	id := uint16(0x1301)
-	request, err := negotiation.ValidateHelloRetryRequest(
-		state.RemoteClientHelloSnapshots.Initial(),
-		&handshake.MessageServerHello{CipherSuiteID: &id, Extensions: []extension.Value{
-			&extension13.SelectedVersion{Version: protocol.Version1_3},
-			&extension13.Cookie{Cookie: state.Cookie},
-		}},
-	)
+	request, err := negotiation.ValidateHelloRetryRequest(state.RemoteClientHelloSnapshots.Initial(), &handshake.MessageServerHello{CipherSuiteID: &id, Extensions: []extension.Value{&extension13.SelectedVersion{Version: protocol.Version1_3}, &extension13.Cookie{Cookie: state.Cookie}}})
 	require.NoError(t, err)
 	state.HelloRetryRequest = request
 	message := &handshake.Handshake{
@@ -198,13 +168,7 @@ func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 		Message: &handshake.MessageClientHello{
 			Version:        protocol.Version1_2,
 			CipherSuiteIDs: []uint16{0x1301},
-			Extensions: []extension.Value{
-				&extension13.Cookie{Cookie: state.Cookie},
-				&extension.SRTPOffer{
-					ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
-					MasterKeyIdentifier: []byte("changed"),
-				},
-			},
+			Extensions:     []extension.Value{&extension13.Cookie{Cookie: state.Cookie}, &extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{srtpProfile13}, MasterKeyIdentifier: []byte("changed")}},
 		},
 	}
 	raw, err := message.Marshal()
@@ -212,9 +176,7 @@ func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, EpochInitial, 1, handshake.TypeClientHello, true)
 
-	next, dtlsAlert, err := flight2Parse(t.Context(), nil, &handshakeContext{
-		state: &state, cache: cache, cfg: &dtlsconfig.HandshakeConfig{},
-	})
+	next, dtlsAlert, err := flight2Parse(t.Context(), nil, &handshakeContext{state: &state, cache: cache, cfg: &dtlsconfig.HandshakeConfig{}})
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidClientHello)
 	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
 	assert.Zero(t, next)
@@ -228,18 +190,9 @@ func srtpSnapshot13(
 	t.Helper()
 	extensions := []extension.Value{}
 	if profile != 0 {
-		extensions = append(extensions, &extension.SRTPOffer{
-			ProtectionProfiles:  []extension.SRTPProtectionProfile{profile},
-			MasterKeyIdentifier: []byte(mki),
-		})
+		extensions = append(extensions, &extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{profile}, MasterKeyIdentifier: []byte(mki)})
 	}
-	_, snapshot, err := negotiation.FinalizeClientHello(
-		&handshake.MessageClientHello{
-			Version:        protocol.Version1_2,
-			CipherSuiteIDs: []uint16{0x1301},
-			Extensions:     extensions,
-		}, nil,
-	)
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{Version: protocol.Version1_2, CipherSuiteIDs: []uint16{0x1301}, Extensions: extensions}, nil)
 	require.NoError(t, err)
 
 	return snapshot

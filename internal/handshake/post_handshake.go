@@ -194,19 +194,7 @@ func (c *postHandshakeCompletion) result() error {
 }
 
 func newPostHandshake(ctx handshakeContext) *postHandshake {
-	return &postHandshake{
-		commands: make(chan postHandshakeCommand),
-
-		flights: make(
-			map[postHandshakeFlightID]*reliablePostHandshakeFlight,
-		),
-		recordIndex: make(
-			map[protocol.RecordNumber]postHandshakeRecord,
-		),
-
-		initialRetransmitInterval: ctx.cfg.InitialRetransmitInterval,
-		handshakeContext:          ctx,
-	}
+	return &postHandshake{commands: make(chan postHandshakeCommand), flights: make(map[postHandshakeFlightID]*reliablePostHandshakeFlight), recordIndex: make(map[protocol.RecordNumber]postHandshakeRecord), initialRetransmitInterval: ctx.cfg.InitialRetransmitInterval, handshakeContext: ctx}
 }
 
 func (p *postHandshake) initialize() {
@@ -329,11 +317,7 @@ func (p *postHandshake) applyACK(ack protocol.ACK) []postHandshakeFlightID {
 	return out
 }
 
-func (p *postHandshake) registerTransmission(
-	flight *reliablePostHandshakeFlight,
-	records []SentHandshakeRecord,
-	first bool,
-) {
+func (p *postHandshake) registerTransmission(flight *reliablePostHandshakeFlight, records []SentHandshakeRecord, first bool) {
 	for _, record := range records {
 		fragments := make([]postHandshakeFragment, 0, len(record.Fragments))
 		for _, sent := range record.Fragments {
@@ -438,12 +422,7 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 	return dtlserrors.ErrHandshakeSequenceOverflow
 }
 
-func (p *postHandshake) handlePostHandshakeMessage(
-	ctx context.Context,
-	conn Conn,
-	message *handshake.Handshake,
-	epoch uint16,
-) error {
+func (p *postHandshake) handlePostHandshakeMessage(ctx context.Context, conn Conn, message *handshake.Handshake, epoch uint16) error {
 	switch body := message.Message.(type) {
 	case *handshake.MessageNewSessionTicket:
 		return p.handleNewSessionTicket(ctx, conn, body)
@@ -454,12 +433,7 @@ func (p *postHandshake) handlePostHandshakeMessage(
 	}
 }
 
-func (p *postHandshake) handleKeyUpdate(
-	ctx context.Context,
-	conn Conn,
-	message *handshake.MessageKeyUpdate,
-	epoch uint16,
-) error {
+func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message *handshake.MessageKeyUpdate, epoch uint16) error {
 	if p.state.TrafficKeys == nil {
 		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
@@ -488,12 +462,7 @@ func (p *postHandshake) queueRequiredKeyUpdateResponse(request handshake.KeyUpda
 	if request != handshake.KeyUpdateRequested {
 		return
 	}
-	command := postHandshakeCommand{
-		Kind: commandSendKeyUpdate,
-		KeyUpdate: keyUpdateCommand{
-			Request: handshake.KeyUpdateNotRequested,
-		},
-	}
+	command := postHandshakeCommand{Kind: commandSendKeyUpdate, KeyUpdate: keyUpdateCommand{Request: handshake.KeyUpdateNotRequested}}
 	insertAt := len(p.queue)
 	for i, queued := range p.queue {
 		if queued.Kind == commandSendApplicationData {
@@ -507,11 +476,7 @@ func (p *postHandshake) queueRequiredKeyUpdateResponse(request handshake.KeyUpda
 	p.queue[insertAt] = command
 }
 
-func (p *postHandshake) handleNewSessionTicket(
-	ctx context.Context,
-	conn Conn,
-	message *handshake.MessageNewSessionTicket,
-) error {
+func (p *postHandshake) handleNewSessionTicket(ctx context.Context, conn Conn, message *handshake.MessageNewSessionTicket) error {
 	if !p.state.IsClient {
 		return conn.Notify(ctx, alert.Fatal, alert.UnexpectedMessage)
 	}
@@ -565,10 +530,7 @@ func (p *postHandshake) startKeyUpdate(
 	return nil
 }
 
-func (p *postHandshake) buildKeyUpdateFlight(
-	request handshake.KeyUpdateRequest,
-	completion *postHandshakeCompletion,
-) (*reliablePostHandshakeFlight, error) {
+func (p *postHandshake) buildKeyUpdateFlight(request handshake.KeyUpdateRequest, completion *postHandshakeCompletion) (*reliablePostHandshakeFlight, error) {
 	if p.state.TrafficKeys == nil {
 		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
@@ -626,9 +588,7 @@ func (p *postHandshake) buildKeyUpdateFlight(
 	}, nil
 }
 
-func (p *postHandshake) nextTrafficGeneration(
-	current *dtlsstate.TrafficGeneration,
-) (*dtlsstate.TrafficGeneration, error) {
+func (p *postHandshake) nextTrafficGeneration(current *dtlsstate.TrafficGeneration) (*dtlsstate.TrafficGeneration, error) {
 	if current.Epoch == math.MaxUint16 {
 		return nil, dtlserrors.ErrEpochOverflow
 	}
@@ -652,12 +612,7 @@ func (p *postHandshake) nextTrafficGeneration(
 		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
-	return &dtlsstate.TrafficGeneration{
-		Epoch:      current.Epoch + 1,
-		Generation: current.Generation + 1,
-		Secret:     nextSecret,
-		Protection: nextProtection,
-	}, nil
+	return &dtlsstate.TrafficGeneration{Epoch: current.Epoch + 1, Generation: current.Generation + 1, Secret: nextSecret, Protection: nextProtection}, nil
 }
 
 func (p *postHandshake) prepareNewSessionTicket(isClient bool) (*reliablePostHandshakeFlight, error) {
@@ -679,17 +634,10 @@ func (p *postHandshake) prepareNewSessionTicket(isClient bool) (*reliablePostHan
 	binary.BigEndian.PutUint64(nonce[:], p.nextTicketNonce)
 	p.nextTicketNonce++
 
-	return p.makeReliableNewSessionTicket(&handshake.MessageNewSessionTicket{
-		TicketLifetime: newSessionTicketLifetime,
-		TicketAgeAdd:   binary.BigEndian.Uint32(ageAdd[:]),
-		TicketNonce:    nonce[:],
-		Ticket:         identity,
-	})
+	return p.makeReliableNewSessionTicket(&handshake.MessageNewSessionTicket{TicketLifetime: newSessionTicketLifetime, TicketAgeAdd: binary.BigEndian.Uint32(ageAdd[:]), TicketNonce: nonce[:], Ticket: identity})
 }
 
-func (p *postHandshake) makeReliableNewSessionTicket(
-	message *handshake.MessageNewSessionTicket,
-) (*reliablePostHandshakeFlight, error) {
+func (p *postHandshake) makeReliableNewSessionTicket(message *handshake.MessageNewSessionTicket) (*reliablePostHandshakeFlight, error) {
 	body, err := message.Marshal()
 	if err != nil {
 		return nil, err
@@ -719,14 +667,7 @@ func (p *postHandshake) makeReliableNewSessionTicket(
 		MessageSequence: messageSequence,
 	}
 
-	return &reliablePostHandshakeFlight{
-		ID:                 id,
-		Packets:            []*dtlsflight.Outbound{packet},
-		Epoch:              p.state.LocalEpoch(),
-		PendingFragments:   make(map[postHandshakeFragment]struct{}),
-		SentRecords:        make(map[protocol.RecordNumber]struct{}),
-		RetransmitInterval: p.initialRetransmitInterval,
-	}, nil
+	return &reliablePostHandshakeFlight{ID: id, Packets: []*dtlsflight.Outbound{packet}, Epoch: p.state.LocalEpoch(), PendingFragments: make(map[postHandshakeFragment]struct{}), SentRecords: make(map[protocol.RecordNumber]struct{}), RetransmitInterval: p.initialRetransmitInterval}, nil
 }
 
 func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeFlightID) error {
@@ -765,12 +706,7 @@ func (p *postHandshake) fail(err error) {
 	p.recordIndex = make(map[protocol.RecordNumber]postHandshakeRecord)
 }
 
-func (p *postHandshake) retransmitPostHandshake(
-	ctx context.Context,
-	conn Conn,
-	now time.Time,
-	disableRetransmitBackoff bool,
-) error {
+func (p *postHandshake) retransmitPostHandshake(ctx context.Context, conn Conn, now time.Time, disableRetransmitBackoff bool) error {
 	for _, flight := range p.flights {
 		if flight.NextRetransmit.After(now) {
 			continue
@@ -783,13 +719,7 @@ func (p *postHandshake) retransmitPostHandshake(
 	return nil
 }
 
-func (p *postHandshake) retransmitPostHandshakeFlight(
-	ctx context.Context,
-	conn Conn,
-	flight *reliablePostHandshakeFlight,
-	now time.Time,
-	disableRetransmitBackoff bool,
-) error {
+func (p *postHandshake) retransmitPostHandshakeFlight(ctx context.Context, conn Conn, flight *reliablePostHandshakeFlight, now time.Time, disableRetransmitBackoff bool) error {
 	for _, packet := range flight.Packets {
 		message, ok := packet.Content.(*handshake.Handshake)
 		if !ok {

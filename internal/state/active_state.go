@@ -78,11 +78,7 @@ func Activate13(active Active) *State13 {
 		return state
 	}
 
-	state := &State13{
-		Common:        common,
-		LocalKeypairs: make(map[elliptic.Curve]*elliptic.Keypair),
-		TrafficKeys:   &TrafficKeyState{},
-	}
+	state := &State13{Common: common, LocalKeypairs: make(map[elliptic.Curve]*elliptic.Keypair), TrafficKeys: &TrafficKeyState{}}
 	if state12, ok := active.(*State12); ok {
 		state.HandshakeSendSequence = state12.HandshakeSendSequence
 		state.HandshakeRecvSequence = state12.HandshakeRecvSequence

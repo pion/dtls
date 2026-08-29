@@ -188,12 +188,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 			context = extensionContextHelloRetryRequest
 		}
 
-		return fmt.Errorf(
-			"extensions in %s: %w: %w",
-			context,
-			err,
-			&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
-		)
+		return fmt.Errorf("extensions in %s: %w: %w", context, err, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
 	}
 	context := serverHelloExtensionContext(m.Random, rawExtensions)
 	extensions, err := decodeRawExtensions(rawExtensions, context)

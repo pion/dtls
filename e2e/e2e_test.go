@@ -265,10 +265,7 @@ func serverPion(c *comm) { //nolint:varnamelen
 	defer c.serverMutex.Unlock()
 
 	var err error
-	c.serverListener, err = dtls.ListenAddr("udp",
-		&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: c.serverPort},
-		c.serverOpts...,
-	)
+	c.serverListener, err = dtls.ListenAddr("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: c.serverPort}, c.serverOpts...)
 	if err != nil {
 		result = err
 		c.errChan <- result
@@ -351,31 +348,22 @@ func runComm(t *testing.T, server, client func(*comm), cfg commOpts, opts ...dtl
 }
 
 func withConnectionID(g func() []byte) dtlsTestOpts {
-	return dtlsTestOpts{
-		clientOpts: []dtls.ClientOption{dtls.WithConnectionID(g, dtls.CIDPathMigrationUnsafe)},
-		serverOpts: []dtls.ServerOption{dtls.WithConnectionID(g, dtls.CIDPathMigrationUnsafe)},
-	}
+	return dtlsTestOpts{clientOpts: []dtls.ClientOption{dtls.WithConnectionID(g, dtls.CIDPathMigrationUnsafe)}, serverOpts: []dtls.ServerOption{dtls.WithConnectionID(g, dtls.CIDPathMigrationUnsafe)}}
 }
 
 // Simple DTLS Client/Server can communicate
 //   - Assert that you can send messages both ways
 //   - Assert that Close() on both ends work
 //   - Assert that no Goroutines are leaked
-func testPionE2EWithCipherSuites(
-	t *testing.T,
-	server, client func(*comm),
-	cipherSuites []cryptosuite.ID,
-	makeCert func(*testing.T) tls.Certificate,
-	opts ...dtlsTestOpts,
-) {
+func testPionE2EWithCipherSuites(t *testing.T, server, client func(*comm), cipherSuites []cryptosuite.ID, makeCert func(*testing.T) tls.Certificate, opts ...dtlsTestOpts) {
 	t.Helper()
 	guardTest(t)
 
 	for _, cipherSuite := range cipherSuites {
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			cert := makeCert(t)
-			clientOpts := []dtls.ClientOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true)} //nolint:lll // Compact option matrix.
-			serverOpts := []dtls.ServerOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true)} //nolint:lll // Compact option matrix.
+			clientOpts := []dtls.ClientOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true)} // Compact option matrix.
+			serverOpts := []dtls.ServerOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true)} // Compact option matrix.
 			runComm(t, server, client, commOpts{
 				clientOpts: clientOpts, serverOpts: serverOpts,
 				clientCipherSuites: []cryptosuite.ID{cipherSuite}, serverCipherSuites: []cryptosuite.ID{cipherSuite},
@@ -406,62 +394,36 @@ func selfSignedRSACert(t *testing.T) tls.Certificate {
 
 func testPionE2ESimple(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{
-		cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-		cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
-	}, selfSignedECDSACert, opts...)
+	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA}, selfSignedECDSACert, opts...)
 }
 
 func testPionE2ESimpleRSA(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{
-		cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		cryptosuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		cryptosuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-	}, selfSignedRSACert, opts...)
+	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, cryptosuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, cryptosuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA}, selfSignedRSACert, opts...)
 }
 
 func testPionE2EChaCha20Poly1305(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{
-		cryptosuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-	}, selfSignedECDSACert, opts...)
+	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256}, selfSignedECDSACert, opts...)
 }
 
 func testPionE2EChaCha20Poly1305RSA(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{
-		cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-	}, selfSignedRSACert, opts...)
+	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256}, selfSignedRSACert, opts...)
 }
 
-func testPionE2EPSK(
-	t *testing.T,
-	server, client func(*comm),
-	cipherSuites []cryptosuite.ID,
-	pskHint []byte,
-	hintOnServer bool,
-	opts ...dtlsTestOpts,
-) {
+func testPionE2EPSK(t *testing.T, server, client func(*comm), cipherSuites []cryptosuite.ID, pskHint []byte, hintOnServer bool, opts ...dtlsTestOpts) {
 	t.Helper()
 	guardTest(t)
 	for _, cipherSuite := range cipherSuites {
 		t.Run(cipherSuite.String(), func(t *testing.T) {
-			pskFunc := func([]byte) ([]byte, error) {
-				return []byte{0xAB, 0xC1, 0x23}, nil
-			}
-			clientOpts := []dtls.ClientOption{dtls.WithPSK(pskFunc), dtls.WithPSKIdentityHint(pskHint), dtls.WithCipherSuites(cipherSuite)} //nolint:lll // Compact option matrix.
+			pskFunc := func([]byte) ([]byte, error) { return []byte{0xAB, 0xC1, 0x23}, nil }
+			clientOpts := []dtls.ClientOption{dtls.WithPSK(pskFunc), dtls.WithPSKIdentityHint(pskHint), dtls.WithCipherSuites(cipherSuite)} // Compact option matrix.
 			serverOpts := []dtls.ServerOption{dtls.WithPSK(pskFunc), dtls.WithCipherSuites(cipherSuite)}
 			if hintOnServer {
 				serverOpts = append(serverOpts, dtls.WithPSKIdentityHint(pskHint))
 			}
-			runComm(t, server, client, commOpts{
-				clientOpts: clientOpts, serverOpts: serverOpts,
-				clientCipherSuites: []cryptosuite.ID{cipherSuite}, serverCipherSuites: []cryptosuite.ID{cipherSuite},
-				clientPSK: pskFunc, serverPSK: pskFunc,
-				clientPSKIdentityHint: pskHint, serverPSKIdentityHint: pskHint,
-			}, opts...)
+			runComm(t, server, client, commOpts{clientOpts: clientOpts, serverOpts: serverOpts, clientCipherSuites: []cryptosuite.ID{cipherSuite}, serverCipherSuites: []cryptosuite.ID{cipherSuite}, clientPSK: pskFunc, serverPSK: pskFunc, clientPSKIdentityHint: pskHint, serverPSKIdentityHint: pskHint}, opts...)
 		})
 	}
 }
@@ -479,9 +441,7 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtls
 
 func testPionE2EChaCha20Poly1305PSK(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EPSK(t, server, client, []cryptosuite.ID{
-		cryptosuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256,
-	}, []byte{0x01, 0x02, 0x03}, false, opts...)
+	testPionE2EPSK(t, server, client, []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256}, []byte{0x01, 0x02, 0x03}, false, opts...)
 }
 
 func testPionE2EMTUs(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
@@ -491,8 +451,8 @@ func testPionE2EMTUs(t *testing.T, server, client func(*comm), opts ...dtlsTestO
 	for _, mtu := range []int{10000, 1000, 100} {
 		t.Run(fmt.Sprintf("MTU%d", mtu), func(t *testing.T) {
 			cert := selfSignedECDSACert(t)
-			clientOpts := []dtls.ClientOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true), dtls.WithMTU(mtu)} //nolint:lll // Compact option matrix.
-			serverOpts := []dtls.ServerOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true), dtls.WithMTU(mtu)} //nolint:lll // Compact option matrix.
+			clientOpts := []dtls.ClientOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true), dtls.WithMTU(mtu)} // Compact option matrix.
+			serverOpts := []dtls.ServerOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true), dtls.WithMTU(mtu)} // Compact option matrix.
 			runComm(t, server, client, commOpts{
 				timeout: 10 * time.Second, clientOpts: clientOpts, serverOpts: serverOpts,
 				clientCipherSuites: []cryptosuite.ID{cipherSuite}, serverCipherSuites: []cryptosuite.ID{cipherSuite},
@@ -522,28 +482,13 @@ func testPionE2ESimpleED25519(t *testing.T, server, client func(*comm), opts ...
 	}, opts...)
 }
 
-func testPionE2EClientCert(
-	t *testing.T,
-	server, client func(*comm),
-	cipherSuite cryptosuite.ID,
-	makeCert func(*testing.T) tls.Certificate,
-	withClientCA bool,
-	opts ...dtlsTestOpts,
-) {
+func testPionE2EClientCert(t *testing.T, server, client func(*comm), cipherSuite cryptosuite.ID, makeCert func(*testing.T) tls.Certificate, withClientCA bool, opts ...dtlsTestOpts) {
 	t.Helper()
 	guardTest(t)
 	scert, ccert := makeCert(t), makeCert(t)
 
-	clientOpts := []dtls.ClientOption{
-		dtls.WithCertificates(ccert),
-		dtls.WithCipherSuites(cipherSuite),
-		dtls.WithInsecureSkipVerify(true),
-	}
-	serverOpts := []dtls.ServerOption{
-		dtls.WithCertificates(scert),
-		dtls.WithCipherSuites(cipherSuite),
-		dtls.WithClientAuth(dtls.RequireAnyClientCert),
-	}
+	clientOpts := []dtls.ClientOption{dtls.WithCertificates(ccert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true)}
+	serverOpts := []dtls.ServerOption{dtls.WithCertificates(scert), dtls.WithCipherSuites(cipherSuite), dtls.WithClientAuth(dtls.RequireAnyClientCert)}
 	if withClientCA {
 		clientCAs := x509.NewCertPool()
 		caCert, err := x509.ParseCertificate(ccert.Certificate[0])
@@ -561,7 +506,7 @@ func testPionE2EClientCert(
 
 func testPionE2ESimpleED25519ClientCert(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EClientCert(t, server, client, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, func(t *testing.T) tls.Certificate { //nolint:lll // Compact scenario wrapper.
+	testPionE2EClientCert(t, server, client, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, func(t *testing.T) tls.Certificate { // Compact scenario wrapper.
 		t.Helper()
 		_, key, err := ed25519.GenerateKey(rand.Reader)
 		assert.NoError(t, err)
@@ -574,12 +519,12 @@ func testPionE2ESimpleED25519ClientCert(t *testing.T, server, client func(*comm)
 
 func testPionE2ESimpleECDSAClientCert(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EClientCert(t, server, client, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, selfSignedECDSACert, true, opts...) //nolint:lll // Compact scenario wrapper.
+	testPionE2EClientCert(t, server, client, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, selfSignedECDSACert, true, opts...) // Compact scenario wrapper.
 }
 
 func testPionE2ESimpleRSAClientCert(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EClientCert(t, server, client, cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, selfSignedRSACert, false, opts...) //nolint:lll // Compact scenario wrapper.
+	testPionE2EClientCert(t, server, client, cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, selfSignedRSACert, false, opts...) // Compact scenario wrapper.
 }
 
 func testPionE2ESimpleClientHelloHook(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
@@ -613,18 +558,9 @@ func testPionE2ESimpleClientHelloHook(t *testing.T, server, client func(*comm), 
 			dtls.WithInsecureSkipVerify(true),
 		}
 
-		serverOpts := []dtls.ServerOption{
-			dtls.WithCertificates(cert),
-			dtls.WithCipherSuites(supportedList...),
-			dtls.WithInsecureSkipVerify(true),
-		}
+		serverOpts := []dtls.ServerOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(supportedList...), dtls.WithInsecureSkipVerify(true)}
 
-		runComm(t, server, client, commOpts{
-			clientOpts: clientOpts, serverOpts: serverOpts,
-			clientCipherSuites: supportedList, serverCipherSuites: supportedList,
-			clientCertificates: []tls.Certificate{cert}, serverCertificates: []tls.Certificate{cert},
-			clientInsecureSkipVerify: true,
-		}, opts...)
+		runComm(t, server, client, commOpts{clientOpts: clientOpts, serverOpts: serverOpts, clientCipherSuites: supportedList, serverCipherSuites: supportedList, clientCertificates: []tls.Certificate{cert}, serverCertificates: []tls.Certificate{cert}, clientInsecureSkipVerify: true}, opts...)
 	})
 }
 
@@ -664,12 +600,7 @@ func testPionE2ESimpleServerHelloHook(t *testing.T, server, client func(*comm), 
 			dtls.WithInsecureSkipVerify(true),
 		}
 
-		runComm(t, server, client, commOpts{
-			clientOpts: clientOpts, serverOpts: serverOpts,
-			clientCipherSuites: supportedList, serverCipherSuites: supportedList,
-			clientCertificates: []tls.Certificate{cert}, serverCertificates: []tls.Certificate{cert},
-			clientInsecureSkipVerify: true,
-		}, opts...)
+		runComm(t, server, client, commOpts{clientOpts: clientOpts, serverOpts: serverOpts, clientCipherSuites: supportedList, serverCipherSuites: supportedList, clientCertificates: []tls.Certificate{cert}, serverCertificates: []tls.Certificate{cert}, clientInsecureSkipVerify: true}, opts...)
 	})
 }
 
@@ -716,26 +647,11 @@ func TestPionE2E(t *testing.T) {
 	}
 }
 
-func testCertificateSignatureSchemes(
-	t *testing.T,
-	cert tls.Certificate,
-	cipherSuite cryptosuite.ID,
-	schemes ...tls.SignatureScheme,
-) {
+func testCertificateSignatureSchemes(t *testing.T, cert tls.Certificate, cipherSuite cryptosuite.ID, schemes ...tls.SignatureScheme) {
 	t.Helper()
 	guardTest(t)
-	clientOpts := []dtls.ClientOption{
-		dtls.WithCertificates(cert),
-		dtls.WithCipherSuites(cipherSuite),
-		dtls.WithInsecureSkipVerify(true),
-		dtls.WithCertificateSignatureSchemes(schemes...),
-	}
-	serverOpts := []dtls.ServerOption{
-		dtls.WithCertificates(cert),
-		dtls.WithCipherSuites(cipherSuite),
-		dtls.WithInsecureSkipVerify(true),
-		dtls.WithCertificateSignatureSchemes(schemes...),
-	}
+	clientOpts := []dtls.ClientOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true), dtls.WithCertificateSignatureSchemes(schemes...)}
+	serverOpts := []dtls.ServerOption{dtls.WithCertificates(cert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true), dtls.WithCertificateSignatureSchemes(schemes...)}
 	runComm(t, serverPion, clientPion, commOpts{
 		clientOpts: clientOpts, serverOpts: serverOpts,
 		clientCipherSuites: []cryptosuite.ID{cipherSuite}, serverCipherSuites: []cryptosuite.ID{cipherSuite},
@@ -747,19 +663,12 @@ func testCertificateSignatureSchemes(
 // TestCertificateSignatureSchemesAllowed tests that connections succeed when
 // certificate chains use only allowed signature algorithms.
 func TestCertificateSignatureSchemesAllowed(t *testing.T) {
-	testCertificateSignatureSchemes(t, selfSignedECDSACert(t),
-		cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		tls.ECDSAWithP256AndSHA256, tls.ECDSAWithP384AndSHA384, tls.ECDSAWithP521AndSHA512,
-	)
+	testCertificateSignatureSchemes(t, selfSignedECDSACert(t), cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, tls.ECDSAWithP256AndSHA256, tls.ECDSAWithP384AndSHA384, tls.ECDSAWithP521AndSHA512)
 }
 
 // TestCertificateSignatureSchemesRSA tests RSA certificates with signature schemes.
 func TestCertificateSignatureSchemesRSA(t *testing.T) {
-	testCertificateSignatureSchemes(t, selfSignedRSACert(t),
-		cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		tls.PSSWithSHA256, tls.PSSWithSHA384, tls.PSSWithSHA512,
-		tls.PKCS1WithSHA256, tls.PKCS1WithSHA384, tls.PKCS1WithSHA512,
-	)
+	testCertificateSignatureSchemes(t, selfSignedRSACert(t), cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.PSSWithSHA256, tls.PSSWithSHA384, tls.PSSWithSHA512, tls.PKCS1WithSHA256, tls.PKCS1WithSHA384, tls.PKCS1WithSHA512)
 }
 
 // TestCertificateSignatureSchemesClientCert tests certificate signature validation
@@ -782,15 +691,7 @@ func TestCertificateSignatureSchemesClientCert(t *testing.T) {
 	clientCAs.AddCert(caCert)
 
 	// Both sides accept P-256 and P-384 ECDSA
-	clientOpts := []dtls.ClientOption{
-		dtls.WithCertificates(clientCert),
-		dtls.WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
-		dtls.WithInsecureSkipVerify(true),
-		dtls.WithCertificateSignatureSchemes(
-			tls.ECDSAWithP256AndSHA256,
-			tls.ECDSAWithP384AndSHA384,
-		),
-	}
+	clientOpts := []dtls.ClientOption{dtls.WithCertificates(clientCert), dtls.WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), dtls.WithInsecureSkipVerify(true), dtls.WithCertificateSignatureSchemes(tls.ECDSAWithP256AndSHA256, tls.ECDSAWithP384AndSHA384)}
 
 	serverOpts := []dtls.ServerOption{
 		dtls.WithClientCAs(clientCAs),
@@ -840,15 +741,7 @@ func createCertChain(t *testing.T, leafKeyType string) (tls.Certificate, *x509.C
 	// Create root CA with matching key type
 	caKey, caPubKey := generateKey(t, leafKeyType)
 
-	caTemplate := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "Test CA"},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
+	caTemplate := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Test CA"}, NotBefore: time.Now(), NotAfter: time.Now().Add(24 * time.Hour), KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, BasicConstraintsValid: true, IsCA: true}
 
 	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caPubKey, caKey)
 	assert.NoError(t, err)
@@ -859,14 +752,7 @@ func createCertChain(t *testing.T, leafKeyType string) (tls.Certificate, *x509.C
 	// Create leaf certificate with same key type, signed by CA
 	leafKey, leafPubKey := generateKey(t, leafKeyType)
 
-	leafTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(2),
-		Subject:      pkix.Name{CommonName: "Test Leaf"},
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-	}
+	leafTemplate := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "Test Leaf"}, NotBefore: time.Now(), NotAfter: time.Now().Add(24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
 
 	var leafCertDER []byte
 	leafCertDER, err = x509.CreateCertificate(rand.Reader, leafTemplate, caCert, leafPubKey, caKey)
@@ -887,12 +773,7 @@ func createCertChain(t *testing.T, leafKeyType string) (tls.Certificate, *x509.C
 
 // assertHandshakeFailsWithOpts runs a DTLS handshake that is expected to fail
 // on both the client and server sides.
-func assertHandshakeFailsWithOpts(
-	t *testing.T,
-	clientOpts []dtls.ClientOption,
-	serverOpts []dtls.ServerOption,
-	clientErrMsg string,
-) {
+func assertHandshakeFailsWithOpts(t *testing.T, clientOpts []dtls.ClientOption, serverOpts []dtls.ServerOption, clientErrMsg string) {
 	t.Helper()
 	guardTest(t)
 
@@ -905,10 +786,7 @@ func assertHandshakeFailsWithOpts(
 	serverDone := make(chan error, 1)
 
 	go func() {
-		listener, listenerErr := dtls.ListenAddr("udp",
-			&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort},
-			serverOpts...,
-		)
+		listener, listenerErr := dtls.ListenAddr("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: serverPort}, serverOpts...)
 		if listenerErr != nil {
 			serverDone <- listenerErr
 
@@ -958,37 +836,19 @@ func assertHandshakeFailsWithOpts(
 	}
 }
 
-func testServerCertRejected(
-	t *testing.T,
-	keyType string,
-	cipherSuite cryptosuite.ID,
-	schemes []tls.SignatureScheme,
-	message string,
-) {
+func testServerCertRejected(t *testing.T, keyType string, cipherSuite cryptosuite.ID, schemes []tls.SignatureScheme, message string) {
 	t.Helper()
 	serverCert, serverRootCAs := createCertChain(t, keyType)
 	clientCert := selfSignedECDSACert(t)
-	clientOpts := []dtls.ClientOption{
-		dtls.WithCertificates(clientCert),
-		dtls.WithCipherSuites(cipherSuite),
-		dtls.WithRootCAs(serverRootCAs),
-		dtls.WithCertificateSignatureSchemes(schemes...),
-	}
-	serverOpts := []dtls.ServerOption{
-		dtls.WithCertificates(serverCert),
-		dtls.WithCipherSuites(cipherSuite),
-		dtls.WithInsecureSkipVerify(true),
-	}
+	clientOpts := []dtls.ClientOption{dtls.WithCertificates(clientCert), dtls.WithCipherSuites(cipherSuite), dtls.WithRootCAs(serverRootCAs), dtls.WithCertificateSignatureSchemes(schemes...)}
+	serverOpts := []dtls.ServerOption{dtls.WithCertificates(serverCert), dtls.WithCipherSuites(cipherSuite), dtls.WithInsecureSkipVerify(true)}
 	assertHandshakeFailsWithOpts(t, clientOpts, serverOpts, message)
 }
 
 // TestCertificateSignatureSchemesServerCertRejected tests that client rejects
 // server certificate when it uses a disallowed signature algorithm.
 func TestCertificateSignatureSchemesServerCertRejected(t *testing.T) {
-	testServerCertRejected(t, "ecdsa-p256", cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		[]tls.SignatureScheme{tls.ECDSAWithP384AndSHA384, tls.ECDSAWithP521AndSHA512},
-		"expected handshake to fail with disallowed signature scheme",
-	)
+	testServerCertRejected(t, "ecdsa-p256", cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, []tls.SignatureScheme{tls.ECDSAWithP384AndSHA384, tls.ECDSAWithP521AndSHA512}, "expected handshake to fail with disallowed signature scheme")
 }
 
 // TestCertificateSignatureSchemesClientCertRejected tests that server rejects
@@ -1001,11 +861,7 @@ func TestCertificateSignatureSchemesClientCertRejected(t *testing.T) {
 	// Client uses P-256 ECDSA certificate chain
 	clientCert, clientRootCAs := createCertChain(t, "ecdsa-p256")
 
-	clientOpts := []dtls.ClientOption{
-		dtls.WithCertificates(clientCert),
-		dtls.WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
-		dtls.WithInsecureSkipVerify(true),
-	}
+	clientOpts := []dtls.ClientOption{dtls.WithCertificates(clientCert), dtls.WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), dtls.WithInsecureSkipVerify(true)}
 
 	// Server only allows P-384 and P-521 for client cert, but client uses P-256
 	serverOpts := []dtls.ServerOption{
@@ -1019,17 +875,11 @@ func TestCertificateSignatureSchemesClientCertRejected(t *testing.T) {
 		),
 	}
 
-	assertHandshakeFailsWithOpts(
-		t, clientOpts, serverOpts,
-		"expected handshake to fail with disallowed client cert signature scheme",
-	)
+	assertHandshakeFailsWithOpts(t, clientOpts, serverOpts, "expected handshake to fail with disallowed client cert signature scheme")
 }
 
 // TestCertificateSignatureSchemesRSAMismatch tests that connections fail when
 // RSA certificate is presented but only ECDSA schemes are allowed.
 func TestCertificateSignatureSchemesRSAMismatch(t *testing.T) {
-	testServerCertRejected(t, "rsa", cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		[]tls.SignatureScheme{tls.ECDSAWithP256AndSHA256, tls.ECDSAWithP384AndSHA384},
-		"expected handshake to fail with RSA cert but ECDSA-only schemes",
-	)
+	testServerCertRejected(t, "rsa", cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256, tls.ECDSAWithP384AndSHA384}, "expected handshake to fail with RSA cert but ECDSA-only schemes")
 }

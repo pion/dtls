@@ -105,10 +105,7 @@ func TestUnknownExtensionPreservedByContext(t *testing.T) {
 }
 
 func TestServerNameIsNotAllowedInOrdinaryCertificateRequest(t *testing.T) {
-	_, err := decodeRawExtensions([]extension.Raw{
-		{Type: extension.TypeServerName},
-		rawExtensionValue(t, &extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}),
-	}, extensionContextCertificateRequest)
+	_, err := decodeRawExtensions([]extension.Raw{{Type: extension.TypeServerName}, rawExtensionValue(t, &extension.SignatureAlgorithms{Schemes: []uint16{0x0403}})}, extensionContextCertificateRequest)
 	assert.ErrorIs(t, err, dtlserrors.ErrExtensionNotAllowed)
 	assertExtensionAlert(t, err, alert.IllegalParameter)
 }
@@ -130,13 +127,8 @@ func TestExtensionBlockRejectsDuplicateTypes(t *testing.T) {
 }
 
 func TestExtensionBlockOrderingAndDependencies(t *testing.T) {
-	psk := rawExtensionValue(t, &extension13.OfferedPSKs{
-		Identities: []extension13.PSKIdentity{{Identity: []byte("identity")}},
-		Binders:    []extension13.PSKBinder{make([]byte, 32)},
-	})
-	modes := rawExtensionValue(t, &extension13.PSKKeyExchangeModes{
-		Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE},
-	})
+	psk := rawExtensionValue(t, &extension13.OfferedPSKs{Identities: []extension13.PSKIdentity{{Identity: []byte("identity")}}, Binders: []extension13.PSKBinder{make([]byte, 32)}})
+	modes := rawExtensionValue(t, &extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE}})
 
 	t.Run("pre shared key is last", func(t *testing.T) {
 		_, err := decodeRawExtensions([]extension.Raw{modes, psk}, extensionContextClientHello)
@@ -204,17 +196,12 @@ func TestExtensionBlockOrderingAndDependencies(t *testing.T) {
 		groups := rawExtensionValue(t, &extension.SupportedGroups{
 			Groups: []elliptic.Curve{elliptic.X25519, elliptic.P256},
 		})
-		wrongOrder := rawExtensionValue(t, &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{
-			{Group: elliptic.P256, KeyExchange: []byte{0x01}},
-			{Group: elliptic.X25519, KeyExchange: []byte{0x02}},
-		}})
+		wrongOrder := rawExtensionValue(t, &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: elliptic.P256, KeyExchange: []byte{0x01}}, {Group: elliptic.X25519, KeyExchange: []byte{0x02}}}})
 		_, err := decodeRawExtensions([]extension.Raw{groups, wrongOrder}, extensionContextClientHello)
 		assert.ErrorIs(t, err, dtlserrors.ErrKeyShareGroupNotOffered)
 		assertExtensionAlert(t, err, alert.IllegalParameter)
 
-		validSubset := rawExtensionValue(t, &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{
-			{Group: elliptic.P256, KeyExchange: []byte{0x01}},
-		}})
+		validSubset := rawExtensionValue(t, &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: elliptic.P256, KeyExchange: []byte{0x01}}}})
 		_, err = decodeRawExtensions([]extension.Raw{groups, validSubset}, extensionContextClientHello)
 		require.NoError(t, err)
 	})
@@ -233,10 +220,7 @@ func TestExtensionBlockOrderingAndDependencies(t *testing.T) {
 }
 
 func TestExtensionBlockValidatesPlacementBeforePayload(t *testing.T) {
-	_, err := decodeRawExtensions([]extension.Raw{
-		{Type: extension.TypeALPN, Data: []byte{0x00, 0x00}},
-		{Type: extension.TypeExtendedMasterSecret},
-	}, extensionContextEncryptedExtensions)
+	_, err := decodeRawExtensions([]extension.Raw{{Type: extension.TypeALPN, Data: []byte{0x00, 0x00}}, {Type: extension.TypeExtendedMasterSecret}}, extensionContextEncryptedExtensions)
 	assert.ErrorIs(t, err, dtlserrors.ErrExtensionNotAllowed)
 	assertExtensionAlert(t, err, alert.IllegalParameter)
 }
@@ -249,9 +233,7 @@ func TestExtensionErrorClassification(t *testing.T) {
 	})
 
 	t.Run("payload", func(t *testing.T) {
-		_, err := decodeRawExtensions([]extension.Raw{
-			{Type: extension.TypeALPN, Data: []byte{0x00, 0x00}},
-		}, extensionContextEncryptedExtensions)
+		_, err := decodeRawExtensions([]extension.Raw{{Type: extension.TypeALPN, Data: []byte{0x00, 0x00}}}, extensionContextEncryptedExtensions)
 		assert.ErrorIs(t, err, extension.ErrALPNInvalidFormat)
 		assertExtensionAlert(t, err, alert.DecodeError)
 	})
@@ -277,105 +259,37 @@ func FuzzDecodeExtensionBlock(f *testing.F) {
 }
 
 func allExtensionContexts() []extensionContext {
-	return []extensionContext{
-		extensionContextClientHello,
-		extensionContextServerHello12,
-		extensionContextServerHello13,
-		extensionContextHelloRetryRequest,
-		extensionContextEncryptedExtensions,
-		extensionContextCertificateRequest,
-		extensionContextCertificateEntry,
-		extensionContextNewSessionTicket,
-	}
+	return []extensionContext{extensionContextClientHello, extensionContextServerHello12, extensionContextServerHello13, extensionContextHelloRetryRequest, extensionContextEncryptedExtensions, extensionContextCertificateRequest, extensionContextCertificateEntry, extensionContextNewSessionTicket}
 }
 
 func expectedExtensionRegistry() map[extension.Type]map[extensionContext]extensionPayloadValue {
 	return map[extension.Type]map[extensionContext]extensionPayloadValue{
-		extension.TypeServerName: {
-			extensionContextClientHello:         &extension.ServerNameOffer{},
-			extensionContextServerHello12:       &extension.ServerNameAck{},
-			extensionContextEncryptedExtensions: &extension.ServerNameAck{},
-		},
-		extension.TypeSupportedGroups: {
-			extensionContextClientHello:         &extension.SupportedGroups{},
-			extensionContextEncryptedExtensions: &extension.SupportedGroups{},
-		},
-		extension.TypeSupportedPointFormats: {
-			extensionContextClientHello:   &extension12.SupportedPointFormats{},
-			extensionContextServerHello12: &extension12.SupportedPointFormats{},
-		},
-		extension.TypeSignatureAlgorithms: {
-			extensionContextClientHello:        &extension.SignatureAlgorithms{},
-			extensionContextCertificateRequest: &extension.SignatureAlgorithms{},
-		},
-		extension.TypeUseSRTP: {
-			extensionContextClientHello:         &extension.SRTPOffer{},
-			extensionContextServerHello12:       &extension.SRTPSelection{},
-			extensionContextEncryptedExtensions: &extension.SRTPSelection{},
-		},
-		extension.TypeALPN: {
-			extensionContextClientHello:         &extension.ALPNOffer{},
-			extensionContextServerHello12:       &extension.ALPNSelection{},
-			extensionContextEncryptedExtensions: &extension.ALPNSelection{},
-		},
-		extension.TypeExtendedMasterSecret: {
-			extensionContextClientHello:   &extension12.ExtendedMasterSecret{},
-			extensionContextServerHello12: &extension12.ExtendedMasterSecret{},
-		},
-		extension.TypePreSharedKey: {
-			extensionContextClientHello:   &extension13.OfferedPSKs{},
-			extensionContextServerHello13: &extension13.SelectedPSK{},
-		},
-		extension.TypeEarlyData: {
-			extensionContextClientHello:         &extension13.EarlyData{},
-			extensionContextEncryptedExtensions: &extension13.EarlyData{},
-			extensionContextNewSessionTicket:    &extension13.MaxEarlyData{},
-		},
-		extension.TypeSupportedVersions: {
-			extensionContextClientHello:       &extension13.OfferedVersions{},
-			extensionContextServerHello13:     &extension13.SelectedVersion{},
-			extensionContextHelloRetryRequest: &extension13.SelectedVersion{},
-		},
-		extension.TypeCookie: {
-			extensionContextClientHello:       &extension13.Cookie{},
-			extensionContextHelloRetryRequest: &extension13.Cookie{},
-		},
+		extension.TypeServerName:            {extensionContextClientHello: &extension.ServerNameOffer{}, extensionContextServerHello12: &extension.ServerNameAck{}, extensionContextEncryptedExtensions: &extension.ServerNameAck{}},
+		extension.TypeSupportedGroups:       {extensionContextClientHello: &extension.SupportedGroups{}, extensionContextEncryptedExtensions: &extension.SupportedGroups{}},
+		extension.TypeSupportedPointFormats: {extensionContextClientHello: &extension12.SupportedPointFormats{}, extensionContextServerHello12: &extension12.SupportedPointFormats{}},
+		extension.TypeSignatureAlgorithms:   {extensionContextClientHello: &extension.SignatureAlgorithms{}, extensionContextCertificateRequest: &extension.SignatureAlgorithms{}},
+		extension.TypeUseSRTP:               {extensionContextClientHello: &extension.SRTPOffer{}, extensionContextServerHello12: &extension.SRTPSelection{}, extensionContextEncryptedExtensions: &extension.SRTPSelection{}},
+		extension.TypeALPN:                  {extensionContextClientHello: &extension.ALPNOffer{}, extensionContextServerHello12: &extension.ALPNSelection{}, extensionContextEncryptedExtensions: &extension.ALPNSelection{}},
+		extension.TypeExtendedMasterSecret:  {extensionContextClientHello: &extension12.ExtendedMasterSecret{}, extensionContextServerHello12: &extension12.ExtendedMasterSecret{}},
+		extension.TypePreSharedKey:          {extensionContextClientHello: &extension13.OfferedPSKs{}, extensionContextServerHello13: &extension13.SelectedPSK{}},
+		extension.TypeEarlyData:             {extensionContextClientHello: &extension13.EarlyData{}, extensionContextEncryptedExtensions: &extension13.EarlyData{}, extensionContextNewSessionTicket: &extension13.MaxEarlyData{}},
+		extension.TypeSupportedVersions:     {extensionContextClientHello: &extension13.OfferedVersions{}, extensionContextServerHello13: &extension13.SelectedVersion{}, extensionContextHelloRetryRequest: &extension13.SelectedVersion{}},
+		extension.TypeCookie:                {extensionContextClientHello: &extension13.Cookie{}, extensionContextHelloRetryRequest: &extension13.Cookie{}},
 		extension.TypePSKKeyExchangeModes: {
 			extensionContextClientHello: &extension13.PSKKeyExchangeModes{},
 		},
-		extension.TypeCertificateAuthorities: {
-			extensionContextClientHello:        &extension13.CertificateAuthorities{},
-			extensionContextCertificateRequest: &extension13.CertificateAuthorities{},
-		},
+		extension.TypeCertificateAuthorities: {extensionContextClientHello: &extension13.CertificateAuthorities{}, extensionContextCertificateRequest: &extension13.CertificateAuthorities{}},
 		extension.TypeOIDFilters: {
 			extensionContextCertificateRequest: &extension13.OIDFilters{},
 		},
 		extension.TypePostHandshakeAuth: {
 			extensionContextClientHello: &extension13.PostHandshakeAuth{},
 		},
-		extension.TypeSignatureAlgorithmsCert: {
-			extensionContextClientHello:        &extension.CertificateSignatureAlgorithms{},
-			extensionContextCertificateRequest: &extension.CertificateSignatureAlgorithms{},
-		},
-		extension.TypeKeyShare: {
-			extensionContextClientHello:       &extension13.ClientKeyShare{},
-			extensionContextServerHello13:     &extension13.ServerKeyShare{},
-			extensionContextHelloRetryRequest: &extension13.RetryKeyShare{},
-		},
-		extension.TypeConnectionID: {
-			extensionContextClientHello:   &extension.ConnectionID{},
-			extensionContextServerHello12: &extension.ConnectionID{},
-			extensionContextServerHello13: &extension.ConnectionID{},
-		},
-		extension.TypeReturnRoutabilityCheck: {
-			extensionContextClientHello:   &extension.ReturnRoutabilityCheck{},
-			extensionContextServerHello12: &extension.ReturnRoutabilityCheck{},
-			extensionContextServerHello13: &extension.ReturnRoutabilityCheck{},
-		},
-		extension.TypeRenegotiationInfo: {
-			extensionContextClientHello:   &extension12.RenegotiationInfo{},
-			extensionContextServerHello12: &extension12.RenegotiationInfo{},
-		},
+		extension.TypeSignatureAlgorithmsCert: {extensionContextClientHello: &extension.CertificateSignatureAlgorithms{}, extensionContextCertificateRequest: &extension.CertificateSignatureAlgorithms{}},
+		extension.TypeKeyShare:                {extensionContextClientHello: &extension13.ClientKeyShare{}, extensionContextServerHello13: &extension13.ServerKeyShare{}, extensionContextHelloRetryRequest: &extension13.RetryKeyShare{}},
+		extension.TypeConnectionID:            {extensionContextClientHello: &extension.ConnectionID{}, extensionContextServerHello12: &extension.ConnectionID{}, extensionContextServerHello13: &extension.ConnectionID{}},
+		extension.TypeReturnRoutabilityCheck:  {extensionContextClientHello: &extension.ReturnRoutabilityCheck{}, extensionContextServerHello12: &extension.ReturnRoutabilityCheck{}, extensionContextServerHello13: &extension.ReturnRoutabilityCheck{}},
+		extension.TypeRenegotiationInfo:       {extensionContextClientHello: &extension12.RenegotiationInfo{}, extensionContextServerHello12: &extension12.RenegotiationInfo{}},
 	}
 }
 

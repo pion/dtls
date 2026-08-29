@@ -88,14 +88,7 @@ func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) { //nolint
 	}
 }
 
-func Parse(
-	ctx context.Context,
-	f Flight,
-	conn dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) (Flight, *alert.Alert, error, bool) {
+func Parse(ctx context.Context, f Flight, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error, bool) {
 	parse, ok := getFlightParser(f)
 	if !ok {
 		return 0, nil, nil, false

@@ -59,9 +59,5 @@ func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certific
 		}
 	}
 
-	return (&dtlsconfig.CertificateRequestInfo{
-		AcceptableCAs:    cri.AcceptableCAs,
-		SignatureSchemes: signatureSchemes,
-		Version:          protocol.Version1_3,
-	}).SupportsCertificate(certificate)
+	return (&dtlsconfig.CertificateRequestInfo{AcceptableCAs: cri.AcceptableCAs, SignatureSchemes: signatureSchemes, Version: protocol.Version1_3}).SupportsCertificate(certificate)
 }

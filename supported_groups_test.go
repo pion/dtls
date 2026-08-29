@@ -51,26 +51,11 @@ func TestSupportedGroups(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 
 	go func() {
-		client, err := testClient(
-			ctx,
-			dtlsnet.PacketConnFromConn(ca),
-			ca.RemoteAddr(),
-			[]ClientOption{
-				WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
-				WithEllipticCurves(expectedGroups...),
-				WithMinVersion(protocol.Version1_3),
-				WithMaxVersion(protocol.Version1_3),
-			},
-			false,
-		)
+		client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithEllipticCurves(expectedGroups...), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3)}, false)
 		clientResult <- result{conn: client, err: err}
 	}()
 
-	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
-		WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
-		WithMinVersion(protocol.Version1_3),
-		WithMaxVersion(protocol.Version1_3),
-	}, true)
+	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3)}, true)
 	client := <-clientResult
 	defer func() {
 		if server != nil {

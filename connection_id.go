@@ -46,12 +46,7 @@ type returnRoutabilityConn struct {
 	conn *Conn
 }
 
-func (c returnRoutabilityConn) WriteRRC(
-	ctx context.Context,
-	addr net.Addr,
-	messageType protocol.ReturnRoutabilityCheckMessageType,
-	cookie [protocol.ReturnRoutabilityCheckCookieLength]byte,
-) error {
+func (c returnRoutabilityConn) WriteRRC(ctx context.Context, addr net.Addr, messageType protocol.ReturnRoutabilityCheckMessageType, cookie [protocol.ReturnRoutabilityCheckCookieLength]byte) error {
 	c.conn.writeLock.Lock()
 	defer c.conn.writeLock.Unlock()
 
@@ -62,14 +57,7 @@ func (c returnRoutabilityConn) WriteRRC(
 
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
-	packet := &dtlsflight.Outbound{
-		Epoch: common.LocalEpoch(),
-		Content: &protocol.ReturnRoutabilityCheck{
-			MessageType: messageType,
-			Cookie:      cookie,
-		},
-		Protection: dtlsflight.ProtectionCiphertext,
-	}
+	packet := &dtlsflight.Outbound{Epoch: common.LocalEpoch(), Content: &protocol.ReturnRoutabilityCheck{MessageType: messageType, Cookie: cookie}, Protection: dtlsflight.ProtectionCiphertext}
 	raw, err := c.conn.prepareRecord(packet)
 	if err == nil {
 		err = c.conn.rrc.Reserve(addr, c.conn.rAddr, len(raw))
@@ -90,18 +78,9 @@ func (c returnRoutabilityConn) WriteRRC(
 	return nil
 }
 
-func (c returnRoutabilityConn) HandleRecord(
-	ctx context.Context,
-	message *protocol.ReturnRoutabilityCheck,
-	prepared incomingPacketState,
-	addr net.Addr,
-) (bool, packetOutcome, error) {
-	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC ||
-		prepared.header.Epoch == 0 ||
-		!dtlsstate.CommonState(c.conn.state).RRCNegotiated {
-		return false, packetOutcome{
-			responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
-		}, dtlserrors.ErrUnexpectedPostHandshakeMessage
+func (c returnRoutabilityConn) HandleRecord(ctx context.Context, message *protocol.ReturnRoutabilityCheck, prepared incomingPacketState, addr net.Addr) (bool, packetOutcome, error) {
+	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC || prepared.header.Epoch == 0 || !dtlsstate.CommonState(c.conn.state).RRCNegotiated {
+		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
 	isLatestSeqNum := prepared.markPacketAsValid()
 	var err error
@@ -175,11 +154,7 @@ func (c returnRoutabilityConn) useCandidatePath(
 			candidateAddr,
 		)
 	default:
-		c.conn.log.Errorf(
-			"rejected CID path migration from %s to %s: invalid path migration policy",
-			currentAddr,
-			candidateAddr,
-		)
+		c.conn.log.Errorf("rejected CID path migration from %s to %s: invalid path migration policy", currentAddr, candidateAddr)
 	}
 
 	return false

@@ -25,37 +25,11 @@ func TestContextualPayloads(t *testing.T) {
 		{name: "server name ack", value: ServerNameAck{}, out: &ServerNameAck{}},
 		{name: "alpn offer", value: ALPNOffer{Protocols: []string{"h2", "http/1.1"}}, out: &ALPNOffer{}},
 		{name: "alpn selection", value: ALPNSelection{Protocol: "h2"}, out: &ALPNSelection{}},
-		{
-			name: "srtp offer",
-			value: SRTPOffer{
-				ProtectionProfiles:  []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AEAD_AES_128_GCM},
-				MasterKeyIdentifier: []byte{1, 2},
-			},
-			out: &SRTPOffer{},
-		},
-		{
-			name: "srtp selection",
-			value: SRTPSelection{
-				ProtectionProfile:   SRTP_AES128_CM_HMAC_SHA1_80,
-				MasterKeyIdentifier: []byte{3},
-			},
-			out: &SRTPSelection{},
-		},
-		{
-			name:  "supported groups preserve unknown",
-			value: SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519, elliptic.Curve(0xfafa)}},
-			out:   &SupportedGroups{},
-		},
-		{
-			name:  "signature algorithms preserve unknown",
-			value: SignatureAlgorithms{Schemes: []uint16{0x0403, 0xfafa}},
-			out:   &SignatureAlgorithms{},
-		},
-		{
-			name:  "certificate signature algorithms",
-			value: CertificateSignatureAlgorithms{Schemes: []uint16{0x0804}},
-			out:   &CertificateSignatureAlgorithms{},
-		},
+		{name: "srtp offer", value: SRTPOffer{ProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AEAD_AES_128_GCM}, MasterKeyIdentifier: []byte{1, 2}}, out: &SRTPOffer{}},
+		{name: "srtp selection", value: SRTPSelection{ProtectionProfile: SRTP_AES128_CM_HMAC_SHA1_80, MasterKeyIdentifier: []byte{3}}, out: &SRTPSelection{}},
+		{name: "supported groups preserve unknown", value: SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519, elliptic.Curve(0xfafa)}}, out: &SupportedGroups{}},
+		{name: "signature algorithms preserve unknown", value: SignatureAlgorithms{Schemes: []uint16{0x0403, 0xfafa}}, out: &SignatureAlgorithms{}},
+		{name: "certificate signature algorithms", value: CertificateSignatureAlgorithms{Schemes: []uint16{0x0804}}, out: &CertificateSignatureAlgorithms{}},
 		{name: "connection id", value: ConnectionID{CID: []byte{4, 5, 6}}, out: &ConnectionID{}},
 	}
 

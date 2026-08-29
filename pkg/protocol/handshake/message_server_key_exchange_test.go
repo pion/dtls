@@ -60,14 +60,7 @@ func TestHandshakeMessageServerKeyExchange(t *testing.T) {
 			0x47, 0x24, 0x42, 0x96, 0xb8, 0x7b, 0xee, 0xe7, 0x0d, 0xdc, 0x44, 0xec, 0xf3, 0x97, 0x6b, 0x1b,
 			0x45, 0x28, 0xac, 0x3f, 0x35,
 		}
-		parsedServerKeyExchange := &MessageServerKeyExchange{
-			EllipticCurveType:    elliptic.CurveTypeNamedCurve,
-			NamedCurve:           elliptic.X25519,
-			PublicKey:            rawServerKeyExchange[4:69],
-			HashAlgorithm:        hash.None,
-			SignatureAlgorithm:   signature.Anonymous,
-			KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
-		}
+		parsedServerKeyExchange := &MessageServerKeyExchange{EllipticCurveType: elliptic.CurveTypeNamedCurve, NamedCurve: elliptic.X25519, PublicKey: rawServerKeyExchange[4:69], HashAlgorithm: hash.None, SignatureAlgorithm: signature.Anonymous, KeyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe}
 
 		test(rawServerKeyExchange, parsedServerKeyExchange)
 	})
@@ -80,18 +73,8 @@ func TestHandshakeMessageServerKeyExchangeUnmarshalErrors(t *testing.T) {
 		data                 []byte
 		expectedErr          error
 	}{
-		{
-			name:                 "BufferTooSmall",
-			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
-			data:                 []byte{0x00},
-			expectedErr:          dtlserrors.ErrBufferTooSmall,
-		},
-		{
-			name:                 "CipherSuiteUnset",
-			keyExchangeAlgorithm: types.KeyExchangeAlgorithmNone,
-			data:                 []byte{0x00, 0x00},
-			expectedErr:          dtlserrors.ErrCipherSuiteUnset,
-		},
+		{name: "BufferTooSmall", keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe, data: []byte{0x00}, expectedErr: dtlserrors.ErrBufferTooSmall},
+		{name: "CipherSuiteUnset", keyExchangeAlgorithm: types.KeyExchangeAlgorithmNone, data: []byte{0x00, 0x00}, expectedErr: dtlserrors.ErrCipherSuiteUnset},
 		{
 			// PSK-only: a non-empty body remains after the identity hint.
 			name:                 "PskLengthMismatch",
@@ -114,12 +97,7 @@ func TestHandshakeMessageServerKeyExchangeUnmarshalErrors(t *testing.T) {
 			data:                 []byte{0x00, 0x00},
 			expectedErr:          dtlserrors.ErrBufferTooSmall,
 		},
-		{
-			name:                 "InvalidEllipticCurveType",
-			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
-			data:                 []byte{0x99, 0x00},
-			expectedErr:          dtlserrors.ErrInvalidEllipticCurveType,
-		},
+		{name: "InvalidEllipticCurveType", keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe, data: []byte{0x99, 0x00}, expectedErr: dtlserrors.ErrInvalidEllipticCurveType},
 		{
 			// Valid curve type but not enough bytes for the named curve.
 			name:                 "NamedCurveBufferTooSmall",
@@ -127,12 +105,7 @@ func TestHandshakeMessageServerKeyExchangeUnmarshalErrors(t *testing.T) {
 			data:                 []byte{0x03, 0x00},
 			expectedErr:          dtlserrors.ErrBufferTooSmall,
 		},
-		{
-			name:                 "InvalidNamedCurve",
-			keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe,
-			data:                 []byte{0x03, 0xFF, 0xFF},
-			expectedErr:          dtlserrors.ErrInvalidNamedCurve,
-		},
+		{name: "InvalidNamedCurve", keyExchangeAlgorithm: types.KeyExchangeAlgorithmEcdhe, data: []byte{0x03, 0xFF, 0xFF}, expectedErr: dtlserrors.ErrInvalidNamedCurve},
 		{
 			// Valid curve type and named curve but missing the public key length.
 			name:                 "PublicKeyLengthBufferTooSmall",

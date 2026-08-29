@@ -51,47 +51,12 @@ func TestHelloMarshalValidatesFieldsBeforePreparingExtensions(t *testing.T) {
 		message Message
 		err     error
 	}{
-		{
-			name:    "client cookie",
-			message: &MessageClientHello{Cookie: make([]byte, 256), Extensions: extensions},
-			err:     dtlserrors.ErrCookieTooLong,
-		},
-		{
-			name:    "client session ID",
-			message: &MessageClientHello{SessionID: make([]byte, 256), Extensions: extensions},
-			err:     dtlserrors.ErrSessionIDTooLong,
-		},
-		{
-			name: "client compression methods",
-			message: &MessageClientHello{
-				CompressionMethods: make([]*protocol.CompressionMethod, 256),
-				Extensions:         extensions,
-			},
-			err: dtlserrors.ErrCompressionMethodsTooLong,
-		},
-		{
-			name:    "server cipher suite",
-			message: &MessageServerHello{CompressionMethod: compressionMethod, Extensions: extensions},
-			err:     dtlserrors.ErrCipherSuiteUnset,
-		},
-		{
-			name: "server compression method",
-			message: &MessageServerHello{
-				CipherSuiteID: &cipherSuiteID,
-				Extensions:    extensions,
-			},
-			err: dtlserrors.ErrCompressionMethodUnset,
-		},
-		{
-			name: "server session ID",
-			message: &MessageServerHello{
-				SessionID:         make([]byte, 256),
-				CipherSuiteID:     &cipherSuiteID,
-				CompressionMethod: compressionMethod,
-				Extensions:        extensions,
-			},
-			err: dtlserrors.ErrSessionIDTooLong,
-		},
+		{name: "client cookie", message: &MessageClientHello{Cookie: make([]byte, 256), Extensions: extensions}, err: dtlserrors.ErrCookieTooLong},
+		{name: "client session ID", message: &MessageClientHello{SessionID: make([]byte, 256), Extensions: extensions}, err: dtlserrors.ErrSessionIDTooLong},
+		{name: "client compression methods", message: &MessageClientHello{CompressionMethods: make([]*protocol.CompressionMethod, 256), Extensions: extensions}, err: dtlserrors.ErrCompressionMethodsTooLong},
+		{name: "server cipher suite", message: &MessageServerHello{CompressionMethod: compressionMethod, Extensions: extensions}, err: dtlserrors.ErrCipherSuiteUnset},
+		{name: "server compression method", message: &MessageServerHello{CipherSuiteID: &cipherSuiteID, Extensions: extensions}, err: dtlserrors.ErrCompressionMethodUnset},
+		{name: "server session ID", message: &MessageServerHello{SessionID: make([]byte, 256), CipherSuiteID: &cipherSuiteID, CompressionMethod: compressionMethod, Extensions: extensions}, err: dtlserrors.ErrSessionIDTooLong},
 	}
 
 	for _, test := range tests {
@@ -107,11 +72,7 @@ func TestHelloMarshalValidatesFieldsBeforePreparingExtensions(t *testing.T) {
 
 func TestMessageServerHelloExtensionFramingErrorIsClassified(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
-	raw, err := (&MessageServerHello{
-		Version:           protocol.Version1_2,
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: &protocol.CompressionMethod{},
-	}).Marshal()
+	raw, err := (&MessageServerHello{Version: protocol.Version1_2, CipherSuiteID: &cipherSuiteID, CompressionMethod: &protocol.CompressionMethod{}}).Marshal()
 	assert.NoError(t, err)
 	raw[len(raw)-1] = 1
 
@@ -128,12 +89,7 @@ func TestMessageServerHelloRejectsHelloRetryRequestWithoutSupportedVersions(t *t
 	var random Random
 	random.UnmarshalFixed(randomFixed)
 	cipherSuiteID := uint16(0x1301)
-	raw, err := (&MessageServerHello{
-		Version:           protocol.Version1_2,
-		Random:            random,
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: &protocol.CompressionMethod{},
-	}).Marshal()
+	raw, err := (&MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: &protocol.CompressionMethod{}}).Marshal()
 	assert.NoError(t, err)
 
 	for name, input := range map[string][]byte{
@@ -151,24 +107,13 @@ func TestMessageServerHelloRejectsHelloRetryRequestWithoutSupportedVersions(t *t
 }
 
 func TestHandshakeMessageServerHello(t *testing.T) {
-	rawServerHello := []byte{
-		0xfe, 0xfd, 0x21, 0x63, 0x32, 0x21, 0x81, 0x0e, 0x98, 0x6c,
-		0x85, 0x3d, 0xa4, 0x39, 0xaf, 0x5f, 0xd6, 0x5c, 0xcc, 0x20,
-		0x7f, 0x7c, 0x78, 0xf1, 0x5f, 0x7e, 0x1c, 0xb7, 0xa1, 0x1e,
-		0xcf, 0x63, 0x84, 0x28, 0x00, 0xc0, 0x2b, 0x00, 0x00, 0x00,
-	}
+	rawServerHello := []byte{0xfe, 0xfd, 0x21, 0x63, 0x32, 0x21, 0x81, 0x0e, 0x98, 0x6c, 0x85, 0x3d, 0xa4, 0x39, 0xaf, 0x5f, 0xd6, 0x5c, 0xcc, 0x20, 0x7f, 0x7c, 0x78, 0xf1, 0x5f, 0x7e, 0x1c, 0xb7, 0xa1, 0x1e, 0xcf, 0x63, 0x84, 0x28, 0x00, 0xc0, 0x2b, 0x00, 0x00, 0x00}
 
 	cipherSuiteID := uint16(0xc02b)
 
 	parsedServerHello := &MessageServerHello{
-		Version: protocol.Version1_2,
-		Random: Random{
-			GMTUnixTime: time.Unix(560149025, 0),
-			RandomBytes: [28]byte{
-				0x81, 0x0e, 0x98, 0x6c, 0x85, 0x3d, 0xa4, 0x39, 0xaf, 0x5f, 0xd6, 0x5c, 0xcc, 0x20,
-				0x7f, 0x7c, 0x78, 0xf1, 0x5f, 0x7e, 0x1c, 0xb7, 0xa1, 0x1e, 0xcf, 0x63, 0x84, 0x28,
-			},
-		},
+		Version:           protocol.Version1_2,
+		Random:            Random{GMTUnixTime: time.Unix(560149025, 0), RandomBytes: [28]byte{0x81, 0x0e, 0x98, 0x6c, 0x85, 0x3d, 0xa4, 0x39, 0xaf, 0x5f, 0xd6, 0x5c, 0xcc, 0x20, 0x7f, 0x7c, 0x78, 0xf1, 0x5f, 0x7e, 0x1c, 0xb7, 0xa1, 0x1e, 0xcf, 0x63, 0x84, 0x28}},
 		SessionID:         []byte{},
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{},
@@ -196,12 +141,7 @@ func TestHandshakeMessageServerHelloSessionID(t *testing.T) {
 		0x00, 0x00,
 	}
 
-	sessionID := []byte{
-		0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9,
-		0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3,
-		0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd,
-		0xfe, 0xff,
-	}
+	sessionID := []byte{0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff}
 
 	c := &MessageServerHello{}
 	assert.NoError(t, c.Unmarshal(rawServerHello))
@@ -214,13 +154,7 @@ func TestHandshakeMessageServerHelloSessionID(t *testing.T) {
 
 func TestHandshakeMessageServerHello_SessionIDTooLong(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
-	c := &MessageServerHello{
-		Version:           protocol.Version1_2,
-		SessionID:         make([]byte, 256),
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: &protocol.CompressionMethod{ID: 0},
-		Extensions:        []extension.Value{},
-	}
+	c := &MessageServerHello{Version: protocol.Version1_2, SessionID: make([]byte, 256), CipherSuiteID: &cipherSuiteID, CompressionMethod: &protocol.CompressionMethod{ID: 0}, Extensions: []extension.Value{}}
 
 	_, err := c.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrSessionIDTooLong)
@@ -231,12 +165,8 @@ func TestExtensionMessagesRejectMismatchedPayloadSize(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 
 	tests := map[string]Message{
-		"client hello": &MessageClientHello{Extensions: extensions},
-		"server hello": &MessageServerHello{
-			CipherSuiteID:     &cipherSuiteID,
-			CompressionMethod: &protocol.CompressionMethod{},
-			Extensions:        extensions,
-		},
+		"client hello":         &MessageClientHello{Extensions: extensions},
+		"server hello":         &MessageServerHello{CipherSuiteID: &cipherSuiteID, CompressionMethod: &protocol.CompressionMethod{}, Extensions: extensions},
 		"encrypted extensions": &MessageEncryptedExtensions{Extensions: extensions},
 	}
 
@@ -252,11 +182,7 @@ func TestExtensionMessagesRejectMismatchedPayloadSize(t *testing.T) {
 func TestMessageServerHelloMarshalToReportsNoBytesOnExtensionError(t *testing.T) {
 	cipherSuiteID := uint16(0xc02b)
 	compressionMethod := &protocol.CompressionMethod{}
-	message := &MessageServerHello{
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: compressionMethod,
-		Extensions:        []extension.Value{mismatchedExtension{}},
-	}
+	message := &MessageServerHello{CipherSuiteID: &cipherSuiteID, CompressionMethod: compressionMethod, Extensions: []extension.Value{mismatchedExtension{}}}
 	out := bytes.Repeat([]byte{0xaa}, message.MarshalSize())
 	want := bytes.Clone(out)
 
@@ -272,15 +198,7 @@ func TestExtensionMessageMarshalToReportsNoBytesOnPreparationError(t *testing.T)
 	compressionMethod := &protocol.CompressionMethod{}
 	firstExtension := extension.Raw{Type: extension.TypePadding, Data: []byte{0x01}}
 	extensions := []extension.Value{firstExtension, mismatchedExtension{}}
-	tests := map[string]Message{
-		"client hello": &MessageClientHello{Extensions: extensions},
-		"server hello": &MessageServerHello{
-			CipherSuiteID:     &cipherSuiteID,
-			CompressionMethod: compressionMethod,
-			Extensions:        extensions,
-		},
-		"encrypted extensions": &MessageEncryptedExtensions{Extensions: extensions},
-	}
+	tests := map[string]Message{"client hello": &MessageClientHello{Extensions: extensions}, "server hello": &MessageServerHello{CipherSuiteID: &cipherSuiteID, CompressionMethod: compressionMethod, Extensions: extensions}, "encrypted extensions": &MessageEncryptedExtensions{Extensions: extensions}}
 
 	for name, message := range tests {
 		t.Run(name, func(t *testing.T) {

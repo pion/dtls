@@ -51,11 +51,7 @@ func AppendConnectionIDExtensions(
 
 // FinalizeClientHello applies the hook and prevents it from enabling RRC when
 // the configured CID path-migration policy does not permit RRC.
-func FinalizeClientHello(
-	base *handshake.MessageClientHello,
-	hook func(handshake.MessageClientHello) handshake.Message,
-	enableRRC bool,
-) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+func FinalizeClientHello(base *handshake.MessageClientHello, hook func(handshake.MessageClientHello) handshake.Message, enableRRC bool) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
 	clientHello, snapshot, err := negotiation.FinalizeClientHello(base, hook)
 	if err != nil || enableRRC || !snapshot.Offered(extension.TypeReturnRoutabilityCheck) {
 		return clientHello, snapshot, err
@@ -68,12 +64,7 @@ func FinalizeClientHello(
 
 // FinalizeServerHello applies the hook and prevents it from enabling RRC when
 // the configured CID path-migration policy does not permit RRC.
-func FinalizeServerHello(
-	base *handshake.MessageServerHello,
-	hook func(handshake.MessageServerHello) handshake.Message,
-	offer negotiation.ClientHelloSnapshot,
-	enableRRC bool,
-) (*handshake.MessageServerHello, error) {
+func FinalizeServerHello(base *handshake.MessageServerHello, hook func(handshake.MessageServerHello) handshake.Message, offer negotiation.ClientHelloSnapshot, enableRRC bool) (*handshake.MessageServerHello, error) {
 	serverHello, err := negotiation.FinalizeServerHello(base, hook, offer)
 	if err != nil || enableRRC {
 		return serverHello, err

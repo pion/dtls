@@ -40,20 +40,7 @@ func TestTrafficKeyStateAdvancesDirectionsIndependently(t *testing.T) {
 	require.NoError(t, err)
 
 	var keys TrafficKeyState
-	keys.Install(
-		&TrafficGeneration{
-			Epoch:      2,
-			Generation: 0,
-			Secret:     writeSecret0,
-			Protection: writeProtection0,
-		},
-		&TrafficGeneration{
-			Epoch:      2,
-			Generation: 0,
-			Secret:     readSecret0,
-			Protection: readProtection0,
-		},
-	)
+	keys.Install(&TrafficGeneration{Epoch: 2, Generation: 0, Secret: writeSecret0, Protection: writeProtection0}, &TrafficGeneration{Epoch: 2, Generation: 0, Secret: readSecret0, Protection: readProtection0})
 	keys.Install(&TrafficGeneration{
 		Epoch:      3,
 		Generation: 1,

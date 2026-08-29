@@ -36,11 +36,7 @@ func ValidateHelloRetryRequest(
 	hrr *handshake.MessageServerHello,
 ) (RetryRequest, error) {
 	if !initial.Valid() || hrr == nil || hrr.CipherSuiteID == nil {
-		return RetryRequest{}, negotiationError(
-			dtlserrors.ErrInvalidHelloRetryRequest,
-			errRetryMissingInitial,
-			alert.IllegalParameter,
-		)
+		return RetryRequest{}, negotiationError(dtlserrors.ErrInvalidHelloRetryRequest, errRetryMissingInitial, alert.IllegalParameter)
 	}
 
 	initialHello, err := ClientHelloFromSnapshot(initial)
@@ -52,11 +48,7 @@ func ValidateHelloRetryRequest(
 		)
 	}
 	if !slices.Contains(initialHello.CipherSuiteIDs, *hrr.CipherSuiteID) {
-		return RetryRequest{}, negotiationError(
-			dtlserrors.ErrInvalidHelloRetryRequest,
-			fmt.Errorf("%w: %d", errRetryCipherSuiteNotOffered, *hrr.CipherSuiteID),
-			alert.IllegalParameter,
-		)
+		return RetryRequest{}, negotiationError(dtlserrors.ErrInvalidHelloRetryRequest, fmt.Errorf("%w: %d", errRetryCipherSuiteNotOffered, *hrr.CipherSuiteID), alert.IllegalParameter)
 	}
 	request := retryRequest(*hrr.CipherSuiteID, hrr.Extensions)
 	if err = validateRetrySelectedGroup(initialHello, request); err != nil {
@@ -67,9 +59,7 @@ func ValidateHelloRetryRequest(
 		return RetryRequest{}, err
 	}
 	if !changed {
-		return RetryRequest{}, negotiationError(
-			dtlserrors.ErrInvalidHelloRetryRequest, errRetryNoEffect, alert.IllegalParameter,
-		)
+		return RetryRequest{}, negotiationError(dtlserrors.ErrInvalidHelloRetryRequest, errRetryNoEffect, alert.IllegalParameter)
 	}
 
 	request.valid = true
@@ -83,16 +73,11 @@ func ValidateHelloRetryRequest(
 //
 // https://www.rfc-editor.org/rfc/rfc9846#section-4.2.2
 // https://www.rfc-editor.org/rfc/rfc9846#section-4.2.4
-func BuildClientHelloRetry(
-	initial ClientHelloSnapshot,
-	request RetryRequest,
-	freshShare *extension13.KeyShareEntry,
-) (*handshake.MessageClientHello, error) {
+func BuildClientHelloRetry(initial ClientHelloSnapshot, request RetryRequest, freshShare *extension13.KeyShareEntry) (*handshake.MessageClientHello, error) {
 	if !request.valid {
 		return nil, negotiationError(dtlserrors.ErrInvalidClientHello, errRetryUnvalidatedRequest, alert.IllegalParameter)
 	}
-	if request.HasSelectedGroup &&
-		(freshShare == nil || freshShare.Group != request.SelectedGroup || len(freshShare.KeyExchange) == 0) {
+	if request.HasSelectedGroup && (freshShare == nil || freshShare.Group != request.SelectedGroup || len(freshShare.KeyExchange) == 0) {
 		return nil, negotiationError(dtlserrors.ErrInvalidClientHello, errRetryMissingFreshShare, alert.IllegalParameter)
 	}
 
@@ -139,11 +124,7 @@ func ValidateHelloVerifyRequestResponse(initial, retry ClientHelloSnapshot, cook
 		return negotiationError(dtlserrors.ErrInvalidClientHello, errHelloVerifyChangedFields, alert.IllegalParameter)
 	}
 	if !bytes.Equal(secondCookie, cookie) {
-		return negotiationError(
-			dtlserrors.ErrInvalidClientHello,
-			fmt.Errorf("ClientHello did not echo the latest cookie: %w", dtlserrors.ErrCookieMismatch),
-			alert.IllegalParameter,
-		)
+		return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("ClientHello did not echo the latest cookie: %w", dtlserrors.ErrCookieMismatch), alert.IllegalParameter)
 	}
 	if err := validateHelloVerifyExtension(initial, retry, extension.TypeConnectionID); err != nil {
 		return err
@@ -174,14 +155,10 @@ func ValidateServerHelloAfterRetry(request RetryRequest, serverHello *handshake.
 			}
 		}
 		if share == nil {
-			return negotiationError(
-				dtlserrors.ErrInvalidServerHello, dtlserrors.ErrServerKeyShareMissing, alert.IllegalParameter,
-			)
+			return negotiationError(dtlserrors.ErrInvalidServerHello, dtlserrors.ErrServerKeyShareMissing, alert.IllegalParameter)
 		}
 		if share.Share.Group != request.SelectedGroup {
-			return negotiationError(
-				dtlserrors.ErrInvalidServerHello, dtlserrors.ErrServerKeyShareUnknownGroup, alert.IllegalParameter,
-			)
+			return negotiationError(dtlserrors.ErrInvalidServerHello, dtlserrors.ErrServerKeyShareUnknownGroup, alert.IllegalParameter)
 		}
 	}
 
@@ -235,20 +212,10 @@ func validateRetrySelectedGroup(initial *handshake.MessageClientHello, request R
 		}
 	}
 	if !slices.Contains(groups, request.SelectedGroup) {
-		return negotiationError(
-			dtlserrors.ErrInvalidHelloRetryRequest,
-			fmt.Errorf("%w: %d", errRetryGroupNotOffered, request.SelectedGroup),
-			alert.IllegalParameter,
-		)
+		return negotiationError(dtlserrors.ErrInvalidHelloRetryRequest, fmt.Errorf("%w: %d", errRetryGroupNotOffered, request.SelectedGroup), alert.IllegalParameter)
 	}
-	if slices.ContainsFunc(shares, func(share extension13.KeyShareEntry) bool {
-		return share.Group == request.SelectedGroup
-	}) {
-		return negotiationError(
-			dtlserrors.ErrInvalidHelloRetryRequest,
-			fmt.Errorf("%w: %d", errRetryGroupAlreadyShared, request.SelectedGroup),
-			alert.IllegalParameter,
-		)
+	if slices.ContainsFunc(shares, func(share extension13.KeyShareEntry) bool { return share.Group == request.SelectedGroup }) {
+		return negotiationError(dtlserrors.ErrInvalidHelloRetryRequest, fmt.Errorf("%w: %d", errRetryGroupAlreadyShared, request.SelectedGroup), alert.IllegalParameter)
 	}
 
 	return nil
@@ -270,11 +237,7 @@ func helloRetryRequestChangesClientHello(initial ClientHelloSnapshot, request Re
 	return !present || !bytes.Equal(initialCookie.Data, payload), nil
 }
 
-func buildRetryExtensions(
-	initial []extension.Value,
-	request RetryRequest,
-	freshShare *extension13.KeyShareEntry,
-) []extension.Value {
+func buildRetryExtensions(initial []extension.Value, request RetryRequest, freshShare *extension13.KeyShareEntry) []extension.Value {
 	result := make([]extension.Value, 0, len(initial)+2)
 	keyShareApplied, cookieApplied := false, false
 	for _, value := range initial {
@@ -298,11 +261,7 @@ func buildRetryExtensions(
 	return insertMissingRetryExtensions(result, request, freshShare, keyShareApplied, cookieApplied)
 }
 
-func retryExtensionReplacement(
-	value extension.Value,
-	request RetryRequest,
-	freshShare *extension13.KeyShareEntry,
-) (extension.Value, bool, bool) {
+func retryExtensionReplacement(value extension.Value, request RetryRequest, freshShare *extension13.KeyShareEntry) (extension.Value, bool, bool) {
 	typ := value.ExtensionType()
 	if typ == extension.TypeEarlyData {
 		return nil, false, true
@@ -317,12 +276,7 @@ func retryExtensionReplacement(
 	return nil, false, false
 }
 
-func insertMissingRetryExtensions(
-	values []extension.Value,
-	request RetryRequest,
-	freshShare *extension13.KeyShareEntry,
-	keyShareApplied, cookieApplied bool,
-) []extension.Value {
+func insertMissingRetryExtensions(values []extension.Value, request RetryRequest, freshShare *extension13.KeyShareEntry, keyShareApplied, cookieApplied bool) []extension.Value {
 	insert := make([]extension.Value, 0, 2)
 	if request.HasSelectedGroup && !keyShareApplied {
 		insert = append(insert, retryKeyShare(freshShare))
@@ -380,20 +334,14 @@ func validateRetryCookie(retry ClientHelloSnapshot, request RetryRequest) error 
 		return nil
 	}
 
-	return negotiationError(
-		dtlserrors.ErrInvalidClientHello,
-		fmt.Errorf("ClientHello2 did not echo the HelloRetryRequest cookie: %w", dtlserrors.ErrCookieMismatch),
-		alert.IllegalParameter,
-	)
+	return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("ClientHello2 did not echo the HelloRetryRequest cookie: %w", dtlserrors.ErrCookieMismatch), alert.IllegalParameter)
 }
 
 func retryExtensionsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bool {
 	first := comparableRetryExtensions(initial.extensions, true, request)
 	second := comparableRetryExtensions(retry.extensions, false, request)
 
-	return slices.EqualFunc(first, second, func(a, b extension.Raw) bool {
-		return a.Type == b.Type && bytes.Equal(a.Data, b.Data)
-	})
+	return slices.EqualFunc(first, second, func(a, b extension.Raw) bool { return a.Type == b.Type && bytes.Equal(a.Data, b.Data) })
 }
 
 func comparableRetryExtensions(
@@ -403,10 +351,7 @@ func comparableRetryExtensions(
 ) []extension.Raw {
 	result := make([]extension.Raw, 0, len(values))
 	for _, value := range values {
-		if value.Type == extension.TypePadding ||
-			(value.Type == extension.TypeEarlyData && initial) ||
-			(value.Type == extension.TypeKeyShare && request.HasSelectedGroup) ||
-			(value.Type == extension.TypeCookie && request.HasCookie) {
+		if value.Type == extension.TypePadding || (value.Type == extension.TypeEarlyData && initial) || (value.Type == extension.TypeKeyShare && request.HasSelectedGroup) || (value.Type == extension.TypeCookie && request.HasCookie) {
 			continue
 		}
 		result = append(result, value)
@@ -434,8 +379,7 @@ func helloVerifyClientHelloParts(snapshot ClientHelloSnapshot) (beforeCookie, af
 	cookieStart := cookieOffset + 1
 	cookieEnd := cookieStart + int(snapshot.body[cookieOffset])
 
-	return snapshot.body[:cookieOffset], snapshot.body[cookieEnd:snapshot.extensionOffset],
-		snapshot.body[cookieStart:cookieEnd]
+	return snapshot.body[:cookieOffset], snapshot.body[cookieEnd:snapshot.extensionOffset], snapshot.body[cookieStart:cookieEnd]
 }
 
 func validateHelloVerifyExtension(initial, retry ClientHelloSnapshot, typ extension.Type) error {
@@ -445,15 +389,9 @@ func validateHelloVerifyExtension(initial, retry ClientHelloSnapshot, typ extens
 		return nil
 	}
 
-	return negotiationError(
-		dtlserrors.ErrInvalidClientHello,
-		fmt.Errorf("%w: %d", errHelloVerifyExtensionChanged, typ),
-		alert.IllegalParameter,
-	)
+	return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("%w: %d", errHelloVerifyExtensionChanged, typ), alert.IllegalParameter)
 }
 
 func retryKeyShare(share *extension13.KeyShareEntry) *extension13.ClientKeyShare {
-	return &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{
-		Group: share.Group, KeyExchange: bytes.Clone(share.KeyExchange),
-	}}}
+	return &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: share.Group, KeyExchange: bytes.Clone(share.KeyExchange)}}}
 }

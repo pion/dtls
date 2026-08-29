@@ -100,11 +100,7 @@ func sendACK(ctx context.Context, conn Conn, epoch uint16, records []protocol.Re
 		return nil
 	}
 
-	_, err := conn.WritePackets(ctx, []*dtlsflight.Outbound{{
-		Epoch:      epoch,
-		Content:    &protocol.ACK{Records: records},
-		Protection: dtlsflight.ProtectionCiphertext,
-	}})
+	_, err := conn.WritePackets(ctx, []*dtlsflight.Outbound{{Epoch: epoch, Content: &protocol.ACK{Records: records}, Protection: dtlsflight.ProtectionCiphertext}})
 
 	return err
 }

@@ -58,14 +58,7 @@ func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 		return connConfigValues{}, err
 	}
 
-	cipherSuites, err := selectCipherSuites(
-		config.CipherSuites,
-		config.customCipherSuites,
-		config.includeCertificateSuites(),
-		config.psk != nil,
-		minVersion,
-		maxVersion,
-	)
+	cipherSuites, err := selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil, minVersion, maxVersion)
 	if err != nil {
 		return connConfigValues{}, err
 	}
@@ -103,10 +96,7 @@ func parseConnSignatureSchemes(
 
 	var certSignatureSchemes []signaturehash.Algorithm
 	if len(config.CertificateSignatureSchemes) > 0 {
-		certSignatureSchemes, err = signaturehash.ParseSignatureSchemes(
-			config.CertificateSignatureSchemes,
-			config.InsecureHashes,
-		)
+		certSignatureSchemes, err = signaturehash.ParseSignatureSchemes(config.CertificateSignatureSchemes, config.InsecureHashes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -179,25 +169,17 @@ func adaptVerifyConnection(verifyConnection func(*State) error) func(dtlsstate.A
 	}
 }
 
-func adaptGetCertificate(
-	getCertificate func(*ClientHelloInfo) (*tls.Certificate, error),
-) func(*dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
+func adaptGetCertificate(getCertificate func(*ClientHelloInfo) (*tls.Certificate, error)) func(*dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
 	if getCertificate == nil {
 		return nil
 	}
 
 	return func(info *dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
-		return getCertificate(&ClientHelloInfo{
-			ServerName:   info.ServerName,
-			CipherSuites: info.CipherSuites,
-			RandomBytes:  info.RandomBytes,
-		})
+		return getCertificate(&ClientHelloInfo{ServerName: info.ServerName, CipherSuites: info.CipherSuites, RandomBytes: info.RandomBytes})
 	}
 }
 
-func adaptGetClientCertificate(
-	getClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error),
-) func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
+func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error)) func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
 	if getClientCertificate == nil {
 		return nil
 	}
@@ -209,18 +191,11 @@ func adaptGetClientCertificate(
 			signatureSchemes = append(signatureSchemes, tls.SignatureScheme(uint16(raw[0])<<8|uint16(raw[1])))
 		}
 
-		return getClientCertificate(&CertificateRequestInfo{
-			AcceptableCAs:    info.AcceptableCAs,
-			SignatureSchemes: signatureSchemes,
-		})
+		return getClientCertificate(&CertificateRequestInfo{AcceptableCAs: info.AcceptableCAs, SignatureSchemes: signatureSchemes})
 	}
 }
 
-func newHandshakeConfig(
-	config *dtlsConfig,
-	configValues connConfigValues,
-	resumeState *dtlsstate.State,
-) *dtlsconfig.HandshakeConfig {
+func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState *dtlsstate.State) *dtlsconfig.HandshakeConfig {
 	handshakeConfig := &dtlsconfig.HandshakeConfig{
 		LocalPSKCallback:              config.psk,
 		LocalPSKIdentityHint:          config.PSKIdentityHint,
@@ -338,10 +313,7 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 		return err
 	}
 
-	_, err = selectCipherSuites(
-		config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil,
-		minVersion, maxVersion,
-	)
+	_, err = selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil, minVersion, maxVersion)
 
 	return err
 }
@@ -350,11 +322,7 @@ func defaultCipherSuitesForVersion(version protocol.Version) []cryptosuite.Suite
 	var ids []cryptosuite.ID
 	switch version {
 	case protocol.Version1_3:
-		ids = []cryptosuite.ID{
-			cryptosuite.TLS_AES_128_GCM_SHA256,
-			cryptosuite.TLS_AES_256_GCM_SHA384,
-			cryptosuite.TLS_CHACHA20_POLY1305_SHA256,
-		}
+		ids = []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_AES_256_GCM_SHA384, cryptosuite.TLS_CHACHA20_POLY1305_SHA256}
 	case protocol.Version1_2:
 		ids = []cryptosuite.ID{
 			cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -382,18 +350,11 @@ func filterCipherSuitesForVersion(
 	cipherSuites []cryptosuite.Suite,
 	version protocol.Version,
 ) []cryptosuite.Suite {
-	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool {
-		return !suite.Capabilities().SupportsVersion(version)
-	})
+	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool { return !suite.Capabilities().SupportsVersion(version) })
 }
 
 //nolint:cyclop,gocognit
-func selectCipherSuites(
-	selectedIDs []cryptosuite.ID,
-	customCipherSuites func() []cryptosuite.Suite,
-	includeCertificateSuites, includePSKSuites bool,
-	minVersion, maxVersion protocol.Version,
-) ([]cryptosuite.Suite, error) {
+func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, includeCertificateSuites, includePSKSuites bool, minVersion, maxVersion protocol.Version) ([]cryptosuite.Suite, error) {
 	customByID := make(map[cryptosuite.ID]cryptosuite.Suite)
 	var custom []cryptosuite.Suite
 	if customCipherSuites != nil {
@@ -527,8 +488,7 @@ func filterCipherSuitesForCertificate(
 	}
 
 	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool {
-		return !suite.Capabilities().SupportsVersion(protocol.Version1_3) &&
-			suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate && certType != suite.CertificateType()
+		return !suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate && certType != suite.CertificateType()
 	})
 }
 
@@ -540,18 +500,11 @@ func effectiveProtocolVersionRange(config *dtlsConfig) (protocol.Version, protoc
 	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
 	versions := dtlsconfig.SupportedVersionsRange(minVersion, maxVersion)
 
-	if cipherVersions := supportedCipherSuiteVersions(
-		config.CipherSuites,
-		config.customCipherSuites,
-		versions,
-	); len(cipherVersions) != 0 {
+	if cipherVersions := supportedCipherSuiteVersions(config.CipherSuites, config.customCipherSuites, versions); len(cipherVersions) != 0 {
 		versions = cipherVersions
 	}
 
-	curveVersions := supportedEllipticCurveVersions(
-		config.EllipticCurves,
-		dtlsconfig.SupportedVersionsRange(minVersion, maxVersion),
-	)
+	curveVersions := supportedEllipticCurveVersions(config.EllipticCurves, dtlsconfig.SupportedVersionsRange(minVersion, maxVersion))
 	if len(config.EllipticCurves) != 0 && len(curveVersions) == 0 {
 		return 0, 0, dtlserrors.ErrUnsupportedEllipticCurveVersion
 	}
@@ -564,11 +517,7 @@ func effectiveProtocolVersionRange(config *dtlsConfig) (protocol.Version, protoc
 	return versions[len(versions)-1], versions[0], nil
 }
 
-func supportedCipherSuiteVersions(
-	suites []cryptosuite.ID,
-	customCipherSuites func() []cryptosuite.Suite,
-	versions []protocol.Version,
-) []protocol.Version {
+func supportedCipherSuiteVersions(suites []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, versions []protocol.Version) []protocol.Version {
 	if suites == nil {
 		return versions
 	}
@@ -594,9 +543,7 @@ func supportedCipherSuiteVersions(
 	}
 
 	return filterSupportedVersions(versions, func(version protocol.Version) bool {
-		return slices.ContainsFunc(descriptors, func(suite cryptosuite.Suite) bool {
-			return suite.Capabilities().SupportsVersion(version)
-		})
+		return slices.ContainsFunc(descriptors, func(suite cryptosuite.Suite) bool { return suite.Capabilities().SupportsVersion(version) })
 	})
 }
 

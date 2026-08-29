@@ -12,10 +12,7 @@ import (
 )
 
 func TestReturnRoutabilityCheck(t *testing.T) {
-	want := ReturnRoutabilityCheck{
-		MessageType: ReturnRoutabilityCheckPathResponse,
-		Cookie:      [ReturnRoutabilityCheckCookieLength]byte{1, 2, 3, 4, 5, 6, 7, 8},
-	}
+	want := ReturnRoutabilityCheck{MessageType: ReturnRoutabilityCheckPathResponse, Cookie: [ReturnRoutabilityCheckCookieLength]byte{1, 2, 3, 4, 5, 6, 7, 8}}
 
 	raw, err := want.Marshal()
 	require.NoError(t, err)

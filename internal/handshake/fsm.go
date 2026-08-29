@@ -16,15 +16,7 @@ import (
 type fsmStateHandler func(context.Context, Conn) (State, error)
 
 // runHandshakeFSM drives the shared preparing/sending/waiting/finished loop.
-func runHandshakeFSM(
-	ctx context.Context,
-	conn Conn,
-	initialState State,
-	closed chan struct{},
-	establishment *Establishment,
-	trace func(State),
-	prepare, send, wait, finish fsmStateHandler,
-) error {
+func runHandshakeFSM(ctx context.Context, conn Conn, initialState State, closed chan struct{}, establishment *Establishment, trace func(State), prepare, send, wait, finish fsmStateHandler) error {
 	state := initialState
 	defer close(closed)
 
@@ -68,11 +60,7 @@ func notifyAlert(ctx context.Context, conn Conn, dtlsAlert *alert.Alert, err err
 	return err
 }
 
-func handleRetransmitTimeout(
-	retransmit bool,
-	retransmitInterval *time.Duration,
-	cfg *dtlsconfig.HandshakeConfig,
-) State {
+func handleRetransmitTimeout(retransmit bool, retransmitInterval *time.Duration, cfg *dtlsconfig.HandshakeConfig) State {
 	if !retransmit {
 		return StateWaiting
 	}
@@ -89,11 +77,7 @@ func handleRetransmitTimeout(
 	return StateSending
 }
 
-func handleWaitCancellation(
-	retransmitInterval *time.Duration,
-	cfg *dtlsconfig.HandshakeConfig,
-	err error,
-) (State, error) {
+func handleWaitCancellation(retransmitInterval *time.Duration, cfg *dtlsconfig.HandshakeConfig, err error) (State, error) {
 	*retransmitInterval = cfg.InitialRetransmitInterval
 
 	return StateErrored, err

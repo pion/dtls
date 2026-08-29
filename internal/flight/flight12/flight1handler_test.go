@@ -57,16 +57,9 @@ func TestFlight1_Process_RejectsInvalidLateServerFlight(t *testing.T) { //nolint
 
 	mockConn := &flight1TestMockFlightConn{}
 	state := newTestState12()
-	state.CipherSuite = &flight1TestMockCipherSuite{
-		Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
-		t:     t,
-	}
+	state.CipherSuite = &flight1TestMockCipherSuite{Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), t: t}
 	cache := dtlsflight.NewCache()
-	cfg := &dtlsconfig.HandshakeConfig{
-		LocalSRTPProtectionProfiles: []dtlsconfig.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM},
-		EllipticCurves:              []elliptic.Curve{elliptic.X25519},
-		ExtendedMasterSecret:        dtlsconfig.RequestExtendedMasterSecret,
-	}
+	cfg := &dtlsconfig.HandshakeConfig{LocalSRTPProtectionProfiles: []dtlsconfig.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM}, EllipticCurves: []elliptic.Curve{elliptic.X25519}, ExtendedMasterSecret: dtlsconfig.RequestExtendedMasterSecret}
 	cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{
 		ciphersuite.ForID(cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
 	}

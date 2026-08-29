@@ -18,15 +18,7 @@ import (
 )
 
 func TestClientHelloFiltersX25519MLKEM768(t *testing.T) {
-	cfg := &dtlsconfig.HandshakeConfig{
-		EllipticCurves: []elliptic.Curve{
-			elliptic.X25519MLKEM768,
-			elliptic.P256,
-		},
-		LocalCipherSuites: []dtlsconfig.CipherSuite{
-			ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
-		},
-	}
+	cfg := &dtlsconfig.HandshakeConfig{EllipticCurves: []elliptic.Curve{elliptic.X25519MLKEM768, elliptic.P256}, LocalCipherSuites: []dtlsconfig.CipherSuite{ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}}
 	state := newTestState12()
 
 	pkts, _, err := generateForTest(t, Flight1, nil, state, nil, cfg)
@@ -73,12 +65,7 @@ func TestRejectsX25519MLKEM768ServerKeyExchange(t *testing.T) {
 	state := newTestState12()
 	state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 
-	dtlsAlert, err := handleServerKeyExchange(
-		nil,
-		state,
-		&dtlsconfig.HandshakeConfig{},
-		&handshake.MessageServerKeyExchange{NamedCurve: elliptic.X25519MLKEM768},
-	)
+	dtlsAlert, err := handleServerKeyExchange(nil, state, &dtlsconfig.HandshakeConfig{}, &handshake.MessageServerKeyExchange{NamedCurve: elliptic.X25519MLKEM768})
 	require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
 	require.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlsAlert)
 }

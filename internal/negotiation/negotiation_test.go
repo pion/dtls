@@ -22,13 +22,7 @@ import (
 const unknownExtensionType extension.Type = 0xfefe
 
 func clientHelloForTest(extensions ...extension.Value) *handshake.MessageClientHello {
-	return &handshake.MessageClientHello{
-		Version:            protocol.Version1_2,
-		SessionID:          []byte{0x01, 0x02},
-		CipherSuiteIDs:     []uint16{0x1301},
-		CompressionMethods: []*protocol.CompressionMethod{{}},
-		Extensions:         extensions,
-	}
+	return &handshake.MessageClientHello{Version: protocol.Version1_2, SessionID: []byte{0x01, 0x02}, CipherSuiteIDs: []uint16{0x1301}, CompressionMethods: []*protocol.CompressionMethod{{}}, Extensions: extensions}
 }
 
 func snapshotForTest(
@@ -85,20 +79,8 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 		want        error
 		description alert.Description
 	}{
-		{
-			name: "wrong message type",
-			hook: func(handshake.MessageClientHello) handshake.Message {
-				return &handshake.MessageServerHello{}
-			},
-			description: alert.InternalError,
-		},
-		{
-			name: "typed nil message",
-			hook: func(handshake.MessageClientHello) handshake.Message {
-				return (*handshake.MessageClientHello)(nil)
-			},
-			description: alert.InternalError,
-		},
+		{name: "wrong message type", hook: func(handshake.MessageClientHello) handshake.Message { return &handshake.MessageServerHello{} }, description: alert.InternalError},
+		{name: "typed nil message", hook: func(handshake.MessageClientHello) handshake.Message { return (*handshake.MessageClientHello)(nil) }, description: alert.InternalError},
 		{
 			name: "nil compression method",
 			hook: func(ch handshake.MessageClientHello) handshake.Message {
@@ -145,9 +127,7 @@ func TestFinalizeClientHelloRejectsInvalidHookOutput(t *testing.T) {
 }
 
 func TestRecordWirePreservesExactClientHello(t *testing.T) {
-	clientHello := clientHelloForTest(&extension12.SupportedPointFormats{
-		PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed, 1},
-	})
+	clientHello := clientHelloForTest(&extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed, 1}})
 	clientHello.CompressionMethods = []*protocol.CompressionMethod{{ID: 0}, {ID: 0xfe}}
 	raw, err := (&handshake.Handshake{Message: clientHello}).Marshal()
 	require.NoError(t, err)
@@ -179,9 +159,7 @@ func TestRecordWireRejectsWrongHandshakeType(t *testing.T) {
 func TestClientHelloSnapshotsRetainInitialAndCurrentOffers(t *testing.T) {
 	var history ClientHelloSnapshots
 	for _, value := range []byte{0x01, 0x02} {
-		_, snapshot, err := FinalizeClientHello(
-			clientHelloForTest(extension.Raw{Type: unknownExtensionType, Data: []byte{value}}), nil,
-		)
+		_, snapshot, err := FinalizeClientHello(clientHelloForTest(extension.Raw{Type: unknownExtensionType, Data: []byte{value}}), nil)
 		require.NoError(t, err)
 		require.NoError(t, history.Record(snapshot))
 	}
@@ -204,41 +182,13 @@ func TestValidateServerHelloResponse(t *testing.T) {
 		serverHello *handshake.MessageServerHello
 		wantError   bool
 	}{
-		"offered extension": {
-			offer: snapshotForTest(t, []uint16{0x1301},
-				&extension.ALPNOffer{Protocols: []string{"webrtc"}},
-			),
-			serverHello: serverHelloForTest(&extension.ALPNSelection{Protocol: "webrtc"}),
-		},
-		"offered unknown response": {
-			offer: snapshotForTest(t, []uint16{0x1301},
-				extension.Raw{Type: unknownExtensionType, Data: []byte{0x01}},
-			),
-			serverHello: serverHelloForTest(extension.Raw{Type: unknownExtensionType, Data: []byte{0x02}}),
-		},
-		"HRR cookie exception": {
-			offer:       snapshotForTest(t, []uint16{0x1301}),
-			serverHello: helloRetryRequestForTest(&extension13.Cookie{Cookie: []byte{0x01}}),
-		},
-		"SCSV renegotiation exception": {
-			offer:       snapshotForTest(t, []uint16{0x00ff}),
-			serverHello: serverHelloForTest(&extension12.RenegotiationInfo{}),
-		},
-		"unsolicited known response": {
-			offer:       snapshotForTest(t, []uint16{0x1301}),
-			serverHello: serverHelloForTest(&extension.ConnectionID{}),
-			wantError:   true,
-		},
-		"unsolicited unknown response": {
-			offer:       snapshotForTest(t, []uint16{0x1301}),
-			serverHello: serverHelloForTest(extension.Raw{Type: unknownExtensionType}),
-			wantError:   true,
-		},
-		"renegotiation without SCSV": {
-			offer:       snapshotForTest(t, []uint16{0x1301}),
-			serverHello: serverHelloForTest(&extension12.RenegotiationInfo{}),
-			wantError:   true,
-		},
+		"offered extension":            {offer: snapshotForTest(t, []uint16{0x1301}, &extension.ALPNOffer{Protocols: []string{"webrtc"}}), serverHello: serverHelloForTest(&extension.ALPNSelection{Protocol: "webrtc"})},
+		"offered unknown response":     {offer: snapshotForTest(t, []uint16{0x1301}, extension.Raw{Type: unknownExtensionType, Data: []byte{0x01}}), serverHello: serverHelloForTest(extension.Raw{Type: unknownExtensionType, Data: []byte{0x02}})},
+		"HRR cookie exception":         {offer: snapshotForTest(t, []uint16{0x1301}), serverHello: helloRetryRequestForTest(&extension13.Cookie{Cookie: []byte{0x01}})},
+		"SCSV renegotiation exception": {offer: snapshotForTest(t, []uint16{0x00ff}), serverHello: serverHelloForTest(&extension12.RenegotiationInfo{})},
+		"unsolicited known response":   {offer: snapshotForTest(t, []uint16{0x1301}), serverHello: serverHelloForTest(&extension.ConnectionID{}), wantError: true},
+		"unsolicited unknown response": {offer: snapshotForTest(t, []uint16{0x1301}), serverHello: serverHelloForTest(extension.Raw{Type: unknownExtensionType}), wantError: true},
+		"renegotiation without SCSV":   {offer: snapshotForTest(t, []uint16{0x1301}), serverHello: serverHelloForTest(&extension12.RenegotiationInfo{}), wantError: true},
 	}
 
 	for name, test := range tests {
@@ -264,20 +214,13 @@ func TestValidateServerHello12Context(t *testing.T) {
 		requireAlert(t, err, alert.IllegalParameter)
 	}
 	check(helloRetryRequestForTest())
-	for _, typ := range []extension.Type{
-		extension.TypeSupportedVersions, extension.TypeKeyShare, extension.TypePreSharedKey,
-	} {
+	for _, typ := range []extension.Type{extension.TypeSupportedVersions, extension.TypeKeyShare, extension.TypePreSharedKey} {
 		check(serverHelloForTest(extension.Raw{Type: typ}))
 	}
 }
 
 func TestDecideConnectionIDNegotiatesReturnRoutabilityCheck(t *testing.T) {
-	offer := snapshotForTest(
-		t,
-		[]uint16{0x1301},
-		&extension.ConnectionID{CID: []byte("client")},
-		&extension.ReturnRoutabilityCheck{},
-	)
+	offer := snapshotForTest(t, []uint16{0x1301}, &extension.ConnectionID{CID: []byte("client")}, &extension.ReturnRoutabilityCheck{})
 
 	withoutRRC := DecideConnectionID(offer, []extension.Value{
 		&extension.ConnectionID{CID: []byte("server")},
@@ -285,10 +228,7 @@ func TestDecideConnectionIDNegotiatesReturnRoutabilityCheck(t *testing.T) {
 	require.NotNil(t, withoutRRC)
 	assert.False(t, withoutRRC.ReturnRoutabilityCheck)
 
-	withRRC := DecideConnectionID(offer, []extension.Value{
-		&extension.ConnectionID{CID: []byte("server")},
-		&extension.ReturnRoutabilityCheck{},
-	})
+	withRRC := DecideConnectionID(offer, []extension.Value{&extension.ConnectionID{CID: []byte("server")}, &extension.ReturnRoutabilityCheck{}})
 	require.NotNil(t, withRRC)
 	assert.True(t, withRRC.ReturnRoutabilityCheck)
 }

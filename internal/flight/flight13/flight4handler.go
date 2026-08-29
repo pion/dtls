@@ -50,8 +50,7 @@ func flight4Parse(
 	}
 
 	if flightCtx.protectedHandshakeHandler == nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
-			dtlserrors.ErrHandshakeTranscriptHashNotSelected
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, protectedFlight.items); err != nil {
 		failure := protectedFlightParseFailure(err)
@@ -77,10 +76,7 @@ func selectClientKeyShare(
 	return true
 }
 
-func generateClientKeyShareSecret(
-	state *dtlsstate.State13,
-	cfg *dtlsconfig.HandshakeConfig,
-) *clientHelloExtensionFailure {
+func generateClientKeyShareSecret(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) *clientHelloExtensionFailure {
 	selectedGroup, ok := preferredClientGroup(state, cfg)
 	if !ok {
 		if state.RemoteGroups != nil {
@@ -104,11 +100,7 @@ func generateClientKeyShareSecret(
 		state.LocalKeypair = keypair
 	}
 
-	keyAgreementSecret, err := prf.PreMasterSecret(
-		selectedEntry.KeyExchange,
-		state.LocalKeypair.PrivateKey,
-		state.SelectedGroup,
-	)
+	keyAgreementSecret, err := prf.PreMasterSecret(selectedEntry.KeyExchange, state.LocalKeypair.PrivateKey, state.SelectedGroup)
 	if err != nil {
 		return newClientHelloExtensionFailure(alert.IllegalParameter, err)
 	}
@@ -117,10 +109,7 @@ func generateClientKeyShareSecret(
 	return nil
 }
 
-func matchingClientKeyShare(
-	state *dtlsstate.State13,
-	cfg *dtlsconfig.HandshakeConfig,
-) (extension13.KeyShareEntry, bool) {
+func matchingClientKeyShare(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) (extension13.KeyShareEntry, bool) {
 	selectedGroup, ok := preferredClientGroup(state, cfg)
 	if !ok {
 		return extension13.KeyShareEntry{}, false
@@ -163,9 +152,7 @@ func clientKeyShareForGroup(
 }
 
 func needsClientKeypair(state *dtlsstate.State13) bool {
-	return state.LocalKeypair == nil ||
-		state.LocalKeypair.Curve != state.SelectedGroup ||
-		state.SelectedGroup == elliptic.X25519MLKEM768
+	return state.LocalKeypair == nil || state.LocalKeypair.Curve != state.SelectedGroup || state.SelectedGroup == elliptic.X25519MLKEM768
 }
 
 func flight4Generate( //nolint:cyclop
@@ -182,11 +169,7 @@ func flight4Generate( //nolint:cyclop
 		return nil, nil, dtlserrors.ErrServerKeyShareMissing
 	}
 
-	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{
-		ServerName:   state.ServerName,
-		CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()},
-		RandomBytes:  state.RemoteRandom.RandomBytes,
-	})
+	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: state.ServerName, CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()}, RandomBytes: state.RemoteRandom.RandomBytes})
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 	}
@@ -223,16 +206,9 @@ func flight4Generate( //nolint:cyclop
 			Version: protocol.Version1_3,
 		},
 	}
-	serverHelloExtensions = append(serverHelloExtensions, &extension13.ServerKeyShare{
-		Share: extension13.KeyShareEntry{
-			Group:       state.LocalKeypair.Curve,
-			KeyExchange: state.LocalKeypair.PublicKey,
-		},
-	})
+	serverHelloExtensions = append(serverHelloExtensions, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: state.LocalKeypair.Curve, KeyExchange: state.LocalKeypair.PublicKey}})
 	offer := state.RemoteClientHelloSnapshots.Current()
-	srtpDecision, err := negotiation.NegotiateSRTP(
-		offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier,
-	)
+	srtpDecision, err := negotiation.NegotiateSRTP(offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -241,19 +217,9 @@ func flight4Generate( //nolint:cyclop
 		if !state.CID.Negotiated {
 			localCID = bytes.Clone(cfg.ConnectionIDGenerator())
 		}
-		serverHelloExtensions = dtlsflight.AppendConnectionIDExtensions(
-			serverHelloExtensions,
-			localCID,
-			cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck),
-		)
+		serverHelloExtensions = dtlsflight.AppendConnectionIDExtensions(serverHelloExtensions, localCID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
 	}
-	serverHelloMessage := &handshake.MessageServerHello{
-		Version:           protocol.Version1_2,
-		Random:            state.LocalRandom,
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions:        serverHelloExtensions,
-	}
+	serverHelloMessage := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: state.LocalRandom, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: serverHelloExtensions}
 	if _, err = serverHelloMessage.Marshal(); err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -265,10 +231,7 @@ func flight4Generate( //nolint:cyclop
 
 	encryptedExtensionsList := []extension.Value{}
 	if srtpDecision.ProtectionProfile != 0 {
-		encryptedExtensionsList = append(encryptedExtensionsList, &extension.SRTPSelection{
-			ProtectionProfile:   srtpDecision.ProtectionProfile,
-			MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier),
-		})
+		encryptedExtensionsList = append(encryptedExtensionsList, &extension.SRTPSelection{ProtectionProfile: srtpDecision.ProtectionProfile, MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier)})
 	}
 	messageExtensions := handshake.MessageEncryptedExtensions{}
 	messageExtensions.Extensions = encryptedExtensionsList
@@ -282,11 +245,7 @@ func flight4Generate( //nolint:cyclop
 		// RFC 8446 Section 4.3.2 requires signature_algorithms in the request.
 		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
 		// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.3.2
-		certificateRequestExtensions := []extension.Value{
-			&extension.SignatureAlgorithms{
-				Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
-			},
-		}
+		certificateRequestExtensions := []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)}}
 		if cfg.ClientCAs != nil {
 			certificateRequestExtensions = append(certificateRequestExtensions, &extension13.CertificateAuthorities{
 				// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR

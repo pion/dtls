@@ -31,10 +31,7 @@ func packetListenerOptions(config *dtlsConfig) []udp.ListenerOption {
 	// If connection ID support is enabled, then they must be supported in
 	// routing.
 	if config.ConnectionIDGenerator != nil {
-		opts = append(opts,
-			udp.WithDatagramRouter(cidDatagramRouter(len(config.ConnectionIDGenerator()))),
-			udp.WithConnectionIdentifier(cidConnIdentifier()),
-		)
+		opts = append(opts, udp.WithDatagramRouter(cidDatagramRouter(len(config.ConnectionIDGenerator()))), udp.WithConnectionIdentifier(cidConnIdentifier()))
 	}
 
 	return opts

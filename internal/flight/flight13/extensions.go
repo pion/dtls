@@ -37,10 +37,7 @@ func newClientHelloExtensionFailure(
 	}
 }
 
-func processClientHelloExtensions(
-	state *dtlsstate.State13,
-	clientHello *handshake.MessageClientHello,
-) *clientHelloExtensionFailure {
+func processClientHelloExtensions(state *dtlsstate.State13, clientHello *handshake.MessageClientHello) *clientHelloExtensionFailure {
 	var seen clientHelloExtensionSet
 
 	for _, val := range clientHello.Extensions {
@@ -57,11 +54,7 @@ func processClientHelloExtensions(
 	return nil
 }
 
-func processClientHelloSecurityExtension(
-	state *dtlsstate.State13,
-	seen *clientHelloExtensionSet,
-	val extension.Value,
-) *clientHelloExtensionFailure {
+func processClientHelloSecurityExtension(state *dtlsstate.State13, seen *clientHelloExtensionSet, val extension.Value) *clientHelloExtensionFailure {
 	switch ext := val.(type) {
 	case *extension.SupportedGroups:
 		seen.hasSupportedGroups = true

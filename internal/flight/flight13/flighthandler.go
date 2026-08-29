@@ -137,11 +137,7 @@ func newHandshakeContext(dependencies ParseDependencies) *handshakeContext {
 	}
 }
 
-func pullProtectedHandshakeFlight(
-	cache *dtlsflight.Cache,
-	rules []dtlsflight.HandshakeCachePullRule,
-	nextHandshakeSequence int,
-) protectedFlightPull {
+func pullProtectedHandshakeFlight(cache *dtlsflight.Cache, rules []dtlsflight.HandshakeCachePullRule, nextHandshakeSequence int) protectedFlightPull {
 	selection := cache.PullSequential(nextHandshakeSequence, rules...)
 	if selection.Err != nil {
 		return protectedFlightPull{
@@ -272,12 +268,7 @@ func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) {
 	}
 }
 
-func Parse(
-	ctx context.Context,
-	f Flight,
-	conn dtlsflight.Conn,
-	dependencies ParseDependencies,
-) (Flight, *alert.Alert, error, bool) {
+func Parse(ctx context.Context, f Flight, conn dtlsflight.Conn, dependencies ParseDependencies) (Flight, *alert.Alert, error, bool) {
 	parse, ok := getFlightParser(f)
 	if !ok {
 		return 0, nil, nil, false
@@ -292,11 +283,7 @@ func Parse(
 }
 
 func HandshakePacket(message handshake.Message) *dtlsflight.Outbound {
-	return &dtlsflight.Outbound{
-		Epoch:      EpochHandshake,
-		Content:    &handshake.Handshake{Message: message},
-		Protection: dtlsflight.ProtectionCiphertext,
-	}
+	return &dtlsflight.Outbound{Epoch: EpochHandshake, Content: &handshake.Handshake{Message: message}, Protection: dtlsflight.ProtectionCiphertext}
 }
 
 func CertificateVerifyPacket(
@@ -356,22 +343,17 @@ func validateHelloRetryRequestSelectedVersion(extensions []extension.Value) erro
 	return nil
 }
 
-func selectServerHelloCipherSuite(
-	serverHello *handshake.MessageServerHello,
-	cfg *dtlsconfig.HandshakeConfig,
-) (dtlsconfig.CipherSuite, *alert.Alert, error) {
+func selectServerHelloCipherSuite(serverHello *handshake.MessageServerHello, cfg *dtlsconfig.HandshakeConfig) (dtlsconfig.CipherSuite, *alert.Alert, error) {
 	if serverHello.CipherSuiteID == nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
 			dtlserrors.ErrInvalidServerHello
 	}
 	selectedCipherSuite, found := dtlsflight.FindCipherSuiteByID(*serverHello.CipherSuiteID, cfg.LocalCipherSuites)
 	if !found {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
-			dtlserrors.ErrCipherSuiteNoIntersection
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection
 	}
 	if !selectedCipherSuite.Capabilities().SupportsVersion(protocol.Version1_3) {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
-			dtlserrors.ErrInvalidCipherSuite
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 	}
 
 	return selectedCipherSuite, nil, nil

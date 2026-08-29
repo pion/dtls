@@ -27,12 +27,7 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 				0x00, 0x02, // signature_algorithms length = 2
 				0x04, 0x03, // ECDSA-SHA256
 			},
-			parsedCertificateRequest: &MessageCertificateRequest13{
-				CertificateRequestContext: []byte{},
-				Extensions: []extension.Value{
-					&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-				},
-			},
+			parsedCertificateRequest: &MessageCertificateRequest13{CertificateRequestContext: []byte{}, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}},
 		},
 		"valid - with context, multiple signature algorithms": {
 			rawCertificateRequest: []byte{
@@ -46,12 +41,7 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 				0x04, 0x01, // RSA-PKCS1-SHA256
 				0x05, 0x03, // ECDSA-SHA384
 			},
-			parsedCertificateRequest: &MessageCertificateRequest13{
-				CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
-				Extensions: []extension.Value{
-					&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0401, 0x0503}},
-				},
-			},
+			parsedCertificateRequest: &MessageCertificateRequest13{CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04}, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0401, 0x0503}}}},
 		},
 		"invalid - missing signature_algorithms": {
 			rawCertificateRequest: []byte{
@@ -107,12 +97,7 @@ func TestMessageCertificateRequest13_ValidContexts(t *testing.T) {
 		{"maximum length", maxContext, []uint16{0x0403}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			msg := &MessageCertificateRequest13{
-				CertificateRequestContext: test.context,
-				Extensions: []extension.Value{
-					&extension.SignatureAlgorithms{Schemes: test.schemes},
-				},
-			}
+			msg := &MessageCertificateRequest13{CertificateRequestContext: test.context, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: test.schemes}}}
 			marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
 		})
 	}
@@ -123,15 +108,7 @@ func TestMessageCertificateRequest13_MultipleExtensions(t *testing.T) {
 	// (signature_algorithms, which must be present, and an unknown extension)
 	msg := &MessageCertificateRequest13{
 		CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0503, 0x0601}},
-			extension.Raw{
-				Type: 0xfefe,
-				Data: []byte{
-					0x00, 0x0e, 0x00, 0x00, 0x0b, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
-				},
-			},
-		},
+		Extensions:                []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0503, 0x0601}}, extension.Raw{Type: 0xfefe, Data: []byte{0x00, 0x0e, 0x00, 0x00, 0x0b, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm'}}},
 	}
 	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
 }
@@ -139,12 +116,7 @@ func TestMessageCertificateRequest13_MultipleExtensions(t *testing.T) {
 func TestMessageCertificateRequest13_ContextTooLong(t *testing.T) {
 	// Build (invalid) message with context exceeding the max size
 	tooLongContext := make([]byte, certReq13ContextMaxLength+1)
-	msg := &MessageCertificateRequest13{
-		CertificateRequestContext: tooLongContext,
-		Extensions: []extension.Value{
-			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-		},
-	}
+	msg := &MessageCertificateRequest13{CertificateRequestContext: tooLongContext, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}}
 
 	raw, err := msg.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrCertificateRequestContextTooLong)

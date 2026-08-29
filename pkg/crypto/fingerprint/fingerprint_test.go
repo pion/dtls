@@ -42,7 +42,6 @@ func TestFingerprint(t *testing.T) {
 	cert, err := x509.ParseCertificate(rawCertificate)
 	assert.NoError(t, err)
 
-	//nolint:lll
 	const expectedSHA256 = "60:ef:f5:79:ad:8d:3e:d7:e8:4d:5a:5a:d6:1e:71:2d:47:52:a5:cb:df:34:37:87:10:a5:4e:d7:2a:2c:37:34"
 	actualSHA256, err := Fingerprint(cert, crypto.SHA256)
 	assert.NoError(t, err)

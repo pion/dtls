@@ -25,19 +25,13 @@ import (
 )
 
 //nolint:gocognit,gocyclo,maintidx,cyclop
-func flight3Parse(
-	ctx context.Context,
-	conn dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) (next Flight, dtlsAlert *alert.Alert, err error) {
+func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (next Flight, dtlsAlert *alert.Alert, err error) {
 	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
 	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response
 	// to the new HelloVerifyRequest. RFC 6347 Section 4.2.1
 	serverResponsePull := cache.FullPullMapOneOfItems(state.HandshakeRecvSequence, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: cfg.InitialEpoch, IsClient: false}, //nolint:lll
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false},        //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeHelloVerifyRequest, Epoch: cfg.InitialEpoch, IsClient: false},
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false},
 	)
 	if serverResponsePull.Err != nil {
 		return 0, nil, serverResponsePull.Err
@@ -52,7 +46,7 @@ func flight3Parse(
 		// DTLS 1.2 clients must not assume that the server will use the protocol version
 		// specified in HelloVerifyRequest message. RFC 6347 Section 4.2.1
 		if h.Version != protocol.Version1_0 && h.Version != protocol.Version1_2 {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion //nolint:lll
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
 		}
 		state.Cookie = bytes.Clone(h.Cookie)
 		state.HasHelloVerifyRequest = true
@@ -67,8 +61,7 @@ func flight3Parse(
 	var srtpDecision negotiation.SRTPDecision
 	if hasServerHello { //nolint:nestif
 		if serverHelloMsg.Version != protocol.Version1_2 {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
-				dtlserrors.ErrUnsupportedProtocolVersion
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
 		}
 		offer := state.LocalClientHelloSnapshots.Current()
 		if validationErr := negotiation.ValidateServerHello12Context(serverHelloMsg); validationErr != nil {
@@ -77,11 +70,7 @@ func flight3Parse(
 		if validationErr := negotiation.ValidateServerHelloResponse(offer, serverHelloMsg); validationErr != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension}, validationErr
 		}
-		if srtpDecision, err = negotiation.ValidateSRTPSelection(
-			offer,
-			serverHelloMsg.Extensions,
-			cfg.LocalSRTPProtectionProfiles,
-		); err != nil {
+		if srtpDecision, err = negotiation.ValidateSRTPSelection(offer, serverHelloMsg.Extensions, cfg.LocalSRTPProtectionProfiles); err != nil {
 			return 0, nil, err
 		}
 		decision = negotiation.DecideConnectionID(offer, serverHelloMsg.Extensions)
@@ -106,7 +95,7 @@ func flight3Parse(
 		}
 
 		if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrClientRequiredButNoServerEMS //nolint:lll
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrClientRequiredButNoServerEMS
 		}
 
 		selectedCipherSuite, found := dtlsflight.FindCipherSuiteByID(
@@ -114,7 +103,7 @@ func flight3Parse(
 			cfg.LocalCipherSuites,
 		)
 		if !found {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection
 		}
 		if !selectedCipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
@@ -153,15 +142,15 @@ func flight3Parse(
 	var serverFlightPull dtlsflight.HandshakeCachePullResult
 	if cfg.LocalPSKCallback != nil {
 		serverFlightPull = cache.FullPullMapItems(state.HandshakeRecvSequence+1, state.CipherSuite,
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true},
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},
 		)
 	} else {
 		serverFlightPull = cache.FullPullMapItems(state.HandshakeRecvSequence+1, state.CipherSuite,
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true},        //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true}, //nolint:lll
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},   //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true},
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerKeyExchange, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: true},
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHelloDone, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},
 		)
 	}
 	if serverFlightPull.Err != nil {
@@ -199,13 +188,7 @@ func flight3Parse(
 	return Flight5, nil, nil
 }
 
-func handleResumption(
-	ctx context.Context,
-	c dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) (Flight, *alert.Alert, error) {
+func handleResumption(ctx context.Context, c dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	if err := state.InitCipherSuite(); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
@@ -216,7 +199,7 @@ func handleResumption(
 	}
 
 	pull := cache.FullPullMapItems(state.HandshakeRecvSequence+1, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false},
 	)
 	if pull.Err != nil {
 		return 0, nil, pull.Err
@@ -231,8 +214,8 @@ func handleResumption(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 	plainText := cache.PullAndMerge(
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},  //nolint:lll
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},
 	)
 
 	expectedVerifyData, err := prf.VerifyDataServer(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
@@ -250,19 +233,13 @@ func handleResumption(
 }
 
 //nolint:cyclop
-func handleServerKeyExchange(
-	_ dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cfg *dtlsconfig.HandshakeConfig,
-	keyExchangeMessage *handshake.MessageServerKeyExchange,
-) (*alert.Alert, error) {
+func handleServerKeyExchange(_ dtlsflight.Conn, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, keyExchangeMessage *handshake.MessageServerKeyExchange) (*alert.Alert, error) {
 	var err error
 	if state.CipherSuite == nil {
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 	}
 	if keyExchangeMessage.NamedCurve == elliptic.X25519MLKEM768 {
-		return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-			dtlserrors.ErrUnsupportedEllipticCurveVersion
+		return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrUnsupportedEllipticCurveVersion
 	}
 
 	if cfg.LocalPSKCallback != nil { //nolint:nestif
@@ -278,12 +255,7 @@ func handleServerKeyExchange(
 			if state.LocalKeypair, err = elliptic.GenerateKeypair(keyExchangeMessage.NamedCurve); err != nil {
 				return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
-			state.PreMasterSecret, err = prf.EcdhePSKPreMasterSecret(
-				psk,
-				keyExchangeMessage.PublicKey,
-				state.LocalKeypair.PrivateKey,
-				state.LocalKeypair.Curve,
-			)
+			state.PreMasterSecret, err = prf.EcdhePSKPreMasterSecret(psk, keyExchangeMessage.PublicKey, state.LocalKeypair.PrivateKey, state.LocalKeypair.Curve)
 			if err != nil {
 				return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
@@ -295,11 +267,7 @@ func handleServerKeyExchange(
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 
-		if state.PreMasterSecret, err = prf.PreMasterSecret(
-			keyExchangeMessage.PublicKey,
-			state.LocalKeypair.PrivateKey,
-			state.LocalKeypair.Curve,
-		); err != nil {
+		if state.PreMasterSecret, err = prf.PreMasterSecret(keyExchangeMessage.PublicKey, state.LocalKeypair.PrivateKey, state.LocalKeypair.Curve); err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}
@@ -308,24 +276,15 @@ func handleServerKeyExchange(
 }
 
 //nolint:cyclop
-func flight3Generate(
-	_ dtlsflight.Conn,
-	state *dtlsstate.State12,
-	_ *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+func flight3Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	var extensions []extension.Value
 	if len(cfg.LocalSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.SignatureAlgorithms{
-			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
-		})
+		extensions = append(extensions, &extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)})
 	}
 	extensions = append(extensions, &extension12.RenegotiationInfo{RenegotiatedConnection: 0})
 
 	if len(cfg.LocalCertSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{
-			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes),
-		})
+		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes)})
 	}
 
 	if state.NamedCurve == 0 {
@@ -337,21 +296,11 @@ func flight3Generate(
 	if state.NamedCurve != 0 {
 		ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)
 
-		extensions = append(extensions, []extension.Value{
-			&extension.SupportedGroups{
-				Groups: ellipticCurves,
-			},
-			&extension12.SupportedPointFormats{
-				PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
-			},
-		}...)
+		extensions = append(extensions, []extension.Value{&extension.SupportedGroups{Groups: ellipticCurves}, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}}}...)
 	}
 
 	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
-		extensions = append(extensions, &extension.SRTPOffer{
-			ProtectionProfiles:  cfg.LocalSRTPProtectionProfiles,
-			MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier,
-		})
+		extensions = append(extensions, &extension.SRTPOffer{ProtectionProfiles: cfg.LocalSRTPProtectionProfiles, MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier})
 	}
 
 	if isExtendedMasterSecretRequested(cfg.ExtendedMasterSecret) {
@@ -370,22 +319,10 @@ func flight3Generate(
 	// exact post-hook value as the default in the second ClientHello.
 	cid, cidOffered := negotiation.ConnectionIDOffer(state.LocalClientHelloSnapshots.Initial())
 	if cfg.ConnectionIDGenerator != nil && cidOffered {
-		extensions = dtlsflight.AppendConnectionIDExtensions(
-			extensions,
-			cid,
-			cfg.EnableRRC && state.LocalClientHelloSnapshots.Initial().Offered(extension.TypeReturnRoutabilityCheck),
-		)
+		extensions = dtlsflight.AppendConnectionIDExtensions(extensions, cid, cfg.EnableRRC && state.LocalClientHelloSnapshots.Initial().Offered(extension.TypeReturnRoutabilityCheck))
 	}
 
-	clientHello := &handshake.MessageClientHello{
-		Version:            protocol.Version1_2,
-		SessionID:          state.SessionID,
-		Cookie:             state.Cookie,
-		Random:             state.LocalRandom,
-		CipherSuiteIDs:     dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites),
-		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions:         extensions,
-	}
+	clientHello := &handshake.MessageClientHello{Version: protocol.Version1_2, SessionID: state.SessionID, Cookie: state.Cookie, Random: state.LocalRandom, CipherSuiteIDs: dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites), CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions}
 	if state.HasHelloVerifyRequest {
 		retry, err := negotiation.ClientHelloFromSnapshot(
 			state.LocalClientHelloSnapshots.Initial(),
@@ -404,9 +341,7 @@ func flight3Generate(
 		return nil, nil, err
 	}
 	if state.HasHelloVerifyRequest {
-		if err := negotiation.ValidateHelloVerifyRequestResponse(
-			state.LocalClientHelloSnapshots.Initial(), snapshot, state.Cookie,
-		); err != nil {
+		if err := negotiation.ValidateHelloVerifyRequestResponse(state.LocalClientHelloSnapshots.Initial(), snapshot, state.Cookie); err != nil {
 			return nil, nil, err
 		}
 	}

@@ -92,8 +92,7 @@ func fuzzProtectionBidirectionalRoundTrip(f *testing.F, newProtection fuzzProtec
 		[]byte("world"), []byte("seedB"), uint64(2), uint16(1))
 	f.Add([]byte{}, []byte("zero"), uint64(0), uint16(0),
 		[]byte{1, 2, 3, 4}, []byte("other"), uint64(5), uint16(2))
-	f.Add(make([]byte, 2048), []byte("AAA"), uint64(123456), uint16(3),
-		make([]byte, 17), []byte("BBB"), uint64(789), uint16(4))
+	f.Add(make([]byte, 2048), []byte("AAA"), uint64(123456), uint16(3), make([]byte, 17), []byte("BBB"), uint64(789), uint16(4))
 
 	f.Fuzz(func(t *testing.T,
 		plaintextA, seedA []byte, sequenceNumberA uint64, epochA uint16,
@@ -114,13 +113,7 @@ func fuzzProtectionBidirectionalRoundTrip(f *testing.F, newProtection fuzzProtec
 	})
 }
 
-func assertProtectionRoundTrip(
-	t *testing.T,
-	sender, receiver cryptosuite.Protection,
-	plaintext []byte,
-	sequenceNumber uint64,
-	epoch uint16,
-) {
+func assertProtectionRoundTrip(t *testing.T, sender, receiver cryptosuite.Protection, plaintext []byte, sequenceNumber uint64, epoch uint16) {
 	t.Helper()
 	sequenceNumber &= recordlayer.MaxSequenceNumber
 

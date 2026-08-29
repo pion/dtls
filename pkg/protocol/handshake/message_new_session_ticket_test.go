@@ -15,15 +15,7 @@ import (
 
 func TestMessageNewSessionTicket(t *testing.T) {
 	maxEarlyData := uint32(128)
-	message := &MessageNewSessionTicket{
-		TicketLifetime: 0x01020304,
-		TicketAgeAdd:   0x05060708,
-		TicketNonce:    []byte{0xaa, 0xbb},
-		Ticket:         []byte{0xcc, 0xdd, 0xee},
-		Extensions: []extension.Value{
-			&extension13.MaxEarlyData{Size: maxEarlyData},
-		},
-	}
+	message := &MessageNewSessionTicket{TicketLifetime: 0x01020304, TicketAgeAdd: 0x05060708, TicketNonce: []byte{0xaa, 0xbb}, Ticket: []byte{0xcc, 0xdd, 0xee}, Extensions: []extension.Value{&extension13.MaxEarlyData{Size: maxEarlyData}}}
 	want := []byte{
 		0x01, 0x02, 0x03, 0x04, // ticket_lifetime
 		0x05, 0x06, 0x07, 0x08, // ticket_age_add
@@ -62,12 +54,7 @@ func TestMessageNewSessionTicketMarshalErrors(t *testing.T) {
 		"ticket too long": {
 			Ticket: make([]byte, 65536),
 		},
-		"extensions too long": {
-			Ticket: []byte{0x01},
-			Extensions: []extension.Value{
-				extension.Raw{Type: 0xfefe, Data: make([]byte, 65532)},
-			},
-		},
+		"extensions too long": {Ticket: []byte{0x01}, Extensions: []extension.Value{extension.Raw{Type: 0xfefe, Data: make([]byte, 65532)}}},
 	}
 
 	for name, message := range tests {

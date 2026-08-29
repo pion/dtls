@@ -55,30 +55,14 @@ type suite12 struct {
 	ccmTagLen     int
 }
 
-func newSuite12(
-	id cryptosuite.ID,
-	certificateType clientcertificate.Type,
-	keyExchange cryptosuite.KeyExchangeAlgorithm,
-	hashFunc func() hash.Hash,
-	algorithm protectionAlgorithm12,
-	keyLen int,
-	recordMACHash func() hash.Hash,
-	ccmTagLen int,
-) *suite12 {
+func newSuite12(id cryptosuite.ID, certificateType clientcertificate.Type, keyExchange cryptosuite.KeyExchangeAlgorithm, hashFunc func() hash.Hash, algorithm protectionAlgorithm12, keyLen int, recordMACHash func() hash.Hash, ccmTagLen int) *suite12 {
 	authentication := cryptosuite.AuthenticationTypeCertificate
 	if certificateType == 0 {
 		authentication = cryptosuite.AuthenticationTypePreSharedKey
 	}
 
 	return &suite12{
-		suiteMetadata: suiteMetadata{
-			id:              id,
-			certificateType: certificateType,
-			hashFunc:        hashFunc,
-			authentication:  authentication,
-			keyExchange:     keyExchange,
-			ecc:             keyExchange.Has(cryptosuite.KeyExchangeAlgorithmEcdhe),
-		},
+		suiteMetadata: suiteMetadata{id: id, certificateType: certificateType, hashFunc: hashFunc, authentication: authentication, keyExchange: keyExchange, ecc: keyExchange.Has(cryptosuite.KeyExchangeAlgorithmEcdhe)},
 		algorithm:     algorithm,
 		keyLen:        keyLen,
 		recordMACHash: recordMACHash,
@@ -119,10 +103,7 @@ func (s *suite12) NewConnectionProtection(
 		ivLen = 12
 	}
 
-	keys, err := prf.GenerateEncryptionKeys(
-		material.MasterSecret(), material.ClientRandom(), material.ServerRandom(),
-		macLen, s.keyLen, ivLen, s.hashFunc,
-	)
+	keys, err := prf.GenerateEncryptionKeys(material.MasterSecret(), material.ClientRandom(), material.ServerRandom(), macLen, s.keyLen, ivLen, s.hashFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -134,23 +115,15 @@ func (s *suite12) NewConnectionProtection(
 	var protection cryptosuite.Protection
 	switch s.algorithm {
 	case protection12CCM:
-		protection, err = newCCM(
-			s.ccmTagLen, directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV,
-		)
+		protection, err = newCCM(s.ccmTagLen, directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV)
 	case protection12GCM:
 		protection, err = newGCM(
 			directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV,
 		)
 	case protection12CBC:
-		protection, err = newCBC(
-			directional.localKey, directional.localIV, directional.localMAC,
-			directional.remoteKey, directional.remoteIV, directional.remoteMAC,
-			s.recordMACHash,
-		)
+		protection, err = newCBC(directional.localKey, directional.localIV, directional.localMAC, directional.remoteKey, directional.remoteIV, directional.remoteMAC, s.recordMACHash)
 	case protection12ChaCha20Poly1305:
-		protection, err = newChaCha20Poly1305(
-			directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV,
-		)
+		protection, err = newChaCha20Poly1305(directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV)
 	default:
 		return nil, cryptosuite.ErrInvalidCapabilities
 	}
@@ -164,15 +137,9 @@ func (s *suite12) NewConnectionProtection(
 func selectDirectionalKeys12(keys *prf.EncryptionKeys, role cryptosuite.EndpointRole) (directionalKeys12, error) {
 	switch role {
 	case cryptosuite.EndpointRoleClient:
-		return directionalKeys12{
-			localKey: keys.ClientWriteKey, localIV: keys.ClientWriteIV, localMAC: keys.ClientMACKey,
-			remoteKey: keys.ServerWriteKey, remoteIV: keys.ServerWriteIV, remoteMAC: keys.ServerMACKey,
-		}, nil
+		return directionalKeys12{localKey: keys.ClientWriteKey, localIV: keys.ClientWriteIV, localMAC: keys.ClientMACKey, remoteKey: keys.ServerWriteKey, remoteIV: keys.ServerWriteIV, remoteMAC: keys.ServerMACKey}, nil
 	case cryptosuite.EndpointRoleServer:
-		return directionalKeys12{
-			localKey: keys.ServerWriteKey, localIV: keys.ServerWriteIV, localMAC: keys.ServerMACKey,
-			remoteKey: keys.ClientWriteKey, remoteIV: keys.ClientWriteIV, remoteMAC: keys.ClientMACKey,
-		}, nil
+		return directionalKeys12{localKey: keys.ServerWriteKey, localIV: keys.ServerWriteIV, localMAC: keys.ServerMACKey, remoteKey: keys.ClientWriteKey, remoteIV: keys.ClientWriteIV, remoteMAC: keys.ClientMACKey}, nil
 	default:
 		return directionalKeys12{}, dtlserrors.ErrInvalidProtectionInput
 	}
@@ -197,17 +164,7 @@ func newSuite13(
 	algorithm protectionAlgorithm13,
 	keyLen int,
 ) *suite13 {
-	return &suite13{
-		suiteMetadata: suiteMetadata{
-			id:             id,
-			hashFunc:       hashFunc,
-			authentication: cryptosuite.AuthenticationTypeAnonymous,
-			keyExchange:    cryptosuite.KeyExchangeAlgorithmNone,
-			ecc:            true,
-		},
-		algorithm: algorithm,
-		keyLen:    keyLen,
-	}
+	return &suite13{suiteMetadata: suiteMetadata{id: id, hashFunc: hashFunc, authentication: cryptosuite.AuthenticationTypeAnonymous, keyExchange: cryptosuite.KeyExchangeAlgorithmNone, ecc: true}, algorithm: algorithm, keyLen: keyLen}
 }
 
 func (s *suite13) Capabilities() cryptosuite.Capabilities {
@@ -232,7 +189,7 @@ func (s *suite13) NewTrafficProtection(
 	}
 }
 
-//nolint:gochecknoglobals,lll
+//nolint:gochecknoglobals
 var builtinCipherSuites = map[cryptosuite.ID]cryptosuite.Suite{
 	cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM:              newSuite12(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM, clientcertificate.ECDSASign, cryptosuite.KeyExchangeAlgorithmEcdhe, sha256.New, protection12CCM, 16, nil, ccmTagLength),
 	cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8:            newSuite12(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8, clientcertificate.ECDSASign, cryptosuite.KeyExchangeAlgorithmEcdhe, sha256.New, protection12CCM, 16, nil, ccmTagLength8),

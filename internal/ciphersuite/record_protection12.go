@@ -36,19 +36,13 @@ type aeadProtection struct {
 	nonceBufferPool   sync.Pool
 }
 
-func newAEADProtection(
-	local cipher.AEAD,
-	localIV []byte,
-	remote cipher.AEAD,
-	remoteIV []byte,
-) (*aeadProtection, error) {
+func newAEADProtection(local cipher.AEAD, localIV []byte, remote cipher.AEAD, remoteIV []byte) (*aeadProtection, error) {
 	if local == nil || remote == nil {
 		return nil, dtlserrors.ErrLengthMismatch
 	}
 	nonceLength := local.NonceSize()
 	implicitIVLength := nonceLength - dtls12ExplicitNonceLength
-	if implicitIVLength <= 0 || remote.NonceSize() != nonceLength ||
-		local.Overhead() != remote.Overhead() || len(localIV) != implicitIVLength || len(remoteIV) != implicitIVLength {
+	if implicitIVLength <= 0 || remote.NonceSize() != nonceLength || local.Overhead() != remote.Overhead() || len(localIV) != implicitIVLength || len(remoteIV) != implicitIVLength {
 		return nil, dtlserrors.ErrLengthMismatch
 	}
 
@@ -111,10 +105,7 @@ func (a *aeadProtection) Open(record cryptosuite.Record, protected []byte) ([]by
 
 type blockAEADFactory func(cipher.Block) (cipher.AEAD, error)
 
-func newAESAEADProtection(
-	factory blockAEADFactory,
-	localKey, localIV, remoteKey, remoteIV []byte,
-) (cryptosuite.Protection, error) {
+func newAESAEADProtection(factory blockAEADFactory, localKey, localIV, remoteKey, remoteIV []byte) (cryptosuite.Protection, error) {
 	localBlock, err := aes.NewCipher(bytes.Clone(localKey))
 	if err != nil {
 		return nil, err
@@ -137,12 +128,7 @@ func newAESAEADProtection(
 }
 
 func newCCM(tagLength int, localKey, localIV, remoteKey, remoteIV []byte) (cryptosuite.Protection, error) {
-	return newAESAEADProtection(
-		func(block cipher.Block) (cipher.AEAD, error) {
-			return ccm.NewCCM(block, tagLength, ccmNonceLength)
-		},
-		localKey, localIV, remoteKey, remoteIV,
-	)
+	return newAESAEADProtection(func(block cipher.Block) (cipher.AEAD, error) { return ccm.NewCCM(block, tagLength, ccmNonceLength) }, localKey, localIV, remoteKey, remoteIV)
 }
 
 func newGCM(localKey, localIV, remoteKey, remoteIV []byte) (cryptosuite.Protection, error) {
@@ -160,10 +146,7 @@ type cbcProtection struct {
 	hashFunc          prf.HashFunc
 }
 
-func newCBC(
-	localKey, localIV, localMAC, remoteKey, remoteIV, remoteMAC []byte,
-	hashFunc prf.HashFunc,
-) (cryptosuite.Protection, error) {
+func newCBC(localKey, localIV, localMAC, remoteKey, remoteIV, remoteMAC []byte, hashFunc prf.HashFunc) (cryptosuite.Protection, error) {
 	if hashFunc == nil || hashFunc() == nil {
 		return nil, dtlserrors.ErrInvalidHashAlgorithm
 	}
@@ -189,13 +172,7 @@ func newCBC(
 		return nil, dtlserrors.ErrFailedToCast
 	}
 
-	return &cbcProtection{
-		writeCBC: writeCBC,
-		readCBC:  readCBC,
-		writeMAC: bytes.Clone(localMAC),
-		readMAC:  bytes.Clone(remoteMAC),
-		hashFunc: hashFunc,
-	}, nil
+	return &cbcProtection{writeCBC: writeCBC, readCBC: readCBC, writeMAC: bytes.Clone(localMAC), readMAC: bytes.Clone(remoteMAC), hashFunc: hashFunc}, nil
 }
 
 func (c *cbcProtection) Seal(record cryptosuite.Record, plaintext []byte) ([]byte, error) {
@@ -306,10 +283,7 @@ func newChaCha20Poly1305(
 		return nil, err
 	}
 
-	return &chaCha20Poly1305Protection{
-		local: local, remote: remote,
-		localIV: bytes.Clone(localIV), remoteIV: bytes.Clone(remoteIV),
-	}, nil
+	return &chaCha20Poly1305Protection{local: local, remote: remote, localIV: bytes.Clone(localIV), remoteIV: bytes.Clone(remoteIV)}, nil
 }
 
 func (c *chaCha20Poly1305Protection) Seal(

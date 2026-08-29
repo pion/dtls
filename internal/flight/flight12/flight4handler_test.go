@@ -59,10 +59,7 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 
 	mockConn := &flight4TestMockFlightConn{}
 	state := newTestState12()
-	state.CipherSuite = &flight4TestMockCipherSuite{
-		Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
-		t:     t,
-	}
+	state.CipherSuite = &flight4TestMockCipherSuite{Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), t: t}
 	cache := dtlsflight.NewCache()
 	cfg := &dtlsconfig.HandshakeConfig{}
 
@@ -112,13 +109,7 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 		0x7f, 0x6b, 0x77,
 	}
 
-	rawClientKeyExchange := []byte{
-		0x10, 0x00, 0x00, 0x21, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x21, 0x20, 0x96, 0xed, 0x0c, 0xee, 0xf3, 0x11, 0xb1,
-		0x9d, 0x8b, 0x1c, 0x02, 0x7f, 0x06, 0x7c, 0x57, 0x7a, 0x14,
-		0xa6, 0x41, 0xde, 0x63, 0x57, 0x9e, 0xcd, 0x34, 0x54, 0xba,
-		0x37, 0x4d, 0x34, 0x15, 0x18,
-	}
+	rawClientKeyExchange := []byte{0x10, 0x00, 0x00, 0x21, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x20, 0x96, 0xed, 0x0c, 0xee, 0xf3, 0x11, 0xb1, 0x9d, 0x8b, 0x1c, 0x02, 0x7f, 0x06, 0x7c, 0x57, 0x7a, 0x14, 0xa6, 0x41, 0xde, 0x63, 0x57, 0x9e, 0xcd, 0x34, 0x54, 0xba, 0x37, 0x4d, 0x34, 0x15, 0x18}
 
 	cache.Push(rawCertificate, 0, 0, handshake.TypeCertificate, true)
 	cache.Push(rawClientKeyExchange, 0, 1, handshake.TypeClientKeyExchange, true)
@@ -141,10 +132,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 
 	mockConn := &flight4TestMockFlightConn{}
 	state := newTestState12()
-	state.CipherSuite = &flight4TestMockCipherSuite{
-		Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
-		t:     t,
-	}
+	state.CipherSuite = &flight4TestMockCipherSuite{Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), t: t}
 	state.LocalKeypair = localKeypair
 
 	cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")

@@ -150,11 +150,7 @@ func unpackNextDatagramRecord(
 	return unpackNextFixedDatagramRecord(datagram, contentType, config)
 }
 
-func unpackNextFixedDatagramRecord(
-	datagram []byte,
-	contentType protocol.ContentType,
-	config UnpackDatagramConfig,
-) (unpackedDatagramRecord, error) {
+func unpackNextFixedDatagramRecord(datagram []byte, contentType protocol.ContentType, config UnpackDatagramConfig) (unpackedDatagramRecord, error) {
 	headerSize := FixedHeaderSize
 	hasCID := contentType == protocol.ContentTypeConnectionID
 	if hasCID {
@@ -199,9 +195,7 @@ func validateUnpackDatagramConfig(config UnpackDatagramConfig) error {
 		return ErrInvalidPacketLength
 	}
 
-	if config.TargetVersion == 0 ||
-		config.TargetVersion == protocol.Version1_2 ||
-		config.TargetVersion == protocol.Version1_3 {
+	if config.TargetVersion == 0 || config.TargetVersion == protocol.Version1_2 || config.TargetVersion == protocol.Version1_3 {
 		return nil
 	}
 
@@ -228,9 +222,7 @@ func validateRecordForm(
 }
 
 func isDTLS13PlaintextContentType(contentType protocol.ContentType) bool {
-	return contentType == protocol.ContentTypeAlert ||
-		contentType == protocol.ContentTypeHandshake ||
-		contentType == protocol.ContentTypeACK
+	return contentType == protocol.ContentTypeAlert || contentType == protocol.ContentTypeHandshake || contentType == protocol.ContentTypeACK
 }
 
 func unpackDatagramError(

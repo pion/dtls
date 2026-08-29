@@ -54,12 +54,7 @@ func TestMessageEncryptedExtensionsMarshal(t *testing.T) {
 	})
 
 	t.Run("WithExtensions", func(t *testing.T) {
-		raw, err := (&MessageEncryptedExtensions{
-			Extensions: []extension.Value{
-				&extension.ALPNSelection{Protocol: "h2"},
-				extension.Raw{Type: unknownEncryptedExtensionsType},
-			},
-		}).Marshal()
+		raw, err := (&MessageEncryptedExtensions{Extensions: []extension.Value{&extension.ALPNSelection{Protocol: "h2"}, extension.Raw{Type: unknownEncryptedExtensionsType}}}).Marshal()
 		require.NoError(t, err)
 		assert.Equal(t, []byte{
 			0x00, 0x0d, // extensions length

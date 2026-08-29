@@ -13,12 +13,7 @@ import (
 )
 
 func TestRawListRoundTrip(t *testing.T) {
-	wire := []byte{
-		0x00, 0x11,
-		0xfa, 0xce, 0x00, 0x03, 0x01, 0x02, 0x03,
-		0xfa, 0xce, 0x00, 0x00,
-		0x00, 0x10, 0x00, 0x02, 0xaa, 0xbb,
-	}
+	wire := []byte{0x00, 0x11, 0xfa, 0xce, 0x00, 0x03, 0x01, 0x02, 0x03, 0xfa, 0xce, 0x00, 0x00, 0x00, 0x10, 0x00, 0x02, 0xaa, 0xbb}
 
 	values, err := ParseList(wire)
 	require.NoError(t, err)
@@ -145,18 +140,8 @@ func TestMarshalListToReportsOnlyWrittenPrefix(t *testing.T) {
 			outLen: partialLen,
 			err:    dtlserrors.ErrLengthMismatch,
 		},
-		{
-			name:   "extensions length limit",
-			second: Raw{Type: TypePadding, Data: make([]byte, 0xffff)},
-			outLen: partialLen,
-			err:    dtlserrors.ErrInvalidExtensionsLength,
-		},
-		{
-			name:   "destination too small",
-			second: Raw{Type: TypePadding},
-			outLen: partialLen + 3,
-			err:    dtlserrors.ErrBufferTooSmall,
-		},
+		{name: "extensions length limit", second: Raw{Type: TypePadding, Data: make([]byte, 0xffff)}, outLen: partialLen, err: dtlserrors.ErrInvalidExtensionsLength},
+		{name: "destination too small", second: Raw{Type: TypePadding}, outLen: partialLen + 3, err: dtlserrors.ErrBufferTooSmall},
 	}
 
 	for _, test := range tests {

@@ -20,11 +20,7 @@ func TestHandshakeMessageCertificateVerify(t *testing.T) {
 		0x6c, 0x04, 0xa1, 0xdc, 0x28, 0xaa, 0x5f, 0xf7, 0x1e, 0x9c, 0xc0, 0x1e, 0x00, 0x2c, 0xe5, 0x94,
 		0xbb, 0x03, 0x0e, 0xf1, 0xcb, 0x28, 0x22, 0x33, 0x23, 0x88, 0xad,
 	}
-	parsedCertificateVerify := &MessageCertificateVerify{
-		HashAlgorithm:      hash.Algorithm(rawCertificateVerify[0]),
-		SignatureAlgorithm: signature.Algorithm(rawCertificateVerify[1]),
-		Signature:          rawCertificateVerify[4:],
-	}
+	parsedCertificateVerify := &MessageCertificateVerify{HashAlgorithm: hash.Algorithm(rawCertificateVerify[0]), SignatureAlgorithm: signature.Algorithm(rawCertificateVerify[1]), Signature: rawCertificateVerify[4:]}
 
 	c := &MessageCertificateVerify{}
 	assert.NoError(t, c.Unmarshal(rawCertificateVerify))
@@ -36,11 +32,7 @@ func TestHandshakeMessageCertificateVerify(t *testing.T) {
 }
 
 func TestHandshakeMessageCertificateVerify_InvalidAlgorithmValue(t *testing.T) {
-	cert := &MessageCertificateVerify{
-		HashAlgorithm:      hash.Algorithm(0x100),
-		SignatureAlgorithm: signature.RSA,
-		Signature:          []byte{0x00},
-	}
+	cert := &MessageCertificateVerify{HashAlgorithm: hash.Algorithm(0x100), SignatureAlgorithm: signature.RSA, Signature: []byte{0x00}}
 
 	raw, err := cert.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidSignHashAlgorithm)

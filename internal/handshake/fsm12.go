@@ -63,25 +63,8 @@ type fsm12 struct {
 	establishment      *Establishment
 }
 
-func NewFSM12(
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-	initialFlight dtlsflight12.Flight,
-	initialFlights []*dtlsflight.Outbound,
-	establishment *Establishment,
-) FSM {
-	return &fsm12{
-		currentFlight:      initialFlight,
-		flights:            initialFlights,
-		retransmit:         initialFlights != nil,
-		state:              state,
-		cache:              cache,
-		cfg:                cfg,
-		retransmitInterval: cfg.InitialRetransmitInterval,
-		closed:             make(chan struct{}),
-		establishment:      establishment,
-	}
+func NewFSM12(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight12.Flight, initialFlights []*dtlsflight.Outbound, establishment *Establishment) FSM {
+	return &fsm12{currentFlight: initialFlight, flights: initialFlights, retransmit: initialFlights != nil, state: state, cache: cache, cfg: cfg, retransmitInterval: cfg.InitialRetransmitInterval, closed: make(chan struct{}), establishment: establishment}
 }
 
 func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
@@ -204,12 +187,7 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 			if nextFlight == 0 {
 				break
 			}
-			s.cfg.Log.Tracef(
-				"[handshake:%s] %s -> %s",
-				sideString(s.state.IsClient),
-				s.currentFlight.String(),
-				nextFlight.String(),
-			)
+			s.cfg.Log.Tracef("[handshake:%s] %s -> %s", sideString(s.state.IsClient), s.currentFlight.String(), nextFlight.String())
 			if nextFlight.IsLastRecvFlight() && s.currentFlight == nextFlight {
 				return StateFinished, nil
 			}

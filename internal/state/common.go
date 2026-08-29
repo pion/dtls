@@ -205,9 +205,5 @@ func NewState13(isClient bool) State13 {
 		LocalVersion: protocol.Version1_3,
 	}
 
-	return State13{
-		Common:        common,
-		LocalKeypairs: make(map[elliptic.Curve]*elliptic.Keypair),
-		TrafficKeys:   &TrafficKeyState{},
-	}
+	return State13{Common: common, LocalKeypairs: make(map[elliptic.Curve]*elliptic.Keypair), TrafficKeys: &TrafficKeyState{}}
 }

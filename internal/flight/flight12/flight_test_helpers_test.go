@@ -13,15 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func parseForTest(
-	testingT require.TestingT,
-	flight Flight,
-	ctx context.Context,
-	conn dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) (Flight, *alert.Alert, error) {
+func parseForTest(testingT require.TestingT, flight Flight, ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	if helper, ok := testingT.(interface{ Helper() }); ok {
 		helper.Helper()
 	}

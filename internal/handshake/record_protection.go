@@ -18,12 +18,7 @@ func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
 
-	return initRecordProtectionFromTrafficSecrets(
-		state,
-		dtlsflight13.EpochHandshake,
-		state.KeySchedule.HandshakeTraffic,
-		false,
-	)
+	return initRecordProtectionFromTrafficSecrets(state, dtlsflight13.EpochHandshake, state.KeySchedule.HandshakeTraffic, false)
 }
 
 // InitApplicationRecordProtection installs DTLS 1.3 application record
@@ -33,15 +28,7 @@ func InitApplicationRecordProtection(state *dtlsstate.State13) error {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
 
-	return initRecordProtectionFromTrafficSecrets(
-		state,
-		dtlsflight13.EpochApplication,
-		dtlsstate.TrafficSecrets{
-			Client: state.KeySchedule.ClientApplicationTrafficSecret0,
-			Server: state.KeySchedule.ServerApplicationTrafficSecret0,
-		},
-		true,
-	)
+	return initRecordProtectionFromTrafficSecrets(state, dtlsflight13.EpochApplication, dtlsstate.TrafficSecrets{Client: state.KeySchedule.ClientApplicationTrafficSecret0, Server: state.KeySchedule.ServerApplicationTrafficSecret0}, true)
 }
 
 func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *dtlsstate.State13) error {
@@ -101,20 +88,7 @@ func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
 	if readProtection == nil {
 		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
-	state.TrafficKeys.Install(
-		&dtlsstate.TrafficGeneration{
-			Epoch:      epoch,
-			Generation: 0,
-			Secret:     writeSecret,
-			Protection: writeProtection,
-		},
-		&dtlsstate.TrafficGeneration{
-			Epoch:      epoch,
-			Generation: 0,
-			Secret:     readSecret,
-			Protection: readProtection,
-		},
-	)
+	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: epoch, Generation: 0, Secret: writeSecret, Protection: writeProtection}, &dtlsstate.TrafficGeneration{Epoch: epoch, Generation: 0, Secret: readSecret, Protection: readProtection})
 
 	return nil
 }

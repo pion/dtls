@@ -87,18 +87,9 @@ var extensionRegistry = map[extension.Type]map[extensionContext]extensionPayload
 		extensionContextServerHello12:       func() extensionPayloadValue { return &extension.ServerNameAck{} },
 		extensionContextEncryptedExtensions: func() extensionPayloadValue { return &extension.ServerNameAck{} },
 	},
-	extension.TypeSupportedGroups: {
-		extensionContextClientHello:         func() extensionPayloadValue { return &extension.SupportedGroups{} },
-		extensionContextEncryptedExtensions: func() extensionPayloadValue { return &extension.SupportedGroups{} },
-	},
-	extension.TypeSupportedPointFormats: {
-		extensionContextClientHello:   func() extensionPayloadValue { return &extension12.SupportedPointFormats{} },
-		extensionContextServerHello12: func() extensionPayloadValue { return &extension12.SupportedPointFormats{} },
-	},
-	extension.TypeSignatureAlgorithms: {
-		extensionContextClientHello:        func() extensionPayloadValue { return &extension.SignatureAlgorithms{} },
-		extensionContextCertificateRequest: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} },
-	},
+	extension.TypeSupportedGroups:       {extensionContextClientHello: func() extensionPayloadValue { return &extension.SupportedGroups{} }, extensionContextEncryptedExtensions: func() extensionPayloadValue { return &extension.SupportedGroups{} }},
+	extension.TypeSupportedPointFormats: {extensionContextClientHello: func() extensionPayloadValue { return &extension12.SupportedPointFormats{} }, extensionContextServerHello12: func() extensionPayloadValue { return &extension12.SupportedPointFormats{} }},
+	extension.TypeSignatureAlgorithms:   {extensionContextClientHello: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} }, extensionContextCertificateRequest: func() extensionPayloadValue { return &extension.SignatureAlgorithms{} }},
 	extension.TypeUseSRTP: {
 		extensionContextClientHello:         func() extensionPayloadValue { return &extension.SRTPOffer{} },
 		extensionContextServerHello12:       func() extensionPayloadValue { return &extension.SRTPSelection{} },
@@ -109,14 +100,8 @@ var extensionRegistry = map[extension.Type]map[extensionContext]extensionPayload
 		extensionContextServerHello12:       func() extensionPayloadValue { return &extension.ALPNSelection{} },
 		extensionContextEncryptedExtensions: func() extensionPayloadValue { return &extension.ALPNSelection{} },
 	},
-	extension.TypeExtendedMasterSecret: {
-		extensionContextClientHello:   func() extensionPayloadValue { return &extension12.ExtendedMasterSecret{} },
-		extensionContextServerHello12: func() extensionPayloadValue { return &extension12.ExtendedMasterSecret{} },
-	},
-	extension.TypePreSharedKey: {
-		extensionContextClientHello:   func() extensionPayloadValue { return &extension13.OfferedPSKs{} },
-		extensionContextServerHello13: func() extensionPayloadValue { return &extension13.SelectedPSK{} },
-	},
+	extension.TypeExtendedMasterSecret: {extensionContextClientHello: func() extensionPayloadValue { return &extension12.ExtendedMasterSecret{} }, extensionContextServerHello12: func() extensionPayloadValue { return &extension12.ExtendedMasterSecret{} }},
+	extension.TypePreSharedKey:         {extensionContextClientHello: func() extensionPayloadValue { return &extension13.OfferedPSKs{} }, extensionContextServerHello13: func() extensionPayloadValue { return &extension13.SelectedPSK{} }},
 	extension.TypeEarlyData: {
 		extensionContextClientHello:         func() extensionPayloadValue { return &extension13.EarlyData{} },
 		extensionContextEncryptedExtensions: func() extensionPayloadValue { return &extension13.EarlyData{} },
@@ -127,31 +112,12 @@ var extensionRegistry = map[extension.Type]map[extensionContext]extensionPayload
 		extensionContextServerHello13:     func() extensionPayloadValue { return &extension13.SelectedVersion{} },
 		extensionContextHelloRetryRequest: func() extensionPayloadValue { return &extension13.SelectedVersion{} },
 	},
-	extension.TypeCookie: {
-		extensionContextClientHello:       func() extensionPayloadValue { return &extension13.Cookie{} },
-		extensionContextHelloRetryRequest: func() extensionPayloadValue { return &extension13.Cookie{} },
-	},
-	extension.TypePSKKeyExchangeModes: {
-		extensionContextClientHello: func() extensionPayloadValue { return &extension13.PSKKeyExchangeModes{} },
-	},
-	extension.TypeCertificateAuthorities: {
-		extensionContextClientHello:        func() extensionPayloadValue { return &extension13.CertificateAuthorities{} },
-		extensionContextCertificateRequest: func() extensionPayloadValue { return &extension13.CertificateAuthorities{} },
-	},
-	extension.TypeOIDFilters: {
-		extensionContextCertificateRequest: func() extensionPayloadValue { return &extension13.OIDFilters{} },
-	},
-	extension.TypePostHandshakeAuth: {
-		extensionContextClientHello: func() extensionPayloadValue { return &extension13.PostHandshakeAuth{} },
-	},
-	extension.TypeSignatureAlgorithmsCert: {
-		extensionContextClientHello: func() extensionPayloadValue {
-			return &extension.CertificateSignatureAlgorithms{}
-		},
-		extensionContextCertificateRequest: func() extensionPayloadValue {
-			return &extension.CertificateSignatureAlgorithms{}
-		},
-	},
+	extension.TypeCookie:                  {extensionContextClientHello: func() extensionPayloadValue { return &extension13.Cookie{} }, extensionContextHelloRetryRequest: func() extensionPayloadValue { return &extension13.Cookie{} }},
+	extension.TypePSKKeyExchangeModes:     {extensionContextClientHello: func() extensionPayloadValue { return &extension13.PSKKeyExchangeModes{} }},
+	extension.TypeCertificateAuthorities:  {extensionContextClientHello: func() extensionPayloadValue { return &extension13.CertificateAuthorities{} }, extensionContextCertificateRequest: func() extensionPayloadValue { return &extension13.CertificateAuthorities{} }},
+	extension.TypeOIDFilters:              {extensionContextCertificateRequest: func() extensionPayloadValue { return &extension13.OIDFilters{} }},
+	extension.TypePostHandshakeAuth:       {extensionContextClientHello: func() extensionPayloadValue { return &extension13.PostHandshakeAuth{} }},
+	extension.TypeSignatureAlgorithmsCert: {extensionContextClientHello: func() extensionPayloadValue { return &extension.CertificateSignatureAlgorithms{} }, extensionContextCertificateRequest: func() extensionPayloadValue { return &extension.CertificateSignatureAlgorithms{} }},
 	extension.TypeKeyShare: {
 		extensionContextClientHello:       func() extensionPayloadValue { return &extension13.ClientKeyShare{} },
 		extensionContextServerHello13:     func() extensionPayloadValue { return &extension13.ServerKeyShare{} },
@@ -167,21 +133,13 @@ var extensionRegistry = map[extension.Type]map[extensionContext]extensionPayload
 		extensionContextServerHello12: func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
 		extensionContextServerHello13: func() extensionPayloadValue { return &extension.ReturnRoutabilityCheck{} },
 	},
-	extension.TypeRenegotiationInfo: {
-		extensionContextClientHello:   func() extensionPayloadValue { return &extension12.RenegotiationInfo{} },
-		extensionContextServerHello12: func() extensionPayloadValue { return &extension12.RenegotiationInfo{} },
-	},
+	extension.TypeRenegotiationInfo: {extensionContextClientHello: func() extensionPayloadValue { return &extension12.RenegotiationInfo{} }, extensionContextServerHello12: func() extensionPayloadValue { return &extension12.RenegotiationInfo{} }},
 }
 
 func decodeExtensionList(data []byte, context extensionContext) ([]extension.Value, error) {
 	rawExtensions, err := extension.ParseList(data)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"extensions in %s: %w: %w",
-			context,
-			err,
-			&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
-		)
+		return nil, fmt.Errorf("extensions in %s: %w: %w", context, err, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
 	}
 
 	return decodeRawExtensions(rawExtensions, context)
@@ -203,13 +161,7 @@ func decodeRawExtensions(rawExtensions []extension.Raw, context extensionContext
 
 		factory, allowed := contexts[context]
 		if !allowed {
-			return nil, fmt.Errorf(
-				"extension %d in %s: %w: %w",
-				raw.Type,
-				context,
-				dtlserrors.ErrExtensionNotAllowed,
-				&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-			)
+			return nil, fmt.Errorf("extension %d in %s: %w: %w", raw.Type, context, dtlserrors.ErrExtensionNotAllowed, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
 		}
 		if factory == nil {
 			values = append(values, extension.Raw{Type: raw.Type, Data: bytes.Clone(raw.Data)})
@@ -219,13 +171,7 @@ func decodeRawExtensions(rawExtensions []extension.Raw, context extensionContext
 
 		value := factory()
 		if err := value.UnmarshalData(raw.Data); err != nil {
-			return nil, fmt.Errorf(
-				"extension %d in %s: %w: %w",
-				raw.Type,
-				context,
-				err,
-				&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
-			)
+			return nil, fmt.Errorf("extension %d in %s: %w: %w", raw.Type, context, err, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
 		}
 		values = append(values, value)
 	}
@@ -241,13 +187,7 @@ func validateRawExtensionBlock(rawExtensions []extension.Raw, context extensionC
 	seen := make(map[extension.Type]struct{}, len(rawExtensions))
 	for _, raw := range rawExtensions {
 		if _, ok := seen[raw.Type]; ok {
-			return fmt.Errorf(
-				"extension %d in %s: %w: %w",
-				raw.Type,
-				context,
-				dtlserrors.ErrDuplicateExtension,
-				&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-			)
+			return fmt.Errorf("extension %d in %s: %w: %w", raw.Type, context, dtlserrors.ErrDuplicateExtension, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
 		}
 		seen[raw.Type] = struct{}{}
 	}
@@ -255,13 +195,7 @@ func validateRawExtensionBlock(rawExtensions []extension.Raw, context extensionC
 	if context == extensionContextClientHello {
 		for i, raw := range rawExtensions {
 			if raw.Type == extension.TypePreSharedKey && i != len(rawExtensions)-1 {
-				return fmt.Errorf(
-					"extension %d in %s: %w: %w",
-					raw.Type,
-					context,
-					dtlserrors.ErrPreSharedKeyNotLast,
-					&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-				)
+				return fmt.Errorf("extension %d in %s: %w: %w", raw.Type, context, dtlserrors.ErrPreSharedKeyNotLast, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
 			}
 		}
 	}
@@ -269,13 +203,7 @@ func validateRawExtensionBlock(rawExtensions []extension.Raw, context extensionC
 	for _, raw := range rawExtensions {
 		if contexts, known := extensionRegistry[raw.Type]; known {
 			if _, allowed := contexts[context]; !allowed {
-				return fmt.Errorf(
-					"extension %d in %s: %w: %w",
-					raw.Type,
-					context,
-					dtlserrors.ErrExtensionNotAllowed,
-					&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-				)
+				return fmt.Errorf("extension %d in %s: %w: %w", raw.Type, context, dtlserrors.ErrExtensionNotAllowed, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
 			}
 		}
 	}
@@ -331,13 +259,7 @@ func validateSupportedGroups(groups *extension.SupportedGroups, context extensio
 		return nil
 	}
 
-	return fmt.Errorf(
-		"extension %d in %s: %w: %w",
-		extension.TypeSupportedGroups,
-		context,
-		dtlserrors.ErrDuplicateSupportedGroup,
-		&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-	)
+	return fmt.Errorf("extension %d in %s: %w: %w", extension.TypeSupportedGroups, context, dtlserrors.ErrDuplicateSupportedGroup, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
 }
 
 func validateClientHelloDependencies(dependencies extensionDependencyValues) error {
@@ -346,50 +268,24 @@ func validateClientHelloDependencies(dependencies extensionDependencyValues) err
 	}
 	if dependencies.present[extension.TypeReturnRoutabilityCheck] &&
 		!dependencies.present[extension.TypeConnectionID] {
-		return fmt.Errorf(
-			"extension %d in %s requires extension %d: %w: %w",
-			extension.TypeReturnRoutabilityCheck,
-			extensionContextClientHello,
-			extension.TypeConnectionID,
-			dtlserrors.ErrMissingConnectionIDExtension,
-			&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
-		)
+		return fmt.Errorf("extension %d in %s requires extension %d: %w: %w", extension.TypeReturnRoutabilityCheck, extensionContextClientHello, extension.TypeConnectionID, dtlserrors.ErrMissingConnectionIDExtension, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension})
 	}
 	if err := validateTLS13ClientHelloDependencies(dependencies); err != nil {
 		return err
 	}
-	if dependencies.keyShare == nil || dependencies.groups == nil ||
-		keyShareGroupsFollowSupportedGroups(dependencies.keyShare, dependencies.groups) {
+	if dependencies.keyShare == nil || dependencies.groups == nil || keyShareGroupsFollowSupportedGroups(dependencies.keyShare, dependencies.groups) {
 		return nil
 	}
 
-	return fmt.Errorf(
-		"extension %d in %s: %w: %w",
-		extension.TypeKeyShare,
-		extensionContextClientHello,
-		dtlserrors.ErrKeyShareGroupNotOffered,
-		&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-	)
+	return fmt.Errorf("extension %d in %s: %w: %w", extension.TypeKeyShare, extensionContextClientHello, dtlserrors.ErrKeyShareGroupNotOffered, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
 }
 
 func validatePSKDependencies(dependencies extensionDependencyValues) error {
 	if dependencies.present[extension.TypePreSharedKey] && !dependencies.present[extension.TypePSKKeyExchangeModes] {
-		return fmt.Errorf(
-			"extension %d in %s: %w: %w",
-			extension.TypePSKKeyExchangeModes,
-			extensionContextClientHello,
-			dtlserrors.ErrMissingPSKKeyExchangeModesExtension,
-			&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
-		)
+		return fmt.Errorf("extension %d in %s: %w: %w", extension.TypePSKKeyExchangeModes, extensionContextClientHello, dtlserrors.ErrMissingPSKKeyExchangeModesExtension, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension})
 	}
 	if dependencies.present[extension.TypeEarlyData] && !dependencies.present[extension.TypePreSharedKey] {
-		return fmt.Errorf(
-			"extension %d in %s: %w: %w",
-			extension.TypeEarlyData,
-			extensionContextClientHello,
-			dtlserrors.ErrEarlyDataWithoutPreSharedKey,
-			&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
-		)
+		return fmt.Errorf("extension %d in %s: %w: %w", extension.TypeEarlyData, extensionContextClientHello, dtlserrors.ErrEarlyDataWithoutPreSharedKey, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
 	}
 
 	return nil
@@ -402,34 +298,16 @@ func validateTLS13ClientHelloDependencies(dependencies extensionDependencyValues
 		return nil
 	}
 	if dependencies.groups != nil && dependencies.keyShare == nil {
-		return fmt.Errorf(
-			"extension %d in %s: %w: %w",
-			extension.TypeKeyShare,
-			extensionContextClientHello,
-			dtlserrors.ErrSupportedGroupsWithoutKeyShare,
-			&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
-		)
+		return fmt.Errorf("extension %d in %s: %w: %w", extension.TypeKeyShare, extensionContextClientHello, dtlserrors.ErrSupportedGroupsWithoutKeyShare, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension})
 	}
 	if dependencies.keyShare != nil && dependencies.groups == nil {
-		return fmt.Errorf(
-			"extension %d in %s: %w: %w",
-			extension.TypeSupportedGroups,
-			extensionContextClientHello,
-			dtlserrors.ErrKeyShareWithoutSupportedGroups,
-			&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
-		)
+		return fmt.Errorf("extension %d in %s: %w: %w", extension.TypeSupportedGroups, extensionContextClientHello, dtlserrors.ErrKeyShareWithoutSupportedGroups, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension})
 	}
-	if dependencies.present[extension.TypePreSharedKey] ||
-		(dependencies.present[extension.TypeSignatureAlgorithms] && dependencies.groups != nil) {
+	if dependencies.present[extension.TypePreSharedKey] || (dependencies.present[extension.TypeSignatureAlgorithms] && dependencies.groups != nil) {
 		return nil
 	}
 
-	return fmt.Errorf(
-		"extensions in %s: %w: %w",
-		extensionContextClientHello,
-		dtlserrors.ErrMissingClientHelloExtension,
-		&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
-	)
+	return fmt.Errorf("extensions in %s: %w: %w", extensionContextClientHello, dtlserrors.ErrMissingClientHelloExtension, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension})
 }
 
 func validateHelloRetryRequestDependencies(dependencies extensionDependencyValues) error {
@@ -437,13 +315,7 @@ func validateHelloRetryRequestDependencies(dependencies extensionDependencyValue
 		return nil
 	}
 
-	return fmt.Errorf(
-		"extension %d in %s: %w: %w",
-		extension.TypeSupportedVersions,
-		extensionContextHelloRetryRequest,
-		dtlserrors.ErrMissingSupportedVersionsExtension,
-		&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
-	)
+	return fmt.Errorf("extension %d in %s: %w: %w", extension.TypeSupportedVersions, extensionContextHelloRetryRequest, dtlserrors.ErrMissingSupportedVersionsExtension, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension})
 }
 
 func validateCertificateRequestDependencies(dependencies extensionDependencyValues) error {
@@ -451,13 +323,7 @@ func validateCertificateRequestDependencies(dependencies extensionDependencyValu
 		return nil
 	}
 
-	return fmt.Errorf(
-		"extension %d in %s: %w: %w",
-		extension.TypeSignatureAlgorithms,
-		extensionContextCertificateRequest,
-		dtlserrors.ErrMissingSignatureAlgorithmsExtension,
-		&alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension},
-	)
+	return fmt.Errorf("extension %d in %s: %w: %w", extension.TypeSignatureAlgorithms, extensionContextCertificateRequest, dtlserrors.ErrMissingSignatureAlgorithmsExtension, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension})
 }
 
 func supportedGroupsUnique(groups *extension.SupportedGroups) bool {

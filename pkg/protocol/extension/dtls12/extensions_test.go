@@ -20,21 +20,9 @@ func TestExtensionPayloads(t *testing.T) {
 		wire  []byte
 		out   extension.PayloadUnmarshaller
 	}{
-		{
-			name: "point formats",
-			value: SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{
-				elliptic.CurvePointFormatUncompressed,
-			}},
-			wire: []byte{0x01, 0x00},
-			out:  &SupportedPointFormats{},
-		},
+		{name: "point formats", value: SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}}, wire: []byte{0x01, 0x00}, out: &SupportedPointFormats{}},
 		{name: "extended master secret", value: ExtendedMasterSecret{}, wire: []byte{}, out: &ExtendedMasterSecret{}},
-		{
-			name:  "renegotiation info",
-			value: RenegotiationInfo{RenegotiatedConnection: 7},
-			wire:  []byte{7},
-			out:   &RenegotiationInfo{},
-		},
+		{name: "renegotiation info", value: RenegotiationInfo{RenegotiatedConnection: 7}, wire: []byte{7}, out: &RenegotiationInfo{}},
 	}
 
 	for _, test := range tests {

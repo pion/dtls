@@ -22,15 +22,9 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
-func flight5Parse(
-	_ context.Context,
-	conn dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) (Flight, *alert.Alert, error) {
+func flight5Parse(_ context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false},
 	)
 	if pull.Err != nil {
 		return 0, nil, pull.Err
@@ -65,22 +59,17 @@ func flight5Parse(
 }
 
 //nolint:gocognit,cyclop,maintidx
-func flight5Generate(
-	conn dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+func flight5Generate(conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	var signer crypto.Signer
 	var pkts []*dtlsflight.Outbound
 	if state.RemoteRequestedCertificate { //nolint:nestif
 		pull := cache.FullPullMapItems(state.HandshakeRecvSequence-2, state.CipherSuite,
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false}) //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateRequest, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false})
 		if pull.Err != nil {
 			return nil, nil, pull.Err
 		}
 		if !pull.Ready {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired //nolint:lll
+			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired
 		}
 		reqInfo := dtlsconfig.CertificateRequestInfo{Version: protocol.Version1_2}
 		if r, ok2 := pull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
@@ -89,14 +78,14 @@ func flight5Generate(
 				reqInfo.AcceptableCAs[i] = bytes.Clone(r.CertificateAuthoritiesNames[i])
 			}
 		} else {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired //nolint:lll
+			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired
 		}
 		certificate, err := cfg.GetClientCertificate(&reqInfo)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 		}
 		if certificate == nil {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrNotAcceptableCertificateChain //nolint:lll
+			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrNotAcceptableCertificateChain
 		}
 		if certificate.Certificate != nil {
 			var ok bool
@@ -105,14 +94,7 @@ func flight5Generate(
 				return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrInvalidPrivateKey
 			}
 		}
-		pkts = append(pkts,
-			&dtlsflight.Outbound{
-				Content: &handshake.Handshake{
-					Message: &handshake.MessageCertificate{
-						Certificate: certificate.Certificate,
-					},
-				},
-			})
+		pkts = append(pkts, &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake.MessageCertificate{Certificate: certificate.Certificate}}})
 	}
 
 	clientKeyExchange := &handshake.MessageClientKeyExchange{}
@@ -175,35 +157,18 @@ func flight5Generate(
 
 		// Find compatible signature scheme
 
-		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(
-			state.RemoteCertRequestAlgs,
-			signer,
-			protocol.Version1_2,
-		)
+		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(state.RemoteCertRequestAlgs, signer, protocol.Version1_2)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}
 
-		certVerify, err := dtlscrypto.GenerateCertificateVerify(
-			plainText,
-			signer,
-			signatureHashAlgo.Hash,
-			signatureHashAlgo.Signature,
-		)
+		certVerify, err := dtlscrypto.GenerateCertificateVerify(plainText, signer, signatureHashAlgo.Hash, signatureHashAlgo.Signature)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		state.LocalCertificatesVerify = certVerify
 
-		pkt := &dtlsflight.Outbound{
-			Content: &handshake.Handshake{
-				Message: &handshake.MessageCertificateVerify{
-					HashAlgorithm:      signatureHashAlgo.Hash,
-					SignatureAlgorithm: signatureHashAlgo.Signature,
-					Signature:          state.LocalCertificatesVerify,
-				},
-			},
-		}
+		pkt := &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake.MessageCertificateVerify{HashAlgorithm: signatureHashAlgo.Hash, SignatureAlgorithm: signatureHashAlgo.Signature, Signature: state.LocalCertificatesVerify}}}
 		pkts = append(pkts, pkt)
 
 		h, ok := pkt.Content.(*handshake.Handshake)
@@ -228,38 +193,19 @@ func flight5Generate(
 		plainText := cache.PullAndMerge(handshakeRulesThroughClientFinished(cfg.InitialEpoch)...)
 
 		var err error
-		state.LocalVerifyData, err = prf.VerifyDataClient(
-			state.MasterSecret,
-			append(plainText, merged...),
-			state.CipherSuite.HashFunc(),
-		)
+		state.LocalVerifyData, err = prf.VerifyDataClient(state.MasterSecret, append(plainText, merged...), state.CipherSuite.HashFunc())
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}
 
-	pkts = append(pkts,
-		&dtlsflight.Outbound{
-			Epoch: 1,
-			Content: &handshake.Handshake{
-				Message: &handshake.MessageFinished{
-					VerifyData: state.LocalVerifyData,
-				},
-			},
-			Protection: dtlsflight.ProtectionCiphertext,
-		})
+	pkts = append(pkts, &dtlsflight.Outbound{Epoch: 1, Content: &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: state.LocalVerifyData}}, Protection: dtlsflight.ProtectionCiphertext})
 
 	return pkts, nil, nil
 }
 
 //nolint:gocognit,cyclop
-func initializeCipherSuite(
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-	handshakeKeyExchange *handshake.MessageServerKeyExchange,
-	sendingPlainText []byte,
-) (*alert.Alert, error) {
+func initializeCipherSuite(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, handshakeKeyExchange *handshake.MessageServerKeyExchange, sendingPlainText []byte) (*alert.Alert, error) {
 	if state.Protection != nil {
 		return nil, nil //nolint
 	}
@@ -281,12 +227,7 @@ func initializeCipherSuite(
 			return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 		}
 	} else {
-		state.MasterSecret, err = prf.MasterSecret(
-			state.PreMasterSecret,
-			clientRandom[:],
-			serverRandom[:],
-			state.CipherSuite.HashFunc(),
-		)
+		state.MasterSecret, err = prf.MasterSecret(state.PreMasterSecret, clientRandom[:], serverRandom[:], state.CipherSuite.HashFunc())
 		if err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
@@ -303,22 +244,11 @@ func initializeCipherSuite(
 			}
 		}
 		if !validSignatureScheme {
-			return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoAvailableSignatureSchemes //nolint:lll
+			return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoAvailableSignatureSchemes
 		}
 
-		expectedMsg := dtlscrypto.ValueKeyMessage(
-			clientRandom[:],
-			serverRandom[:],
-			handshakeKeyExchange.PublicKey,
-			handshakeKeyExchange.NamedCurve,
-		)
-		if err = dtlscrypto.VerifyKeySignature(
-			expectedMsg,
-			handshakeKeyExchange.Signature,
-			handshakeKeyExchange.HashAlgorithm,
-			handshakeKeyExchange.SignatureAlgorithm,
-			state.PeerCertificates,
-		); err != nil {
+		expectedMsg := dtlscrypto.ValueKeyMessage(clientRandom[:], serverRandom[:], handshakeKeyExchange.PublicKey, handshakeKeyExchange.NamedCurve)
+		if err = dtlscrypto.VerifyKeySignature(expectedMsg, handshakeKeyExchange.Signature, handshakeKeyExchange.HashAlgorithm, handshakeKeyExchange.SignatureAlgorithm, state.PeerCertificates); err != nil {
 			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 		}
 		var chains [][]*x509.Certificate

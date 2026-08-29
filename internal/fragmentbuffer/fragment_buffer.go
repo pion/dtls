@@ -185,11 +185,7 @@ func validateBatchFragment(batch map[uint16]*batchMessage, candidate parsedFragm
 	header := candidate.header
 	message, ok := batch[header.MessageSequence]
 	if !ok {
-		batch[header.MessageSequence] = &batchMessage{
-			handshakeType: header.Type,
-			length:        header.Length,
-			fragments:     map[uint32]parsedFragment{header.FragmentOffset: candidate},
-		}
+		batch[header.MessageSequence] = &batchMessage{handshakeType: header.Type, length: header.Length, fragments: map[uint32]parsedFragment{header.FragmentOffset: candidate}}
 
 		return nil
 	}
@@ -209,12 +205,7 @@ func validateBatchFragment(batch map[uint16]*batchMessage, candidate parsedFragm
 	return nil
 }
 
-func validateFragmentPair(
-	existingHeader handshake.Header,
-	existingData []byte,
-	candidateHeader handshake.Header,
-	candidateData []byte,
-) error {
+func validateFragmentPair(existingHeader handshake.Header, existingData []byte, candidateHeader handshake.Header, candidateData []byte) error {
 	if existingHeader.FragmentOffset == candidateHeader.FragmentOffset {
 		if existingHeader != candidateHeader || !bytes.Equal(existingData, candidateData) {
 			return dtlserrors.ErrInvalidPacket
@@ -232,11 +223,7 @@ func validateFragmentPair(
 	return nil
 }
 
-func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (
-	isRetransmit bool,
-	newFragmentCount int,
-	newBufferSize int,
-) {
+func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (isRetransmit bool, newFragmentCount int, newBufferSize int) {
 	newFragments := map[fragmentKey]struct{}{}
 	for _, candidate := range parsed {
 		header := candidate.header
@@ -275,19 +262,11 @@ func (f *FragmentBuffer) commitFragments(epoch uint16, parsed []parsedFragment) 
 
 		messageFragments, ok := f.cache[header.MessageSequence]
 		if !ok {
-			messageFragments = &fragments{
-				fragmentByOffset: map[uint32]*fragment{},
-				handshakeLength:  header.Length,
-				handshakeType:    header.Type,
-				epoch:            epoch,
-			}
+			messageFragments = &fragments{fragmentByOffset: map[uint32]*fragment{}, handshakeLength: header.Length, handshakeType: header.Type, epoch: epoch}
 			f.cache[header.MessageSequence] = messageFragments
 		}
 		if _, ok = messageFragments.fragmentByOffset[header.FragmentOffset]; !ok {
-			messageFragments.fragmentByOffset[header.FragmentOffset] = &fragment{
-				handshakeHeader: header,
-				data:            bytes.Clone(candidate.data),
-			}
+			messageFragments.fragmentByOffset[header.FragmentOffset] = &fragment{handshakeHeader: header, data: bytes.Clone(candidate.data)}
 			messageFragments.fragmentsLength += header.FragmentLength
 			f.totalBufferSize += int(header.FragmentLength)
 			f.totalFragmentCount++

@@ -342,8 +342,7 @@ func (s *State) UnmarshalBinary(data []byte) error {
 	if len(s.masterSecret) == 0 {
 		return dtlserrors.ErrInvalidProtectionInput
 	}
-	if cipherSuite := ciphersuite.ForID(s.CipherSuiteID); cipherSuite != nil &&
-		(!cipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) || validateCipherSuite(cipherSuite) != nil) {
+	if cipherSuite := ciphersuite.ForID(s.CipherSuiteID); cipherSuite != nil && (!cipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) || validateCipherSuite(cipherSuite) != nil) {
 		return dtlserrors.ErrInvalidCipherSuite
 	}
 

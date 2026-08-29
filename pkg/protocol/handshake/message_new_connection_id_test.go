@@ -47,17 +47,7 @@ func TestMessageNewConnectionIDEmptyList(t *testing.T) {
 }
 
 func TestMessageNewConnectionIDMarshalErrors(t *testing.T) {
-	tests := map[string]*MessageNewConnectionID{
-		"CID too long": {
-			CIDs: [][]byte{make([]byte, 256)},
-		},
-		"CID list too long": {
-			CIDs: make([][]byte, 65536),
-		},
-		"invalid usage": {
-			Usage: 2,
-		},
-	}
+	tests := map[string]*MessageNewConnectionID{"CID too long": {CIDs: [][]byte{make([]byte, 256)}}, "CID list too long": {CIDs: make([][]byte, 65536)}, "invalid usage": {Usage: 2}}
 
 	for name, message := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -69,12 +59,7 @@ func TestMessageNewConnectionIDMarshalErrors(t *testing.T) {
 }
 
 func TestMessageNewConnectionIDUnmarshalErrors(t *testing.T) {
-	tests := map[string][]byte{
-		"too short":            {0x00, 0x00},
-		"list length mismatch": {0x00, 0x01, 0x00},
-		"CID length mismatch":  {0x00, 0x02, 0x02, 0xaa, 0x00},
-		"invalid usage":        {0x00, 0x00, 0x02},
-	}
+	tests := map[string][]byte{"too short": {0x00, 0x00}, "list length mismatch": {0x00, 0x01, 0x00}, "CID length mismatch": {0x00, 0x02, 0x02, 0xaa, 0x00}, "invalid usage": {0x00, 0x00, 0x02}}
 
 	for name, raw := range tests {
 		t.Run(name, func(t *testing.T) {

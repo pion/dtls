@@ -39,34 +39,18 @@ func TestUDPDecode(t *testing.T) {
 		Want      [][]byte
 		WantError error
 	}{
-		{
-			Name: "Change Cipher Spec, single packet",
-			Data: []byte{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
-			Want: [][]byte{
-				{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
-			},
-		},
+		{Name: "Change Cipher Spec, single packet", Data: []byte{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01}, Want: [][]byte{{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01}}},
 		{
 			Name: "Change Cipher Spec, multi packet",
-			Data: []byte{
-				0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01,
-				0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01,
-			},
-			Want: [][]byte{
-				{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
-				{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01},
-			},
+			Data: []byte{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01, 0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01},
+			Want: [][]byte{{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01}, {0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01}},
 		},
 		{
 			Name:      "Invalid packet length",
 			Data:      []byte{0x14, 0xfe},
 			WantError: ErrInvalidPacketLength,
 		},
-		{
-			Name:      "Packet declared invalid length",
-			Data:      []byte{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0xFF, 0x01},
-			WantError: ErrInvalidPacketLength,
-		},
+		{Name: "Packet declared invalid length", Data: []byte{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0xFF, 0x01}, WantError: ErrInvalidPacketLength},
 	} {
 		dtlsPkts, err := UnpackDatagram(test.Data, UnpackDatagramConfig{})
 		assert.ErrorIs(t, err, test.WantError)
@@ -75,28 +59,9 @@ func TestUDPDecode(t *testing.T) {
 }
 
 func TestUnpackDatagramMixedFixedRecords(t *testing.T) {
-	ordinaryFirst := []byte{
-		byte(protocol.ContentTypeApplicationData), 0xfe, 0xfd,
-		0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-		0x00, 0x01,
-		0xa1,
-	}
-	cidRecord := []byte{
-		byte(protocol.ContentTypeConnectionID), 0xfe, 0xfd,
-		0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
-		0xca, 0xfe,
-		0x00, 0x01,
-		0xb2,
-	}
-	ordinaryLast := []byte{
-		byte(protocol.ContentTypeAlert), 0xfe, 0xfd,
-		0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
-		0x00, 0x01,
-		0xc3,
-	}
+	ordinaryFirst := []byte{byte(protocol.ContentTypeApplicationData), 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0xa1}
+	cidRecord := []byte{byte(protocol.ContentTypeConnectionID), 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xca, 0xfe, 0x00, 0x01, 0xb2}
+	ordinaryLast := []byte{byte(protocol.ContentTypeAlert), 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0xc3}
 	datagram := append([]byte{}, ordinaryFirst...)
 	datagram = append(datagram, cidRecord...)
 	datagram = append(datagram, ordinaryLast...)
@@ -133,35 +98,14 @@ func TestRecordLayerMarshalAndScan(t *testing.T) {
 		{
 			Name: "Change Cipher Spec, single packet",
 			Data: []byte{0x14, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01},
-			Want: &testRecord{
-				Header: Header{
-					ContentType:    protocol.ContentTypeChangeCipherSpec,
-					ContentLen:     1,
-					Version:        protocol.Version1_2,
-					Epoch:          0,
-					SequenceNumber: 18,
-				},
-				Content: &protocol.ChangeCipherSpec{},
-			},
+			Want: &testRecord{Header: Header{ContentType: protocol.ContentTypeChangeCipherSpec, ContentLen: 1, Version: protocol.Version1_2, Epoch: 0, SequenceNumber: 18}, Content: &protocol.ChangeCipherSpec{}},
 		},
 		{
 			Name: "Return Routability Check",
-			Data: []byte{
-				0x1b, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x09,
-				0x01, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-			},
+			Data: []byte{0x1b, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x09, 0x01, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
 			Want: &testRecord{
-				Header: Header{
-					ContentType:    protocol.ContentTypeReturnRoutabilityCheck,
-					ContentLen:     9,
-					Version:        protocol.Version1_2,
-					Epoch:          0,
-					SequenceNumber: 18,
-				},
-				Content: &protocol.ReturnRoutabilityCheck{
-					MessageType: protocol.ReturnRoutabilityCheckPathResponse,
-					Cookie:      [protocol.ReturnRoutabilityCheckCookieLength]byte{1, 2, 3, 4, 5, 6, 7, 8},
-				},
+				Header:  Header{ContentType: protocol.ContentTypeReturnRoutabilityCheck, ContentLen: 9, Version: protocol.Version1_2, Epoch: 0, SequenceNumber: 18},
+				Content: &protocol.ReturnRoutabilityCheck{MessageType: protocol.ReturnRoutabilityCheckPathResponse, Cookie: [protocol.ReturnRoutabilityCheckCookieLength]byte{1, 2, 3, 4, 5, 6, 7, 8}},
 			},
 		},
 	} {
@@ -197,10 +141,7 @@ func FuzzUnpackDatagram_No_Panics(f *testing.F) {
 	Datasingle := []byte{
 		0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01,
 	}
-	Datamulti := []byte{
-		0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01,
-		0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01,
-	}
+	Datamulti := []byte{0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x01, 0x01, 0x14, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x01, 0x01}
 	f.Add(Datasingle, uint8(0))
 	f.Add(Datamulti, uint8(0))
 	f.Add(append([]byte{UnifiedHeaderFixedBits, 0x01}, make([]byte, minDTLSCiphertextRecordLen)...), uint8(0))
@@ -223,15 +164,7 @@ func FuzzRecordLayer_MarshalScan_RoundTrip(f *testing.F) {
 			payload = []byte{0}
 		}
 
-		recordLayer := &testRecord{
-			Header: Header{
-				ContentType:    protocol.ContentTypeApplicationData,
-				Version:        protocol.Version1_2,
-				Epoch:          epoch,
-				SequenceNumber: seq,
-			},
-			Content: &protocol.ApplicationData{Data: payload},
-		}
+		recordLayer := &testRecord{Header: Header{ContentType: protocol.ContentTypeApplicationData, Version: protocol.Version1_2, Epoch: epoch, SequenceNumber: seq}, Content: &protocol.ApplicationData{Data: payload}}
 
 		raw, err := recordLayer.Marshal()
 		require.NoError(t, err)
@@ -282,15 +215,7 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 		var dat []byte
 		want := make([][]byte, 0, count)
 		for i := range count {
-			rl := &testRecord{
-				Header: Header{
-					ContentType:    protocol.ContentTypeApplicationData,
-					Version:        protocol.Version1_2,
-					Epoch:          uint16(i),
-					SequenceNumber: uint64(1000) + uint64(i),
-				},
-				Content: &protocol.ApplicationData{Data: all[i]},
-			}
+			rl := &testRecord{Header: Header{ContentType: protocol.ContentTypeApplicationData, Version: protocol.Version1_2, Epoch: uint16(i), SequenceNumber: uint64(1000) + uint64(i)}, Content: &protocol.ApplicationData{Data: all[i]}}
 			raw, err := rl.Marshal()
 			require.NoError(t, err)
 			dat = append(dat, raw...)
@@ -469,13 +394,7 @@ func fixedRecordForScannerTest(
 func unifiedRecordForScannerTest(t *testing.T, cid []byte, sequenceNumber uint8) []byte {
 	t.Helper()
 
-	raw, err := (&CiphertextRecord{
-		Header: UnifiedHeader{
-			ConnectionID:   cid,
-			SequenceNumber: uint16(sequenceNumber),
-		},
-		EncryptedRecord: ciphertext13Payload(sequenceNumber),
-	}).Marshal()
+	raw, err := (&CiphertextRecord{Header: UnifiedHeader{ConnectionID: cid, SequenceNumber: uint16(sequenceNumber)}, EncryptedRecord: ciphertext13Payload(sequenceNumber)}).Marshal()
 	require.NoError(t, err)
 
 	return raw
@@ -483,13 +402,7 @@ func unifiedRecordForScannerTest(t *testing.T, cid []byte, sequenceNumber uint8)
 
 func TestCiphertextRecord13RoundTrip(t *testing.T) {
 	encryptedRecord := ciphertext13Payload(0xde)
-	record := &CiphertextRecord{
-		Header: UnifiedHeader{
-			EpochLow:       3,
-			SequenceNumber: 0xaabb,
-		},
-		EncryptedRecord: encryptedRecord,
-	}
+	record := &CiphertextRecord{Header: UnifiedHeader{EpochLow: 3, SequenceNumber: 0xaabb}, EncryptedRecord: encryptedRecord}
 
 	raw, err := record.Marshal()
 	require.NoError(t, err)
@@ -569,12 +482,7 @@ func TestCiphertextRecord13WithoutLengthUsesRemainder(t *testing.T) {
 
 func TestUnpackDatagramCiphertext13(t *testing.T) {
 	encryptedRecord := ciphertext13Payload(0xaa)
-	ciphertextWithLength := &CiphertextRecord{
-		Header: UnifiedHeader{
-			SequenceNumber: 0x01,
-		},
-		EncryptedRecord: encryptedRecord,
-	}
+	ciphertextWithLength := &CiphertextRecord{Header: UnifiedHeader{SequenceNumber: 0x01}, EncryptedRecord: encryptedRecord}
 	ciphertextWithLengthRaw, err := ciphertextWithLength.Marshal()
 	require.NoError(t, err)
 
@@ -742,13 +650,7 @@ func TestUnpackDatagramVersion12RequiresCIDAfterEpochZero(t *testing.T) {
 		CIDRequired:   true,
 	}
 
-	header, err := (&Header{
-		ContentType:  protocol.ContentTypeConnectionID,
-		ContentLen:   1,
-		Version:      protocol.Version1_2,
-		Epoch:        1,
-		ConnectionID: cid,
-	}).Marshal()
+	header, err := (&Header{ContentType: protocol.ContentTypeConnectionID, ContentLen: 1, Version: protocol.Version1_2, Epoch: 1, ConnectionID: cid}).Marshal()
 	require.NoError(t, err)
 	protectedWithCID := append([]byte{}, header...)
 	protectedWithCID = append(protectedWithCID, 0xc3)
@@ -770,12 +672,7 @@ func TestUnpackDatagramVersion12RequiresCIDAfterEpochZero(t *testing.T) {
 }
 
 func TestUnpackDatagramAllowsCIDLessUnifiedWithConfiguredCIDLength(t *testing.T) {
-	ciphertext := &CiphertextRecord{
-		Header: UnifiedHeader{
-			SequenceNumber: 0x01,
-		},
-		EncryptedRecord: ciphertext13Payload(0xaa),
-	}
+	ciphertext := &CiphertextRecord{Header: UnifiedHeader{SequenceNumber: 0x01}, EncryptedRecord: ciphertext13Payload(0xaa)}
 	raw, err := ciphertext.Marshal()
 	require.NoError(t, err)
 
@@ -785,13 +682,7 @@ func TestUnpackDatagramAllowsCIDLessUnifiedWithConfiguredCIDLength(t *testing.T)
 }
 
 func TestUnpackDatagramRejectsUnifiedCIDWithoutConfiguredLength(t *testing.T) {
-	ciphertext := &CiphertextRecord{
-		Header: UnifiedHeader{
-			ConnectionID:   []byte{0x01, 0x02, 0x03, 0x04},
-			SequenceNumber: 0x01,
-		},
-		EncryptedRecord: ciphertext13Payload(0xaa),
-	}
+	ciphertext := &CiphertextRecord{Header: UnifiedHeader{ConnectionID: []byte{0x01, 0x02, 0x03, 0x04}, SequenceNumber: 0x01}, EncryptedRecord: ciphertext13Payload(0xaa)}
 	raw, err := ciphertext.Marshal()
 	require.NoError(t, err)
 
@@ -805,23 +696,11 @@ func TestUnpackDatagramRejectsTruncatedUnifiedCID(t *testing.T) {
 }
 
 func TestUnpackDatagramDoesNotApplyCIDAssociationPolicy(t *testing.T) {
-	first := &CiphertextRecord{
-		Header: UnifiedHeader{
-			ConnectionID:   []byte{0x01, 0x02, 0x03, 0x04},
-			SequenceNumber: 0x01,
-		},
-		EncryptedRecord: ciphertext13Payload(0xaa),
-	}
+	first := &CiphertextRecord{Header: UnifiedHeader{ConnectionID: []byte{0x01, 0x02, 0x03, 0x04}, SequenceNumber: 0x01}, EncryptedRecord: ciphertext13Payload(0xaa)}
 	firstRaw, err := first.Marshal()
 	require.NoError(t, err)
 
-	second := &CiphertextRecord{
-		Header: UnifiedHeader{
-			ConnectionID:   []byte{0x04, 0x03, 0x02, 0x01},
-			SequenceNumber: 0x02,
-		},
-		EncryptedRecord: ciphertext13Payload(0xba),
-	}
+	second := &CiphertextRecord{Header: UnifiedHeader{ConnectionID: []byte{0x04, 0x03, 0x02, 0x01}, SequenceNumber: 0x02}, EncryptedRecord: ciphertext13Payload(0xba)}
 	secondRaw, err := second.Marshal()
 	require.NoError(t, err)
 
@@ -849,33 +728,17 @@ func TestUnpackDatagramDoesNotApplyContentPolicy(t *testing.T) {
 }
 
 func TestUnpackDatagramAllRecordForms(t *testing.T) {
-	plaintext := &testRecord{
-		Header:  Header{Version: protocol.Version1_2},
-		Content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify},
-	}
+	plaintext := &testRecord{Header: Header{Version: protocol.Version1_2}, Content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}}
 	fixedRaw, err := plaintext.Marshal()
 	require.NoError(t, err)
 
 	cid := []byte{0xca, 0xfe}
-	cidHeaderRaw, err := (&Header{
-		ContentType:    protocol.ContentTypeConnectionID,
-		ContentLen:     1,
-		Version:        protocol.Version1_2,
-		Epoch:          1,
-		SequenceNumber: 2,
-		ConnectionID:   cid,
-	}).Marshal()
+	cidHeaderRaw, err := (&Header{ContentType: protocol.ContentTypeConnectionID, ContentLen: 1, Version: protocol.Version1_2, Epoch: 1, SequenceNumber: 2, ConnectionID: cid}).Marshal()
 	require.NoError(t, err)
 	cidRaw := append([]byte{}, cidHeaderRaw...)
 	cidRaw = append(cidRaw, 0xb2)
 
-	unified := &CiphertextRecord{
-		Header: UnifiedHeader{
-			ConnectionID:   cid,
-			SequenceNumber: 3,
-		},
-		EncryptedRecord: ciphertext13Payload(0xc3),
-	}
+	unified := &CiphertextRecord{Header: UnifiedHeader{ConnectionID: cid, SequenceNumber: 3}, EncryptedRecord: ciphertext13Payload(0xc3)}
 	unifiedRaw, err := unified.Marshal()
 	require.NoError(t, err)
 
@@ -899,11 +762,7 @@ func TestUnpackDatagramAllRecordForms(t *testing.T) {
 func TestUnpackDatagramOmittedUnifiedLengthConsumesRemainder(t *testing.T) {
 	omitted := append([]byte{UnifiedHeaderFixedBits, 0x01}, ciphertext13Payload(0xaa)...)
 
-	followingHeader := Header{
-		ContentType: protocol.ContentTypeApplicationData,
-		ContentLen:  1,
-		Version:     protocol.Version1_2,
-	}
+	followingHeader := Header{ContentType: protocol.ContentTypeApplicationData, ContentLen: 1, Version: protocol.Version1_2}
 	following, err := followingHeader.Marshal()
 	require.NoError(t, err)
 	following = append(following, 0xbb)
@@ -916,14 +775,7 @@ func TestUnpackDatagramOmittedUnifiedLengthConsumesRemainder(t *testing.T) {
 
 func TestCiphertextRecord13MarshalTo(t *testing.T) {
 	encryptedRecord := ciphertext13Payload(0xde)
-	record := &CiphertextRecord{
-		Header: UnifiedHeader{
-			ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
-			EpochLow:       3,
-			SequenceNumber: 0xaabb,
-		},
-		EncryptedRecord: encryptedRecord,
-	}
+	record := &CiphertextRecord{Header: UnifiedHeader{ConnectionID: []byte{0xca, 0xfe, 0xba, 0xbe}, EpochLow: 3, SequenceNumber: 0xaabb}, EncryptedRecord: encryptedRecord}
 	wantRecord := &CiphertextRecord{
 		Header:          record.Header,
 		EncryptedRecord: encryptedRecord,

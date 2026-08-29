@@ -45,9 +45,7 @@ func (f *reliableFlight) acknowledge(acks []protocol.ACK) ACKResult {
 	}
 	for sequence := range changed {
 		pending := f.pendingForMessage(sequence)
-		result.Messages = append(result.Messages, MessageACKProgress{
-			MessageSequence: sequence, Changed: true, Complete: len(pending) == 0,
-		})
+		result.Messages = append(result.Messages, MessageACKProgress{MessageSequence: sequence, Changed: true, Complete: len(pending) == 0})
 	}
 
 	return result

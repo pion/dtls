@@ -24,63 +24,20 @@ func TestExtensionPayloadRoundTrips(t *testing.T) {
 			extension.PayloadUnmarshaller
 		}
 	}{
-		{
-			name: "offered versions preserve unknown",
-			value: OfferedVersions{Versions: []protocol.Version{
-				protocol.Version1_3,
-				protocol.VersionFromBytes(0xfa, 0xfa),
-			}},
-			out: &OfferedVersions{},
-		},
+		{name: "offered versions preserve unknown", value: OfferedVersions{Versions: []protocol.Version{protocol.Version1_3, protocol.VersionFromBytes(0xfa, 0xfa)}}, out: &OfferedVersions{}},
 		{name: "selected version", value: SelectedVersion{Version: protocol.Version1_3}, out: &SelectedVersion{}},
 		{name: "cookie", value: Cookie{Cookie: []byte("cookie")}, out: &Cookie{}},
 		{name: "empty client key share", value: ClientKeyShare{Shares: []KeyShareEntry{}}, out: &ClientKeyShare{}},
-		{
-			name: "client key share preserves unknown group",
-			value: ClientKeyShare{Shares: []KeyShareEntry{
-				{Group: elliptic.X25519, KeyExchange: []byte{1, 2}},
-				{Group: elliptic.Curve(0xfafa), KeyExchange: []byte{3}},
-			}},
-			out: &ClientKeyShare{},
-		},
-		{
-			name:  "server key share",
-			value: ServerKeyShare{Share: KeyShareEntry{Group: elliptic.X25519, KeyExchange: []byte{4, 5}}},
-			out:   &ServerKeyShare{},
-		},
-		{
-			name:  "retry key share preserves unknown group",
-			value: RetryKeyShare{SelectedGroup: elliptic.Curve(0xfafa)},
-			out:   &RetryKeyShare{},
-		},
-		{
-			name: "offered psks",
-			value: OfferedPSKs{
-				Identities: []PSKIdentity{{Identity: []byte("identity"), ObfuscatedTicketAge: 42}},
-				Binders:    []PSKBinder{binder},
-			},
-			out: &OfferedPSKs{},
-		},
+		{name: "client key share preserves unknown group", value: ClientKeyShare{Shares: []KeyShareEntry{{Group: elliptic.X25519, KeyExchange: []byte{1, 2}}, {Group: elliptic.Curve(0xfafa), KeyExchange: []byte{3}}}}, out: &ClientKeyShare{}},
+		{name: "server key share", value: ServerKeyShare{Share: KeyShareEntry{Group: elliptic.X25519, KeyExchange: []byte{4, 5}}}, out: &ServerKeyShare{}},
+		{name: "retry key share preserves unknown group", value: RetryKeyShare{SelectedGroup: elliptic.Curve(0xfafa)}, out: &RetryKeyShare{}},
+		{name: "offered psks", value: OfferedPSKs{Identities: []PSKIdentity{{Identity: []byte("identity"), ObfuscatedTicketAge: 42}}, Binders: []PSKBinder{binder}}, out: &OfferedPSKs{}},
 		{name: "selected psk zero", value: SelectedPSK{Identity: 0}, out: &SelectedPSK{}},
-		{
-			name:  "psk modes preserve unknown",
-			value: PSKKeyExchangeModes{Modes: []PSKKeyExchangeMode{PSKDHEKE, PSKKeyExchangeMode(0xfa)}},
-			out:   &PSKKeyExchangeModes{},
-		},
+		{name: "psk modes preserve unknown", value: PSKKeyExchangeModes{Modes: []PSKKeyExchangeMode{PSKDHEKE, PSKKeyExchangeMode(0xfa)}}, out: &PSKKeyExchangeModes{}},
 		{name: "early data", value: EarlyData{}, out: &EarlyData{}},
 		{name: "max early data", value: MaxEarlyData{Size: 4096}, out: &MaxEarlyData{}},
-		{
-			name:  "certificate authorities",
-			value: CertificateAuthorities{Authorities: [][]byte{[]byte("ca1"), []byte("ca2")}},
-			out:   &CertificateAuthorities{},
-		},
-		{
-			name: "oid filters",
-			value: OIDFilters{Filters: []OIDFilter{
-				{OID: []byte{1, 2, 3}, Values: []byte{4, 5}},
-			}},
-			out: &OIDFilters{},
-		},
+		{name: "certificate authorities", value: CertificateAuthorities{Authorities: [][]byte{[]byte("ca1"), []byte("ca2")}}, out: &CertificateAuthorities{}},
+		{name: "oid filters", value: OIDFilters{Filters: []OIDFilter{{OID: []byte{1, 2, 3}, Values: []byte{4, 5}}}}, out: &OIDFilters{}},
 		{name: "post handshake auth", value: PostHandshakeAuth{}, out: &PostHandshakeAuth{}},
 	}
 
@@ -104,9 +61,7 @@ func TestContextSpecificFormsRejectOtherPayloads(t *testing.T) {
 	require.NoError(t, err)
 	assert.ErrorIs(t, (&SelectedVersion{}).UnmarshalData(clientVersions), dtlserrors.ErrInvalidSupportedVersionsFormat)
 
-	serverShare, err := (ServerKeyShare{
-		Share: KeyShareEntry{Group: elliptic.X25519, KeyExchange: []byte{1}},
-	}).MarshalData()
+	serverShare, err := (ServerKeyShare{Share: KeyShareEntry{Group: elliptic.X25519, KeyExchange: []byte{1}}}).MarshalData()
 	require.NoError(t, err)
 	assert.ErrorIs(t, (&RetryKeyShare{}).UnmarshalData(serverShare), dtlserrors.ErrInvalidKeyShareFormat)
 
@@ -120,10 +75,7 @@ func TestContextSpecificFormsRejectOtherPayloads(t *testing.T) {
 }
 
 func TestKeyShareDuplicateGroup(t *testing.T) {
-	_, err := (ClientKeyShare{Shares: []KeyShareEntry{
-		{Group: elliptic.X25519, KeyExchange: []byte{1}},
-		{Group: elliptic.X25519, KeyExchange: []byte{2}},
-	}}).MarshalData()
+	_, err := (ClientKeyShare{Shares: []KeyShareEntry{{Group: elliptic.X25519, KeyExchange: []byte{1}}, {Group: elliptic.X25519, KeyExchange: []byte{2}}}}).MarshalData()
 	assert.ErrorIs(t, err, dtlserrors.ErrDuplicateKeyShare)
 }
 
@@ -131,8 +83,7 @@ func TestExtensionPayloadValidation(t *testing.T) {
 	t.Run("supported versions", func(t *testing.T) {
 		_, err := (OfferedVersions{}).MarshalData()
 		assert.ErrorIs(t, err, dtlserrors.ErrInvalidSupportedVersionsFormat)
-		assert.ErrorIs(t, (&OfferedVersions{}).UnmarshalData([]byte{3, 0xfe, 0xfc, 0xfe}),
-			dtlserrors.ErrInvalidSupportedVersionsFormat)
+		assert.ErrorIs(t, (&OfferedVersions{}).UnmarshalData([]byte{3, 0xfe, 0xfc, 0xfe}), dtlserrors.ErrInvalidSupportedVersionsFormat)
 		assert.ErrorIs(t, (&SelectedVersion{}).UnmarshalData([]byte{0xfe}),
 			dtlserrors.ErrInvalidSupportedVersionsFormat)
 	})
@@ -143,13 +94,9 @@ func TestExtensionPayloadValidation(t *testing.T) {
 
 		_, err := (OfferedPSKs{Identities: []PSKIdentity{identity}}).MarshalData()
 		assert.ErrorIs(t, err, dtlserrors.ErrPreSharedKeyFormat)
-		_, err = (OfferedPSKs{
-			Identities: []PSKIdentity{identity},
-			Binders:    []PSKBinder{binder[:minPSKBinderSize-1]},
-		}).MarshalData()
+		_, err = (OfferedPSKs{Identities: []PSKIdentity{identity}, Binders: []PSKBinder{binder[:minPSKBinderSize-1]}}).MarshalData()
 		assert.ErrorIs(t, err, dtlserrors.ErrPreSharedKeyFormat)
-		assert.ErrorIs(t, (&OfferedPSKs{}).UnmarshalData([]byte{0, 6, 0, 0, 0, 0, 0, 0, 0, 0}),
-			dtlserrors.ErrPreSharedKeyFormat)
+		assert.ErrorIs(t, (&OfferedPSKs{}).UnmarshalData([]byte{0, 6, 0, 0, 0, 0, 0, 0, 0, 0}), dtlserrors.ErrPreSharedKeyFormat)
 	})
 
 	t.Run("oid filters", func(t *testing.T) {

@@ -166,11 +166,7 @@ func x25519MLKEM768ClientPreMasterSecret(serverPublicKey, clientPrivateKey []byt
 		return nil, err
 	}
 
-	x25519SharedKey, err := ecdhPreMasterSecret(
-		serverPublicKey[mlkem.CiphertextSize768:],
-		clientPrivateKey[mlkem.SeedSize:],
-		elliptic.X25519,
-	)
+	x25519SharedKey, err := ecdhPreMasterSecret(serverPublicKey[mlkem.CiphertextSize768:], clientPrivateKey[mlkem.SeedSize:], elliptic.X25519)
 	if err != nil {
 		return nil, err
 	}
@@ -187,11 +183,7 @@ func x25519MLKEM768ServerPreMasterSecret(clientPublicKey, serverPrivateKey []byt
 		return nil, dtlserrors.ErrLengthMismatch
 	}
 
-	x25519SharedKey, err := ecdhPreMasterSecret(
-		clientPublicKey[mlkem.EncapsulationKeySize768:],
-		serverPrivateKey[mlkem.SharedKeySize:],
-		elliptic.X25519,
-	)
+	x25519SharedKey, err := ecdhPreMasterSecret(clientPublicKey[mlkem.EncapsulationKeySize768:], serverPrivateKey[mlkem.SharedKeySize:], elliptic.X25519)
 	if err != nil {
 		return nil, err
 	}
@@ -273,11 +265,7 @@ func MasterSecret(preMasterSecret, clientRandom, serverRandom []byte, h HashFunc
 
 // GenerateEncryptionKeys is the final step TLS 1.2 PRF. Given all state generated so far generates
 // the final keys need for encryption.
-func GenerateEncryptionKeys(
-	masterSecret, clientRandom, serverRandom []byte,
-	macLen, keyLen, ivLen int,
-	h HashFunc,
-) (*EncryptionKeys, error) {
+func GenerateEncryptionKeys(masterSecret, clientRandom, serverRandom []byte, macLen, keyLen, ivLen int, h HashFunc) (*EncryptionKeys, error) {
 	seed := append(append([]byte(keyExpansionLabel), serverRandom...), clientRandom...)
 	keyMaterial, err := PHash(masterSecret, seed, (2*macLen)+(2*keyLen)+(2*ivLen), h)
 	if err != nil {
@@ -301,15 +289,7 @@ func GenerateEncryptionKeys(
 
 	serverWriteIV := keyMaterial[:ivLen]
 
-	return &EncryptionKeys{
-		MasterSecret:   masterSecret,
-		ClientMACKey:   clientMACKey,
-		ServerMACKey:   serverMACKey,
-		ClientWriteKey: clientWriteKey,
-		ServerWriteKey: serverWriteKey,
-		ClientWriteIV:  clientWriteIV,
-		ServerWriteIV:  serverWriteIV,
-	}, nil
+	return &EncryptionKeys{MasterSecret: masterSecret, ClientMACKey: clientMACKey, ServerMACKey: serverMACKey, ClientWriteKey: clientWriteKey, ServerWriteKey: serverWriteKey, ClientWriteIV: clientWriteIV, ServerWriteIV: serverWriteIV}, nil
 }
 
 func prfVerifyData(masterSecret, handshakeBodies []byte, label string, hashFunc HashFunc) ([]byte, error) {

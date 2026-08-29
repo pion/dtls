@@ -79,39 +79,15 @@ type fsm13 struct {
 	received      recvHandshakeLease // keeps the reader paused across a prepare/send transition
 }
 
-func NewFSM13(
-	state *dtlsstate.State13,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-	initialFlight dtlsflight13.Flight,
-	initialFlights []*dtlsflight.Outbound,
-	establishment *Establishment,
-) (FSM, error) {
+func NewFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialFlights []*dtlsflight.Outbound, establishment *Establishment) (FSM, error) {
 	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, initialFlights, nil, establishment)
 }
 
-func newFSM13(
-	state *dtlsstate.State13,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-	initialFlight dtlsflight13.Flight,
-	initialFlights []*dtlsflight.Outbound,
-	initialTranscript *Transcript,
-) (*fsm13, error) {
-	return newFSM13WithEstablishment(
-		state, cache, cfg, initialFlight, initialFlights, initialTranscript, NewEstablishment(),
-	)
+func newFSM13(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialFlights []*dtlsflight.Outbound, initialTranscript *Transcript) (*fsm13, error) {
+	return newFSM13WithEstablishment(state, cache, cfg, initialFlight, initialFlights, initialTranscript, NewEstablishment())
 }
 
-func newFSM13WithEstablishment(
-	state *dtlsstate.State13,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-	initialFlight dtlsflight13.Flight,
-	initialFlights []*dtlsflight.Outbound,
-	initialTranscript *Transcript,
-	establishment *Establishment,
-) (*fsm13, error) {
+func newFSM13WithEstablishment(state *dtlsstate.State13, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight13.Flight, initialFlights []*dtlsflight.Outbound, initialTranscript *Transcript, establishment *Establishment) (*fsm13, error) {
 	if initialTranscript == nil {
 		initialTranscript = NewTranscript()
 	}
@@ -124,9 +100,7 @@ func newFSM13WithEstablishment(
 		retransmitInterval: cfg.InitialRetransmitInterval,
 		closed:             make(chan struct{}),
 		establishment:      establishment,
-		postHandshake: newPostHandshake(handshakeContext{
-			state: state, cache: cache, cfg: cfg, transcript: initialTranscript,
-		}),
+		postHandshake:      newPostHandshake(handshakeContext{state: state, cache: cache, cfg: cfg, transcript: initialTranscript}),
 	}
 	fsm.prepareFlightACKTracking(fsm.flights, fsm.retransmit)
 	if err := fsm.seedInitialFlights(fsm.flights, fsm.retransmit); err != nil {
@@ -212,12 +186,7 @@ func (s *fsm13) UpdateKeys(ctx context.Context, request handshake.KeyUpdateReque
 	}
 
 	completion, completionCtx := newPostHandshakeCompletion()
-	command := postHandshakeCommand{
-		Kind:       commandSendKeyUpdate,
-		Canceled:   ctx.Done(),
-		KeyUpdate:  keyUpdateCommand{Request: request},
-		Completion: completion,
-	}
+	command := postHandshakeCommand{Kind: commandSendKeyUpdate, Canceled: ctx.Done(), KeyUpdate: keyUpdateCommand{Request: request}, Completion: completion}
 	if err := s.submitPostHandshakeCommand(ctx, command); err != nil {
 		return err
 	}
@@ -236,11 +205,7 @@ func (s *fsm13) submitPostHandshakeCommand(ctx context.Context, command postHand
 	}
 }
 
-func (s *fsm13) waitPostHandshakeCompletion(
-	ctx context.Context,
-	completionCtx context.Context,
-	completion *postHandshakeCompletion,
-) error {
+func (s *fsm13) waitPostHandshakeCompletion(ctx context.Context, completionCtx context.Context, completion *postHandshakeCompletion) error {
 	select {
 	case <-completionCtx.Done():
 		return completion.result()
@@ -419,12 +384,7 @@ func (s *fsm13) handleReceivedFlight( //nolint:cyclop
 	return transition, nil
 }
 
-func (s *fsm13) handlePreviousFlightRetransmit(
-	ctx context.Context,
-	conn Conn,
-	recordsToACK []protocol.RecordNumber,
-	ackResult ACKResult,
-) (receivedFlightTransition, error) {
+func (s *fsm13) handlePreviousFlightRetransmit(ctx context.Context, conn Conn, recordsToACK []protocol.RecordNumber, ackResult ACKResult) (receivedFlightTransition, error) {
 	// A duplicate peer flight means it didn't receive our response.
 	// ACK the duplicate and retransmit the pending final flight.
 	// check WAIT exit 3:

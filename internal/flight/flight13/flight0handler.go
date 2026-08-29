@@ -28,11 +28,10 @@ func flight0Parse(
 	cfg := flightCtx.cfg
 
 	if state.LocalVersion != protocol.Version1_3 {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
-			dtlserrors.ErrInvalidProtocolVersionState
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidProtocolVersionState
 	}
 	pull := cache.FullPullMapItems(0, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
 	)
 	if pull.Err != nil {
 		return 0, nil, pull.Err
@@ -57,8 +56,7 @@ func flight0Parse(
 	}
 
 	if clientHello.Version != protocol.Version1_2 {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
-			dtlserrors.ErrUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 	state.RemoteRandom = clientHello.Random
 
@@ -67,13 +65,12 @@ func flight0Parse(
 		if id == renegotiationInfoSCSV {
 			continue
 		}
-		if c, found := dtlsflight.FindCipherSuiteByID(id, cfg.LocalCipherSuites); found &&
-			c.Capabilities().SupportsVersion(protocol.Version1_3) {
+		if c, found := dtlsflight.FindCipherSuiteByID(id, cfg.LocalCipherSuites); found && c.Capabilities().SupportsVersion(protocol.Version1_3) {
 			cipherSuites = append(cipherSuites, c)
 		}
 	}
 	if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, cfg.LocalCipherSuites); !ok {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection
 	}
 
 	if failure := processClientHelloExtensions(state, clientHello); failure != nil {
@@ -83,8 +80,7 @@ func flight0Parse(
 	if !slices.Contains(state.RemoteVersions, protocol.Version1_3) {
 		// nolint:godox
 		// TODO: This should actually handover the state machine to DTLS 1.2
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError},
-			dtlserrors.ErrInvalidProtocolVersionState
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidProtocolVersionState
 	}
 
 	nextFlight := Flight2

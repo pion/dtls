@@ -23,28 +23,15 @@ func TestHandshakeMessage(t *testing.T) {
 		0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
 	clientHello := &handshake.MessageClientHello{
-		Version: protocol.Version1_2,
-		Random: handshake.Random{
-			GMTUnixTime: time.Unix(3056586332, 0),
-			RandomBytes: [28]byte{
-				0x42, 0x54, 0xff, 0x86, 0xe1, 0x24, 0x41, 0x91, 0x42, 0x62, 0x15, 0xad, 0x16, 0xc9,
-				0x15, 0x8d, 0x95, 0x71, 0x8a, 0xbb, 0x22, 0xd7, 0x47, 0xec, 0xd8, 0x3d, 0xdc, 0x4b,
-			},
-		},
+		Version:            protocol.Version1_2,
+		Random:             handshake.Random{GMTUnixTime: time.Unix(3056586332, 0), RandomBytes: [28]byte{0x42, 0x54, 0xff, 0x86, 0xe1, 0x24, 0x41, 0x91, 0x42, 0x62, 0x15, 0xad, 0x16, 0xc9, 0x15, 0x8d, 0x95, 0x71, 0x8a, 0xbb, 0x22, 0xd7, 0x47, 0xec, 0xd8, 0x3d, 0xdc, 0x4b}},
 		SessionID:          []byte{},
 		Cookie:             []byte{},
 		CipherSuiteIDs:     []uint16{},
 		CompressionMethods: []*protocol.CompressionMethod{},
 		Extensions:         []extension.Value{},
 	}
-	parsedHandshake := &handshake.Handshake{
-		Header: handshake.Header{
-			Length:         0x29,
-			FragmentLength: 0x29,
-			Type:           handshake.TypeClientHello,
-		},
-		Message: clientHello,
-	}
+	parsedHandshake := &handshake.Handshake{Header: handshake.Header{Length: 0x29, FragmentLength: 0x29, Type: handshake.TypeClientHello}, Message: clientHello}
 
 	h := &handshake.Handshake{}
 	assert.NoError(t, h.Unmarshal(rawHandshakeMessage))
@@ -57,15 +44,7 @@ func TestHandshakeMessage(t *testing.T) {
 
 func TestPostHandshakeMessageDispatch(t *testing.T) {
 	maxEarlyData := uint32(128)
-	newSessionTicket := &handshake.MessageNewSessionTicket{
-		TicketLifetime: 1,
-		TicketAgeAdd:   2,
-		TicketNonce:    []byte{0x03},
-		Ticket:         []byte{0x04},
-		Extensions: []extension.Value{
-			&extension13.MaxEarlyData{Size: maxEarlyData},
-		},
-	}
+	newSessionTicket := &handshake.MessageNewSessionTicket{TicketLifetime: 1, TicketAgeAdd: 2, TicketNonce: []byte{0x03}, Ticket: []byte{0x04}, Extensions: []extension.Value{&extension13.MaxEarlyData{Size: maxEarlyData}}}
 	tests := map[string]handshake.Message{
 		"NewSessionTicket": newSessionTicket,
 		"KeyUpdate": &handshake.MessageKeyUpdate{
@@ -109,10 +88,7 @@ func TestHandshakeMarshalToReturnsChildByteCount(t *testing.T) {
 	errMessage := errors.New("message marshal failed") //nolint:err113
 	for name, messageErr := range map[string]error{"Success": nil, "MessageError": errMessage} {
 		t.Run(name, func(t *testing.T) {
-			message := &countingMessage{
-				MessageFinished: &handshake.MessageFinished{VerifyData: make([]byte, 3)},
-				err:             messageErr,
-			}
+			message := &countingMessage{MessageFinished: &handshake.MessageFinished{VerifyData: make([]byte, 3)}, err: messageErr}
 			out := make([]byte, handshake.HeaderLength+message.MarshalSize())
 
 			n, err := (&handshake.Handshake{Message: message}).MarshalTo(out)

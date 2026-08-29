@@ -45,13 +45,7 @@ func (h *Cache) Push(data []byte, epoch, messageSequence uint16, typ handshake.T
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.cache = append(h.cache, &HandshakeCacheItem{
-		Data:            bytes.Clone(data),
-		Epoch:           epoch,
-		MessageSequence: messageSequence,
-		Typ:             typ,
-		IsClient:        isClient,
-	})
+	h.cache = append(h.cache, &HandshakeCacheItem{Data: bytes.Clone(data), Epoch: epoch, MessageSequence: messageSequence, Typ: typ, IsClient: isClient})
 }
 
 // PullExact returns the handshake message with the requested sequence and
@@ -93,11 +87,7 @@ func (h *Cache) Pull(rules ...HandshakeCachePullRule) []*HandshakeCacheItem {
 	return out
 }
 
-func (h *Cache) FullPullMapItems(
-	startSeq int,
-	cipherSuite dtlsconfig.CipherSuite,
-	rules ...HandshakeCachePullRule,
-) HandshakeCachePullResult {
+func (h *Cache) FullPullMapItems(startSeq int, cipherSuite dtlsconfig.CipherSuite, rules ...HandshakeCachePullRule) HandshakeCachePullResult {
 	selection := h.PullSequential(startSeq, rules...)
 	if selection.Err != nil || !selection.Ready {
 		return HandshakeCachePullResult{
@@ -113,11 +103,7 @@ func (h *Cache) FullPullMapItems(
 // FullPullMapOneOfItems decodes exactly one of the allowed messages at
 // startSeq. A different message from the same peer and epoch is an
 // unexpected_message failure.
-func (h *Cache) FullPullMapOneOfItems(
-	startSeq int,
-	cipherSuite dtlsconfig.CipherSuite,
-	rules ...HandshakeCachePullRule,
-) HandshakeCachePullResult {
+func (h *Cache) FullPullMapOneOfItems(startSeq int, cipherSuite dtlsconfig.CipherSuite, rules ...HandshakeCachePullRule) HandshakeCachePullResult {
 	rule, item, ready, err := h.pullOneOf(startSeq, rules)
 	if err != nil || !ready {
 		return HandshakeCachePullResult{
@@ -140,11 +126,7 @@ func (h *Cache) pullOneOf( //nolint:cyclop
 	rules []HandshakeCachePullRule,
 ) (HandshakeCachePullRule, *HandshakeCacheItem, bool, error) {
 	if startSeq < 0 || startSeq > int(^uint16(0)) {
-		return HandshakeCachePullRule{}, nil, true, fmt.Errorf(
-			"%w: %w",
-			dtlserrors.ErrHandshakeSequenceOverflow,
-			&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
-		)
+		return HandshakeCachePullRule{}, nil, true, fmt.Errorf("%w: %w", dtlserrors.ErrHandshakeSequenceOverflow, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
 	}
 
 	h.mu.Lock()
@@ -190,11 +172,7 @@ func (h *Cache) pullOneOf( //nolint:cyclop
 	}
 
 	if conflict {
-		return HandshakeCachePullRule{}, nil, true, fmt.Errorf(
-			"%w: %w",
-			dtlserrors.ErrUnexpectedHandshakeMessage,
-			&alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
-		)
+		return HandshakeCachePullRule{}, nil, true, fmt.Errorf("%w: %w", dtlserrors.ErrUnexpectedHandshakeMessage, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage})
 	}
 	if selectedItem == nil {
 		return HandshakeCachePullRule{}, nil, false, nil
@@ -217,15 +195,7 @@ func (h *Cache) PullSequential( //nolint:cyclop,gocognit // Ordered required/opt
 	selected := 0
 	for i, rule := range rules {
 		if seq < 0 || seq > int(^uint16(0)) {
-			return HandshakeCacheItemPullResult{
-				NextSequence: startSeq,
-				Ready:        true,
-				Err: fmt.Errorf(
-					"%w: %w",
-					dtlserrors.ErrHandshakeSequenceOverflow,
-					&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
-				),
-			}
+			return HandshakeCacheItemPullResult{NextSequence: startSeq, Ready: true, Err: fmt.Errorf("%w: %w", dtlserrors.ErrHandshakeSequenceOverflow, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})}
 		}
 
 		conflicts := make([]*HandshakeCacheItem, 0, 1)
@@ -286,23 +256,10 @@ func matchesAnyHandshakePullRule(item *HandshakeCacheItem, rules []HandshakeCach
 }
 
 func unexpectedHandshakePull(startSeq int) HandshakeCacheItemPullResult {
-	return HandshakeCacheItemPullResult{
-		NextSequence: startSeq,
-		Ready:        true,
-		Err: fmt.Errorf(
-			"%w: %w",
-			dtlserrors.ErrUnexpectedHandshakeMessage,
-			&alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage},
-		),
-	}
+	return HandshakeCacheItemPullResult{NextSequence: startSeq, Ready: true, Err: fmt.Errorf("%w: %w", dtlserrors.ErrUnexpectedHandshakeMessage, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage})}
 }
 
-func (h *Cache) fullPullMapCacheItems(
-	startSeq int,
-	cipherSuite dtlsconfig.CipherSuite,
-	rules []HandshakeCachePullRule,
-	ci []*HandshakeCacheItem,
-) HandshakeCachePullResult {
+func (h *Cache) fullPullMapCacheItems(startSeq int, cipherSuite dtlsconfig.CipherSuite, rules []HandshakeCachePullRule, ci []*HandshakeCacheItem) HandshakeCachePullResult {
 	out := make(map[handshake.Type]handshake.Message)
 	items := make([]DecodedHandshakeCacheItem, 0, len(rules))
 	seq := startSeq
@@ -317,15 +274,7 @@ func (h *Cache) fullPullMapCacheItems(
 			item, r.Typ, uint16(seq), keyExchangeAlgorithm, //nolint:gosec // selection bounded seq above.
 		)
 		if err != nil {
-			return HandshakeCachePullResult{
-				NextSequence: startSeq,
-				Ready:        true,
-				Err: fmt.Errorf(
-					"%w: %w",
-					err,
-					&alert.Alert{Level: alert.Fatal, Description: alert.DecodeError},
-				),
-			}
+			return HandshakeCachePullResult{NextSequence: startSeq, Ready: true, Err: fmt.Errorf("%w: %w", err, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})}
 		}
 		seq++
 		out[typ] = parsed.Message
@@ -351,20 +300,12 @@ func keyExchangeAlgorithmForCipherSuite(cipherSuite dtlsconfig.CipherSuite) cryp
 	return cipherSuite.KeyExchangeAlgorithm()
 }
 
-func (h *Cache) decodeGenericHandshakeItem(
-	item *HandshakeCacheItem,
-	expectedType handshake.Type,
-	expectedSequence uint16,
-	keyExchangeAlgorithm cryptosuite.KeyExchangeAlgorithm,
-) (*handshake.Handshake, error) {
+func (h *Cache) decodeGenericHandshakeItem(item *HandshakeCacheItem, expectedType handshake.Type, expectedSequence uint16, keyExchangeAlgorithm cryptosuite.KeyExchangeAlgorithm) (*handshake.Handshake, error) {
 	contextKeyExchangeAlgorithm := keyExchangeAlgorithm
 	if expectedType != handshake.TypeServerKeyExchange && expectedType != handshake.TypeClientKeyExchange {
 		contextKeyExchangeAlgorithm = 0
 	}
-	context := handshakeCacheDecodeContext{
-		kind:                 handshakeCacheDecodeGeneric,
-		keyExchangeAlgorithm: contextKeyExchangeAlgorithm,
-	}
+	context := handshakeCacheDecodeContext{kind: handshakeCacheDecodeGeneric, keyExchangeAlgorithm: contextKeyExchangeAlgorithm}
 
 	return h.decodeHandshakeItem(
 		item,
@@ -384,19 +325,8 @@ func (h *Cache) decodeGenericHandshakeItem(
 
 // DecodeProtectedHandshakeItem decodes and retains one DTLS 1.3 protected
 // handshake message, or returns the retained value by an earlier pull.
-func (h *Cache) DecodeProtectedHandshakeItem(
-	item *HandshakeCacheItem,
-	expectedType handshake.Type,
-	expectedSequence uint16,
-	decoder HandshakeCacheDecoder,
-) (*handshake.Handshake, error) {
-	parsed, err := h.decodeHandshakeItem(
-		item,
-		expectedType,
-		expectedSequence,
-		handshakeCacheDecodeContext{kind: handshakeCacheDecodeProtected13},
-		decoder,
-	)
+func (h *Cache) DecodeProtectedHandshakeItem(item *HandshakeCacheItem, expectedType handshake.Type, expectedSequence uint16, decoder HandshakeCacheDecoder) (*handshake.Handshake, error) {
+	parsed, err := h.decodeHandshakeItem(item, expectedType, expectedSequence, handshakeCacheDecodeContext{kind: handshakeCacheDecodeProtected13}, decoder)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%w: %w",
@@ -408,13 +338,7 @@ func (h *Cache) DecodeProtectedHandshakeItem(
 	return parsed, nil
 }
 
-func (h *Cache) decodeHandshakeItem(
-	item *HandshakeCacheItem,
-	expectedType handshake.Type,
-	expectedSequence uint16,
-	context handshakeCacheDecodeContext,
-	decoder HandshakeCacheDecoder,
-) (*handshake.Handshake, error) {
+func (h *Cache) decodeHandshakeItem(item *HandshakeCacheItem, expectedType handshake.Type, expectedSequence uint16, context handshakeCacheDecodeContext, decoder HandshakeCacheDecoder) (*handshake.Handshake, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -472,13 +396,7 @@ func validateDecodedHandshake( //nolint:cyclop
 	if err := rawHeader.Unmarshal(item.Data); err != nil {
 		return err
 	}
-	if rawHeader != parsed.Header ||
-		rawHeader.Type != item.Typ ||
-		rawHeader.MessageSequence != item.MessageSequence ||
-		rawHeader.FragmentOffset != 0 ||
-		rawHeader.FragmentLength != rawHeader.Length ||
-		len(item.Data) != handshake.HeaderLength+int(rawHeader.Length) ||
-		parsed.Message.Type() != rawHeader.Type {
+	if rawHeader != parsed.Header || rawHeader.Type != item.Typ || rawHeader.MessageSequence != item.MessageSequence || rawHeader.FragmentOffset != 0 || rawHeader.FragmentLength != rawHeader.Length || len(item.Data) != handshake.HeaderLength+int(rawHeader.Length) || parsed.Message.Type() != rawHeader.Type {
 		return dtlserrors.ErrInvalidHandshakeTranscriptMessage
 	}
 

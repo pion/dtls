@@ -56,11 +56,7 @@ func snapshotClientHelloForRetryTest(t *testing.T, clientHello *handshake.Messag
 	return snapshot
 }
 
-func helloRetryRequest13ForTest(
-	cipherSuiteID uint16,
-	selectedGroup *elliptic.Curve,
-	cookie []byte,
-) *handshake.MessageServerHello {
+func helloRetryRequest13ForTest(cipherSuiteID uint16, selectedGroup *elliptic.Curve, cookie []byte) *handshake.MessageServerHello {
 	exts := []extension.Value{&extension13.SelectedVersion{Version: protocol.Version1_3}}
 	if selectedGroup != nil {
 		exts = append(exts, &extension13.RetryKeyShare{SelectedGroup: *selectedGroup})
@@ -92,11 +88,7 @@ func finalizedRetryForTest(
 	return snapshot
 }
 
-func mutateSnapshotForRetryTest(
-	t *testing.T,
-	snapshot ClientHelloSnapshot,
-	mutate func(*handshake.MessageClientHello),
-) ClientHelloSnapshot {
+func mutateSnapshotForRetryTest(t *testing.T, snapshot ClientHelloSnapshot, mutate func(*handshake.MessageClientHello)) ClientHelloSnapshot {
 	t.Helper()
 	clientHello, err := ClientHelloFromSnapshot(snapshot)
 	require.NoError(t, err)
@@ -125,13 +117,11 @@ func TestValidateHelloRetryRequest13(t *testing.T) {
 		hrr       *handshake.MessageServerHello
 		wantError bool
 	}{
-		"selected group and cookie": {hrr: helloRetryRequest13ForTest(0x1301, &selected, []byte("cookie"))},
-		"cookie only":               {hrr: helloRetryRequest13ForTest(0x1301, nil, []byte("cookie"))},
-		"selected group only":       {hrr: helloRetryRequest13ForTest(0x1301, &selected, nil)},
-		"unoffered cipher suite":    {hrr: helloRetryRequest13ForTest(0x1303, nil, []byte("cookie")), wantError: true},
-		"unsupported selected group": {
-			hrr: helloRetryRequest13ForTest(0x1301, ptrRetryGroup(elliptic.P384), nil), wantError: true,
-		},
+		"selected group and cookie":  {hrr: helloRetryRequest13ForTest(0x1301, &selected, []byte("cookie"))},
+		"cookie only":                {hrr: helloRetryRequest13ForTest(0x1301, nil, []byte("cookie"))},
+		"selected group only":        {hrr: helloRetryRequest13ForTest(0x1301, &selected, nil)},
+		"unoffered cipher suite":     {hrr: helloRetryRequest13ForTest(0x1303, nil, []byte("cookie")), wantError: true},
+		"unsupported selected group": {hrr: helloRetryRequest13ForTest(0x1301, ptrRetryGroup(elliptic.P384), nil), wantError: true},
 		"group already shared": {
 			hrr: helloRetryRequest13ForTest(0x1301, ptrRetryGroup(elliptic.P256), nil), wantError: true,
 		},
@@ -171,13 +161,7 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 		"padding change": {
 			valid: true,
 			mutate: func(ch *handshake.MessageClientHello) {
-				ch.Extensions = slices.Insert(ch.Extensions, 2,
-					extension.Value(
-						extension.Raw{
-							Type: extension.TypePadding,
-							Data: []byte{0x00, 0x00},
-						},
-					))
+				ch.Extensions = slices.Insert(ch.Extensions, 2, extension.Value(extension.Raw{Type: extension.TypePadding, Data: []byte{0x00, 0x00}}))
 			},
 		},
 		"version": {mutate: func(ch *handshake.MessageClientHello) {
@@ -189,12 +173,8 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 		"session ID": {mutate: func(ch *handshake.MessageClientHello) {
 			ch.SessionID = []byte{0xff}
 		}},
-		"cipher suites": {mutate: func(ch *handshake.MessageClientHello) {
-			ch.CipherSuiteIDs = slices.Clone(ch.CipherSuiteIDs[:1])
-		}},
-		"compression methods": {mutate: func(ch *handshake.MessageClientHello) {
-			ch.CompressionMethods = ch.CompressionMethods[:1]
-		}},
+		"cipher suites":       {mutate: func(ch *handshake.MessageClientHello) { ch.CipherSuiteIDs = slices.Clone(ch.CipherSuiteIDs[:1]) }},
+		"compression methods": {mutate: func(ch *handshake.MessageClientHello) { ch.CompressionMethods = ch.CompressionMethods[:1] }},
 		"unknown payload": {mutate: func(ch *handshake.MessageClientHello) {
 			replaceRetryExtension(ch, unknownExtensionType,
 				extension.Raw{Type: unknownExtensionType, Data: []byte{0xff}})
@@ -213,29 +193,19 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 			ch.Extensions = extensions
 		}},
 		"supported groups": {mutate: func(ch *handshake.MessageClientHello) {
-			replaceRetryExtension(ch, extension.TypeSupportedGroups,
-				&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
+			replaceRetryExtension(ch, extension.TypeSupportedGroups, &extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
 		}},
 		"missing cookie": {mutate: func(ch *handshake.MessageClientHello) {
-			ch.Extensions = slices.DeleteFunc(ch.Extensions, func(value extension.Value) bool {
-				return value.ExtensionType() == extension.TypeCookie
-			})
+			ch.Extensions = slices.DeleteFunc(ch.Extensions, func(value extension.Value) bool { return value.ExtensionType() == extension.TypeCookie })
 		}},
 		"wrong cookie": {mutate: func(ch *handshake.MessageClientHello) {
 			replaceRetryExtension(ch, extension.TypeCookie, &extension13.Cookie{Cookie: []byte("wrong")})
 		}},
 		"wrong share": {mutate: func(ch *handshake.MessageClientHello) {
-			replaceRetryExtension(ch, extension.TypeKeyShare, &extension13.ClientKeyShare{
-				Shares: []extension13.KeyShareEntry{{Group: elliptic.P256, KeyExchange: []byte{0x01}}},
-			})
+			replaceRetryExtension(ch, extension.TypeKeyShare, &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: elliptic.P256, KeyExchange: []byte{0x01}}}})
 		}},
 		"multiple shares": {mutate: func(ch *handshake.MessageClientHello) {
-			replaceRetryExtension(ch, extension.TypeKeyShare, &extension13.ClientKeyShare{
-				Shares: []extension13.KeyShareEntry{
-					{Group: elliptic.X25519, KeyExchange: []byte{0x01}},
-					{Group: elliptic.P256, KeyExchange: []byte{0x02}},
-				},
-			})
+			replaceRetryExtension(ch, extension.TypeKeyShare, &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: elliptic.X25519, KeyExchange: []byte{0x01}}, {Group: elliptic.P256, KeyExchange: []byte{0x02}}}})
 		}},
 		"early data retained": {mutate: func(ch *handshake.MessageClientHello) {
 			ch.Extensions = slices.Insert(
@@ -272,19 +242,14 @@ func TestValidateClientHelloRetryCookieOnlyKeepsKeyShare(t *testing.T) {
 	require.NoError(t, ValidateClientHelloRetry(initial, retry, request))
 
 	retry = mutateSnapshotForRetryTest(t, retry, func(ch *handshake.MessageClientHello) {
-		replaceRetryExtension(ch, extension.TypeKeyShare, &extension13.ClientKeyShare{
-			Shares: []extension13.KeyShareEntry{{Group: elliptic.P256, KeyExchange: []byte{0xff}}},
-		})
+		replaceRetryExtension(ch, extension.TypeKeyShare, &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: elliptic.P256, KeyExchange: []byte{0xff}}}})
 	})
 	require.ErrorIs(t, ValidateClientHelloRetry(initial, retry, request), dtlserrors.ErrInvalidClientHello)
 }
 
 func TestValidateHelloVerifyRequestResponse(t *testing.T) {
 	initialHello := retryClientHelloForTest(false)
-	initialHello.Extensions = append(initialHello.Extensions,
-		&extension.ConnectionID{CID: []byte{0x01}},
-		&extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM}},
-	)
+	initialHello.Extensions = append(initialHello.Extensions, &extension.ConnectionID{CID: []byte{0x01}}, &extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM}})
 	initial := snapshotClientHelloForRetryTest(t, initialHello)
 	retryHello, err := ClientHelloFromSnapshot(initial)
 	require.NoError(t, err)
@@ -299,24 +264,15 @@ func TestValidateHelloVerifyRequestResponse(t *testing.T) {
 		wantError bool
 	}{
 		"DTLS 1.2 extension changes allowed": {},
-		"version": {
-			mutate: func(ch *handshake.MessageClientHello) { ch.Version = protocol.Version1_0 }, wantError: true,
-		},
+		"version":                            {mutate: func(ch *handshake.MessageClientHello) { ch.Version = protocol.Version1_0 }, wantError: true},
 		"random": {
 			mutate: func(ch *handshake.MessageClientHello) { ch.Random.RandomBytes[0] ^= 0xff }, wantError: true,
 		},
 		"session ID": {
 			mutate: func(ch *handshake.MessageClientHello) { ch.SessionID = []byte{0xff} }, wantError: true,
 		},
-		"cipher suites": {
-			mutate: func(ch *handshake.MessageClientHello) { ch.CipherSuiteIDs = ch.CipherSuiteIDs[:1] }, wantError: true,
-		},
-		"compression": {
-			mutate: func(ch *handshake.MessageClientHello) {
-				ch.CompressionMethods = ch.CompressionMethods[:1]
-			},
-			wantError: true,
-		},
+		"cipher suites": {mutate: func(ch *handshake.MessageClientHello) { ch.CipherSuiteIDs = ch.CipherSuiteIDs[:1] }, wantError: true},
+		"compression":   {mutate: func(ch *handshake.MessageClientHello) { ch.CompressionMethods = ch.CompressionMethods[:1] }, wantError: true},
 		"cookie": {
 			mutate: func(ch *handshake.MessageClientHello) { ch.Cookie = []byte("wrong") }, wantError: true,
 		},
@@ -324,9 +280,7 @@ func TestValidateHelloVerifyRequestResponse(t *testing.T) {
 			replaceRetryExtension(ch, extension.TypeConnectionID, &extension.ConnectionID{CID: []byte{0xff}})
 		}, wantError: true},
 		"use_srtp": {mutate: func(ch *handshake.MessageClientHello) {
-			replaceRetryExtension(ch, extension.TypeUseSRTP, &extension.SRTPOffer{
-				ProtectionProfiles: []extension.SRTPProtectionProfile{extension.SRTP_AEAD_AES_256_GCM},
-			})
+			replaceRetryExtension(ch, extension.TypeUseSRTP, &extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{extension.SRTP_AEAD_AES_256_GCM}})
 		}, wantError: true},
 	}
 
@@ -364,9 +318,7 @@ func TestValidateServerHelloAfterRetry(t *testing.T) {
 
 		return &handshake.MessageServerHello{CipherSuiteID: &cipherSuite, Extensions: exts}
 	}
-	validShare := &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{
-		Group: elliptic.X25519, KeyExchange: []byte{0x01},
-	}}
+	validShare := &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: elliptic.X25519, KeyExchange: []byte{0x01}}}
 	invalidRequestErr := ValidateServerHelloAfterRetry(RetryRequest{}, serverHello(0x1301, validShare))
 	require.ErrorIs(t, invalidRequestErr, dtlserrors.ErrInvalidServerHello)
 	requireAlert(t, invalidRequestErr, alert.IllegalParameter)
@@ -378,9 +330,7 @@ func TestValidateServerHelloAfterRetry(t *testing.T) {
 		"valid":                {serverHello: serverHello(0x1301, validShare)},
 		"changed cipher suite": {serverHello: serverHello(0x1302, validShare), wantError: dtlserrors.ErrInvalidServerHello},
 		"missing share":        {serverHello: serverHello(0x1301, nil), wantError: dtlserrors.ErrServerKeyShareMissing},
-		"wrong group": {serverHello: serverHello(0x1301, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{
-			Group: elliptic.P256, KeyExchange: []byte{0x01},
-		}}), wantError: dtlserrors.ErrServerKeyShareUnknownGroup},
+		"wrong group":          {serverHello: serverHello(0x1301, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: elliptic.P256, KeyExchange: []byte{0x01}}}), wantError: dtlserrors.ErrServerKeyShareUnknownGroup},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := ValidateServerHelloAfterRetry(request, test.serverHello)

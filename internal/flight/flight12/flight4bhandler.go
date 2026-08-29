@@ -20,15 +20,9 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
-func flight4bParse(
-	_ context.Context,
-	_ dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) (Flight, *alert.Alert, error) {
+func flight4bParse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: true, Optional: false},
 	)
 	if pull.Err != nil {
 		return 0, nil, pull.Err
@@ -44,9 +38,9 @@ func flight4bParse(
 	}
 
 	plainText := cache.PullAndMerge(
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},   //nolint:lll
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},  //nolint:lll
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: cfg.InitialEpoch, IsClient: false, Optional: false},
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: cfg.InitialEpoch + 1, IsClient: false, Optional: false},
 	)
 
 	expectedVerifyData, err := prf.VerifyDataClient(state.MasterSecret, plainText, state.CipherSuite.HashFunc())
@@ -62,17 +56,10 @@ func flight4bParse(
 }
 
 //nolint:cyclop
-func flight4bGenerate(
-	_ dtlsflight.Conn,
-	state *dtlsstate.State12,
-	cache *dtlsflight.Cache,
-	cfg *dtlsconfig.HandshakeConfig,
-) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+func flight4bGenerate(_ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	var pkts []*dtlsflight.Outbound
 	offer := state.RemoteClientHelloSnapshots.Current()
-	srtpSelection, err := negotiation.NegotiateSRTP(
-		offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier,
-	)
+	srtpSelection, err := negotiation.NegotiateSRTP(offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -83,8 +70,7 @@ func flight4bGenerate(
 			RenegotiatedConnection: 0,
 		})
 	}
-	if (cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret ||
-		cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
+	if (cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret || cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
 		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
 	extensions = appendSRTPSelection(extensions, srtpSelection)
@@ -98,30 +84,17 @@ func flight4bGenerate(
 		state.NegotiatedProtocol = selectedProto
 	}
 	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
-		extensions = dtlsflight.AppendConnectionIDExtensions(
-			extensions, cid.CID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck),
-		)
+		extensions = dtlsflight.AppendConnectionIDExtensions(extensions, cid.CID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
 	}
 
 	cipherSuiteID := uint16(state.CipherSuite.ID())
-	serverHelloMessage := &handshake.MessageServerHello{
-		Version:           protocol.Version1_2,
-		Random:            state.LocalRandom,
-		SessionID:         state.SessionID,
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions:        extensions,
-	}
+	serverHelloMessage := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: state.LocalRandom, SessionID: state.SessionID, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: extensions}
 
-	serverHelloMessage, err = dtlsflight.FinalizeServerHello(
-		serverHelloMessage, cfg.ServerHelloMessageHook, offer, cfg.EnableRRC,
-	)
+	serverHelloMessage, err = dtlsflight.FinalizeServerHello(serverHelloMessage, cfg.ServerHelloMessageHook, offer, cfg.EnableRRC)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err = validateServerSRTP(
-		offer, serverHelloMessage.Extensions, cfg.LocalSRTPProtectionProfiles, srtpSelection,
-	); err != nil {
+	if err = validateServerSRTP(offer, serverHelloMessage.Extensions, cfg.LocalSRTPProtectionProfiles, srtpSelection); err != nil {
 		return nil, nil, err
 	}
 	decision := negotiation.DecideConnectionID(offer, serverHelloMessage.Extensions)
@@ -131,7 +104,7 @@ func flight4bGenerate(
 
 	if len(state.LocalVerifyData) == 0 {
 		plainText := cache.PullAndMerge(
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
+			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
 		)
 		raw, err := serverHello.Marshal()
 		if err != nil {
@@ -145,23 +118,7 @@ func flight4bGenerate(
 		}
 	}
 
-	pkts = append(pkts,
-		&dtlsflight.Outbound{
-			Content: &serverHello,
-		},
-		&dtlsflight.Outbound{
-			Content: &protocol.ChangeCipherSpec{},
-		},
-		&dtlsflight.Outbound{
-			Epoch: 1,
-			Content: &handshake.Handshake{
-				Message: &handshake.MessageFinished{
-					VerifyData: state.LocalVerifyData,
-				},
-			},
-			Protection: dtlsflight.ProtectionCiphertext,
-		},
-	)
+	pkts = append(pkts, &dtlsflight.Outbound{Content: &serverHello}, &dtlsflight.Outbound{Content: &protocol.ChangeCipherSpec{}}, &dtlsflight.Outbound{Epoch: 1, Content: &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: state.LocalVerifyData}}, Protection: dtlsflight.ProtectionCiphertext})
 	state.CommitNegotiatedExtensions(decision)
 	dtlsflight.CommitSRTP(state.Common, srtpSelection)
 

@@ -75,9 +75,7 @@ func (m *MessageCertificate) Unmarshal(data []byte) error {
 		return dtlserrors.ErrBufferTooSmall
 	}
 
-	if certificateBodyLen := int(util.BigEndianUint24(
-		data,
-	)); certificateBodyLen+handshakeMessageCertificateLengthFieldSize != len(data) {
+	if certificateBodyLen := int(util.BigEndianUint24(data)); certificateBodyLen+handshakeMessageCertificateLengthFieldSize != len(data) {
 		return dtlserrors.ErrLengthMismatch
 	}
 

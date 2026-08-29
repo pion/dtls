@@ -69,9 +69,7 @@ func (s *ClientHelloSnapshots) Record(snapshot ClientHelloSnapshot) error {
 		first, firstPresent := s.initial.Extension(extension.TypeConnectionID)
 		second, secondPresent := snapshot.Extension(extension.TypeConnectionID)
 		if firstPresent != secondPresent || !bytes.Equal(first.Data, second.Data) {
-			return negotiationError(dtlserrors.ErrInvalidClientHello,
-				fmt.Errorf("connection_id changed after retry: %w", dtlserrors.ErrInvalidClientHello),
-				alert.IllegalParameter)
+			return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("connection_id changed after retry: %w", dtlserrors.ErrInvalidClientHello), alert.IllegalParameter)
 		}
 	} else {
 		s.initial = snapshot
@@ -88,11 +86,8 @@ func (s *ClientHelloSnapshots) RecordWire(rawHandshake []byte) error {
 	if err := header.Unmarshal(rawHandshake); err != nil {
 		return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("header: %w", err), alert.DecodeError)
 	}
-	if header.Type != handshake.TypeClientHello ||
-		header.FragmentOffset != 0 || header.FragmentLength != header.Length ||
-		int(header.Length) != len(rawHandshake)-handshake.HeaderLength {
-		return negotiationError(dtlserrors.ErrInvalidClientHello,
-			fmt.Errorf("invalid wire handshake: %w", dtlserrors.ErrInvalidClientHello), alert.DecodeError)
+	if header.Type != handshake.TypeClientHello || header.FragmentOffset != 0 || header.FragmentLength != header.Length || int(header.Length) != len(rawHandshake)-handshake.HeaderLength {
+		return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("invalid wire handshake: %w", dtlserrors.ErrInvalidClientHello), alert.DecodeError)
 	}
 
 	snapshot, err := snapshotClientHello(rawHandshake[handshake.HeaderLength:])
@@ -106,10 +101,7 @@ func (s *ClientHelloSnapshots) RecordWire(rawHandshake []byte) error {
 
 // FinalizeClientHello clones and validates a ClientHello before and after the
 // hook.
-func FinalizeClientHello(
-	base *handshake.MessageClientHello,
-	hook func(handshake.MessageClientHello) handshake.Message,
-) (*handshake.MessageClientHello, ClientHelloSnapshot, error) {
+func FinalizeClientHello(base *handshake.MessageClientHello, hook func(handshake.MessageClientHello) handshake.Message) (*handshake.MessageClientHello, ClientHelloSnapshot, error) {
 	clientHello, err := validatedClientHello(base)
 	if err == nil && hook != nil {
 		clientHello, err = validatedClientHello(hook(*clientHello))
@@ -139,9 +131,7 @@ func snapshotClientHello(body []byte) (ClientHelloSnapshot, error) {
 		return ClientHelloSnapshot{}, fmt.Errorf("extensions: %w", err)
 	}
 
-	return ClientHelloSnapshot{
-		body: bytes.Clone(body), extensionOffset: len(body) - len(extensionData), extensions: extensions,
-	}, nil
+	return ClientHelloSnapshot{body: bytes.Clone(body), extensionOffset: len(body) - len(extensionData), extensions: extensions}, nil
 }
 
 func clientHelloExtensions(body []byte) ([]byte, error) {
@@ -195,9 +185,7 @@ func ValidateServerHelloResponse(
 	isHelloRetryRequest := bytes.Equal(random[:], handshake.HelloRetryRequestRandom())
 
 	err := ValidateResponseExtensions(offer, serverHello.Extensions, func(typ extension.Type) bool {
-		return (isHelloRetryRequest && typ == extension.TypeCookie) ||
-			(!isHelloRetryRequest && typ == extension.TypeRenegotiationInfo &&
-				clientHelloHasCipherSuite(offer, 0x00ff))
+		return (isHelloRetryRequest && typ == extension.TypeCookie) || (!isHelloRetryRequest && typ == extension.TypeRenegotiationInfo && clientHelloHasCipherSuite(offer, 0x00ff))
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %w", dtlserrors.ErrInvalidServerHello, err)
@@ -219,20 +207,14 @@ func ValidateServerHello12Context(serverHello *handshake.MessageServerHello) err
 		return nil
 	}
 
-	return negotiationError(dtlserrors.ErrInvalidServerHello,
-		fmt.Errorf("response is not a DTLS 1.2 ServerHello: %w", dtlserrors.ErrExtensionNotAllowed), alert.IllegalParameter)
+	return negotiationError(dtlserrors.ErrInvalidServerHello, fmt.Errorf("response is not a DTLS 1.2 ServerHello: %w", dtlserrors.ErrExtensionNotAllowed), alert.IllegalParameter)
 }
 
-func ValidateResponseExtensions(
-	offer ClientHelloSnapshot,
-	values []extension.Value,
-	allowed func(extension.Type) bool,
-) error {
+func ValidateResponseExtensions(offer ClientHelloSnapshot, values []extension.Value, allowed func(extension.Type) bool) error {
 	for _, value := range values {
 		typ := value.ExtensionType()
 		if !offer.Offered(typ) && (allowed == nil || !allowed(typ)) {
-			return fmt.Errorf("extension %d: %w: %w", typ, dtlserrors.ErrUnsolicitedExtension,
-				&alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension})
+			return fmt.Errorf("extension %d: %w: %w", typ, dtlserrors.ErrUnsolicitedExtension, &alert.Alert{Level: alert.Fatal, Description: alert.UnsupportedExtension})
 		}
 	}
 
@@ -241,11 +223,7 @@ func ValidateResponseExtensions(
 
 // FinalizeServerHello clones and validates a ServerHello before and after its
 // hook.
-func FinalizeServerHello(
-	base *handshake.MessageServerHello,
-	hook func(handshake.MessageServerHello) handshake.Message,
-	offer ClientHelloSnapshot,
-) (*handshake.MessageServerHello, error) {
+func FinalizeServerHello(base *handshake.MessageServerHello, hook func(handshake.MessageServerHello) handshake.Message, offer ClientHelloSnapshot) (*handshake.MessageServerHello, error) {
 	serverHello, err := validatedServerHello(base)
 	if err == nil && hook != nil {
 		serverHello, err = validatedServerHello(hook(*serverHello))
@@ -285,14 +263,7 @@ func DecideConnectionID(offer ClientHelloSnapshot, responses []extension.Value) 
 	if offered {
 		for _, value := range responses {
 			if response, ok := value.(*extension.ConnectionID); ok && response != nil {
-				return &ConnectionID{
-					ClientCID: clientCID,
-					ServerCID: bytes.Clone(response.CID),
-					ReturnRoutabilityCheck: offer.Offered(extension.TypeReturnRoutabilityCheck) &&
-						slices.ContainsFunc(responses, func(value extension.Value) bool {
-							return value.ExtensionType() == extension.TypeReturnRoutabilityCheck
-						}),
-				}
+				return &ConnectionID{ClientCID: clientCID, ServerCID: bytes.Clone(response.CID), ReturnRoutabilityCheck: offer.Offered(extension.TypeReturnRoutabilityCheck) && slices.ContainsFunc(responses, func(value extension.Value) bool { return value.ExtensionType() == extension.TypeReturnRoutabilityCheck })}
 			}
 		}
 	}

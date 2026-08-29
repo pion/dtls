@@ -36,12 +36,7 @@ func TestCanonicalHandshake13(t *testing.T) {
 	const bodyLen = 3
 
 	body := []byte{0xaa, 0xbb, 0xcc}
-	raw := makeRawHandshake13(t, handshake.Header{
-		Type:            handshake.TypeClientHello,
-		Length:          bodyLen,
-		MessageSequence: 7,
-		FragmentLength:  bodyLen,
-	}, body)
+	raw := makeRawHandshake13(t, handshake.Header{Type: handshake.TypeClientHello, Length: bodyLen, MessageSequence: 7, FragmentLength: bodyLen}, body)
 
 	canonical, err := canonicalHandshake(raw)
 	assert.NoError(t, err)
@@ -66,37 +61,9 @@ func TestCanonicalHandshake13RejectsInvalidMessages(t *testing.T) {
 			raw:  []byte{byte(handshake.TypeClientHello)},
 			err:  dtlserrors.ErrBufferTooSmall,
 		},
-		{
-			name: "fragment offset",
-			raw: makeRawHandshake13(t, handshake.Header{
-				Type:            handshake.TypeClientHello,
-				Length:          bodyLen,
-				MessageSequence: 1,
-				FragmentOffset:  1,
-				FragmentLength:  bodyLen,
-			}, body),
-			err: dtlserrors.ErrInvalidHandshakeTranscriptMessage,
-		},
-		{
-			name: "fragment length",
-			raw: makeRawHandshake13(t, handshake.Header{
-				Type:            handshake.TypeClientHello,
-				Length:          bodyLen,
-				MessageSequence: 1,
-				FragmentLength:  bodyLen - 1,
-			}, body),
-			err: dtlserrors.ErrInvalidHandshakeTranscriptMessage,
-		},
-		{
-			name: "body length",
-			raw: makeRawHandshake13(t, handshake.Header{
-				Type:            handshake.TypeClientHello,
-				Length:          bodyLen + 1,
-				MessageSequence: 1,
-				FragmentLength:  bodyLen + 1,
-			}, body),
-			err: dtlserrors.ErrInvalidHandshakeTranscriptMessage,
-		},
+		{name: "fragment offset", raw: makeRawHandshake13(t, handshake.Header{Type: handshake.TypeClientHello, Length: bodyLen, MessageSequence: 1, FragmentOffset: 1, FragmentLength: bodyLen}, body), err: dtlserrors.ErrInvalidHandshakeTranscriptMessage},
+		{name: "fragment length", raw: makeRawHandshake13(t, handshake.Header{Type: handshake.TypeClientHello, Length: bodyLen, MessageSequence: 1, FragmentLength: bodyLen - 1}, body), err: dtlserrors.ErrInvalidHandshakeTranscriptMessage},
+		{name: "body length", raw: makeRawHandshake13(t, handshake.Header{Type: handshake.TypeClientHello, Length: bodyLen + 1, MessageSequence: 1, FragmentLength: bodyLen + 1}, body), err: dtlserrors.ErrInvalidHandshakeTranscriptMessage},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := canonicalHandshake(test.raw)
@@ -185,13 +152,7 @@ func TestAppendVerifiedInboundHandshakeCacheItems13RequiresExplicitAuthenticatio
 	parsedFinished := &handshake.Handshake{}
 	require.NoError(t, parsedFinished.Unmarshal(rawFinished))
 
-	err := AppendVerifiedInboundHandshakeCacheItems(transcript, nil, []dtlsflight.DecodedHandshakeCacheItem{
-		{Raw: &dtlsflight.HandshakeCacheItem{
-			Typ:             handshake.TypeFinished,
-			MessageSequence: 0,
-			Data:            rawFinished,
-		}, Parsed: parsedFinished},
-	})
+	err := AppendVerifiedInboundHandshakeCacheItems(transcript, nil, []dtlsflight.DecodedHandshakeCacheItem{{Raw: &dtlsflight.HandshakeCacheItem{Typ: handshake.TypeFinished, MessageSequence: 0, Data: rawFinished}, Parsed: parsedFinished}})
 	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeTranscriptExplicitAuthenticationRequired)
 	assert.Empty(t, transcript.Bytes())
 	assert.Empty(t, transcript.pending)
@@ -202,22 +163,9 @@ func TestAppendVerifiedInboundHandshakeCacheItemsRejectsRawParsedMismatch(t *tes
 	transcript := NewTranscript()
 	rawEncryptedExtensions := rawHandshakeMessage13(t, 0, &handshake.MessageEncryptedExtensions{})
 	parsedFinished := &handshake.Handshake{}
-	require.NoError(t, parsedFinished.Unmarshal(rawHandshakeMessage13(
-		t,
-		0,
-		&handshake.MessageFinished{VerifyData: []byte{0x01}},
-	)))
+	require.NoError(t, parsedFinished.Unmarshal(rawHandshakeMessage13(t, 0, &handshake.MessageFinished{VerifyData: []byte{0x01}})))
 
-	err := AppendVerifiedInboundHandshakeCacheItems(transcript, nil, []dtlsflight.DecodedHandshakeCacheItem{
-		{
-			Raw: &dtlsflight.HandshakeCacheItem{
-				Typ:             handshake.TypeEncryptedExtensions,
-				MessageSequence: 0,
-				Data:            rawEncryptedExtensions,
-			},
-			Parsed: parsedFinished,
-		},
-	})
+	err := AppendVerifiedInboundHandshakeCacheItems(transcript, nil, []dtlsflight.DecodedHandshakeCacheItem{{Raw: &dtlsflight.HandshakeCacheItem{Typ: handshake.TypeEncryptedExtensions, MessageSequence: 0, Data: rawEncryptedExtensions}, Parsed: parsedFinished}})
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 	assert.Empty(t, transcript.Bytes())
 }
@@ -225,9 +173,7 @@ func TestAppendVerifiedInboundHandshakeCacheItemsRejectsRawParsedMismatch(t *tes
 func TestHandshakeTranscript13RejectsInvalidCanonicalMessage(t *testing.T) {
 	transcript := NewTranscript()
 
-	err := transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient}, []byte{
-		byte(handshake.TypeClientHello), 0x00, 0x00, 0x02, 0x01,
-	})
+	err := transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient}, []byte{byte(handshake.TypeClientHello), 0x00, 0x00, 0x02, 0x01})
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 }
 
@@ -242,9 +188,7 @@ func TestHandshakeTranscript13HelloRetryRequest(t *testing.T) {
 	assert.NoError(t, transcript.selectHash(sha256.New))
 	assert.NoError(t, transcript.applyHelloRetryRequest())
 	assert.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, helloRetryRequest))
-	assert.NoError(
-		t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient, Seq: 1}, clientHello2),
-	)
+	assert.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient, Seq: 1}, clientHello2))
 	assert.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer, Seq: 1}, serverHello))
 
 	clientHello1Hash := hashTranscript13(clientHello1)
@@ -318,9 +262,7 @@ func TestHandshakeTranscript13HelloRetryRequestBinderFork(t *testing.T) {
 
 	clientHello2, truncatedClientHello2WithBinder := pskClientHelloTranscript13(t, binder)
 	assert.Equal(t, truncatedClientHello2, truncatedClientHello2WithBinder)
-	assert.NoError(
-		t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient, Seq: 1}, clientHello2),
-	)
+	assert.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient, Seq: 1}, clientHello2))
 
 	sum, err := transcript.SnapshotHash()
 	assert.NoError(t, err)
@@ -414,27 +356,9 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 		secretByte  byte
 		hashByte    byte
 	}{
-		{
-			name:        "sha256",
-			cipherSuite: cryptosuite.TLS_AES_128_GCM_SHA256,
-			hashSize:    sha256.Size,
-			secretByte:  0x31,
-			hashByte:    0x41,
-		},
-		{
-			name:        "chacha20_sha256",
-			cipherSuite: cryptosuite.TLS_CHACHA20_POLY1305_SHA256,
-			hashSize:    sha256.Size,
-			secretByte:  0x33,
-			hashByte:    0x43,
-		},
-		{
-			name:        "sha384",
-			cipherSuite: cryptosuite.TLS_AES_256_GCM_SHA384,
-			hashSize:    sha512.Size384,
-			secretByte:  0x32,
-			hashByte:    0x42,
-		},
+		{name: "sha256", cipherSuite: cryptosuite.TLS_AES_128_GCM_SHA256, hashSize: sha256.Size, secretByte: 0x31, hashByte: 0x41},
+		{name: "chacha20_sha256", cipherSuite: cryptosuite.TLS_CHACHA20_POLY1305_SHA256, hashSize: sha256.Size, secretByte: 0x33, hashByte: 0x43},
+		{name: "sha384", cipherSuite: cryptosuite.TLS_AES_256_GCM_SHA384, hashSize: sha512.Size384, secretByte: 0x32, hashByte: 0x42},
 	}
 
 	for _, test := range tests {
@@ -465,21 +389,9 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 			require.NoError(t, err)
 			handshakeSecret, err := keyschedule.HkdfExtract(hashFunc, derivedEarlySecret, preMasterSecret)
 			require.NoError(t, err)
-			expectedClientHandshakeSecret, err := keyschedule.HkdfExpandLabel(
-				hashFunc,
-				handshakeSecret,
-				clientHandshakeTrafficLabel,
-				handshakeTranscriptHash,
-				test.hashSize,
-			)
+			expectedClientHandshakeSecret, err := keyschedule.HkdfExpandLabel(hashFunc, handshakeSecret, clientHandshakeTrafficLabel, handshakeTranscriptHash, test.hashSize)
 			require.NoError(t, err)
-			expectedServerHandshakeSecret, err := keyschedule.HkdfExpandLabel(
-				hashFunc,
-				handshakeSecret,
-				serverHandshakeTrafficLabel,
-				handshakeTranscriptHash,
-				test.hashSize,
-			)
+			expectedServerHandshakeSecret, err := keyschedule.HkdfExpandLabel(hashFunc, handshakeSecret, serverHandshakeTrafficLabel, handshakeTranscriptHash, test.hashSize)
 			require.NoError(t, err)
 			derivedHandshakeSecret, err := keyschedule.DeriveSecret(
 				hashFunc,
@@ -495,11 +407,7 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 			assert.Equal(t, expectedMasterSecret, schedule.MasterSecret)
 
 			applicationTranscriptHash := bytes.Repeat([]byte{test.hashByte + 1}, test.hashSize)
-			applicationSecrets, err := deriveApplicationTrafficSecrets(
-				hashFunc,
-				schedule.MasterSecret,
-				applicationTranscriptHash,
-			)
+			applicationSecrets, err := deriveApplicationTrafficSecrets(hashFunc, schedule.MasterSecret, applicationTranscriptHash)
 			require.NoError(t, err)
 			require.Len(t, applicationSecrets.Client, test.hashSize)
 			require.Len(t, applicationSecrets.Server, test.hashSize)
@@ -507,21 +415,9 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Client, applicationSecrets.Client)
 			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Server, applicationSecrets.Server)
 
-			expectedClientApplicationSecret, err := keyschedule.HkdfExpandLabel(
-				hashFunc,
-				schedule.MasterSecret,
-				clientApplicationTrafficLabel,
-				applicationTranscriptHash,
-				test.hashSize,
-			)
+			expectedClientApplicationSecret, err := keyschedule.HkdfExpandLabel(hashFunc, schedule.MasterSecret, clientApplicationTrafficLabel, applicationTranscriptHash, test.hashSize)
 			require.NoError(t, err)
-			expectedServerApplicationSecret, err := keyschedule.HkdfExpandLabel(
-				hashFunc,
-				schedule.MasterSecret,
-				serverApplicationTrafficLabel,
-				applicationTranscriptHash,
-				test.hashSize,
-			)
+			expectedServerApplicationSecret, err := keyschedule.HkdfExpandLabel(hashFunc, schedule.MasterSecret, serverApplicationTrafficLabel, applicationTranscriptHash, test.hashSize)
 			require.NoError(t, err)
 			exporterMasterSecret, err := deriveExporterMasterSecret(
 				hashFunc,
@@ -529,35 +425,21 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 				applicationTranscriptHash,
 			)
 			require.NoError(t, err)
-			expectedExporterMasterSecret, err := keyschedule.HkdfExpandLabel(
-				hashFunc,
-				schedule.MasterSecret,
-				exporterMasterSecretLabel,
-				applicationTranscriptHash,
-				test.hashSize,
-			)
+			expectedExporterMasterSecret, err := keyschedule.HkdfExpandLabel(hashFunc, schedule.MasterSecret, exporterMasterSecretLabel, applicationTranscriptHash, test.hashSize)
 			require.NoError(t, err)
 			assert.Equal(t, expectedClientApplicationSecret, applicationSecrets.Client)
 			assert.Equal(t, expectedServerApplicationSecret, applicationSecrets.Server)
 			assert.Equal(t, expectedExporterMasterSecret, exporterMasterSecret)
 
 			resumptionTranscriptHash := bytes.Repeat([]byte{test.hashByte + 2}, test.hashSize)
-			resumptionMasterSecret, err := deriveResumptionMasterSecret(
-				hashFunc,
-				schedule.MasterSecret,
-				resumptionTranscriptHash,
-			)
+			resumptionMasterSecret, err := deriveResumptionMasterSecret(hashFunc, schedule.MasterSecret, resumptionTranscriptHash)
 			require.NoError(t, err)
 			require.Len(t, resumptionMasterSecret, test.hashSize)
 			assert.NotEqual(t, exporterMasterSecret, resumptionMasterSecret)
 
 			changedResumptionTranscriptHash := append([]byte(nil), resumptionTranscriptHash...)
 			changedResumptionTranscriptHash[0] ^= 0xff
-			changedResumptionMasterSecret, err := deriveResumptionMasterSecret(
-				hashFunc,
-				schedule.MasterSecret,
-				changedResumptionTranscriptHash,
-			)
+			changedResumptionMasterSecret, err := deriveResumptionMasterSecret(hashFunc, schedule.MasterSecret, changedResumptionTranscriptHash)
 			require.NoError(t, err)
 			assert.NotEqual(t, resumptionMasterSecret, changedResumptionMasterSecret)
 
@@ -575,17 +457,9 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 
 			changedApplicationTranscriptHash := append([]byte(nil), applicationTranscriptHash...)
 			changedApplicationTranscriptHash[0] ^= 0xff
-			changedApplicationSecrets, err := deriveApplicationTrafficSecrets(
-				hashFunc,
-				schedule.MasterSecret,
-				changedApplicationTranscriptHash,
-			)
+			changedApplicationSecrets, err := deriveApplicationTrafficSecrets(hashFunc, schedule.MasterSecret, changedApplicationTranscriptHash)
 			require.NoError(t, err)
-			changedExporterMasterSecret, err := deriveExporterMasterSecret(
-				hashFunc,
-				schedule.MasterSecret,
-				changedApplicationTranscriptHash,
-			)
+			changedExporterMasterSecret, err := deriveExporterMasterSecret(hashFunc, schedule.MasterSecret, changedApplicationTranscriptHash)
 			require.NoError(t, err)
 			assert.NotEqual(t, applicationSecrets.Client, changedApplicationSecrets.Client)
 			assert.NotEqual(t, applicationSecrets.Server, changedApplicationSecrets.Server)
@@ -593,11 +467,7 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 
 			changedPreMasterSecret := append([]byte(nil), preMasterSecret...)
 			changedPreMasterSecret[0] ^= 0xff
-			changedPreMasterSchedule, err := deriveHandshakeKeySchedule(
-				hashFunc,
-				changedPreMasterSecret,
-				handshakeTranscriptHash,
-			)
+			changedPreMasterSchedule, err := deriveHandshakeKeySchedule(hashFunc, changedPreMasterSecret, handshakeTranscriptHash)
 			require.NoError(t, err)
 			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Client,
 				changedPreMasterSchedule.HandshakeTrafficSecrets.Client)
@@ -605,23 +475,11 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 				changedPreMasterSchedule.HandshakeTrafficSecrets.Server)
 			assert.NotEqual(t, schedule.MasterSecret, changedPreMasterSchedule.MasterSecret)
 
-			changedPreMasterApplicationSecrets, err := deriveApplicationTrafficSecrets(
-				hashFunc,
-				changedPreMasterSchedule.MasterSecret,
-				applicationTranscriptHash,
-			)
+			changedPreMasterApplicationSecrets, err := deriveApplicationTrafficSecrets(hashFunc, changedPreMasterSchedule.MasterSecret, applicationTranscriptHash)
 			require.NoError(t, err)
-			changedPreMasterExporterMasterSecret, err := deriveExporterMasterSecret(
-				hashFunc,
-				changedPreMasterSchedule.MasterSecret,
-				applicationTranscriptHash,
-			)
+			changedPreMasterExporterMasterSecret, err := deriveExporterMasterSecret(hashFunc, changedPreMasterSchedule.MasterSecret, applicationTranscriptHash)
 			require.NoError(t, err)
-			changedPreMasterResumptionMasterSecret, err := deriveResumptionMasterSecret(
-				hashFunc,
-				changedPreMasterSchedule.MasterSecret,
-				resumptionTranscriptHash,
-			)
+			changedPreMasterResumptionMasterSecret, err := deriveResumptionMasterSecret(hashFunc, changedPreMasterSchedule.MasterSecret, resumptionTranscriptHash)
 			require.NoError(t, err)
 			assert.NotEqual(t, applicationSecrets.Client, changedPreMasterApplicationSecrets.Client)
 			assert.NotEqual(t, applicationSecrets.Server, changedPreMasterApplicationSecrets.Server)
@@ -669,10 +527,7 @@ func TestInitHandshakeRecordProtection13InstallsDirectionalKeys(t *testing.T) {
 			secretLen := cipherSuite.HashFunc()().Size()
 			state := newTestState13(t, testCase.isClient)
 			state.CipherSuite = cipherSuite
-			state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
-				Client: bytes.Repeat([]byte{0x11}, secretLen),
-				Server: bytes.Repeat([]byte{0x22}, secretLen),
-			}
+			state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{Client: bytes.Repeat([]byte{0x11}, secretLen), Server: bytes.Repeat([]byte{0x22}, secretLen)}
 
 			require.NoError(t, InitHandshakeRecordProtection(state))
 			write, ok := state.TrafficKeys.Write(dtlsflight13.EpochHandshake)
@@ -693,14 +548,8 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	factory := cipherSuite.(cryptosuite.TrafficSuite) //nolint:forcetypeassert // fixed built-in registry.
 	secretLen := cipherSuite.HashFunc()().Size()
-	handshakeSecrets := dtlsstate.TrafficSecrets{
-		Client: bytes.Repeat([]byte{0x11}, secretLen),
-		Server: bytes.Repeat([]byte{0x22}, secretLen),
-	}
-	applicationSecrets := dtlsstate.TrafficSecrets{
-		Client: bytes.Repeat([]byte{0x33}, secretLen),
-		Server: bytes.Repeat([]byte{0x44}, secretLen),
-	}
+	handshakeSecrets := dtlsstate.TrafficSecrets{Client: bytes.Repeat([]byte{0x11}, secretLen), Server: bytes.Repeat([]byte{0x22}, secretLen)}
+	applicationSecrets := dtlsstate.TrafficSecrets{Client: bytes.Repeat([]byte{0x33}, secretLen), Server: bytes.Repeat([]byte{0x44}, secretLen)}
 	state := newTestState13(t, true)
 	state.CipherSuite = cipherSuite
 	state.KeySchedule.HandshakeTraffic = handshakeSecrets
@@ -733,10 +582,7 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 	require.NoError(t, err)
 
 	sequenceNumber := uint64(0x0102030405061234)
-	innerPlaintextRaw, err := (&recordlayer.InnerPlaintext{
-		Content:  []byte("application traffic after finished"),
-		RealType: protocol.ContentTypeApplicationData,
-	}).Marshal()
+	innerPlaintextRaw, err := (&recordlayer.InnerPlaintext{Content: []byte("application traffic after finished"), RealType: protocol.ContentTypeApplicationData}).Marshal()
 	require.NoError(t, err)
 	protectedLen, err := cipherSuite.Capabilities().ProtectedLen(len(innerPlaintextRaw))
 	require.NoError(t, err)
@@ -764,10 +610,7 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 }
 
 func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
-	applicationSecrets := dtlsstate.TrafficSecrets{
-		Client: bytes.Repeat([]byte{0x33}, sha256.Size),
-		Server: bytes.Repeat([]byte{0x44}, sha256.Size),
-	}
+	applicationSecrets := dtlsstate.TrafficSecrets{Client: bytes.Repeat([]byte{0x33}, sha256.Size), Server: bytes.Repeat([]byte{0x44}, sha256.Size)}
 
 	tests := []struct {
 		name  string
@@ -822,10 +665,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
 				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
-				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
-					Client: bytes.Repeat([]byte{0x11}, sha256.Size),
-					Server: bytes.Repeat([]byte{0x22}, sha256.Size),
-				}
+				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{Client: bytes.Repeat([]byte{0x11}, sha256.Size), Server: bytes.Repeat([]byte{0x22}, sha256.Size)}
 				require.NoError(t, InitHandshakeRecordProtection(state))
 
 				return state
@@ -985,8 +825,7 @@ func TestFinishedVerifyData13(t *testing.T) {
 
 	badVerifyData := append([]byte(nil), verifyData...)
 	badVerifyData[0] ^= 0xff
-	assert.ErrorIs(t, verifyFinishedData(sha256.New, baseKey, transcriptHash, badVerifyData),
-		dtlserrors.ErrVerifyDataMismatch)
+	assert.ErrorIs(t, verifyFinishedData(sha256.New, baseKey, transcriptHash, badVerifyData), dtlserrors.ErrVerifyDataMismatch)
 }
 
 func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
@@ -997,12 +836,9 @@ func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
 	require.True(t, ok)
 
 	transcript := NewTranscript()
-	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient},
-		canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})))
-	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer},
-		canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})))
-	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer, Seq: 1},
-		canonicalTranscriptHandshake13(handshake.TypeCertificate, []byte{0x03})))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient}, canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer, Seq: 1}, canonicalTranscriptHandshake13(handshake.TypeCertificate, []byte{0x03})))
 	require.NoError(t, selectHashIfReady(transcript, cipherSuite))
 
 	beforeBytes := transcript.Bytes()
@@ -1035,18 +871,8 @@ func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
 	assert.Equal(t, beforeBytes, transcript.Bytes())
 	assert.Equal(t, beforeHash, afterHash)
 
-	require.NoError(t, dtlscrypto.VerifyCertificateVerify(
-		verifyInput,
-		dtlshash.SHA256,
-		signature.ECDSA,
-		certVerifySignature,
-		cert.Certificate,
-	))
-	rawCertificateVerify := rawHandshakeMessage13(t, 2, &handshake.MessageCertificateVerify{
-		HashAlgorithm:      dtlshash.SHA256,
-		SignatureAlgorithm: signature.ECDSA,
-		Signature:          certVerifySignature,
-	})
+	require.NoError(t, dtlscrypto.VerifyCertificateVerify(verifyInput, dtlshash.SHA256, signature.ECDSA, certVerifySignature, cert.Certificate))
+	rawCertificateVerify := rawHandshakeMessage13(t, 2, &handshake.MessageCertificateVerify{HashAlgorithm: dtlshash.SHA256, SignatureAlgorithm: signature.ECDSA, Signature: certVerifySignature})
 	require.NoError(t, transcript.AppendVerifiedInbound(false, cipherSuite, rawCertificateVerify))
 	certificateVerify, err := canonicalHandshake(rawCertificateVerify)
 	require.NoError(t, err)
@@ -1058,10 +884,8 @@ func TestFinishedFailureDoesNotPoisonTranscript13(t *testing.T) {
 	baseKey := bytes.Repeat([]byte{0x44}, sha256.Size)
 
 	transcript := NewTranscript()
-	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient},
-		canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})))
-	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer},
-		canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient}, canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte{0x01})))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})))
 	require.NoError(t, selectHashIfReady(transcript, cipherSuite))
 
 	beforeBytes := transcript.Bytes()
@@ -1106,10 +930,7 @@ func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 	require.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Server)
 
 	certificate := canonicalTranscriptHandshake13(handshake.TypeCertificate, []byte{0x03})
-	require.NoError(t, transcript.appendCanonical(transcriptMessageID{
-		sender: transcriptSenderServer,
-		Seq:    1,
-	}, certificate))
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer, Seq: 1}, certificate))
 
 	certVerifyInput, err := CertificateVerifyInputFromTranscript(false, transcript)
 	require.NoError(t, err)
@@ -1131,20 +952,11 @@ func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 	require.NoError(t, err)
 	finishedTranscriptHash, err := transcript.SnapshotHash()
 	require.NoError(t, err)
-	assert.NoError(t, verifyFinishedData(
-		sha256.New,
-		state.KeySchedule.HandshakeTraffic.Server,
-		finishedTranscriptHash,
-		verifyData,
-	))
+	assert.NoError(t, verifyFinishedData(sha256.New, state.KeySchedule.HandshakeTraffic.Server, finishedTranscriptHash, verifyData))
 }
 
 func FuzzCanonicalHandshake13(f *testing.F) {
-	f.Add(makeRawHandshake13(f, handshake.Header{
-		Type:           handshake.TypeClientHello,
-		Length:         2,
-		FragmentLength: 2,
-	}, []byte{0x01, 0x02}))
+	f.Add(makeRawHandshake13(f, handshake.Header{Type: handshake.TypeClientHello, Length: 2, FragmentLength: 2}, []byte{0x01, 0x02}))
 	f.Add([]byte{byte(handshake.TypeClientHello), 0x00, 0x00, 0x01})
 
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -1185,12 +997,7 @@ func rawHandshakeMessage13(tb testing.TB, seq uint16, message handshake.Message)
 }
 
 func transcriptClientHelloMessage13(sessionID []byte) *handshake.MessageClientHello {
-	return &handshake.MessageClientHello{
-		Version:            protocol.Version1_2,
-		SessionID:          sessionID,
-		CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
-		CompressionMethods: []*protocol.CompressionMethod{{}},
-	}
+	return &handshake.MessageClientHello{Version: protocol.Version1_2, SessionID: sessionID, CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)}, CompressionMethods: []*protocol.CompressionMethod{{}}}
 }
 
 func rawHelloRetryRequest13(
@@ -1204,15 +1011,7 @@ func rawHelloRetryRequest13(
 	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
 	cipherSuiteID := uint16(cipherSuite.ID())
 
-	return rawHandshakeMessage13(tb, seq, &handshake.MessageServerHello{
-		Version:           protocol.Version1_2,
-		Random:            random,
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: &protocol.CompressionMethod{},
-		Extensions: []extension.Value{
-			&extension13.SelectedVersion{Version: protocol.Version1_3},
-		},
-	})
+	return rawHandshakeMessage13(tb, seq, &handshake.MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: &protocol.CompressionMethod{}, Extensions: []extension.Value{&extension13.SelectedVersion{Version: protocol.Version1_3}}})
 }
 
 func canonicalTranscriptHandshake13(typ handshake.Type, body []byte) []byte {
@@ -1240,17 +1039,7 @@ func pskClientHelloTranscript13(tb testing.TB, binder []byte) ([]byte, []byte) {
 		Version:            protocol.Version1_2,
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-		Extensions: []extension.Value{
-			&extension13.OfferedPSKs{
-				Identities: []extension13.PSKIdentity{
-					{
-						Identity:            []byte("psk-identity"),
-						ObfuscatedTicketAge: 0x01020304,
-					},
-				},
-				Binders: []extension13.PSKBinder{extension13.PSKBinder(binder)},
-			},
-		},
+		Extensions:         []extension.Value{&extension13.OfferedPSKs{Identities: []extension13.PSKIdentity{{Identity: []byte("psk-identity"), ObfuscatedTicketAge: 0x01020304}}, Binders: []extension13.PSKBinder{extension13.PSKBinder(binder)}}},
 	}
 
 	body, err := msg.Marshal()

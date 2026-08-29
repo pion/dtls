@@ -148,11 +148,5 @@ func (s *State13) CommitNegotiatedExtensions(decision *negotiation.ConnectionID)
 		return
 	}
 	localCID, remoteCID := s.LocalConnectionID(), s.RemoteConnectionID
-	s.CID = CIDState{
-		Negotiated: true,
-		Receive: CIDReceiveState{
-			Expected: len(localCID) > 0, Length: len(localCID), CanSendNewConnectionID: len(localCID) > 0,
-		},
-		Send: CIDSendState{UseCID: len(remoteCID) > 0, Active: bytes.Clone(remoteCID)},
-	}
+	s.CID = CIDState{Negotiated: true, Receive: CIDReceiveState{Expected: len(localCID) > 0, Length: len(localCID), CanSendNewConnectionID: len(localCID) > 0}, Send: CIDSendState{UseCID: len(remoteCID) > 0, Active: bytes.Clone(remoteCID)}}
 }

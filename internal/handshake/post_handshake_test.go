@@ -62,10 +62,7 @@ type postHandshakeKeyUpdateConn struct {
 	committed *dtlsstate.TrafficGeneration
 }
 
-func (c *postHandshakeKeyUpdateConn) WritePackets(
-	_ context.Context,
-	pkts []*dtlsflight.Outbound,
-) (*WriteResult, error) {
+func (c *postHandshakeKeyUpdateConn) WritePackets(_ context.Context, pkts []*dtlsflight.Outbound) (*WriteResult, error) {
 	c.writtenPackets = append(c.writtenPackets, pkts...)
 	if c.result == nil {
 		return &WriteResult{}, nil
@@ -101,18 +98,7 @@ func newPostHandshakeKeyUpdateTestState(t *testing.T, isClient bool) *dtlsstate.
 	require.NoError(t, err)
 	readProtection, err := factory.NewTrafficProtection(readTrafficSecret)
 	require.NoError(t, err)
-	state.TrafficKeys.Install(
-		&dtlsstate.TrafficGeneration{
-			Epoch:      dtlsflight13.EpochApplication,
-			Secret:     writeSecret,
-			Protection: writeProtection,
-		},
-		&dtlsstate.TrafficGeneration{
-			Epoch:      dtlsflight13.EpochApplication,
-			Secret:     readSecret,
-			Protection: readProtection,
-		},
-	)
+	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochApplication, Secret: writeSecret, Protection: writeProtection}, &dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochApplication, Secret: readSecret, Protection: readProtection})
 
 	return &state
 }
@@ -130,16 +116,8 @@ func TestMakeReliableNewSessionTicket(t *testing.T) {
 	state := dtlsstate.NewState13(false)
 	state.SetLocalEpoch(7)
 	state.HandshakeSendSequence = 12
-	post := newPostHandshake(handshakeContext{
-		state: &state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
-	message := &handshake.MessageNewSessionTicket{
-		TicketLifetime: newSessionTicketLifetime,
-		TicketAgeAdd:   42,
-		TicketNonce:    []byte{1},
-		Ticket:         []byte{2},
-	}
+	post := newPostHandshake(handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
+	message := &handshake.MessageNewSessionTicket{TicketLifetime: newSessionTicketLifetime, TicketAgeAdd: 42, TicketNonce: []byte{1}, Ticket: []byte{2}}
 
 	flight, err := post.makeReliableNewSessionTicket(message)
 	require.NoError(t, err)
@@ -159,26 +137,15 @@ func TestMakeReliableNewSessionTicket(t *testing.T) {
 
 func TestPostHandshakeACKCompletesReliableFlight(t *testing.T) {
 	state := dtlsstate.NewState13(false)
-	post := newPostHandshake(handshakeContext{
-		state: &state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	id := postHandshakeFlightID{Category: postHandshakeNewSessionTicket, MessageSequence: 4}
-	flight := &reliablePostHandshakeFlight{
-		ID:               id,
-		PendingFragments: make(map[postHandshakeFragment]struct{}),
-		SentRecords:      make(map[protocol.RecordNumber]struct{}),
-	}
+	flight := &reliablePostHandshakeFlight{ID: id, PendingFragments: make(map[postHandshakeFragment]struct{}), SentRecords: make(map[protocol.RecordNumber]struct{})}
 	post.flights[id] = flight
 	firstRecord := protocol.RecordNumber{Epoch: 3, SequenceNumber: 10}
 	retransmitRecord := protocol.RecordNumber{Epoch: 3, SequenceNumber: 11}
 	fragment := SentHandshakeFragment{MessageSequence: 4, Offset: 0, Length: 20}
-	post.registerTransmission(flight, []SentHandshakeRecord{{
-		Number: firstRecord, Fragments: []SentHandshakeFragment{fragment},
-	}}, true)
-	post.registerTransmission(flight, []SentHandshakeRecord{{
-		Number: retransmitRecord, Fragments: []SentHandshakeFragment{fragment},
-	}}, false)
+	post.registerTransmission(flight, []SentHandshakeRecord{{Number: firstRecord, Fragments: []SentHandshakeFragment{fragment}}}, true)
+	post.registerTransmission(flight, []SentHandshakeRecord{{Number: retransmitRecord, Fragments: []SentHandshakeFragment{fragment}}}, false)
 
 	completed := post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{retransmitRecord}})
 	assert.Equal(t, []postHandshakeFlightID{id}, completed)
@@ -189,18 +156,11 @@ func TestPostHandshakeACKCompletesReliableFlight(t *testing.T) {
 
 func TestPostHandshakeSkipsCanceledCommand(t *testing.T) {
 	state := dtlsstate.NewState13(false)
-	post := newPostHandshake(handshakeContext{
-		state: &state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	completion, completionCtx := newPostHandshakeCompletion()
-	post.queue = append(post.queue, postHandshakeCommand{
-		Kind:       commandSendNewSessionTicket,
-		Canceled:   ctx.Done(),
-		Completion: completion,
-	})
+	post.queue = append(post.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket, Canceled: ctx.Done(), Completion: completion})
 	conn := &postHandshakeWriteConn{result: &WriteResult{}}
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
@@ -239,14 +199,8 @@ func TestWaitPostHandshakeCompletionKeepsCallerCancellationSeparate(t *testing.T
 
 func TestPostHandshakeACKReliability(t *testing.T) {
 	state := dtlsstate.NewState13(false)
-	post := newPostHandshake(handshakeContext{
-		state: &state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
-	flight, err := post.makeReliableNewSessionTicket(&handshake.MessageNewSessionTicket{
-		TicketLifetime: newSessionTicketLifetime,
-		Ticket:         []byte{1},
-	})
+	post := newPostHandshake(handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
+	flight, err := post.makeReliableNewSessionTicket(&handshake.MessageNewSessionTicket{TicketLifetime: newSessionTicketLifetime, Ticket: []byte{1}})
 	require.NoError(t, err)
 
 	messageSequence := flight.ID.MessageSequence
@@ -255,10 +209,7 @@ func TestPostHandshakeACKReliability(t *testing.T) {
 	firstRecord := protocol.RecordNumber{Epoch: 3, SequenceNumber: 1}
 	secondRecord := protocol.RecordNumber{Epoch: 3, SequenceNumber: 2}
 	post.flights[flight.ID] = flight
-	post.registerTransmission(flight, []SentHandshakeRecord{
-		{Number: firstRecord, Fragments: []SentHandshakeFragment{firstFragment}},
-		{Number: secondRecord, Fragments: []SentHandshakeFragment{secondFragment}},
-	}, true)
+	post.registerTransmission(flight, []SentHandshakeRecord{{Number: firstRecord, Fragments: []SentHandshakeFragment{firstFragment}}, {Number: secondRecord, Fragments: []SentHandshakeFragment{secondFragment}}}, true)
 
 	// A partial ACK retires the first fragment. Receiving it again makes no
 	// further progress.
@@ -267,10 +218,7 @@ func TestPostHandshakeACKReliability(t *testing.T) {
 
 	// If the second fragment's ACK is lost, retransmit only that fragment.
 	retransmitRecord := protocol.RecordNumber{Epoch: 3, SequenceNumber: 3}
-	conn := &postHandshakeWriteConn{result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{
-		Number:    retransmitRecord,
-		Fragments: []SentHandshakeFragment{secondFragment},
-	}}}}
+	conn := &postHandshakeWriteConn{result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{Number: retransmitRecord, Fragments: []SentHandshakeFragment{secondFragment}}}}}
 	now := time.Now()
 	require.NoError(t, post.retransmitPostHandshakeFlight(context.Background(), conn, flight, now, true))
 	require.Len(t, conn.writtenPackets, 1)
@@ -305,31 +253,14 @@ func TestPostHandshakeReceiveNewSessionTicket(t *testing.T) {
 	state.HandshakeRecvSequence = int(ticketRecvSequence)
 
 	cache := dtlsflight.NewCache()
-	ticketWire, err := (&handshake.Handshake{
-		Header: handshake.Header{
-			Type:            handshake.TypeNewSessionTicket,
-			MessageSequence: ticketRecvSequence,
-		},
-		Message: &handshake.MessageNewSessionTicket{
-			TicketLifetime: newSessionTicketLifetime,
-			TicketNonce:    []byte{1},
-			Ticket:         []byte{2},
-		},
-	}).Marshal()
+	ticketWire, err := (&handshake.Handshake{Header: handshake.Header{Type: handshake.TypeNewSessionTicket, MessageSequence: ticketRecvSequence}, Message: &handshake.MessageNewSessionTicket{TicketLifetime: newSessionTicketLifetime, TicketNonce: []byte{1}, Ticket: []byte{2}}}).Marshal()
 	require.NoError(t, err)
 	cache.Push(ticketWire, epoch, ticketRecvSequence, handshake.TypeNewSessionTicket, false)
 
-	post := newPostHandshake(handshakeContext{
-		state: &state,
-		cache: cache,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: &state, cache: cache, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	conn := &flightTestConn{}
 	receive := func() error {
-		return post.handlePostHandshakeReceive(context.Background(), conn, RecvHandshakeState{
-			HasHandshake: true,
-			RecordsToACK: []protocol.RecordNumber{record},
-		})
+		return post.handlePostHandshakeReceive(context.Background(), conn, RecvHandshakeState{HasHandshake: true, RecordsToACK: []protocol.RecordNumber{record}})
 	}
 
 	require.NoError(t, receive())
@@ -394,15 +325,7 @@ func TestProcessPostHandshakeMessagesDecodeAlert(t *testing.T) {
 }
 
 func TestProcessPostHandshakeMessagesPreservesExtensionAlert(t *testing.T) {
-	wire, err := (&handshake.Handshake{
-		Message: &handshake.MessageNewSessionTicket{
-			Ticket: []byte{0x01},
-			Extensions: []extension.Value{
-				&extension13.MaxEarlyData{Size: 1},
-				&extension13.MaxEarlyData{Size: 2},
-			},
-		},
-	}).Marshal()
+	wire, err := (&handshake.Handshake{Message: &handshake.MessageNewSessionTicket{Ticket: []byte{0x01}, Extensions: []extension.Value{&extension13.MaxEarlyData{Size: 1}, &extension13.MaxEarlyData{Size: 2}}}}).Marshal()
 	require.NoError(t, err)
 
 	state := dtlsstate.NewState13(true)
@@ -432,9 +355,7 @@ func TestHandleUnexpectedPostHandshakeMessageAlert(t *testing.T) {
 	})
 	conn := &postHandshakeAlertConn{}
 
-	err := post.handlePostHandshakeMessage(context.Background(), conn, &handshake.Handshake{
-		Message: &handshake.MessageFinished{},
-	}, 0)
+	err := post.handlePostHandshakeMessage(context.Background(), conn, &handshake.Handshake{Message: &handshake.MessageFinished{}}, 0)
 	require.NoError(t, err)
 	assert.Equal(t, []postHandshakeAlert{{
 		level:       alert.Fatal,
@@ -471,9 +392,7 @@ func TestNewSessionTicketLifetimeLimit(t *testing.T) {
 	})
 	conn := &postHandshakeAlertConn{}
 
-	err := post.handleNewSessionTicket(context.Background(), conn, &handshake.MessageNewSessionTicket{
-		TicketLifetime: maxSessionTicketLifetime + 1,
-	})
+	err := post.handleNewSessionTicket(context.Background(), conn, &handshake.MessageNewSessionTicket{TicketLifetime: maxSessionTicketLifetime + 1})
 	require.NoError(t, err)
 	assert.Equal(t, []postHandshakeAlert{{
 		level:       alert.Fatal,
@@ -484,10 +403,7 @@ func TestNewSessionTicketLifetimeLimit(t *testing.T) {
 
 func TestPrepareNewSessionTicket(t *testing.T) {
 	state := dtlsstate.NewState13(false)
-	post := newPostHandshake(handshakeContext{
-		state: &state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 
 	first, err := post.prepareNewSessionTicket(false)
 	require.NoError(t, err)
@@ -509,27 +425,13 @@ func TestPrepareNewSessionTicket(t *testing.T) {
 func TestKeyUpdateCommitsWriteKeysOnlyAfterACK(t *testing.T) {
 	state := newPostHandshakeKeyUpdateTestState(t, true)
 	state.HandshakeSendSequence = 9
-	post := newPostHandshake(handshakeContext{
-		state: state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 4}
 	fragment := SentHandshakeFragment{MessageSequence: 9, Length: 1}
-	conn := &postHandshakeKeyUpdateConn{
-		state: state,
-		result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{
-			Number: record, Fragments: []SentHandshakeFragment{fragment},
-		}}},
-	}
+	conn := &postHandshakeKeyUpdateConn{state: state, result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{Number: record, Fragments: []SentHandshakeFragment{fragment}}}}}
 	completion, completionCtx := newPostHandshakeCompletion()
 
-	require.NoError(t, post.startKeyUpdate(context.Background(), conn, postHandshakeCommand{
-		Kind: commandSendKeyUpdate,
-		KeyUpdate: keyUpdateCommand{
-			Request: handshake.KeyUpdateRequested,
-		},
-		Completion: completion,
-	}))
+	require.NoError(t, post.startKeyUpdate(context.Background(), conn, postHandshakeCommand{Kind: commandSendKeyUpdate, KeyUpdate: keyUpdateCommand{Request: handshake.KeyUpdateRequested}, Completion: completion}))
 	require.Len(t, conn.writtenPackets, 1)
 	packet := conn.writtenPackets[0]
 	assert.Equal(t, dtlsflight13.EpochApplication, packet.Epoch)
@@ -563,12 +465,7 @@ func TestBuildKeyUpdateFlightRejectsEpochOverflow(t *testing.T) {
 	state := newPostHandshakeKeyUpdateTestState(t, true)
 	current, ok := state.TrafficKeys.CurrentWrite()
 	require.True(t, ok)
-	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{
-		Epoch:      ^uint16(0),
-		Generation: current.Generation,
-		Secret:     current.Secret,
-		Protection: current.Protection,
-	}, nil)
+	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: ^uint16(0), Generation: current.Generation, Secret: current.Secret, Protection: current.Protection}, nil)
 	state.SetLocalEpoch(^uint16(0))
 	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{}})
 
@@ -580,17 +477,10 @@ func TestRequestedKeyUpdateInstallsReadKeysAndQueuesResponse(t *testing.T) {
 	state := newPostHandshakeKeyUpdateTestState(t, false)
 	state.HandshakeRecvSequence = 7
 	state.HandshakeSendSequence = 11
-	post := newPostHandshake(handshakeContext{
-		state: state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	conn := &postHandshakeKeyUpdateConn{state: state}
 
-	require.NoError(t, post.handleKeyUpdate(
-		context.Background(), conn,
-		&handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateRequested},
-		dtlsflight13.EpochApplication,
-	))
+	require.NoError(t, post.handleKeyUpdate(context.Background(), conn, &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateRequested}, dtlsflight13.EpochApplication))
 	assert.Equal(t, 8, state.HandshakeRecvSequence)
 	assert.Equal(t, dtlsflight13.EpochApplication+1, state.RemoteEpoch())
 	currentRead, ok := state.TrafficKeys.CurrentRead()
@@ -614,10 +504,7 @@ func TestRequestedKeyUpdateInstallsReadKeysAndQueuesResponse(t *testing.T) {
 
 func TestRequiredKeyUpdateResponsesAreSerialized(t *testing.T) {
 	state := newPostHandshakeKeyUpdateTestState(t, false)
-	post := newPostHandshake(handshakeContext{
-		state: state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	conn := &postHandshakeKeyUpdateConn{state: state}
 	request := &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateRequested}
 
@@ -644,25 +531,10 @@ func TestRequiredKeyUpdateResponsesAreSerialized(t *testing.T) {
 
 func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 	state := newPostHandshakeKeyUpdateTestState(t, false)
-	post := newPostHandshake(handshakeContext{
-		state: state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 4}
-	conn := &postHandshakeKeyUpdateConn{
-		state: state,
-		result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{
-			Number: record,
-			Fragments: []SentHandshakeFragment{{
-				MessageSequence: 0,
-				Length:          1,
-			}},
-		}}},
-	}
-	applicationPacket := &dtlsflight.Outbound{
-		Content:    &protocol.ApplicationData{Data: []byte("after update")},
-		Protection: dtlsflight.ProtectionCiphertext,
-	}
+	conn := &postHandshakeKeyUpdateConn{state: state, result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{Number: record, Fragments: []SentHandshakeFragment{{MessageSequence: 0, Length: 1}}}}}}
+	applicationPacket := &dtlsflight.Outbound{Content: &protocol.ApplicationData{Data: []byte("after update")}, Protection: dtlsflight.ProtectionCiphertext}
 	post.queue = append(post.queue, applicationDataCommand(applicationPacket))
 	post.queueRequiredKeyUpdateResponse(handshake.KeyUpdateRequested)
 
@@ -678,10 +550,7 @@ func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 	completed := post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{record}})
 	require.Len(t, completed, 1)
 	require.NoError(t, post.completePostHandshakeFlight(conn, completed[0]))
-	afterACKPacket := &dtlsflight.Outbound{
-		Content:    &protocol.ApplicationData{Data: []byte("after ACK")},
-		Protection: dtlsflight.ProtectionCiphertext,
-	}
+	afterACKPacket := &dtlsflight.Outbound{Content: &protocol.ApplicationData{Data: []byte("after ACK")}, Protection: dtlsflight.ProtectionCiphertext}
 	post.queue = append(post.queue, applicationDataCommand(afterACKPacket))
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
 	require.Len(t, conn.writtenPackets, 3)
@@ -691,15 +560,9 @@ func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
 	state := dtlsstate.NewState13(false)
 	state.SetLocalEpoch(dtlsflight13.EpochApplication)
-	post := newPostHandshake(handshakeContext{
-		state: &state,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
-	applicationPacket := &dtlsflight.Outbound{
-		Content:    &protocol.ApplicationData{Data: []byte("after ticket")},
-		Protection: dtlsflight.ProtectionCiphertext,
-	}
-	post.queue = append(post.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket}, applicationDataCommand(applicationPacket)) //nolint:lll
+	post := newPostHandshake(handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
+	applicationPacket := &dtlsflight.Outbound{Content: &protocol.ApplicationData{Data: []byte("after ticket")}, Protection: dtlsflight.ProtectionCiphertext}
+	post.queue = append(post.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket}, applicationDataCommand(applicationPacket))
 	conn := &postHandshakeWriteConn{result: &WriteResult{}}
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
@@ -729,28 +592,15 @@ func TestRetransmittedKeyUpdateDoesNotRatchetReadKeysTwice(t *testing.T) {
 	const messageSequence = uint16(5)
 	state := newPostHandshakeKeyUpdateTestState(t, true)
 	state.HandshakeRecvSequence = int(messageSequence)
-	wire, err := (&handshake.Handshake{
-		Header: handshake.Header{
-			Type:            handshake.TypeKeyUpdate,
-			MessageSequence: messageSequence,
-		},
-		Message: &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateNotRequested},
-	}).Marshal()
+	wire, err := (&handshake.Handshake{Header: handshake.Header{Type: handshake.TypeKeyUpdate, MessageSequence: messageSequence}, Message: &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateNotRequested}}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
 	cache.Push(wire, dtlsflight13.EpochApplication, messageSequence, handshake.TypeKeyUpdate, false)
-	post := newPostHandshake(handshakeContext{
-		state: state,
-		cache: cache,
-		cfg:   &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second},
-	})
+	post := newPostHandshake(handshakeContext{state: state, cache: cache, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	conn := &postHandshakeKeyUpdateConn{state: state}
 	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 3}
 	receive := func() error {
-		return post.handlePostHandshakeReceive(context.Background(), conn, RecvHandshakeState{
-			HasHandshake: true,
-			RecordsToACK: []protocol.RecordNumber{record},
-		})
+		return post.handlePostHandshakeReceive(context.Background(), conn, RecvHandshakeState{HasHandshake: true, RecordsToACK: []protocol.RecordNumber{record}})
 	}
 
 	require.NoError(t, receive())

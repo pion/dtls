@@ -23,7 +23,7 @@ func flight2Parse( //nolint:cyclop
 ) (Flight, *alert.Alert, error) {
 	pull := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: true, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: true, Optional: false},
 	)
 	if pull.Err != nil {
 		return 0, nil, pull.Err
@@ -38,16 +38,13 @@ func flight2Parse( //nolint:cyclop
 	}
 
 	if clientHello.Version != protocol.Version1_2 {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion},
-			dtlserrors.ErrUnsupportedProtocolVersion
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 	snapshots := flightCtx.state.RemoteClientHelloSnapshots
 	if err := snapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 	}
-	if err := negotiation.ValidateClientHelloRetry(
-		snapshots.Initial(), snapshots.Current(), flightCtx.state.HelloRetryRequest,
-	); err != nil {
+	if err := negotiation.ValidateClientHelloRetry(snapshots.Initial(), snapshots.Current(), flightCtx.state.HelloRetryRequest); err != nil {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
 	}
 
@@ -103,16 +100,8 @@ func flight2Generate(
 			Cookie: flightCtx.state.Cookie,
 		})
 	}
-	serverHello := &handshake.MessageServerHello{
-		Version:           protocol.Version1_2,
-		Random:            random,
-		CipherSuiteID:     &cipherSuiteID,
-		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-		Extensions:        exts,
-	}
-	request, err := negotiation.ValidateHelloRetryRequest(
-		flightCtx.state.RemoteClientHelloSnapshots.Initial(), serverHello,
-	)
+	serverHello := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: exts}
+	request, err := negotiation.ValidateHelloRetryRequest(flightCtx.state.RemoteClientHelloSnapshots.Initial(), serverHello)
 	if err != nil {
 		return nil, nil, err
 	}

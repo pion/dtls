@@ -23,12 +23,8 @@ type keyMaterial struct {
 	role         cryptosuite.EndpointRole
 }
 
-func NewKeyMaterial(
-	masterSecret, clientRandom, serverRandom []byte,
-	role cryptosuite.EndpointRole,
-) (cryptosuite.KeyMaterial, error) {
-	if len(masterSecret) == 0 || len(clientRandom) == 0 || len(serverRandom) == 0 ||
-		(role != cryptosuite.EndpointRoleClient && role != cryptosuite.EndpointRoleServer) {
+func NewKeyMaterial(masterSecret, clientRandom, serverRandom []byte, role cryptosuite.EndpointRole) (cryptosuite.KeyMaterial, error) {
+	if len(masterSecret) == 0 || len(clientRandom) == 0 || len(serverRandom) == 0 || (role != cryptosuite.EndpointRoleClient && role != cryptosuite.EndpointRoleServer) {
 		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
 
@@ -82,16 +78,8 @@ func (r protectionRecord) AuthenticationData(recordLen int) ([]byte, error) {
 	return append(data, byte(recordLen>>8), byte(recordLen)), nil //nolint:gosec // checked above.
 }
 
-func NewLegacyRecord(
-	contentType protocol.ContentType,
-	version protocol.Version,
-	epoch uint16,
-	sequenceNumber uint64,
-	connectionID []byte,
-) (cryptosuite.Record, error) {
-	if contentType == 0 || version != protocol.Version1_2 ||
-		sequenceNumber > recordlayer.MaxSequenceNumber || len(connectionID) > math.MaxUint8 ||
-		(contentType == protocol.ContentTypeConnectionID) != (len(connectionID) > 0) {
+func NewLegacyRecord(contentType protocol.ContentType, version protocol.Version, epoch uint16, sequenceNumber uint64, connectionID []byte) (cryptosuite.Record, error) {
+	if contentType == 0 || version != protocol.Version1_2 || sequenceNumber > recordlayer.MaxSequenceNumber || len(connectionID) > math.MaxUint8 || (contentType == protocol.ContentTypeConnectionID) != (len(connectionID) > 0) {
 		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
 
@@ -118,11 +106,7 @@ func NewLegacyRecord(
 		return nil, err
 	}
 
-	return protectionRecord{
-		recordNumber:       uint64(epoch)<<48 | sequenceNumber,
-		authenticationData: authenticationData,
-		legacy:             true,
-	}, nil
+	return protectionRecord{recordNumber: uint64(epoch)<<48 | sequenceNumber, authenticationData: authenticationData, legacy: true}, nil
 }
 
 func NewUnifiedRecord( //nolint:cyclop
@@ -130,8 +114,7 @@ func NewUnifiedRecord( //nolint:cyclop
 	header recordlayer.UnifiedHeader,
 	protectedLen int,
 ) (cryptosuite.Record, error) {
-	if header.EpochLow > 3 || uint8(epoch&3) != header.EpochLow ||
-		len(header.ConnectionID) > math.MaxUint8 || protectedLen < 0 || protectedLen > math.MaxUint16 {
+	if header.EpochLow > 3 || uint8(epoch&3) != header.EpochLow || len(header.ConnectionID) > math.MaxUint8 || protectedLen < 0 || protectedLen > math.MaxUint16 {
 		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
 	if header.SeqBit {
@@ -154,9 +137,5 @@ func NewUnifiedRecord( //nolint:cyclop
 		return nil, err
 	}
 
-	return protectionRecord{
-		recordNumber:       sequenceNumber,
-		authenticationData: authenticationData,
-		protectedLen:       protectedLen,
-	}, nil
+	return protectionRecord{recordNumber: sequenceNumber, authenticationData: authenticationData, protectedLen: protectedLen}, nil
 }

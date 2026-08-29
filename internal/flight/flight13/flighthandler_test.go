@@ -45,10 +45,7 @@ func TestPullProtectedHandshakeFlightReturnsDecodedItems(t *testing.T) {
 	cache.Push(rawEncryptedExtensions, EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 	cache.Push(rawFinished, EpochHandshake, 1, handshake.TypeFinished, false)
 
-	pull := pullProtectedHandshakeFlight(cache, []dtlsflight.HandshakeCachePullRule{
-		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false},
-		{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false},
-	}, 0)
+	pull := pullProtectedHandshakeFlight(cache, []dtlsflight.HandshakeCachePullRule{{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false}, {Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false}}, 0)
 
 	require.True(t, pull.ready)
 	require.Nil(t, pull.failure)
@@ -59,10 +56,7 @@ func TestPullProtectedHandshakeFlightReturnsDecodedItems(t *testing.T) {
 	require.IsType(t, &handshake.MessageEncryptedExtensions{}, pull.items[0].Parsed.Message)
 	require.IsType(t, &handshake.MessageFinished{}, pull.items[1].Parsed.Message)
 
-	secondPull := pullProtectedHandshakeFlight(cache, []dtlsflight.HandshakeCachePullRule{
-		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false},
-		{Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false},
-	}, 0)
+	secondPull := pullProtectedHandshakeFlight(cache, []dtlsflight.HandshakeCachePullRule{{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false}, {Typ: handshake.TypeFinished, Epoch: EpochHandshake, IsClient: false}}, 0)
 	require.True(t, secondPull.ready)
 	require.Nil(t, secondPull.failure)
 	assert.Same(t, pull.items[0].Parsed, secondPull.items[0].Parsed)
@@ -70,9 +64,7 @@ func TestPullProtectedHandshakeFlightReturnsDecodedItems(t *testing.T) {
 }
 
 func TestPullProtectedHandshakeFlightDistinguishesIncompleteAndInvalid(t *testing.T) {
-	rule := []dtlsflight.HandshakeCachePullRule{
-		{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false},
-	}
+	rule := []dtlsflight.HandshakeCachePullRule{{Typ: handshake.TypeEncryptedExtensions, Epoch: EpochHandshake, IsClient: false}}
 
 	t.Run("missing", func(t *testing.T) {
 		pull := pullProtectedHandshakeFlight(dtlsflight.NewCache(), rule, 0)
@@ -120,11 +112,7 @@ func TestPullProtectedHandshakeFlightDistinguishesIncompleteAndInvalid(t *testin
 
 	t.Run("known illegal placement", func(t *testing.T) {
 		cache := dtlsflight.NewCache()
-		raw := marshalProtectedTestHandshake(t, 0,
-			&handshake.MessageEncryptedExtensions{Extensions: []extension.Value{
-				extension.Raw{Type: extension.TypeExtendedMasterSecret},
-			}},
-		)
+		raw := marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{Extensions: []extension.Value{extension.Raw{Type: extension.TypeExtendedMasterSecret}}})
 		cache.Push(raw, EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 
 		pull := pullProtectedHandshakeFlight(cache, rule, 0)
@@ -150,15 +138,8 @@ func marshalProtectedTestHandshake(t *testing.T, sequence uint16, message handsh
 }
 
 func TestHandleFlight3ProtectedHandshakeRetainsCertificateRequest(t *testing.T) {
-	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{
-		&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-	}}
-	items := []dtlsflight.DecodedHandshakeCacheItem{{
-		Raw: &dtlsflight.HandshakeCacheItem{Typ: handshake.TypeCertificateRequest},
-		Parsed: &handshake.Handshake{
-			Message: request,
-		},
-	}}
+	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}}
+	items := []dtlsflight.DecodedHandshakeCacheItem{{Raw: &dtlsflight.HandshakeCacheItem{Typ: handshake.TypeCertificateRequest}, Parsed: &handshake.Handshake{Message: request}}}
 	flightCtx := &handshakeContext{
 		state: &dtlsstate.State13{Common: &dtlsstate.Common{}},
 		protectedHandshakeHandler: func(_ dtlsconfig.CipherSuite, got []dtlsflight.DecodedHandshakeCacheItem) error {
@@ -179,12 +160,8 @@ func TestFlight3ParseClearsConnectionIDAfterInvalidEncryptedExtensions(t *testin
 	state.SetRemoteEpoch(EpochHandshake)
 
 	cache := dtlsflight.NewCache()
-	cache.Push(marshalProtectedTestHandshake(t, 0,
-		&handshake.MessageEncryptedExtensions{Extensions: []extension.Value{
-			extension.Raw{Type: 0xfafa},
-		}},
-	), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
-	cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}), EpochHandshake, 1, handshake.TypeFinished, false) //nolint:lll
+	cache.Push(marshalProtectedTestHandshake(t, 0, &handshake.MessageEncryptedExtensions{Extensions: []extension.Value{extension.Raw{Type: 0xfafa}}}), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
+	cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}), EpochHandshake, 1, handshake.TypeFinished, false)
 	handlerCalled := false
 	next, dtlsAlert, err := flight3Parse(t.Context(), nil, &handshakeContext{
 		state: &state,
@@ -211,10 +188,7 @@ func TestFlight3ParseClearsConnectionIDAfterInvalidEncryptedExtensions(t *testin
 
 func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
 	authority := []byte{0x01, 0x02}
-	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{
-		&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-		&extension13.CertificateAuthorities{Authorities: [][]byte{authority}},
-	}}
+	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}, &extension13.CertificateAuthorities{Authorities: [][]byte{authority}}}}
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalGetClientCertificate: func(info *dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
 			info.AcceptableCAs[0][0] = 0xff
@@ -226,7 +200,7 @@ func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
 	_, err := flight5ClientCertificate(cfg, request)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x01, 0x02}, authority)
-	assert.Equal(t, []byte{0x01, 0x02}, request.Extensions[1].(*extension13.CertificateAuthorities).Authorities[0]) //nolint:forcetypeassert,lll
+	assert.Equal(t, []byte{0x01, 0x02}, request.Extensions[1].(*extension13.CertificateAuthorities).Authorities[0]) //nolint:forcetypeassert
 }
 
 func TestFlight4GenerateCertificateFailures(t *testing.T) {
@@ -235,27 +209,9 @@ func TestFlight4GenerateCertificateFailures(t *testing.T) {
 		expectedError error
 		expectedAlert alert.Description
 	}{
-		"missing certificate": {
-			configure: func(ctx *handshakeContext) {
-				ctx.cfg.LocalCertificates = nil
-			},
-			expectedError: dtlserrors.ErrNoCertificates,
-			expectedAlert: alert.HandshakeFailure,
-		},
-		"invalid private key": {
-			configure: func(ctx *handshakeContext) {
-				ctx.cfg.LocalCertificates[0].PrivateKey = struct{}{}
-			},
-			expectedError: dtlserrors.ErrInvalidPrivateKey,
-			expectedAlert: alert.HandshakeFailure,
-		},
-		"no common signature scheme": {
-			configure: func(ctx *handshakeContext) {
-				ctx.state.RemoteSignatureSchemes = nil
-			},
-			expectedError: dtlserrors.ErrNoAvailableSignatureSchemes,
-			expectedAlert: alert.InsufficientSecurity,
-		},
+		"missing certificate":        {configure: func(ctx *handshakeContext) { ctx.cfg.LocalCertificates = nil }, expectedError: dtlserrors.ErrNoCertificates, expectedAlert: alert.HandshakeFailure},
+		"invalid private key":        {configure: func(ctx *handshakeContext) { ctx.cfg.LocalCertificates[0].PrivateKey = struct{}{} }, expectedError: dtlserrors.ErrInvalidPrivateKey, expectedAlert: alert.HandshakeFailure},
+		"no common signature scheme": {configure: func(ctx *handshakeContext) { ctx.state.RemoteSignatureSchemes = nil }, expectedError: dtlserrors.ErrNoAvailableSignatureSchemes, expectedAlert: alert.InsufficientSecurity},
 	}
 
 	for name, test := range tests {
@@ -294,17 +250,7 @@ func flight4TestContext(t *testing.T) *handshakeContext {
 	require.NoError(t, remoteOffers.Record(offer))
 
 	return &handshakeContext{
-		state: &dtlsstate.State13{
-			Common: &dtlsstate.Common{
-				CipherSuite:                ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256),
-				RemoteClientHelloSnapshots: remoteOffers,
-			},
-			LocalKeypair:           keypair,
-			RemoteSignatureSchemes: append([]signaturehash.Algorithm(nil), signatureSchemes...),
-		},
-		cfg: &dtlsconfig.HandshakeConfig{
-			LocalCertificates:     []tls.Certificate{certificate},
-			LocalSignatureSchemes: append([]signaturehash.Algorithm(nil), signatureSchemes...),
-		},
+		state: &dtlsstate.State13{Common: &dtlsstate.Common{CipherSuite: ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256), RemoteClientHelloSnapshots: remoteOffers}, LocalKeypair: keypair, RemoteSignatureSchemes: append([]signaturehash.Algorithm(nil), signatureSchemes...)},
+		cfg:   &dtlsconfig.HandshakeConfig{LocalCertificates: []tls.Certificate{certificate}, LocalSignatureSchemes: append([]signaturehash.Algorithm(nil), signatureSchemes...)},
 	}
 }

@@ -81,24 +81,13 @@ type Capabilities struct {
 }
 
 // NewAEADCapabilities constructs capabilities for an AEAD suite.
-func NewAEADCapabilities(
-	version protocol.Version,
-	maxPlaintextLen, explicitNonceLen, tagLen, maskSampleLen int,
-) (Capabilities, error) {
+func NewAEADCapabilities(version protocol.Version, maxPlaintextLen, explicitNonceLen, tagLen, maskSampleLen int) (Capabilities, error) {
 	maxProtectedLen, valid := validAEADLengths(maxPlaintextLen, explicitNonceLen, tagLen)
 	if !valid || !validAEADMask(version, maskSampleLen, maxProtectedLen) {
 		return Capabilities{}, ErrInvalidCapabilities
 	}
 
-	return Capabilities{
-		version:          version,
-		mode:             lengthModeAEAD,
-		maxPlaintextLen:  maxPlaintextLen,
-		maxProtectedLen:  maxProtectedLen,
-		explicitNonceLen: explicitNonceLen,
-		tagLen:           tagLen,
-		maskSampleLen:    maskSampleLen,
-	}, nil
+	return Capabilities{version: version, mode: lengthModeAEAD, maxPlaintextLen: maxPlaintextLen, maxProtectedLen: maxProtectedLen, explicitNonceLen: explicitNonceLen, tagLen: tagLen, maskSampleLen: maskSampleLen}, nil
 }
 
 func validAEADLengths(maxPlaintextLen, explicitNonceLen, tagLen int) (int, bool) {
@@ -133,23 +122,14 @@ func validAEADMask(version protocol.Version, maskSampleLen, maxProtectedLen int)
 
 // NewCBCCapabilities constructs capabilities for a MAC-then-encrypt CBC suite.
 func NewCBCCapabilities(maxPlaintextLen, macLen, blockLen int) (Capabilities, error) {
-	if maxPlaintextLen <= 0 || maxPlaintextLen > math.MaxUint16 ||
-		blockLen <= 0 || blockLen > 256 || macLen <= 0 || macLen > math.MaxUint16 {
+	if maxPlaintextLen <= 0 || maxPlaintextLen > math.MaxUint16 || blockLen <= 0 || blockLen > 256 || macLen <= 0 || macLen > math.MaxUint16 {
 		return Capabilities{}, ErrInvalidCapabilities
 	}
 	maxProtectedLen := blockLen + ((maxPlaintextLen+macLen+256)/blockLen)*blockLen
 	if maxProtectedLen <= 0 || maxProtectedLen > math.MaxUint16 || macLen > maxProtectedLen {
 		return Capabilities{}, ErrInvalidCapabilities
 	}
-	capabilities := Capabilities{
-		version:          protocol.Version1_2,
-		mode:             lengthModeCBC,
-		maxPlaintextLen:  maxPlaintextLen,
-		maxProtectedLen:  maxProtectedLen,
-		explicitNonceLen: blockLen,
-		macLen:           macLen,
-		blockLen:         blockLen,
-	}
+	capabilities := Capabilities{version: protocol.Version1_2, mode: lengthModeCBC, maxPlaintextLen: maxPlaintextLen, maxProtectedLen: maxProtectedLen, explicitNonceLen: blockLen, macLen: macLen, blockLen: blockLen}
 
 	return capabilities, nil
 }

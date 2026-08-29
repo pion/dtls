@@ -19,11 +19,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
-func flight3Parse(
-	ctx context.Context,
-	conn dtlsflight.Conn,
-	flightCtx *handshakeContext,
-) (Flight, *alert.Alert, error) {
+func flight3Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshakeContext) (Flight, *alert.Alert, error) {
 	nextHandshakeSequence := flightCtx.state.HandshakeRecvSequence
 	if flightCtx.state.RemoteEpoch() < EpochHandshake {
 		pull := flight3PullServerHello(flightCtx)
@@ -95,7 +91,7 @@ func flight3PullServerHello(
 ) serverHelloPull {
 	pull := flightCtx.cache.FullPullMapItems(
 		flightCtx.state.HandshakeRecvSequence, flightCtx.state.CipherSuite,
-		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: false, Optional: false}, //nolint:lll
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello, Epoch: flightCtx.cfg.InitialEpoch, IsClient: false, Optional: false},
 	)
 	if pull.Err != nil {
 		return serverHelloPull{
@@ -115,18 +111,10 @@ func flight3PullServerHello(
 		}
 	}
 
-	return serverHelloPull{
-		nextHandshakeSequence: pull.NextSequence,
-		serverHello:           serverHello,
-		items:                 pull.Items,
-		ready:                 true,
-	}
+	return serverHelloPull{nextHandshakeSequence: pull.NextSequence, serverHello: serverHello, items: pull.Items, ready: true}
 }
 
-func processFlight3ServerHello(
-	flightCtx *handshakeContext,
-	serverHello *handshake.MessageServerHello,
-) *flightParseFailure {
+func processFlight3ServerHello(flightCtx *handshakeContext, serverHello *handshake.MessageServerHello) *flightParseFailure {
 	versions, failure := validateFlight3ServerHello(serverHello)
 	if failure != nil {
 		return failure
@@ -188,10 +176,7 @@ func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]pr
 	return versions, nil
 }
 
-func applyFlight3ServerKeyShare(
-	flightCtx *handshakeContext,
-	serverShare *extension13.KeyShareEntry,
-) *flightParseFailure {
+func applyFlight3ServerKeyShare(flightCtx *handshakeContext, serverShare *extension13.KeyShareEntry) *flightParseFailure {
 	localKeypair, ok := flightCtx.state.LocalKeypairs[serverShare.Group]
 	if !ok || localKeypair == nil {
 		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareUnknownGroup)
@@ -209,13 +194,7 @@ func applyFlight3ServerKeyShare(
 	return nil
 }
 
-func initializeFlight3HandshakeProtection(
-	ctx context.Context,
-	conn dtlsflight.Conn,
-	flightCtx *handshakeContext,
-	serverHelloSeq int,
-	items []dtlsflight.DecodedHandshakeCacheItem,
-) *flightParseFailure {
+func initializeFlight3HandshakeProtection(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshakeContext, serverHelloSeq int, items []dtlsflight.DecodedHandshakeCacheItem) *flightParseFailure {
 	if failure := flightCtx.handleInboundHandshake(items); failure != nil {
 		return failure
 	}
@@ -251,10 +230,7 @@ func initializeFlight3HandshakeProtection(
 	return nil
 }
 
-func handleFlight3ProtectedHandshake(
-	flightCtx *handshakeContext,
-	items []dtlsflight.DecodedHandshakeCacheItem,
-) *flightParseFailure {
+func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsflight.DecodedHandshakeCacheItem) *flightParseFailure {
 	flightCtx.state.RemoteCertificateRequest = nil
 	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
 	var srtpDecision negotiation.SRTPDecision
@@ -268,9 +244,7 @@ func handleFlight3ProtectedHandshake(
 				return newFlightParseFailure(alert.UnsupportedExtension, err)
 			}
 			var err error
-			srtpDecision, err = negotiation.ValidateSRTPSelection(
-				offer, message.Extensions, flightCtx.cfg.LocalSRTPProtectionProfiles,
-			)
+			srtpDecision, err = negotiation.ValidateSRTPSelection(offer, message.Extensions, flightCtx.cfg.LocalSRTPProtectionProfiles)
 			if err != nil {
 				var dtlsAlert *alert.Alert
 				if !errors.As(err, &dtlsAlert) {
@@ -315,21 +289,15 @@ func flight3Generate(
 		flightCtx.state.LocalKeypairs = map[elliptic.Curve]*elliptic.Keypair{entry.Group: keypair}
 	}
 
-	clientHello, err := negotiation.BuildClientHelloRetry(
-		flightCtx.state.LocalClientHelloSnapshots.Initial(), request, freshShare,
-	)
+	clientHello, err := negotiation.BuildClientHelloRetry(flightCtx.state.LocalClientHelloSnapshots.Initial(), request, freshShare)
 	if err != nil {
 		return nil, nil, err
 	}
-	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
-		clientHello, flightCtx.cfg.ClientHelloMessageHook, flightCtx.cfg.EnableRRC,
-	)
+	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(clientHello, flightCtx.cfg.ClientHelloMessageHook, flightCtx.cfg.EnableRRC)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := negotiation.ValidateClientHelloRetry(
-		flightCtx.state.LocalClientHelloSnapshots.Initial(), snapshot, request,
-	); err != nil {
+	if err := negotiation.ValidateClientHelloRetry(flightCtx.state.LocalClientHelloSnapshots.Initial(), snapshot, request); err != nil {
 		return nil, nil, err
 	}
 	if err := flightCtx.state.RecordLocalClientHello(snapshot); err != nil {

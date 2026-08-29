@@ -39,13 +39,7 @@ func TestPathValidation(t *testing.T) {
 func TestExpiredResponse(t *testing.T) {
 	candidate := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 6000}
 	cookie := [protocol.ReturnRoutabilityCheckCookieLength]byte{1, 2, 3}
-	manager := &Manager{paths: map[string]*path{
-		pathKey(candidate): {
-			cookie:           cookie,
-			challengePending: true,
-			expiresAt:        time.Now().Add(-time.Second),
-		},
-	}}
+	manager := &Manager{paths: map[string]*path{pathKey(candidate): {cookie: cookie, challengePending: true, expiresAt: time.Now().Add(-time.Second)}}}
 
 	assert.False(t, manager.HandleResponse(candidate, cookie))
 }

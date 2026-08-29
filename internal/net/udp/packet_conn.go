@@ -181,14 +181,7 @@ func WithReceiveBufferSize(size int) ListenerOption {
 
 // Listen creates a new listener over conn.
 func Listen(conn net.PacketConn, opts ...ListenerOption) dtlsnet.PacketListener {
-	packetListener := &listener{
-		pConn:             conn,
-		backlog:           defaultListenBacklog,
-		receiveBufferSize: defaultReceiveBufferSize,
-		conns:             make(map[string]*PacketConn),
-		doneCh:            make(chan struct{}),
-		readDoneCh:        make(chan struct{}),
-	}
+	packetListener := &listener{pConn: conn, backlog: defaultListenBacklog, receiveBufferSize: defaultReceiveBufferSize, conns: make(map[string]*PacketConn), doneCh: make(chan struct{}), readDoneCh: make(chan struct{})}
 	for _, opt := range opts {
 		opt(packetListener)
 	}
@@ -294,13 +287,7 @@ type PacketConn struct {
 
 // newPacketConn constructs a new PacketConn.
 func (l *listener) newPacketConn(raddr net.Addr) *PacketConn {
-	return &PacketConn{
-		listener:      l,
-		raddr:         raddr,
-		buffer:        idtlsnet.NewPacketBuffer(),
-		doneCh:        make(chan struct{}),
-		writeDeadline: deadline.New(),
-	}
+	return &PacketConn{listener: l, raddr: raddr, buffer: idtlsnet.NewPacketBuffer(), doneCh: make(chan struct{}), writeDeadline: deadline.New()}
 }
 
 // ReadFrom reads a single packet payload and its associated remote address from

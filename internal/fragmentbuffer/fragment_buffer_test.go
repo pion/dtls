@@ -15,16 +15,10 @@ import (
 func TestFragmentBuffer(t *testing.T) {
 	single := []byte{0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xfe, 0xff, 0x00}
 	fragment := func(offset byte) []byte {
-		return []byte{
-			0x0b, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, offset, 0x00, 0x00, 0x05,
-			offset, offset + 1, offset + 2, offset + 3, offset + 4,
-		}
+		return []byte{0x0b, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, offset, 0x00, 0x00, 0x05, offset, offset + 1, offset + 2, offset + 3, offset + 4}
 	}
 	fragments := [][]byte{fragment(0), fragment(5), fragment(10)}
-	reassembled := [][]byte{{
-		0x0b, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x01,
-		0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
-	}}
+	reassembled := [][]byte{{0x0b, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e}}
 	for _, test := range []struct {
 		Name     string
 		In       [][]byte
@@ -41,7 +35,7 @@ func TestFragmentBuffer(t *testing.T) {
 			Name: "Multiple Fragments", In: fragments, Expected: reassembled, Epoch: 0,
 		},
 		{
-			Name: "Multiple Unordered Fragments", In: [][]byte{fragments[0], fragments[2], fragments[1]}, Expected: reassembled, Epoch: 0, //nolint:lll
+			Name: "Multiple Unordered Fragments", In: [][]byte{fragments[0], fragments[2], fragments[1]}, Expected: reassembled, Epoch: 0,
 		},
 		{
 			Name: "Multiple Handshakes in Single Fragment",
@@ -60,34 +54,9 @@ func TestFragmentBuffer(t *testing.T) {
 			Epoch: 0,
 		},
 		// Assert that a zero length fragment doesn't cause the fragmentBuffer to enter an infinite loop
-		{
-			Name: "Zero Length Fragment",
-			In: [][]byte{
-				{
-					0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-				},
-			},
-			Expected: [][]byte{
-				{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-			},
-			Epoch: 0,
-		},
+		{Name: "Zero Length Fragment", In: [][]byte{{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}, Expected: [][]byte{{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}, Epoch: 0},
 		// Not aligned fragments should not be reassembled
-		{
-			Name: "Not Aligned Fragments",
-			In: [][]byte{
-				{
-					0x0b, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05,
-					0x00, 0x01, 0x02, 0x03, 0x04,
-				},
-				{
-					0x0b, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x05,
-					0x05, 0x06, 0x07, 0x08, 0x09,
-				},
-			},
-			Expected: [][]byte{nil},
-			Epoch:    0,
-		},
+		{Name: "Not Aligned Fragments", In: [][]byte{{0x0b, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x01, 0x02, 0x03, 0x04}, {0x0b, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x05, 0x05, 0x06, 0x07, 0x08, 0x09}}, Expected: [][]byte{nil}, Epoch: 0},
 	} {
 		fragmentBuffer := New()
 		for _, frag := range test.In {
@@ -109,20 +78,11 @@ func TestFragmentBuffer(t *testing.T) {
 func TestFragmentBuffer_Overflow(t *testing.T) {
 	fragmentBuffer := New()
 
-	small := marshalHandshakeContent(t, handshake.Header{
-		Type:           handshake.TypeHelloVerifyRequest,
-		Length:         3,
-		FragmentLength: 3,
-	})
+	small := marshalHandshakeContent(t, handshake.Header{Type: handshake.TypeHelloVerifyRequest, Length: 3, FragmentLength: 3})
 	_, err := fragmentBuffer.Push(0, small)
 	require.NoError(t, err)
 
-	large := marshalHandshakeContent(t, handshake.Header{
-		Type:            handshake.TypeCertificate,
-		Length:          fragmentBufferMaxSize,
-		MessageSequence: 1,
-		FragmentLength:  fragmentBufferMaxSize,
-	})
+	large := marshalHandshakeContent(t, handshake.Header{Type: handshake.TypeCertificate, Length: fragmentBufferMaxSize, MessageSequence: 1, FragmentLength: fragmentBufferMaxSize})
 	_, err = fragmentBuffer.Push(0, large)
 	assert.ErrorIs(t, err, dtlserrors.ErrFragmentBufferOverflow,
 		"Pushing a large buffer should return an overflow error")
@@ -137,12 +97,8 @@ func TestFragmentBuffer_Overflow(t *testing.T) {
 func TestFragmentBuffer_TooSmall(t *testing.T) {
 	fragmentBuffer := New()
 
-	_, err := fragmentBuffer.Push(0, []byte{
-		0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
-		0xfe, 0xff, 0x00,
-	})
-	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall,
-		"Pushing a buffer that is smaller than fragment length should return an error")
+	_, err := fragmentBuffer.Push(0, []byte{0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xfe, 0xff, 0x00})
+	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall, "Pushing a buffer that is smaller than fragment length should return an error")
 }
 
 func TestFragmentBuffer_UnmarshalInvalidHandshake(t *testing.T) {
@@ -366,44 +322,9 @@ func TestFragmentBuffer_RetransmitDetection(t *testing.T) {
 		headers            []handshake.Header
 		expectedRetransmit bool
 	}{
-		{
-			name: "old nonzero-offset fragment",
-			headers: []handshake.Header{{
-				Type:            handshake.TypeCertificate,
-				Length:          2,
-				MessageSequence: 0,
-				FragmentOffset:  1,
-				FragmentLength:  1,
-			}},
-			expectedRetransmit: true,
-		},
-		{
-			name: "old fragment followed by current fragment",
-			headers: []handshake.Header{
-				{
-					Type:            handshake.TypeCertificate,
-					Length:          1,
-					MessageSequence: 0,
-					FragmentLength:  1,
-				},
-				{
-					Type:            handshake.TypeCertificate,
-					Length:          1,
-					MessageSequence: 1,
-					FragmentLength:  1,
-				},
-			},
-			expectedRetransmit: true,
-		},
-		{
-			name: "current fragment",
-			headers: []handshake.Header{{
-				Type:            handshake.TypeCertificate,
-				Length:          1,
-				MessageSequence: 1,
-				FragmentLength:  1,
-			}},
-		},
+		{name: "old nonzero-offset fragment", headers: []handshake.Header{{Type: handshake.TypeCertificate, Length: 2, MessageSequence: 0, FragmentOffset: 1, FragmentLength: 1}}, expectedRetransmit: true},
+		{name: "old fragment followed by current fragment", headers: []handshake.Header{{Type: handshake.TypeCertificate, Length: 1, MessageSequence: 0, FragmentLength: 1}, {Type: handshake.TypeCertificate, Length: 1, MessageSequence: 1, FragmentLength: 1}}, expectedRetransmit: true},
+		{name: "current fragment", headers: []handshake.Header{{Type: handshake.TypeCertificate, Length: 1, MessageSequence: 1, FragmentLength: 1}}},
 	}
 
 	for _, test := range tests {

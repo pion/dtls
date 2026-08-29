@@ -148,11 +148,7 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 			assert.NoError(t, br.SetLossChance(chosenLoss))
 
 			go func() {
-				clientOpts := []dtls.ClientOption{
-					dtls.WithFlightInterval(flightInterval),
-					dtls.WithInsecureSkipVerify(true),
-					dtls.WithDisableRetransmitBackoff(true),
-				}
+				clientOpts := []dtls.ClientOption{dtls.WithFlightInterval(flightInterval), dtls.WithInsecureSkipVerify(true), dtls.WithDisableRetransmitBackoff(true)}
 				if len(test.CipherSuites) > 0 {
 					clientOpts = append(clientOpts, dtls.WithCipherSuites(test.CipherSuites...))
 				}
@@ -164,20 +160,12 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 					clientOpts = append(clientOpts, dtls.WithCertificates(clientCert))
 				}
 
-				client, startupErr := dtls.Client(
-					dtlsnet.PacketConnFromConn(br.GetConn0()),
-					br.GetConn0().RemoteAddr(),
-					clientOpts...,
-				)
+				client, startupErr := dtls.Client(dtlsnet.PacketConnFromConn(br.GetConn0()), br.GetConn0().RemoteAddr(), clientOpts...)
 				clientDone <- runResult{client, startupErr}
 			}()
 
 			go func() {
-				serverOpts := []dtls.ServerOption{
-					dtls.WithCertificates(serverCert),
-					dtls.WithFlightInterval(flightInterval),
-					dtls.WithDisableRetransmitBackoff(true),
-				}
+				serverOpts := []dtls.ServerOption{dtls.WithCertificates(serverCert), dtls.WithFlightInterval(flightInterval), dtls.WithDisableRetransmitBackoff(true)}
 				if test.MTU > 0 {
 					serverOpts = append(serverOpts, dtls.WithMTU(test.MTU))
 				}
@@ -190,11 +178,7 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 					serverOpts = append(serverOpts, dtls.WithFlightInterval(time.Hour))
 				}
 
-				server, startupErr := dtls.Server(
-					dtlsnet.PacketConnFromConn(br.GetConn1()),
-					br.GetConn1().RemoteAddr(),
-					serverOpts...,
-				)
+				server, startupErr := dtls.Server(dtlsnet.PacketConnFromConn(br.GetConn1()), br.GetConn1().RemoteAddr(), serverOpts...)
 				serverDone <- runResult{server, startupErr}
 			}()
 
@@ -214,8 +198,7 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 				select {
 				case serverResult := <-serverDone:
 					if serverResult.err != nil {
-						assert.Failf(t, "Fail, serverError", "clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)",
-							clientConn != nil, serverConn != nil, chosenLoss, serverResult.err)
+						assert.Failf(t, "Fail, serverError", "clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientConn != nil, serverConn != nil, chosenLoss, serverResult.err)
 
 						return
 					}
@@ -223,16 +206,14 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 					serverConn = serverResult.dtlsConn
 				case clientResult := <-clientDone:
 					if clientResult.err != nil {
-						assert.Failf(t, "Fail, clientError", "clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)",
-							clientConn != nil, serverConn != nil, chosenLoss, clientResult.err)
+						assert.Failf(t, "Fail, clientError", "clientComplete(%t) serverComplete(%t) LossChance(%d) error(%v)", clientConn != nil, serverConn != nil, chosenLoss, clientResult.err)
 
 						return
 					}
 
 					clientConn = clientResult.dtlsConn
 				case <-testTimer.C:
-					assert.Failf(t, "Test expired", "clientComplete(%t) serverComplete(%t) LossChance(%d)",
-						clientConn != nil, serverConn != nil, chosenLoss)
+					assert.Failf(t, "Test expired", "clientComplete(%t) serverComplete(%t) LossChance(%d)", clientConn != nil, serverConn != nil, chosenLoss)
 
 					return
 				case <-time.After(10 * time.Millisecond):

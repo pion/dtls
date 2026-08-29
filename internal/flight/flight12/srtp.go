@@ -13,12 +13,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 )
 
-func validateServerSRTP(
-	snapshot negotiation.ClientHelloSnapshot,
-	responses []extension.Value,
-	localProfiles []extension.SRTPProtectionProfile,
-	want negotiation.SRTPDecision,
-) error {
+func validateServerSRTP(snapshot negotiation.ClientHelloSnapshot, responses []extension.Value, localProfiles []extension.SRTPProtectionProfile, want negotiation.SRTPDecision) error {
 	got, err := negotiation.ValidateSRTPSelection(snapshot, responses, localProfiles)
 	if err != nil {
 		return err
@@ -39,10 +34,7 @@ func appendSRTPSelection(
 		return extensions
 	}
 
-	return append(extensions, &extension.SRTPSelection{
-		ProtectionProfile:   decision.ProtectionProfile,
-		MasterKeyIdentifier: bytes.Clone(decision.MasterKeyIdentifier),
-	})
+	return append(extensions, &extension.SRTPSelection{ProtectionProfile: decision.ProtectionProfile, MasterKeyIdentifier: bytes.Clone(decision.MasterKeyIdentifier)})
 }
 
 func newSRTPError(kind error, description alert.Description) error {

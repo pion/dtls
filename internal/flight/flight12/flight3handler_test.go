@@ -79,18 +79,13 @@ func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.
 	clientHello, ok := handshakeMessage.Message.(*handshake.MessageClientHello)
 	require.True(t, ok)
 	assert.Contains(t, clientHello.Extensions, &extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}})
-	assert.Contains(t, clientHello.Extensions, &extension12.SupportedPointFormats{
-		PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
-	})
+	assert.Contains(t, clientHello.Extensions, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}})
 }
 
 func TestFlight3GenerateValidatesRetryWithEmptyCookie(t *testing.T) {
 	state := newTestState12()
 	suite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
-	cfg := &dtlsconfig.HandshakeConfig{
-		LocalCipherSuites: []dtlsconfig.CipherSuite{suite},
-		EllipticCurves:    []elliptic.Curve{elliptic.X25519},
-	}
+	cfg := &dtlsconfig.HandshakeConfig{LocalCipherSuites: []dtlsconfig.CipherSuite{suite}, EllipticCurves: []elliptic.Curve{elliptic.X25519}}
 	_, _, err := generateForTest(t, Flight1, nil, state, nil, cfg)
 	require.NoError(t, err)
 	state.HasHelloVerifyRequest = true
@@ -108,24 +103,13 @@ func TestFlight3GenerateValidatesRetryWithEmptyCookie(t *testing.T) {
 
 func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
 	state := newTestState12()
-	clientHello := &handshake.MessageClientHello{
-		Version:            protocol.Version1_2,
-		CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
-		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-	}
+	clientHello := &handshake.MessageClientHello{Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}, CompressionMethods: dtlsflight.DefaultCompressionMethods()}
 	_, offer, err := negotiation.FinalizeClientHello(clientHello, nil)
 	require.NoError(t, err)
 	require.NoError(t, state.LocalClientHelloSnapshots.Record(offer))
 
 	cipherSuiteID := uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
-	raw, err := (&handshake.Handshake{
-		Message: &handshake.MessageServerHello{
-			Version:           protocol.Version1_2,
-			CipherSuiteID:     &cipherSuiteID,
-			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-			Extensions:        []extension.Value{extension.Raw{Type: 0xfafa}},
-		},
-	}).Marshal()
+	raw, err := (&handshake.Handshake{Message: &handshake.MessageServerHello{Version: protocol.Version1_2, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: []extension.Value{extension.Raw{Type: 0xfafa}}}}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
@@ -143,21 +127,9 @@ func TestFlight3DoesNotCommitConnectionIDBeforeSuccess(t *testing.T) {
 	state.IsClient, state.SessionID = true, []byte{1}
 	recordCH12(t, &state.LocalClientHelloSnapshots, &extension.ConnectionID{CID: []byte{0xc1}})
 	suite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
-	cfg := &dtlsconfig.HandshakeConfig{
-		LocalCipherSuites: []dtlsconfig.CipherSuite{suite}, HasSessionStore: true,
-		DelSession: func([]byte) error { return dtlserrors.ErrInvalidPacket },
-		Log:        logging.NewDefaultLoggerFactory().NewLogger("dtls"),
-	}
+	cfg := &dtlsconfig.HandshakeConfig{LocalCipherSuites: []dtlsconfig.CipherSuite{suite}, HasSessionStore: true, DelSession: func([]byte) error { return dtlserrors.ErrInvalidPacket }, Log: logging.NewDefaultLoggerFactory().NewLogger("dtls")}
 	cipherSuiteID := uint16(suite.ID())
-	raw, err := (&handshake.Handshake{
-		Message: &handshake.MessageServerHello{
-			Version: protocol.Version1_2, SessionID: []byte{2}, CipherSuiteID: &cipherSuiteID,
-			CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-			Extensions: []extension.Value{
-				&extension.ConnectionID{CID: []byte{0x51}},
-			},
-		},
-	}).Marshal()
+	raw, err := (&handshake.Handshake{Message: &handshake.MessageServerHello{Version: protocol.Version1_2, SessionID: []byte{2}, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: []extension.Value{&extension.ConnectionID{CID: []byte{0x51}}}}}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
@@ -175,14 +147,8 @@ func TestFlight2RejectsChangedConnectionID(t *testing.T) {
 	state.Cookie, state.HandshakeRecvSequence = []byte{0xc0}, 1
 	recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: []byte{1}})
 	raw, err := (&handshake.Handshake{
-		Header: handshake.Header{MessageSequence: 1},
-		Message: &handshake.MessageClientHello{
-			Version: protocol.Version1_2, Cookie: state.Cookie,
-			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-			Extensions: []extension.Value{
-				&extension.ConnectionID{CID: []byte{2}},
-			},
-		},
+		Header:  handshake.Header{MessageSequence: 1},
+		Message: &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: state.Cookie, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: []extension.Value{&extension.ConnectionID{CID: []byte{2}}}},
 	}).Marshal()
 	require.NoError(t, err)
 	cache := dtlsflight.NewCache()
@@ -202,12 +168,7 @@ func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 	recordCH12(t, &state.RemoteClientHelloSnapshots,
 		extension.Raw{Type: 0xfefe, Data: []byte{0x01}},
 	)
-	retry := &handshake.MessageClientHello{
-		Version:            protocol.Version1_2,
-		Cookie:             state.Cookie,
-		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions:         []extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}},
-	}
+	retry := &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: state.Cookie, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: []extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}}}
 	rawRetry, err := (&handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1}, Message: retry,
 	}).Marshal()
@@ -215,10 +176,7 @@ func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	cache.Push(rawRetry, 0, 1, handshake.TypeClientHello, true)
 
-	next, dtlsAlert, err := parseForTest(
-		t, Flight2, t.Context(), nil, state, cache,
-		&dtlsconfig.HandshakeConfig{EllipticCurves: []elliptic.Curve{elliptic.X25519}},
-	)
+	next, dtlsAlert, err := parseForTest(t, Flight2, t.Context(), nil, state, cache, &dtlsconfig.HandshakeConfig{EllipticCurves: []elliptic.Curve{elliptic.X25519}})
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, Flight4, next)
@@ -228,14 +186,7 @@ func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 }
 
 func TestFlight4bGenerateCommitsConnectionIDOnce(t *testing.T) {
-	for name, test := range map[string]struct {
-		clientCID, serverCID []byte
-	}{
-		"bidirectional":       {[]byte{0xc1}, []byte{0x51}},
-		"empty client CID":    {nil, []byte{0x51}},
-		"empty server CID":    {[]byte{0xc1}, nil},
-		"both CIDs are empty": {},
-	} {
+	for name, test := range map[string]struct{ clientCID, serverCID []byte }{"bidirectional": {[]byte{0xc1}, []byte{0x51}}, "empty client CID": {nil, []byte{0x51}}, "empty server CID": {[]byte{0xc1}, nil}, "both CIDs are empty": {}} {
 		t.Run(name, func(t *testing.T) {
 			state := newTestState12()
 			state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
@@ -286,11 +237,7 @@ func TestFlight4bGenerateDoesNotCommitConnectionIDAfterLateResponseError(t *test
 }
 
 func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
-	for name, decision := range map[string]*negotiation.ConnectionID{
-		"not negotiated":   nil,
-		"bidirectional":    {ClientCID: []byte{0xc1}, ServerCID: []byte{0x51}},
-		"empty server CID": {ClientCID: []byte{0xc1}},
-	} {
+	for name, decision := range map[string]*negotiation.ConnectionID{"not negotiated": nil, "bidirectional": {ClientCID: []byte{0xc1}, ServerCID: []byte{0x51}}, "empty server CID": {ClientCID: []byte{0xc1}}} {
 		t.Run(name, func(t *testing.T) {
 			state := newTestState12()
 			state.IsClient, state.LocalVerifyData = true, []byte{1}
@@ -305,9 +252,7 @@ func TestFlight5bFinishedUsesCommittedServerConnectionID(t *testing.T) {
 
 func recordCH12(t *testing.T, snapshots *negotiation.ClientHelloSnapshots, extensions ...extension.Value) {
 	t.Helper()
-	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
-		Version: protocol.Version1_2, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions,
-	}, nil)
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{Version: protocol.Version1_2, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions}, nil)
 	require.NoError(t, err)
 	require.NoError(t, snapshots.Record(snapshot))
 }

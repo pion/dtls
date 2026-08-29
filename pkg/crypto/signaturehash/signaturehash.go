@@ -66,11 +66,7 @@ func Algorithms() []Algorithm {
 }
 
 // SelectSignatureScheme returns the most preferred compatible scheme for version.
-func SelectSignatureScheme(
-	sigs []Algorithm,
-	privateKey crypto.PrivateKey,
-	version protocol.Version,
-) (Algorithm, error) {
+func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey, version protocol.Version) (Algorithm, error) {
 	signer, ok := privateKey.(crypto.Signer)
 	if !ok {
 		return Algorithm{}, dtlserrors.ErrInvalidPrivateKey
