@@ -78,14 +78,15 @@ func newTestState13(tb testing.TB, isClient bool) *dtlsstate.State13 {
 	tb.Helper()
 
 	state := dtlsstate.NewState13(isClient)
-	_, snapshot, err := negotiation.FinalizeClientHello(withExtensions(&handshake.MessageClientHello{
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
-	}, []extension.Value{
-		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
-		&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
-		&extension.SupportedGroups{Groups: slices.Clone(testCurves13)},
-		&extension13.ClientKeyShare{},
-	}), nil)
+		Extensions: []extension.Value{
+			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+			&extension.SupportedGroups{Groups: slices.Clone(testCurves13)},
+			&extension13.ClientKeyShare{},
+		},
+	}, nil)
 	require.NoError(tb, err)
 	require.NoError(tb, state.LocalClientHelloSnapshots.Record(snapshot))
 	require.NoError(tb, state.RemoteClientHelloSnapshots.Record(snapshot))
@@ -213,9 +214,10 @@ func retryRequestForTest(
 		extensions = append(extensions, &extension13.Cookie{Cookie: state.Cookie})
 	}
 	request, err := negotiation.ValidateHelloRetryRequest(
-		initial, withExtensions(&handshake.MessageServerHello{
+		initial, &handshake.MessageServerHello{
 			CipherSuiteID: &id,
-		}, extensions),
+			Extensions:    extensions,
+		},
 	)
 	require.NoError(tb, err)
 
@@ -383,6 +385,18 @@ func newFlight13ProtectedServerFlightFixture(t *testing.T) flight13ProtectedServ
 	require.NoError(t, err)
 	require.True(t, appended)
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello[0])
+
+	return newFlight13ProtectedServerFlightFixtureFromClientHello(t, cfg, state, transcript, clientHelloCanonical)
+}
+
+func newFlight13ProtectedServerFlightFixtureFromClientHello(
+	t *testing.T,
+	cfg *dtlsconfig.HandshakeConfig,
+	state *dtlsstate.State13,
+	transcript *dtlshandshake.Transcript,
+	clientHelloCanonical []byte,
+) flight13ProtectedServerFlightFixture {
+	t.Helper()
 
 	group := cfg.EllipticCurves[0]
 	serverKeypair, err := elliptic.GenerateKeypair(group)
@@ -626,13 +640,14 @@ func TestFlight13_5GenerateSelectsClientCertificateBySignatureScheme(t *testing.
 		Hash:      dtlshash.SHA256,
 		Signature: signature.ECDSA,
 	}
-	request := withExtensions(&handshake.MessageCertificateRequest13{
+	request := &handshake.MessageCertificateRequest13{
 		CertificateRequestContext: []byte("request"),
-	}, []extension.Value{
-		&extension.SignatureAlgorithms{
-			Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{ecdsaSHA256}),
+		Extensions: []extension.Value{
+			&extension.SignatureAlgorithms{
+				Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{ecdsaSHA256}),
+			},
 		},
-	})
+	}
 	cfg := testHandshakeConfig13(t)
 	cfg.LocalCertificates = []tls.Certificate{rsaCertificate, ecdsaCertificate}
 	state := newTestState13(t, true)
@@ -698,12 +713,13 @@ func marshalServerHelloWithSequence(
 	t.Helper()
 
 	cipherSuiteID := uint16(cfg.LocalCipherSuites[0].ID())
-	serverHello := withExtensions(&handshake.MessageServerHello{
+	serverHello := &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
 		Random:            random,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-	}, extensions)
+		Extensions:        extensions,
+	}
 	rawServerHello, err := (&handshake.Handshake{
 		Header:  handshake.Header{MessageSequence: seq},
 		Message: serverHello,
@@ -1269,70 +1285,17 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 }
 
 func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(t *testing.T) {
-	cfg := testHandshakeConfig13(t)
-	state := newTestState13(t, true)
-	transcript := dtlshandshake.NewTranscript()
-	clientHello, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{
-		state: state,
-		cfg:   cfg,
-	})
-	require.NoError(t, err)
-	appended, err := dtlshandshake.AppendClientHelloInitialFlights(transcript, clientHello)
-	require.NoError(t, err)
-	require.True(t, appended)
-
-	group := cfg.EllipticCurves[0]
-	serverKeypair, err := elliptic.GenerateKeypair(group)
-	require.NoError(t, err)
-	rawServerHello := marshalServerHello(t, cfg, handshake.Random{
-		RandomBytes: [handshake.RandomBytesLength]byte{0x01},
-	}, []extension.Value{
-		&extension13.SelectedVersion{Version: protocol.Version1_3},
-		&extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
-	})
-	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello[0])
-	serverHelloCanonical, err := canonicalHandshake13(rawServerHello)
-	require.NoError(t, err)
-	rawEncryptedExtensions, err := (&handshake.Handshake{
-		Header:  handshake.Header{MessageSequence: 1},
-		Message: &handshake.MessageEncryptedExtensions{},
-	}).Marshal()
-	require.NoError(t, err)
-	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
-	require.NoError(t, err)
-	clientKeypair := state.LocalKeypairs[group]
-	require.NotNil(t, clientKeypair)
-	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
-	require.NoError(t, err)
-	secrets, err := deriveHandshakeTrafficSecrets13(
-		cfg.LocalCipherSuites[0].HashFunc(),
-		keyAgreementSecret,
-		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
-	)
-	require.NoError(t, err)
-	state.CipherSuite = cfg.LocalCipherSuites[0]
-	state.KeySchedule.HandshakeTraffic = secrets
-	rawFinished := marshalServerFinished13(
-		t,
-		state,
-		2,
-		clientHelloCanonical,
-		serverHelloCanonical,
-		encryptedExtensionsCanonical,
-	)
-	state.CipherSuite = nil
-	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
-
+	fixture := newFlight13ProtectedServerFlightFixture(t)
 	cache := dtlsflight.NewCache()
-	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+	cache.Push(fixture.rawServerHello, fixture.cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
 	drained := false
 	conn := &flight13QueuedPacketConn{
 		handleQueuedPackets: func(context.Context) error {
 			drained = true
-			assert.True(t, testTrafficProtectionInitialized(state, dtlsflight13.EpochHandshake))
-			assert.Equal(t, dtlsflight13.EpochHandshake, state.RemoteEpoch())
-			cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
-			cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
+			assert.True(t, testTrafficProtectionInitialized(fixture.state, dtlsflight13.EpochHandshake))
+			assert.Equal(t, dtlsflight13.EpochHandshake, fixture.state.RemoteEpoch())
+			cache.Push(fixture.rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
+			cache.Push(fixture.rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
 
 			return nil
 		},
@@ -1340,17 +1303,17 @@ func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(
 
 	nextFlight, dtlsAlert, err := flight13ParseForTestWithConn(
 		t, dtlsflight13.Flight3, context.Background(), conn, &handshakeTestContext13{
-			state:      state,
+			state:      fixture.state,
 			cache:      cache,
-			cfg:        cfg,
-			transcript: transcript,
+			cfg:        fixture.cfg,
+			transcript: fixture.transcript,
 		},
 	)
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.True(t, drained)
 	assert.Equal(t, dtlsflight13.Flight5, nextFlight)
-	assert.Equal(t, 3, state.HandshakeRecvSequence)
+	assert.Equal(t, 3, fixture.state.HandshakeRecvSequence)
 }
 
 func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T) {
@@ -1379,59 +1342,19 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 	require.True(t, appended)
 	clientHelloCanonical := canonicalPacketHandshake13(t, clientHello[0])
 
-	group := cfg.EllipticCurves[0]
-	serverKeypair, err := elliptic.GenerateKeypair(group)
-	require.NoError(t, err)
-	rawServerHello := marshalServerHello(t, cfg, handshake.Random{
-		RandomBytes: [handshake.RandomBytesLength]byte{0x01},
-	}, []extension.Value{
-		&extension13.SelectedVersion{Version: protocol.Version1_3},
-		&extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
-	})
-	serverHelloCanonical, err := canonicalHandshake13(rawServerHello)
-	require.NoError(t, err)
-	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+	fixture := newFlight13ProtectedServerFlightFixtureFromClientHello(t, cfg, state, transcript, clientHelloCanonical)
+	cache.Push(fixture.rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
 
-	clientKeypair := state.LocalKeypairs[group]
-	require.NotNil(t, clientKeypair)
-	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
-	require.NoError(t, err)
-	secrets, err := deriveHandshakeTrafficSecrets13(
-		cfg.LocalCipherSuites[0].HashFunc(),
-		keyAgreementSecret,
-		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
-	)
-	require.NoError(t, err)
 	peerCipherSuite := trafficSuiteForTest(t)
-	peerWriteProtection, err := newTestRecordProtection13(peerCipherSuite, secrets.Server)
+	peerWriteProtection, err := newTestRecordProtection13(peerCipherSuite, fixture.handshakeSecrets.Server)
 	require.NoError(t, err)
-
-	rawEncryptedExtensions, err := (&handshake.Handshake{
-		Header:  handshake.Header{MessageSequence: 1},
-		Message: &handshake.MessageEncryptedExtensions{},
-	}).Marshal()
-	require.NoError(t, err)
-	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
-	require.NoError(t, err)
-	state.CipherSuite = cfg.LocalCipherSuites[0]
-	state.KeySchedule.HandshakeTraffic = secrets
-	rawFinished := marshalServerFinished13(
-		t,
-		state,
-		2,
-		clientHelloCanonical,
-		serverHelloCanonical,
-		encryptedExtensionsCanonical,
-	)
-	state.CipherSuite = nil
-	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
 
 	protectedEncryptedExtensions := sealTestProtectedHandshakeRecordWithSequence(
-		t, peerWriteProtection, rawEncryptedExtensions, 0,
+		t, peerWriteProtection, fixture.rawEncryptedExtensions, 0,
 	)
 	protectedEncryptedExtensionsRaw, err := protectedEncryptedExtensions.Marshal()
 	require.NoError(t, err)
-	protectedFinished := sealTestProtectedHandshakeRecordWithSequence(t, peerWriteProtection, rawFinished, 1)
+	protectedFinished := sealTestProtectedHandshakeRecordWithSequence(t, peerWriteProtection, fixture.rawFinished, 1)
 	protectedFinishedRaw, err := protectedFinished.Marshal()
 	require.NoError(t, err)
 	conn.encryptedPackets = []addrPkt{{data: protectedEncryptedExtensionsRaw}, {data: protectedFinishedRaw}}
@@ -1455,7 +1378,7 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 		IsClient: false,
 	})
 	if assert.Len(t, items, 1) && assert.NotNil(t, items[0]) {
-		assert.Equal(t, rawEncryptedExtensions, items[0].Data)
+		assert.Equal(t, fixture.rawEncryptedExtensions, items[0].Data)
 	}
 }
 
@@ -1475,54 +1398,14 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, appended)
 	clientHelloCanonical := canonicalPacketHandshake13(t, pkts[0])
-
-	group := cfg.EllipticCurves[0]
-	serverKeypair, err := elliptic.GenerateKeypair(group)
-	require.NoError(t, err)
-	rawServerHello := marshalServerHello(t, cfg, handshake.Random{
-		RandomBytes: [handshake.RandomBytesLength]byte{0x01},
-	}, []extension.Value{
-		&extension13.SelectedVersion{Version: protocol.Version1_3},
-		&extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: group, KeyExchange: serverKeypair.PublicKey}},
-	})
-	serverHelloCanonical, err := canonicalHandshake13(rawServerHello)
-	require.NoError(t, err)
+	fixture := newFlight13ProtectedServerFlightFixtureFromClientHello(t, cfg, state, transcript, clientHelloCanonical)
 
 	cache := dtlsflight.NewCache()
-	cache.Push(rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
-	rawEncryptedExtensions, err := (&handshake.Handshake{
-		Header:  handshake.Header{MessageSequence: 1},
-		Message: &handshake.MessageEncryptedExtensions{},
-	}).Marshal()
+	cache.Push(fixture.rawServerHello, cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
+	cache.Push(fixture.rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
+	finishedCanonical, err := canonicalHandshake13(fixture.rawFinished)
 	require.NoError(t, err)
-	cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
-	encryptedExtensionsCanonical, err := canonicalHandshake13(rawEncryptedExtensions)
-	require.NoError(t, err)
-	clientKeypair := state.LocalKeypairs[group]
-	require.NotNil(t, clientKeypair)
-	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
-	require.NoError(t, err)
-	secrets, err := deriveHandshakeTrafficSecrets13(
-		cfg.LocalCipherSuites[0].HashFunc(),
-		keyAgreementSecret,
-		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
-	)
-	require.NoError(t, err)
-	state.CipherSuite = cfg.LocalCipherSuites[0]
-	state.KeySchedule.HandshakeTraffic = secrets
-	rawFinished := marshalServerFinished13(
-		t,
-		state,
-		2,
-		clientHelloCanonical,
-		serverHelloCanonical,
-		encryptedExtensionsCanonical,
-	)
-	finishedCanonical, err := canonicalHandshake13(rawFinished)
-	require.NoError(t, err)
-	state.CipherSuite = nil
-	state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{}
-	cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
+	cache.Push(fixture.rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
 	nextFlight, dtlsAlert, err := flight13ParseForTest(
 		t, dtlsflight13.Flight1, context.Background(), &handshakeTestContext13{
 			state:      state,
@@ -1534,8 +1417,8 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, dtlsflight13.Flight5, nextFlight)
-	expectedTranscript := append(append(append(append([]byte(nil), clientHelloCanonical...), serverHelloCanonical...),
-		encryptedExtensionsCanonical...), finishedCanonical...)
+	expectedTranscript := append(append(append(append([]byte(nil), clientHelloCanonical...), fixture.serverHelloCanonical...), //nolint:lll
+		fixture.encryptedExtensionsCanonical...), finishedCanonical...)
 	assert.Equal(t, expectedTranscript, transcript.Bytes())
 }
 
@@ -2181,105 +2064,56 @@ func TestFlight13_3ParseRejectsUnofferedKeyShareGroup(t *testing.T) {
 }
 
 func TestFlight13_0ParseSelectsNegotiatedGroupWithoutGeneratingKeypair(t *testing.T) {
-	cfg := testHandshakeConfig13(t)
-	cfg.EllipticCurves = []elliptic.Curve{elliptic.P384, elliptic.P256}
-
-	clientKeypair, err := elliptic.GenerateKeypair(elliptic.P384)
-	require.NoError(t, err)
-	staleServerKeypair, err := elliptic.GenerateKeypair(elliptic.X25519)
-	require.NoError(t, err)
-
-	extensions := []extension.Value{
-		&extension.SignatureAlgorithms{
-			Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes),
-		},
-		&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.P384}},
-		&extension13.ClientKeyShare{
-			Shares: []extension13.KeyShareEntry{
-				{Group: elliptic.P384, KeyExchange: clientKeypair.PublicKey},
-			},
-		},
-		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+	tests := []struct {
+		name               string
+		serverCurves       []elliptic.Curve
+		clientGroup        elliptic.Curve
+		staleServerKeypair bool
+	}{
+		{"preserves stale server keypair", []elliptic.Curve{elliptic.P384, elliptic.P256}, elliptic.P384, true},
+		{"selects X25519 MLKEM 768", []elliptic.Curve{elliptic.X25519MLKEM768}, elliptic.X25519MLKEM768, false},
 	}
-	clientHello := &handshake.MessageClientHello{
-		Version: protocol.Version1_2,
-		Random:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
-		CipherSuiteIDs: []uint16{
-			uint16(cfg.LocalCipherSuites[0].ID()),
-		},
-		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions:         extensions,
-	}
-	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
-	require.NoError(t, err)
 
-	state := newTestState13(t, false)
-	state.SelectedGroup = elliptic.X25519
-	state.LocalKeypair = staleServerKeypair
-	cache := dtlsflight.NewCache()
-	cache.Push(rawClientHello, cfg.InitialEpoch, 0, handshake.TypeClientHello, true)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			cfg.EllipticCurves = test.serverCurves
+			clientKeypair, err := elliptic.GenerateKeypair(test.clientGroup)
+			require.NoError(t, err)
 
-	nextFlight, dtlsAlert, err := flight13ParseForTest(
-		t, dtlsflight13.Flight0, context.Background(), &handshakeTestContext13{
-			state: state,
-			cache: cache,
-			cfg:   cfg,
+			state := newTestState13(t, false)
+			var staleServerKeypair *elliptic.Keypair
+			if test.staleServerKeypair {
+				staleServerKeypair, err = elliptic.GenerateKeypair(elliptic.X25519)
+				require.NoError(t, err)
+				state.SelectedGroup = elliptic.X25519
+				state.LocalKeypair = staleServerKeypair
+			}
+			cache := dtlsflight.NewCache()
+			pushFlight13_0ClientHello(t, cache, cfg, []extension.Value{
+				&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)},
+				&extension.SupportedGroups{Groups: []elliptic.Curve{test.clientGroup}},
+				&extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{
+					Group: test.clientGroup, KeyExchange: clientKeypair.PublicKey,
+				}}},
+				&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+			})
+
+			nextFlight, dtlsAlert, err := flight13ParseForTest(
+				t, dtlsflight13.Flight0, context.Background(), &handshakeTestContext13{
+					state: state,
+					cache: cache,
+					cfg:   cfg,
+				})
+
+			require.NoError(t, err)
+			require.Nil(t, dtlsAlert)
+			assert.Equal(t, dtlsflight13.Flight2, nextFlight)
+			assert.Equal(t, test.clientGroup, state.SelectedGroup)
+			assert.Same(t, staleServerKeypair, state.LocalKeypair)
+			assert.Empty(t, state.KeyAgreementSecret)
 		})
-
-	require.NoError(t, err)
-	require.Nil(t, dtlsAlert)
-	assert.Equal(t, dtlsflight13.Flight2, nextFlight)
-	assert.Equal(t, elliptic.P384, state.SelectedGroup)
-	assert.Same(t, staleServerKeypair, state.LocalKeypair)
-	assert.Empty(t, state.KeyAgreementSecret)
-}
-
-func TestFlight13_0ParseSelectsX25519MLKEM768WithoutGeneratingKeypair(t *testing.T) {
-	cfg := testHandshakeConfig13(t)
-	cfg.EllipticCurves = []elliptic.Curve{elliptic.X25519MLKEM768}
-
-	clientKeypair, err := elliptic.GenerateKeypair(elliptic.X25519MLKEM768)
-	require.NoError(t, err)
-
-	extensions := []extension.Value{
-		&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)},
-		&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519MLKEM768}},
-		&extension13.ClientKeyShare{
-			Shares: []extension13.KeyShareEntry{
-				{Group: elliptic.X25519MLKEM768, KeyExchange: clientKeypair.PublicKey},
-			},
-		},
-		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
 	}
-	clientHello := &handshake.MessageClientHello{
-		Version: protocol.Version1_2,
-		Random:  handshake.Random{RandomBytes: [handshake.RandomBytesLength]byte{0x01}},
-		CipherSuiteIDs: []uint16{
-			uint16(cfg.LocalCipherSuites[0].ID()),
-		},
-		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		Extensions:         extensions,
-	}
-	rawClientHello, err := (&handshake.Handshake{Message: clientHello}).Marshal()
-	require.NoError(t, err)
-
-	state := newTestState13(t, false)
-	cache := dtlsflight.NewCache()
-	cache.Push(rawClientHello, cfg.InitialEpoch, 0, handshake.TypeClientHello, true)
-
-	nextFlight, dtlsAlert, err := flight13ParseForTest(
-		t, dtlsflight13.Flight0, context.Background(), &handshakeTestContext13{
-			state: state,
-			cache: cache,
-			cfg:   cfg,
-		})
-
-	require.NoError(t, err)
-	require.Nil(t, dtlsAlert)
-	assert.Equal(t, dtlsflight13.Flight2, nextFlight)
-	assert.Equal(t, elliptic.X25519MLKEM768, state.SelectedGroup)
-	assert.Nil(t, state.LocalKeypair)
-	assert.Empty(t, state.KeyAgreementSecret)
 }
 
 func TestFlight13_0ParseSelectsServerPreferredGroupFromClientShares(t *testing.T) {
@@ -3030,12 +2864,13 @@ func pushClientHello13WithSequence(
 
 	content := &handshake.Handshake{
 		Header: handshake.Header{MessageSequence: seq},
-		Message: withExtensions(&handshake.MessageClientHello{
+		Message: &handshake.MessageClientHello{
 			Version:            version,
 			Random:             handshake.Random{},
 			CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		}, exts),
+			Extensions:         exts,
+		},
 	}
 
 	raw, err := content.Marshal()
@@ -3092,9 +2927,10 @@ func seedFlight13RetryRequest(
 		&extension13.SelectedVersion{Version: protocol.Version1_3},
 		&extension13.Cookie{Cookie: state.Cookie},
 	}
-	request, err := negotiation.ValidateHelloRetryRequest(initial, withExtensions(&handshake.MessageServerHello{
+	request, err := negotiation.ValidateHelloRetryRequest(initial, &handshake.MessageServerHello{
 		CipherSuiteID: &id,
-	}, extensions))
+		Extensions:    extensions,
+	})
 	if err == nil {
 		state.HelloRetryRequest = request
 	}
@@ -3258,43 +3094,31 @@ func TestFlight13_2Parse(t *testing.T) {
 		assert.Empty(t, state.RemoteGroups)
 	})
 
-	t.Run("RejectsUnsupportedVersion", func(t *testing.T) {
-		state := newTestState13(t, false)
-		state.Cookie = cookie
-		cache := dtlsflight.NewCache()
-		cfg := testHandshakeConfig13(t)
+	for _, test := range []struct {
+		name    string
+		version protocol.Version
+		err     error
+		alert   alert.Description
+	}{
+		{"RejectsUnsupportedVersion", protocol.Version1_3, dtlserrors.ErrUnsupportedProtocolVersion, alert.ProtocolVersion},
+		{"RejectsMissingCertificateAuthExtensions", protocol.Version1_2, dtlserrors.ErrMissingClientHelloExtension, alert.MissingExtension}, //nolint:lll
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := newTestState13(t, false)
+			state.Cookie = cookie
+			cache := dtlsflight.NewCache()
+			cfg := testHandshakeConfig13(t)
+			pushClientHello13(t, cache, test.version, []extension.Value{&extension13.Cookie{Cookie: cookie}})
 
-		pushClientHello13(t, cache, protocol.Version1_3, []extension.Value{
-			&extension13.Cookie{Cookie: cookie},
+			next, dtlsAlert, err := flight13ParseForTest(
+				t, dtlsflight13.Flight2, context.Background(), flight13_2Context(state, cache, cfg),
+			)
+			require.ErrorIs(t, err, test.err)
+			assert.Equal(t, dtlsflight13.Flight(0), next)
+			require.NotNil(t, dtlsAlert)
+			assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: test.alert}, dtlsAlert)
 		})
-
-		next, dtlsAlert, err := flight13ParseForTest(
-			t, dtlsflight13.Flight2, context.Background(), flight13_2Context(state, cache, cfg),
-		)
-		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
-		assert.Equal(t, dtlsflight13.Flight(0), next)
-		require.NotNil(t, dtlsAlert)
-		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlsAlert)
-	})
-
-	t.Run("RejectsMissingCertificateAuthExtensions", func(t *testing.T) {
-		state := newTestState13(t, false)
-		state.Cookie = cookie
-		cache := dtlsflight.NewCache()
-		cfg := testHandshakeConfig13(t)
-
-		pushClientHello13(t, cache, protocol.Version1_2, []extension.Value{
-			&extension13.Cookie{Cookie: cookie},
-		})
-
-		next, dtlsAlert, err := flight13ParseForTest(
-			t, dtlsflight13.Flight2, context.Background(), flight13_2Context(state, cache, cfg),
-		)
-		require.ErrorIs(t, err, dtlserrors.ErrMissingClientHelloExtension)
-		assert.Equal(t, dtlsflight13.Flight(0), next)
-		require.NotNil(t, dtlsAlert)
-		assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.MissingExtension}, dtlsAlert)
-	})
+	}
 }
 
 func findConnectionID(exts []extension.Value) (*extension.ConnectionID, bool) {
@@ -3309,10 +3133,11 @@ func findConnectionID(exts []extension.Value) (*extension.ConnectionID, bool) {
 
 func clientHello13SnapshotHistory(t *testing.T, extensions []extension.Value) (history negotiation.ClientHelloSnapshots) { //nolint:lll
 	t.Helper()
-	_, snapshot, err := negotiation.FinalizeClientHello(withExtensions(&handshake.MessageClientHello{ //nolint:lll
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{ //nolint:lll
 		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-	}, extensions), nil)
+		Extensions:         extensions,
+	}, nil)
 	require.NoError(t, err)
 	require.NoError(t, history.Record(snapshot))
 

@@ -362,149 +362,69 @@ func TestCertificateOIDValidation(t *testing.T) {
 }
 
 func TestValidateCertificateSignatureAlgorithms(t *testing.T) {
-	// Helper to create a test certificate with specific signature algorithm
-	createTestCert := func(sigAlg x509.SignatureAlgorithm, isCA bool) *x509.Certificate {
-		return &x509.Certificate{
-			SerialNumber:       big.NewInt(1),
-			SignatureAlgorithm: sigAlg,
-			IsCA:               isCA,
-		}
+	type certSpec struct {
+		algorithm x509.SignatureAlgorithm
+		isCA      bool
 	}
-
-	t.Run("Empty allowed list passes", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.SHA256WithRSA, false),
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, nil)
-		assert.NoError(t, err)
-	})
-
-	t.Run("Single cert with allowed algorithm passes", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.SHA256WithRSA, false),
-			createTestCert(x509.SHA256WithRSA, true), // Root
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA256, Signature: signature.RSA},
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.NoError(t, err)
-	})
-
-	t.Run("Single cert with disallowed algorithm fails", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.SHA256WithRSA, false),
-			createTestCert(x509.SHA256WithRSA, true), // Root
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA384, Signature: signature.ECDSA}, // Different algorithm
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateSignatureAlgorithm)
-	})
-
-	t.Run("Root certificate is not validated", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.SHA256WithRSA, false), // Leaf - validated
-			createTestCert(x509.SHA384WithRSA, true),  // Root - NOT validated
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA256, Signature: signature.RSA}, // Only allows SHA256
-		}
-		// Should pass because root (SHA384) is not validated
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.NoError(t, err)
-	})
-
-	t.Run("Multi-cert chain with all allowed algorithms passes", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.SHA256WithRSA, false), // Leaf
-			createTestCert(x509.SHA384WithRSA, false), // Intermediate
-			createTestCert(x509.SHA512WithRSA, true),  // Root (not validated)
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA256, Signature: signature.RSA},
-			{Hash: hash.SHA384, Signature: signature.RSA},
-			// SHA512 not needed since root is not validated
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.NoError(t, err)
-	})
-
-	t.Run("Multi-cert chain with one disallowed intermediate fails", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.SHA256WithRSA, false), // Leaf - allowed
-			createTestCert(x509.SHA384WithRSA, false), // Intermediate - NOT allowed
-			createTestCert(x509.SHA512WithRSA, true),  // Root
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA256, Signature: signature.RSA}, // Only allows SHA256
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateSignatureAlgorithm)
-	})
-
-	t.Run("ECDSA certificates", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.ECDSAWithSHA256, false),
-			createTestCert(x509.ECDSAWithSHA384, false),
-			createTestCert(x509.ECDSAWithSHA512, true), // Root
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA256, Signature: signature.ECDSA},
-			{Hash: hash.SHA384, Signature: signature.ECDSA},
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.NoError(t, err)
-	})
-
-	t.Run("RSA-PSS certificates", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.SHA256WithRSAPSS, false),
-			createTestCert(x509.SHA384WithRSAPSS, true), // Root
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA256, Signature: signature.RSA},
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.NoError(t, err)
-	})
-
-	t.Run("Ed25519 certificates", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.PureEd25519, false),
-			createTestCert(x509.PureEd25519, true), // Root
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.None, Signature: signature.Ed25519},
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.NoError(t, err)
-	})
-
-	t.Run("Unsupported certificate algorithm", func(t *testing.T) {
-		certs := []*x509.Certificate{
-			createTestCert(x509.MD5WithRSA, false), // MD5 not supported
-			createTestCert(x509.SHA256WithRSA, true),
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA256, Signature: signature.RSA},
-		}
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.Error(t, err)
-		// Should error from FromCertificate, not from algorithm mismatch
-	})
-
-	t.Run("Single cert chain does not validate", func(t *testing.T) {
-		// Single cert is treated as self-signed root, which is not validated
-		certs := []*x509.Certificate{
-			createTestCert(x509.SHA256WithRSA, true), // Root
-		}
-		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA384, Signature: signature.ECDSA}, // Different algorithm
-		}
-		// Should pass because single root cert is not validated
-		err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, allowed)
-		assert.NoError(t, err)
-	})
+	rsa256 := signaturehash.Algorithm{Hash: hash.SHA256, Signature: signature.RSA}
+	ecdsa384 := signaturehash.Algorithm{Hash: hash.SHA384, Signature: signature.ECDSA}
+	tests := map[string]struct {
+		certs    []certSpec
+		allowed  []signaturehash.Algorithm
+		wantErr  error
+		anyError bool
+	}{
+		"Empty allowed list passes": {
+			certs: []certSpec{{x509.SHA256WithRSA, false}},
+		},
+		"Single cert with allowed algorithm passes": {
+			certs: []certSpec{{x509.SHA256WithRSA, false}, {x509.SHA256WithRSA, true}}, allowed: []signaturehash.Algorithm{rsa256}, //nolint:lll
+		},
+		"Single cert with disallowed algorithm fails": {
+			certs: []certSpec{{x509.SHA256WithRSA, false}, {x509.SHA256WithRSA, true}}, allowed: []signaturehash.Algorithm{ecdsa384}, //nolint:lll
+			wantErr: dtlserrors.ErrInvalidCertificateSignatureAlgorithm,
+		},
+		"Root certificate is not validated": {
+			certs: []certSpec{{x509.SHA256WithRSA, false}, {x509.SHA384WithRSA, true}}, allowed: []signaturehash.Algorithm{rsa256}, //nolint:lll
+		},
+		"Multi-cert chain with all allowed algorithms passes": {
+			certs:   []certSpec{{x509.SHA256WithRSA, false}, {x509.SHA384WithRSA, false}, {x509.SHA512WithRSA, true}},
+			allowed: []signaturehash.Algorithm{rsa256, {Hash: hash.SHA384, Signature: signature.RSA}},
+		},
+		"Multi-cert chain with one disallowed intermediate fails": {
+			certs:   []certSpec{{x509.SHA256WithRSA, false}, {x509.SHA384WithRSA, false}, {x509.SHA512WithRSA, true}},
+			allowed: []signaturehash.Algorithm{rsa256}, wantErr: dtlserrors.ErrInvalidCertificateSignatureAlgorithm,
+		},
+		"ECDSA certificates": {
+			certs:   []certSpec{{x509.ECDSAWithSHA256, false}, {x509.ECDSAWithSHA384, false}, {x509.ECDSAWithSHA512, true}},
+			allowed: []signaturehash.Algorithm{{Hash: hash.SHA256, Signature: signature.ECDSA}, ecdsa384},
+		},
+		"RSA-PSS certificates": {
+			certs: []certSpec{{x509.SHA256WithRSAPSS, false}, {x509.SHA384WithRSAPSS, true}}, allowed: []signaturehash.Algorithm{rsa256}, //nolint:lll
+		},
+		"Ed25519 certificates": {
+			certs:   []certSpec{{x509.PureEd25519, false}, {x509.PureEd25519, true}},
+			allowed: []signaturehash.Algorithm{{Hash: hash.None, Signature: signature.Ed25519}},
+		},
+		"Unsupported certificate algorithm": {
+			certs: []certSpec{{x509.MD5WithRSA, false}, {x509.SHA256WithRSA, true}}, allowed: []signaturehash.Algorithm{rsa256}, anyError: true, //nolint:lll
+		},
+		"Single cert chain does not validate": {
+			certs: []certSpec{{x509.SHA256WithRSA, true}}, allowed: []signaturehash.Algorithm{ecdsa384},
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			certs := make([]*x509.Certificate, len(test.certs))
+			for i, cert := range test.certs {
+				certs[i] = &x509.Certificate{SerialNumber: big.NewInt(1), SignatureAlgorithm: cert.algorithm, IsCA: cert.isCA}
+			}
+			err := dtlscrypto.ValidateCertificateSignatureAlgorithms(certs, test.allowed)
+			if test.anyError {
+				assert.Error(t, err)
+			} else {
+				assert.ErrorIs(t, err, test.wantErr)
+			}
+		})
+	}
 }

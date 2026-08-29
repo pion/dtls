@@ -395,12 +395,13 @@ func TestProcessPostHandshakeMessagesDecodeAlert(t *testing.T) {
 
 func TestProcessPostHandshakeMessagesPreservesExtensionAlert(t *testing.T) {
 	wire, err := (&handshake.Handshake{
-		Message: withExtensions(&handshake.MessageNewSessionTicket{
+		Message: &handshake.MessageNewSessionTicket{
 			Ticket: []byte{0x01},
-		}, []extension.Value{
-			&extension13.MaxEarlyData{Size: 1},
-			&extension13.MaxEarlyData{Size: 2},
-		}),
+			Extensions: []extension.Value{
+				&extension13.MaxEarlyData{Size: 1},
+				&extension13.MaxEarlyData{Size: 2},
+			},
+		},
 	}).Marshal()
 	require.NoError(t, err)
 
@@ -662,15 +663,7 @@ func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 		Content:    &protocol.ApplicationData{Data: []byte("after update")},
 		Protection: dtlsflight.ProtectionCiphertext,
 	}
-	post.queue = append(post.queue, postHandshakeCommand{
-		Kind:    commandSendApplicationData,
-		Packets: []*dtlsflight.Outbound{applicationPacket},
-		Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
-			_, err := conn.WritePackets(context.Background(), packets)
-
-			return err
-		},
-	})
+	post.queue = append(post.queue, applicationDataCommand(applicationPacket))
 	post.queueRequiredKeyUpdateResponse(handshake.KeyUpdateRequested)
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
@@ -689,15 +682,7 @@ func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 		Content:    &protocol.ApplicationData{Data: []byte("after ACK")},
 		Protection: dtlsflight.ProtectionCiphertext,
 	}
-	post.queue = append(post.queue, postHandshakeCommand{
-		Kind:    commandSendApplicationData,
-		Packets: []*dtlsflight.Outbound{afterACKPacket},
-		Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
-			_, err := conn.WritePackets(context.Background(), packets)
-
-			return err
-		},
-	})
+	post.queue = append(post.queue, applicationDataCommand(afterACKPacket))
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
 	require.Len(t, conn.writtenPackets, 3)
 	assert.Equal(t, dtlsflight13.EpochApplication+1, afterACKPacket.Epoch)
@@ -714,18 +699,7 @@ func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
 		Content:    &protocol.ApplicationData{Data: []byte("after ticket")},
 		Protection: dtlsflight.ProtectionCiphertext,
 	}
-	post.queue = append(post.queue,
-		postHandshakeCommand{Kind: commandSendNewSessionTicket},
-		postHandshakeCommand{
-			Kind:    commandSendApplicationData,
-			Packets: []*dtlsflight.Outbound{applicationPacket},
-			Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
-				_, err := conn.WritePackets(context.Background(), packets)
-
-				return err
-			},
-		},
-	)
+	post.queue = append(post.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket}, applicationDataCommand(applicationPacket)) //nolint:lll
 	conn := &postHandshakeWriteConn{result: &WriteResult{}}
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
@@ -737,6 +711,18 @@ func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
 	_, isApplicationData := conn.writtenPackets[1].Content.(*protocol.ApplicationData)
 	assert.True(t, isApplicationData)
 	assert.Equal(t, dtlsflight13.EpochApplication, applicationPacket.Epoch)
+}
+
+func applicationDataCommand(packet *dtlsflight.Outbound) postHandshakeCommand {
+	return postHandshakeCommand{
+		Kind:    commandSendApplicationData,
+		Packets: []*dtlsflight.Outbound{packet},
+		Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
+			_, err := conn.WritePackets(context.Background(), packets)
+
+			return err
+		},
+	}
 }
 
 func TestRetransmittedKeyUpdateDoesNotRatchetReadKeysTwice(t *testing.T) {

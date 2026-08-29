@@ -42,26 +42,6 @@ func testTrafficProtectionInitialized(state *dtlsstate.State13, epoch uint16) bo
 	return hasWrite && write.Protection != nil && hasRead && read.Protection != nil
 }
 
-func withExtensions[T any](
-	message T,
-	extensions []extension.Value,
-) T {
-	switch message := any(message).(type) {
-	case *handshake.MessageClientHello:
-		message.Extensions = extensions
-	case *handshake.MessageServerHello:
-		message.Extensions = extensions
-	case *handshake.MessageEncryptedExtensions:
-		message.Extensions = extensions
-	case *handshake.MessageNewSessionTicket:
-		message.Extensions = extensions
-	case *handshake.MessageCertificateRequest13:
-		message.Extensions = extensions
-	}
-
-	return message
-}
-
 var testCurves13 = []elliptic.Curve{elliptic.X25519, elliptic.P256, elliptic.P384} //nolint:gochecknoglobals
 
 func (s *fsm13) flightContext() *handshakeContext {
@@ -136,14 +116,15 @@ func (c *flightTestConn) SessionKey() []byte {
 func newTestState13(t *testing.T, isClient bool) *dtlsstate.State13 {
 	t.Helper()
 	state := dtlsstate.NewState13(isClient)
-	_, snapshot, err := negotiation.FinalizeClientHello(withExtensions(&handshake.MessageClientHello{
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 		CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
-	}, []extension.Value{
-		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
-		&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms())},
-		&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
-		&extension13.ClientKeyShare{},
-	}), nil)
+		Extensions: []extension.Value{
+			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+			&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms())},
+			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
+			&extension13.ClientKeyShare{},
+		},
+	}, nil)
 	require.NoError(t, err)
 	require.NoError(t, state.RecordLocalClientHello(snapshot))
 	require.NoError(t, state.RemoteClientHelloSnapshots.Record(snapshot))
@@ -529,14 +510,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 		expectedTranscript = append(expectedTranscript, canonicalPacketHandshake13(t, pkt)...)
 	}
 	assert.Equal(t, expectedTranscript, fsm.transcript.Bytes())
-	assert.Equal(t, []transcriptMessage{
-		{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 0}, Type: handshake.TypeClientHello},
-		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 0}, Type: handshake.TypeServerHello},
-		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 1}, Type: handshake.TypeEncryptedExtensions},
-		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 2}, Type: handshake.TypeCertificate},
-		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 3}, Type: handshake.TypeCertificateVerify},
-		{ID: transcriptMessageID{sender: transcriptSenderServer, Seq: 4}, Type: handshake.TypeFinished},
-	}, fsm.transcript.order)
+	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
 
 	expectedSecrets, err := deriveHandshakeTrafficSecrets(
 		state.CipherSuite.HashFunc(),
@@ -1414,13 +1388,14 @@ func addCertificateRequestToServerFlight13(
 		Epoch: dtlsflight13.EpochHandshake,
 		Content: &handshake.Handshake{
 			Header: handshake.Header{MessageSequence: 2},
-			Message: withExtensions(&handshake.MessageCertificateRequest13{
+			Message: &handshake.MessageCertificateRequest13{
 				CertificateRequestContext: requestContext,
-			}, []extension.Value{
-				&extension.SignatureAlgorithms{
-					Schemes: dtlsflight.SignatureSchemeIDs(fixture.cfg.LocalSignatureSchemes),
+				Extensions: []extension.Value{
+					&extension.SignatureAlgorithms{
+						Schemes: dtlsflight.SignatureSchemeIDs(fixture.cfg.LocalSignatureSchemes),
+					},
 				},
-			}),
+			},
 		},
 		Protection: dtlsflight.ProtectionCiphertext,
 	}
@@ -1768,14 +1743,15 @@ func transcriptTestHelloRetryRequestPacket13(
 	return &dtlsflight.Outbound{
 		Content: &handshake.Handshake{
 			Header: handshake.Header{MessageSequence: seq},
-			Message: withExtensions(&handshake.MessageServerHello{
+			Message: &handshake.MessageServerHello{
 				Version:           protocol.Version1_2,
 				Random:            random,
 				CipherSuiteID:     &cipherSuiteID,
 				CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-			}, []extension.Value{
-				&extension13.SelectedVersion{Version: protocol.Version1_3},
-			}),
+				Extensions: []extension.Value{
+					&extension13.SelectedVersion{Version: protocol.Version1_3},
+				},
+			},
 		},
 	}
 }

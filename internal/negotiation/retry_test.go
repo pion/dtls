@@ -362,7 +362,7 @@ func TestValidateServerHelloAfterRetry(t *testing.T) {
 			exts = append(exts, share)
 		}
 
-		return withExtensions(&handshake.MessageServerHello{CipherSuiteID: &cipherSuite}, exts)
+		return &handshake.MessageServerHello{CipherSuiteID: &cipherSuite, Extensions: exts}
 	}
 	validShare := &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{
 		Group: elliptic.X25519, KeyExchange: []byte{0x01},

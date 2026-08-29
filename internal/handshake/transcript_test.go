@@ -1204,14 +1204,15 @@ func rawHelloRetryRequest13(
 	random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
 	cipherSuiteID := uint16(cipherSuite.ID())
 
-	return rawHandshakeMessage13(tb, seq, withExtensions(&handshake.MessageServerHello{
+	return rawHandshakeMessage13(tb, seq, &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
 		Random:            random,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: &protocol.CompressionMethod{},
-	}, []extension.Value{
-		&extension13.SelectedVersion{Version: protocol.Version1_3},
-	}))
+		Extensions: []extension.Value{
+			&extension13.SelectedVersion{Version: protocol.Version1_3},
+		},
+	})
 }
 
 func canonicalTranscriptHandshake13(typ handshake.Type, body []byte) []byte {

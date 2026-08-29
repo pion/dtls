@@ -416,6 +416,47 @@ func testServer(
 	return conn, conn.HandshakeContext(ctx)
 }
 
+type handshakeResult struct {
+	conn           *Conn
+	configErr      error
+	handshakeError error
+}
+
+func handshakePair(t *testing.T, clientOpts []ClientOption, serverOpts []ServerOption) (handshakeResult, handshakeResult) { //nolint:lll
+	t.Helper()
+	ca, cb := dpipe.Pipe()
+	t.Cleanup(func() {
+		_ = ca.Close()
+		_ = cb.Close()
+	})
+	clientCh := make(chan handshakeResult)
+	go func() {
+		client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientOpts...)
+		var handshakeErr error
+		if err == nil {
+			handshakeErr = client.Handshake()
+		}
+		clientCh <- handshakeResult{client, err, handshakeErr}
+	}()
+	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), serverOpts...)
+	var handshakeErr error
+	if err == nil {
+		handshakeErr = server.Handshake()
+	}
+	clientResult := <-clientCh
+	serverResult := handshakeResult{server, err, handshakeErr}
+	t.Cleanup(func() {
+		if clientResult.conn != nil {
+			_ = clientResult.conn.Close()
+		}
+		if serverResult.conn != nil {
+			_ = serverResult.conn.Close()
+		}
+	})
+
+	return clientResult, serverResult
+}
+
 func sendClientHello(
 	cookie []byte,
 	ca net.Conn,
@@ -454,26 +495,6 @@ func sendClientHello(
 	}
 
 	return nil
-}
-
-func withExtensions[T any](
-	message T,
-	extensions []extension.Value,
-) T {
-	switch message := any(message).(type) {
-	case *handshake.MessageClientHello:
-		message.Extensions = extensions
-	case *handshake.MessageServerHello:
-		message.Extensions = extensions
-	case *handshake.MessageEncryptedExtensions:
-		message.Extensions = extensions
-	case *handshake.MessageNewSessionTicket:
-		message.Extensions = extensions
-	case *handshake.MessageCertificateRequest13:
-		message.Extensions = extensions
-	}
-
-	return message
 }
 
 func TestHandshakeWithAlert(t *testing.T) {
@@ -1552,48 +1573,23 @@ func TestClientCertificate(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 		}
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {
-				ca, cb := dpipe.Pipe()
-				type result struct {
-					c          *Conn
-					err, hserr error
-				}
-				clientCh := make(chan result)
-
-				go func() {
-					client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), tt.clientOpts...)
-					var hsErr error
-					if err == nil {
-						hsErr = client.Handshake()
-					}
-					clientCh <- result{client, err, hsErr}
-				}()
-
-				server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), tt.serverOpts...)
-				var hserr error
-				if err == nil {
-					hserr = server.Handshake()
-				}
-				res := <-clientCh
-				defer func() {
-					if err == nil {
-						_ = server.Close()
-					}
-					if res.err == nil {
-						_ = res.c.Close()
-					}
-				}()
+				client, server := handshakePair(t, tt.clientOpts, tt.serverOpts)
 
 				if tt.wantErr {
-					assert.True(t, err != nil || hserr != nil || res.err != nil || res.hserr != nil, "Error expected")
+					assert.True(t,
+						client.configErr != nil || client.handshakeError != nil ||
+							server.configErr != nil || server.handshakeError != nil,
+						"Error expected",
+					)
 
 					return // Error expected, test succeeded
 				}
-				assert.NoError(t, err)
-				assert.NoError(t, res.err)
-				assert.NoError(t, hserr)
-				assert.NoError(t, res.hserr)
+				assert.NoError(t, client.configErr)
+				assert.NoError(t, client.handshakeError)
+				assert.NoError(t, server.configErr)
+				assert.NoError(t, server.handshakeError)
 
-				state, ok := server.ConnectionState()
+				state, ok := server.conn.ConnectionState()
 				assert.True(t, ok, "Server connection state not available")
 
 				actualClientCert := state.PeerCertificates
@@ -1605,7 +1601,7 @@ func TestClientCertificate(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 					assert.Nil(t, actualClientCert, "Client certificate wasn't expected")
 				}
 
-				clientState, ok := res.c.ConnectionState()
+				clientState, ok := client.conn.ConnectionState()
 				assert.True(t, ok, "Client connection state not available")
 
 				actualServerCert := clientState.PeerCertificates
@@ -1898,40 +1894,12 @@ func TestServerCertificate(t *testing.T) {
 		}
 		for name, tt := range tests {
 			t.Run(name, func(t *testing.T) {
-				ca, cb := dpipe.Pipe()
-
-				type result struct {
-					c          *Conn
-					err, hserr error
-				}
-				srvCh := make(chan result)
-				go func() {
-					s, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), tt.serverOpts...)
-					var hsErr error
-					if err == nil {
-						hsErr = s.Handshake()
-					}
-					srvCh <- result{s, err, hsErr}
-				}()
-
-				cli, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), tt.clientOpts...)
-				var hserr error
-				if err == nil {
-					hserr = cli.Handshake()
-				}
-				if err == nil {
-					_ = cli.Close()
-				}
+				client, _ := handshakePair(t, tt.clientOpts, tt.serverOpts)
 				if tt.wantErr {
-					assert.True(t, err != nil || hserr != nil, "Expected error")
+					assert.True(t, client.configErr != nil || client.handshakeError != nil, "Expected error")
 				} else {
-					assert.NoError(t, err, "Client connection failed")
-					assert.NoError(t, hserr, "Client handshake failed")
-				}
-
-				srv := <-srvCh
-				if srv.err == nil {
-					_ = srv.c.Close()
+					assert.NoError(t, client.configErr, "Client connection failed")
+					assert.NoError(t, client.handshakeError, "Client handshake failed")
 				}
 			})
 		}
@@ -2289,13 +2257,14 @@ func TestServerTimeout(t *testing.T) {
 			Header: handshake.Header{
 				MessageSequence: 0,
 			},
-			Message: withExtensions(&handshake.MessageClientHello{
+			Message: &handshake.MessageClientHello{
 				Version:            protocol.Version1_2,
 				Cookie:             cookie,
 				Random:             random,
 				CipherSuiteIDs:     cipherSuiteIDs(cipherSuites),
 				CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-			}, extensions),
+				Extensions:         extensions,
+			},
 		},
 	}
 
@@ -2607,12 +2576,13 @@ func marshalVersionNegotiationServerHello13(
 	t.Helper()
 
 	cipherSuiteID := uint16(cfg.LocalCipherSuites[0].ID())
-	serverHello := withExtensions(&handshake.MessageServerHello{
+	serverHello := &handshake.MessageServerHello{
 		Version:           protocol.Version1_2,
 		Random:            random,
 		CipherSuiteID:     &cipherSuiteID,
 		CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
-	}, extensions)
+		Extensions:        extensions,
+	}
 	rawServerHello, err := (&handshake.Handshake{Message: serverHello}).Marshal()
 	assert.NoError(t, err)
 
@@ -2790,14 +2760,15 @@ func TestDualStackVersionNegotiationSendsClassifiedAlerts(t *testing.T) {
 		result := make(chan error, 1)
 		go func() { result <- server.HandshakeContext(ctx) }()
 
-		raw := marshalVersionNegotiationRecord(t, withExtensions(&handshake.MessageClientHello{
+		raw := marshalVersionNegotiationRecord(t, &handshake.MessageClientHello{
 			Version:            protocol.Version1_2,
 			CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
 			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-		}, []extension.Value{
-			extension.Raw{Type: 0xfefe},
-			extension.Raw{Type: 0xfefe},
-		}))
+			Extensions: []extension.Value{
+				extension.Raw{Type: 0xfefe},
+				extension.Raw{Type: 0xfefe},
+			},
+		})
 		_, err = ca.Write(raw)
 		require.NoError(t, err)
 
@@ -4902,34 +4873,32 @@ func TestHandshakeCancellationWhilePostSetupBlocks(t *testing.T) {
 	}
 }
 
-// TestDTLSDualStackClient verifies that a dual-stack client negotiates successfully.
-func TestDTLSDualStackClient(t *testing.T) {
+func testDTLSDualStackVersions(t *testing.T, clientMax, serverMax protocol.Version) {
+	t.Helper()
 	defer test.CheckRoutines(t)()
 	defer test.TimeOut(time.Second * 10).Stop()
-
-	// Setup client
 	clientCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
-
 	clientOpts := []ClientOption{
 		WithCertificates(clientCert),
 		WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_2),
-		WithMaxVersion(protocol.Version1_3),
+		WithMaxVersion(clientMax),
 	}
-
-	// Setup server
 	serverCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)
-
 	serverOpts := []ServerOption{
 		WithCertificates(serverCert),
 		WithInsecureSkipVerify(true),
 		WithMinVersion(protocol.Version1_2),
-		WithMaxVersion(protocol.Version1_2),
+		WithMaxVersion(serverMax),
 	}
-
 	testDTLSDualStack(t, clientOpts, serverOpts)
+}
+
+// TestDTLSDualStackClient verifies that a dual-stack client negotiates successfully.
+func TestDTLSDualStackClient(t *testing.T) {
+	testDTLSDualStackVersions(t, protocol.Version1_3, protocol.Version1_2)
 }
 
 func TestDTLSDualStackClientRejectsNonClientHelloBeforeWrite(t *testing.T) {
@@ -4982,32 +4951,7 @@ func TestDTLSDualStackClientRejectsNonClientHelloBeforeWrite(t *testing.T) {
 
 // TestDTLSDualStackServer verifies that a dual-stack server negotiates successfully.
 func TestDTLSDualStackServer(t *testing.T) {
-	defer test.CheckRoutines(t)()
-	defer test.TimeOut(time.Second * 10).Stop()
-
-	// Setup client
-	clientCert, err := selfsign.GenerateSelfSigned()
-	assert.NoError(t, err)
-
-	clientOpts := []ClientOption{
-		WithCertificates(clientCert),
-		WithInsecureSkipVerify(true),
-		WithMinVersion(protocol.Version1_2),
-		WithMaxVersion(protocol.Version1_2),
-	}
-
-	// Setup server
-	serverCert, err := selfsign.GenerateSelfSigned()
-	assert.NoError(t, err)
-
-	serverOpts := []ServerOption{
-		WithCertificates(serverCert),
-		WithInsecureSkipVerify(true),
-		WithMinVersion(protocol.Version1_2),
-		WithMaxVersion(protocol.Version1_3),
-	}
-
-	testDTLSDualStack(t, clientOpts, serverOpts)
+	testDTLSDualStackVersions(t, protocol.Version1_2, protocol.Version1_3)
 }
 
 // testDTLSDualStack verifies successful version negotiation.

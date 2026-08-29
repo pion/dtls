@@ -110,7 +110,7 @@ func TestFlight3ParseValidatesAndRollsBackSRTP(t *testing.T) {
 			))
 			cache := dtlsflight.NewCache()
 			cache.Push(marshalProtectedTestHandshake(t, 0,
-				withExtensions(&handshake.MessageEncryptedExtensions{}, test.extensions),
+				&handshake.MessageEncryptedExtensions{Extensions: test.extensions},
 			), EpochHandshake, 0, handshake.TypeEncryptedExtensions, false)
 			cache.Push(marshalProtectedTestHandshake(t, 1, &handshake.MessageFinished{}),
 				EpochHandshake, 1, handshake.TypeFinished, false)
@@ -186,24 +186,26 @@ func TestFlight2ParseRejectsChangedSRTPOffer(t *testing.T) {
 	id := uint16(0x1301)
 	request, err := negotiation.ValidateHelloRetryRequest(
 		state.RemoteClientHelloSnapshots.Initial(),
-		withExtensions(&handshake.MessageServerHello{CipherSuiteID: &id}, []extension.Value{
+		&handshake.MessageServerHello{CipherSuiteID: &id, Extensions: []extension.Value{
 			&extension13.SelectedVersion{Version: protocol.Version1_3},
 			&extension13.Cookie{Cookie: state.Cookie},
-		}))
+		}},
+	)
 	require.NoError(t, err)
 	state.HelloRetryRequest = request
 	message := &handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1},
-		Message: withExtensions(&handshake.MessageClientHello{
+		Message: &handshake.MessageClientHello{
 			Version:        protocol.Version1_2,
 			CipherSuiteIDs: []uint16{0x1301},
-		}, []extension.Value{
-			&extension13.Cookie{Cookie: state.Cookie},
-			&extension.SRTPOffer{
-				ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
-				MasterKeyIdentifier: []byte("changed"),
+			Extensions: []extension.Value{
+				&extension13.Cookie{Cookie: state.Cookie},
+				&extension.SRTPOffer{
+					ProtectionProfiles:  []extension.SRTPProtectionProfile{srtpProfile13},
+					MasterKeyIdentifier: []byte("changed"),
+				},
 			},
-		}),
+		},
 	}
 	raw, err := message.Marshal()
 	require.NoError(t, err)
@@ -232,10 +234,11 @@ func srtpSnapshot13(
 		})
 	}
 	_, snapshot, err := negotiation.FinalizeClientHello(
-		withExtensions(&handshake.MessageClientHello{
+		&handshake.MessageClientHello{
 			Version:        protocol.Version1_2,
 			CipherSuiteIDs: []uint16{0x1301},
-		}, extensions), nil,
+			Extensions:     extensions,
+		}, nil,
 	)
 	require.NoError(t, err)
 

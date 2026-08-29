@@ -77,35 +77,27 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			const helloVerifyDrop = 5
 
 			clientEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Outbound) bool {
-					h, ok := p.Content.(*handshake.Handshake)
-					if !ok {
-						return true
-					}
-					if hmch, ok := h.Message.(*handshake.MessageClientHello); ok {
+				Filter: filterHandshakeMessage(func(message handshake.Message) bool {
+					if hmch, ok := message.(*handshake.MessageClientHello); ok {
 						if len(hmch.Cookie) == 0 {
 							cntClientHelloNoCookie++
 						}
 					}
 
 					return true
-				},
+				}),
 			}
 
 			serverEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Outbound) bool {
-					h, ok := p.Content.(*handshake.Handshake)
-					if !ok {
-						return true
-					}
-					if _, ok := h.Message.(*handshake.MessageHelloVerifyRequest); ok {
+				Filter: filterHandshakeMessage(func(message handshake.Message) bool {
+					if _, ok := message.(*handshake.MessageHelloVerifyRequest); ok {
 						cntHelloVerifyRequest++
 
 						return cntHelloVerifyRequest > helloVerifyDrop
 					}
 
 					return true
-				},
+				}),
 			}
 
 			report := func(t *testing.T) {
@@ -126,31 +118,23 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			)
 
 			clientEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Outbound) bool {
-					h, ok := p.Content.(*handshake.Handshake)
-					if !ok {
-						return true
-					}
-					if _, ok := h.Message.(*handshake.MessageFinished); ok {
+				Filter: filterHandshakeMessage(func(message handshake.Message) bool {
+					if _, ok := message.(*handshake.MessageFinished); ok {
 						cntClientFinished++
 					}
 
 					return true
-				},
+				}),
 			}
 
 			serverEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Outbound) bool {
-					h, ok := p.Content.(*handshake.Handshake)
-					if !ok {
-						return true
-					}
-					if _, ok := h.Message.(*handshake.MessageFinished); ok {
+				Filter: filterHandshakeMessage(func(message handshake.Message) bool {
+					if _, ok := message.(*handshake.MessageFinished); ok {
 						cntServerFinished++
 					}
 
 					return true
-				},
+				}),
 			}
 
 			report := func(t *testing.T) {
@@ -174,12 +158,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			)
 
 			clientEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Outbound) bool {
-					h, ok := p.Content.(*handshake.Handshake)
-					if !ok {
-						return true
-					}
-					if _, ok := h.Message.(*handshake.MessageFinished); ok {
+				Filter: filterHandshakeMessage(func(message handshake.Message) bool {
+					if _, ok := message.(*handshake.MessageFinished); ok {
 						if isClientFinished.Load() {
 							cntClientFinishedLastRetransmit++
 						} else {
@@ -188,7 +168,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 					}
 
 					return true
-				},
+				}),
 				Delay: 0,
 				OnFinished: func() {
 					isClientFinished.Store(true)
@@ -197,12 +177,8 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			}
 
 			serverEndpoint := TestEndpoint{
-				Filter: func(p *dtlsflight.Outbound) bool {
-					h, ok := p.Content.(*handshake.Handshake)
-					if !ok {
-						return true
-					}
-					if _, ok := h.Message.(*handshake.MessageFinished); ok {
+				Filter: filterHandshakeMessage(func(message handshake.Message) bool {
+					if _, ok := message.(*handshake.MessageFinished); ok {
 						if isServerFinished.Load() {
 							cntServerFinishedLastRetransmit++
 						} else {
@@ -211,7 +187,7 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 					}
 
 					return true
-				},
+				}),
 				Delay: 1000 * time.Millisecond,
 				OnFinished: func() {
 					isServerFinished.Store(true)
@@ -295,6 +271,14 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			cancel()
 			wg.Wait()
 		})
+	}
+}
+
+func filterHandshakeMessage(filter func(handshake.Message) bool) func(*dtlsflight.Outbound) bool {
+	return func(packet *dtlsflight.Outbound) bool {
+		handshakePacket, ok := packet.Content.(*handshake.Handshake)
+
+		return !ok || filter(handshakePacket.Message)
 	}
 }
 

@@ -21,33 +21,14 @@ import (
 
 const unknownExtensionType extension.Type = 0xfefe
 
-func withExtensions[T any](
-	message T,
-	extensions []extension.Value,
-) T {
-	switch message := any(message).(type) {
-	case *handshake.MessageClientHello:
-		message.Extensions = extensions
-	case *handshake.MessageServerHello:
-		message.Extensions = extensions
-	case *handshake.MessageEncryptedExtensions:
-		message.Extensions = extensions
-	case *handshake.MessageNewSessionTicket:
-		message.Extensions = extensions
-	case *handshake.MessageCertificateRequest13:
-		message.Extensions = extensions
-	}
-
-	return message
-}
-
 func clientHelloForTest(extensions ...extension.Value) *handshake.MessageClientHello {
-	return withExtensions(&handshake.MessageClientHello{
+	return &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		SessionID:          []byte{0x01, 0x02},
 		CipherSuiteIDs:     []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
-	}, extensions)
+		Extensions:         extensions,
+	}
 }
 
 func snapshotForTest(
@@ -313,7 +294,7 @@ func TestDecideConnectionIDNegotiatesReturnRoutabilityCheck(t *testing.T) {
 }
 
 func serverHelloForTest(extensions ...extension.Value) *handshake.MessageServerHello {
-	return withExtensions(&handshake.MessageServerHello{}, extensions)
+	return &handshake.MessageServerHello{Extensions: extensions}
 }
 
 func helloRetryRequestForTest(extensions ...extension.Value) *handshake.MessageServerHello {

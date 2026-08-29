@@ -18,24 +18,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withExtensions[T any](
-	message T,
-	extensions []extension.Value,
-) T {
-	switch message := any(message).(type) {
-	case *handshake.MessageClientHello:
-		message.Extensions = extensions
-	case *handshake.MessageServerHello:
-		message.Extensions = extensions
-	case *handshake.MessageEncryptedExtensions:
-		message.Extensions = extensions
-	case *handshake.MessageNewSessionTicket:
-		message.Extensions = extensions
-	case *handshake.MessageCertificateRequest13:
-		message.Extensions = extensions
-	}
+func cacheItem(typ handshake.Type, client bool, epoch, sequence uint16, data byte) dtlsflight.HandshakeCacheItem {
+	return dtlsflight.HandshakeCacheItem{Typ: typ, IsClient: client, Epoch: epoch, MessageSequence: sequence, Data: []byte{data}} //nolint:lll
+}
 
-	return message
+func cacheRule(typ handshake.Type, client bool, epoch uint16) dtlsflight.HandshakeCachePullRule {
+	return dtlsflight.HandshakeCachePullRule{Typ: typ, Epoch: epoch, IsClient: client}
 }
 
 func TestHandshakeCacheSinglePush(t *testing.T) {
@@ -46,40 +34,28 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 		Expected []byte
 	}{
 		{
-			Name: "Single Push",
-			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: 0, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-			},
-			Rule: []dtlsflight.HandshakeCachePullRule{
-				{Typ: 0, Epoch: 0, IsClient: true, Optional: false},
-			},
+			Name:     "Single Push",
+			Input:    []dtlsflight.HandshakeCacheItem{cacheItem(0, true, 0, 0, 0)},
+			Rule:     []dtlsflight.HandshakeCachePullRule{cacheRule(0, true, 0)},
 			Expected: []byte{0x00},
 		},
 		{
 			Name: "Multi Push",
 			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: 0, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: 1, IsClient: true, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: 2, IsClient: true, Epoch: 0, MessageSequence: 2, Data: []byte{0x02}},
+				cacheItem(0, true, 0, 0, 0), cacheItem(1, true, 0, 1, 1), cacheItem(2, true, 0, 2, 2),
 			},
 			Rule: []dtlsflight.HandshakeCachePullRule{
-				{Typ: 0, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 1, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 2, Epoch: 0, IsClient: true, Optional: false},
+				cacheRule(0, true, 0), cacheRule(1, true, 0), cacheRule(2, true, 0),
 			},
 			Expected: []byte{0x00, 0x01, 0x02},
 		},
 		{
 			Name: "Multi Push, Rules set order",
 			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: 2, IsClient: true, Epoch: 0, MessageSequence: 2, Data: []byte{0x02}},
-				{Typ: 0, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: 1, IsClient: true, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
+				cacheItem(2, true, 0, 2, 2), cacheItem(0, true, 0, 0, 0), cacheItem(1, true, 0, 1, 1),
 			},
 			Rule: []dtlsflight.HandshakeCachePullRule{
-				{Typ: 0, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 1, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 2, Epoch: 0, IsClient: true, Optional: false},
+				cacheRule(0, true, 0), cacheRule(1, true, 0), cacheRule(2, true, 0),
 			},
 			Expected: []byte{0x00, 0x01, 0x02},
 		},
@@ -87,58 +63,41 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 		{
 			Name: "Multi Push, Dupe Seqnum",
 			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: 0, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: 1, IsClient: true, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: 1, IsClient: true, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
+				cacheItem(0, true, 0, 0, 0), cacheItem(1, true, 0, 1, 1), cacheItem(1, true, 0, 1, 1),
 			},
 			Rule: []dtlsflight.HandshakeCachePullRule{
-				{Typ: 0, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 1, Epoch: 0, IsClient: true, Optional: false},
+				cacheRule(0, true, 0), cacheRule(1, true, 0),
 			},
 			Expected: []byte{0x00, 0x01},
 		},
 		{
 			Name: "Multi Push, Dupe Seqnum Client/Server",
 			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: 0, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: 1, IsClient: true, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: 1, IsClient: false, Epoch: 0, MessageSequence: 1, Data: []byte{0x02}},
+				cacheItem(0, true, 0, 0, 0), cacheItem(1, true, 0, 1, 1), cacheItem(1, false, 0, 1, 2),
 			},
 			Rule: []dtlsflight.HandshakeCachePullRule{
-				{Typ: 0, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 1, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 1, Epoch: 0, IsClient: false, Optional: false},
+				cacheRule(0, true, 0), cacheRule(1, true, 0), cacheRule(1, false, 0),
 			},
 			Expected: []byte{0x00, 0x01, 0x02},
 		},
 		{
 			Name: "Multi Push, Dupe Seqnum with Unique HandshakeType",
 			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: 1, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: 2, IsClient: true, Epoch: 0, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: 3, IsClient: false, Epoch: 0, MessageSequence: 0, Data: []byte{0x02}},
+				cacheItem(1, true, 0, 0, 0), cacheItem(2, true, 0, 1, 1), cacheItem(3, false, 0, 0, 2),
 			},
 			Rule: []dtlsflight.HandshakeCachePullRule{
-				{Typ: 1, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 2, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 3, Epoch: 0, IsClient: false, Optional: false},
+				cacheRule(1, true, 0), cacheRule(2, true, 0), cacheRule(3, false, 0),
 			},
 			Expected: []byte{0x00, 0x01, 0x02},
 		},
 		{
 			Name: "Multi Push, Wrong epoch",
 			Input: []dtlsflight.HandshakeCacheItem{
-				{Typ: 1, IsClient: true, Epoch: 0, MessageSequence: 0, Data: []byte{0x00}},
-				{Typ: 2, IsClient: true, Epoch: 1, MessageSequence: 1, Data: []byte{0x01}},
-				{Typ: 2, IsClient: true, Epoch: 0, MessageSequence: 2, Data: []byte{0x11}},
-				{Typ: 3, IsClient: false, Epoch: 0, MessageSequence: 0, Data: []byte{0x02}},
-				{Typ: 3, IsClient: false, Epoch: 1, MessageSequence: 0, Data: []byte{0x12}},
-				{Typ: 3, IsClient: false, Epoch: 2, MessageSequence: 0, Data: []byte{0x12}},
+				cacheItem(1, true, 0, 0, 0), cacheItem(2, true, 1, 1, 1), cacheItem(2, true, 0, 2, 0x11),
+				cacheItem(3, false, 0, 0, 2), cacheItem(3, false, 1, 0, 0x12), cacheItem(3, false, 2, 0, 0x12),
 			},
 			Rule: []dtlsflight.HandshakeCachePullRule{
-				{Typ: 1, Epoch: 0, IsClient: true, Optional: false},
-				{Typ: 2, Epoch: 1, IsClient: true, Optional: false},
-				{Typ: 3, Epoch: 0, IsClient: false, Optional: false},
+				cacheRule(1, true, 0), cacheRule(2, true, 1), cacheRule(3, false, 0),
 			},
 			Expected: []byte{0x00, 0x01, 0x02},
 		},
@@ -317,13 +276,14 @@ func TestHandshakeCachePullValidatesMetadataAndHeader(t *testing.T) {
 }
 
 func TestHandshakeCachePullPreservesExtensionAlert(t *testing.T) {
-	raw := marshalHandshakeCacheTestMessage(t, 0, withExtensions(&handshake.MessageClientHello{
+	raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
-	}, []extension.Value{
-		extension.Raw{Type: 0xfefe},
-		extension.Raw{Type: 0xfefe},
-	}))
+		Extensions: []extension.Value{
+			extension.Raw{Type: 0xfefe},
+			extension.Raw{Type: 0xfefe},
+		},
+	})
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeClientHello, true)
 
