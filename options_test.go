@@ -4,6 +4,9 @@
 package dtls
 
 import (
+	"crypto/dsa" //nolint:staticcheck
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"testing"
 	"time"
@@ -107,131 +110,70 @@ func serverOptionsError(t *testing.T, opts ...ServerOption) error {
 	return err
 }
 
+func testSharedOptionErrors(t *testing.T, tests map[string]struct {
+	option Option
+	want   error
+},
+) {
+	t.Helper()
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorIs(t, clientOptionsError(t, test.option), test.want)
+			require.ErrorIs(t, serverOptionsError(t, test.option), test.want)
+		})
+	}
+}
+
+func newSharedOptionsConn(t *testing.T, server bool, opts ...Option) (*Conn, error) {
+	t.Helper()
+	if server {
+		serverOpts := make([]ServerOption, len(opts))
+		for i := range opts {
+			serverOpts[i] = opts[i]
+		}
+
+		return newOptionsServer(t, serverOpts...)
+	}
+	clientOpts := make([]ClientOption, len(opts))
+	for i := range opts {
+		clientOpts[i] = opts[i]
+	}
+
+	return newOptionsClient(t, clientOpts...)
+}
+
 // TestEmptySliceOptionsReturnError verifies that functional options return errors
 // for explicitly empty slices.
 func TestEmptySliceOptionsReturnError(t *testing.T) {
-	t.Run("EmptyCertificates", func(t *testing.T) {
-		err := clientOptionsError(t, WithCertificates())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptyCertificates)
-
-		err = serverOptionsError(t, WithCertificates())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptyCertificates)
-	})
-
-	t.Run("EmptyCipherSuites", func(t *testing.T) {
-		err := clientOptionsError(t, WithCipherSuites())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptyCipherSuites)
-
-		err = serverOptionsError(t, WithCipherSuites())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptyCipherSuites)
-	})
-
-	t.Run("EmptySignatureSchemes", func(t *testing.T) {
-		err := clientOptionsError(t, WithSignatureSchemes())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptySignatureSchemes)
-
-		err = serverOptionsError(t, WithSignatureSchemes())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptySignatureSchemes)
-	})
-
-	t.Run("EmptySRTPProtectionProfiles", func(t *testing.T) {
-		err := clientOptionsError(t, WithSRTPProtectionProfiles())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptySRTPProtectionProfiles)
-
-		err = serverOptionsError(t, WithSRTPProtectionProfiles())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptySRTPProtectionProfiles)
-	})
-
-	t.Run("EmptySupportedProtocols", func(t *testing.T) {
-		err := clientOptionsError(t, WithSupportedProtocols())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptySupportedProtocols)
-
-		err = serverOptionsError(t, WithSupportedProtocols())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptySupportedProtocols)
-	})
-
-	t.Run("EmptyEllipticCurves", func(t *testing.T) {
-		err := clientOptionsError(t, WithEllipticCurves())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptyEllipticCurves)
-
-		err = serverOptionsError(t, WithEllipticCurves())
-		require.ErrorIs(t, err, dtlserrors.ErrEmptyEllipticCurves)
+	testSharedOptionErrors(t, map[string]struct {
+		option Option
+		want   error
+	}{
+		"EmptyCertificates":           {WithCertificates(), dtlserrors.ErrEmptyCertificates},
+		"EmptyCipherSuites":           {WithCipherSuites(), dtlserrors.ErrEmptyCipherSuites},
+		"EmptySignatureSchemes":       {WithSignatureSchemes(), dtlserrors.ErrEmptySignatureSchemes},
+		"EmptySRTPProtectionProfiles": {WithSRTPProtectionProfiles(), dtlserrors.ErrEmptySRTPProtectionProfiles},
+		"EmptySupportedProtocols":     {WithSupportedProtocols(), dtlserrors.ErrEmptySupportedProtocols},
+		"EmptyEllipticCurves":         {WithEllipticCurves(), dtlserrors.ErrEmptyEllipticCurves},
 	})
 }
 
 // TestNilCallbackOptionsReturnError verifies that functional options return errors
 // for nil callbacks.
 func TestNilCallbackOptionsReturnError(t *testing.T) {
-	t.Run("NilCustomCipherSuites", func(t *testing.T) {
-		err := clientOptionsError(t, WithCustomCipherSuites(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilCustomCipherSuites)
-
-		err = serverOptionsError(t, WithCustomCipherSuites(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilCustomCipherSuites)
-	})
-
-	t.Run("NilPSKCallback", func(t *testing.T) {
-		err := clientOptionsError(t, WithPSK(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilPSKCallback)
-
-		err = serverOptionsError(t, WithPSK(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilPSKCallback)
-	})
-
-	t.Run("NilVerifyPeerCertificate", func(t *testing.T) {
-		err := clientOptionsError(t, WithVerifyPeerCertificate(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilVerifyPeerCertificate)
-
-		err = serverOptionsError(t, WithVerifyPeerCertificate(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilVerifyPeerCertificate)
-	})
-
-	t.Run("NilVerifyConnection", func(t *testing.T) {
-		err := clientOptionsError(t, WithVerifyConnection(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilVerifyConnection)
-
-		err = serverOptionsError(t, WithVerifyConnection(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilVerifyConnection)
-	})
-
-	t.Run("NilGetClientCertificate", func(t *testing.T) {
-		err := clientOptionsError(t, WithGetClientCertificate(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilGetClientCertificate)
-
-		err = serverOptionsError(t, WithGetClientCertificate(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilGetClientCertificate)
-	})
-
-	t.Run("InvalidConnectionID", func(t *testing.T) {
-		err := clientOptionsError(t, WithConnectionID(nil, CIDPathMigrationReject))
-		require.ErrorIs(t, err, dtlserrors.ErrNilConnectionIDGenerator)
-
-		err = serverOptionsError(t, WithConnectionID(nil, CIDPathMigrationReject))
-		require.ErrorIs(t, err, dtlserrors.ErrNilConnectionIDGenerator)
-	})
-
-	t.Run("NilPaddingLengthGenerator", func(t *testing.T) {
-		err := clientOptionsError(t, WithPaddingLengthGenerator(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilPaddingLengthGenerator)
-
-		err = serverOptionsError(t, WithPaddingLengthGenerator(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilPaddingLengthGenerator)
-	})
-
-	t.Run("NilHelloRandomBytesGenerator", func(t *testing.T) {
-		err := clientOptionsError(t, WithHelloRandomBytesGenerator(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilHelloRandomBytesGenerator)
-
-		err = serverOptionsError(t, WithHelloRandomBytesGenerator(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilHelloRandomBytesGenerator)
-	})
-
-	t.Run("NilClientHelloMessageHook", func(t *testing.T) {
-		err := clientOptionsError(t, WithClientHelloMessageHook(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilClientHelloMessageHook)
-
-		err = serverOptionsError(t, WithClientHelloMessageHook(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilClientHelloMessageHook)
+	testSharedOptionErrors(t, map[string]struct {
+		option Option
+		want   error
+	}{
+		"NilCustomCipherSuites":        {WithCustomCipherSuites(nil), dtlserrors.ErrNilCustomCipherSuites},
+		"NilPSKCallback":               {WithPSK(nil), dtlserrors.ErrNilPSKCallback},
+		"NilVerifyPeerCertificate":     {WithVerifyPeerCertificate(nil), dtlserrors.ErrNilVerifyPeerCertificate},
+		"NilVerifyConnection":          {WithVerifyConnection(nil), dtlserrors.ErrNilVerifyConnection},
+		"NilGetClientCertificate":      {WithGetClientCertificate(nil), dtlserrors.ErrNilGetClientCertificate},
+		"InvalidConnectionID":          {WithConnectionID(nil, CIDPathMigrationReject), dtlserrors.ErrNilConnectionIDGenerator}, //nolint:lll
+		"NilPaddingLengthGenerator":    {WithPaddingLengthGenerator(nil), dtlserrors.ErrNilPaddingLengthGenerator},
+		"NilHelloRandomBytesGenerator": {WithHelloRandomBytesGenerator(nil), dtlserrors.ErrNilHelloRandomBytesGenerator},
+		"NilClientHelloMessageHook":    {WithClientHelloMessageHook(nil), dtlserrors.ErrNilClientHelloMessageHook},
 	})
 }
 
@@ -269,152 +211,93 @@ func TestWithConnectionID(t *testing.T) {
 // TestServerOnlyNilCallbackOptionsReturnError verifies server-only options
 // return errors for nil callbacks.
 func TestServerOnlyNilCallbackOptionsReturnError(t *testing.T) {
-	t.Run("NilGetCertificate", func(t *testing.T) {
-		err := serverOptionsError(t, WithGetCertificate(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilGetCertificate)
-	})
-
-	t.Run("NilServerHelloMessageHook", func(t *testing.T) {
-		err := serverOptionsError(t, WithServerHelloMessageHook(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilServerHelloMessageHook)
-	})
-
-	t.Run("NilCertificateRequestMessageHook", func(t *testing.T) {
-		err := serverOptionsError(t, WithCertificateRequestMessageHook(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilCertificateRequestMessageHook)
-	})
-
-	t.Run("NilOnConnectionAttempt", func(t *testing.T) {
-		err := serverOptionsError(t, WithOnConnectionAttempt(nil))
-		require.ErrorIs(t, err, dtlserrors.ErrNilOnConnectionAttempt)
-	})
+	tests := map[string]struct {
+		option ServerOption
+		want   error
+	}{
+		"NilGetCertificate":                {WithGetCertificate(nil), dtlserrors.ErrNilGetCertificate},
+		"NilServerHelloMessageHook":        {WithServerHelloMessageHook(nil), dtlserrors.ErrNilServerHelloMessageHook},
+		"NilCertificateRequestMessageHook": {WithCertificateRequestMessageHook(nil), dtlserrors.ErrNilCertificateRequestMessageHook}, //nolint:lll
+		"NilOnConnectionAttempt":           {WithOnConnectionAttempt(nil), dtlserrors.ErrNilOnConnectionAttempt},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorIs(t, serverOptionsError(t, test.option), test.want)
+		})
+	}
 }
 
 // TestInvalidNumericOptionsReturnError verifies that invalid numeric values
 // return appropriate errors.
 func TestInvalidNumericOptionsReturnError(t *testing.T) {
-	t.Run("InvalidFlightInterval", func(t *testing.T) {
-		err := clientOptionsError(t, WithFlightInterval(0))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidFlightInterval)
-
-		err = clientOptionsError(t, WithFlightInterval(-time.Second))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidFlightInterval)
-
-		err = serverOptionsError(t, WithFlightInterval(0))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidFlightInterval)
-	})
-
-	t.Run("InvalidMTU", func(t *testing.T) {
-		err := clientOptionsError(t, WithMTU(0))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidMTU)
-
-		err = clientOptionsError(t, WithMTU(-100))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidMTU)
-
-		err = serverOptionsError(t, WithMTU(0))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidMTU)
-	})
-
-	t.Run("InvalidReplayProtectionWindow", func(t *testing.T) {
-		err := clientOptionsError(t, WithReplayProtectionWindow(-1))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidReplayProtectionWindow)
-
-		err = serverOptionsError(t, WithReplayProtectionWindow(-1))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidReplayProtectionWindow)
-	})
+	tests := map[string]struct {
+		options []Option
+		want    error
+	}{
+		"InvalidFlightInterval":         {[]Option{WithFlightInterval(0), WithFlightInterval(-time.Second)}, dtlserrors.ErrInvalidFlightInterval}, //nolint:lll
+		"InvalidMTU":                    {[]Option{WithMTU(0), WithMTU(-100)}, dtlserrors.ErrInvalidMTU},
+		"InvalidReplayProtectionWindow": {[]Option{WithReplayProtectionWindow(-1)}, dtlserrors.ErrInvalidReplayProtectionWindow}, //nolint:lll
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			for _, option := range test.options {
+				require.ErrorIs(t, clientOptionsError(t, option), test.want)
+			}
+			require.ErrorIs(t, serverOptionsError(t, test.options[0]), test.want)
+		})
+	}
 
 	t.Run("InvalidClientAuthType", func(t *testing.T) {
-		err := serverOptionsError(t, WithClientAuth(ClientAuthType(-1)))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidClientAuthType)
-
-		err = serverOptionsError(t, WithClientAuth(ClientAuthType(100)))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidClientAuthType)
+		for _, value := range []ClientAuthType{-1, 100} {
+			require.ErrorIs(t, serverOptionsError(t, WithClientAuth(value)), dtlserrors.ErrInvalidClientAuthType)
+		}
 	})
 
 	t.Run("InvalidExtendedMasterSecretType", func(t *testing.T) {
-		err := clientOptionsError(t, WithExtendedMasterSecret(ExtendedMasterSecretType(-1)))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidExtendedMasterSecretType)
-
-		err = serverOptionsError(t, WithExtendedMasterSecret(ExtendedMasterSecretType(100)))
-		require.ErrorIs(t, err, dtlserrors.ErrInvalidExtendedMasterSecretType)
+		require.ErrorIs(t, clientOptionsError(t, WithExtendedMasterSecret(-1)), dtlserrors.ErrInvalidExtendedMasterSecretType)
+		require.ErrorIs(t, serverOptionsError(t, WithExtendedMasterSecret(100)), dtlserrors.ErrInvalidExtendedMasterSecretType) //nolint:lll
 	})
 
 	t.Run("InvalidVersions", func(t *testing.T) {
-		err := clientOptionsError(t, WithMinVersion(protocol.Version(0)))
-		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
-
-		err = clientOptionsError(t, WithMaxVersion(protocol.Version(0)))
-		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
+		for _, option := range []ClientOption{WithMinVersion(0), WithMaxVersion(0)} {
+			require.ErrorIs(t, clientOptionsError(t, option), dtlserrors.ErrUnsupportedProtocolVersion)
+		}
 	})
 }
 
 func TestX25519MLKEM768RequiresDTLS13(t *testing.T) {
-	t.Run("DTLS12OnlyClient", func(t *testing.T) {
-		err := clientOptionsError(t,
-			WithMaxVersion(protocol.Version1_2),
-			WithEllipticCurves(elliptic.X25519MLKEM768),
-		)
-		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
-	})
-
-	t.Run("DTLS12OnlyServer", func(t *testing.T) {
-		err := serverOptionsError(t,
-			WithMaxVersion(protocol.Version1_2),
-			WithEllipticCurves(elliptic.X25519MLKEM768),
-		)
-		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedEllipticCurveVersion)
-	})
-
-	t.Run("DualStackMLKEMOnlyClient", func(t *testing.T) {
-		client, err := newOptionsClient(t,
-			WithMaxVersion(protocol.Version1_3),
-			WithEllipticCurves(elliptic.X25519MLKEM768),
-		)
-		require.NoError(t, err)
-		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MinVersion)
-		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MaxVersion)
-	})
-
-	t.Run("DualStackMLKEMOnlyServer", func(t *testing.T) {
-		server, err := newOptionsServer(t,
-			WithMaxVersion(protocol.Version1_3),
-			WithEllipticCurves(elliptic.X25519MLKEM768),
-		)
-		require.NoError(t, err)
-		require.Equal(t, protocol.Version1_3, server.handshakeConfig.MinVersion)
-		require.Equal(t, protocol.Version1_3, server.handshakeConfig.MaxVersion)
-	})
-
+	max12 := []Option{WithMaxVersion(protocol.Version1_2), WithEllipticCurves(elliptic.X25519MLKEM768)}
+	max13 := []Option{WithMaxVersion(protocol.Version1_3), WithEllipticCurves(elliptic.X25519MLKEM768)}
+	exact13 := []Option{WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithEllipticCurves(elliptic.X25519MLKEM768)} //nolint:lll
+	for _, test := range []struct {
+		name        string
+		server      bool
+		opts        []Option
+		wantErr     error
+		checkBounds bool
+	}{
+		{"DTLS12OnlyClient", false, max12, dtlserrors.ErrUnsupportedEllipticCurveVersion, false},
+		{"DTLS12OnlyServer", true, max12, dtlserrors.ErrUnsupportedEllipticCurveVersion, false},
+		{"DualStackMLKEMOnlyClient", false, max13, nil, true},
+		{"DualStackMLKEMOnlyServer", true, max13, nil, true},
+		{"DTLS13OnlyClient", false, exact13, nil, false},
+		{"DTLS13OnlyServer", true, exact13, nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn, err := newSharedOptionsConn(t, test.server, test.opts...)
+			require.ErrorIs(t, err, test.wantErr)
+			if test.checkBounds {
+				require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MinVersion)
+				require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MaxVersion)
+			}
+		})
+	}
 	t.Run("DualStackWithClassicalFallback", func(t *testing.T) {
-		_, err := newOptionsClient(t,
-			WithMaxVersion(protocol.Version1_3),
-			WithEllipticCurves(elliptic.X25519MLKEM768, elliptic.X25519),
-		)
-		require.NoError(t, err)
-
-		_, err = newOptionsServer(t,
-			WithMaxVersion(protocol.Version1_3),
-			WithEllipticCurves(elliptic.X25519MLKEM768, elliptic.X25519),
-		)
-		require.NoError(t, err)
-	})
-
-	t.Run("DTLS13OnlyClient", func(t *testing.T) {
-		_, err := newOptionsClient(t,
-			WithMinVersion(protocol.Version1_3),
-			WithMaxVersion(protocol.Version1_3),
-			WithEllipticCurves(elliptic.X25519MLKEM768),
-		)
-		require.NoError(t, err)
-	})
-
-	t.Run("DTLS13OnlyServer", func(t *testing.T) {
-		_, err := newOptionsServer(t,
-			WithMinVersion(protocol.Version1_3),
-			WithMaxVersion(protocol.Version1_3),
-			WithEllipticCurves(elliptic.X25519MLKEM768),
-		)
-		require.NoError(t, err)
+		opts := []Option{WithMaxVersion(protocol.Version1_3), WithEllipticCurves(elliptic.X25519MLKEM768, elliptic.X25519)}
+		for _, server := range []bool{false, true} {
+			_, err := newSharedOptionsConn(t, server, opts...)
+			require.NoError(t, err)
+		}
 	})
 }
 
@@ -569,94 +452,173 @@ func TestValidOptionsSucceed(t *testing.T) {
 func TestOptionImmutability(t *testing.T) {
 	cert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
+	certs := []tls.Certificate{cert}
+	suites := []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+	schemes := []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256}
+	profiles := []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}
+	protocols := []string{"h2", "http/1.1"}
+	curves := []elliptic.Curve{elliptic.P256}
+	hint := []byte("test-hint")
+	identifier := []byte{0x01, 0x02, 0x03}
+	expectedScheme, err := signaturehash.ParseSignatureSchemes(schemes, false)
+	require.NoError(t, err)
+	tests := map[string]struct {
+		opts   []ClientOption
+		mutate func()
+		got    func(*Conn) any
+		want   any
+	}{
+		"certificates": {
+			[]ClientOption{WithCertificates(certs...)},
+			func() { _ = append(certs, cert) },
+			func(c *Conn) any { return len(c.handshakeConfig.LocalCertificates) }, 1,
+		},
+		"cipherSuites": {
+			[]ClientOption{WithCipherSuites(suites...)},
+			func() { suites[0] = cryptosuite.TLS_PSK_WITH_AES_128_CCM_8 },
+			func(c *Conn) any { return c.handshakeConfig.LocalCipherSuites[0].ID() }, suites[0],
+		},
+		"signatureSchemes": {
+			[]ClientOption{WithSignatureSchemes(schemes...)},
+			func() { schemes[0] = tls.ECDSAWithP384AndSHA384 },
+			func(c *Conn) any { return c.handshakeConfig.LocalSignatureSchemes[0] }, expectedScheme[0],
+		},
+		"srtpProtectionProfiles": {
+			[]ClientOption{WithSRTPProtectionProfiles(profiles...)},
+			func() { profiles[0] = SRTP_AES128_CM_HMAC_SHA1_32 },
+			func(c *Conn) any { return c.handshakeConfig.LocalSRTPProtectionProfiles[0] }, profiles[0],
+		},
+		"SupportedProtocols": {
+			[]ClientOption{WithSupportedProtocols(protocols...)},
+			func() { protocols[0] = "grpc" },
+			func(c *Conn) any { return c.handshakeConfig.SupportedProtocols },
+			[]string{"h2", "http/1.1"},
+		},
+		"EllipticCurves": {
+			[]ClientOption{WithEllipticCurves(curves...)},
+			func() { curves[0] = elliptic.P384 },
+			func(c *Conn) any { return c.handshakeConfig.EllipticCurves[0] }, curves[0],
+		},
+		"pskIdentityHint": {
+			[]ClientOption{WithPSK(func([]byte) ([]byte, error) { return nil, nil }), WithPSKIdentityHint(hint), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}, //nolint:lll
+			func() { hint[0] = 'X' }, func(c *Conn) any { return c.handshakeConfig.LocalPSKIdentityHint }, []byte("test-hint"),
+		},
+		"srtpMasterKeyIdentifier": {
+			[]ClientOption{WithSRTPMasterKeyIdentifier(identifier)},
+			func() { identifier[0] = 0xFF },
+			func(c *Conn) any { return c.handshakeConfig.LocalSRTPMasterKeyIdentifier },
+			[]byte{0x01, 0x02, 0x03},
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			client, err := newOptionsClient(t, test.opts...)
+			require.NoError(t, err)
+			test.mutate()
+			require.Equal(t, test.want, test.got(client))
+		})
+	}
+}
 
-	t.Run("certificates", func(t *testing.T) {
-		certs := []tls.Certificate{cert}
-		client, err := newOptionsClient(t, WithCertificates(certs...))
-		require.NoError(t, err)
+func TestOptionConfiguration(t *testing.T) {
+	cert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	dsaPrivateKey := &dsa.PrivateKey{}
+	require.NoError(t, dsa.GenerateParameters(&dsaPrivateKey.Parameters, rand.Reader, dsa.L1024N160))
+	require.NoError(t, dsa.GenerateKey(dsaPrivateKey, rand.Reader))
+	rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
 
-		_ = append(certs, cert)
+	cases := map[string]struct {
+		clientOpts []ClientOption
+		serverOpts []ServerOption
+		wantAnyErr bool
+		expErr     error
+	}{
+		"psk and Certificate, valid cipher suites": {
+			serverOpts: []ServerOption{
+				WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithPSK(func([]byte) ([]byte, error) { return nil, nil }), WithCertificates(cert),
+			},
+		},
+		"psk and Certificate, no psk cipher suite": {
+			serverOpts: []ServerOption{
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithPSK(func([]byte) ([]byte, error) { return nil, nil }), WithCertificates(cert),
+			},
+			expErr: dtlserrors.ErrNoAvailablePSKCipherSuite,
+		},
+		"psk and Certificate, no non-psk cipher suite": {
+			serverOpts: []ServerOption{
+				WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
+				WithPSK(func([]byte) ([]byte, error) { return nil, nil }), WithCertificates(cert),
+			},
+			expErr: dtlserrors.ErrNoAvailableCertificateCipherSuite,
+		},
+		"psk identity hint with not psk": {
+			serverOpts: []ServerOption{
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSKIdentityHint([]byte{}),
+			},
+			expErr: dtlserrors.ErrIdentityNoPSK,
+		},
+		"Invalid private key": {
+			clientOpts: []ClientOption{
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCertificates(tls.Certificate{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey}),
+			},
+			expErr: dtlserrors.ErrInvalidPrivateKey,
+		},
+		"PrivateKey without Certificate": {
+			clientOpts: []ClientOption{
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCertificates(tls.Certificate{PrivateKey: cert.PrivateKey}),
+			},
+			expErr: dtlserrors.ErrInvalidCertificate,
+		},
+		"Invalid cipher suites": {
+			clientOpts: []ClientOption{WithCipherSuites(0x0000)},
+			wantAnyErr: true,
+		},
+		"Valid configuration": {
+			clientOpts: []ClientOption{
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCertificates(cert, tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}),
+			},
+		},
+		"Valid configuration with get certificate": {
+			serverOpts: []ServerOption{
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithGetCertificate(func(*ClientHelloInfo) (*tls.Certificate, error) {
+					return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
+				}),
+			},
+		},
+		"Valid configuration with get client certificate": {
+			clientOpts: []ClientOption{
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithGetClientCertificate(func(*CertificateRequestInfo) (*tls.Certificate, error) {
+					return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
+				}),
+			},
+		},
+	}
 
-		require.Len(t, client.handshakeConfig.LocalCertificates, 1)
-	})
-
-	t.Run("cipherSuites", func(t *testing.T) {
-		suites := []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
-		client, err := newOptionsClient(t, WithCipherSuites(suites...))
-		require.NoError(t, err)
-
-		suites[0] = cryptosuite.TLS_PSK_WITH_AES_128_CCM_8
-
-		require.Equal(
-			t, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			client.handshakeConfig.LocalCipherSuites[0].ID(),
-		)
-	})
-
-	t.Run("signatureSchemes", func(t *testing.T) {
-		schemes := []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256}
-		client, err := newOptionsClient(t, WithSignatureSchemes(schemes...))
-		require.NoError(t, err)
-
-		schemes[0] = tls.ECDSAWithP384AndSHA384
-
-		expected, err := signaturehash.ParseSignatureSchemes([]tls.SignatureScheme{tls.ECDSAWithP256AndSHA256}, false)
-		require.NoError(t, err)
-		require.Equal(t, expected[0], client.handshakeConfig.LocalSignatureSchemes[0])
-	})
-
-	t.Run("srtpProtectionProfiles", func(t *testing.T) {
-		profiles := []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}
-		client, err := newOptionsClient(t, WithSRTPProtectionProfiles(profiles...))
-		require.NoError(t, err)
-
-		profiles[0] = SRTP_AES128_CM_HMAC_SHA1_32
-
-		require.Equal(t, SRTP_AES128_CM_HMAC_SHA1_80, client.handshakeConfig.LocalSRTPProtectionProfiles[0])
-	})
-
-	t.Run("SupportedProtocols", func(t *testing.T) {
-		protocols := []string{"h2", "http/1.1"}
-		client, err := newOptionsClient(t, WithSupportedProtocols(protocols...))
-		require.NoError(t, err)
-
-		protocols[0] = "grpc"
-
-		require.Equal(t, "h2", client.handshakeConfig.SupportedProtocols[0])
-		require.Equal(t, "http/1.1", client.handshakeConfig.SupportedProtocols[1])
-	})
-
-	t.Run("EllipticCurves", func(t *testing.T) {
-		curves := []elliptic.Curve{elliptic.P256}
-		client, err := newOptionsClient(t, WithEllipticCurves(curves...))
-		require.NoError(t, err)
-
-		curves[0] = elliptic.P384
-
-		require.Equal(t, elliptic.P256, client.handshakeConfig.EllipticCurves[0])
-	})
-
-	t.Run("pskIdentityHint", func(t *testing.T) {
-		hint := []byte("test-hint")
-		client, err := newOptionsClient(t,
-			WithPSK(func([]byte) ([]byte, error) { return nil, nil }),
-			WithPSKIdentityHint(hint),
-			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
-		)
-		require.NoError(t, err)
-
-		hint[0] = 'X'
-
-		require.Equal(t, []byte("test-hint"), client.handshakeConfig.LocalPSKIdentityHint)
-	})
-
-	t.Run("srtpMasterKeyIdentifier", func(t *testing.T) {
-		identifier := []byte{0x01, 0x02, 0x03}
-		client, err := newOptionsClient(t, WithSRTPMasterKeyIdentifier(identifier))
-		require.NoError(t, err)
-
-		identifier[0] = 0xFF
-
-		require.Equal(t, []byte{0x01, 0x02, 0x03}, client.handshakeConfig.LocalSRTPMasterKeyIdentifier)
-	})
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			var err error
+			if testCase.clientOpts != nil {
+				err = clientOptionsError(t, testCase.clientOpts...)
+			} else {
+				err = serverOptionsError(t, testCase.serverOpts...)
+			}
+			switch {
+			case testCase.wantAnyErr:
+				assert.Error(t, err, "option validation expected an error")
+			case testCase.expErr == nil:
+				assert.NoError(t, err)
+			default:
+				assert.ErrorIs(t, err, testCase.expErr)
+			}
+		})
+	}
 }
