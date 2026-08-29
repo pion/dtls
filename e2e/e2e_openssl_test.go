@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls/v3"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 )
 
@@ -106,7 +105,7 @@ func serverOpenSSL(c *comm) {
 		time.Sleep(500 * time.Millisecond)
 
 		c.serverReady <- struct{}{}
-		simpleReadWrite(c.errChan, c.serverChan, c.serverConn, c.messageRecvCount)
+		simpleReadWrite(c.errChan, c.serverChan, c.serverConn, &c.messageRecvCount)
 		c.serverDone <- cmd.Process.Kill()
 		close(c.serverDone)
 	}()
@@ -192,7 +191,7 @@ func clientOpenSSL(c *comm) {
 		return
 	}
 
-	simpleReadWrite(c.errChan, c.clientChan, c.clientConn, c.messageRecvCount)
+	simpleReadWrite(c.errChan, c.clientChan, c.clientConn, &c.messageRecvCount)
 	c.clientDone <- cmd.Process.Kill()
 	close(c.clientDone)
 }
@@ -272,92 +271,39 @@ func writeTempPEMFromCerts(certs []tls.Certificate) (string, string, error) {
 	return certOut.Name(), keyOut.Name(), nil
 }
 
-func TestPionOpenSSLE2ESimple(t *testing.T) {
+func testOpenSSLInterop(t *testing.T, testE2E pionE2ETest, serverSkip string) {
+	t.Helper()
 	t.Run("OpenSSLServer", func(t *testing.T) {
-		testPionE2ESimple(t, serverOpenSSL, clientPion)
+		if serverSkip != "" {
+			t.Skip(serverSkip)
+		}
+		testE2E(t, serverOpenSSL, clientPion)
 	})
 	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2ESimple(t, serverPion, clientOpenSSL)
+		testE2E(t, serverPion, clientOpenSSL)
 	})
 }
 
-func TestPionOpenSSLE2ESimplePSK(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		testPionE2ESimplePSK(t, serverOpenSSL, clientPion)
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2ESimplePSK(t, serverPion, clientOpenSSL)
-	})
-}
-
-func TestPionOpenSSLE2EMTUs(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		testPionE2EMTUs(t, serverOpenSSL, clientPion)
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2EMTUs(t, serverPion, clientOpenSSL)
-	})
-}
-
-func TestPionOpenSSLE2ESimpleED25519(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		t.Skip("OpenSSL 3.x does not support ED25519 certificates with ECDHE_ECDSA cipher suites as server: https://github.com/openssl/openssl/issues/20122")
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2ESimpleED25519(t, serverPion, clientOpenSSL)
-	})
-}
-
-func TestPionOpenSSLE2ESimpleED25519ClientCert(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		t.Skip("OpenSSL 3.x does not support ED25519 certificates with ECDHE_ECDSA cipher suites as server: https://github.com/openssl/openssl/issues/20122")
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2ESimpleED25519ClientCert(t, serverPion, clientOpenSSL)
-	})
-}
-
-func TestPionOpenSSLE2ESimpleECDSAClientCert(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		testPionE2ESimpleECDSAClientCert(t, serverOpenSSL, clientPion)
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2ESimpleECDSAClientCert(t, serverPion, clientOpenSSL)
-	})
-}
-
-func TestPionOpenSSLE2ESimpleRSA(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		testPionE2ESimpleRSA(t, serverOpenSSL, clientPion)
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2ESimpleRSA(t, serverPion, clientOpenSSL)
-	})
-}
-
-func TestPionOpenSSLE2ESimpleRSAClientCert(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		testPionE2ESimpleRSAClientCert(t, serverOpenSSL, clientPion)
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2ESimpleRSAClientCert(t, serverPion, clientOpenSSL)
-	})
-}
-
-func TestPionOpenSSLE2EChaCha20Poly1305ECDSA(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		testPionE2EChaCha20Poly1305(t, serverOpenSSL, clientPion)
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2EChaCha20Poly1305(t, serverPion, clientOpenSSL)
-	})
-}
-
-func TestPionOpenSSLE2EChaCha20Poly1305RSA(t *testing.T) {
-	t.Run("OpenSSLServer", func(t *testing.T) {
-		testPionE2EChaCha20Poly1305RSA(t, serverOpenSSL, clientPion)
-	})
-	t.Run("OpenSSLClient", func(t *testing.T) {
-		testPionE2EChaCha20Poly1305RSA(t, serverPion, clientOpenSSL)
-	})
+func TestPionOpenSSLE2E(t *testing.T) {
+	const ed25519ServerSkip = "OpenSSL 3.x does not support ED25519 certificates with ECDHE_ECDSA cipher suites as server: https://github.com/openssl/openssl/issues/20122"
+	tests := map[string]struct {
+		run        pionE2ETest
+		serverSkip string
+	}{
+		"Simple":                  {testPionE2ESimple, ""},
+		"SimplePSK":               {testPionE2ESimplePSK, ""},
+		"MTUs":                    {testPionE2EMTUs, ""},
+		"SimpleED25519":           {testPionE2ESimpleED25519, ed25519ServerSkip},
+		"SimpleED25519ClientCert": {testPionE2ESimpleED25519ClientCert, ed25519ServerSkip},
+		"SimpleECDSAClientCert":   {testPionE2ESimpleECDSAClientCert, ""},
+		"SimpleRSA":               {testPionE2ESimpleRSA, ""},
+		"SimpleRSAClientCert":     {testPionE2ESimpleRSAClientCert, ""},
+		"ChaCha20Poly1305ECDSA":   {testPionE2EChaCha20Poly1305, ""},
+		"ChaCha20Poly1305RSA":     {testPionE2EChaCha20Poly1305RSA, ""},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			testOpenSSLInterop(t, test.run, test.serverSkip)
+		})
+	}
 }
