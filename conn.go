@@ -412,8 +412,6 @@ func serverWithConfig(conn net.PacketConn, rAddr net.Addr, config *Config) (*Con
 	}
 	if config.OnConnectionAttempt != nil {
 		if err := config.OnConnectionAttempt(rAddr); err != nil {
-			_ = conn.Close()
-
 			return nil, err
 		}
 	}
