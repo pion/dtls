@@ -10,7 +10,6 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
@@ -18,6 +17,7 @@ import (
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
@@ -122,22 +122,22 @@ func flight4Parse(
 		return 0, nil, nil
 	}
 
-	if !state.CipherSuite.IsInitialized() { //nolint:nestif
+	if state.Protection == nil { //nolint:nestif
 		serverRandom := state.LocalRandom.MarshalFixed()
 		clientRandom := state.RemoteRandom.MarshalFixed()
 
 		var err error
 		var preMasterSecret []byte
-		if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypePreSharedKey {
+		if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey {
 			var psk []byte
 			if psk, err = cfg.LocalPSKCallback(bytes.Clone(clientKeyExchange.IdentityHint)); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 			state.IdentityHint = bytes.Clone(clientKeyExchange.IdentityHint)
 			switch state.CipherSuite.KeyExchangeAlgorithm() {
-			case ciphersuite.KeyExchangeAlgorithmPsk:
+			case cryptosuite.KeyExchangeAlgorithmPsk:
 				preMasterSecret = prf.PSKPreMasterSecret(psk)
-			case (ciphersuite.KeyExchangeAlgorithmPsk | ciphersuite.KeyExchangeAlgorithmEcdhe):
+			case (cryptosuite.KeyExchangeAlgorithmPsk | cryptosuite.KeyExchangeAlgorithmEcdhe):
 				if preMasterSecret, err = prf.EcdhePSKPreMasterSecret(
 					psk,
 					clientKeyExchange.PublicKey,
@@ -183,7 +183,7 @@ func flight4Parse(
 			}
 		}
 
-		if err := state.CipherSuite.Init(state.MasterSecret, clientRandom[:], serverRandom[:], false); err != nil {
+		if err := state.InitCipherSuite(); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
@@ -217,7 +217,7 @@ func flight4Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeAnonymous {
+	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeAnonymous {
 		if cfg.VerifyConnection != nil {
 			if err := cfg.VerifyConnection(state); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
@@ -281,7 +281,7 @@ func flight4Generate(
 			RenegotiatedConnection: 0,
 		})
 	}
-	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate &&
+	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate &&
 		offer.Offered(extension.TypeSupportedPointFormats) {
 		extensions = append(extensions, &extension12.SupportedPointFormats{
 			PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed},
@@ -341,10 +341,10 @@ func flight4Generate(
 	})
 
 	switch {
-	case state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate:
+	case state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate:
 		certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{
 			ServerName:   state.ServerName,
-			CipherSuites: []ciphersuite.ID{state.CipherSuite.ID()},
+			CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()},
 			RandomBytes:  state.RemoteRandom.RandomBytes,
 		})
 		if err != nil {
@@ -437,7 +437,7 @@ func flight4Generate(
 			})
 		}
 	case cfg.LocalPSKIdentityHint != nil ||
-		state.CipherSuite.KeyExchangeAlgorithm().Has(ciphersuite.KeyExchangeAlgorithmEcdhe):
+		state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe):
 		// To help the client in selecting which identity to use, the server
 		// can provide a "PSK identity hint" in the ServerKeyExchange message.
 		// If no hint is provided and cipher suite doesn't use elliptic curve,
@@ -447,7 +447,7 @@ func flight4Generate(
 		srvExchange := &handshake.MessageServerKeyExchange{
 			IdentityHint: cfg.LocalPSKIdentityHint,
 		}
-		if state.CipherSuite.KeyExchangeAlgorithm().Has(ciphersuite.KeyExchangeAlgorithmEcdhe) {
+		if state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
 			srvExchange.EllipticCurveType = elliptic.CurveTypeNamedCurve
 			srvExchange.NamedCurve = state.NamedCurve
 			srvExchange.PublicKey = state.LocalKeypair.PublicKey

@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -22,7 +23,7 @@ type ClientHelloInfo struct {
 
 	// CipherSuites lists the CipherSuites supported by the client (e.g.
 	// TLS_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256).
-	CipherSuites []CipherSuiteID
+	CipherSuites []cryptosuite.ID
 
 	// RandomBytes stores the client hello random bytes
 	RandomBytes [handshake.RandomBytesLength]byte

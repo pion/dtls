@@ -9,12 +9,12 @@ import (
 	"crypto"
 	"slices"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -184,7 +184,7 @@ func flight4Generate( //nolint:cyclop
 
 	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{
 		ServerName:   state.ServerName,
-		CipherSuites: []ciphersuite.ID{state.CipherSuite.ID()},
+		CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()},
 		RandomBytes:  state.RemoteRandom.RandomBytes,
 	})
 	if err != nil {

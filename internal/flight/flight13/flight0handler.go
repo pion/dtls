@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"slices"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
@@ -68,13 +67,11 @@ func flight0Parse(
 		if id == renegotiationInfoSCSV {
 			continue
 		}
-		if c := ciphersuite.ForID(ciphersuite.ID(id), cfg.CustomCipherSuites); c != nil {
+		if c, found := dtlsflight.FindCipherSuiteByID(id, cfg.LocalCipherSuites); found &&
+			c.Capabilities().SupportsVersion(protocol.Version1_3) {
 			cipherSuites = append(cipherSuites, c)
 		}
 	}
-
-	// nolint:godox
-	// TODO: check for DTLS 1.3 cipher suites
 	if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, cfg.LocalCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
 	}

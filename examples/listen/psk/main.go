@@ -12,6 +12,7 @@ import (
 
 	"github.com/pion/dtls/v3"
 	"github.com/pion/dtls/v3/examples/util"
+	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 )
 
 func main() {
@@ -29,7 +30,7 @@ func main() {
 			return []byte{0xAB, 0xC1, 0x23}, nil
 		}),
 		dtls.WithPSKIdentityHint([]byte("Pion DTLS Server")),
-		dtls.WithCipherSuites(dtls.TLS_PSK_WITH_AES_128_CCM_8),
+		dtls.WithCipherSuites(ciphersuite.TLS_PSK_WITH_AES_128_CCM_8),
 		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 	)
 	util.Check(err)

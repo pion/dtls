@@ -8,6 +8,7 @@ import (
 	"time"
 
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -283,7 +284,7 @@ func TestCIDDatagramRouter13(t *testing.T) {
 
 func TestCIDConnIdentifier(t *testing.T) {
 	cid := []byte("abcd1234")
-	cs := uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+	cs := uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	sh, err := marshalTestRecord(recordlayer.Header{
 		Epoch:   0,
 		Version: protocol.Version1_2,

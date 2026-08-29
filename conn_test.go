@@ -34,6 +34,7 @@ import (
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
@@ -68,6 +69,19 @@ var (
 
 const renegotiationInfoSCSV uint16 = 0x00ff
 
+func defaultCipherSuites() []cryptosuite.Suite {
+	return defaultCipherSuitesForVersion(protocol.Version1_2)
+}
+
+func cipherSuiteIDs(suites []cryptosuite.Suite) []uint16 {
+	ids := make([]uint16, len(suites))
+	for i, suite := range suites {
+		ids[i] = uint16(suite.ID())
+	}
+
+	return ids
+}
+
 func marshalTestRecord(header recordlayer.Header, content protocol.Content) ([]byte, error) {
 	payload, err := content.Marshal()
 	if err != nil {
@@ -75,6 +89,19 @@ func marshalTestRecord(header recordlayer.Header, content protocol.Content) ([]b
 	}
 
 	return recordlayer.MarshalRecord(header, content.ContentType(), payload)
+}
+
+func TestMarshalRecordContentEnforcesPlaintextLimit(t *testing.T) {
+	_, plaintext, err := marshalRecordContent(&protocol.ApplicationData{
+		Data: make([]byte, maxPlaintextRecordLen),
+	})
+	require.NoError(t, err)
+	assert.Len(t, plaintext, maxPlaintextRecordLen)
+
+	_, _, err = marshalRecordContent(&protocol.ApplicationData{
+		Data: make([]byte, maxPlaintextRecordLen+1),
+	})
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidPacketLength)
 }
 
 type testRecord struct {
@@ -469,21 +496,21 @@ func TestHandshakeWithAlert(t *testing.T) {
 	}{
 		"CipherSuiteNoIntersection": {
 			serverOpts: []ServerOption{
-				WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 			},
 			clientOpts: []ClientOption{
-				WithCipherSuites(TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
 			},
 			errServer: dtlserrors.ErrCipherSuiteNoIntersection,
 			errClient: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
 		},
 		"SignatureSchemesNoIntersection": {
 			serverOpts: []ServerOption{
-				WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 				WithSignatureSchemes(tls.ECDSAWithP256AndSHA256),
 			},
 			clientOpts: []ClientOption{
-				WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 				WithSignatureSchemes(tls.ECDSAWithP521AndSHA512),
 			},
 			errServer: &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
@@ -541,14 +568,14 @@ func TestHandshakeWithInvalidRecord(t *testing.T) {
 			ctx,
 			dtlsnet.PacketConnFromConn(caWithInvalidRecord),
 			caWithInvalidRecord.RemoteAddr(),
-			[]ClientOption{WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
+			[]ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
 			true,
 		)
 		clientErr <- result{client, err}
 	}()
 
 	server, errServer := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
-		WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 	}, true)
 
 	errClient := <-clientErr
@@ -717,7 +744,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 				LocalRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand},
 				RemoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0), RandomBytes: rand},
 				LocalSequenceNumber: []uint64{0, 0},
-				CipherSuite:         &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
+				CipherSuite:         ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 			},
 		},
 	}
@@ -774,7 +801,7 @@ func TestPSK(t *testing.T) {
 		Name                   string
 		ClientIdentity         []byte
 		ServerIdentity         []byte
-		cipherSuites           []CipherSuiteID
+		cipherSuites           []cryptosuite.ID
 		ClientVerifyConnection func(*State) error
 		ServerVerifyConnection func(*State) error
 		WantFail               bool
@@ -785,13 +812,13 @@ func TestPSK(t *testing.T) {
 			Name:           "Server identity specified",
 			ServerIdentity: []byte("Test Identity"),
 			ClientIdentity: []byte("Client Identity"),
-			cipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8},
 		},
 		{
 			Name:           "Server identity specified - Server verify connection fails",
 			ServerIdentity: []byte("Test Identity"),
 			ClientIdentity: []byte("Client Identity"),
-			cipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8},
 			ServerVerifyConnection: func(*State) error {
 				return errExample
 			},
@@ -803,7 +830,7 @@ func TestPSK(t *testing.T) {
 			Name:           "Server identity specified - Client verify connection fails",
 			ServerIdentity: []byte("Test Identity"),
 			ClientIdentity: []byte("Client Identity"),
-			cipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8},
 			ClientVerifyConnection: func(*State) error {
 				return errExample
 			},
@@ -815,25 +842,25 @@ func TestPSK(t *testing.T) {
 			Name:           "Server identity nil",
 			ServerIdentity: nil,
 			ClientIdentity: []byte("Client Identity"),
-			cipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8},
 		},
 		{
 			Name:           "TLS_PSK_WITH_AES_128_CBC_SHA256",
 			ServerIdentity: nil,
 			ClientIdentity: []byte("Client Identity"),
-			cipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CBC_SHA256},
+			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CBC_SHA256},
 		},
 		{
 			Name:           "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256",
 			ServerIdentity: nil,
 			ClientIdentity: []byte("Client Identity"),
-			cipherSuites:   []CipherSuiteID{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256},
+			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256},
 		},
 		{
 			Name:           "Client identity empty",
 			ServerIdentity: nil,
 			ClientIdentity: []byte{},
-			cipherSuites:   []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8},
+			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8},
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
@@ -942,7 +969,7 @@ func TestPSKHintFail(t *testing.T) {
 				return nil, pskRejected
 			}),
 			WithPSKIdentityHint([]byte{}),
-			WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8),
+			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 		}
 
 		_, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, false)
@@ -954,7 +981,7 @@ func TestPSKHintFail(t *testing.T) {
 			return nil, pskRejected
 		}),
 		WithPSKIdentityHint([]byte{}),
-		WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8),
+		WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 	}
 
 	_, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), opts, false)
@@ -1001,7 +1028,7 @@ func TestPSKMismatchNoRetransmitLoop(t *testing.T) {
 				return []byte("client-psk"), nil
 			}),
 			WithPSKIdentityHint([]byte("Client Identity")),
-			WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8),
+			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 		}
 
 		c, err := testClient(ctx, dtlsnet.PacketConnFromConn(caCount), caCount.RemoteAddr(), opts, false)
@@ -1016,7 +1043,7 @@ func TestPSKMismatchNoRetransmitLoop(t *testing.T) {
 			WithPSK(func([]byte) ([]byte, error) {
 				return []byte("server-psk"), nil
 			}),
-			WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8),
+			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 		}
 
 		s, err := testServer(ctx, dtlsnet.PacketConnFromConn(cbCount), cbCount.RemoteAddr(), opts, false)
@@ -1117,7 +1144,7 @@ func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
 						return []byte{0xAB, 0xC1, 0x23}, nil
 					}),
 					WithPSKIdentityHint([]byte{0xAB, 0xC1, 0x23}),
-					WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8),
+					WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 				}
 
 				if client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts, false); err != nil {
@@ -1132,7 +1159,7 @@ func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
 				WithPSK(func([]byte) ([]byte, error) {
 					return []byte{0xAB, 0xC1, 0x23}, nil
 				}),
-				WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8),
+				WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 			}
 			if testCase.SetIdentity {
 				opts = append(opts, WithPSKIdentityHint([]byte{0xAB, 0xC1, 0x23}))
@@ -1918,11 +1945,11 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 
 	for _, test := range []struct {
 		Name                    string
-		ClientCipherSuites      []CipherSuiteID
-		ServerCipherSuites      []CipherSuiteID
+		ClientCipherSuites      []cryptosuite.ID
+		ServerCipherSuites      []cryptosuite.ID
 		WantClientError         error
 		WantServerError         error
-		WantSelectedCipherSuite CipherSuiteID
+		WantSelectedCipherSuite cryptosuite.ID
 	}{
 		{
 			Name:               "No cipherSuites specified",
@@ -1933,51 +1960,51 @@ func TestCipherSuiteConfiguration(t *testing.T) {
 		},
 		{
 			Name:               "Invalid CipherSuite",
-			ClientCipherSuites: []CipherSuiteID{0x00},
-			ServerCipherSuites: []CipherSuiteID{0x00},
+			ClientCipherSuites: []cryptosuite.ID{0x00},
+			ServerCipherSuites: []cryptosuite.ID{0x00},
 			WantClientError:    &invalidCipherSuiteError{0x00},
 			WantServerError:    &invalidCipherSuiteError{0x00},
 		},
 		{
 			Name:                    "Valid cipherSuites specified",
-			ClientCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			ServerCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ClientCipherSuites:      []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ServerCipherSuites:      []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 			WantClientError:         nil,
 			WantServerError:         nil,
-			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			WantSelectedCipherSuite: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		},
 		{
 			Name:               "cipherSuites mismatch",
-			ClientCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			ServerCipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			ClientCipherSuites: []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			ServerCipherSuites: []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
 			WantClientError:    &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}},
 			WantServerError:    dtlserrors.ErrCipherSuiteNoIntersection,
 		},
 		{
 			Name:                    "Valid cipherSuites CCM specified",
-			ClientCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
-			ServerCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
+			ClientCipherSuites:      []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
+			ServerCipherSuites:      []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM},
 			WantClientError:         nil,
 			WantServerError:         nil,
-			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
+			WantSelectedCipherSuite: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
 		},
 		{
 			Name:                    "Valid cipherSuites CCM-8 specified",
-			ClientCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
-			ServerCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
+			ClientCipherSuites:      []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
+			ServerCipherSuites:      []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8},
 			WantClientError:         nil,
 			WantServerError:         nil,
-			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
+			WantSelectedCipherSuite: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
 		},
 		{
 			Name: "Server supports subset of client suites",
-			ClientCipherSuites: []CipherSuiteID{
-				TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+			ClientCipherSuites: []cryptosuite.ID{
+				cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 			},
-			ServerCipherSuites:      []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			ServerCipherSuites:      []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
 			WantClientError:         nil,
 			WantServerError:         nil,
-			WantSelectedCipherSuite: TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+			WantSelectedCipherSuite: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
@@ -2056,14 +2083,14 @@ func TestCertificateAndPSKServer(t *testing.T) {
 			resultCh := make(chan result)
 
 			go func() {
-				opts := []ClientOption{WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
+				opts := []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
 				if test.ClientPSK {
 					opts = []ClientOption{
 						WithPSK(func([]byte) ([]byte, error) {
 							return []byte{0x00, 0x01, 0x02}, nil
 						}),
 						WithPSKIdentityHint([]byte{0x00}),
-						WithCipherSuites(TLS_PSK_WITH_AES_128_GCM_SHA256),
+						WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256),
 					}
 				}
 
@@ -2072,7 +2099,7 @@ func TestCertificateAndPSKServer(t *testing.T) {
 			}()
 
 			opts := []ServerOption{
-				WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_PSK_WITH_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256),
 				WithPSK(func([]byte) ([]byte, error) {
 					return []byte{0x00, 0x01, 0x02}, nil
 				}),
@@ -2228,9 +2255,9 @@ func TestServerTimeout(t *testing.T) {
 	var rand [28]byte
 	random := handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand}
 
-	cipherSuites := []CipherSuite{
-		&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{},
-		&ciphersuite.TLSEcdheRsaWithAes128GcmSha256{},
+	cipherSuites := []cryptosuite.Suite{
+		ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		ciphersuite.ForID(cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
 	}
 
 	extensions := []extension.Value{
@@ -2314,7 +2341,7 @@ func TestServerTimeout(t *testing.T) {
 	defer cancel()
 
 	serverOpts := []ServerOption{
-		WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 		WithFlightInterval(100 * time.Millisecond),
 	}
 
@@ -2349,11 +2376,11 @@ func TestProtocolVersionValidation(t *testing.T) {
 	random := handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand}
 
 	clientOpts := []ClientOption{
-		WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 		WithFlightInterval(100 * time.Millisecond),
 	}
 	serverOpts := []ServerOption{
-		WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 		WithFlightInterval(100 * time.Millisecond),
 	}
 
@@ -2369,10 +2396,12 @@ func TestProtocolVersionValidation(t *testing.T) {
 						},
 						Content: &handshake.Handshake{
 							Message: &handshake.MessageClientHello{
-								Version:            protocol.Version1_0, // try to downgrade
-								Cookie:             cookie,
-								Random:             random,
-								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
+								Version: protocol.Version1_0, // try to downgrade
+								Cookie:  cookie,
+								Random:  random,
+								CipherSuiteIDs: []uint16{uint16(ciphersuite.ForID(
+									cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+								).ID())},
 								CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 							},
 						},
@@ -2387,10 +2416,12 @@ func TestProtocolVersionValidation(t *testing.T) {
 						},
 						Content: &handshake.Handshake{
 							Message: &handshake.MessageClientHello{
-								Version:            protocol.Version1_2,
-								Cookie:             cookie,
-								Random:             random,
-								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
+								Version: protocol.Version1_2,
+								Cookie:  cookie,
+								Random:  random,
+								CipherSuiteIDs: []uint16{uint16(ciphersuite.ForID(
+									cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+								).ID())},
 								CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 							},
 						},
@@ -2405,10 +2436,12 @@ func TestProtocolVersionValidation(t *testing.T) {
 								MessageSequence: 1,
 							},
 							Message: &handshake.MessageClientHello{
-								Version:            protocol.Version1_0, // try to downgrade
-								Cookie:             cookie,
-								Random:             random,
-								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
+								Version: protocol.Version1_0, // try to downgrade
+								Cookie:  cookie,
+								Random:  random,
+								CipherSuiteIDs: []uint16{uint16(ciphersuite.ForID(
+									cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+								).ID())},
 								CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 							},
 						},
@@ -2494,7 +2527,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 								Version: protocol.Version1_0, // try to downgrade
 								Random:  random,
 								CipherSuiteID: func() *uint16 {
-									id := uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+									id := uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 
 									return &id
 								}(),
@@ -2589,7 +2622,7 @@ func marshalVersionNegotiationServerHello13(
 func testVersionNegotiationHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 	t.Helper()
 
-	cipherSuites, err := parseCipherSuitesForVersions(
+	cipherSuites, err := selectCipherSuites(
 		nil,
 		nil,
 		true,
@@ -2759,7 +2792,7 @@ func TestDualStackVersionNegotiationSendsClassifiedAlerts(t *testing.T) {
 
 		raw := marshalVersionNegotiationRecord(t, withExtensions(&handshake.MessageClientHello{
 			Version:            protocol.Version1_2,
-			CipherSuiteIDs:     []uint16{uint16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
+			CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
 			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 		}, []extension.Value{
 			extension.Raw{Type: 0xfefe},
@@ -3457,7 +3490,7 @@ func TestSessionResume(t *testing.T) {
 
 		go func() {
 			opts := []ClientOption{
-				WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 				WithServerName("example.com"),
 				WithSessionStore(ss),
 				WithConnectionID(func() []byte { return clientCID }, CIDPathMigrationReject),
@@ -3468,7 +3501,7 @@ func TestSessionResume(t *testing.T) {
 		}()
 
 		opts := []ServerOption{
-			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+			WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 			WithServerName("example.com"),
 			WithSessionStore(ss),
 			WithConnectionID(func() []byte { return serverCID }, CIDPathMigrationReject),
@@ -3596,19 +3629,25 @@ func TestCipherSuiteMatchesCertificateType(t *testing.T) {
 
 	for _, test := range []struct {
 		Name           string
-		cipherList     []CipherSuiteID
-		expectedCipher CipherSuiteID
+		cipherList     []cryptosuite.ID
+		expectedCipher cryptosuite.ID
 		generateRSA    bool
 	}{
 		{
-			Name:           "ECDSA Certificate with RSA CipherSuite first",
-			cipherList:     []CipherSuiteID{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			expectedCipher: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			Name: "ECDSA Certificate with RSA CipherSuite first",
+			cipherList: []cryptosuite.ID{
+				cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			},
+			expectedCipher: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		},
 		{
-			Name:           "RSA Certificate with ECDSA CipherSuite first",
-			cipherList:     []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
-			expectedCipher: TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			Name: "RSA Certificate with ECDSA CipherSuite first",
+			cipherList: []cryptosuite.ID{
+				cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			},
+			expectedCipher: cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			generateRSA:    true,
 		},
 	} {
@@ -3765,7 +3804,7 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 		resultCh := make(chan result)
 
 		go func() {
-			opts := []ClientOption{WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
+			opts := []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
 			if len(test.ConfigCurves) > 0 {
 				opts = append(opts, WithEllipticCurves(test.ConfigCurves...))
 			}
@@ -3773,7 +3812,7 @@ func TestEllipticCurveConfiguration(t *testing.T) {
 			resultCh <- result{client, err}
 		}()
 
-		opts := []ServerOption{WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
+		opts := []ServerOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
 		if len(test.ConfigCurves) > 0 {
 			opts = append(opts, WithEllipticCurves(test.ConfigCurves...))
 		}
@@ -4797,7 +4836,11 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	require.True(t, ok)
 	readGeneration, ok := clientState.TrafficKeys.Read(dtlsflight13.EpochApplication)
 	require.True(t, ok)
-	innerPlaintext, err := readGeneration.Protection.Open(ciphertext.Header, 0, ciphertext.EncryptedRecord)
+	protection := &testRecordProtection13{
+		TrafficProtection: readGeneration.Protection,
+		capabilities:      clientState.CipherSuite.Capabilities(),
+	}
+	innerPlaintext, err := protection.OpenRecord(ciphertext.Header, 0, ciphertext.EncryptedRecord)
 	require.NoError(t, err)
 	require.Equal(t, protocol.ContentTypeACK, innerPlaintext.RealType)
 	var ack protocol.ACK
@@ -4907,7 +4950,7 @@ func TestDTLSDualStackClientRejectsNonClientHelloBeforeWrite(t *testing.T) {
 		},
 	}
 
-	cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
+	cipherSuiteID := uint16(cryptosuite.TLS_AES_128_GCM_SHA256)
 	client, err := Client(
 		dtlsnet.PacketConnFromConn(caCount),
 		caCount.RemoteAddr(),
@@ -5039,17 +5082,23 @@ func TestProcessProtectedPacketWritesDTLS13HandshakeRecord(t *testing.T) {
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
 
-type sequenceRecordingCipherSuite struct {
-	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
-	sequences []uint64
-	headers   []recordlayer.Header
+type sequenceRecordingProtection struct {
+	capabilities cryptosuite.Capabilities
+	sequences    []uint64
 }
 
-func (c *sequenceRecordingCipherSuite) Encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
-	c.sequences = append(c.sequences, pkt.Header.SequenceNumber)
-	c.headers = append(c.headers, pkt.Header)
+func (p *sequenceRecordingProtection) Seal(record cryptosuite.Record, plaintext []byte) ([]byte, error) {
+	p.sequences = append(p.sequences, record.RecordNumber()&recordlayer.MaxSequenceNumber)
+	protectedLen, err := p.capabilities.ProtectedLen(len(plaintext))
+	if err != nil {
+		return nil, err
+	}
 
-	return bytes.Clone(raw), nil
+	return make([]byte, protectedLen), nil
+}
+
+func (*sequenceRecordingProtection) Open(cryptosuite.Record, []byte) ([]byte, error) {
+	return nil, cryptosuite.ErrAuthenticationFailed
 }
 
 func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testing.T) {
@@ -5060,7 +5109,8 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 	)
 
 	remoteCID := []byte("remote-cid")
-	cipherSuite := &sequenceRecordingCipherSuite{}
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+	protection := &sequenceRecordingProtection{capabilities: cipherSuite.Capabilities()}
 	commonState := &dtlsstate.Common{
 		LocalVersion:        protocol.Version1_2,
 		LocalSequenceNumber: []uint64{0, firstSequence},
@@ -5070,7 +5120,7 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 	conn := &Conn{
 		maximumTransmissionUnit: 10,
 		paddingLengthGenerator:  func(uint) uint { return 0 },
-		state:                   &dtlsstate.State12{Common: commonState},
+		state:                   &dtlsstate.State12{Common: commonState, Protection: protection},
 	}
 	dtlsHandshake := &handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 9},
@@ -5097,7 +5147,6 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 
 		header := recordlayer.Header{ConnectionID: make([]byte, len(remoteCID))}
 		require.NoError(t, header.Unmarshal(record.raw))
-		assert.Equal(t, header, cipherSuite.headers[i])
 		assert.Equal(t, protocol.ContentTypeConnectionID, header.ContentType)
 		assert.Equal(t, remoteCID, header.ConnectionID)
 		assert.Equal(t, epoch, header.Epoch)
@@ -5105,7 +5154,7 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 	}
 
 	// Encrypt receives this record metadata for the nonce and MAC calculation.
-	assert.Equal(t, expectedSequences, cipherSuite.sequences)
+	assert.Equal(t, expectedSequences, protection.sequences)
 	assert.Equal(t, firstSequence+uint64(len(expectedSequences)), commonState.LocalSequenceNumber[epoch])
 }
 
@@ -5210,7 +5259,7 @@ func TestOpenCiphertextRecordRejectsInvalidRecords(t *testing.T) {
 			mutate: func(conn *Conn, _ *recordlayer.CiphertextRecord) {
 				conn.updateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
 			},
-			wantErr: dtlserrors.ErrDecryptPacket,
+			wantErr: errRecordAuthentication,
 		},
 		{
 			name: "wrong epoch",
@@ -5224,7 +5273,7 @@ func TestOpenCiphertextRecordRejectsInvalidRecords(t *testing.T) {
 			mutate: func(_ *Conn, record *recordlayer.CiphertextRecord) {
 				record.EncryptedRecord[0] ^= 0x80
 			},
-			wantErr: dtlserrors.ErrDecryptPacket,
+			wantErr: errRecordAuthentication,
 		},
 	}
 
@@ -5283,7 +5332,8 @@ func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	rawPacket, err := record.Marshal()
 	assert.NoError(t, err)
 
-	prepared, ok := conn.prepareIncomingPacket(rawPacket, nil, &readBufferLease{conn: conn}, false)
+	prepared, ok, err := conn.prepareIncomingPacket(rawPacket, nil, &readBufferLease{conn: conn}, false)
+	require.NoError(t, err)
 	assert.True(t, ok)
 	if assert.NotNil(t, prepared.header) {
 		assert.Equal(t, protocol.ContentTypeHandshake, prepared.header.ContentType)
@@ -5296,19 +5346,129 @@ func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	}
 }
 
-func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.RecordProtection13) {
+type testRecordProtection13 struct {
+	cryptosuite.TrafficProtection
+	capabilities cryptosuite.Capabilities
+}
+
+func newTestRecordProtection13(
+	suite cryptosuite.TrafficSuite,
+	secret []byte,
+) (*testRecordProtection13, error) {
+	trafficSecret, err := ciphersuite.NewTrafficSecret(secret)
+	if err != nil {
+		return nil, err
+	}
+	protection, err := suite.NewTrafficProtection(trafficSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	return &testRecordProtection13{TrafficProtection: protection, capabilities: suite.Capabilities()}, nil
+}
+
+func (p *testRecordProtection13) SealRecord(
+	header recordlayer.UnifiedHeader,
+	sequenceNumber uint64,
+	contentType protocol.ContentType,
+	plaintext []byte,
+) (recordlayer.CiphertextRecord, error) {
+	innerPlaintext, err := (&recordlayer.InnerPlaintext{Content: plaintext, RealType: contentType}).Marshal()
+	if err != nil {
+		return recordlayer.CiphertextRecord{}, err
+	}
+	protectedLen, err := p.capabilities.ProtectedLen(len(innerPlaintext))
+	if err != nil {
+		return recordlayer.CiphertextRecord{}, err
+	}
+	header, metadata, err := newTestRecord13(header, sequenceNumber, protectedLen)
+	if err != nil {
+		return recordlayer.CiphertextRecord{}, err
+	}
+	protected, err := p.Seal(metadata, innerPlaintext)
+	if err != nil {
+		return recordlayer.CiphertextRecord{}, err
+	}
+	mask, err := p.sequenceNumberMask(protected)
+	if err != nil {
+		return recordlayer.CiphertextRecord{}, err
+	}
+	header.SequenceNumber, err = applySequenceNumberMask(header.SequenceNumber, true, mask)
+	if err != nil {
+		return recordlayer.CiphertextRecord{}, err
+	}
+
+	return recordlayer.CiphertextRecord{Header: header, EncryptedRecord: protected}, nil
+}
+
+func (p *testRecordProtection13) OpenRecord(
+	header recordlayer.UnifiedHeader,
+	sequenceNumber uint64,
+	protected []byte,
+) (recordlayer.InnerPlaintext, error) {
+	mask, err := p.sequenceNumberMask(protected)
+	if err != nil {
+		return recordlayer.InnerPlaintext{}, err
+	}
+	header.SequenceNumber, err = applySequenceNumberMask(header.SequenceNumber, header.SeqBit, mask)
+	if err != nil {
+		return recordlayer.InnerPlaintext{}, err
+	}
+	metadata, err := ciphersuite.NewUnifiedRecord(uint64(header.EpochLow), sequenceNumber, header, len(protected))
+	if err != nil {
+		return recordlayer.InnerPlaintext{}, err
+	}
+	plaintext, err := p.Open(metadata, protected)
+	if errors.Is(err, cryptosuite.ErrAuthenticationFailed) {
+		return recordlayer.InnerPlaintext{}, dtlserrors.ErrDecryptPacket
+	}
+	if err != nil {
+		return recordlayer.InnerPlaintext{}, err
+	}
+	var innerPlaintext recordlayer.InnerPlaintext
+	if err = innerPlaintext.Unmarshal(plaintext); err != nil {
+		return recordlayer.InnerPlaintext{}, err
+	}
+
+	return innerPlaintext, nil
+}
+
+func newTestRecord13(
+	header recordlayer.UnifiedHeader,
+	sequenceNumber uint64,
+	protectedLen int,
+) (recordlayer.UnifiedHeader, cryptosuite.Record, error) {
+	header.SequenceNumber = uint16(sequenceNumber) //nolint:gosec
+	header.SeqBit = true
+	header.LengthBit = true
+	header.Length = uint16(protectedLen) //nolint:gosec
+	metadata, err := ciphersuite.NewUnifiedRecord(uint64(header.EpochLow), sequenceNumber, header, protectedLen)
+
+	return header, metadata, err
+}
+
+func (p *testRecordProtection13) sequenceNumberMask(protected []byte) ([]byte, error) {
+	maskLen := p.capabilities.MaskLen()
+	if len(protected) < maskLen {
+		return nil, dtlserrors.ErrBufferTooSmall
+	}
+
+	return p.Mask(protected[:maskLen])
+}
+
+func newTestConnWithWriteProtection(t *testing.T) (*Conn, *testRecordProtection13) {
 	t.Helper()
 
-	localCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	localCipherSuite := trafficSuiteForTest(t)
 	clientSecret := bytes.Repeat([]byte{0x11}, localCipherSuite.HashFunc()().Size())
 	serverSecret := bytes.Repeat([]byte{0x22}, localCipherSuite.HashFunc()().Size())
-	localWriteProtection, err := localCipherSuite.NewRecordProtection(clientSecret)
+	localWriteProtection, err := newTestRecordProtection13(localCipherSuite, clientSecret)
 	assert.NoError(t, err)
-	localReadProtection, err := localCipherSuite.NewRecordProtection(serverSecret)
+	localReadProtection, err := newTestRecordProtection13(localCipherSuite, serverSecret)
 	assert.NoError(t, err)
 
-	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
-	peerReadProtection, err := peerCipherSuite.NewRecordProtection(clientSecret)
+	peerCipherSuite := trafficSuiteForTest(t)
+	peerReadProtection, err := newTestRecordProtection13(peerCipherSuite, clientSecret)
 	assert.NoError(t, err)
 
 	commonState := &dtlsstate.Common{
@@ -5349,19 +5509,19 @@ func newTestConnWithWriteProtection(t *testing.T) (*Conn, ciphersuite.RecordProt
 	}, peerReadProtection
 }
 
-func newTestConnWithReadProtection(t *testing.T) (*Conn, ciphersuite.RecordProtection13) {
+func newTestConnWithReadProtection(t *testing.T) (*Conn, *testRecordProtection13) {
 	t.Helper()
 
-	localCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	localCipherSuite := trafficSuiteForTest(t)
 	clientSecret := bytes.Repeat([]byte{0x11}, localCipherSuite.HashFunc()().Size())
 	serverSecret := bytes.Repeat([]byte{0x22}, localCipherSuite.HashFunc()().Size())
-	localWriteProtection, err := localCipherSuite.NewRecordProtection(clientSecret)
+	localWriteProtection, err := newTestRecordProtection13(localCipherSuite, clientSecret)
 	assert.NoError(t, err)
-	localReadProtection, err := localCipherSuite.NewRecordProtection(serverSecret)
+	localReadProtection, err := newTestRecordProtection13(localCipherSuite, serverSecret)
 	assert.NoError(t, err)
 
-	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
-	peerWriteProtection, err := peerCipherSuite.NewRecordProtection(serverSecret)
+	peerCipherSuite := trafficSuiteForTest(t)
+	peerWriteProtection, err := newTestRecordProtection13(peerCipherSuite, serverSecret)
 	assert.NoError(t, err)
 
 	commonState := &dtlsstate.Common{
@@ -5428,7 +5588,7 @@ func encryptedExtensionsHandshakeWithSequence(t *testing.T, messageSequence uint
 
 func sealTestProtectedHandshakeRecord(
 	t *testing.T,
-	protection ciphersuite.RecordProtection13,
+	protection *testRecordProtection13,
 	plaintext []byte,
 ) recordlayer.CiphertextRecord {
 	t.Helper()
@@ -5438,13 +5598,13 @@ func sealTestProtectedHandshakeRecord(
 
 func sealTestProtectedHandshakeRecordWithSequence(
 	t *testing.T,
-	protection ciphersuite.RecordProtection13,
+	protection *testRecordProtection13,
 	plaintext []byte,
 	sequenceNumber uint64,
 ) recordlayer.CiphertextRecord {
 	t.Helper()
 
-	record, err := protection.Seal(
+	record, err := protection.SealRecord(
 		recordlayer.UnifiedHeader{
 			EpochLow: uint8(dtlsflight13.EpochHandshake & recordlayer.TwoLowBitsMask),
 		},
@@ -5459,14 +5619,14 @@ func sealTestProtectedHandshakeRecordWithSequence(
 
 func openTestProtectedRecord(
 	t *testing.T,
-	protection ciphersuite.RecordProtection13,
+	protection *testRecordProtection13,
 	rawPacket []byte,
 ) recordlayer.InnerPlaintext {
 	t.Helper()
 
 	ciphertext := unmarshalCiphertextRecordForTest(t, rawPacket, 0)
 
-	innerPlaintext, err := protection.Open(
+	innerPlaintext, err := protection.OpenRecord(
 		ciphertext.Header,
 		0,
 		ciphertext.EncryptedRecord,
@@ -5534,6 +5694,21 @@ func TestSealRecordContentUsesWriteTrafficGeneration(t *testing.T) {
 	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
 }
 
+func TestSealRecordContentAcceptsMaximumContent(t *testing.T) {
+	conn, peerProtection := newTestConnWithWriteProtection(t)
+	plaintext := bytes.Repeat([]byte{0x5a}, maxPlaintextRecordLen)
+
+	rawRecord, err := conn.sealRecordContent(
+		dtlsflight13.EpochApplication,
+		0,
+		protocol.ContentTypeApplicationData,
+		plaintext,
+	)
+	require.NoError(t, err)
+	innerPlaintext := openTestProtectedRecord(t, peerProtection, rawRecord)
+	assert.Equal(t, plaintext, innerPlaintext.Content)
+}
+
 func TestSealRecordContentUsesNegotiatedConnectionID(t *testing.T) {
 	conn, state, suite := newTrafficKeyTestConn(t)
 	secret := trafficKeyTestSecret(suite, 0x23)
@@ -5552,7 +5727,7 @@ func TestSealRecordContentUsesNegotiatedConnectionID(t *testing.T) {
 
 	record := unmarshalCiphertextRecordForTest(t, rawRecord, len("remote-cid"))
 	assert.Equal(t, []byte("remote-cid"), record.Header.ConnectionID)
-	innerPlaintext, err := protection.Open(record.Header, 0, record.EncryptedRecord)
+	innerPlaintext, err := protection.OpenRecord(record.Header, 0, record.EncryptedRecord)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("application"), innerPlaintext.Content)
 }
@@ -5569,7 +5744,7 @@ func TestOpenCiphertextRecordUsesNegotiatedConnectionID(t *testing.T) {
 	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
 	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local-cid"), ServerCID: []byte("remote-cid")}) //nolint:lll
 
-	sealed, err := protection.Seal(
+	sealed, err := protection.SealRecord(
 		recordlayer.UnifiedHeader{
 			ConnectionID: []byte("local-cid"),
 			EpochLow:     uint8(dtlsflight13.EpochApplication & recordlayer.TwoLowBitsMask),
@@ -5613,7 +5788,7 @@ func TestCiphertextConnectionIDDoesNotMigrateWithoutRRC(t *testing.T) {
 	candidateAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 6000}
 	conn.rAddr = activeAddr
 
-	sealed, err := peerProtection.Seal(
+	sealed, err := peerProtection.SealRecord(
 		recordlayer.UnifiedHeader{
 			ConnectionID: localCID,
 			EpochLow:     uint8(dtlsflight13.EpochApplication & recordlayer.TwoLowBitsMask),
@@ -5686,7 +5861,7 @@ func testLatestCIDControlRecordStartsRRC(
 	conn.nextConn = netctx.NewPacketConn(dtlsnet.PacketConnFromConn(local))
 	require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
 
-	sealed, err := peerProtection.Seal(
+	sealed, err := peerProtection.SealRecord(
 		recordlayer.UnifiedHeader{
 			ConnectionID: localCID,
 			EpochLow:     uint8(dtlsflight13.EpochApplication & recordlayer.TwoLowBitsMask),
@@ -5870,7 +6045,7 @@ func TestOpenCiphertextRecordUsesReadTrafficGeneration(t *testing.T) {
 		Protection: wrongDirection,
 	})
 	innerPlaintext, sequenceNumber, epoch, err = conn.openCiphertextRecord(applicationRecord)
-	assert.ErrorIs(t, err, dtlserrors.ErrDecryptPacket)
+	assert.ErrorIs(t, err, errRecordAuthentication)
 	assert.Zero(t, innerPlaintext)
 	assert.Zero(t, sequenceNumber)
 	assert.Zero(t, epoch)
@@ -5927,10 +6102,10 @@ func TestQueueIfCipherSuiteUninitializedUsesReadTrafficGeneration(t *testing.T) 
 	}
 }
 
-func newTrafficKeyTestConn(t *testing.T) (*Conn, *dtlsstate.State13, ciphersuite.CipherSuiteTLS13) {
+func newTrafficKeyTestConn(t *testing.T) (*Conn, *dtlsstate.State13, cryptosuite.TrafficSuite) {
 	t.Helper()
 
-	suite := ciphersuite.NewTLSAes128GcmSha256()
+	suite := trafficSuiteForTest(t)
 	state := &dtlsstate.State13{
 		Common: &dtlsstate.Common{
 			IsClient:     true,
@@ -5943,18 +6118,27 @@ func newTrafficKeyTestConn(t *testing.T) (*Conn, *dtlsstate.State13, ciphersuite
 	return &Conn{state: state}, state, suite
 }
 
-func trafficKeyTestSecret(suite ciphersuite.CipherSuiteTLS13, value byte) []byte {
+func trafficSuiteForTest(t *testing.T) cryptosuite.TrafficSuite {
+	t.Helper()
+
+	suite, ok := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256).(cryptosuite.TrafficSuite)
+	require.True(t, ok)
+
+	return suite
+}
+
+func trafficKeyTestSecret(suite cryptosuite.TrafficSuite, value byte) []byte {
 	return bytes.Repeat([]byte{value}, suite.HashFunc()().Size())
 }
 
 func trafficKeyTestProtection(
 	t *testing.T,
-	suite ciphersuite.CipherSuiteTLS13,
+	suite cryptosuite.TrafficSuite,
 	secret []byte,
-) ciphersuite.RecordProtection13 {
+) *testRecordProtection13 {
 	t.Helper()
 
-	protection, err := suite.NewRecordProtection(secret)
+	protection, err := newTestRecordProtection13(suite, secret)
 	require.NoError(t, err)
 
 	return protection
@@ -5962,14 +6146,14 @@ func trafficKeyTestProtection(
 
 func sealTrafficKeyTestRecord(
 	t *testing.T,
-	protection ciphersuite.RecordProtection13,
+	protection *testRecordProtection13,
 	epoch uint16,
 	contentType protocol.ContentType,
 	plaintext []byte,
 ) recordlayer.CiphertextRecord {
 	t.Helper()
 
-	record, err := protection.Seal(
+	record, err := protection.SealRecord(
 		recordlayer.UnifiedHeader{EpochLow: uint8(epoch & recordlayer.TwoLowBitsMask), SeqBit: true},
 		0,
 		contentType,
@@ -5982,14 +6166,14 @@ func sealTrafficKeyTestRecord(
 
 func assertTrafficKeyTestRecord(
 	t *testing.T,
-	protection ciphersuite.RecordProtection13,
+	protection *testRecordProtection13,
 	rawRecord []byte,
 	want []byte,
 ) {
 	t.Helper()
 
 	record := unmarshalCiphertextRecordForTest(t, rawRecord, 0)
-	innerPlaintext, err := protection.Open(record.Header, 0, record.EncryptedRecord)
+	innerPlaintext, err := protection.OpenRecord(record.Header, 0, record.EncryptedRecord)
 	require.NoError(t, err)
 	assert.Equal(t, want, innerPlaintext.Content)
 }

@@ -286,6 +286,7 @@ var (
 	ErrInvalidTicketLength      = stderrors.New("ticket must be between 1 and 65535 bytes")
 
 	ErrInvalidPacketLength        = stderrors.New("packet length and declared length do not match")
+	ErrInvalidProtectionInput     = stderrors.New("invalid record protection input")
 	ErrInvalidCiphertextHeader    = stderrors.New("invalid dtls ciphertext header")
 	ErrInvalidEpoch               = stderrors.New("invalid epoch")
 	ErrCIDTooBig                  = stderrors.New("connection ID size is too big")

@@ -1,59 +1,36 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-// Package ciphersuite provides the crypto operations needed for a DTLS CipherSuite
 package ciphersuite
 
 import (
 	"testing"
 
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestGenerateAEADAdditionalDataCID(t *testing.T) {
-	cases := map[string]struct {
-		reason     string
-		header     *recordlayer.Header
-		payloadLen int
-		expected   []byte
-	}{
-		"WithConnectionID": {
-			reason: "Should successfully generate additional data with valid header",
-			header: &recordlayer.Header{
-				ContentType:    protocol.ContentTypeConnectionID,
-				ConnectionID:   []byte{1, 2, 3, 4, 5, 6, 7, 8},
-				Version:        protocol.Version1_2,
-				Epoch:          2,
-				SequenceNumber: 277,
-			},
-			payloadLen: 1784,
-			expected: []byte{
-				255, 255, 255, 255, 255, 255, 255, 255, 25, 8, 25, 254, 253,
-				0, 2, 0, 0, 0, 0, 1, 21, 1, 2, 3, 4, 5, 6, 7, 8, 6, 248,
-			},
-		},
-		"IgnoreContentType": {
-			reason: "Should use Connection ID content type regardless of header content type.",
-			header: &recordlayer.Header{
-				ContentType:    protocol.ContentTypeAlert,
-				ConnectionID:   []byte{1, 2, 3, 4, 5, 6, 7, 8},
-				Version:        protocol.Version1_2,
-				Epoch:          2,
-				SequenceNumber: 277,
-			},
-			payloadLen: 1784,
-			expected: []byte{
-				255, 255, 255, 255, 255, 255, 255, 255, 25, 8, 25, 254, 253,
-				0, 2, 0, 0, 0, 0, 1, 21, 1, 2, 3, 4, 5, 6, 7, 8, 6, 248,
-			},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			data := generateAEADAdditionalDataCID(tc.header, tc.payloadLen)
-			assert.Equal(t, tc.expected, data)
-		})
-	}
+func TestCapabilitySizing(t *testing.T) {
+	aead, err := NewAEADCapabilities(protocol.Version1_2, 64, 0, 16, 0)
+	require.NoError(t, err)
+	protectedLen, err := aead.ProtectedLen(37)
+	require.NoError(t, err)
+	require.Equal(t, 53, protectedLen)
+	upper, err := aead.PlaintextLenUpperBound(protectedLen)
+	require.NoError(t, err)
+	require.Equal(t, 37, upper)
+	require.NoError(t, aead.ValidatePlaintextLen(protectedLen, 37))
+	require.ErrorIs(t, aead.ValidatePlaintextLen(protectedLen, 36), ErrInvalidCapabilities)
+
+	cbc, err := NewCBCCapabilities(64, 32, 16)
+	require.NoError(t, err)
+	protectedLen, err = cbc.ProtectedLen(37)
+	require.NoError(t, err)
+	require.Equal(t, 96, protectedLen)
+	upper, err = cbc.PlaintextLenUpperBound(protectedLen)
+	require.NoError(t, err)
+	require.Equal(t, 47, upper)
+	require.NoError(t, cbc.ValidatePlaintextLen(protectedLen, 37))
+	require.NoError(t, cbc.ValidatePlaintextLen(protectedLen+16, 37), "legal non-minimal CBC padding")
+	require.ErrorIs(t, cbc.ValidatePlaintextLen(129, 37), ErrInvalidCapabilities)
 }

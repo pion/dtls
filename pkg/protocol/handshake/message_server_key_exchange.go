@@ -8,8 +8,8 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
@@ -28,7 +28,7 @@ type MessageServerKeyExchange struct {
 	Signature          []byte
 
 	// for unmarshaling
-	KeyExchangeAlgorithm types.KeyExchangeAlgorithm
+	KeyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
 }
 
 // Type returns the Handshake Type.
@@ -148,16 +148,16 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 	switch {
 	case len(data) < 2:
 		return dtlserrors.ErrBufferTooSmall
-	case m.KeyExchangeAlgorithm == types.KeyExchangeAlgorithmNone:
+	case m.KeyExchangeAlgorithm == ciphersuite.KeyExchangeAlgorithmNone:
 		return dtlserrors.ErrCipherSuiteUnset
 	}
 
 	hintLength := binary.BigEndian.Uint16(data)
-	if int(hintLength) <= len(data)-2 && m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmPsk) {
+	if int(hintLength) <= len(data)-2 && m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmPsk) {
 		m.IdentityHint = bytes.Clone(data[2 : 2+hintLength])
 		data = data[2+hintLength:]
 	}
-	if m.KeyExchangeAlgorithm == types.KeyExchangeAlgorithmPsk {
+	if m.KeyExchangeAlgorithm == ciphersuite.KeyExchangeAlgorithmPsk {
 		if len(data) == 0 {
 			return nil
 		}
@@ -165,7 +165,7 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 		return dtlserrors.ErrLengthMismatch
 	}
 
-	if !m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmEcdhe) {
+	if !m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmEcdhe) {
 		return dtlserrors.ErrLengthMismatch
 	}
 

@@ -15,6 +15,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -85,15 +86,20 @@ func newPostHandshakeKeyUpdateTestState(t *testing.T, isClient bool) *dtlsstate.
 	t.Helper()
 
 	state := dtlsstate.NewState13(isClient)
-	suite := ciphersuite.NewTLSAes128GcmSha256()
+	suite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
+	factory := suite.(cryptosuite.TrafficSuite) //nolint:forcetypeassert // fixed built-in registry.
 	state.CipherSuite = suite
 	state.SetLocalEpoch(dtlsflight13.EpochApplication)
 	state.SetRemoteEpoch(dtlsflight13.EpochApplication)
 	writeSecret := bytes.Repeat([]byte{0x11}, suite.HashFunc()().Size())
 	readSecret := bytes.Repeat([]byte{0x22}, suite.HashFunc()().Size())
-	writeProtection, err := suite.NewRecordProtection(writeSecret)
+	writeTrafficSecret, err := ciphersuite.NewTrafficSecret(writeSecret)
 	require.NoError(t, err)
-	readProtection, err := suite.NewRecordProtection(readSecret)
+	writeProtection, err := factory.NewTrafficProtection(writeTrafficSecret)
+	require.NoError(t, err)
+	readTrafficSecret, err := ciphersuite.NewTrafficSecret(readSecret)
+	require.NoError(t, err)
+	readProtection, err := factory.NewTrafficProtection(readTrafficSecret)
 	require.NoError(t, err)
 	state.TrafficKeys.Install(
 		&dtlsstate.TrafficGeneration{

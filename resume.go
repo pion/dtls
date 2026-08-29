@@ -4,26 +4,58 @@
 package dtls
 
 import (
+	"errors"
 	"net"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 )
 
 func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
-	internalState, err := state.generateInternalState()
-	if err != nil {
-		return nil, err
-	}
-
 	if config == nil {
 		return nil, dtlserrors.ErrNoConfigProvided
+	}
+	if state.CipherSuiteID == 0 {
+		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
 
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
+	selected, err := resolveResumeCipherSuite(state, config)
+	if err != nil {
+		return nil, err
+	}
+	state.cipherSuiteDescriptor = selected
+
+	internalState, err := state.generateInternalState()
+	if err != nil {
+		return nil, err
+	}
 
 	return createConn(conn, rAddr, config, internalState.IsClient, internalState)
+}
+
+func resolveResumeCipherSuite(state *State, config *dtlsConfig) (cryptosuite.Suite, error) {
+	selected, err := state.cipherSuite()
+	if err == nil {
+		return selected, nil
+	}
+	if !errors.Is(err, dtlserrors.ErrCipherSuiteNotSet) {
+		return nil, err
+	}
+
+	configValues, err := newConnConfigValues(config)
+	if err != nil {
+		return nil, err
+	}
+	for _, suite := range configValues.cipherSuites {
+		if suite.ID() == state.CipherSuiteID {
+			return suite, nil
+		}
+	}
+
+	return nil, &invalidCipherSuiteError{state.CipherSuiteID}
 }
 
 // Resume imports an already established dtls connection using a specific dtls state.

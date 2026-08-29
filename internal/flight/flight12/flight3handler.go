@@ -8,13 +8,13 @@ import (
 	"context"
 	"slices"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -109,18 +109,14 @@ func flight3Parse(
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrClientRequiredButNoServerEMS //nolint:lll
 		}
 
-		remoteCipherSuite := ciphersuite.ForID(ciphersuite.ID(*serverHelloMsg.CipherSuiteID), cfg.CustomCipherSuites)
-		if remoteCipherSuite == nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
-		}
-		if !ciphersuite.IDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_2) {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
-		}
-
-		selectedCipherSuite, found := dtlsflight.FindMatchingCipherSuite(
-			[]dtlsconfig.CipherSuite{remoteCipherSuite}, cfg.LocalCipherSuites,
+		selectedCipherSuite, found := dtlsflight.FindCipherSuiteByID(
+			*serverHelloMsg.CipherSuiteID,
+			cfg.LocalCipherSuites,
 		)
 		if !found {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll
+		}
+		if !selectedCipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrInvalidCipherSuite
 		}
 
@@ -179,7 +175,7 @@ func flight3Parse(
 
 	if h, ok := serverFlightPull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
 		state.PeerCertificates = util.CloneByteSlices(h.Certificate)
-	} else if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate {
+	} else if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrInvalidCertificate
 	}
 
@@ -276,9 +272,9 @@ func handleServerKeyExchange(
 		}
 		state.IdentityHint = bytes.Clone(keyExchangeMessage.IdentityHint)
 		switch state.CipherSuite.KeyExchangeAlgorithm() {
-		case ciphersuite.KeyExchangeAlgorithmPsk:
+		case cryptosuite.KeyExchangeAlgorithmPsk:
 			state.PreMasterSecret = prf.PSKPreMasterSecret(psk)
-		case (ciphersuite.KeyExchangeAlgorithmEcdhe | ciphersuite.KeyExchangeAlgorithmPsk):
+		case (cryptosuite.KeyExchangeAlgorithmEcdhe | cryptosuite.KeyExchangeAlgorithmPsk):
 			if state.LocalKeypair, err = elliptic.GenerateKeypair(keyExchangeMessage.NamedCurve); err != nil {
 				return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}

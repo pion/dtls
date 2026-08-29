@@ -11,6 +11,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -126,7 +127,7 @@ func TestFlight12ClientValidatesFinalSRTPOfferBeforeCommit(t *testing.T) {
 
 func newSRTPServerState12() *dtlsstate.State12 {
 	state := newTestState12()
-	state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_PSK_WITH_AES_128_GCM_SHA256, nil)
+	state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256)
 
 	return state
 }
@@ -139,7 +140,7 @@ func newSRTPClientFlight3Test(
 	t.Helper()
 	state := newTestState12()
 	state.IsClient = true
-	suite := ciphersuite.ForID(ciphersuite.TLS_PSK_WITH_AES_128_GCM_SHA256, nil)
+	suite := ciphersuite.ForID(cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256)
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalCipherSuites:    []dtlsconfig.CipherSuite{suite},
 		LocalPSKIdentityHint: []byte("client"),

@@ -125,8 +125,20 @@ func FindMatchingCipherSuite(a, b []dtlsconfig.CipherSuite) (dtlsconfig.CipherSu
 	for _, p1 := range a {
 		for _, p2 := range b {
 			if p1.ID() == p2.ID() {
-				return p1, true
+				return p2, true
 			}
+		}
+	}
+
+	return nil, false
+}
+
+// FindCipherSuiteByID resolves a peer wire identifier to the configured local
+// descriptor / factory.
+func FindCipherSuiteByID(id uint16, suites []dtlsconfig.CipherSuite) (dtlsconfig.CipherSuite, bool) {
+	for _, suite := range suites {
+		if suite != nil && uint16(suite.ID()) == id {
+			return suite, true
 		}
 	}
 

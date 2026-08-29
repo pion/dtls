@@ -13,6 +13,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -105,7 +106,7 @@ func TestFlight3GenerateRestoresCurveExtensionsAfterVersionDowngrade(t *testing.
 
 func TestFlight3GenerateValidatesRetryWithEmptyCookie(t *testing.T) {
 	state := newTestState12()
-	suite := ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	suite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalCipherSuites: []dtlsconfig.CipherSuite{suite},
 		EllipticCurves:    []elliptic.Curve{elliptic.X25519},
@@ -129,14 +130,14 @@ func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
 	state := newTestState12()
 	clientHello := &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
-		CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
+		CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	}
 	_, offer, err := negotiation.FinalizeClientHello(clientHello, nil)
 	require.NoError(t, err)
 	require.NoError(t, state.LocalClientHelloSnapshots.Record(offer))
 
-	cipherSuiteID := uint16(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+	cipherSuiteID := uint16(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	raw, err := (&handshake.Handshake{
 		Message: withExtensions(&handshake.MessageServerHello{
 			Version:           protocol.Version1_2,
@@ -160,7 +161,7 @@ func TestFlight3DoesNotCommitConnectionIDBeforeSuccess(t *testing.T) {
 	state := newTestState12()
 	state.IsClient, state.SessionID = true, []byte{1}
 	recordCH12(t, &state.LocalClientHelloSnapshots, &extension.ConnectionID{CID: []byte{0xc1}})
-	suite := ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	suite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalCipherSuites: []dtlsconfig.CipherSuite{suite}, HasSessionStore: true,
 		DelSession: func([]byte) error { return dtlserrors.ErrInvalidPacket },
@@ -254,7 +255,7 @@ func TestFlight4bGenerateCommitsConnectionIDOnce(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			state := newTestState12()
-			state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+			state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 			state.LocalVerifyData = []byte{1}
 			recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: test.clientCID})
 			calls := 0
@@ -279,7 +280,7 @@ func TestFlight4bGenerateCommitsConnectionIDOnce(t *testing.T) {
 
 func TestFlight4bGenerateDoesNotCommitConnectionIDAfterLateResponseError(t *testing.T) {
 	state := newTestState12()
-	state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	state.LocalVerifyData = []byte{1}
 	recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: []byte{0xc1}})
 	cfg := &dtlsconfig.HandshakeConfig{

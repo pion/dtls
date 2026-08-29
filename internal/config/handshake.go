@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	internalstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -44,14 +44,13 @@ const (
 )
 
 type (
-	CipherSuite           = ciphersuite.CipherSuite
-	CipherSuiteID         = ciphersuite.ID
+	CipherSuite           = cryptosuite.Suite
 	SRTPProtectionProfile = extension.SRTPProtectionProfile
 )
 
 type ClientHelloInfo struct {
 	ServerName   string
-	CipherSuites []CipherSuiteID
+	CipherSuites []cryptosuite.ID
 	RandomBytes  [handshake.RandomBytesLength]byte
 }
 
@@ -123,7 +122,6 @@ type HandshakeConfig struct {
 	ClientCAs                     *x509.CertPool
 	InitialRetransmitInterval     time.Duration
 	DisableRetransmitBackoff      bool
-	CustomCipherSuites            func() []CipherSuite
 	EllipticCurves                []elliptic.Curve
 	InsecureSkipHelloVerify       bool
 	ConnectionIDGenerator         func() []byte

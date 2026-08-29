@@ -13,6 +13,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -315,7 +316,7 @@ func flight4TestContext(t *testing.T) *handshakeContext {
 	return &handshakeContext{
 		state: &dtlsstate.State13{
 			Common: &dtlsstate.Common{
-				CipherSuite:                ciphersuite.NewTLSAes128GcmSha256(),
+				CipherSuite:                ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256),
 				RemoteClientHelloSnapshots: remoteOffers,
 			},
 			LocalKeypair:           keypair,

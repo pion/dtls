@@ -12,6 +12,7 @@ import (
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/transport/v4/dpipe"
@@ -22,7 +23,7 @@ func TestGenerateStateRejectsDTLS13(t *testing.T) {
 	internalState := &dtlsstate.State{
 		Common: &dtlsstate.Common{
 			LocalVersion: protocol.Version1_3,
-			CipherSuite:  ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil),
+			CipherSuite:  ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256),
 		},
 	}
 
@@ -34,7 +35,7 @@ func TestUnmarshalBinaryRejectsDTLS13State(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, gob.NewEncoder(&buf).Encode(serializedState{
 		Version:       protocol.Version1_3,
-		CipherSuiteID: uint16(ciphersuite.TLS_AES_128_GCM_SHA256),
+		CipherSuiteID: uint16(cryptosuite.TLS_AES_128_GCM_SHA256),
 	}))
 
 	var state State
@@ -44,7 +45,7 @@ func TestUnmarshalBinaryRejectsDTLS13State(t *testing.T) {
 
 func TestStatePreservesPeerSRTPMKI(t *testing.T) {
 	state := State{
-		CipherSuiteID:         TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		CipherSuiteID:         cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		srtpProtectionProfile: SRTP_AES128_CM_HMAC_SHA1_80,
 		peerSRTPMKI:           []byte{1, 2},
 	}
@@ -59,7 +60,7 @@ func TestStatePreservesPeerSRTPMKI(t *testing.T) {
 
 func TestStatePreservesReturnRoutabilityCheck(t *testing.T) {
 	state := State{
-		CipherSuiteID: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		rrcNegotiated: true,
 	}
 	serialized, err := state.serialize()

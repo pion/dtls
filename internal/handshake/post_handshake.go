@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	dtlsciphersuite "github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
@@ -639,9 +640,16 @@ func (p *postHandshake) nextTrafficGeneration(
 	if err != nil {
 		return nil, err
 	}
-	nextProtection, err := cipherSuite.NewRecordProtection(nextSecret)
+	trafficSecret, err := dtlsciphersuite.NewTrafficSecret(nextSecret)
 	if err != nil {
 		return nil, err
+	}
+	nextProtection, err := cipherSuite.NewTrafficProtection(trafficSecret)
+	if err != nil {
+		return nil, err
+	}
+	if nextProtection == nil {
+		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 
 	return &dtlsstate.TrafficGeneration{

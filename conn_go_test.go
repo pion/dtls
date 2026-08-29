@@ -171,7 +171,10 @@ func testListenConnectionIDRebindingRequiresRRC(
 		require.Equal(t, protocol.ContentTypeReturnRoutabilityCheck, challengePlaintext.RealType)
 		require.NoError(t, challenge.Unmarshal(challengePlaintext.Content))
 	} else {
-		prepared, ok := client.prepareIncomingPacket(challengeRecords[0], source, nil, datagramContainsCID)
+		prepared, ok, prepareErr := client.prepareIncomingPacket(
+			challengeRecords[0], source, nil, datagramContainsCID,
+		)
+		require.NoError(t, prepareErr)
 		require.True(t, ok)
 		require.Equal(t, protocol.ContentTypeReturnRoutabilityCheck, prepared.contentType)
 		require.NoError(t, challenge.Unmarshal(prepared.content))

@@ -11,7 +11,9 @@ import (
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -29,15 +31,17 @@ func (f *flight4TestMockFlightConn) HandleQueuedPackets(context.Context) error {
 func (f *flight4TestMockFlightConn) SessionKey() []byte { return nil }
 
 type flight4TestMockCipherSuite struct {
-	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
+	cryptosuite.Suite
 
 	t *testing.T
 }
 
-func (f *flight4TestMockCipherSuite) IsInitialized() bool {
-	assert.Fail(f.t, "IsInitialized called with Certificate but not CertificateVerify")
+func (f *flight4TestMockCipherSuite) NewConnectionProtection(
+	cryptosuite.KeyMaterial,
+) (cryptosuite.Protection, error) {
+	assert.Fail(f.t, "NewConnectionProtection called with Certificate but not CertificateVerify")
 
-	return true
+	return nil, dtlserrors.ErrInvalidProtectionInput
 }
 
 // Assert that if a Client sends a certificate they
@@ -55,7 +59,10 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 
 	mockConn := &flight4TestMockFlightConn{}
 	state := newTestState12()
-	state.CipherSuite = &flight4TestMockCipherSuite{t: t}
+	state.CipherSuite = &flight4TestMockCipherSuite{
+		Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		t:     t,
+	}
 	cache := dtlsflight.NewCache()
 	cfg := &dtlsconfig.HandshakeConfig{}
 
@@ -134,7 +141,10 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 
 	mockConn := &flight4TestMockFlightConn{}
 	state := newTestState12()
-	state.CipherSuite = &flight4TestMockCipherSuite{t: t}
+	state.CipherSuite = &flight4TestMockCipherSuite{
+		Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		t:     t,
+	}
 	state.LocalKeypair = localKeypair
 
 	cert, err := selfsign.GenerateSelfSignedWithDNS("localhost")

@@ -9,8 +9,8 @@ import (
 	"bytes"
 	"sync/atomic"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	"github.com/pion/dtls/v3/internal/negotiation"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -24,7 +24,7 @@ type Common struct {
 	LocalSequenceNumber       []uint64 // uint48
 	RemoteSequenceNumber      []uint64
 	LocalRandom, RemoteRandom handshake.Random
-	CipherSuite               ciphersuite.CipherSuite // nil if a cipherSuite hasn't been chosen
+	CipherSuite               cryptosuite.Suite // nil if a cipherSuite hasn't been chosen
 	PeerCertificates          [][]byte
 	IdentityHint              []byte
 	SessionID                 []byte

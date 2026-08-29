@@ -6,8 +6,8 @@ package handshake
 import (
 	"testing"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	types "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/stretchr/testify/assert"
 )
 

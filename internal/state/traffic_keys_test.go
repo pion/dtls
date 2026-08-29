@@ -8,25 +8,35 @@ import (
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTrafficKeyStateAdvancesDirectionsIndependently(t *testing.T) {
-	suite := ciphersuite.NewTLSAes128GcmSha256()
+	suite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
+	factory := suite.(cryptosuite.TrafficSuite) //nolint:forcetypeassert // fixed built-in registry.
 	secretSize := suite.HashFunc()().Size()
 	writeSecret0 := bytes.Repeat([]byte{0x10}, secretSize)
 	readSecret0 := bytes.Repeat([]byte{0x20}, secretSize)
 	writeSecret1 := bytes.Repeat([]byte{0x11}, secretSize)
 	readSecret1 := bytes.Repeat([]byte{0x21}, secretSize)
 
-	writeProtection0, err := suite.NewRecordProtection(writeSecret0)
+	writeTrafficSecret0, err := ciphersuite.NewTrafficSecret(writeSecret0)
 	require.NoError(t, err)
-	readProtection0, err := suite.NewRecordProtection(readSecret0)
+	writeProtection0, err := factory.NewTrafficProtection(writeTrafficSecret0)
 	require.NoError(t, err)
-	writeProtection1, err := suite.NewRecordProtection(writeSecret1)
+	readTrafficSecret0, err := ciphersuite.NewTrafficSecret(readSecret0)
 	require.NoError(t, err)
-	readProtection1, err := suite.NewRecordProtection(readSecret1)
+	readProtection0, err := factory.NewTrafficProtection(readTrafficSecret0)
+	require.NoError(t, err)
+	writeTrafficSecret1, err := ciphersuite.NewTrafficSecret(writeSecret1)
+	require.NoError(t, err)
+	writeProtection1, err := factory.NewTrafficProtection(writeTrafficSecret1)
+	require.NoError(t, err)
+	readTrafficSecret1, err := ciphersuite.NewTrafficSecret(readSecret1)
+	require.NoError(t, err)
+	readProtection1, err := factory.NewTrafficProtection(readTrafficSecret1)
 	require.NoError(t, err)
 
 	var keys TrafficKeyState
@@ -115,9 +125,12 @@ func TestTrafficKeyStateReadCandidates(t *testing.T) {
 }
 
 func TestTrafficGenerationCloneCopiesSecret(t *testing.T) {
-	suite := ciphersuite.NewTLSAes128GcmSha256()
+	suite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
+	factory := suite.(cryptosuite.TrafficSuite) //nolint:forcetypeassert // fixed built-in registry.
 	secret := bytes.Repeat([]byte{0x42}, suite.HashFunc()().Size())
-	protection, err := suite.NewRecordProtection(secret)
+	trafficSecret, err := ciphersuite.NewTrafficSecret(secret)
+	require.NoError(t, err)
+	protection, err := factory.NewTrafficProtection(trafficSecret)
 	require.NoError(t, err)
 
 	generation := &TrafficGeneration{

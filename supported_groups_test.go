@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -55,7 +56,7 @@ func TestSupportedGroups(t *testing.T) {
 			dtlsnet.PacketConnFromConn(ca),
 			ca.RemoteAddr(),
 			[]ClientOption{
-				WithCipherSuites(TLS_AES_128_GCM_SHA256),
+				WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
 				WithEllipticCurves(expectedGroups...),
 				WithMinVersion(protocol.Version1_3),
 				WithMaxVersion(protocol.Version1_3),
@@ -66,7 +67,7 @@ func TestSupportedGroups(t *testing.T) {
 	}()
 
 	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{
-		WithCipherSuites(TLS_AES_128_GCM_SHA256),
+		WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
 		WithMinVersion(protocol.Version1_3),
 		WithMaxVersion(protocol.Version1_3),
 	}, true)

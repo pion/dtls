@@ -30,6 +30,7 @@ import (
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	dtlshash "github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/keyschedule"
@@ -46,6 +47,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testTrafficProtectionInitialized(state *dtlsstate.State13, epoch uint16) bool {
+	if state == nil || state.TrafficKeys == nil {
+		return false
+	}
+	write, hasWrite := state.TrafficKeys.Write(epoch)
+	read, hasRead := state.TrafficKeys.Read(epoch)
+
+	return hasWrite && write.Protection != nil && hasRead && read.Protection != nil
+}
 
 const tlsHandshakeHeaderLength13 = 4
 
@@ -68,7 +79,7 @@ func newTestState13(tb testing.TB, isClient bool) *dtlsstate.State13 {
 
 	state := dtlsstate.NewState13(isClient)
 	_, snapshot, err := negotiation.FinalizeClientHello(withExtensions(&handshake.MessageClientHello{
-		CipherSuiteIDs: []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+		CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 	}, []extension.Value{
 		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
 		&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
@@ -584,7 +595,7 @@ func flight13RootCAsForCertificate(t *testing.T, certificate tls.Certificate) *x
 func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 	t.Helper()
 
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	require.NotNil(t, cipherSuite)
 
 	loggerFactory := logging.NewDefaultLoggerFactory()
@@ -1254,7 +1265,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	assert.NotEmpty(t, state.KeyAgreementSecret)
 	assert.Equal(t, expectedSecrets, state.KeySchedule.HandshakeTraffic)
 	assert.NotEqual(t, state.KeySchedule.HandshakeTraffic.Client, state.KeySchedule.HandshakeTraffic.Server)
-	assert.True(t, state.CipherSuite.IsInitialized())
+	assert.True(t, testTrafficProtectionInitialized(state, dtlsflight13.EpochHandshake))
 }
 
 func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(t *testing.T) {
@@ -1318,7 +1329,7 @@ func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(
 	conn := &flight13QueuedPacketConn{
 		handleQueuedPackets: func(context.Context) error {
 			drained = true
-			assert.True(t, state.CipherSuite.IsInitialized())
+			assert.True(t, testTrafficProtectionInitialized(state, dtlsflight13.EpochHandshake))
 			assert.Equal(t, dtlsflight13.EpochHandshake, state.RemoteEpoch())
 			cache.Push(rawEncryptedExtensions, dtlsflight13.EpochHandshake, 1, handshake.TypeEncryptedExtensions, false)
 			cache.Push(rawFinished, dtlsflight13.EpochHandshake, 2, handshake.TypeFinished, false)
@@ -1391,8 +1402,8 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 		hashTranscript13(clientHelloCanonical, serverHelloCanonical),
 	)
 	require.NoError(t, err)
-	peerCipherSuite := ciphersuite.NewTLSAes128GcmSha256()
-	peerWriteProtection, err := peerCipherSuite.NewRecordProtection(secrets.Server)
+	peerCipherSuite := trafficSuiteForTest(t)
+	peerWriteProtection, err := newTestRecordProtection13(peerCipherSuite, secrets.Server)
 	require.NoError(t, err)
 
 	rawEncryptedExtensions, err := (&handshake.Handshake{
@@ -3022,7 +3033,7 @@ func pushClientHello13WithSequence(
 		Message: withExtensions(&handshake.MessageClientHello{
 			Version:            version,
 			Random:             handshake.Random{},
-			CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+			CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 			CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 		}, exts),
 	}
@@ -3299,7 +3310,7 @@ func findConnectionID(exts []extension.Value) (*extension.ConnectionID, bool) {
 func clientHello13SnapshotHistory(t *testing.T, extensions []extension.Value) (history negotiation.ClientHelloSnapshots) { //nolint:lll
 	t.Helper()
 	_, snapshot, err := negotiation.FinalizeClientHello(withExtensions(&handshake.MessageClientHello{ //nolint:lll
-		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	}, extensions), nil)
 	require.NoError(t, err)

@@ -12,13 +12,13 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
+	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 )
 
@@ -498,7 +498,7 @@ func (t *Transcript) AppendVerifiedInbound(
 		return err
 	}
 
-	var keyExchangeAlgorithm types.KeyExchangeAlgorithm
+	var keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
 	if cipherSuite != nil {
 		keyExchangeAlgorithm = cipherSuite.KeyExchangeAlgorithm()
 	}

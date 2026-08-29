@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"sync"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 )
 
 // TrafficGeneration binds an epoch and traffic-secret generation to the
@@ -17,7 +17,7 @@ type TrafficGeneration struct {
 	Epoch      uint16
 	Generation uint64
 	Secret     []byte // nolint:gosec
-	Protection ciphersuite.RecordProtection13
+	Protection cryptosuite.TrafficProtection
 }
 
 func (g *TrafficGeneration) Clone() *TrafficGeneration {

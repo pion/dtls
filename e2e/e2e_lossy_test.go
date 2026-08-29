@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	transportTest "github.com/pion/transport/v4/test"
@@ -43,7 +44,7 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 	for _, test := range []struct {
 		LossChanceRange             int
 		DoClientAuth                bool
-		CipherSuites                []dtls.CipherSuiteID
+		CipherSuites                []cryptosuite.ID
 		MTU                         int
 		DisableServerFlightInterval bool
 	}{
@@ -77,19 +78,19 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 		},
 		{
 			LossChanceRange: 0,
-			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			CipherSuites:    []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
 		},
 		{
 			LossChanceRange: 10,
-			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			CipherSuites:    []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
 		},
 		{
 			LossChanceRange: 20,
-			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			CipherSuites:    []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
 		},
 		{
 			LossChanceRange: 50,
-			CipherSuites:    []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
+			CipherSuites:    []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
 		},
 		{
 			LossChanceRange: 10,

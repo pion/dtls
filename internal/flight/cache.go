@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -31,7 +31,7 @@ const (
 
 type handshakeCacheDecodeContext struct {
 	kind                 handshakeCacheDecodeKind
-	keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
+	keyExchangeAlgorithm cryptosuite.KeyExchangeAlgorithm
 }
 
 // HandshakeCacheDecoder decodes a complete cached handshake message.
@@ -343,7 +343,7 @@ func (h *Cache) fullPullMapCacheItems(
 	}
 }
 
-func keyExchangeAlgorithmForCipherSuite(cipherSuite dtlsconfig.CipherSuite) ciphersuite.KeyExchangeAlgorithm {
+func keyExchangeAlgorithmForCipherSuite(cipherSuite dtlsconfig.CipherSuite) cryptosuite.KeyExchangeAlgorithm {
 	if cipherSuite == nil {
 		return 0
 	}
@@ -355,7 +355,7 @@ func (h *Cache) decodeGenericHandshakeItem(
 	item *HandshakeCacheItem,
 	expectedType handshake.Type,
 	expectedSequence uint16,
-	keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm,
+	keyExchangeAlgorithm cryptosuite.KeyExchangeAlgorithm,
 ) (*handshake.Handshake, error) {
 	contextKeyExchangeAlgorithm := keyExchangeAlgorithm
 	if expectedType != handshake.TypeServerKeyExchange && expectedType != handshake.TypeClientKeyExchange {

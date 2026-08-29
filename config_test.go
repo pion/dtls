@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/transport/v4/dpipe"
@@ -88,7 +89,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return serverConfigError(t,
-					WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+					WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 					WithPSK(func([]byte) ([]byte, error) { return nil, nil }),
 					WithCertificates(cert),
 				)
@@ -99,7 +100,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return serverConfigError(t,
-					WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+					WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 					WithPSK(func([]byte) ([]byte, error) { return nil, nil }),
 					WithCertificates(cert),
 				)
@@ -111,7 +112,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return serverConfigError(t,
-					WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8),
+					WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 					WithPSK(func([]byte) ([]byte, error) { return nil, nil }),
 					WithCertificates(cert),
 				)
@@ -123,7 +124,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return serverConfigError(t,
-					WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+					WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 					WithPSKIdentityHint([]byte{}),
 				)
 			},
@@ -134,7 +135,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return clientConfigError(t,
-					WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+					WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 					WithCertificates(tls.Certificate{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey}),
 				)
 			},
@@ -145,7 +146,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return clientConfigError(t,
-					WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+					WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 					WithCertificates(tls.Certificate{PrivateKey: cert.PrivateKey}),
 				)
 			},
@@ -164,7 +165,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return clientConfigError(t,
-					WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+					WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 					WithCertificates(cert, tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}),
 				)
 			},
@@ -174,7 +175,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return serverConfigError(t,
-					WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+					WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 					WithGetCertificate(func(*ClientHelloInfo) (*tls.Certificate, error) {
 						return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
 					}),
@@ -186,7 +187,7 @@ func TestConfigOptions(t *testing.T) {
 				t.Helper()
 
 				return clientConfigError(t,
-					WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+					WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 					WithGetClientCertificate(func(*CertificateRequestInfo) (*tls.Certificate, error) {
 						return &tls.Certificate{Certificate: cert.Certificate, PrivateKey: rsaPrivateKey}, nil
 					}),

@@ -9,6 +9,7 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -23,7 +24,7 @@ func TestClientHelloFiltersX25519MLKEM768(t *testing.T) {
 			elliptic.P256,
 		},
 		LocalCipherSuites: []dtlsconfig.CipherSuite{
-			ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil),
+			ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 		},
 	}
 	state := newTestState12()
@@ -70,7 +71,7 @@ func TestServerSelectsClassicalCurveFromClientGroups(t *testing.T) {
 
 func TestRejectsX25519MLKEM768ServerKeyExchange(t *testing.T) {
 	state := newTestState12()
-	state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+	state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 
 	dtlsAlert, err := handleServerKeyExchange(
 		nil,

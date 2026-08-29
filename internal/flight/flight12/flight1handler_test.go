@@ -12,6 +12,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -30,15 +31,17 @@ func (f *flight1TestMockFlightConn) HandleQueuedPackets(context.Context) error {
 func (f *flight1TestMockFlightConn) SessionKey() []byte { return nil }
 
 type flight1TestMockCipherSuite struct {
-	ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256
+	cryptosuite.Suite
 
 	t *testing.T
 }
 
-func (f *flight1TestMockCipherSuite) IsInitialized() bool {
-	assert.Fail(f.t, "IsInitialized called with Certificate but not CertificateVerify")
+func (f *flight1TestMockCipherSuite) NewConnectionProtection(
+	cryptosuite.KeyMaterial,
+) (cryptosuite.Protection, error) {
+	assert.Fail(f.t, "NewConnectionProtection called with Certificate but not CertificateVerify")
 
-	return true
+	return nil, dtlserrors.ErrInvalidProtectionInput
 }
 
 // A later ServerHello exposes an invalid cached message occupying the next
@@ -54,7 +57,10 @@ func TestFlight1_Process_RejectsInvalidLateServerFlight(t *testing.T) { //nolint
 
 	mockConn := &flight1TestMockFlightConn{}
 	state := newTestState12()
-	state.CipherSuite = &flight1TestMockCipherSuite{t: t}
+	state.CipherSuite = &flight1TestMockCipherSuite{
+		Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+		t:     t,
+	}
 	cache := dtlsflight.NewCache()
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalSRTPProtectionProfiles: []dtlsconfig.SRTPProtectionProfile{extension.SRTP_AEAD_AES_128_GCM},
@@ -62,7 +68,7 @@ func TestFlight1_Process_RejectsInvalidLateServerFlight(t *testing.T) { //nolint
 		ExtendedMasterSecret:        dtlsconfig.RequestExtendedMasterSecret,
 	}
 	cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{
-		ciphersuite.ForID(ciphersuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, nil),
+		ciphersuite.ForID(cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
 	}
 	cfg.Log = logging.NewDefaultLoggerFactory().NewLogger("dtls")
 	_, _, err := flight1Generate(mockConn, state, cache, cfg)

@@ -9,12 +9,12 @@ import (
 	"crypto"
 	"crypto/x509"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -260,7 +260,7 @@ func initializeCipherSuite(
 	handshakeKeyExchange *handshake.MessageServerKeyExchange,
 	sendingPlainText []byte,
 ) (*alert.Alert, error) {
-	if state.CipherSuite.IsInitialized() {
+	if state.Protection != nil {
 		return nil, nil //nolint
 	}
 
@@ -292,7 +292,7 @@ func initializeCipherSuite(
 		}
 	}
 
-	if state.CipherSuite.AuthenticationType() == ciphersuite.AuthenticationTypeCertificate { //nolint:nestif
+	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate { //nolint:nestif
 		// Verify that the pair of hash algorithm and signiture is listed.
 		var validSignatureScheme bool
 		for _, ss := range cfg.LocalSignatureSchemes {
@@ -346,7 +346,7 @@ func initializeCipherSuite(
 		}
 	}
 
-	if err = state.CipherSuite.Init(state.MasterSecret, clientRandom[:], serverRandom[:], true); err != nil {
+	if err = state.InitCipherSuite(); err != nil {
 		return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 

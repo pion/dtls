@@ -18,6 +18,7 @@ import (
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -30,6 +31,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testTrafficProtectionInitialized(state *dtlsstate.State13, epoch uint16) bool {
+	if state == nil || state.TrafficKeys == nil {
+		return false
+	}
+	write, hasWrite := state.TrafficKeys.Write(epoch)
+	read, hasRead := state.TrafficKeys.Read(epoch)
+
+	return hasWrite && write.Protection != nil && hasRead && read.Protection != nil
+}
 
 func withExtensions[T any](
 	message T,
@@ -126,7 +137,7 @@ func newTestState13(t *testing.T, isClient bool) *dtlsstate.State13 {
 	t.Helper()
 	state := dtlsstate.NewState13(isClient)
 	_, snapshot, err := negotiation.FinalizeClientHello(withExtensions(&handshake.MessageClientHello{
-		CipherSuiteIDs: []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+		CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 	}, []extension.Value{
 		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
 		&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms())},
@@ -534,7 +545,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	)
 	require.NoError(t, err)
 	assert.Equal(t, expectedSecrets, state.KeySchedule.HandshakeTraffic)
-	assert.True(t, state.CipherSuite.IsInitialized())
+	assert.True(t, testTrafficProtectionInitialized(state, dtlsflight13.EpochHandshake))
 	assert.True(t, conn.setLocalEpochCalled)
 	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
 }
@@ -567,7 +578,7 @@ func TestHandshakeFSM13SendsFlight4ProtectedRecords(t *testing.T) {
 		assert.True(t, pkt.Protection == dtlsflight.ProtectionCiphertext)
 		assert.Equal(t, dtlsflight13.EpochHandshake, pkt.Epoch)
 	}
-	assert.True(t, fixture.serverState.CipherSuite.IsInitialized())
+	assert.True(t, testTrafficProtectionInitialized(fixture.serverState, dtlsflight13.EpochHandshake))
 	assert.True(t, conn.setLocalEpochCalled)
 	assert.Equal(t, dtlsflight13.EpochHandshake, conn.localEpoch)
 }
@@ -744,7 +755,7 @@ func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
 	assert.Equal(t, 5, fixture.clientState.HandshakeRecvSequence)
-	assert.True(t, fixture.clientState.CipherSuite.IsInitialized())
+	assert.True(t, testTrafficProtectionInitialized(fixture.clientState, dtlsflight13.EpochHandshake))
 	assert.Equal(t, dtlsflight13.EpochHandshake, fixture.clientState.RemoteEpoch())
 	assertFlight13RecvDoneOpen(t, recvState)
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
@@ -1634,7 +1645,7 @@ func assertFlight13ClientTranscriptThroughServerFinished(t *testing.T, transcrip
 func testHandshakeConfig13(t *testing.T) *dtlsconfig.HandshakeConfig {
 	t.Helper()
 
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	require.NotNil(t, cipherSuite)
 	certificate, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
@@ -1738,7 +1749,7 @@ func transcriptTestClientHelloPacket13(sessionID []byte, seq uint16) *dtlsflight
 			Message: &handshake.MessageClientHello{
 				Version:            protocol.Version1_2,
 				SessionID:          sessionID,
-				CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+				CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 				CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 			},
 		},

@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
@@ -365,19 +364,12 @@ func selectServerHelloCipherSuite(
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter},
 			dtlserrors.ErrInvalidServerHello
 	}
-	remoteCipherSuite := ciphersuite.ForID(ciphersuite.ID(*serverHello.CipherSuiteID), cfg.CustomCipherSuites)
-	if remoteCipherSuite == nil {
+	selectedCipherSuite, found := dtlsflight.FindCipherSuiteByID(*serverHello.CipherSuiteID, cfg.LocalCipherSuites)
+	if !found {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
 			dtlserrors.ErrCipherSuiteNoIntersection
 	}
-	if !ciphersuite.IDSupportsVersion(remoteCipherSuite.ID(), protocol.Version1_3) {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
-			dtlserrors.ErrInvalidCipherSuite
-	}
-	selectedCipherSuite, found := dtlsflight.FindMatchingCipherSuite(
-		[]dtlsconfig.CipherSuite{remoteCipherSuite}, cfg.LocalCipherSuites,
-	)
-	if !found {
+	if !selectedCipherSuite.Capabilities().SupportsVersion(protocol.Version1_3) {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity},
 			dtlserrors.ErrInvalidCipherSuite
 	}

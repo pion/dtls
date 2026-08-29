@@ -20,6 +20,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/logging"
@@ -56,7 +57,9 @@ func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 	loggerFactory := logging.NewDefaultLoggerFactory()
 	logger := loggerFactory.NewLogger("dtls")
 
-	cipherSuites, err := parseCipherSuites(nil, nil, true, false)
+	cipherSuites, err := selectCipherSuites(
+		nil, nil, true, false, protocol.Version1_2, protocol.Version1_2,
+	)
 	assert.NoError(t, err)
 	clientCert, err := selfsign.GenerateSelfSigned()
 	assert.NoError(t, err)

@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"slices"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
@@ -70,18 +69,11 @@ func flight0Parse(
 
 			continue
 		}
-		if c := ciphersuite.ForID(ciphersuite.ID(id), cfg.CustomCipherSuites); c != nil {
+		if c, found := dtlsflight.FindCipherSuiteByID(id, cfg.LocalCipherSuites); found &&
+			c.Capabilities().SupportsVersion(protocol.Version1_2) {
 			cipherSuites = append(cipherSuites, c)
 		}
 	}
-
-	filteredCipherSuites := cipherSuites[:0]
-	for _, cipherSuite := range cipherSuites {
-		if ciphersuite.IDSupportsVersion(cipherSuite.ID(), protocol.Version1_2) {
-			filteredCipherSuites = append(filteredCipherSuites, cipherSuite)
-		}
-	}
-	cipherSuites = filteredCipherSuites
 
 	if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, cfg.LocalCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection //nolint:lll

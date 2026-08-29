@@ -4,7 +4,9 @@
 package state
 
 import (
+	dtlsciphersuite "github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -13,6 +15,7 @@ import (
 // State12 holds state that is meaningful only for DTLS 1.2.
 type State12 struct {
 	*Common
+	Protection cryptosuite.Protection
 
 	PreMasterSecret []byte
 	MasterSecret    []byte
@@ -63,22 +66,37 @@ func (s *State12) InitCipherSuite() error {
 	if s.CipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
-	if s.CipherSuite.IsInitialized() {
+	if s.Protection != nil {
 		return nil
 	}
 
 	localRandom := s.LocalRandom.MarshalFixed()
 	remoteRandom := s.RemoteRandom.MarshalFixed()
 
-	var err error
+	role := cryptosuite.EndpointRoleServer
 	if s.IsClient {
-		err = s.CipherSuite.Init(s.MasterSecret, localRandom[:], remoteRandom[:], true)
-	} else {
-		err = s.CipherSuite.Init(s.MasterSecret, remoteRandom[:], localRandom[:], false)
+		role = cryptosuite.EndpointRoleClient
 	}
+	clientRandom, serverRandom := remoteRandom[:], localRandom[:]
+	if s.IsClient {
+		clientRandom, serverRandom = localRandom[:], remoteRandom[:]
+	}
+	material, err := dtlsciphersuite.NewKeyMaterial(s.MasterSecret, clientRandom, serverRandom, role)
 	if err != nil {
 		return err
 	}
+	factory, ok := s.CipherSuite.(cryptosuite.ConnectionSuite)
+	if !ok {
+		return dtlserrors.ErrInvalidCipherSuite
+	}
+	protection, err := factory.NewConnectionProtection(material)
+	if err != nil {
+		return err
+	}
+	if protection == nil {
+		return dtlserrors.ErrInvalidCipherSuite
+	}
+	s.Protection = protection
 
 	return nil
 }

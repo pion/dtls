@@ -1,206 +1,316 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-// Package ciphersuite provides the crypto operations needed for a DTLS CipherSuite
+// Package ciphersuite defines cipher-suite descriptors, immutable record
+// metadata, protection capabilities, and DTLS record-protection contracts.
 package ciphersuite
 
 import (
-	"crypto/cipher"
-	"encoding/binary"
-	"fmt"
-	"sync"
+	"errors"
+	"hash"
+	"math"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
-	"golang.org/x/crypto/cryptobyte"
 )
+
+var (
+	// ErrInvalidCapabilities reports a malformed cipher suite capabilities.
+	ErrInvalidCapabilities = errors.New("invalid cipher suite capabilities")
+	// ErrAuthenticationFailed reports that a protected record could not be
+	// authenticated.
+	ErrAuthenticationFailed = errors.New("record authentication failed")
+)
+
+// AuthenticationType controls the authentication method used by a cipher suite.
+type AuthenticationType uint8
+
+// AuthenticationType values.
+const (
+	AuthenticationTypeCertificate AuthenticationType = iota + 1
+	AuthenticationTypePreSharedKey
+	AuthenticationTypeAnonymous
+)
+
+// KeyExchangeAlgorithm identifies cipher-suite key exchange requirements.
+type KeyExchangeAlgorithm uint8
+
+// KeyExchangeAlgorithm values form a bitmask.
+const (
+	KeyExchangeAlgorithmNone KeyExchangeAlgorithm = 0
+	KeyExchangeAlgorithmPsk  KeyExchangeAlgorithm = 1 << iota
+	KeyExchangeAlgorithmEcdhe
+)
+
+// Has reports whether all bits in v are set.
+func (a KeyExchangeAlgorithm) Has(v KeyExchangeAlgorithm) bool {
+	return a&v == v
+}
+
+// Suite describes a cipher suite without connection-specific key material.
+type Suite interface {
+	String() string
+	ID() ID
+	CertificateType() clientcertificate.Type
+	HashFunc() func() hash.Hash
+	AuthenticationType() AuthenticationType
+	KeyExchangeAlgorithm() KeyExchangeAlgorithm
+	ECC() bool
+	Capabilities() Capabilities
+}
+
+type lengthMode uint8
 
 const (
-	// 8 bytes of 0xff.
-	// https://datatracker.ietf.org/doc/html/rfc9146#name-record-payload-protection
-	seqNumPlaceholder = 0xffffffffffffffff
-
-	// AEAD suites use 12-byte nonces.
-	maxAEADNonceLength = 12
+	lengthModeAEAD lengthMode = iota + 1
+	lengthModeCBC
 )
 
-// aead provides a generic API to Encrypt/Decrypt DTLS 1.2 Packets.
-type aead struct {
-	localAEAD     cipher.AEAD
-	remoteAEAD    cipher.AEAD
-	localWriteIV  []byte
-	remoteWriteIV []byte
-	nonceLength   int
-	tagLength     int
-	noncePool     sync.Pool
+// Capabilities is protection metadata for one protocol
+// version.
+type Capabilities struct {
+	version          protocol.Version
+	mode             lengthMode
+	maxPlaintextLen  int
+	maxProtectedLen  int
+	explicitNonceLen int
+	tagLen           int
+	macLen           int
+	blockLen         int
+	maskSampleLen    int
 }
 
-// newAEAD creates a generic DTLS AEAD-based Cipher.
-func newAEAD(
-	localAEAD cipher.AEAD,
-	localWriteIV []byte,
-	remoteAEAD cipher.AEAD,
-	remoteWriteIV []byte,
-	nonceLength int,
-	tagLength int,
-) *aead {
-	return &aead{
-		localAEAD:     localAEAD,
-		localWriteIV:  localWriteIV,
-		remoteAEAD:    remoteAEAD,
-		remoteWriteIV: remoteWriteIV,
-		nonceLength:   nonceLength,
-		tagLength:     tagLength,
-		noncePool: sync.Pool{
-			New: func() any {
-				return new([maxAEADNonceLength]byte)
-			},
-		},
+// NewAEADCapabilities constructs capabilities for an AEAD suite.
+func NewAEADCapabilities(
+	version protocol.Version,
+	maxPlaintextLen, explicitNonceLen, tagLen, maskSampleLen int,
+) (Capabilities, error) {
+	maxProtectedLen, valid := validAEADLengths(maxPlaintextLen, explicitNonceLen, tagLen)
+	if !valid || !validAEADMask(version, maskSampleLen, maxProtectedLen) {
+		return Capabilities{}, ErrInvalidCapabilities
+	}
+
+	return Capabilities{
+		version:          version,
+		mode:             lengthModeAEAD,
+		maxPlaintextLen:  maxPlaintextLen,
+		maxProtectedLen:  maxProtectedLen,
+		explicitNonceLen: explicitNonceLen,
+		tagLen:           tagLen,
+		maskSampleLen:    maskSampleLen,
+	}, nil
+}
+
+func validAEADLengths(maxPlaintextLen, explicitNonceLen, tagLen int) (int, bool) {
+	if !validPositiveUint16(maxPlaintextLen) || !validNonNegativeUint16(explicitNonceLen) ||
+		!validPositiveUint16(tagLen) {
+		return 0, false
+	}
+
+	maxProtectedLen := maxPlaintextLen + explicitNonceLen + tagLen
+
+	return maxProtectedLen, maxProtectedLen <= math.MaxUint16
+}
+
+func validPositiveUint16(value int) bool {
+	return value > 0 && value <= math.MaxUint16
+}
+
+func validNonNegativeUint16(value int) bool {
+	return value >= 0 && value <= math.MaxUint16
+}
+
+func validAEADMask(version protocol.Version, maskSampleLen, maxProtectedLen int) bool {
+	switch version {
+	case protocol.Version1_2:
+		return maskSampleLen == 0
+	case protocol.Version1_3:
+		return maskSampleLen > 0 && maskSampleLen <= maxProtectedLen
+	default:
+		return false
 	}
 }
 
-// encrypt encrypts a DTLS RecordLayer message.
-func (a *aead) encrypt(pkt *recordlayer.RecordLayer, raw []byte) ([]byte, error) {
-	payload := raw[pkt.Header.MarshalSize():]
-	raw = raw[:pkt.Header.MarshalSize()]
-
-	nonce := a.noncePool.Get().(*[maxAEADNonceLength]byte) //nolint:forcetypeassert // only nonce arrays are pooled
-	nonceBytes := nonce[:a.nonceLength]
-
-	copy(nonceBytes, a.localWriteIV[:4])
-
-	// https://www.rfc-editor.org/rfc/rfc9325#name-nonce-reuse-in-tls-12
-	seq64 := (uint64(pkt.Header.Epoch) << 48) | (pkt.Header.SequenceNumber & 0x0000ffffffffffff)
-	binary.BigEndian.PutUint64(nonceBytes[4:], seq64)
-
-	var additionalData []byte
-	if pkt.Header.ContentType == protocol.ContentTypeConnectionID {
-		additionalData = generateAEADAdditionalDataCID(&pkt.Header, len(payload))
-	} else {
-		additionalData = generateAEADAdditionalData(&pkt.Header, len(payload))
+// NewCBCCapabilities constructs capabilities for a MAC-then-encrypt CBC suite.
+func NewCBCCapabilities(maxPlaintextLen, macLen, blockLen int) (Capabilities, error) {
+	if maxPlaintextLen <= 0 || maxPlaintextLen > math.MaxUint16 ||
+		blockLen <= 0 || blockLen > 256 || macLen <= 0 || macLen > math.MaxUint16 {
+		return Capabilities{}, ErrInvalidCapabilities
 	}
-	finalSize := len(raw) + 8 + len(payload) + a.tagLength
-	r := make([]byte, finalSize)
-	copy(r, raw)
-	copy(r[len(raw):], nonceBytes[4:])
+	maxProtectedLen := blockLen + ((maxPlaintextLen+macLen+256)/blockLen)*blockLen
+	if maxProtectedLen <= 0 || maxProtectedLen > math.MaxUint16 || macLen > maxProtectedLen {
+		return Capabilities{}, ErrInvalidCapabilities
+	}
+	capabilities := Capabilities{
+		version:          protocol.Version1_2,
+		mode:             lengthModeCBC,
+		maxPlaintextLen:  maxPlaintextLen,
+		maxProtectedLen:  maxProtectedLen,
+		explicitNonceLen: blockLen,
+		macLen:           macLen,
+		blockLen:         blockLen,
+	}
 
-	a.localAEAD.Seal(r[len(raw)+8:len(raw)+8], nonceBytes, payload, additionalData)
-	a.noncePool.Put(nonce)
-
-	// Update recordLayer size to include explicit nonce
-	binary.BigEndian.PutUint16(r[pkt.Header.MarshalSize()-2:],
-		uint16(len(r)-pkt.Header.MarshalSize())) //nolint:gosec //G115
-
-	return r, nil
+	return capabilities, nil
 }
 
-// decrypt decrypts a DTLS RecordLayer message.
-func (a *aead) decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
-	err := header.Unmarshal(in)
-	switch {
-	case err != nil:
-		return nil, err
-	case header.ContentType == protocol.ContentTypeChangeCipherSpec:
-		// Nothing to encrypt with ChangeCipherSpec
-		return in, nil
-	case len(in) <= (8 + header.MarshalSize()):
-		return nil, dtlserrors.ErrNotEnoughRoomForNonce
-	}
-
-	nonce := a.noncePool.Get().(*[maxAEADNonceLength]byte) //nolint:forcetypeassert // only nonce arrays are pooled
-	nonceBytes := nonce[:a.nonceLength]
-
-	copy(nonceBytes[:4], a.remoteWriteIV[:4])
-	copy(nonceBytes[4:], in[header.MarshalSize():header.MarshalSize()+8])
-	out := in[header.MarshalSize()+8:]
-
-	var additionalData []byte
-	if header.ContentType == protocol.ContentTypeConnectionID {
-		additionalData = generateAEADAdditionalDataCID(&header, len(out)-a.tagLength)
-	} else {
-		additionalData = generateAEADAdditionalData(&header, len(out)-a.tagLength)
-	}
-	out, err = a.remoteAEAD.Open(out[:0], nonceBytes, out, additionalData)
-	a.noncePool.Put(nonce)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", dtlserrors.ErrDecryptPacket, err) //nolint:errorlint
-	}
-
-	return append(in[:header.MarshalSize()], out...), nil
+// Version returns the protocol version supported by the suite.
+func (c Capabilities) Version() protocol.Version {
+	return c.version
 }
 
-func generateAEADAdditionalData(h *recordlayer.Header, payloadLen int) []byte {
-	var additionalData [13]byte
-
-	// SequenceNumber MUST be set first
-	// we only want uint48, clobbering an extra 2 (using uint64, Golang doesn't have uint48)
-	binary.BigEndian.PutUint64(additionalData[:], h.SequenceNumber)
-	binary.BigEndian.PutUint16(additionalData[:], h.Epoch)
-	additionalData[8] = byte(h.ContentType)
-	additionalData[9] = h.Version.Major()
-	additionalData[10] = h.Version.Minor()
-	//nolint:gosec //G115
-	binary.BigEndian.PutUint16(additionalData[len(additionalData)-2:], uint16(payloadLen))
-
-	return additionalData[:]
+// SupportsVersion reports whether these capabilities describe version.
+func (c Capabilities) SupportsVersion(version protocol.Version) bool {
+	return c.mode != 0 && c.version == version
 }
 
-// generateAEADAdditionalDataCID generates additional data for AEAD ciphers
-// according to https://datatracker.ietf.org/doc/html/rfc9146#name-aead-ciphers
-func generateAEADAdditionalDataCID(h *recordlayer.Header, payloadLen int) []byte {
-	var builder cryptobyte.Builder
-
-	builder.AddUint64(seqNumPlaceholder)
-	builder.AddUint8(uint8(protocol.ContentTypeConnectionID))
-	builder.AddUint8(uint8(len(h.ConnectionID))) //nolint:gosec //G115
-	builder.AddUint8(uint8(protocol.ContentTypeConnectionID))
-	builder.AddUint8(h.Version.Major())
-	builder.AddUint8(h.Version.Minor())
-	builder.AddUint16(h.Epoch)
-	builder.AddUint48(h.SequenceNumber)
-	builder.AddBytes(h.ConnectionID)
-	builder.AddUint16(uint16(payloadLen)) //nolint:gosec //G115
-
-	return builder.BytesOrPanic()
+// MaskLen returns the required ciphertext sample length for record-number
+// masking. It is zero when masking is not applicable.
+func (c Capabilities) MaskLen() int {
+	return c.maskSampleLen
 }
 
-// examinePadding returns, in constant time, the length of the padding to remove
-// from the end of payload. It also returns a byte which is equal to 255 if the
-// padding was valid and 0 otherwise. See RFC 2246, Section 6.2.3.2.
-//
-// https://github.com/golang/go/blob/039c2081d1178f90a8fa2f4e6958693129f8de33/src/crypto/tls/conn.go#L245
-func examinePadding(payload []byte) (toRemove int, good byte) {
-	if len(payload) == 0 {
-		return 0, 0
+// ProtectedLen returns the exact protected payload length for plaintextLen.
+func (c Capabilities) ProtectedLen(plaintextLen int) (int, error) {
+	if c.mode == 0 || plaintextLen < 0 || plaintextLen > c.maxPlaintextLen {
+		return 0, ErrInvalidCapabilities
+	}
+	if c.mode == lengthModeAEAD {
+		return plaintextLen + c.explicitNonceLen + c.tagLen, nil
+	}
+	unpadded := plaintextLen + c.macLen + 1
+
+	return c.explicitNonceLen + ((unpadded+c.blockLen-1)/c.blockLen)*c.blockLen, nil
+}
+
+// PlaintextLenUpperBound validates protectedLen and returns a checked allocation
+// bound.
+func (c Capabilities) PlaintextLenUpperBound(protectedLen int) (int, error) {
+	if c.mode == 0 || protectedLen < 0 || protectedLen > c.maxProtectedLen {
+		return 0, ErrInvalidCapabilities
 	}
 
-	paddingLen := payload[len(payload)-1]
-	t := uint(len(payload)-1) - uint(paddingLen) //nolint:gosec //G115
-	// if len(payload) >= (paddingLen - 1) then the MSB of t is zero
-	good = byte(int32(^t) >> 31) //nolint:gosec //G115
+	switch c.mode {
+	case lengthModeAEAD:
+		return c.aeadPlaintextLen(protectedLen)
+	case lengthModeCBC:
+		return c.cbcPlaintextLenUpperBound(protectedLen)
+	default:
+		return 0, ErrInvalidCapabilities
+	}
+}
 
-	// The maximum possible padding length plus the actual length field
-	toCheck := min(
-		// The length of the padded data is public, so we can use an if here
-		256, len(payload))
-
-	for i := range toCheck {
-		t := uint(paddingLen) - uint(i)
-		// if i <= paddingLen then the MSB of t is zero
-		mask := byte(int32(^t) >> 31) //nolint:gosec //G115
-		b := payload[len(payload)-1-i]
-		good &^= mask&paddingLen ^ mask&b
+func (c Capabilities) aeadPlaintextLen(protectedLen int) (int, error) {
+	plaintextLen := protectedLen - c.explicitNonceLen - c.tagLen
+	if plaintextLen < 0 || plaintextLen > c.maxPlaintextLen {
+		return 0, ErrInvalidCapabilities
 	}
 
-	// We AND together the bits of good and replicate the result across
-	// all the bits.
-	good &= good << 4
-	good &= good << 2
-	good &= good << 1
-	good = uint8(int8(good) >> 7) //nolint:gosec //G115
+	return plaintextLen, nil
+}
 
-	toRemove = int(paddingLen) + 1
+func (c Capabilities) cbcPlaintextLenUpperBound(protectedLen int) (int, error) {
+	bodyLen := protectedLen - c.explicitNonceLen
+	if bodyLen < c.blockLen || bodyLen%c.blockLen != 0 {
+		return 0, ErrInvalidCapabilities
+	}
+	upper := bodyLen - c.macLen - 1
+	if upper < 0 {
+		return 0, ErrInvalidCapabilities
+	}
+	// CBC padding field and its padding_length byte occupy 1 to 256
+	// bytes.
+	// https://www.rfc-editor.org/rfc/rfc5246#section-6.2.3.2
+	lower := bodyLen - c.macLen - 256
+	if lower > c.maxPlaintextLen {
+		return 0, ErrInvalidCapabilities
+	}
+	if upper > c.maxPlaintextLen {
+		upper = c.maxPlaintextLen
+	}
 
-	return toRemove, good
+	return upper, nil
+}
+
+// ValidatePlaintextLen checks the actual plaintext length returned by a
+// successful Open against the protected length.
+func (c Capabilities) ValidatePlaintextLen(protectedLen, plaintextLen int) error {
+	upperBound, err := c.PlaintextLenUpperBound(protectedLen)
+	if err != nil || plaintextLen < 0 || plaintextLen > upperBound {
+		return ErrInvalidCapabilities
+	}
+
+	if c.mode == lengthModeAEAD && plaintextLen != upperBound {
+		return ErrInvalidCapabilities
+	}
+	if c.mode == lengthModeCBC {
+		paddingLen := protectedLen - c.explicitNonceLen - plaintextLen - c.macLen
+		if paddingLen < 1 || paddingLen > 256 {
+			return ErrInvalidCapabilities
+		}
+	}
+
+	return nil
+}
+
+// EndpointRole identifies the local endpoint for DTLS 1.2 key derivation.
+type EndpointRole uint8
+
+const (
+	// EndpointRoleClient derives client write and server read keys.
+	EndpointRoleClient EndpointRole = iota + 1
+	// EndpointRoleServer derives server write and client read keys.
+	EndpointRoleServer
+)
+
+// KeyMaterial is borrowed while deriving connection-bound protection.
+// Implementations must not modify or retain returned slices.
+type KeyMaterial interface {
+	MasterSecret() []byte
+	ClientRandom() []byte
+	ServerRandom() []byte
+	Role() EndpointRole
+}
+
+// TrafficSecret is borrowed while deriving generation-bound traffic protection.
+type TrafficSecret interface {
+	// Bytes returns the borrowed secret. Implementations must not modify or retain it.
+	Bytes() []byte
+}
+
+// Record is the read-only protection view of one record.
+type Record interface {
+	// Number returns the version-appropriate nonce number.
+	RecordNumber() uint64
+	// Data returns owned authentication bytes and validates the supplied record length.
+	AuthenticationData(recordLen int) ([]byte, error)
+}
+
+// Protection seals and opens records. Implementations treat inputs as read-only
+// and return caller-owned bytes.
+type Protection interface {
+	Seal(record Record, plaintext []byte) ([]byte, error)
+	// Open authenticates and decrypts protected. It returns
+	// ErrAuthenticationFailed for peer-controlled authentication failures.
+	// for operational / provider failures it should pick other errors.
+	Open(record Record, protected []byte) ([]byte, error)
+}
+
+// TrafficProtection adds record-number masking for generation-bound traffic.
+type TrafficProtection interface {
+	Protection
+	// Mask treats sample as read-only and returns caller-owned bytes.
+	Mask(sample []byte) ([]byte, error)
+}
+
+// ConnectionSuite derives protection bound to both directions of a connection.
+type ConnectionSuite interface {
+	Suite
+	NewConnectionProtection(KeyMaterial) (Protection, error)
+}
+
+// TrafficSuite derives directional, generation-bound traffic protection.
+type TrafficSuite interface {
+	Suite
+	NewTrafficProtection(TrafficSecret) (TrafficProtection, error)
 }

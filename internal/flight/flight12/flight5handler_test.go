@@ -10,6 +10,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,9 +18,10 @@ import (
 
 func TestFlight5GenerateUsesRetainedServerKeyExchange(t *testing.T) {
 	state := dtlsstate.NewState12(true)
-	cipherSuite := ciphersuite.NewTLSPskWithAes128Ccm()
-	require.NoError(t, cipherSuite.Init(make([]byte, 48), make([]byte, 32), make([]byte, 32), true))
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_PSK_WITH_AES_128_CCM)
 	state.CipherSuite = cipherSuite
+	state.MasterSecret = make([]byte, 48)
+	require.NoError(t, state.InitCipherSuite())
 	state.LocalVerifyData = []byte{0x01}
 	serverKeyExchange := &handshake.MessageServerKeyExchange{IdentityHint: []byte("retained")}
 	state.SetRemoteServerKeyExchange(serverKeyExchange)
@@ -44,7 +46,7 @@ func TestFlight5GenerateUsesRetainedServerKeyExchange(t *testing.T) {
 
 func TestHandleServerKeyExchangeClonesIdentityHint(t *testing.T) {
 	state := dtlsstate.NewState12(true)
-	state.CipherSuite = ciphersuite.NewTLSPskWithAes128Ccm()
+	state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_PSK_WITH_AES_128_CCM)
 	message := &handshake.MessageServerKeyExchange{IdentityHint: []byte("server")}
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalPSKCallback: func(identityHint []byte) ([]byte, error) {

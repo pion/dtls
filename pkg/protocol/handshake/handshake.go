@@ -5,9 +5,9 @@
 package handshake
 
 import (
-	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/util"
+	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
@@ -111,7 +111,7 @@ type Handshake struct {
 	Header  Header
 	Message Message
 
-	KeyExchangeAlgorithm types.KeyExchangeAlgorithm
+	KeyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
 }
 
 // ContentType returns what kind of content this message is carying.

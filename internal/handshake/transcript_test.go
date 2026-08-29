@@ -18,6 +18,7 @@ import (
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	dtlshash "github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/keyschedule"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
@@ -157,7 +158,7 @@ func TestHandshakeTranscript13DuplicateHandling(t *testing.T) {
 }
 
 func TestAppendVerifiedInboundHandshake13DuplicateHandling(t *testing.T) {
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	rawClientHello := rawHandshakeMessage13(t, 0, transcriptClientHelloMessage13([]byte{0x01}))
 	changedClientHello := rawHandshakeMessage13(t, 0, transcriptClientHelloMessage13([]byte{0x02}))
 
@@ -257,7 +258,7 @@ func TestHandshakeTranscript13HelloRetryRequest(t *testing.T) {
 }
 
 func TestAppendVerifiedInboundHandshake13HelloRetryRequest(t *testing.T) {
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	rawClientHello := rawHandshakeMessage13(t, 0, transcriptClientHelloMessage13([]byte{0x01}))
 	rawHelloRetryRequest := rawHelloRetryRequest13(t, cipherSuite, 0)
 	clientHello, err := canonicalHandshake(rawClientHello)
@@ -408,28 +409,28 @@ func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
 func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 	tests := []struct {
 		name        string
-		cipherSuite ciphersuite.ID
+		cipherSuite cryptosuite.ID
 		hashSize    int
 		secretByte  byte
 		hashByte    byte
 	}{
 		{
 			name:        "sha256",
-			cipherSuite: ciphersuite.TLS_AES_128_GCM_SHA256,
+			cipherSuite: cryptosuite.TLS_AES_128_GCM_SHA256,
 			hashSize:    sha256.Size,
 			secretByte:  0x31,
 			hashByte:    0x41,
 		},
 		{
 			name:        "chacha20_sha256",
-			cipherSuite: ciphersuite.TLS_CHACHA20_POLY1305_SHA256,
+			cipherSuite: cryptosuite.TLS_CHACHA20_POLY1305_SHA256,
 			hashSize:    sha256.Size,
 			secretByte:  0x33,
 			hashByte:    0x43,
 		},
 		{
 			name:        "sha384",
-			cipherSuite: ciphersuite.TLS_AES_256_GCM_SHA384,
+			cipherSuite: cryptosuite.TLS_AES_256_GCM_SHA384,
 			hashSize:    sha512.Size384,
 			secretByte:  0x32,
 			hashByte:    0x42,
@@ -438,7 +439,7 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cipherSuite := ciphersuite.ForID(test.cipherSuite, nil)
+			cipherSuite := ciphersuite.ForID(test.cipherSuite)
 			require.NotNil(t, cipherSuite)
 			hashFunc := cipherSuite.HashFunc()
 			require.Equal(t, test.hashSize, hashFunc().Size())
@@ -631,7 +632,7 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 }
 
 func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	state := newTestState13(t, false)
 	state.CipherSuite = cipherSuite
 	state.KeyAgreementSecret = bytes.Repeat([]byte{0x11}, sha256.Size)
@@ -664,7 +665,7 @@ func TestInitHandshakeRecordProtection13InstallsDirectionalKeys(t *testing.T) {
 		{name: "server", isClient: false, expectedWrite: 0x22, readID: 0x11},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+			cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 			secretLen := cipherSuite.HashFunc()().Size()
 			state := newTestState13(t, testCase.isClient)
 			state.CipherSuite = cipherSuite
@@ -689,7 +690,8 @@ func TestInitHandshakeRecordProtection13InstallsDirectionalKeys(t *testing.T) {
 }
 
 func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
-	cipherSuite := ciphersuite.NewTLSAes128GcmSha256()
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
+	factory := cipherSuite.(cryptosuite.TrafficSuite) //nolint:forcetypeassert // fixed built-in registry.
 	secretLen := cipherSuite.HashFunc()().Size()
 	handshakeSecrets := dtlsstate.TrafficSecrets{
 		Client: bytes.Repeat([]byte{0x11}, secretLen),
@@ -721,29 +723,44 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 	assert.Equal(t, handshakeSecrets.Client, handshakeWrite.Secret)
 	assert.Equal(t, handshakeSecrets.Server, handshakeRead.Secret)
 
-	serverApplicationSuite := ciphersuite.NewTLSAes128GcmSha256()
-	serverApplicationProtection, err := serverApplicationSuite.NewRecordProtection(applicationSecrets.Client)
+	serverApplicationSecret, err := ciphersuite.NewTrafficSecret(applicationSecrets.Client)
 	require.NoError(t, err)
-	serverHandshakeSuite := ciphersuite.NewTLSAes128GcmSha256()
-	serverHandshakeProtection, err := serverHandshakeSuite.NewRecordProtection(handshakeSecrets.Client)
+	serverApplicationProtection, err := factory.NewTrafficProtection(serverApplicationSecret)
+	require.NoError(t, err)
+	serverHandshakeSecret, err := ciphersuite.NewTrafficSecret(handshakeSecrets.Client)
+	require.NoError(t, err)
+	serverHandshakeProtection, err := factory.NewTrafficProtection(serverHandshakeSecret)
 	require.NoError(t, err)
 
 	sequenceNumber := uint64(0x0102030405061234)
-	record, err := applicationWrite.Protection.Seal(
-		recordlayer.UnifiedHeader{SequenceNumber: uint16(sequenceNumber), EpochLow: 2}, //nolint:gosec // G115
-		sequenceNumber,
-		protocol.ContentTypeApplicationData,
-		[]byte("application traffic after finished"),
-	)
+	innerPlaintextRaw, err := (&recordlayer.InnerPlaintext{
+		Content:  []byte("application traffic after finished"),
+		RealType: protocol.ContentTypeApplicationData,
+	}).Marshal()
+	require.NoError(t, err)
+	protectedLen, err := cipherSuite.Capabilities().ProtectedLen(len(innerPlaintextRaw))
+	require.NoError(t, err)
+	header := recordlayer.UnifiedHeader{
+		EpochLow:       2,
+		SeqBit:         true,
+		LengthBit:      true,
+		SequenceNumber: uint16(sequenceNumber), //nolint:gosec // deliberately truncated on wire.
+		Length:         uint16(protectedLen),   //nolint:gosec // bounded test input.
+	}
+	record, err := ciphersuite.NewUnifiedRecord(2, sequenceNumber, header, protectedLen)
+	require.NoError(t, err)
+	encryptedRecord, err := applicationWrite.Protection.Seal(record, innerPlaintextRaw)
 	require.NoError(t, err)
 
-	innerPlaintext, err := serverApplicationProtection.Open(record.Header, sequenceNumber, record.EncryptedRecord)
+	plaintext, err := serverApplicationProtection.Open(record, encryptedRecord)
 	require.NoError(t, err)
+	var innerPlaintext recordlayer.InnerPlaintext
+	require.NoError(t, innerPlaintext.Unmarshal(plaintext))
 	assert.Equal(t, []byte("application traffic after finished"), innerPlaintext.Content)
 	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
 
-	_, err = serverHandshakeProtection.Open(record.Header, sequenceNumber, record.EncryptedRecord)
-	assert.Error(t, err)
+	_, err = serverHandshakeProtection.Open(record, encryptedRecord)
+	require.ErrorIs(t, err, cryptosuite.ErrAuthenticationFailed)
 }
 
 func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
@@ -770,7 +787,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "not tls 13",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 				state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
 				state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
 
@@ -782,7 +799,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "missing client application secret",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 				state.KeySchedule.ServerApplicationTrafficSecret0 = applicationSecrets.Server
 
 				return state
@@ -793,7 +810,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "missing server application secret",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 				state.KeySchedule.ClientApplicationTrafficSecret0 = applicationSecrets.Client
 
 				return state
@@ -804,7 +821,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "handshake protection initialized without application secrets",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: bytes.Repeat([]byte{0x11}, sha256.Size),
 					Server: bytes.Repeat([]byte{0x22}, sha256.Size),
@@ -844,7 +861,7 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "not tls 13",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, nil)
+				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: []byte{0x11},
 					Server: []byte{0x22},
@@ -858,7 +875,7 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "missing client secret",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Server: []byte{0x22},
 				}
@@ -871,7 +888,7 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 			name: "missing server secret",
 			state: func() *dtlsstate.State13 {
 				state := newTestState13(t, false)
-				state.CipherSuite = ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+				state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 				state.KeySchedule.HandshakeTraffic = dtlsstate.TrafficSecrets{
 					Client: []byte{0x11},
 				}
@@ -973,7 +990,7 @@ func TestFinishedVerifyData13(t *testing.T) {
 }
 
 func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	cert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 	signer, ok := cert.PrivateKey.(crypto.Signer)
@@ -1037,7 +1054,7 @@ func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
 }
 
 func TestFinishedFailureDoesNotPoisonTranscript13(t *testing.T) {
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	baseKey := bytes.Repeat([]byte{0x44}, sha256.Size)
 
 	transcript := NewTranscript()
@@ -1073,7 +1090,7 @@ func TestFinishedFailureDoesNotPoisonTranscript13(t *testing.T) {
 }
 
 func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
-	cipherSuite := ciphersuite.ForID(ciphersuite.TLS_AES_128_GCM_SHA256, nil)
+	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	state := newTestState13(t, false)
 	state.CipherSuite = cipherSuite
 	state.KeyAgreementSecret = bytes.Repeat([]byte{0x77}, sha256.Size)
@@ -1171,14 +1188,14 @@ func transcriptClientHelloMessage13(sessionID []byte) *handshake.MessageClientHe
 	return &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
 		SessionID:          sessionID,
-		CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+		CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 		CompressionMethods: []*protocol.CompressionMethod{{}},
 	}
 }
 
 func rawHelloRetryRequest13(
 	tb testing.TB,
-	cipherSuite ciphersuite.CipherSuite,
+	cipherSuite cryptosuite.Suite,
 	seq uint16,
 ) []byte {
 	tb.Helper()

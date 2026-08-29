@@ -6,10 +6,11 @@ package dtlshandshake
 import (
 	"context"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsciphersuite "github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 )
 
 func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
@@ -53,7 +54,7 @@ func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *
 	return conn.HandleQueuedPackets(ctx)
 }
 
-func initRecordProtectionFromTrafficSecrets(
+func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
 	state *dtlsstate.State13,
 	epoch uint16,
 	secrets dtlsstate.TrafficSecrets,
@@ -78,13 +79,27 @@ func initRecordProtectionFromTrafficSecrets(
 	if err != nil {
 		return err
 	}
-	writeProtection, err := tls13CipherSuite.NewRecordProtection(writeSecret)
+	writeTrafficSecret, err := dtlsciphersuite.NewTrafficSecret(writeSecret)
 	if err != nil {
 		return err
 	}
-	readProtection, err := tls13CipherSuite.NewRecordProtection(readSecret)
+	writeProtection, err := tls13CipherSuite.NewTrafficProtection(writeTrafficSecret)
 	if err != nil {
 		return err
+	}
+	if writeProtection == nil {
+		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	readTrafficSecret, err := dtlsciphersuite.NewTrafficSecret(readSecret)
+	if err != nil {
+		return err
+	}
+	readProtection, err := tls13CipherSuite.NewTrafficProtection(readTrafficSecret)
+	if err != nil {
+		return err
+	}
+	if readProtection == nil {
+		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 	state.TrafficKeys.Install(
 		&dtlsstate.TrafficGeneration{
@@ -104,12 +119,12 @@ func initRecordProtectionFromTrafficSecrets(
 	return nil
 }
 
-func recordProtectionCipherSuite(state *dtlsstate.State13) (ciphersuite.CipherSuiteTLS13, error) {
+func recordProtectionCipherSuite(state *dtlsstate.State13) (cryptosuite.TrafficSuite, error) {
 	if state == nil || state.CipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
 
-	tls13CipherSuite, ok := state.CipherSuite.(ciphersuite.CipherSuiteTLS13)
+	tls13CipherSuite, ok := state.CipherSuite.(cryptosuite.TrafficSuite)
 	if !ok {
 		return nil, dtlserrors.ErrInvalidCipherSuite
 	}

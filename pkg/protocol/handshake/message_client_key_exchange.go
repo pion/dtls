@@ -7,8 +7,8 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 )
 
 // MessageClientKeyExchange is a DTLS Handshake Message
@@ -23,7 +23,7 @@ type MessageClientKeyExchange struct {
 	PublicKey    []byte
 
 	// for unmarshaling
-	KeyExchangeAlgorithm types.KeyExchangeAlgorithm
+	KeyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
 }
 
 // Type returns the Handshake Type.
@@ -105,12 +105,12 @@ func (m *MessageClientKeyExchange) Unmarshal(data []byte) error {
 	switch {
 	case len(data) < 2:
 		return dtlserrors.ErrBufferTooSmall
-	case m.KeyExchangeAlgorithm == types.KeyExchangeAlgorithmNone:
+	case m.KeyExchangeAlgorithm == ciphersuite.KeyExchangeAlgorithmNone:
 		return dtlserrors.ErrCipherSuiteUnset
 	}
 
 	offset := 0
-	if m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmPsk) {
+	if m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmPsk) {
 		pskLength := int(binary.BigEndian.Uint16(data))
 		if pskLength > len(data)-2 {
 			return dtlserrors.ErrBufferTooSmall
@@ -120,7 +120,7 @@ func (m *MessageClientKeyExchange) Unmarshal(data []byte) error {
 		offset += pskLength + 2
 	}
 
-	if m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmEcdhe) {
+	if m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmEcdhe) {
 		publicKeyLength := int(data[offset])
 		if publicKeyLength > len(data)-1-offset {
 			return dtlserrors.ErrBufferTooSmall

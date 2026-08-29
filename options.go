@@ -12,6 +12,7 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
@@ -38,7 +39,7 @@ type Option interface {
 
 type dtlsConfig struct {
 	Certificates                  []tls.Certificate
-	CipherSuites                  []CipherSuiteID
+	CipherSuites                  []cryptosuite.ID
 	SignatureSchemes              []tls.SignatureScheme
 	CertificateSignatureSchemes   []tls.SignatureScheme
 	SRTPProtectionProfiles        []SRTPProtectionProfile
@@ -74,7 +75,7 @@ type dtlsConfig struct {
 	MinVersion                    protocol.Version
 	MaxVersion                    protocol.Version
 
-	customCipherSuites   func() []CipherSuite
+	customCipherSuites   func() []cryptosuite.Suite
 	psk                  PSKCallback
 	verifyConnection     func(*State) error
 	sessionStore         SessionStore
@@ -156,7 +157,7 @@ func WithCertificates(certs ...tls.Certificate) Option {
 
 // WithCipherSuites sets the supported cipher suites.
 // For functional options, an explicitly empty slice is not allowed.
-func WithCipherSuites(suites ...CipherSuiteID) Option {
+func WithCipherSuites(suites ...cryptosuite.ID) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if len(suites) == 0 {
 			return dtlserrors.ErrEmptyCipherSuites
@@ -169,7 +170,7 @@ func WithCipherSuites(suites ...CipherSuiteID) Option {
 
 // WithCustomCipherSuites sets the custom cipher suites provider.
 // Returns an error if the provider is nil.
-func WithCustomCipherSuites(fn func() []CipherSuite) Option {
+func WithCustomCipherSuites(fn func() []cryptosuite.Suite) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
 			return dtlserrors.ErrNilCustomCipherSuites

@@ -12,6 +12,7 @@ import (
 	"os"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 )
 
@@ -24,7 +25,7 @@ var ErrStateSerializationUnsupported = errors.New("dtls: state serialization uns
 
 // errInvalidCipherSuite indicates an attempt at using an unsupported cipher suite.
 type invalidCipherSuiteError struct {
-	id CipherSuiteID
+	id cryptosuite.ID
 }
 
 func (e *invalidCipherSuiteError) Error() string {

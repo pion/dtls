@@ -12,6 +12,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -423,7 +424,7 @@ func TestSelectedCipherSuitesConstrainProtocolVersion(t *testing.T) {
 	t.Run("DTLS13SuitesSelectDTLS13", func(t *testing.T) {
 		client, err := newOptionsClient(t,
 			WithMaxVersion(protocol.Version1_3),
-			WithCipherSuites(TLS_AES_128_GCM_SHA256),
+			WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
 		)
 		require.NoError(t, err)
 		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MinVersion)
@@ -433,7 +434,7 @@ func TestSelectedCipherSuitesConstrainProtocolVersion(t *testing.T) {
 	t.Run("DTLS12SuitesSelectDTLS12", func(t *testing.T) {
 		client, err := newOptionsClient(t,
 			WithMaxVersion(protocol.Version1_3),
-			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+			WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 		)
 		require.NoError(t, err)
 		require.Equal(t, protocol.Version1_2, client.handshakeConfig.MinVersion)
@@ -443,7 +444,7 @@ func TestSelectedCipherSuitesConstrainProtocolVersion(t *testing.T) {
 	t.Run("DTLS12SuitesAndDTLS13CurvesAreRejected", func(t *testing.T) {
 		err := clientOptionsError(t,
 			WithMaxVersion(protocol.Version1_3),
-			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+			WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 			WithEllipticCurves(elliptic.X25519MLKEM768),
 		)
 		require.ErrorIs(t, err, dtlserrors.ErrNoCommonProtocolVersion)
@@ -453,7 +454,7 @@ func TestSelectedCipherSuitesConstrainProtocolVersion(t *testing.T) {
 		err := clientOptionsError(t,
 			WithMinVersion(protocol.Version1_3),
 			WithMaxVersion(protocol.Version1_3),
-			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+			WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 		)
 		require.Error(t, err)
 	})
@@ -529,7 +530,7 @@ func TestValidOptionsSucceed(t *testing.T) {
 	t.Run("ClientValidOptions", func(t *testing.T) {
 		client, err := newOptionsClient(t,
 			WithCertificates(cert),
-			WithCipherSuites(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
+			WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 			WithSignatureSchemes(tls.ECDSAWithP256AndSHA256),
 			WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
 			WithEllipticCurves(elliptic.P256),
@@ -587,13 +588,16 @@ func TestOptionImmutability(t *testing.T) {
 	})
 
 	t.Run("cipherSuites", func(t *testing.T) {
-		suites := []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+		suites := []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 		client, err := newOptionsClient(t, WithCipherSuites(suites...))
 		require.NoError(t, err)
 
-		suites[0] = TLS_PSK_WITH_AES_128_CCM_8
+		suites[0] = cryptosuite.TLS_PSK_WITH_AES_128_CCM_8
 
-		require.Equal(t, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, client.handshakeConfig.LocalCipherSuites[0].ID())
+		require.Equal(
+			t, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			client.handshakeConfig.LocalCipherSuites[0].ID(),
+		)
 	})
 
 	t.Run("signatureSchemes", func(t *testing.T) {
@@ -644,7 +648,7 @@ func TestOptionImmutability(t *testing.T) {
 		client, err := newOptionsClient(t,
 			WithPSK(func([]byte) ([]byte, error) { return nil, nil }),
 			WithPSKIdentityHint(hint),
-			WithCipherSuites(TLS_PSK_WITH_AES_128_CCM_8),
+			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 		)
 		require.NoError(t, err)
 

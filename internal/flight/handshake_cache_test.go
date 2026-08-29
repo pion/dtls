@@ -9,6 +9,7 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
@@ -177,10 +178,10 @@ func TestHandshakeCachePushCopiesData(t *testing.T) {
 }
 
 func TestHandshakeCacheFullPullMapItemsReturnsAcceptedRawItems(t *testing.T) {
-	cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
+	cipherSuiteID := uint16(cryptosuite.TLS_AES_128_GCM_SHA256)
 	rawClientHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageClientHello{
 		Version:            protocol.Version1_2,
-		CipherSuiteIDs:     []uint16{uint16(ciphersuite.TLS_AES_128_GCM_SHA256)},
+		CipherSuiteIDs:     []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
 		CompressionMethods: dtlsflight.DefaultCompressionMethods(),
 	})
 	rawServerHello := marshalHandshakeCacheTestMessage(t, 1, &handshake.MessageServerHello{
@@ -359,7 +360,7 @@ func TestHandshakeCachePullOptionalRules(t *testing.T) {
 	}
 
 	t.Run("skip to later rule", func(t *testing.T) {
-		cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
+		cipherSuiteID := uint16(cryptosuite.TLS_AES_128_GCM_SHA256)
 		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageServerHello{
 			Version:           protocol.Version1_2,
 			CipherSuiteID:     &cipherSuiteID,
@@ -429,7 +430,7 @@ func TestHandshakeCacheFullPullMapOneOfItems(t *testing.T) {
 	})
 
 	t.Run("conflicting allowed messages", func(t *testing.T) {
-		cipherSuiteID := uint16(ciphersuite.TLS_AES_128_GCM_SHA256)
+		cipherSuiteID := uint16(cryptosuite.TLS_AES_128_GCM_SHA256)
 		serverHello := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageServerHello{
 			Version:           protocol.Version1_2,
 			CipherSuiteID:     &cipherSuiteID,
@@ -569,7 +570,7 @@ func TestHandshakeCacheSessionHash(t *testing.T) {
 			h.Push(i.Data, i.Epoch, i.MessageSequence, i.Typ, i.IsClient)
 		}
 
-		cipherSuite := ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
+		cipherSuite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 		verifyData, err := h.SessionHash(cipherSuite.HashFunc(), 0)
 		assert.NoError(t, err)
 		assert.Equal(t, test.Expected, verifyData, "handshakeCacheSessionHash")
