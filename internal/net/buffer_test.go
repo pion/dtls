@@ -273,6 +273,40 @@ func TestBufferAsync(t *testing.T) {
 	assert.False(t, ok, routineFail)
 }
 
+func TestBufferCloseUnblocksAllReaders(t *testing.T) {
+	const readerCount = 4
+
+	buffer := NewPacketBuffer()
+	started := make(chan struct{}, readerCount)
+	results := make(chan error, readerCount)
+
+	for range readerCount {
+		go func() {
+			started <- struct{}{}
+			_, _, err := buffer.ReadFrom(make([]byte, 1))
+			results <- err
+		}()
+	}
+
+	for range readerCount {
+		<-started
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	assert.NoError(t, buffer.Close())
+
+	for range readerCount {
+		select {
+		case err := <-results:
+			assert.ErrorIs(t, err, io.EOF)
+		case <-time.After(time.Second):
+			assert.Fail(t, "timed out waiting for blocked reader to return")
+
+			return
+		}
+	}
+}
+
 func benchmarkBufferWR(b *testing.B, size int64, write bool, grow int) { // nolint:unparam
 	b.Helper()
 

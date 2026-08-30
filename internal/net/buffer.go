@@ -44,8 +44,9 @@ type PacketBuffer struct {
 	write, read         atomic.Uint64
 	readLock, writeLock sync.Mutex
 
-	notify chan struct{}
-	closed atomic.Bool
+	notify   chan struct{}
+	closedCh chan struct{}
+	closed   atomic.Bool
 
 	readDeadline *deadline.Deadline
 }
@@ -62,6 +63,7 @@ func NewPacketBufferWithSize(bufSize int) *PacketBuffer {
 		readDeadline: deadline.New(),
 		packets:      make([]AddrPacket, bufSize),
 		notify:       make(chan struct{}, 1),
+		closedCh:     make(chan struct{}),
 	}
 }
 
@@ -143,7 +145,7 @@ func (b *PacketBuffer) ReadFrom(packet []byte) (n int, addr net.Addr, err error)
 				return 0, nil, io.ErrShortBuffer
 			}
 
-			n, err := slot.data.Read(packet)
+			n, err = slot.data.Read(packet)
 			if err != nil {
 				b.readLock.Unlock()
 
@@ -168,12 +170,21 @@ func (b *PacketBuffer) ReadFrom(packet []byte) (n int, addr net.Addr, err error)
 		}
 
 		b.readLock.Unlock()
-		select {
-		case <-b.readDeadline.Done():
+		if err = b.waitForRead(); err != nil {
 			return 0, nil, ErrTimeout
-		case <-b.notify:
-			b.readLock.Lock()
 		}
+		b.readLock.Lock()
+	}
+}
+
+func (b *PacketBuffer) waitForRead() error {
+	select {
+	case <-b.readDeadline.Done():
+		return ErrTimeout
+	case <-b.notify:
+		return nil
+	case <-b.closedCh:
+		return nil
 	}
 }
 
@@ -190,10 +201,7 @@ func (b *PacketBuffer) Close() error {
 		return nil
 	}
 
-	select {
-	case b.notify <- struct{}{}:
-	default:
-	}
+	close(b.closedCh)
 
 	return nil
 }
