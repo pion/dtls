@@ -213,14 +213,67 @@ func TestWraparound(t *testing.T) {
 	assert.NoError(t, err)
 	equalInt(t, 3, n)
 
-	// Write again and verify buffer grew.
+	// Write again and verify buffer did not grew.
 	n, err = buffer.WriteTo([]byte{12, 13, 14, 15, 16, 17, 18, 19}, addr)
 	assert.NoError(t, err)
 	equalInt(t, 8, n)
+	equalInt(t, 4, len(buffer.packets))
 
 	// Write again and verify packet dropped.
 	_, err = buffer.WriteTo([]byte{12, 13, 14, 15, 16, 17, 18, 19}, addr)
 	assert.Error(t, err)
+	equalInt(t, 4, len(buffer.packets))
+
+	// Close.
+	assert.NoError(t, buffer.Close())
+}
+
+func TestWraparoundUnbounded(t *testing.T) {
+	buffer := NewPacketBuffer()
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:5684")
+	assert.NoError(t, err)
+
+	// Write multiple.
+	n, err := buffer.WriteTo([]byte{0, 1, 2, 3}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 4, n)
+
+	n, err = buffer.WriteTo([]byte{4, 5}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 2, n)
+
+	n, err = buffer.WriteTo([]byte{6, 7, 8}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 3, n)
+
+	// Verify underlying buffer length.
+	// Packet 1: buffer does not grow.
+	// Packet 2: buffer doubles from 1 to 2.
+	// Packet 3: buffer doubles from 2 to 4.
+	equalInt(t, 4, len(buffer.packets))
+	// Read once.
+	packet := make([]byte, 4)
+	var raddr net.Addr
+	n, raddr, err = buffer.ReadFrom(packet)
+	assert.NoError(t, err)
+	equalInt(t, 4, n)
+	equalBytes(t, []byte{0, 1, 2, 3}, packet[:n])
+	equalUDPAddr(t, addr, raddr)
+
+	// Write again.
+	n, err = buffer.WriteTo([]byte{9, 10, 11}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 3, n)
+
+	// Verify underlying buffer length.
+	// No change in buffer size.
+	equalInt(t, 4, len(buffer.packets))
+
+	// Write again and verify buffer grew.
+	n, err = buffer.WriteTo([]byte{12, 13, 14, 15, 16, 17, 18, 19}, addr)
+	assert.NoError(t, err)
+	equalInt(t, 8, n)
+	equalInt(t, 4, len(buffer.packets))
 
 	// Close.
 	assert.NoError(t, buffer.Close())

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/transport/v4/deadline"
 )
 
@@ -32,14 +33,15 @@ var ErrTimeout = dtlserrors.ErrNetBufferTimeout
 // it was received.
 type AddrPacket struct {
 	addr net.Addr
-	data *bytes.Buffer
+	data bytes.Buffer
 }
 
 // PacketBuffer is a circular buffer for network packets. Each slot in the
 // buffer contains the remote address from which the packet was received, as
 // well as the packet data.
 type PacketBuffer struct {
-	packets []AddrPacket
+	packets  []AddrPacket
+	growable bool
 
 	write, read         atomic.Uint64
 	readLock, writeLock sync.Mutex
@@ -51,12 +53,12 @@ type PacketBuffer struct {
 	readDeadline *deadline.Deadline
 }
 
-const defaultPacketSize = 128
-
 // NewPacketBufferWithSize creates a new PacketBuffer with a given buffer size.
+// If the size is 0 (default), the ring buffer is unbounded and will grow indefinitely.
 func NewPacketBufferWithSize(bufSize int) *PacketBuffer {
-	if bufSize == 0 {
-		bufSize = defaultPacketSize
+	growable := bufSize == 0
+	if growable {
+		bufSize = 1
 	}
 
 	return &PacketBuffer{
@@ -64,19 +66,13 @@ func NewPacketBufferWithSize(bufSize int) *PacketBuffer {
 		packets:      make([]AddrPacket, bufSize),
 		notify:       make(chan struct{}, 1),
 		closedCh:     make(chan struct{}),
+		growable:     growable,
 	}
 }
 
 // NewPacketBuffer creates a new PacketBuffer with default buffer size.
 func NewPacketBuffer() *PacketBuffer {
-	return NewPacketBufferWithSize(defaultPacketSize)
-}
-
-//nolint:gochecknoglobals
-var bufferPool = sync.Pool{
-	New: func() any {
-		return &bytes.Buffer{}
-	},
+	return NewPacketBufferWithSize(dtlsnet.PacketBufferRingbufferSize)
 }
 
 // WriteTo writes a single packet to the buffer. The supplied address will
@@ -93,13 +89,26 @@ func (b *PacketBuffer) WriteTo(pkt []byte, addr net.Addr) (int, error) {
 	read := b.read.Load()
 
 	if write-read >= uint64(len(b.packets)) {
-		return 0, dtlserrors.ErrBufferTooSmall
+		if !b.growable {
+			return 0, dtlserrors.ErrBufferTooSmall
+		}
+		b.readLock.Lock()
+		read = b.read.Load()
+
+		oldLen := len(b.packets)
+		newLen := oldLen * 2
+
+		packets := make([]AddrPacket, newLen)
+		for i := read; i < write; i++ {
+			packets[i%uint64(newLen)] = b.packets[i%uint64(oldLen)]
+		}
+
+		b.packets = packets
+		b.readLock.Unlock()
 	}
 
 	slot := &b.packets[write%uint64(len(b.packets))]
 
-	buf := bufferPool.Get()
-	slot.data, _ = buf.(*bytes.Buffer)
 	slot.data.Reset()
 
 	n, err := slot.data.Write(pkt)
@@ -153,9 +162,6 @@ func (b *PacketBuffer) ReadFrom(packet []byte) (n int, addr net.Addr, err error)
 			}
 
 			addr = slot.addr
-
-			bufferPool.Put(slot.data)
-			slot.data = nil
 
 			b.read.Add(1)
 			b.readLock.Unlock()
