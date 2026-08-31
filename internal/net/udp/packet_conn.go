@@ -48,7 +48,7 @@ type listener struct {
 	acceptCh          chan *PacketConn
 	doneCh            chan struct{}
 	doneOnce          sync.Once
-	acceptFilter      func([]byte) bool
+	acceptFilter      func(net.Addr, []byte) bool
 	datagramRouter    func([]byte) (string, bool)
 	connIdentifier    func([]byte) (string, bool)
 	receiveBufferSize int
@@ -150,7 +150,7 @@ func WithBacklog(backlog int) ListenerOption {
 }
 
 // WithAcceptFilter sets the filter used to admit new connections.
-func WithAcceptFilter(filter func([]byte) bool) ListenerOption {
+func WithAcceptFilter(filter func(net.Addr, []byte) bool) ListenerOption {
 	return func(l *listener) {
 		l.acceptFilter = filter
 	}
@@ -250,7 +250,7 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 			return nil, false, ErrClosedListener
 		}
 		if l.acceptFilter != nil {
-			if !l.acceptFilter(buf) {
+			if !l.acceptFilter(raddr, buf) {
 				return nil, false, nil
 			}
 		}

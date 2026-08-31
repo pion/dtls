@@ -14,7 +14,12 @@ import (
 
 func packetListenerOptions(config *dtlsConfig) []udp.ListenerOption {
 	opts := []udp.ListenerOption{
-		udp.WithAcceptFilter(func(packet []byte) bool {
+		udp.WithAcceptFilter(func(raddr net.Addr, packet []byte) bool {
+			if config.OnConnectionAttempt != nil {
+				if err := config.OnConnectionAttempt(raddr); err != nil {
+					return false
+				}
+			}
 			pkts, _ := recordlayer.UnpackDatagram(packet, recordlayer.UnpackDatagramConfig{})
 			if len(pkts) == 0 {
 				return false

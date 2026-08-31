@@ -160,7 +160,7 @@ func TestListenerAcceptFilter(t *testing.T) {
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
 			network, addr := getConfig()
-			listener, err := listenAddr(network, addr, WithAcceptFilter(func(pkt []byte) bool {
+			listener, err := listenAddr(network, addr, WithAcceptFilter(func(_ net.Addr, pkt []byte) bool {
 				return pkt[0] == 0xAA
 			}))
 			assert.NoError(t, err)
