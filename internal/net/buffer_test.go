@@ -38,6 +38,16 @@ func equalBytes(t *testing.T, expected, actual []byte) {
 	assert.Equal(t, expected, actual)
 }
 
+func waitForBlockedReaders(t *testing.T, buffer *PacketBuffer, count int) {
+	t.Helper()
+
+	if !assert.Eventually(t, func() bool {
+		return buffer.notify.Load().waiters.Load() == int64(count)
+	}, time.Second, time.Millisecond) {
+		assert.Fail(t, "timed out waiting for blocked readers")
+	}
+}
+
 func TestBuffer(t *testing.T) {
 	buffer := NewPacketBuffer()
 	packet := make([]byte, 4)
@@ -354,6 +364,72 @@ func TestBufferCloseUnblocksAllReaders(t *testing.T) {
 			assert.ErrorIs(t, err, io.EOF)
 		case <-time.After(time.Second):
 			assert.Fail(t, "timed out waiting for blocked reader to return")
+
+			return
+		}
+	}
+}
+
+func TestBufferWritesUnblockAllReaders(t *testing.T) {
+	const readerCount = 4
+
+	buffer := NewPacketBuffer()
+	defer func() { assert.NoError(t, buffer.Close()) }()
+
+	addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5684}
+	results := make(chan error, readerCount)
+
+	for range readerCount {
+		go func() {
+			_, _, err := buffer.ReadFrom(make([]byte, 1))
+			results <- err
+		}()
+	}
+
+	waitForBlockedReaders(t, buffer, readerCount)
+	for i := range readerCount {
+		_, err := buffer.WriteTo([]byte{byte(i)}, addr)
+		assert.NoError(t, err)
+	}
+
+	for range readerCount {
+		select {
+		case err := <-results:
+			assert.NoError(t, err)
+		case <-time.After(time.Second):
+			assert.Fail(t, "timed out waiting for blocked reader to return")
+
+			return
+		}
+	}
+}
+
+func TestBufferWriteUnblocksAllShortBufferReaders(t *testing.T) {
+	const readerCount = 4
+
+	buffer := NewPacketBuffer()
+	defer func() { assert.NoError(t, buffer.Close()) }()
+
+	addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5684}
+	results := make(chan error, readerCount)
+
+	for range readerCount {
+		go func() {
+			_, _, err := buffer.ReadFrom(make([]byte, 1))
+			results <- err
+		}()
+	}
+
+	waitForBlockedReaders(t, buffer, readerCount)
+	_, err := buffer.WriteTo([]byte{1, 2}, addr)
+	assert.NoError(t, err)
+
+	for range readerCount {
+		select {
+		case err = <-results:
+			assert.ErrorIs(t, err, io.ErrShortBuffer)
+		case <-time.After(time.Second):
+			assert.Fail(t, "timed out waiting for blocked short-buffer reader to return")
 
 			return
 		}

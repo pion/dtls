@@ -36,6 +36,15 @@ type AddrPacket struct {
 	data bytes.Buffer
 }
 
+type readNotification struct {
+	ch      chan struct{}
+	waiters atomic.Int64
+}
+
+func newReadNotification() *readNotification {
+	return &readNotification{ch: make(chan struct{})}
+}
+
 // PacketBuffer is a circular buffer for network packets. Each slot in the
 // buffer contains the remote address from which the packet was received, as
 // well as the packet data.
@@ -46,7 +55,7 @@ type PacketBuffer struct {
 	write, read         atomic.Uint64
 	readLock, writeLock sync.Mutex
 
-	notify   chan struct{}
+	notify   atomic.Pointer[readNotification]
 	closedCh chan struct{}
 	closed   atomic.Bool
 
@@ -61,13 +70,15 @@ func NewPacketBufferWithSize(bufSize int) *PacketBuffer {
 		bufSize = 1
 	}
 
-	return &PacketBuffer{
+	buffer := &PacketBuffer{
 		readDeadline: deadline.New(),
 		packets:      make([]AddrPacket, bufSize),
-		notify:       make(chan struct{}, 1),
 		closedCh:     make(chan struct{}),
 		growable:     growable,
 	}
+	buffer.notify.Store(newReadNotification())
+
+	return buffer
 }
 
 // NewPacketBuffer creates a new PacketBuffer with default buffer size.
@@ -120,10 +131,7 @@ func (b *PacketBuffer) WriteTo(pkt []byte, addr net.Addr) (int, error) {
 
 	b.write.Add(1)
 
-	select {
-	case b.notify <- struct{}{}:
-	default:
-	}
+	b.notifyReaders()
 
 	return n, nil
 }
@@ -184,13 +192,36 @@ func (b *PacketBuffer) ReadFrom(packet []byte) (n int, addr net.Addr, err error)
 }
 
 func (b *PacketBuffer) waitForRead() error {
+	notify := b.notify.Load()
+	notify.waiters.Add(1)
+
+	if b.notify.Load() != notify || b.read.Load() < b.write.Load() || b.closed.Load() {
+		notify.waiters.Add(-1)
+
+		return nil
+	}
+
+	var err error
 	select {
 	case <-b.readDeadline.Done():
-		return ErrTimeout
-	case <-b.notify:
-		return nil
+		err = ErrTimeout
+	case <-notify.ch:
 	case <-b.closedCh:
-		return nil
+	}
+
+	notify.waiters.Add(-1)
+
+	return err
+}
+
+func (b *PacketBuffer) notifyReaders() {
+	notify := b.notify.Load()
+	if notify.waiters.Load() == 0 {
+		return
+	}
+
+	if b.notify.CompareAndSwap(notify, newReadNotification()) {
+		close(notify.ch)
 	}
 }
 
@@ -218,10 +249,7 @@ func (b *PacketBuffer) SetReadDeadline(t time.Time) error {
 	defer b.readLock.Unlock()
 	b.readDeadline.Set(t)
 
-	select {
-	case b.notify <- struct{}{}:
-	default:
-	}
+	b.notifyReaders()
 
 	return nil
 }
