@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"crypto/fips140"
 	"errors"
 	"net"
 
@@ -37,6 +38,12 @@ func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config 
 }
 
 func resolveResumeCipherSuite(state *State, config *dtlsConfig) (cryptosuite.Suite, error) {
+	// Resuming rebuilds the cipher from the stored suite ID, skipping the
+	// negotiation-time FIPS filter, so refuse a non-approved suite here.
+	if fips140.Enabled() && !cipherSuiteFIPSApproved(state.CipherSuiteID) {
+		return nil, dtlserrors.ErrCipherSuiteNotFIPSApproved
+	}
+
 	selected, err := state.cipherSuite()
 	if err == nil {
 		return selected, nil

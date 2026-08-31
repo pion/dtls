@@ -52,6 +52,9 @@ var (
 	ErrNoAvailableCipherSuites = stderrors.New(
 		"connection can not be created, no CipherSuites satisfy this Config",
 	)
+	// ErrCipherSuiteNotFIPSApproved is returned when a cipher the Go FIPS module
+	// doesn't provide (ChaCha20-Poly1305 or AES-CCM) would be used in FIPS mode.
+	ErrCipherSuiteNotFIPSApproved        = stderrors.New("cipher suite not approved in FIPS mode")
 	ErrNoAvailablePSKCipherSuite         = stderrors.New("connection can not be created, pre-shared key present but no compatible CipherSuite")
 	ErrNoAvailableCertificateCipherSuite = stderrors.New("connection can not be created, certificate present but no compatible CipherSuite")
 	ErrNoAvailableSignatureSchemes       = stderrors.New(
