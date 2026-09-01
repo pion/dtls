@@ -106,15 +106,17 @@ func (b *PacketBuffer) WriteTo(pkt []byte, addr net.Addr) (int, error) {
 		b.readLock.Lock()
 		read = b.read.Load()
 
-		oldLen := len(b.packets)
-		newLen := oldLen * 2
+		if write-read >= uint64(len(b.packets)) {
+			oldLen := len(b.packets)
+			newLen := oldLen * 2
 
-		packets := make([]AddrPacket, newLen)
-		for i := read; i < write; i++ {
-			packets[i%uint64(newLen)] = b.packets[i%uint64(oldLen)]
+			packets := make([]AddrPacket, newLen)
+			for i := read; i < write; i++ {
+				packets[i%uint64(newLen)] = b.packets[i%uint64(oldLen)]
+			}
+
+			b.packets = packets
 		}
-
-		b.packets = packets
 		b.readLock.Unlock()
 	}
 

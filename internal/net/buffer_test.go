@@ -191,6 +191,54 @@ func TestResizeWraparound(t *testing.T) {
 	}
 }
 
+func TestResizeRechecksCapacityAfterAcquiringReadLock(t *testing.T) {
+	buffer := NewPacketBuffer()
+	addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5684}
+
+	_, err := buffer.WriteTo([]byte{1}, addr)
+	assert.NoError(t, err)
+
+	buffer.readLock.Lock()
+	writeDone := make(chan error, 1)
+	go func() {
+		_, writeErr := buffer.WriteTo([]byte{2}, addr)
+		writeDone <- writeErr
+	}()
+
+	if !assert.Eventually(t, func() bool {
+		if !buffer.writeLock.TryLock() {
+			return true
+		}
+		buffer.writeLock.Unlock()
+
+		return false
+	}, time.Second, time.Millisecond) {
+		buffer.readLock.Unlock()
+
+		return
+	}
+
+	buffer.read.Add(1)
+	buffer.readLock.Unlock()
+
+	select {
+	case err = <-writeDone:
+		assert.NoError(t, err)
+	case <-time.After(time.Second):
+		assert.Fail(t, "timed out waiting for writer to return")
+
+		return
+	}
+
+	equalInt(t, 1, len(buffer.packets))
+
+	packet := make([]byte, 1)
+	n, _, err := buffer.ReadFrom(packet)
+	assert.NoError(t, err)
+	equalInt(t, 1, n)
+	equalBytes(t, []byte{2}, packet[:n])
+}
+
 func TestWraparound(t *testing.T) {
 	buffer := NewPacketBufferWithSize(4)
 	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:5684")
