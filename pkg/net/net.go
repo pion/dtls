@@ -109,3 +109,8 @@ func (p *packetConnWrapper) SetReadDeadline(t time.Time) error {
 func (p *packetConnWrapper) SetWriteDeadline(t time.Time) error {
 	return p.conn.SetWriteDeadline(t)
 }
+
+// PacketBufferRingbufferSize allows for setting the ring buffer size.
+// A size of 0 (default), means the ring buffer will grow when full.
+// If a size if provided, the packets will be dropped when the ring buffer is full.
+var PacketBufferRingbufferSize = 0 //nolint:gochecknoglobals
