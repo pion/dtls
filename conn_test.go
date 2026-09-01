@@ -3937,7 +3937,7 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 	go func() { handshakeResults <- server.HandshakeContext(ctx) }()
 
 	waitForBridgePacket(t, br, 0)
-	br.Tick()
+	deliverNextBridgePacket(t, br)
 	waitForBridgePacket(t, br, 1)
 	impairNetwork(br)
 	br.Tick()
@@ -3958,6 +3958,14 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 
 	assertDTLSApplicationDataOverBridge(t, br, client, server, []byte("client data after HRR retry"))
 	assertDTLSApplicationDataOverBridge(t, br, server, client, []byte("server data after HRR retry"))
+}
+
+func deliverNextBridgePacket(t *testing.T, br *test.Bridge) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return br.Tick() > 0
+	}, time.Second, time.Millisecond, "timed out delivering bridge packet")
 }
 
 func waitForBridgeHandshakes(
