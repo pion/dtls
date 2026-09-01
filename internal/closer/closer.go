@@ -6,6 +6,7 @@ package closer
 
 import (
 	"context"
+	"time"
 )
 
 // Closer allows for each signaling a channel for shutdown.
@@ -47,4 +48,12 @@ func (c *Closer) Err() error {
 // Close sends a signal to trigger the ctx done channel.
 func (c *Closer) Close() {
 	c.closeFunc()
+}
+
+func (c *Closer) Deadline() (deadline time.Time, ok bool) {
+	return c.ctx.Deadline()
+}
+
+func (c *Closer) Value(key any) any {
+	return c.ctx.Value(key)
 }
