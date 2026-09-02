@@ -224,6 +224,7 @@ type Conn struct {
 
 	reading               chan struct{}
 	handshakeRecv         chan dtlshandshake.RecvHandshakeState
+	detached              *DetachedConn
 	cancelHandshaker      func()
 	cancelHandshakeReader func()
 
@@ -259,9 +260,8 @@ func createConn(nextConn net.PacketConn, rAddr net.Addr, config *dtlsConfig, isC
 }
 
 func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigValues, handshakeConfig *dtlsconfig.HandshakeConfig, isClient bool) *Conn {
-	return &Conn{
+	conn := &Conn{
 		rAddr:                   rAddr,
-		nextConn:                netctx.NewPacketConn(nextConn),
 		handshakeConfig:         handshakeConfig,
 		fragmentBuffer:          dtlsfragmentbuffer.New(),
 		handshakeCache:          dtlsflight.NewCache(),
@@ -287,6 +287,11 @@ func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigVal
 
 		state: dtlsstate.NewActive(isClient),
 	}
+	if nextConn != nil {
+		conn.nextConn = netctx.NewPacketConn(nextConn)
+	}
+
+	return conn
 }
 
 // Handshake runs the client or server DTLS handshake
@@ -443,7 +448,12 @@ func (c *Conn) prepareDualStackServerHandshakeStart(ctx context.Context) (handsh
 		return handshakeStart{}, err
 	}
 
-	return handshakeStart{flight12: dtlsflight12.Flight0, flight13: dtlsflight13.Flight0, fsmState: dtlshandshake.StatePreparing}, nil
+	return handshakeStart{
+		flight12:  dtlsflight12.Flight0,
+		flight13:  dtlsflight13.Flight0,
+		fsmState:  dtlshandshake.StatePreparing,
+		postSetup: func(ctx context.Context) { c.primeHandshakeRecv(ctx) },
+	}, nil
 }
 
 func dialWithConfig(network string, rAddr *net.UDPAddr, config *dtlsConfig) (*Conn, error) {
@@ -686,6 +696,9 @@ func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Outb
 // Close closes the connection.
 func (c *Conn) Close() error {
 	err := c.close(true)
+	if c.detached != nil {
+		c.detached.terminate(ErrConnClosed, false)
+	}
 	c.closeLock.Lock()
 	handshakeDone := c.handshakeDone
 	c.closeLock.Unlock()
@@ -749,6 +762,19 @@ func (c *Conn) writePacketsWithResultLocked(ctx context.Context, pkts []*dtlsfli
 	}
 
 	result := &dtlshandshake.WriteResult{}
+	if c.detached != nil {
+		if len(datagrams) == 0 {
+			return result, nil
+		}
+		raw := make([][]byte, len(datagrams))
+		for i := range datagrams {
+			raw[i] = datagrams[i].raw
+			result.TrackedRecords = append(result.TrackedRecords, datagrams[i].tracked...)
+		}
+		c.detached.publishDatagrams(raw, rAddr)
+
+		return result, nil
+	}
 	for _, datagram := range datagrams {
 		if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
 			if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
@@ -1279,6 +1305,8 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 		return err
 	}
 	if !summary.containsHandshake && len(summary.receivedACKs) == 0 {
+		c.signalHandshakeQuiescent()
+
 		return nil
 	}
 
@@ -1303,7 +1331,14 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 	defer bufferLease.releaseReadBuffer()
 
 	b := *bufptr
-	i, rAddr, err := c.nextConn.ReadFromContext(ctx, b)
+	var i int
+	var rAddr net.Addr
+	var err error
+	if c.detached != nil {
+		i, rAddr, err = c.detached.readDatagram(ctx, b)
+	} else {
+		i, rAddr, err = c.nextConn.ReadFromContext(ctx, b)
+	}
 	if err != nil {
 		return datagramProcessingSummary{}, netError(err)
 	}
@@ -2117,6 +2152,11 @@ func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protoco
 	}
 
 	isLatestSeqNum := prepared.markPacketAsValid()
+	if c.detached != nil {
+		c.detached.publishApplicationData(content.Data)
+
+		return isLatestSeqNum, packetOutcome{}, nil
+	}
 	select {
 	case c.decrypted <- content.Data:
 	case <-c.closed.Done():
@@ -2245,7 +2285,23 @@ func (c *Conn) syncFragmentBufferHandshakeSequence() {
 }
 
 func (c *Conn) recvHandshake() <-chan dtlshandshake.RecvHandshakeState {
+	if c.detached != nil && !c.detached.quiescentSkip.CompareAndSwap(true, false) {
+		c.detached.markQuiescent()
+	}
+
 	return c.handshakeRecv
+}
+
+func (c *Conn) signalHandshakeQuiescent() {
+	if c.detached != nil {
+		c.detached.markQuiescent()
+	}
+}
+
+func (c *Conn) signalHandshakeTerminated(err error) {
+	if c.detached != nil {
+		c.detached.connectionTerminated(err)
+	}
 }
 
 func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Description) error {
@@ -2283,6 +2339,7 @@ func (c *Conn) isHandshakeCompletedSuccessfully() bool {
 
 func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 	for {
+		c.signalHandshakeQuiescent()
 		if err := c.readAndBufferNoFSM(ctx); err != nil {
 			return err
 		}
@@ -2328,6 +2385,7 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 	}
 
 	for {
+		c.signalHandshakeQuiescent()
 		if err := c.readAndBufferNoFSM(ctx); err != nil {
 			return nil, err
 		}
@@ -2601,6 +2659,9 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 
 	ctxRead, cancelRead := context.WithCancel(context.Background())
 	ctxHs, cancel := context.WithCancel(context.Background())
+	if c.detached != nil && start.postSetup != nil {
+		c.detached.quiescentSkip.Store(true)
+	}
 
 	c.closeLock.Lock()
 	c.cancelHandshaker = cancel
@@ -2618,6 +2679,7 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 		defer handshakeLoopsFinished.Done()
 		err := c.fsm.Run(ctxHs, handshakeConn{c}, start.fsmState)
 		if !errors.Is(err, context.Canceled) {
+			c.signalHandshakeTerminated(err)
 			select {
 			case firstErr <- err:
 			default:
@@ -2648,10 +2710,13 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 
 			action := c.classifyReadLoopError(err)
 			if action == readLoopContinue {
+				c.signalHandshakeQuiescent()
+
 				continue
 			}
 			if action == readLoopDeliverAndContinue {
 				c.deliverReadError(ctxRead, err)
+				c.signalHandshakeQuiescent()
 
 				continue
 			}
@@ -2661,6 +2726,9 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 			default:
 			}
 
+			if !errors.Is(err, context.Canceled) {
+				c.signalHandshakeTerminated(err)
+			}
 			if action == readLoopCloseAndStop {
 				if errors.Is(err, context.Canceled) {
 					c.log.Trace("handshake timeouts - closing underlying connection")
@@ -2752,6 +2820,10 @@ func (c *Conn) close(byUser bool) error {
 		_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
 	}
 
+	if c.detached != nil {
+		return nil
+	}
+
 	return c.nextConn.Close()
 }
 
@@ -2812,6 +2884,10 @@ func validateNextWriteGeneration(
 
 // LocalAddr implements net.Conn.LocalAddr.
 func (c *Conn) LocalAddr() net.Addr {
+	if c.detached != nil {
+		return nil
+	}
+
 	return c.nextConn.LocalAddr()
 }
 

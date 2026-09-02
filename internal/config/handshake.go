@@ -134,9 +134,37 @@ type HandshakeConfig struct {
 	ResumeState                   *internalstate.State
 	MinVersion                    protocol.Version
 	MaxVersion                    protocol.Version
+	TimerFactory                  func(time.Duration) Timer
 
 	nameToCertificate map[string]*tls.Certificate
 	mu                sync.Mutex
+}
+
+// Timer is the timer surface used by the handshake state machines.
+type Timer interface {
+	C() <-chan time.Time
+	Stop()
+}
+
+type systemTimer struct {
+	timer *time.Timer
+}
+
+func (t *systemTimer) C() <-chan time.Time {
+	return t.timer.C
+}
+
+func (t *systemTimer) Stop() {
+	t.timer.Stop()
+}
+
+// NewTimer returns a handshake timer.
+func (c *HandshakeConfig) NewTimer(d time.Duration) Timer {
+	if c.TimerFactory != nil {
+		return c.TimerFactory(d)
+	}
+
+	return &systemTimer{timer: time.NewTimer(d)}
 }
 
 func (c *HandshakeConfig) WriteKeyLog(label string, clientRandom, secret []byte) {

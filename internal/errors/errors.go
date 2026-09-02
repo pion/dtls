@@ -43,6 +43,7 @@ var (
 	ErrInvalidPrivateKey                    = stderrors.New("invalid private key type")
 	ErrInvalidSignatureAlgorithm            = stderrors.New("invalid signature algorithm")
 	ErrInvalidExtendedMasterSecretType      = stderrors.New("invalid extended master secret type")
+	ErrNilRemoteAddr                        = stderrors.New("remote address cannot be nil")
 	ErrInvalidCertificateSignatureAlgorithm = stderrors.New(
 		"certificate uses a signature algorithm that is not allowed",
 	)
