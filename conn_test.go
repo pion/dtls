@@ -5903,7 +5903,7 @@ func assertTrafficKeyTestRecord(
 }
 
 // Injecting waits for the peer, so it must not happen in the interceptor.
-func injectOverPipe(t *testing.T, deliver func([]byte)) (func([]byte) bool, func()) {
+func injectOverPipe(t *testing.T, deliver func([]byte)) (func([][]byte, net.Addr) bool, func()) {
 	t.Helper()
 
 	near, far := dpipe.Pipe()
@@ -5920,9 +5920,11 @@ func injectOverPipe(t *testing.T, deliver func([]byte)) (func([]byte) bool, func
 		}
 	}()
 
-	return func(packet []byte) bool {
-			_, err := near.Write(packet)
-			assert.NoError(t, err)
+	return func(datagrams [][]byte, _ net.Addr) bool {
+			for _, datagram := range datagrams {
+				_, err := near.Write(datagram)
+				assert.NoError(t, err)
+			}
 
 			return true
 		}, func() {
@@ -5953,9 +5955,7 @@ func TestOutboundInterceptor(t *testing.T) {
 
 			server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
 				WithCertificates(serverCert),
-				WithOutboundHandshakePacketInterceptor(func(packet []byte, _ bool) bool {
-					return toClient(packet)
-				}),
+				WithOutboundHandshakePacketInterceptor(toClient),
 				WithInsecureSkipVerify(true),
 				WithInsecureSkipVerifyHello(true),
 				WithMinVersion(version),
@@ -5977,9 +5977,7 @@ func TestOutboundInterceptor(t *testing.T) {
 
 			client, err = ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 				WithCertificates(clientCert),
-				WithOutboundHandshakePacketInterceptor(func(packet []byte, _ bool) bool {
-					return toServer(packet)
-				}),
+				WithOutboundHandshakePacketInterceptor(toServer),
 				WithInsecureSkipVerify(true),
 				WithMinVersion(version),
 				WithMaxVersion(version),
@@ -6013,13 +6011,11 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	serverPackets, serverFlights := 0, 0
 	server, err := ServerWithOptions(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(),
 		WithCertificates(serverCert),
-		WithOutboundHandshakePacketInterceptor(func(packet []byte, end bool) bool {
-			serverPackets++
-			if end {
-				serverFlights++
-			}
+		WithOutboundHandshakePacketInterceptor(func(datagrams [][]byte, rAddr net.Addr) bool {
+			serverPackets += len(datagrams)
+			serverFlights++
 
-			return toClient(packet)
+			return toClient(datagrams, rAddr)
 		}),
 		WithInsecureSkipVerify(true),
 		WithInsecureSkipVerifyHello(true),
@@ -6042,13 +6038,11 @@ func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
 	clientPackets, clientFlights := 0, 0
 	client, err = ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithCertificates(clientCert),
-		WithOutboundHandshakePacketInterceptor(func(packet []byte, end bool) bool {
-			clientPackets++
-			if end {
-				clientFlights++
-			}
+		WithOutboundHandshakePacketInterceptor(func(datagrams [][]byte, rAddr net.Addr) bool {
+			clientPackets += len(datagrams)
+			clientFlights++
 
-			return toServer(packet)
+			return toServer(datagrams, rAddr)
 		}),
 		WithInsecureSkipVerify(true),
 		WithMTU(500),
@@ -6093,8 +6087,10 @@ func TestInboundNotifier(t *testing.T) {
 	var outboundHandshakePackets [][]byte
 	client, err := ClientWithOptions(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(),
 		WithCertificates(clientCert),
-		WithOutboundHandshakePacketInterceptor(func(packet []byte, _ bool) bool {
-			outboundHandshakePackets = append(outboundHandshakePackets, bytes.Clone(packet))
+		WithOutboundHandshakePacketInterceptor(func(datagrams [][]byte, _ net.Addr) bool {
+			for _, datagram := range datagrams {
+				outboundHandshakePackets = append(outboundHandshakePackets, bytes.Clone(datagram))
+			}
 
 			return false
 		}),

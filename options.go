@@ -69,7 +69,7 @@ type dtlsConfig struct {
 	ClientHelloMessageHook             func(handshake.MessageClientHello) handshake.Message
 	ServerHelloMessageHook             func(handshake.MessageServerHello) handshake.Message
 	CertificateRequestMessageHook      func(handshake.MessageCertificateRequest) handshake.Message
-	OutboundHandshakePacketInterceptor func(packet []byte, end bool) bool
+	OutboundHandshakePacketInterceptor func(datagrams [][]byte, rAddr net.Addr) bool
 	InboundHandshakePacketNotifier     func(packet []byte)
 	OnConnectionAttempt                func(net.Addr) error
 	ListenConfig                       net.ListenConfig
@@ -649,12 +649,14 @@ func WithCertificateRequestMessageHook(fn func(handshake.MessageCertificateReque
 }
 
 // WithOutboundHandshakePacketInterceptor sets a callback that intercepts outgoing
-// raw handshake packets. It is called with the raw packet bytes and a flag telling
-// whether this is the last packet of a flight; returning true drops the packet so
-// that the caller can deliver it by other means, for example by embedding it into
-// STUN.
+// raw handshake packets. It is called once per handshake write with the datagrams
+// that write produced and their destination. That is a full flight on the main
+// handshake path, but also covers ACK-only writes and post-handshake messages.
+// Returning true drops all of them so that the caller can deliver them by other
+// means, for example by embedding them into STUN. The datagrams are only valid
+// for the duration of the callback.
 // Returns an error if the callback is nil.
-func WithOutboundHandshakePacketInterceptor(fn func(packet []byte, end bool) bool) Option {
+func WithOutboundHandshakePacketInterceptor(fn func(datagrams [][]byte, rAddr net.Addr) bool) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		if fn == nil {
 			return dtlserrors.ErrNilOutboundHandshakePacketInterceptor
