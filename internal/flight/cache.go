@@ -5,7 +5,6 @@
 package flight
 
 import (
-	"bytes"
 	"fmt"
 	"sync"
 
@@ -45,7 +44,7 @@ func (h *Cache) Push(data []byte, epoch, messageSequence uint16, typ handshake.T
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.cache = append(h.cache, &HandshakeCacheItem{Data: bytes.Clone(data), Epoch: epoch, MessageSequence: messageSequence, Typ: typ, IsClient: isClient})
+	h.cache = append(h.cache, &HandshakeCacheItem{Data: data, Epoch: epoch, MessageSequence: messageSequence, Typ: typ, IsClient: isClient})
 }
 
 // PullExact returns the handshake message with the requested sequence and

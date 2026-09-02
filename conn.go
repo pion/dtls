@@ -573,7 +573,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		return 0, err
 	}
 
-	ctx, cancel := c.contextWithClose(c.writeDeadline)
+	ctx, cancel := c.contextWithClose()
 	defer cancel()
 
 	err := c.writeApplicationData(ctx, []*dtlsflight.Outbound{
@@ -829,62 +829,109 @@ func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *hand
 	return nil
 }
 
-func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.CancelFunc) {
-	closeCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
-	go func() {
-		select {
-		case <-c.closed.Done():
-			cancel(context.Canceled)
-		case <-ctx.Done():
-			err := ctx.Err()
-			if err == nil {
-				err = context.DeadlineExceeded
-			}
-			cancel(err)
-		case <-closeCtx.Done():
+func (c *Conn) contextWithClose() (context.Context, context.CancelFunc) {
+	closeCtx, cancel := context.WithCancelCause(context.Background())
+
+	detachLifetime := context.AfterFunc(c.closed, func() {
+		err := c.closed.Err()
+		if err == nil {
+			err = context.Canceled
 		}
-	}()
+		cancel(err)
+	})
+
+	detachDeadline := c.writeDeadline.AfterFunc(func() {
+		err := c.writeDeadline.Err()
+		if err == nil {
+			err = context.DeadlineExceeded
+		}
+		cancel(err)
+	})
 
 	return closeCtx, func() {
+		detachLifetime()
+		detachDeadline()
 		cancel(context.Canceled)
 	}
 }
 
 func (c *Conn) contextWithCloseAndWriteDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	operationCtx, cancel := context.WithCancelCause(context.Background())
-	go func() {
-		select {
-		case <-c.closed.Done():
-			cancel(context.Canceled)
-		case <-c.writeDeadline.Done():
-			cancel(context.DeadlineExceeded)
-		case <-ctx.Done():
-			cancel(ctx.Err())
-		case <-operationCtx.Done():
+
+	detachLifetime := context.AfterFunc(c.closed, func() {
+		err := c.closed.Err()
+		if err == nil {
+			err = context.Canceled
 		}
-	}()
+		cancel(err)
+	})
+
+	detachDeadline := c.writeDeadline.AfterFunc(func() {
+		err := c.writeDeadline.Err()
+		if err == nil {
+			err = context.DeadlineExceeded
+		}
+		cancel(err)
+	})
+
+	detachCtx := context.AfterFunc(ctx, func() {
+		err := ctx.Err()
+		if err == nil {
+			err = context.Canceled
+		}
+		cancel(err)
+	})
 
 	return operationCtx, func() {
+		detachLifetime()
+		detachDeadline()
+		detachCtx()
 		cancel(context.Canceled)
 	}
 }
 
 func (c *Conn) compactPreparedRecords(records []preparedRecord) []preparedDatagram {
-	datagrams := make([]preparedDatagram, 0, len(records))
-	current := preparedDatagram{}
+	if len(records) == 0 {
+		return []preparedDatagram{}
+	}
+
+	totalSize := 0
 	for _, record := range records {
-		if len(current.raw) > 0 && len(current.raw)+len(record.raw) >= c.maximumTransmissionUnit {
-			datagrams = append(datagrams, current)
-			current = preparedDatagram{}
+		totalSize += len(record.raw)
+	}
+
+	datagrams := make([]preparedDatagram, len(records))
+	flatRaw := make([]byte, 0, totalSize)
+
+	datagramIndex := 0
+	currentSize := 0
+	offset := 0
+
+	for _, record := range records {
+		recordSize := len(record.raw)
+
+		flatRaw = append(flatRaw, record.raw...)
+
+		if currentSize > 0 && currentSize+recordSize >= c.maximumTransmissionUnit {
+			datagrams[datagramIndex].raw = flatRaw[offset : offset+currentSize]
+			datagramIndex++
+			offset += currentSize
+			currentSize = 0
 		}
-		current.raw = append(current.raw, record.raw...)
+
+		currentSize += recordSize
+
 		if record.tracked != nil {
-			current.tracked = append(current.tracked, *record.tracked)
+			datagrams[datagramIndex].tracked = append(
+				datagrams[datagramIndex].tracked,
+				*record.tracked,
+			)
 		}
 	}
-	datagrams = append(datagrams, current)
 
-	return datagrams
+	datagrams[datagramIndex].raw = flatRaw[offset : offset+currentSize]
+
+	return datagrams[:datagramIndex+1]
 }
 
 func (c *Conn) prepareRecord(outbound *dtlsflight.Outbound) ([]byte, error) {
@@ -1214,26 +1261,57 @@ func selectHandshakeFragment(offsets map[uint32]uint32, raw []byte) (bool, error
 	return ok && length == header.FragmentLength, nil
 }
 
+var noContentFragments = [][]byte{ //nolint:gochecknoglobals
+	{},
+}
+
 func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, error) {
+	messageSize := dtlsHandshake.Message.MarshalSize()
+	numFragments := (messageSize-1)/c.maximumTransmissionUnit + 1
+
+	fragmentedHandshakes := make([][]byte, numFragments)
+
+	if numFragments == 1 {
+		fragmentedHandshake := make([]byte, handshake.HeaderLength+messageSize)
+
+		headerFragment := handshake.Header{
+			Type:            dtlsHandshake.Header.Type,
+			Length:          dtlsHandshake.Header.Length,
+			MessageSequence: dtlsHandshake.Header.MessageSequence,
+			FragmentOffset:  uint32(0),
+			FragmentLength:  uint32(messageSize), //nolint:gosec // G115
+		}
+
+		_, err := headerFragment.MarshalTo(fragmentedHandshake)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = dtlsHandshake.Message.MarshalTo(fragmentedHandshake[handshake.HeaderLength:])
+		if err != nil {
+			return nil, err
+		}
+
+		fragmentedHandshakes[0] = fragmentedHandshake
+
+		return fragmentedHandshakes, nil
+	}
+
 	content, err := dtlsHandshake.Message.Marshal()
 	if err != nil {
 		return nil, err
 	}
 
-	fragmentedHandshakes := make([][]byte, 0)
-
 	contentFragments := util.SplitBytes(content, c.maximumTransmissionUnit)
 	if len(contentFragments) == 0 {
-		contentFragments = [][]byte{
-			{},
-		}
+		contentFragments = noContentFragments
 	}
 
 	offset := 0
-	for _, contentFragment := range contentFragments {
+	for i, contentFragment := range contentFragments {
 		contentFragmentLen := len(contentFragment)
 
-		headerFragment := &handshake.Header{
+		headerFragment := handshake.Header{
 			Type:            dtlsHandshake.Header.Type,
 			Length:          dtlsHandshake.Header.Length,
 			MessageSequence: dtlsHandshake.Header.MessageSequence,
@@ -1241,15 +1319,18 @@ func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, 
 			FragmentLength:  uint32(contentFragmentLen), //nolint:gosec // G115
 		}
 
+		fragmentedHandshake := make([]byte, handshake.HeaderLength+contentFragmentLen)
+
 		offset += contentFragmentLen
 
-		fragmentedHandshake, err := headerFragment.Marshal()
+		_, err := headerFragment.MarshalTo(fragmentedHandshake)
 		if err != nil {
 			return nil, err
 		}
 
-		fragmentedHandshake = append(fragmentedHandshake, contentFragment...)
-		fragmentedHandshakes = append(fragmentedHandshakes, fragmentedHandshake)
+		copy(fragmentedHandshake[handshake.HeaderLength:], contentFragment)
+
+		fragmentedHandshakes[i] = fragmentedHandshake
 	}
 
 	return fragmentedHandshakes, nil
@@ -2756,12 +2837,7 @@ func (c *Conn) close(byUser bool) error {
 }
 
 func (c *Conn) isConnectionClosed() bool {
-	select {
-	case <-c.closed.Done():
-		return true
-	default:
-		return false
-	}
+	return c.closed.Err() != nil
 }
 
 func (c *Conn) setLocalEpoch(epoch uint16) {

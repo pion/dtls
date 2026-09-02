@@ -5,6 +5,7 @@ package dtlshandshake
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
@@ -147,8 +148,23 @@ func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
 	return StateWaiting, nil
 }
 
+var timerPool = sync.Pool{ //nolint:gochecknoglobals
+	New: func() any {
+		timer := time.NewTimer(1 * time.Hour)
+		timer.Stop()
+
+		return timer
+	},
+}
+
 func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:gocognit,cyclop
-	retransmitTimer := time.NewTimer(s.retransmitInterval)
+	retransmitTimer := timerPool.Get().(*time.Timer) //nolint:forcetypeassert
+	retransmitTimer.Reset(s.retransmitInterval)
+	defer func() {
+		retransmitTimer.Stop()
+		timerPool.Put(retransmitTimer)
+	}()
+
 	for {
 		select {
 		case state := <-conn.RecvHandshake():
