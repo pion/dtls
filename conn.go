@@ -1309,6 +1309,10 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 		return err
 	}
 	if !summary.containsHandshake && len(summary.receivedACKs) == 0 {
+		// The FSM will not be asked for anything, so nothing will release an
+		// injected packet later.
+		c.finishInject()
+
 		return nil
 	}
 
@@ -2835,10 +2839,13 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 
 			action := c.classifyReadLoopError(err)
 			if action == readLoopContinue {
+				c.finishInject()
+
 				continue
 			}
 			if action == readLoopDeliverAndContinue {
 				c.deliverReadError(ctxRead, err)
+				c.finishInject()
 
 				continue
 			}
