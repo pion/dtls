@@ -328,8 +328,9 @@ func (c *PacketConn) ReadFrom(buff []byte) (int, net.Addr, error) {
 // WriteTo writes len(payload) bytes from payload to the specified address.
 func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 	c.closeAccess.RLock()
-	defer c.closeAccess.RUnlock()
 	if c.closing.Load() {
+		c.closeAccess.RUnlock()
+
 		return 0, io.EOF
 	}
 
@@ -365,6 +366,7 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 			c.listener.conns.CompareAndDelete(old.(net.Addr).String(), c) //nolint:forcetypeassert
 		}
 	}
+	c.closeAccess.RUnlock()
 
 	select {
 	case <-c.writeDeadline.Done():
