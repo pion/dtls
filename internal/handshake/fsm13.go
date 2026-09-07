@@ -282,7 +282,7 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 		}
 	}()
 
-	retransmitTimer := time.NewTimer(s.retransmitInterval)
+	retransmitTimer := s.cfg.NewTimer(s.retransmitInterval)
 	defer retransmitTimer.Stop()
 	for {
 		select {
@@ -300,7 +300,7 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 
 			return transition.state, nil
 
-		case <-retransmitTimer.C:
+		case <-retransmitTimer.C():
 			return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg), nil
 		case <-ctx.Done():
 			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())

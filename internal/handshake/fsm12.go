@@ -148,7 +148,8 @@ func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
 }
 
 func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:gocognit,cyclop
-	retransmitTimer := time.NewTimer(s.retransmitInterval)
+	retransmitTimer := s.cfg.NewTimer(s.retransmitInterval)
+	defer retransmitTimer.Stop()
 	for {
 		select {
 		case state := <-conn.RecvHandshake():
@@ -195,7 +196,7 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:g
 
 			return StatePreparing, nil
 
-		case <-retransmitTimer.C:
+		case <-retransmitTimer.C():
 			return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg), nil
 		case <-ctx.Done():
 			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())

@@ -5194,3 +5194,358 @@ func assertTrafficKeyTestRecord(
 	require.NoError(t, err)
 	assert.Equal(t, want, innerPlaintext.Content)
 }
+
+func TestDetachedConnWritesRRCAsAddressedEvent(t *testing.T) {
+	conn, _ := newTestConnWithReadProtection(t)
+	conn.cidPathMigrationPolicy = CIDPathMigrationRRC
+	state, ok := conn.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{
+		ClientCID:              []byte("local-cid"),
+		ServerCID:              []byte("remote-cid"),
+		ReturnRoutabilityCheck: true,
+	})
+	conn.setLocalEpoch(dtlsflight13.EpochApplication)
+	addr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 5000}
+	conn.rAddr = addr
+	detached := &DetachedConn{}
+	conn.detached = detached
+
+	require.NoError(t, (returnRoutabilityConn{conn: conn}).WriteRRC(
+		t.Context(), addr, protocol.ReturnRoutabilityCheckPathChallenge,
+		[protocol.ReturnRoutabilityCheckCookieLength]byte{},
+	))
+	event := detached.NextEvent()
+	require.Equal(t, DetachedWriteDatagrams, event.Kind)
+	require.Equal(t, addr.String(), event.Addr.String())
+	require.Len(t, event.Datagrams, 1)
+}
+
+func TestDetachedConnEvents(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	clientAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 4444}
+	serverAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 5555}
+	for _, testCase := range []struct {
+		name string
+		min  protocol.Version
+		max  protocol.Version
+	}{
+		{name: "DTLS12", min: protocol.Version1_2, max: protocol.Version1_2},
+		{name: "DTLS13", min: protocol.Version1_3, max: protocol.Version1_3},
+		{name: "DualStack", min: protocol.Version1_2, max: protocol.Version1_3},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			client, err := DetachedClient(serverAddr,
+				WithInsecureSkipVerify(true),
+				WithMinVersion(testCase.min),
+				WithMaxVersion(testCase.max),
+				WithMTU(200),
+			)
+			require.NoError(t, err)
+			server, err := DetachedServer(clientAddr,
+				WithCertificates(certificate),
+				WithMinVersion(testCase.min),
+				WithMaxVersion(testCase.max),
+				WithMTU(200),
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_ = client.Close()
+				_ = server.Close()
+			})
+			require.NoError(t, client.Start(t.Context()))
+			require.NoError(t, server.Start(t.Context()))
+
+			clientDone, serverDone := false, false
+			largestBatch := 0
+			for range 64 {
+				drainDetachedEvents(t, client, server, clientAddr, serverAddr, &clientDone, nil, &largestBatch)
+				drainDetachedEvents(t, server, client, serverAddr, clientAddr, &serverDone, nil, &largestBatch)
+				if clientDone && serverDone {
+					break
+				}
+			}
+			require.True(t, clientDone)
+			require.True(t, serverDone)
+			require.Greater(t, largestBatch, 1)
+
+			for _, payload := range [][]byte{[]byte("first application record"), []byte("second application record")} {
+				n, writeErr := client.Write(payload)
+				require.NoError(t, writeErr)
+				require.Equal(t, len(payload), n)
+				var received []byte
+				drainDetachedEvents(t, client, server, clientAddr, serverAddr, nil, nil, nil)
+				drainDetachedEvents(t, server, client, serverAddr, clientAddr, nil, &received, nil)
+				require.Equal(t, payload, received)
+			}
+		})
+	}
+}
+
+func TestDetachedConnLifecycle(t *testing.T) {
+	serverAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 5555}
+	client, err := DetachedClient(serverAddr, WithInsecureSkipVerify(true))
+	require.NoError(t, err)
+	startedClient := client
+	t.Cleanup(func() { _ = startedClient.Close() })
+	require.ErrorIs(t, client.HandleDatagram([]byte{0}, serverAddr), dtlserrors.ErrHandshakeInProgress)
+	_, err = client.Write([]byte("early"))
+	require.ErrorIs(t, err, dtlserrors.ErrHandshakeInProgress)
+	require.NoError(t, client.Start(t.Context()))
+	require.ErrorIs(t, client.Start(t.Context()), errDetachedConnStarted)
+
+	client, err = DetachedClient(nil)
+	require.ErrorIs(t, err, dtlserrors.ErrNilRemoteAddr)
+	require.Nil(t, client)
+}
+
+func TestDetachedConnCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	client, err := DetachedClient(
+		&net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 5555},
+		WithInsecureSkipVerify(true),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.Start(ctx))
+	for event := client.NextEvent(); event.Kind != DetachedNoEvent; event = client.NextEvent() {
+	}
+	cancel()
+	requireDetachedEventReady(t, client)
+
+	var closedErr error
+	for event := client.NextEvent(); event.Kind != DetachedNoEvent; event = client.NextEvent() {
+		if event.Kind == DetachedClosed {
+			closedErr = event.Err
+		}
+	}
+	require.ErrorIs(t, closedErr, context.Canceled)
+}
+
+func TestDetachedConnEventReadyCoalesces(t *testing.T) {
+	conn := &DetachedConn{eventReady: make(chan struct{}, 1)}
+	conn.publishEvent(DetachedEvent{Kind: DetachedApplicationData})
+	conn.publishEvent(DetachedEvent{Kind: DetachedHandshakeDone})
+
+	requireDetachedEventReady(t, conn)
+	select {
+	case <-conn.EventReady():
+		require.Fail(t, "multiple readiness signals for one nonempty queue")
+	default:
+	}
+	require.Equal(t, DetachedApplicationData, conn.NextEvent().Kind)
+	require.Equal(t, DetachedHandshakeDone, conn.NextEvent().Kind)
+	require.Equal(t, DetachedNoEvent, conn.NextEvent().Kind)
+
+	conn.publishEvent(DetachedEvent{Kind: DetachedApplicationData})
+	require.Equal(t, DetachedApplicationData, conn.NextEvent().Kind)
+	require.Equal(t, DetachedNoEvent, conn.NextEvent().Kind)
+	select {
+	case <-conn.EventReady():
+		require.Fail(t, "stale readiness signal after draining events")
+	default:
+	}
+
+	conn.publishEvent(DetachedEvent{Kind: DetachedHandshakeDone})
+	requireDetachedEventReady(t, conn)
+}
+
+func TestDetachedConnAutonomousRetransmit(t *testing.T) {
+	for name, version := range map[string]protocol.Version{"DTLS12": protocol.Version1_2, "DTLS13": protocol.Version1_3} {
+		t.Run(name, func(t *testing.T) {
+			client, err := DetachedClient(
+				&net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 5555},
+				WithInsecureSkipVerify(true),
+				WithMinVersion(version),
+				WithMaxVersion(version),
+				WithFlightInterval(100*time.Millisecond),
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = client.Close() })
+			require.NoError(t, client.Start(t.Context()))
+
+			initialWrites := 0
+			for event := client.NextEvent(); event.Kind != DetachedNoEvent; event = client.NextEvent() {
+				if event.Kind == DetachedWriteDatagrams {
+					require.NotEmpty(t, event.Datagrams)
+					initialWrites++
+				}
+			}
+			require.Equal(t, 1, initialWrites)
+			select {
+			case <-client.EventReady():
+				require.Fail(t, "stale readiness signal before retransmission")
+			default:
+			}
+
+			requireDetachedEventReady(t, client)
+
+			retransmitWrites := 0
+			for event := client.NextEvent(); event.Kind != DetachedNoEvent; event = client.NextEvent() {
+				if event.Kind == DetachedWriteDatagrams {
+					require.NotEmpty(t, event.Datagrams)
+					retransmitWrites++
+				}
+			}
+			require.Equal(t, 1, retransmitWrites)
+			select {
+			case <-client.EventReady():
+				require.Fail(t, "stale readiness signal after retransmission")
+			default:
+			}
+		})
+	}
+}
+
+func TestDetachedConnValidInputCancelsPendingRetransmit(t *testing.T) { //nolint:cyclop
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	clientAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 4444}
+	serverAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 5555}
+
+	for name, version := range map[string]protocol.Version{"DTLS12": protocol.Version1_2, "DTLS13": protocol.Version1_3} {
+		t.Run(name, func(t *testing.T) {
+			client, err := DetachedClient(serverAddr,
+				WithInsecureSkipVerify(true),
+				WithMinVersion(version),
+				WithMaxVersion(version),
+				WithFlightInterval(time.Hour),
+			)
+			require.NoError(t, err)
+			server, err := DetachedServer(clientAddr,
+				WithCertificates(certificate),
+				WithMinVersion(version),
+				WithMaxVersion(version),
+				WithFlightInterval(time.Hour),
+			)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_ = client.Close()
+				_ = server.Close()
+			})
+
+			timers := make(chan *detachedTimer, 8)
+			client.conn.handshakeConfig.TimerFactory = func(d time.Duration) dtlsconfig.Timer {
+				timer := client.newTimer(d).(*detachedTimer) //nolint:forcetypeassert // test factory always returns this type
+				timers <- timer
+
+				return timer
+			}
+
+			require.NoError(t, server.Start(t.Context()))
+			require.NoError(t, client.Start(t.Context()))
+
+			var clientFlight [][]byte
+			for event := client.NextEvent(); event.Kind != DetachedNoEvent; event = client.NextEvent() {
+				if event.Kind == DetachedWriteDatagrams {
+					clientFlight = append(clientFlight, event.Datagrams...)
+				}
+			}
+			require.NotEmpty(t, clientFlight)
+			initialTimer := <-timers
+
+			// Keep the valid input operation ahead of the pending timer callback.
+			// Stop must claim the timer while fire is waiting for driveMu.
+			client.driveMu.Lock()
+			locked := true
+			defer func() {
+				if locked {
+					client.driveMu.Unlock()
+				}
+			}()
+
+			for _, datagram := range clientFlight {
+				require.NoError(t, server.HandleDatagram(datagram, clientAddr))
+			}
+			var serverFlight [][]byte
+			for event := server.NextEvent(); event.Kind != DetachedNoEvent; event = server.NextEvent() {
+				if event.Kind == DetachedWriteDatagrams {
+					serverFlight = append(serverFlight, event.Datagrams...)
+				}
+			}
+			require.NotEmpty(t, serverFlight)
+
+			fireDone := make(chan struct{})
+			go func() {
+				initialTimer.fire()
+				close(fireDone)
+			}()
+			for _, datagram := range serverFlight {
+				select {
+				case client.inbound <- addrPkt{rAddr: serverAddr, data: datagram}:
+				case <-client.terminal:
+					require.NoError(t, client.terminalErr)
+				}
+				require.NoError(t, client.waitUntilBlocked())
+			}
+			require.True(t, initialTimer.claimed.Load())
+
+			immediateWrites := 0
+			for event := client.NextEvent(); event.Kind != DetachedNoEvent; event = client.NextEvent() {
+				if event.Kind == DetachedWriteDatagrams {
+					immediateWrites++
+				}
+			}
+			require.Positive(t, immediateWrites)
+
+			client.driveMu.Unlock()
+			locked = false
+			select {
+			case <-fireDone:
+			case <-time.After(time.Second):
+				require.FailNow(t, "timer callback remained blocked after valid input")
+			}
+			select {
+			case <-client.EventReady():
+				require.Fail(t, "canceled retransmit produced an event")
+			default:
+			}
+		})
+	}
+}
+
+func requireDetachedEventReady(t *testing.T, conn *DetachedConn) {
+	t.Helper()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-conn.EventReady():
+	case <-timer.C:
+		require.FailNow(t, "timed out waiting for a detached event")
+	}
+}
+
+func drainDetachedEvents( //nolint:cyclop
+	t *testing.T,
+	source, peer *DetachedConn,
+	sourceAddr, peerAddr net.Addr,
+	handshakeDone *bool,
+	applicationData *[]byte,
+	largestBatch *int,
+) {
+	t.Helper()
+	for event := source.NextEvent(); event.Kind != DetachedNoEvent; event = source.NextEvent() {
+		switch event.Kind {
+		case DetachedWriteDatagrams:
+			require.Equal(t, peerAddr.String(), event.Addr.String())
+			if largestBatch != nil {
+				*largestBatch = max(*largestBatch, len(event.Datagrams))
+			}
+			for _, datagram := range event.Datagrams {
+				require.NoError(t, peer.HandleDatagram(datagram, sourceAddr))
+			}
+		case DetachedApplicationData:
+			if applicationData != nil {
+				*applicationData = append(*applicationData, event.Data...)
+			}
+		case DetachedHandshakeDone:
+			if handshakeDone != nil {
+				require.False(t, *handshakeDone)
+				*handshakeDone = true
+			}
+		case DetachedClosed:
+			require.NoError(t, event.Err)
+		case DetachedNoEvent:
+		}
+	}
+}

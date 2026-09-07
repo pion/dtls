@@ -14,6 +14,7 @@ import (
 	"time"
 
 	dtlsciphersuite "github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
@@ -336,7 +337,7 @@ func (p *postHandshake) registerTransmission(flight *reliablePostHandshakeFlight
 	}
 }
 
-func (p *postHandshake) nextTimer() (*time.Timer, <-chan time.Time) {
+func (p *postHandshake) nextTimer() (dtlsconfig.Timer, <-chan time.Time) {
 	var next time.Time
 	for _, flight := range p.flights {
 		if next.IsZero() || flight.NextRetransmit.Before(next) {
@@ -348,9 +349,9 @@ func (p *postHandshake) nextTimer() (*time.Timer, <-chan time.Time) {
 	}
 
 	delay := max(time.Until(next), 0)
-	timer := time.NewTimer(delay)
+	timer := p.cfg.NewTimer(delay)
 
-	return timer, timer.C
+	return timer, timer.C()
 }
 
 func (p *postHandshake) handlePostHandshakeReceive(

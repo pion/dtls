@@ -67,7 +67,12 @@ func (c returnRoutabilityConn) WriteRRC(ctx context.Context, addr net.Addr, mess
 		return err
 	}
 
-	if _, err = c.conn.nextConn.WriteToContext(ctx, raw, addr); err != nil {
+	if c.conn.detached != nil {
+		c.conn.detached.publishDatagrams([][]byte{raw}, addr)
+	} else {
+		_, err = c.conn.nextConn.WriteToContext(ctx, raw, addr)
+	}
+	if err != nil {
 		if errors.Is(err, context.Canceled) && c.conn.isConnectionClosed() {
 			return ErrConnClosed
 		}
