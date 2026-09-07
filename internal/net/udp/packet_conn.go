@@ -18,6 +18,7 @@ package udp
 
 import (
 	"context"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -44,7 +45,8 @@ var (
 type listener struct {
 	pConn net.PacketConn
 
-	accepting         atomic.Value // bool
+	accepting         atomic.Bool
+	acceptMu          sync.Mutex // serializes new-connection admission with shutdown's queue drain
 	acceptCh          chan *PacketConn
 	doneCh            chan struct{}
 	doneOnce          sync.Once
@@ -54,9 +56,9 @@ type listener struct {
 	receiveBufferSize int
 	backlog           int
 
-	connLock sync.Mutex
-	conns    map[string]*PacketConn
-	connWG   sync.WaitGroup
+	conns  sync.Map // map[string]*PacketConn
+	nConns atomic.Int64
+	connWG sync.WaitGroup
 
 	readWG   sync.WaitGroup
 	errClose atomic.Value // error
@@ -71,7 +73,7 @@ func (l *listener) Accept() (net.PacketConn, net.Addr, error) {
 	case c := <-l.acceptCh:
 		l.connWG.Add(1)
 
-		return c, c.raddr, nil
+		return c, c.raddr.Load().(net.Addr), nil //nolint:forcetypeassert
 
 	case <-l.readDoneCh:
 		err, _ := l.errRead.Load().(error)
@@ -91,30 +93,35 @@ func (l *listener) Close() error {
 		l.accepting.Store(false)
 		close(l.doneCh)
 
-		l.connLock.Lock()
+		// Wait for in-flight admissions before draining the queue.
+		l.acceptMu.Lock()
+
 		// Close unaccepted connections
-	lclose:
 		for {
 			select {
 			case c := <-l.acceptCh:
-				close(c.doneCh)
-				// If we have an alternate identifier, remove it from the connection
-				// map.
-				if id := c.id.Load(); id != nil {
-					delete(l.conns, id.(string)) //nolint:forcetypeassert
+				c.closeAccess.Lock()
+				if !c.closing.Swap(true) {
+					c.listener.nConns.Add(-1)
+					close(c.doneCh)
+					// If we have an alternate identifier, remove it from the connection
+					// map.
+					if id := c.id.Load(); id != nil {
+						l.conns.Delete(id.(string)) //nolint:forcetypeassert
+					}
+					l.conns.Delete(c.raddr.Load().(net.Addr).String()) //nolint:forcetypeassert
 				}
-				// If we haven't already removed the remote address, remove it
-				// from the connection map.
-				if c.rmraddr.Load() == nil {
-					delete(l.conns, c.raddr.String())
-					c.rmraddr.Store(true)
-				}
+				c.closeAccess.Unlock()
+
+				continue
 			default:
-				break lclose
 			}
+
+			break
 		}
-		nConns := len(l.conns)
-		l.connLock.Unlock()
+
+		nConns := l.nConns.Load()
+		l.acceptMu.Unlock()
 
 		l.connWG.Done()
 
@@ -181,14 +188,20 @@ func WithReceiveBufferSize(size int) ListenerOption {
 
 // Listen creates a new listener over conn.
 func Listen(conn net.PacketConn, opts ...ListenerOption) dtlsnet.PacketListener {
-	packetListener := &listener{pConn: conn, backlog: defaultListenBacklog, receiveBufferSize: defaultReceiveBufferSize, conns: make(map[string]*PacketConn), doneCh: make(chan struct{}), readDoneCh: make(chan struct{})}
+	packetListener := &listener{
+		pConn:             conn,
+		backlog:           defaultListenBacklog,
+		receiveBufferSize: defaultReceiveBufferSize,
+		doneCh:            make(chan struct{}),
+		readDoneCh:        make(chan struct{}),
+	}
 	for _, opt := range opts {
 		opt(packetListener)
 	}
 
 	packetListener.acceptCh = make(chan *PacketConn, packetListener.backlog)
-
 	packetListener.accepting.Store(true)
+
 	packetListener.connWG.Add(1)
 	packetListener.readWG.Add(2) // wait readLoop and Close execution routine
 
@@ -231,22 +244,20 @@ func (l *listener) readLoop() {
 
 // getConn gets an existing connection or creates a new one.
 func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error) { //nolint:cyclop
-	l.connLock.Lock()
-	defer l.connLock.Unlock()
 	// If we have a custom resolver, use it.
 	if l.datagramRouter != nil {
 		if id, ok := l.datagramRouter(buf); ok {
-			if conn, ok := l.conns[id]; ok {
-				return conn, true, nil
+			if conn, ok := l.conns.Load(id); ok {
+				return conn.(*PacketConn), true, nil //nolint:forcetypeassert
 			}
 		}
 	}
 
 	// If we don't have a custom resolver, or we were unable to find an
 	// associated connection, fall back to remote address.
-	conn, ok := l.conns[raddr.String()]
-	if !ok {
-		if isAccepting, ok := l.accepting.Load().(bool); !isAccepting || !ok {
+	conn, has := l.conns.Load(raddr.String())
+	if !has { //nolint:nestif
+		if !l.accepting.Load() {
 			return nil, false, ErrClosedListener
 		}
 		if l.acceptFilter != nil {
@@ -254,16 +265,26 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 				return nil, false, nil
 			}
 		}
-		conn = l.newPacketConn(raddr)
-		select {
-		case l.acceptCh <- conn:
-			l.conns[raddr.String()] = conn
-		default:
-			return nil, false, ErrListenQueueExceeded
+		l.acceptMu.Lock()
+		defer l.acceptMu.Unlock()
+		if !l.accepting.Load() {
+			return nil, false, ErrClosedListener
+		}
+		conn, has = l.conns.LoadOrStore(raddr.String(), l.newPacketConn(raddr))
+		if !has {
+			l.nConns.Add(1)
+			select {
+			case l.acceptCh <- conn.(*PacketConn): //nolint:forcetypeassert
+			default:
+				l.nConns.Add(-1)
+				l.conns.Delete(raddr.String())
+
+				return nil, false, ErrListenQueueExceeded
+			}
 		}
 	}
 
-	return conn, true, nil
+	return conn.(*PacketConn), true, nil //nolint:forcetypeassert
 }
 
 // PacketConn is a net.PacketConn implementation that is able to dictate its
@@ -273,21 +294,29 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 type PacketConn struct {
 	listener *listener
 
-	raddr   net.Addr
-	rmraddr atomic.Value // bool
-	id      atomic.Value // string
+	closeAccess sync.RWMutex
+	closing     atomic.Bool
+	raddr       atomic.Value // net.Addr
+	id          atomic.Value // string
 
 	buffer *idtlsnet.PacketBuffer
 
-	doneCh   chan struct{}
-	doneOnce sync.Once
+	doneCh chan struct{}
 
 	writeDeadline *deadline.Deadline
 }
 
 // newPacketConn constructs a new PacketConn.
 func (l *listener) newPacketConn(raddr net.Addr) *PacketConn {
-	return &PacketConn{listener: l, raddr: raddr, buffer: idtlsnet.NewPacketBuffer(), doneCh: make(chan struct{}), writeDeadline: deadline.New()}
+	res := &PacketConn{
+		listener:      l,
+		buffer:        idtlsnet.NewPacketBuffer(),
+		doneCh:        make(chan struct{}),
+		writeDeadline: deadline.New(),
+	}
+	res.raddr.Store(raddr)
+
+	return res
 }
 
 // ReadFrom reads a single packet payload and its associated remote address from
@@ -298,6 +327,13 @@ func (c *PacketConn) ReadFrom(buff []byte) (int, net.Addr, error) {
 
 // WriteTo writes len(payload) bytes from payload to the specified address.
 func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
+	c.closeAccess.RLock()
+	if c.closing.Load() {
+		c.closeAccess.RUnlock()
+
+		return 0, io.EOF
+	}
+
 	// If we have a connection identifier, check to see if the outgoing packet
 	// sets it.
 	if c.listener.connIdentifier != nil {
@@ -307,9 +343,7 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 			candidate, ok := c.listener.connIdentifier(payload)
 			// If we have an identifier, add entry to connection map.
 			if ok {
-				c.listener.connLock.Lock()
-				c.listener.conns[candidate] = c
-				c.listener.connLock.Unlock()
+				c.listener.conns.Store(candidate, c)
 				c.id.Store(candidate)
 			}
 		}
@@ -327,13 +361,12 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 		// resulting in the remote address entry being dropped prior to the
 		// "real" client transitioning to sending using the alternate
 		// identifier.
-		if id != nil && c.rmraddr.Load() == nil && addr.String() != c.raddr.String() {
-			c.listener.connLock.Lock()
-			delete(c.listener.conns, c.raddr.String())
-			c.rmraddr.Store(true)
-			c.listener.connLock.Unlock()
+		old := c.raddr.Swap(addr)
+		if old.(net.Addr).String() != addr.String() { //nolint:forcetypeassert
+			c.listener.conns.CompareAndDelete(old.(net.Addr).String(), c) //nolint:forcetypeassert
 		}
 	}
+	c.closeAccess.RUnlock()
 
 	select {
 	case <-c.writeDeadline.Done():
@@ -347,25 +380,23 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 // Close closes the conn and releases any Read calls.
 func (c *PacketConn) Close() error {
 	var err error
-	c.doneOnce.Do(func() {
+	if !c.closing.Swap(true) { //nolint:nestif
 		c.listener.connWG.Done()
 		close(c.doneCh)
-		c.listener.connLock.Lock()
+		c.closeAccess.Lock()
+		defer c.closeAccess.Unlock()
+
 		// If we have an alternate identifier, remove it from the connection
 		// map.
-		if id := c.id.Load(); id != nil {
-			delete(c.listener.conns, id.(string)) //nolint:forcetypeassert
+		id := c.id.Load()
+		if id != nil {
+			c.listener.conns.Delete(id.(string)) //nolint:forcetypeassert
 		}
-		// If we haven't already removed the remote address, remove it from the
-		// connection map.
-		if c.rmraddr.Load() == nil {
-			delete(c.listener.conns, c.raddr.String())
-			c.rmraddr.Store(true)
-		}
-		nConns := len(c.listener.conns)
-		c.listener.connLock.Unlock()
+		c.listener.conns.CompareAndDelete(c.raddr.Load().(net.Addr).String(), c) //nolint:forcetypeassert
 
-		if isAccepting, ok := c.listener.accepting.Load().(bool); nConns == 0 && !isAccepting && ok {
+		nConns := c.listener.nConns.Add(-1)
+
+		if nConns == 0 && !c.listener.accepting.Load() {
 			// Wait if this is the final connection
 			c.listener.readWG.Wait()
 			if errClose, ok := c.listener.errClose.Load().(error); ok {
@@ -378,7 +409,7 @@ func (c *PacketConn) Close() error {
 		if errBuf := c.buffer.Close(); errBuf != nil && err == nil {
 			err = errBuf
 		}
-	})
+	}
 
 	return err
 }
