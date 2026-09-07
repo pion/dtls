@@ -362,7 +362,7 @@ func (c *PacketConn) WriteTo(payload []byte, addr net.Addr) (n int, err error) {
 		// identifier.
 		old := c.raddr.Swap(addr)
 		if old.(net.Addr).String() != addr.String() { //nolint:forcetypeassert
-			c.listener.conns.Delete(old.(net.Addr).String()) //nolint:forcetypeassert
+			c.listener.conns.CompareAndDelete(old.(net.Addr).String(), c) //nolint:forcetypeassert
 		}
 	}
 
@@ -390,7 +390,7 @@ func (c *PacketConn) Close() error {
 		if id != nil {
 			c.listener.conns.Delete(id.(string)) //nolint:forcetypeassert
 		}
-		c.listener.conns.Delete(c.raddr.Load().(net.Addr).String()) //nolint:forcetypeassert
+		c.listener.conns.CompareAndDelete(c.raddr.Load().(net.Addr).String(), c) //nolint:forcetypeassert
 
 		nConns := c.listener.nConns.Add(-1)
 
