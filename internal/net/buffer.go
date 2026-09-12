@@ -159,24 +159,15 @@ func (b *PacketBuffer) ReadFrom(packet []byte) (n int, addr net.Addr, err error)
 			slot := &b.packets[read%uint64(len(b.packets))]
 
 			if len(packet) < slot.data.Len() {
-				b.readLock.Unlock()
-
-				return 0, nil, io.ErrShortBuffer
+				err = io.ErrShortBuffer
+			} else {
+				n = copy(packet, slot.data.Bytes())
+				addr = slot.addr
 			}
-
-			n, err = slot.data.Read(packet)
-			if err != nil {
-				b.readLock.Unlock()
-
-				return n, nil, err
-			}
-
-			addr = slot.addr
-
 			b.read.Add(1)
 			b.readLock.Unlock()
 
-			return n, addr, nil
+			return n, addr, err
 		}
 
 		if b.closed.Load() {
