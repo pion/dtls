@@ -7,6 +7,7 @@
 package udp
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -592,4 +593,110 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 	// Wait for servers to exit.
 	serverWg.Wait()
 	assert.NoError(t, listener.Close())
+}
+
+type shortBufferPacketConn struct {
+	net.PacketConn
+	err        error
+	keepPrefix bool
+}
+
+func (c *shortBufferPacketConn) ReadFrom(buf []byte) (int, net.Addr, error) {
+	n, addr, err := c.PacketConn.ReadFrom(buf)
+	if err != nil || c.err == nil {
+		return n, addr, err
+	}
+	err, c.err = c.err, nil
+	if !c.keepPrefix {
+		return 0, nil, err
+	}
+
+	return n, addr, err
+}
+
+func TestListenerIngressPreservesTruncatedPrefix(t *testing.T) {
+	const receiveLimit = 4
+
+	for _, testCase := range []struct {
+		name       string
+		err        error
+		keepPrefix bool
+		terminal   bool
+	}{
+		{name: "silent UDP truncation", keepPrefix: true},
+		{name: "short buffer without prefix", err: io.ErrShortBuffer},
+		{name: "wrapped short buffer without prefix", err: fmt.Errorf("read: %w", io.ErrShortBuffer)},
+		{name: "short buffer with prefix", err: io.ErrShortBuffer, keepPrefix: true},
+		{name: "wrapped short buffer with prefix", err: fmt.Errorf("read: %w", io.ErrShortBuffer), keepPrefix: true},
+		{name: "other read error", err: io.ErrUnexpectedEOF, keepPrefix: true, terminal: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			listenConfig := net.ListenConfig{}
+			receiver, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+			assert.NoError(t, err)
+			sender, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+			assert.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, sender.Close()) })
+			filtered := make(chan []byte, 1)
+			listener := Listen(
+				&shortBufferPacketConn{PacketConn: receiver, err: testCase.err, keepPrefix: testCase.keepPrefix},
+				WithReceiveBufferSize(receiveLimit),
+				WithAcceptFilter(func(packet []byte) bool {
+					filtered <- bytes.Clone(packet)
+
+					return true
+				}),
+			)
+			t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+
+			oversized := []byte("abcdef")
+			exact := []byte("next")
+			for _, packet := range [][]byte{oversized, exact} {
+				n, writeErr := sender.WriteTo(packet, receiver.LocalAddr())
+				assert.NoError(t, writeErr)
+				assert.Equal(t, len(packet), n)
+			}
+
+			type acceptResult struct {
+				conn net.PacketConn
+				err  error
+			}
+			accepted := make(chan acceptResult, 1)
+			go func() {
+				conn, _, acceptErr := listener.Accept()
+				accepted <- acceptResult{conn: conn, err: acceptErr}
+			}()
+
+			var result acceptResult
+			select {
+			case result = <-accepted:
+			case <-time.After(time.Second):
+				assert.FailNow(t, "listener did not continue after a truncated datagram")
+			}
+			if testCase.terminal {
+				assert.ErrorIs(t, result.err, testCase.err)
+
+				return
+			}
+			assert.NoError(t, result.err)
+			t.Cleanup(func() {
+				assert.NoError(t, result.conn.Close())
+			})
+
+			buf := make([]byte, receiveLimit)
+			assert.NoError(t, result.conn.SetReadDeadline(time.Now().Add(time.Second)))
+			if testCase.keepPrefix {
+				n, _, readErr := result.conn.ReadFrom(buf)
+				assert.NoError(t, readErr)
+				assert.Equal(t, oversized[:receiveLimit], buf[:n])
+				assert.Equal(t, oversized[:receiveLimit], <-filtered)
+			}
+			n, _, err := result.conn.ReadFrom(buf)
+			assert.NoError(t, err)
+			assert.Equal(t, exact, buf[:n])
+			if !testCase.keepPrefix {
+				assert.Equal(t, exact, <-filtered)
+			}
+		})
+	}
 }

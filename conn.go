@@ -1339,7 +1339,9 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 	} else {
 		i, rAddr, err = c.nextConn.ReadFromContext(ctx, b)
 	}
-	if err != nil {
+	if errors.Is(err, io.ErrShortBuffer) {
+		c.log.Debugf("receive buffer too small (%d bytes); processing %d returned bytes: %v", len(b), i, err)
+	} else if err != nil {
 		return datagramProcessingSummary{}, netError(err)
 	}
 
@@ -1349,9 +1351,9 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 func (c *Conn) processDatagram(ctx context.Context, datagram []byte, rAddr net.Addr, bufferLease *readBufferLease) (datagramProcessingSummary, error) {
 	pkts, err := c.unpackDatagram(datagram)
 	if len(pkts) == 0 {
-		// discard missing negotiated CID without terminating the handshake.
-		if errors.Is(err, dtlserrors.ErrInvalidCiphertextHeader) {
-			c.log.Debugf("discarded datagram that violates connection ID policy: %v", err)
+		// Discards incomplete records or missing CIDs without terminating the handshake.
+		if errors.Is(err, recordlayer.ErrInvalidPacketLength) || errors.Is(err, dtlserrors.ErrInvalidCiphertextHeader) {
+			c.log.Debugf("discarded datagram: %v", err)
 
 			return datagramProcessingSummary{}, nil
 		}

@@ -18,6 +18,7 @@ package udp
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -227,7 +228,11 @@ func (l *listener) readLoop() {
 
 	for {
 		n, raddr, err := l.pConn.ReadFrom(buf)
-		if err != nil {
+		if errors.Is(err, io.ErrShortBuffer) {
+			if n == 0 {
+				continue
+			}
+		} else if err != nil {
 			l.errRead.Store(err)
 
 			return
