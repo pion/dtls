@@ -13,9 +13,7 @@ import (
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/transport/v4/dpipe"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,7 +71,7 @@ func TestConnectionStateRoleAndVersion(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			ca, cb := dpipe.Pipe()
+			ca, cb := packetPipe()
 			type result struct {
 				c   *Conn
 				err error
@@ -81,11 +79,11 @@ func TestConnectionStateRoleAndVersion(t *testing.T) {
 			resultCh := make(chan result, 1)
 
 			go func() {
-				client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{WithMinVersion(test.version), WithMaxVersion(test.version)}, true)
+				client, err := testClient(ctx, ca, ca.RemoteAddr(), []ClientOption{WithMinVersion(test.version), WithMaxVersion(test.version)}, true)
 				resultCh <- result{client, err}
 			}()
 
-			server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{WithMinVersion(test.version), WithMaxVersion(test.version)}, true)
+			server, err := testServer(ctx, cb, cb.RemoteAddr(), []ServerOption{WithMinVersion(test.version), WithMaxVersion(test.version)}, true)
 			require.NoError(t, err)
 
 			res := <-resultCh

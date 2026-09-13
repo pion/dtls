@@ -15,9 +15,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/transport/v4/dpipe"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -231,11 +229,11 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 		},
 		"Client": {
 			f: func() (func() (net.Conn, error), func()) {
-				ca, _ := dpipe.Pipe()
+				ca, _ := packetPipe()
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 
 				return func() (net.Conn, error) {
-						conn, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientOpts...)
+						conn, err := Client(ca, ca.RemoteAddr(), clientOpts...)
 						if err != nil {
 							return nil, err
 						}
@@ -249,11 +247,11 @@ func TestContextConfig(t *testing.T) { //nolint:cyclop
 		},
 		"Server": {
 			f: func() (func() (net.Conn, error), func()) {
-				ca, _ := dpipe.Pipe()
+				ca, _ := packetPipe()
 				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 
 				return func() (net.Conn, error) {
-						conn, err := Server(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), serverOpts...)
+						conn, err := Server(ca, ca.RemoteAddr(), serverOpts...)
 						if err != nil {
 							return nil, err
 						}

@@ -17,15 +17,13 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/transport/v4/dpipe"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCreatesConn(t *testing.T) {
-	ca, cb := dpipe.Pipe()
+	ca, cb := packetPipe()
 	defer func() {
 		_ = ca.Close()
 		_ = cb.Close()
@@ -34,10 +32,10 @@ func TestCreatesConn(t *testing.T) {
 	cert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
 
-	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), WithCertificates(cert), WithInsecureSkipVerify(true))
+	client, err := Client(ca, ca.RemoteAddr(), WithCertificates(cert), WithInsecureSkipVerify(true))
 	require.NoError(t, err)
 
-	server, err := Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), WithCertificates(cert), WithInsecureSkipVerify(true))
+	server, err := Server(cb, cb.RemoteAddr(), WithCertificates(cert), WithInsecureSkipVerify(true))
 	require.NoError(t, err)
 
 	require.NoError(t, client.Close())
@@ -47,13 +45,13 @@ func TestCreatesConn(t *testing.T) {
 func newOptionsClient(t *testing.T, opts ...ClientOption) (*Conn, error) {
 	t.Helper()
 
-	ca, cb := dpipe.Pipe()
+	ca, cb := packetPipe()
 	t.Cleanup(func() {
 		_ = ca.Close()
 		_ = cb.Close()
 	})
 
-	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
+	client, err := Client(ca, ca.RemoteAddr(), opts...)
 	if err == nil {
 		t.Cleanup(func() {
 			_ = client.Close()
@@ -66,13 +64,13 @@ func newOptionsClient(t *testing.T, opts ...ClientOption) (*Conn, error) {
 func newOptionsServer(t *testing.T, opts ...ServerOption) (*Conn, error) {
 	t.Helper()
 
-	ca, cb := dpipe.Pipe()
+	ca, cb := packetPipe()
 	t.Cleanup(func() {
 		_ = ca.Close()
 		_ = cb.Close()
 	})
 
-	server, err := Server(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), opts...)
+	server, err := Server(ca, ca.RemoteAddr(), opts...)
 	if err == nil {
 		t.Cleanup(func() {
 			_ = server.Close()

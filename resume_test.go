@@ -8,12 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -76,9 +75,10 @@ func DoTestResume(
 	assert.NoError(t, err)
 
 	// Generate connections
-	localConn1, rc1 := net.Pipe()
-	localConn2, rc2 := net.Pipe()
-	remoteConn := &backupConn{curr: rc1, next: rc2}
+	localConn1, rc1 := packetPipe()
+	localConn2, rc2 := packetPipe()
+	remoteConn := &backupConn{}
+	remoteConn.curr.Store(rc1)
 
 	// Launch remote in another goroutine
 	errChan := make(chan error, 1)
@@ -90,7 +90,7 @@ func DoTestResume(
 	go func() {
 		var remote *Conn
 		var errR error
-		remote, errR = newRemote(dtlsnet.PacketConnFromConn(remoteConn), remoteConn.RemoteAddr(), opts)
+		remote, errR = newRemote(remoteConn, rc1.RemoteAddr(), opts)
 		if errR != nil {
 			errChan <- errR
 		}
@@ -110,7 +110,7 @@ func DoTestResume(
 	}()
 
 	var local *Conn
-	local, err = newLocal(dtlsnet.PacketConnFromConn(localConn1), localConn1.RemoteAddr(), opts)
+	local, err = newLocal(localConn1, localConn1.RemoteAddr(), opts)
 	if err != nil {
 		fatal(t, errChan, err)
 	}
@@ -138,6 +138,11 @@ func DoTestResume(
 	if err = localConn1.Close(); err != nil {
 		fatal(t, errChan, err)
 	}
+	// Select the replacement transport, then wake any read on the old pipe.
+	remoteConn.curr.Store(rc2)
+	if err = rc1.Close(); err != nil {
+		fatal(t, errChan, err)
+	}
 
 	// Serialize and deserialize state
 	state, ok := local.ConnectionState()
@@ -158,7 +163,7 @@ func DoTestResume(
 	var resumed net.Conn
 	resumed, err = Resume(
 		deserialized,
-		dtlsnet.PacketConnFromConn(localConn2),
+		localConn2,
 		localConn2.RemoteAddr(),
 		opts...,
 	)
@@ -186,37 +191,21 @@ func DoTestResume(
 }
 
 type backupConn struct {
-	curr net.Conn
-	next net.Conn
-	mux  sync.Mutex
+	curr atomic.Pointer[packetTestConn]
 }
 
-func (b *backupConn) Read(data []byte) (n int, err error) {
-	n, err = b.curr.Read(data)
-	if err != nil && b.next != nil {
-		b.mux.Lock()
-		b.curr = b.next
-		b.next = nil
-		b.mux.Unlock()
-
-		return b.Read(data)
+func (b *backupConn) ReadFrom(data []byte) (n int, addr net.Addr, err error) {
+	curr := b.curr.Load()
+	n, addr, err = curr.ReadFrom(data)
+	if err != nil && curr != b.curr.Load() {
+		return b.ReadFrom(data)
 	}
 
-	return n, err
+	return n, addr, err
 }
 
-func (b *backupConn) Write(data []byte) (n int, err error) {
-	n, err = b.curr.Write(data)
-	if err != nil && b.next != nil {
-		b.mux.Lock()
-		b.curr = b.next
-		b.next = nil
-		b.mux.Unlock()
-
-		return b.Write(data)
-	}
-
-	return n, err
+func (b *backupConn) WriteTo(data []byte, addr net.Addr) (int, error) {
+	return b.curr.Load().WriteTo(data, addr)
 }
 
 func (b *backupConn) Close() error {
@@ -224,21 +213,17 @@ func (b *backupConn) Close() error {
 }
 
 func (b *backupConn) LocalAddr() net.Addr {
-	return nil
+	return b.curr.Load().LocalAddr()
 }
 
-func (b *backupConn) RemoteAddr() net.Addr {
-	return nil
+func (b *backupConn) SetDeadline(deadline time.Time) error {
+	return b.curr.Load().SetDeadline(deadline)
 }
 
-func (b *backupConn) SetDeadline(time.Time) error {
-	return nil
+func (b *backupConn) SetReadDeadline(deadline time.Time) error {
+	return b.curr.Load().SetReadDeadline(deadline)
 }
 
-func (b *backupConn) SetReadDeadline(time.Time) error {
-	return nil
-}
-
-func (b *backupConn) SetWriteDeadline(time.Time) error {
-	return nil
+func (b *backupConn) SetWriteDeadline(deadline time.Time) error {
+	return b.curr.Load().SetWriteDeadline(deadline)
 }

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/transport/v4/dpipe"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -25,9 +24,9 @@ func TestReplayProtection(t *testing.T) { //nolint:cyclop
 	report := test.CheckRoutines(t)
 	defer report()
 
-	c0, c1 := dpipe.Pipe()
-	c2, c3 := dpipe.Pipe()
-	conn := []net.Conn{c0, c1, c2, c3}
+	c0, c1 := packetPipe()
+	c2, c3 := packetPipe()
+	conn := []*packetTestConn{c0, c1, c2, c3}
 
 	var wgRoutines sync.WaitGroup
 	var cntReplays int32 = 1
@@ -41,7 +40,7 @@ func TestReplayProtection(t *testing.T) { //nolint:cyclop
 		}
 	}
 
-	replayer := func(ca, cb net.Conn) {
+	replayer := func(ca, cb *packetTestConn) {
 		defer wgRoutines.Done()
 		// Man in the middle
 		for {

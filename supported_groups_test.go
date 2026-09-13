@@ -12,9 +12,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/transport/v4/dpipe"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,14 +46,14 @@ func TestSupportedGroups(t *testing.T) {
 		err  error
 	}
 	clientResult := make(chan result, 1)
-	ca, cb := dpipe.Pipe()
+	ca, cb := packetPipe()
 
 	go func() {
-		client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), []ClientOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithEllipticCurves(expectedGroups...), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3)}, false)
+		client, err := testClient(ctx, ca, ca.RemoteAddr(), []ClientOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithEllipticCurves(expectedGroups...), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3)}, false)
 		clientResult <- result{conn: client, err: err}
 	}()
 
-	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), []ServerOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3)}, true)
+	server, err := testServer(ctx, cb, cb.RemoteAddr(), []ServerOption{WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3)}, true)
 	client := <-clientResult
 	defer func() {
 		if server != nil {

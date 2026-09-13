@@ -6,6 +6,7 @@ package e2e
 import (
 	"fmt"
 	"math/rand"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/pion/dtls/v3"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
 	transportTest "github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -22,6 +22,21 @@ const (
 	flightInterval   = time.Millisecond * 100
 	lossyTestTimeout = 30 * time.Second
 )
+
+type bridgePacketConn struct {
+	net.Conn
+	remoteAddr net.Addr
+}
+
+func (c *bridgePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	n, err := c.Read(p)
+
+	return n, c.remoteAddr, err
+}
+
+func (c *bridgePacketConn) WriteTo(p []byte, _ net.Addr) (int, error) {
+	return c.Write(p)
+}
 
 // DTLS Client/Server over a lossy transport, just asserts it can handle at increasing increments
 
@@ -144,6 +159,8 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 			serverDone := make(chan runResult)
 			clientDone := make(chan runResult)
 			br := transportTest.NewBridge()
+			clientTransport := &bridgePacketConn{Conn: br.GetConn0(), remoteAddr: br.GetConn1().LocalAddr()}
+			serverTransport := &bridgePacketConn{Conn: br.GetConn1(), remoteAddr: br.GetConn0().LocalAddr()}
 
 			assert.NoError(t, br.SetLossChance(chosenLoss))
 
@@ -160,7 +177,7 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 					clientOpts = append(clientOpts, dtls.WithCertificates(clientCert))
 				}
 
-				client, startupErr := dtls.Client(dtlsnet.PacketConnFromConn(br.GetConn0()), br.GetConn0().RemoteAddr(), clientOpts...)
+				client, startupErr := dtls.Client(clientTransport, clientTransport.remoteAddr, clientOpts...)
 				clientDone <- runResult{client, startupErr}
 			}()
 
@@ -178,7 +195,7 @@ func TestPionE2ELossy(t *testing.T) { //nolint:cyclop
 					serverOpts = append(serverOpts, dtls.WithFlightInterval(time.Hour))
 				}
 
-				server, startupErr := dtls.Server(dtlsnet.PacketConnFromConn(br.GetConn1()), br.GetConn1().RemoteAddr(), serverOpts...)
+				server, startupErr := dtls.Server(serverTransport, serverTransport.remoteAddr, serverOpts...)
 				serverDone <- runResult{server, startupErr}
 			}()
 
