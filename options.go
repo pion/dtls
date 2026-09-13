@@ -4,11 +4,15 @@
 package dtls
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
+	"math"
 	"net"
 	"slices"
+	"sync"
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -64,6 +68,7 @@ type dtlsConfig struct {
 	SupportedProtocols            []string
 	EllipticCurves                []elliptic.Curve
 	InsecureSkipVerifyHello       bool
+	ReceiveCIDLength              int
 	ConnectionIDGenerator         func() []byte
 	CIDPathMigrationPolicy        cidPathMigrationPolicy
 	PaddingLengthGenerator        func(uint) uint
@@ -485,14 +490,28 @@ const (
 )
 
 // WithConnectionID enables connection IDs and configures how authenticated
-// connection ID records may change the peer address.
+// connection ID records may change the peer address. The generator must always
+// return IDs of the same length, at most 255 bytes.
+// A zero length advertises support for sending a peer's CID without asking the
+// peer to send one in return.
 func WithConnectionID(generator func() []byte, policy cidPathMigrationPolicy) Option {
-	return sharedOption(func(c *dtlsConfig) error {
+	var generatorMu sync.Mutex
+
+	return sharedOption(func(config *dtlsConfig) error {
 		if generator == nil {
 			return dtlserrors.ErrNilConnectionIDGenerator
 		}
-		c.ConnectionIDGenerator = generator
-		c.CIDPathMigrationPolicy = policy
+		config.ConnectionIDGenerator = func() []byte {
+			generatorMu.Lock()
+			defer generatorMu.Unlock()
+
+			return bytes.Clone(generator())
+		}
+		config.ReceiveCIDLength = len(config.ConnectionIDGenerator())
+		if config.ReceiveCIDLength > math.MaxUint8 {
+			return fmt.Errorf("%w: generator returned %d bytes, maximum is %d", dtlserrors.ErrInvalidConnectionIDLength, config.ReceiveCIDLength, math.MaxUint8)
+		}
+		config.CIDPathMigrationPolicy = policy
 
 		return nil
 	})

@@ -187,18 +187,63 @@ func TestWithConnectionID(t *testing.T) {
 			))
 			require.NoError(t, err)
 			assert.Equal(t, expectedCID, cfg.ConnectionIDGenerator())
+			assert.Equal(t, len(expectedCID), cfg.ReceiveCIDLength)
 			assert.Equal(t, test.policy, cfg.CIDPathMigrationPolicy)
 
 			values, err := newConnConfigValues(cfg)
 			require.NoError(t, err)
 			assert.Equal(t, test.policy, values.cidPathMigrationPolicy)
-			assert.Equal(t, test.enableRRC, newHandshakeConfig(cfg, values, nil).EnableRRC)
+			handshakeConfig := newHandshakeConfig(cfg, values, nil)
+			assert.Equal(t, test.enableRRC, handshakeConfig.EnableRRC)
+			assert.Equal(t, len(expectedCID), handshakeConfig.ReceiveCIDLength)
 		})
 	}
 
 	cfg, err := buildConfig()
 	require.NoError(t, err)
 	assert.Equal(t, CIDPathMigrationReject, cfg.CIDPathMigrationPolicy)
+}
+
+func TestConnectionIDLengthMismatch(t *testing.T) {
+	for name, returnedCID := range map[string][]byte{
+		"TooShort": {0x01},
+		"TooLong":  {0x01, 0x02, 0x03},
+	} {
+		t.Run(name, func(t *testing.T) {
+			generated := []byte{0x01, 0x02}
+			mismatchConfig, configErr := buildConfig(WithConnectionID(func() []byte { return generated }, CIDPathMigrationReject))
+			require.NoError(t, configErr)
+			generated = returnedCID
+			mismatched, issueErr := newHandshakeConfig(mismatchConfig, connConfigValues{}, nil).GenerateConnectionID()
+			require.ErrorIs(t, issueErr, dtlserrors.ErrInvalidConnectionIDLength)
+			assert.Nil(t, mismatched)
+		})
+	}
+}
+
+func TestConnectionIDLengthBounds(t *testing.T) {
+	for _, length := range []int{0, 255} {
+		cfg, err := buildConfig(WithConnectionID(func() []byte { return make([]byte, length) }, CIDPathMigrationReject))
+		require.NoError(t, err)
+		cid, err := newHandshakeConfig(cfg, connConfigValues{}, nil).GenerateConnectionID()
+		require.NoError(t, err)
+		assert.Len(t, cid, length)
+	}
+}
+
+func TestPacketListenerOptionsReuseInferredConnectionIDLength(t *testing.T) {
+	calls := 0
+	cfg, err := buildServerConfig(WithConnectionID(func() []byte {
+		calls++
+
+		return []byte{0x01, 0x02, 0x03, 0x04}
+	}, CIDPathMigrationReject))
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, 4, cfg.ReceiveCIDLength)
+	_ = packetListenerOptions(cfg)
+	assert.Equal(t, 1, calls)
 }
 
 // TestServerOnlyNilCallbackOptionsReturnError verifies server-only options
@@ -228,6 +273,9 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 		want    error
 	}{
 		"InvalidFlightInterval": {[]Option{WithFlightInterval(0), WithFlightInterval(-time.Second)}, dtlserrors.ErrInvalidFlightInterval},
+		"InvalidConnectionIDLength": {[]Option{
+			WithConnectionID(RandomCIDGenerator(256), CIDPathMigrationReject),
+		}, dtlserrors.ErrInvalidConnectionIDLength},
 		"InvalidMTU": {[]Option{
 			WithMTU(-1),
 			WithMTU(0),

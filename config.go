@@ -244,6 +244,7 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		DisableRetransmitBackoff:      config.DisableRetransmitBackoff,
 		EllipticCurves:                configValues.ellipticCurves,
 		InsecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
+		ReceiveCIDLength:              config.ReceiveCIDLength,
 		ConnectionIDGenerator:         config.ConnectionIDGenerator,
 		EnableRRC:                     config.CIDPathMigrationPolicy == CIDPathMigrationRRC,
 		HelloRandomBytesGenerator:     config.HelloRandomBytesGenerator,

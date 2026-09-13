@@ -120,6 +120,7 @@ type HandshakeConfig struct {
 	DisableRetransmitBackoff      bool
 	EllipticCurves                []elliptic.Curve
 	InsecureSkipHelloVerify       bool
+	ReceiveCIDLength              int
 	ConnectionIDGenerator         func() []byte
 	EnableRRC                     bool
 	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
@@ -138,6 +139,16 @@ type HandshakeConfig struct {
 
 	nameToCertificate map[string]*tls.Certificate
 	mu                sync.Mutex
+}
+
+// GenerateConnectionID returns a CID matching the configured receive length.
+func (c *HandshakeConfig) GenerateConnectionID() ([]byte, error) {
+	cid := c.ConnectionIDGenerator()
+	if len(cid) != c.ReceiveCIDLength {
+		return nil, fmt.Errorf("%w: generator returned %d bytes, want %d", dtlserrors.ErrInvalidConnectionIDLength, len(cid), c.ReceiveCIDLength)
+	}
+
+	return cid, nil
 }
 
 // Timer is the timer surface used by the handshake state machines.

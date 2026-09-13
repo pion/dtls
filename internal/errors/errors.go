@@ -141,6 +141,7 @@ var (
 	ErrNilConnectionIDGenerator = stderrors.New(
 		"connection ID generator option requires a non-nil function",
 	)
+	ErrInvalidConnectionIDLength = stderrors.New("invalid connection ID length")
 	ErrNilPaddingLengthGenerator = stderrors.New(
 		"padding length generator option requires a non-nil function",
 	)

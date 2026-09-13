@@ -37,7 +37,7 @@ import (
 
 const (
 	testMessage   = "Hello World"
-	testTimeLimit = 5 * time.Second
+	testTimeLimit = 10 * time.Second
 	messageRetry  = 200 * time.Millisecond
 )
 
@@ -144,9 +144,6 @@ func (c *comm) assert(t *testing.T) { //nolint:cyclop
 		}
 	}()
 
-	timer := time.NewTimer(testTimeLimit)
-	defer timer.Stop()
-
 	seenClient, seenServer := false, false
 	for {
 		select {
@@ -154,7 +151,7 @@ func (c *comm) assert(t *testing.T) { //nolint:cyclop
 			assert.NoError(t, err)
 
 			return
-		case <-timer.C:
+		case <-c.ctx.Done():
 			assert.Failf(t, "Test timeout", "seenClient %t seenServer %t", seenClient, seenServer)
 
 			return

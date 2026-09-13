@@ -28,10 +28,9 @@ func packetListenerOptions(config *dtlsConfig) []udp.ListenerOption {
 		}),
 		udp.WithReceiveBufferSize(config.ReceiveBufferSize),
 	}
-	// If connection ID support is enabled, then they must be supported in
-	// routing.
-	if config.ConnectionIDGenerator != nil {
-		opts = append(opts, udp.WithDatagramRouter(cidDatagramRouter(len(config.ConnectionIDGenerator()))), udp.WithConnectionIdentifier(cidConnIdentifier()))
+	// A non-empty local receive CID must also be supported by listener routing.
+	if config.ReceiveCIDLength > 0 {
+		opts = append(opts, udp.WithDatagramRouter(cidDatagramRouter(config.ReceiveCIDLength)), udp.WithConnectionIdentifier(cidConnIdentifier()))
 	}
 
 	return opts
