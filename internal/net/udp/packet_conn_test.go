@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -597,37 +598,49 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 
 type shortBufferPacketConn struct {
 	net.PacketConn
-	err        error
-	keepPrefix bool
+	err         error
+	keepPrefix  bool
+	missingAddr bool
 }
 
 func (c *shortBufferPacketConn) ReadFrom(buf []byte) (int, net.Addr, error) {
-	n, addr, err := c.PacketConn.ReadFrom(buf)
-	if err != nil || c.err == nil {
+	if c.err == nil {
+		return c.PacketConn.ReadFrom(buf)
+	}
+
+	packet := make([]byte, 1024)
+	n, addr, err := c.PacketConn.ReadFrom(packet)
+	if err != nil {
 		return n, addr, err
 	}
 	err, c.err = c.err, nil
 	if !c.keepPrefix {
 		return 0, nil, err
 	}
+	if c.missingAddr {
+		addr = nil
+	}
 
-	return n, addr, err
+	return copy(buf, packet[:n]), addr, err
 }
 
 func TestListenerIngressPreservesTruncatedPrefix(t *testing.T) {
 	const receiveLimit = 4
 
 	for _, testCase := range []struct {
-		name       string
-		err        error
-		keepPrefix bool
-		terminal   bool
+		name        string
+		err         error
+		keepPrefix  bool
+		missingAddr bool
+		terminal    bool
 	}{
-		{name: "silent UDP truncation", keepPrefix: true},
+		// windows reports truncation without the sender address needed to route the prefix.
+		{name: "UDP truncation", keepPrefix: runtime.GOOS != "windows"},
 		{name: "short buffer without prefix", err: io.ErrShortBuffer},
 		{name: "wrapped short buffer without prefix", err: fmt.Errorf("read: %w", io.ErrShortBuffer)},
 		{name: "short buffer with prefix", err: io.ErrShortBuffer, keepPrefix: true},
 		{name: "wrapped short buffer with prefix", err: fmt.Errorf("read: %w", io.ErrShortBuffer), keepPrefix: true},
+		{name: "short buffer with prefix but no address", err: io.ErrShortBuffer, keepPrefix: true, missingAddr: true},
 		{name: "other read error", err: io.ErrUnexpectedEOF, keepPrefix: true, terminal: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -635,11 +648,18 @@ func TestListenerIngressPreservesTruncatedPrefix(t *testing.T) {
 			receiver, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
 			assert.NoError(t, err)
 			sender, err := listenConfig.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
-			assert.NoError(t, err)
+			if !assert.NoError(t, err) {
+				assert.NoError(t, receiver.Close())
+
+				return
+			}
 			t.Cleanup(func() { assert.NoError(t, sender.Close()) })
 			filtered := make(chan []byte, 1)
 			listener := Listen(
-				&shortBufferPacketConn{PacketConn: receiver, err: testCase.err, keepPrefix: testCase.keepPrefix},
+				&shortBufferPacketConn{
+					PacketConn: receiver, err: testCase.err,
+					keepPrefix: testCase.keepPrefix, missingAddr: testCase.missingAddr,
+				},
 				WithReceiveBufferSize(receiveLimit),
 				WithAcceptFilter(func(packet []byte) bool {
 					filtered <- bytes.Clone(packet)
@@ -679,13 +699,15 @@ func TestListenerIngressPreservesTruncatedPrefix(t *testing.T) {
 				return
 			}
 			assert.NoError(t, result.err)
+			assert.NotNil(t, result.conn)
 			t.Cleanup(func() {
 				assert.NoError(t, result.conn.Close())
 			})
 
 			buf := make([]byte, receiveLimit)
 			assert.NoError(t, result.conn.SetReadDeadline(time.Now().Add(time.Second)))
-			if testCase.keepPrefix {
+			wantPrefix := testCase.keepPrefix && !testCase.missingAddr
+			if wantPrefix {
 				n, _, readErr := result.conn.ReadFrom(buf)
 				assert.NoError(t, readErr)
 				assert.Equal(t, oversized[:receiveLimit], buf[:n])
@@ -694,7 +716,7 @@ func TestListenerIngressPreservesTruncatedPrefix(t *testing.T) {
 			n, _, err := result.conn.ReadFrom(buf)
 			assert.NoError(t, err)
 			assert.Equal(t, exact, buf[:n])
-			if !testCase.keepPrefix {
+			if !wantPrefix {
 				assert.Equal(t, exact, <-filtered)
 			}
 		})

@@ -24,6 +24,7 @@ import (
 	dtlsfragmentbuffer "github.com/pion/dtls/v3/internal/fragmentbuffer"
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	"github.com/pion/dtls/v3/internal/negotiation"
+	idtlsnet "github.com/pion/dtls/v3/internal/net"
 	dtlsrrc "github.com/pion/dtls/v3/internal/rrc"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
@@ -1339,8 +1340,12 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 	} else {
 		i, rAddr, err = c.nextConn.ReadFromContext(ctx, b)
 	}
-	if errors.Is(err, io.ErrShortBuffer) {
-		c.log.Debugf("receive buffer too small (%d bytes); processing %d returned bytes: %v", len(b), i, err)
+	if idtlsnet.IsShortBuffer(err) {
+		c.log.Debugf("receive buffer too small (%d bytes); received %d bytes from %v: %v", len(b), i, rAddr, err)
+		// windows UDP reads can return a truncated prefix without its sender address.
+		if i == 0 || rAddr == nil {
+			return datagramProcessingSummary{}, nil
+		}
 	} else if err != nil {
 		return datagramProcessingSummary{}, netError(err)
 	}
