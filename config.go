@@ -26,7 +26,12 @@ import (
 	"github.com/pion/logging"
 )
 
-const defaultMTU = 1200 // bytes
+const (
+	minMTU     = 1
+	defaultMTU = 1200 // bytes
+
+	minReceiveBufferSize = 1
+)
 
 var defaultCurves = []elliptic.Curve{ //nolint:gochecknoglobals
 	elliptic.X25519MLKEM768,

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsnet "github.com/pion/dtls/v3/internal/net"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/transport/v4/test"
 	"github.com/stretchr/testify/assert"
@@ -98,12 +100,14 @@ func TestReceiveBufferSizeLargeDatagram(t *testing.T) {
 }
 
 func TestWithReceiveBufferSizeValidation(t *testing.T) {
-	for _, size := range []int{0, -1} {
+	for _, size := range []int{-1, 0, dtlsnet.MaxInboundDatagramSize + 1, 1 << 20} {
 		_, err := buildConfig(WithReceiveBufferSize(size))
-		assert.Error(t, err)
+		assert.ErrorIs(t, err, dtlserrors.ErrInvalidReceiveBufferSize)
 	}
 
-	config, err := buildConfig(WithReceiveBufferSize(16384))
-	assert.NoError(t, err)
-	assert.Equal(t, 16384, config.ReceiveBufferSize)
+	for _, size := range []int{minReceiveBufferSize, 16384, dtlsnet.MaxInboundDatagramSize} {
+		config, err := buildConfig(WithReceiveBufferSize(size))
+		assert.NoError(t, err)
+		assert.Equal(t, size, config.ReceiveBufferSize)
+	}
 }

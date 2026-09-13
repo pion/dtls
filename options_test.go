@@ -13,6 +13,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsnet "github.com/pion/dtls/v3/internal/net"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
@@ -226,8 +227,19 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 		options []Option
 		want    error
 	}{
-		"InvalidFlightInterval":         {[]Option{WithFlightInterval(0), WithFlightInterval(-time.Second)}, dtlserrors.ErrInvalidFlightInterval},
-		"InvalidMTU":                    {[]Option{WithMTU(0), WithMTU(-100)}, dtlserrors.ErrInvalidMTU},
+		"InvalidFlightInterval": {[]Option{WithFlightInterval(0), WithFlightInterval(-time.Second)}, dtlserrors.ErrInvalidFlightInterval},
+		"InvalidMTU": {[]Option{
+			WithMTU(-1),
+			WithMTU(0),
+			WithMTU(dtlsnet.MaxInboundDatagramSize + 1),
+			WithMTU(1 << 20),
+		}, dtlserrors.ErrInvalidMTU},
+		"InvalidReceiveBufferSize": {[]Option{
+			WithReceiveBufferSize(-1),
+			WithReceiveBufferSize(0),
+			WithReceiveBufferSize(dtlsnet.MaxInboundDatagramSize + 1),
+			WithReceiveBufferSize(1 << 20),
+		}, dtlserrors.ErrInvalidReceiveBufferSize},
 		"InvalidReplayProtectionWindow": {[]Option{WithReplayProtectionWindow(-1)}, dtlserrors.ErrInvalidReplayProtectionWindow},
 	}
 	for name, test := range tests {
@@ -255,6 +267,34 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 			require.ErrorIs(t, clientOptionsError(t, option), dtlserrors.ErrUnsupportedProtocolVersion)
 		}
 	})
+}
+
+func TestBoundedNumericOptionValues(t *testing.T) {
+	tests := map[string]struct {
+		option Option
+		check  func(*dtlsConfig)
+	}{
+		"MinimumMTU": {WithMTU(minMTU), func(config *dtlsConfig) {
+			require.Equal(t, minMTU, config.MTU)
+		}},
+		"MaximumMTU": {WithMTU(dtlsnet.MaxInboundDatagramSize), func(config *dtlsConfig) {
+			require.Equal(t, dtlsnet.MaxInboundDatagramSize, config.MTU)
+		}},
+		"MinimumReceiveBufferSize": {WithReceiveBufferSize(minReceiveBufferSize), func(config *dtlsConfig) {
+			require.Equal(t, minReceiveBufferSize, config.ReceiveBufferSize)
+		}},
+		"MaximumReceiveBufferSize": {WithReceiveBufferSize(dtlsnet.MaxInboundDatagramSize), func(config *dtlsConfig) {
+			require.Equal(t, dtlsnet.MaxInboundDatagramSize, config.ReceiveBufferSize)
+		}},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			config, err := buildConfig(test.option)
+			require.NoError(t, err)
+			test.check(config)
+		})
+	}
 }
 
 func TestX25519MLKEM768RequiresDTLS13(t *testing.T) {

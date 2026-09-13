@@ -12,6 +12,7 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlsnet "github.com/pion/dtls/v3/internal/net"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -360,11 +361,11 @@ func WithLoggerFactory(factory logging.LoggerFactory) Option {
 	})
 }
 
-// WithMTU sets the maximum transmission unit.
-// Returns an error if the MTU is not positive.
+// WithMTU sets the size used for handshake fragmentation and record packing.
+// The default is 1200 bytes.
 func WithMTU(mtu int) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		if mtu <= 0 {
+		if mtu < minMTU || mtu > dtlsnet.MaxInboundDatagramSize {
 			return dtlserrors.ErrInvalidMTU
 		}
 		c.MTU = mtu
@@ -381,10 +382,10 @@ func WithMTU(mtu int) Option {
 //
 // This does not change the kernel socket receive buffer (SO_RCVBUF); use
 // net.UDPConn.SetReadBuffer for that.
-// Returns an error if the size is not positive.
+// Returns an error if the buffer size is not positive or greater than the 65535.
 func WithReceiveBufferSize(size int) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		if size <= 0 {
+		if size < minReceiveBufferSize || size > dtlsnet.MaxInboundDatagramSize {
 			return dtlserrors.ErrInvalidReceiveBufferSize
 		}
 		c.ReceiveBufferSize = size

@@ -25,6 +25,9 @@ import (
 	"github.com/pion/transport/v4/deadline"
 )
 
+// MaxInboundDatagramSize is the largest complete datagram DTLS will accept.
+const MaxInboundDatagramSize = 65535
+
 // ErrTimeout indicates that deadline was reached before operation could be
 // completed.
 var ErrTimeout = dtlserrors.ErrNetBufferTimeout

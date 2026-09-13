@@ -121,8 +121,8 @@ var (
 	ErrNilVerifyConnection = stderrors.New(
 		"verify connection option requires a non-nil callback",
 	)
-	ErrInvalidMTU                    = stderrors.New("MTU must be positive")
-	ErrInvalidReceiveBufferSize      = stderrors.New("receive buffer size must be positive")
+	ErrInvalidMTU                    = stderrors.New("MTU must be between 1 and 65535 bytes")
+	ErrInvalidReceiveBufferSize      = stderrors.New("receive buffer size must be between 1 and 65535 bytes")
 	ErrInvalidReplayProtectionWindow = stderrors.New(
 		"replay protection window must be non-negative",
 	)
