@@ -7,8 +7,11 @@ package state
 
 import (
 	"bytes"
+	"math"
+	"sync"
 	"sync/atomic"
 
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -20,9 +23,11 @@ import (
 
 // Common is the protocol-independent connection state shared by DTLS versions.
 type Common struct {
-	localEpoch, remoteEpoch   atomic.Uint32
-	LocalSequenceNumber       []uint64 // uint48
-	RemoteSequenceNumber      []uint64
+	localEpoch, remoteEpoch   atomic.Uint64
+	sequenceMu                sync.Mutex
+	LocalSequenceNumber       map[uint64]uint64
+	RemoteSequenceNumber      map[uint64]uint64
+	exhaustedLocalEpoch       map[uint64]bool
 	LocalRandom, RemoteRandom handshake.Random
 	CipherSuite               cryptosuite.Suite // nil if a cipherSuite hasn't been chosen
 	PeerCertificates          [][]byte
@@ -62,7 +67,7 @@ type Common struct {
 
 	ServerName string
 
-	ReplayDetector []replaydetector.ReplayDetector
+	ReplayDetector map[uint64]replaydetector.ReplayDetector
 
 	PeerSupportedProtocols []string
 
@@ -77,20 +82,82 @@ type Common struct {
 	RemoteClientHelloSnapshots negotiation.ClientHelloSnapshots
 }
 
-func (s *Common) RemoteEpoch() uint16 {
-	return uint16(s.remoteEpoch.Load()) //nolint:gosec // Epochs are stored as uint16 values.
+func (s *Common) RemoteEpoch() uint64 {
+	return s.remoteEpoch.Load()
 }
 
-func (s *Common) SetRemoteEpoch(epoch uint16) {
-	s.remoteEpoch.Store(uint32(epoch))
+func (s *Common) SetRemoteEpoch(epoch uint64) {
+	s.remoteEpoch.Store(epoch)
 }
 
-func (s *Common) LocalEpoch() uint16 {
-	return uint16(s.localEpoch.Load()) //nolint:gosec // Epochs are stored as uint16 values.
+func (s *Common) LocalEpoch() uint64 {
+	return s.localEpoch.Load()
 }
 
-func (s *Common) SetLocalEpoch(epoch uint16) {
-	s.localEpoch.Store(uint32(epoch))
+func (s *Common) SetLocalEpoch(epoch uint64) {
+	s.localEpoch.Store(epoch)
+}
+
+// AllocateLocalSequenceNumber reserves a sequence number without exceeding the limit.
+func (s *Common) AllocateLocalSequenceNumber(epoch, limit uint64) (uint64, error) {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+
+	next := s.LocalSequenceNumber[epoch]
+	if next > limit || s.exhaustedLocalEpoch[epoch] {
+		return 0, dtlserrors.ErrSequenceNumberOverflow
+	}
+	if next == math.MaxUint64 {
+		if s.exhaustedLocalEpoch == nil {
+			s.exhaustedLocalEpoch = make(map[uint64]bool)
+		}
+		s.exhaustedLocalEpoch[epoch] = true
+	} else {
+		if s.LocalSequenceNumber == nil {
+			s.LocalSequenceNumber = make(map[uint64]uint64)
+		}
+		s.LocalSequenceNumber[epoch] = next + 1
+	}
+
+	return next, nil
+}
+
+func (s *Common) NextLocalSequenceNumber(epoch uint64) uint64 {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+
+	return s.LocalSequenceNumber[epoch]
+}
+
+func (s *Common) SetLocalSequenceNumber(epoch, sequenceNumber uint64) {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+
+	if s.LocalSequenceNumber == nil {
+		s.LocalSequenceNumber = make(map[uint64]uint64)
+	}
+	s.LocalSequenceNumber[epoch] = sequenceNumber
+}
+
+// HighestRemoteSequenceNumber distinguishes an unseen epoch from one that received record zero.
+func (s *Common) HighestRemoteSequenceNumber(epoch uint64) (uint64, bool) {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+
+	highest, initialized := s.RemoteSequenceNumber[epoch]
+
+	return highest, initialized
+}
+
+// UpdateRemoteSequenceNumber records a successfully deprotected sequence number.
+func (s *Common) UpdateRemoteSequenceNumber(epoch, sequenceNumber uint64) {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+
+	if s.RemoteSequenceNumber == nil {
+		s.RemoteSequenceNumber = make(map[uint64]uint64)
+	}
+	s.RemoteSequenceNumber[epoch] = max(s.RemoteSequenceNumber[epoch], sequenceNumber)
 }
 
 func (s *Common) SetSRTPProtectionProfile(profile extension.SRTPProtectionProfile) {

@@ -43,7 +43,7 @@ func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *
 
 func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
 	state *dtlsstate.State13,
-	epoch uint16,
+	epoch uint64,
 	secrets dtlsstate.TrafficSecrets,
 	allowReinitialize bool,
 ) error {

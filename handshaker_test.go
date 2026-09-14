@@ -348,7 +348,7 @@ type flightTestConn struct {
 	handshakeCache *dtlsflight.Cache
 	recv           chan dtlshandshake.RecvHandshakeState
 	done           <-chan struct{}
-	epoch          uint16
+	epoch          uint64
 
 	filter     packetFilter
 	retransmit packetFilter
@@ -363,7 +363,7 @@ func (c *flightTestConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState
 	return c.recv
 }
 
-func (c *flightTestConn) SetLocalEpoch(epoch uint16) {
+func (c *flightTestConn) SetLocalEpoch(epoch uint64) {
 	c.epoch = epoch
 }
 

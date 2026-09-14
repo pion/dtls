@@ -103,7 +103,7 @@ type reliablePostHandshakeFlight struct {
 	Packets []*dtlsflight.Outbound
 
 	// All retransmissions will use this epoch/key generation.
-	Epoch uint16
+	Epoch uint64
 
 	// Logical fragments not yet acknowledged.
 	PendingFragments map[postHandshakeFragment]struct{}
@@ -423,7 +423,7 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 	return dtlserrors.ErrHandshakeSequenceOverflow
 }
 
-func (p *postHandshake) handlePostHandshakeMessage(ctx context.Context, conn Conn, message *handshake.Handshake, epoch uint16) error {
+func (p *postHandshake) handlePostHandshakeMessage(ctx context.Context, conn Conn, message *handshake.Handshake, epoch uint64) error {
 	switch body := message.Message.(type) {
 	case *handshake.MessageNewSessionTicket:
 		return p.handleNewSessionTicket(ctx, conn, body)
@@ -434,7 +434,7 @@ func (p *postHandshake) handlePostHandshakeMessage(ctx context.Context, conn Con
 	}
 }
 
-func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message *handshake.MessageKeyUpdate, epoch uint16) error {
+func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message *handshake.MessageKeyUpdate, epoch uint64) error {
 	if p.state.TrafficKeys == nil {
 		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
@@ -590,7 +590,7 @@ func (p *postHandshake) buildKeyUpdateFlight(request handshake.KeyUpdateRequest,
 }
 
 func (p *postHandshake) nextTrafficGeneration(current *dtlsstate.TrafficGeneration) (*dtlsstate.TrafficGeneration, error) {
-	if current.Epoch == math.MaxUint16 {
+	if current.Epoch == math.MaxUint64 || current.Generation == math.MaxUint64 {
 		return nil, dtlserrors.ErrEpochOverflow
 	}
 	cipherSuite, err := recordProtectionCipherSuite(p.state)

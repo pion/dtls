@@ -281,7 +281,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		ca, cb, err := pipeMemory()
 		assert.NoError(t, err)
 
-		atomic.StoreUint64(&dtlsstate.CommonState(ca.state).LocalSequenceNumber[1], recordlayer.MaxSequenceNumber)
+		dtlsstate.CommonState(ca.state).SetLocalSequenceNumber(1, recordlayer.MaxSequenceNumber)
 		n, werr := ca.Write(make([]byte, 100))
 		assert.NoError(t, werr, "Write must send message with maximum sequence number")
 		assert.Equal(t, 100, n)
@@ -299,7 +299,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 
-		atomic.StoreUint64(&dtlsstate.CommonState(ca.state).LocalSequenceNumber[0], recordlayer.MaxSequenceNumber+1)
+		dtlsstate.CommonState(ca.state).SetLocalSequenceNumber(0, recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
 		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{{Content: &handshake.Handshake{Message: &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: make([]byte, 64), CipherSuiteIDs: cipherSuiteIDs(defaultCipherSuites()), CompressionMethods: dtlsflight.DefaultCompressionMethods()}}}})
@@ -699,7 +699,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 			Common: &dtlsstate.Common{
 				LocalRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand},
 				RemoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0), RandomBytes: rand},
-				LocalSequenceNumber: []uint64{0, 0},
+				LocalSequenceNumber: map[uint64]uint64{},
 				CipherSuite:         ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
 			},
 		},
@@ -3468,7 +3468,7 @@ func TestHandleIncomingPacket13RejectsFixedHandshakeEpoch(t *testing.T) {
 	}
 	conn.setRemoteEpoch(0)
 
-	rawPacket, err := marshalTestRecord(recordlayer.Header{Version: protocol.Version1_2, Epoch: dtlsflight13.EpochHandshake, SequenceNumber: 0}, &handshake.Handshake{Header: handshake.Header{MessageSequence: 1}, Message: &handshake.MessageEncryptedExtensions{}})
+	rawPacket, err := marshalTestRecord(recordlayer.Header{Version: protocol.Version1_2, Epoch: uint16(dtlsflight13.EpochHandshake), SequenceNumber: 0}, &handshake.Handshake{Header: handshake.Header{MessageSequence: 1}, Message: &handshake.MessageEncryptedExtensions{}})
 	assert.NoError(t, err)
 
 	bufferLease := &readBufferLease{conn: conn, recyclableReadBuffer: &rawPacket}
@@ -4211,7 +4211,7 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	var ack protocol.ACK
 	require.NoError(t, ack.Unmarshal(innerPlaintext.Content))
 	require.NotEmpty(t, ack.Records)
-	assert.Equal(t, uint64(dtlsflight13.EpochHandshake), ack.Records[0].Epoch)
+	assert.Equal(t, dtlsflight13.EpochHandshake, ack.Records[0].Epoch)
 }
 
 func TestHandshakeCancellationWhilePostSetupBlocks(t *testing.T) {
@@ -4416,7 +4416,7 @@ func (*sequenceRecordingProtection) Open(cryptosuite.Record, []byte) ([]byte, er
 
 func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testing.T) {
 	const (
-		epoch         uint16 = 1
+		epoch                = 1
 		firstSequence uint64 = 41
 		staleSequence uint64 = 7
 	)
@@ -4424,7 +4424,7 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 	remoteCID := []byte("remote-cid")
 	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	protection := &sequenceRecordingProtection{capabilities: cipherSuite.Capabilities()}
-	commonState := &dtlsstate.Common{LocalVersion: protocol.Version1_2, LocalSequenceNumber: []uint64{0, firstSequence}, RemoteConnectionID: remoteCID, CipherSuite: cipherSuite}
+	commonState := &dtlsstate.Common{LocalVersion: protocol.Version1_2, LocalSequenceNumber: map[uint64]uint64{1: firstSequence}, RemoteConnectionID: remoteCID, CipherSuite: cipherSuite}
 	conn := &Conn{maximumTransmissionUnit: 10, paddingLengthGenerator: func(uint) uint { return 0 }, state: &dtlsstate.State12{Common: commonState, Protection: protection}}
 	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)}}}
 	_, err := dtlsHandshake.Marshal()
@@ -4448,7 +4448,7 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 		require.NoError(t, header.Unmarshal(record.raw))
 		assert.Equal(t, protocol.ContentTypeConnectionID, header.ContentType)
 		assert.Equal(t, remoteCID, header.ConnectionID)
-		assert.Equal(t, epoch, header.Epoch)
+		assert.Equal(t, uint16(epoch), header.Epoch)
 		assert.Equal(t, expectedSequence, header.SequenceNumber)
 	}
 
@@ -4535,7 +4535,7 @@ func TestOpenCiphertextRecordRejectsInvalidRecords(t *testing.T) {
 		{
 			name: "wrong sequence number",
 			mutate: func(conn *Conn, _ *recordlayer.CiphertextRecord) {
-				conn.updateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
+				dtlsstate.CommonState(conn.state).UpdateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0xffff)
 			},
 			wantErr: errRecordAuthentication,
 		},
@@ -4588,7 +4588,7 @@ func TestDTLS13DecryptedEncryptedExtensionsIsCached(t *testing.T) {
 func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithReadProtection(t)
 	const sequenceNumber = uint64(0x1002a)
-	conn.updateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0x10005)
+	dtlsstate.CommonState(conn.state).UpdateRemoteSequenceNumber(dtlsflight13.EpochHandshake, 0x10005)
 	expectedPlaintext := encryptedExtensionsHandshakeWithSequence(t, 0)
 	record := sealTestProtectedHandshakeRecordWithSequence(t, peerCipherSuite, expectedPlaintext, sequenceNumber)
 	rawPacket, err := record.Marshal()
@@ -4597,15 +4597,11 @@ func TestDTLS13ProtectedHandshakeRecordKeepsEpochAndSequence(t *testing.T) {
 	prepared, ok, err := conn.prepareIncomingPacket(rawPacket, nil, &readBufferLease{conn: conn}, false)
 	require.NoError(t, err)
 	assert.True(t, ok)
-	if assert.NotNil(t, prepared.header) {
-		assert.Equal(t, protocol.ContentTypeHandshake, prepared.header.ContentType)
-		assert.Equal(t, dtlsflight13.EpochHandshake, prepared.header.Epoch)
-		assert.Equal(t, sequenceNumber, prepared.header.SequenceNumber)
-		assert.Equal(t, uint16(len(expectedPlaintext)), prepared.header.ContentLen) //nolint:gosec
-		assert.Equal(t, protocol.ContentTypeHandshake, prepared.contentType)
-		assert.Equal(t, expectedPlaintext, prepared.content)
-		assert.Equal(t, rawPacket, prepared.raw)
-	}
+	assert.Equal(t, dtlsflight13.EpochHandshake, prepared.number.Epoch)
+	assert.Equal(t, sequenceNumber, prepared.number.SequenceNumber)
+	assert.Equal(t, protocol.ContentTypeHandshake, prepared.contentType)
+	assert.Equal(t, expectedPlaintext, prepared.content)
+	assert.Equal(t, rawPacket, prepared.raw)
 }
 
 type testRecordProtection13 struct {
@@ -4934,7 +4930,7 @@ func TestCiphertextConnectionIDDoesNotMigrateWithoutRRC(t *testing.T) {
 func TestLatestCIDControlRecordStartsRRC(t *testing.T) {
 	keyUpdate, err := (&handshake.Handshake{Header: handshake.Header{MessageSequence: 0}, Message: &handshake.MessageKeyUpdate{RequestUpdate: handshake.KeyUpdateNotRequested}}).Marshal()
 	require.NoError(t, err)
-	ack, err := (&protocol.ACK{Records: []protocol.RecordNumber{{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 0}}}).Marshal()
+	ack, err := (&protocol.ACK{Records: []protocol.RecordNumber{{Epoch: dtlsflight13.EpochApplication, SequenceNumber: 0}}}).Marshal()
 	require.NoError(t, err)
 
 	tests := map[string]struct {
@@ -5020,7 +5016,7 @@ func TestRRCRequiresProtectionPolicyAndNegotiation(t *testing.T) {
 				t.Context(),
 				&protocol.ReturnRoutabilityCheck{MessageType: protocol.ReturnRoutabilityCheckPathChallenge},
 				incomingPacketState{
-					header: &recordlayer.Header{Epoch: test.epoch},
+					number: protocol.RecordNumber{Epoch: uint64(test.epoch)},
 					markPacketAsValid: func() bool {
 						marked = true
 
@@ -5189,7 +5185,7 @@ func TestDTLS13SequenceTrackingAfterAuthentication(t *testing.T) {
 
 func TestQueueIfCipherSuiteUninitializedUsesReadTrafficGeneration(t *testing.T) {
 	conn, state, suite := newTrafficKeyTestConn(t)
-	for _, epoch := range []uint16{dtlsflight13.EpochHandshake, dtlsflight13.EpochApplication} {
+	for _, epoch := range []uint64{dtlsflight13.EpochHandshake, dtlsflight13.EpochApplication} {
 		state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{Epoch: epoch, Secret: trafficKeyTestSecret(suite, byte(epoch)), Protection: trafficKeyTestProtection(t, suite, trafficKeyTestSecret(suite, byte(epoch)))})
 		state.SetRemoteEpoch(epoch)
 		assert.False(t, conn.queueIfCipherSuiteUninitialized(nil, nil, nil, "traffic key available"))
@@ -5231,7 +5227,7 @@ func trafficKeyTestProtection(
 	return protection
 }
 
-func sealTrafficKeyTestRecord(t *testing.T, protection *testRecordProtection13, epoch uint16, contentType protocol.ContentType, plaintext []byte) recordlayer.CiphertextRecord {
+func sealTrafficKeyTestRecord(t *testing.T, protection *testRecordProtection13, epoch uint64, contentType protocol.ContentType, plaintext []byte) recordlayer.CiphertextRecord {
 	t.Helper()
 
 	record, err := protection.SealRecord(recordlayer.UnifiedHeader{EpochLow: uint8(epoch & recordlayer.TwoLowBitsMask), SeqBit: true}, 0, contentType, plaintext)

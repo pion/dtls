@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -31,6 +32,20 @@ func TestUnmarshalBinaryRejectsDTLS13State(t *testing.T) {
 	var state State
 	err := state.UnmarshalBinary(buf.Bytes())
 	require.ErrorIs(t, err, ErrStateSerializationUnsupported)
+}
+
+func TestStateRejectsDTLS12EpochOverflow(t *testing.T) {
+	for _, epoch := range []uint64{1 << 16, 1 << 32, ^uint64(0)} {
+		for _, state := range []State{
+			{localEpoch: epoch, CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			{remoteEpoch: epoch, CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+		} {
+			_, err := state.MarshalBinary()
+			require.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)
+			_, err = state.generateInternalState()
+			require.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)
+		}
+	}
 }
 
 func TestStatePreservesPeerSRTPMKI(t *testing.T) {

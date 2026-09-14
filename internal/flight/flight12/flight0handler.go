@@ -158,7 +158,7 @@ func flight0Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 		}
 	}
 
-	var zeroEpoch uint16
+	var zeroEpoch uint64
 	state.SetLocalEpoch(zeroEpoch)
 	state.SetRemoteEpoch(zeroEpoch)
 	ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)

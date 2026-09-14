@@ -43,7 +43,7 @@ type fragments struct {
 	fragmentsLength  uint32
 	handshakeLength  uint32
 	handshakeType    handshake.Type
-	epoch            uint16
+	epoch            uint64
 }
 
 // FragmentBuffer stores and reassembles fragmented DTLS handshake messages.
@@ -87,7 +87,7 @@ func (f *FragmentBuffer) AdvanceTo(messageSequence uint16) {
 
 // Push validates and adds handshake fragments from content to the buffer.
 // content starts with a handshake header.
-func (f *FragmentBuffer) Push(epoch uint16, content []byte) (isRetransmit bool, err error) {
+func (f *FragmentBuffer) Push(epoch uint64, content []byte) (isRetransmit bool, err error) {
 	parsed, err := parseFragments(content)
 	if err != nil {
 		return false, err
@@ -129,7 +129,7 @@ func parseFragments(content []byte) ([]parsedFragment, error) {
 	return parsed, nil
 }
 
-func (f *FragmentBuffer) validateFragments(epoch uint16, parsed []parsedFragment) error {
+func (f *FragmentBuffer) validateFragments(epoch uint64, parsed []parsedFragment) error {
 	batch := map[uint16]*batchMessage{}
 	for _, candidate := range parsed {
 		if err := validateFragmentBounds(candidate.header); err != nil {
@@ -155,7 +155,7 @@ func validateFragmentBounds(header handshake.Header) error {
 	return nil
 }
 
-func (f *FragmentBuffer) validateCachedFragment(epoch uint16, candidate parsedFragment) error {
+func (f *FragmentBuffer) validateCachedFragment(epoch uint64, candidate parsedFragment) error {
 	header := candidate.header
 	cached, ok := f.cache[header.MessageSequence]
 	if !ok {
@@ -253,7 +253,7 @@ func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (isRe
 	return isRetransmit, newFragmentCount, newBufferSize
 }
 
-func (f *FragmentBuffer) commitFragments(epoch uint16, parsed []parsedFragment) {
+func (f *FragmentBuffer) commitFragments(epoch uint64, parsed []parsedFragment) {
 	for _, candidate := range parsed {
 		header := candidate.header
 		if header.MessageSequence < f.currentMessageSequenceNumber {
@@ -275,7 +275,7 @@ func (f *FragmentBuffer) commitFragments(epoch uint16, parsed []parsedFragment) 
 }
 
 // Pop returns the next complete handshake message and its record epoch.
-func (f *FragmentBuffer) Pop() (content []byte, epoch uint16) {
+func (f *FragmentBuffer) Pop() (content []byte, epoch uint64) {
 	frags, ok := f.cache[f.currentMessageSequenceNumber]
 	if !ok {
 		return nil, 0

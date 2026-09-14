@@ -23,13 +23,16 @@ func TestFragmentBuffer(t *testing.T) {
 		Name     string
 		In       [][]byte
 		Expected [][]byte
-		Epoch    uint16
+		Epoch    uint64
 	}{
 		{
 			Name: "Single Fragment", In: [][]byte{single}, Expected: [][]byte{single}, Epoch: 0,
 		},
 		{
 			Name: "Single Fragment Epoch 3", In: [][]byte{single}, Expected: [][]byte{single}, Epoch: 3,
+		},
+		{
+			Name: "Full Width Epoch", In: fragments, Expected: reassembled, Epoch: ^uint64(0),
 		},
 		{
 			Name: "Multiple Fragments", In: fragments, Expected: reassembled, Epoch: 0,
@@ -89,7 +92,7 @@ func TestFragmentBuffer_Overflow(t *testing.T) {
 
 	content, epoch := fragmentBuffer.Pop()
 	assert.Equal(t, small, content)
-	assert.Equal(t, uint16(0), epoch)
+	assert.Equal(t, uint64(0), epoch)
 	content, _ = fragmentBuffer.Pop()
 	assert.Nil(t, content)
 }
@@ -135,13 +138,18 @@ func TestFragmentBuffer_InvalidFragmentDoesNotMutateCache(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		epoch     uint16
+		epoch     uint64
 		header    handshake.Header
 		alterData bool
 	}{
 		{
 			name:   "cross epoch",
 			epoch:  8,
+			header: completionHeader,
+		},
+		{
+			name:   "same low epoch bits",
+			epoch:  1<<32 + 7,
 			header: completionHeader,
 		},
 		{
@@ -216,7 +224,7 @@ func TestFragmentBuffer_InvalidFragmentDoesNotMutateCache(t *testing.T) {
 			expectedHeader := baseHeader
 			expectedHeader.FragmentLength = expectedHeader.Length
 			assert.Equal(t, marshalHandshakeContent(t, expectedHeader), content)
-			assert.Equal(t, uint16(7), epoch)
+			assert.Equal(t, uint64(7), epoch)
 		})
 	}
 }
@@ -313,7 +321,7 @@ func TestFragmentBuffer_ClonesRetainedPayload(t *testing.T) {
 
 	actual, epoch := fragmentBuffer.Pop()
 	assert.Equal(t, expected, actual)
-	assert.Equal(t, uint16(7), epoch)
+	assert.Equal(t, uint64(7), epoch)
 }
 
 func TestFragmentBuffer_RetransmitDetection(t *testing.T) {

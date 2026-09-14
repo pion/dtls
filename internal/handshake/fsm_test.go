@@ -32,7 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testTrafficProtectionInitialized(state *dtlsstate.State13, epoch uint16) bool {
+func testTrafficProtectionInitialized(state *dtlsstate.State13, epoch uint64) bool {
 	if state == nil || state.TrafficKeys == nil {
 		return false
 	}
@@ -60,7 +60,7 @@ func flight13GenerateForTest(testingT require.TestingT, flight dtlsflight13.Flig
 }
 
 type flightTestConn struct {
-	localEpoch          uint16
+	localEpoch          uint64
 	setLocalEpochCalled bool
 	handleQueuedPackets func(context.Context) error
 	writePackets        func(context.Context, []*dtlsflight.Outbound) error
@@ -92,7 +92,7 @@ func (c *flightTestConn) RecvHandshake() <-chan RecvHandshakeState {
 	return nil
 }
 
-func (c *flightTestConn) SetLocalEpoch(epoch uint16) {
+func (c *flightTestConn) SetLocalEpoch(epoch uint64) {
 	c.localEpoch = epoch
 	c.setLocalEpochCalled = true
 }
@@ -199,16 +199,17 @@ func TestHandshakeFSM13OwnsTranscriptAndPropagatesContext(t *testing.T) {
 }
 
 func TestHandshakeFSM13SendACKUsesCurrentEpoch(t *testing.T) {
+	const epoch uint64 = 1<<32 + 3
 	state := newTestState13(t, true)
-	state.SetLocalEpoch(dtlsflight13.EpochApplication)
+	state.SetLocalEpoch(epoch)
 	conn := &flightTestConn{}
 	fsm := &fsm13{handshakeContext: handshakeContext{state: state}}
-	records := []protocol.RecordNumber{{Epoch: 2, SequenceNumber: 7}}
+	records := []protocol.RecordNumber{{Epoch: epoch - 1, SequenceNumber: 7}}
 
 	require.NoError(t, sendACK(context.Background(), conn, fsm.state.LocalEpoch(), records))
 	require.Len(t, conn.writtenPackets, 1)
 	assert.True(t, conn.writtenPackets[0].Protection == dtlsflight.ProtectionCiphertext)
-	assert.Equal(t, dtlsflight13.EpochApplication, conn.writtenPackets[0].Epoch)
+	assert.Equal(t, epoch, conn.writtenPackets[0].Epoch)
 	ack, ok := conn.writtenPackets[0].Content.(*protocol.ACK)
 	require.True(t, ok)
 	assert.Equal(t, records, ack.Records)
@@ -591,7 +592,7 @@ func TestHandshakeFSM13ReaderPauseRequiredOnlyForQueueDrainingTransitions(t *tes
 		name        string
 		isClient    bool
 		nextFlight  dtlsflight13.Flight
-		remoteEpoch uint16
+		remoteEpoch uint64
 		expected    bool
 	}{
 		{
@@ -711,7 +712,7 @@ func TestHandshakeFSM13PartialProtectedServerFlightACKUsesHandshakeEpoch(t *test
 	assertFlight13RecvDoneClosed(t, first)
 
 	pushFlight13HandshakePacketsToCache(t, cache, fixture.serverFlight4[1:2], false)
-	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochHandshake), SequenceNumber: 7}
+	record := protocol.RecordNumber{Epoch: dtlsflight13.EpochHandshake, SequenceNumber: 7}
 	second := RecvHandshakeState{Done: make(chan struct{}), HasHandshake: true, RecordsToACK: []protocol.RecordNumber{record}}
 	transition, err = fsm.handleReceivedFlight(context.Background(), conn, second)
 	require.NoError(t, err)
@@ -839,7 +840,7 @@ func TestHandshakeFSM13ClientFlight5HandlesPreviousFlightRetransmit(t *testing.T
 	require.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
 
 	fixture.clientState.SetLocalEpoch(dtlsflight13.EpochHandshake)
-	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochHandshake), SequenceNumber: 11}
+	record := protocol.RecordNumber{Epoch: dtlsflight13.EpochHandshake, SequenceNumber: 11}
 	retransmit := RecvHandshakeState{Done: make(chan struct{}), HasHandshake: true, IsRetransmit: true, RecordsToACK: []protocol.RecordNumber{record}}
 	transition, err := fsm.handleReceivedFlight(context.Background(), conn, retransmit)
 	require.NoError(t, err)

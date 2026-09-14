@@ -5,6 +5,7 @@ package state
 
 import (
 	"bytes"
+	"math"
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
@@ -50,13 +51,13 @@ func TestTrafficKeyStateAdvancesDirectionsIndependently(t *testing.T) {
 
 	currentWrite, ok := keys.CurrentWrite()
 	require.True(t, ok)
-	assert.Equal(t, uint16(3), currentWrite.Epoch)
+	assert.Equal(t, uint64(3), currentWrite.Epoch)
 	assert.Equal(t, uint64(1), currentWrite.Generation)
 	assert.Equal(t, writeSecret1, currentWrite.Secret)
 
 	currentRead, ok := keys.CurrentRead()
 	require.True(t, ok)
-	assert.Equal(t, uint16(2), currentRead.Epoch)
+	assert.Equal(t, uint64(2), currentRead.Epoch)
 	assert.Equal(t, readSecret0, currentRead.Secret)
 	_, ok = keys.Read(3)
 	assert.False(t, ok)
@@ -73,7 +74,7 @@ func TestTrafficKeyStateAdvancesDirectionsIndependently(t *testing.T) {
 	})
 	currentRead, ok = keys.CurrentRead()
 	require.True(t, ok)
-	assert.Equal(t, uint16(3), currentRead.Epoch)
+	assert.Equal(t, uint64(3), currentRead.Epoch)
 	assert.Equal(t, uint64(1), currentRead.Generation)
 	assert.Equal(t, readSecret1, currentRead.Secret)
 	oldRead, ok := keys.Read(2)
@@ -83,15 +84,15 @@ func TestTrafficKeyStateAdvancesDirectionsIndependently(t *testing.T) {
 
 func TestTrafficKeyStateReadCandidate(t *testing.T) {
 	var keys TrafficKeyState
-	for _, epoch := range []uint16{2, 3, 4, 5, 6, 7} {
+	for _, epoch := range []uint64{2, 3, 4, 5, 6, 7, 65538, math.MaxUint64} {
 		keys.Install(nil, &TrafficGeneration{Epoch: epoch})
 	}
 
 	for _, test := range []struct {
 		name    string
-		current uint16
+		current uint64
 		low     uint8
-		want    uint16
+		want    uint64
 		found   bool
 	}{
 		{name: "current", current: 6, low: 2, want: 6, found: true},
@@ -101,6 +102,8 @@ func TestTrafficKeyStateReadCandidate(t *testing.T) {
 		{name: "missing past does not fall back", current: 10, low: 1},
 		{name: "invalid low bits", current: 6, low: 7},
 		{name: "no past epoch", current: 1, low: 2},
+		{name: "full width epoch", current: 65538, low: 2, want: 65538, found: true},
+		{name: "maximum epoch", current: math.MaxUint64, low: 3, want: math.MaxUint64, found: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			generation, found := keys.ReadCandidate(test.low, test.current)

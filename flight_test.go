@@ -48,7 +48,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testTrafficProtectionInitialized(state *dtlsstate.State13, epoch uint16) bool {
+func testTrafficProtectionInitialized(state *dtlsstate.State13, epoch uint64) bool {
 	if state == nil || state.TrafficKeys == nil {
 		return false
 	}
@@ -2222,7 +2222,7 @@ func TestFlight13_4Generate(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, dtlsAlert)
 		require.Len(t, pkts, 5)
-		assert.Equal(t, uint16(0), pkts[0].Epoch)
+		assert.Equal(t, uint64(0), pkts[0].Epoch)
 		assert.False(t, pkts[0].Protection == dtlsflight.ProtectionCiphertext)
 
 		serverHelloHandshake, ok := pkts[0].Content.(*handshake.Handshake)

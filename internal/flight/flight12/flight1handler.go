@@ -62,7 +62,7 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 	state.SetSRTPProtectionProfile(0)
 	state.LocalClientHelloSnapshots.Reset()
 
-	var zeroEpoch uint16
+	var zeroEpoch uint64
 	state.SetLocalEpoch(zeroEpoch)
 	state.SetRemoteEpoch(zeroEpoch)
 	ellipticCurves := supportedEllipticCurves(cfg.EllipticCurves)

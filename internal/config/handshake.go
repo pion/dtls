@@ -128,7 +128,7 @@ type HandshakeConfig struct {
 	KeyLogWriter                  io.Writer
 	LocalGetCertificate           func(*ClientHelloInfo) (*tls.Certificate, error)
 	LocalGetClientCertificate     func(*CertificateRequestInfo) (*tls.Certificate, error)
-	InitialEpoch                  uint16
+	InitialEpoch                  uint64
 	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message

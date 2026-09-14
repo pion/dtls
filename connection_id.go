@@ -84,7 +84,7 @@ func (c returnRoutabilityConn) WriteRRC(ctx context.Context, addr net.Addr, mess
 }
 
 func (c returnRoutabilityConn) HandleRecord(ctx context.Context, message *protocol.ReturnRoutabilityCheck, prepared incomingPacketState, addr net.Addr) (bool, packetOutcome, error) {
-	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC || prepared.header.Epoch == 0 || !dtlsstate.CommonState(c.conn.state).RRCNegotiated {
+	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC || prepared.number.Epoch == 0 || !dtlsstate.CommonState(c.conn.state).RRCNegotiated {
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
 	isLatestSeqNum := prepared.markPacketAsValid()

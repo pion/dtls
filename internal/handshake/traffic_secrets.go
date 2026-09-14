@@ -54,9 +54,9 @@ func commitPreparedFlights(conn Conn, state *dtlsstate.State13, transcript *Tran
 
 func prepareFlightPackets(
 	state *dtlsstate.State13,
-	epoch uint16,
+	epoch uint64,
 	flights []*dtlsflight.Outbound,
-) (uint16, int) {
+) (uint64, int) {
 	nextEpoch := epoch
 	protectedFlightStart := len(flights)
 	for i, packet := range flights {

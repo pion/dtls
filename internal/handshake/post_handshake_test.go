@@ -6,6 +6,7 @@ package dtlshandshake
 import (
 	"bytes"
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -125,7 +126,7 @@ func TestMakeReliableNewSessionTicket(t *testing.T) {
 	packet := flight.Packets[0]
 	assert.True(t, packet.Protection == dtlsflight.ProtectionCiphertext)
 	assert.True(t, packet.TrackACK)
-	assert.Equal(t, uint16(7), packet.Epoch)
+	assert.Equal(t, uint64(7), packet.Epoch)
 	assert.Equal(t, uint16(12), flight.ID.MessageSequence)
 	assert.Equal(t, 13, state.HandshakeSendSequence)
 
@@ -243,10 +244,10 @@ func TestPostHandshakeACKReliability(t *testing.T) {
 
 func TestPostHandshakeReceiveNewSessionTicket(t *testing.T) {
 	const (
-		epoch              = uint16(3)
+		epoch              = uint64(3)
 		ticketRecvSequence = uint16(8)
 	)
-	record := protocol.RecordNumber{Epoch: uint64(epoch), SequenceNumber: 9}
+	record := protocol.RecordNumber{Epoch: epoch, SequenceNumber: 9}
 
 	state := dtlsstate.NewState13(true)
 	state.SetLocalEpoch(epoch)
@@ -426,7 +427,7 @@ func TestKeyUpdateCommitsWriteKeysOnlyAfterACK(t *testing.T) {
 	state := newPostHandshakeKeyUpdateTestState(t, true)
 	state.HandshakeSendSequence = 9
 	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
-	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 4}
+	record := protocol.RecordNumber{Epoch: dtlsflight13.EpochApplication, SequenceNumber: 4}
 	fragment := SentHandshakeFragment{MessageSequence: 9, Length: 1}
 	conn := &postHandshakeKeyUpdateConn{state: state, result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{Number: record, Fragments: []SentHandshakeFragment{fragment}}}}}
 	completion, completionCtx := newPostHandshakeCompletion()
@@ -462,15 +463,29 @@ func TestKeyUpdateCommitsWriteKeysOnlyAfterACK(t *testing.T) {
 }
 
 func TestBuildKeyUpdateFlightRejectsEpochOverflow(t *testing.T) {
-	state := newPostHandshakeKeyUpdateTestState(t, true)
-	current, ok := state.TrafficKeys.CurrentWrite()
-	require.True(t, ok)
-	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: ^uint16(0), Generation: current.Generation, Secret: current.Secret, Protection: current.Protection}, nil)
-	state.SetLocalEpoch(^uint16(0))
-	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{}})
+	for _, test := range []struct {
+		name       string
+		epoch      uint64
+		generation uint64
+	}{
+		{name: "epoch", epoch: math.MaxUint64},
+		{name: "generation", epoch: dtlsflight13.EpochApplication, generation: math.MaxUint64},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := newPostHandshakeKeyUpdateTestState(t, true)
+			current, ok := state.TrafficKeys.CurrentWrite()
+			require.True(t, ok)
+			state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: test.epoch, Generation: test.generation, Secret: current.Secret, Protection: current.Protection}, nil)
+			state.SetLocalEpoch(test.epoch)
+			post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{}})
 
-	_, err := post.buildKeyUpdateFlight(handshake.KeyUpdateNotRequested, nil)
-	assert.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)
+			flight, err := post.buildKeyUpdateFlight(handshake.KeyUpdateNotRequested, nil)
+			assert.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)
+			assert.Nil(t, flight)
+			assert.Equal(t, test.epoch, state.LocalEpoch())
+			assert.Zero(t, state.HandshakeSendSequence)
+		})
+	}
 }
 
 func TestRequestedKeyUpdateInstallsReadKeysAndQueuesResponse(t *testing.T) {
@@ -532,7 +547,7 @@ func TestRequiredKeyUpdateResponsesAreSerialized(t *testing.T) {
 func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
 	state := newPostHandshakeKeyUpdateTestState(t, false)
 	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
-	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 4}
+	record := protocol.RecordNumber{Epoch: dtlsflight13.EpochApplication, SequenceNumber: 4}
 	conn := &postHandshakeKeyUpdateConn{state: state, result: &WriteResult{TrackedRecords: []SentHandshakeRecord{{Number: record, Fragments: []SentHandshakeFragment{{MessageSequence: 0, Length: 1}}}}}}
 	applicationPacket := &dtlsflight.Outbound{Content: &protocol.ApplicationData{Data: []byte("after update")}, Protection: dtlsflight.ProtectionCiphertext}
 	post.queue = append(post.queue, applicationDataCommand(applicationPacket))
@@ -598,7 +613,7 @@ func TestRetransmittedKeyUpdateDoesNotRatchetReadKeysTwice(t *testing.T) {
 	cache.Push(wire, dtlsflight13.EpochApplication, messageSequence, handshake.TypeKeyUpdate, false)
 	post := newPostHandshake(handshakeContext{state: state, cache: cache, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
 	conn := &postHandshakeKeyUpdateConn{state: state}
-	record := protocol.RecordNumber{Epoch: uint64(dtlsflight13.EpochApplication), SequenceNumber: 3}
+	record := protocol.RecordNumber{Epoch: dtlsflight13.EpochApplication, SequenceNumber: 3}
 	receive := func() error {
 		return post.handlePostHandshakeReceive(context.Background(), conn, RecvHandshakeState{HasHandshake: true, RecordsToACK: []protocol.RecordNumber{record}})
 	}

@@ -6,7 +6,7 @@ package dtls
 import (
 	"bytes"
 	"encoding/gob"
-	"sync/atomic"
+	"math"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -21,7 +21,7 @@ import (
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and
 // encoding.BinaryUnmarshaler.
 type State struct {
-	localEpoch, remoteEpoch   uint16
+	localEpoch, remoteEpoch   uint64
 	localRandom, remoteRandom handshake.Random
 	masterSecret              []byte
 	cipherSuiteDescriptor     cryptosuite.Suite
@@ -83,7 +83,7 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 		localRandom:           internalState.LocalRandom,
 		remoteRandom:          internalState.RemoteRandom,
 		masterSecret:          internalState.MasterSecret,
-		sequenceNumber:        atomic.LoadUint64(&internalState.LocalSequenceNumber[epoch]),
+		sequenceNumber:        internalState.NextLocalSequenceNumber(epoch),
 		srtpProtectionProfile: profile,
 		peerSRTPMKI:           peerMKI,
 		localConnectionID:     internalState.LocalConnectionID(),
@@ -122,10 +122,7 @@ func generateState13(internalState *dtlsstate.State13) (*State, error) {
 	}
 
 	epoch := common.LocalEpoch()
-	var sequenceNumber uint64
-	if int(epoch) < len(common.LocalSequenceNumber) {
-		sequenceNumber = atomic.LoadUint64(&common.LocalSequenceNumber[epoch])
-	}
+	sequenceNumber := common.NextLocalSequenceNumber(epoch)
 
 	return &State{
 		localEpoch:            common.LocalEpoch(),
@@ -182,6 +179,9 @@ func (s *State) serialize() (*serializedState, error) {
 	if s.version == protocol.Version1_3 {
 		return nil, ErrStateSerializationUnsupported
 	}
+	if s.localEpoch > math.MaxUint16 || s.remoteEpoch > math.MaxUint16 {
+		return nil, dtlserrors.ErrEpochOverflow
+	}
 
 	version := s.version
 	if version == 0 {
@@ -190,8 +190,8 @@ func (s *State) serialize() (*serializedState, error) {
 
 	return &serializedState{
 		Version:               version,
-		LocalEpoch:            s.localEpoch,
-		RemoteEpoch:           s.remoteEpoch,
+		LocalEpoch:            uint16(s.localEpoch),  //nolint:gosec // Checked before serialization.
+		RemoteEpoch:           uint16(s.remoteEpoch), //nolint:gosec // Checked before serialization.
 		CipherSuiteID:         uint16(s.CipherSuiteID),
 		MasterSecret:          s.masterSecret,
 		SequenceNumber:        s.sequenceNumber,
@@ -216,8 +216,8 @@ func (s *State) deserialize(serialized serializedState) {
 	if s.version == 0 {
 		s.version = protocol.Version1_2
 	}
-	s.localEpoch = serialized.LocalEpoch
-	s.remoteEpoch = serialized.RemoteEpoch
+	s.localEpoch = uint64(serialized.LocalEpoch)
+	s.remoteEpoch = uint64(serialized.RemoteEpoch)
 	s.localRandom.UnmarshalFixed(serialized.LocalRandom)
 	s.remoteRandom.UnmarshalFixed(serialized.RemoteRandom)
 	s.masterSecret = serialized.MasterSecret
@@ -265,6 +265,9 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	if s.version == protocol.Version1_3 {
 		return nil, ErrStateSerializationUnsupported
 	}
+	if s.localEpoch > math.MaxUint16 || s.remoteEpoch > math.MaxUint16 {
+		return nil, dtlserrors.ErrEpochOverflow
+	}
 
 	cipherSuite, err := s.cipherSuite()
 	if err != nil {
@@ -296,10 +299,7 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	state.SetSRTPProtectionProfile(s.srtpProtectionProfile)
 	state.SetLocalConnectionID(s.localConnectionID)
 
-	for len(state.LocalSequenceNumber) <= int(s.localEpoch) {
-		state.LocalSequenceNumber = append(state.LocalSequenceNumber, uint64(0))
-	}
-	atomic.StoreUint64(&state.LocalSequenceNumber[s.localEpoch], s.sequenceNumber)
+	state.SetLocalSequenceNumber(s.localEpoch, s.sequenceNumber)
 
 	if err := state.InitCipherSuite(); err != nil {
 		return nil, err

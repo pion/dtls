@@ -27,7 +27,7 @@ const (
 
 // Outbound describes semantic record intent.
 type Outbound struct {
-	Epoch      uint16
+	Epoch      uint64
 	Content    protocol.Content
 	Protection Protection
 	TrackACK   bool
@@ -42,7 +42,7 @@ type Outbound struct {
 type HandshakeCacheItem struct {
 	Typ             handshake.Type
 	IsClient        bool
-	Epoch           uint16
+	Epoch           uint64
 	MessageSequence uint16
 	Data            []byte
 
@@ -82,7 +82,7 @@ type HandshakeCacheItemPullResult struct {
 
 type HandshakeCachePullRule struct {
 	Typ      handshake.Type
-	Epoch    uint16
+	Epoch    uint64
 	IsClient bool
 	Optional bool
 }

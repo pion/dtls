@@ -28,10 +28,10 @@ const (
 )
 
 const (
-	EpochInitial     uint16 = 0
-	EpochEarlyData   uint16 = 1
-	EpochHandshake   uint16 = 2
-	EpochApplication uint16 = 3
+	EpochInitial     uint64 = 0
+	EpochEarlyData   uint64 = 1
+	EpochHandshake   uint64 = 2
+	EpochApplication uint64 = 3
 )
 
 type flightParser func(

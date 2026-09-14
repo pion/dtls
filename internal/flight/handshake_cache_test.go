@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func cacheItem(typ handshake.Type, client bool, epoch, sequence uint16, data byte) dtlsflight.HandshakeCacheItem {
+func cacheItem(typ handshake.Type, client bool, epoch uint64, sequence uint16, data byte) dtlsflight.HandshakeCacheItem {
 	return dtlsflight.HandshakeCacheItem{Typ: typ, IsClient: client, Epoch: epoch, MessageSequence: sequence, Data: []byte{data}}
 }
 
-func cacheRule(typ handshake.Type, client bool, epoch uint16) dtlsflight.HandshakeCachePullRule {
+func cacheRule(typ handshake.Type, client bool, epoch uint64) dtlsflight.HandshakeCachePullRule {
 	return dtlsflight.HandshakeCachePullRule{Typ: typ, Epoch: epoch, IsClient: client}
 }
 
@@ -68,6 +68,12 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 				cacheRule(1, true, 0), cacheRule(2, true, 1), cacheRule(3, false, 0),
 			},
 			Expected: []byte{0x00, 0x01, 0x02},
+		},
+		{
+			Name:     "Full Width Epoch",
+			Input:    []dtlsflight.HandshakeCacheItem{cacheItem(1, true, 3, 0, 0), cacheItem(1, true, 1<<32+3, 1, 1)},
+			Rule:     []dtlsflight.HandshakeCachePullRule{cacheRule(1, true, 1<<32+3)},
+			Expected: []byte{1},
 		},
 	} {
 		h := dtlsflight.NewCache()

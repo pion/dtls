@@ -84,7 +84,7 @@ type Conn interface {
 	Notify(ctx context.Context, level alert.Level, desc alert.Description) error
 	WritePackets(context.Context, []*dtlsflight.Outbound) (*WriteResult, error)
 	RecvHandshake() <-chan RecvHandshakeState
-	SetLocalEpoch(epoch uint16)
+	SetLocalEpoch(epoch uint64)
 }
 
 func sideString(isClient bool) string {
@@ -95,7 +95,7 @@ func sideString(isClient bool) string {
 	return "server"
 }
 
-func sendACK(ctx context.Context, conn Conn, epoch uint16, records []protocol.RecordNumber) error {
+func sendACK(ctx context.Context, conn Conn, epoch uint64, records []protocol.RecordNumber) error {
 	if len(records) == 0 {
 		return nil
 	}

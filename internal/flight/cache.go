@@ -41,7 +41,7 @@ func NewCache() *Cache {
 	return &Cache{}
 }
 
-func (h *Cache) Push(data []byte, epoch, messageSequence uint16, typ handshake.Type, isClient bool) {
+func (h *Cache) Push(data []byte, epoch uint64, messageSequence uint16, typ handshake.Type, isClient bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -418,7 +418,7 @@ func (h *Cache) PullAndMerge(rules ...HandshakeCachePullRule) []byte {
 
 // SessionHash returns the session hash for Extended Master Secret support
 // https://tools.ietf.org/html/draft-ietf-tls-session-hash-06#section-4
-func (h *Cache) SessionHash(hf prf.HashFunc, epoch uint16, additional ...[]byte) ([]byte, error) {
+func (h *Cache) SessionHash(hf prf.HashFunc, epoch uint64, additional ...[]byte) ([]byte, error) {
 	merged := []byte{}
 
 	// Order defined by https://tools.ietf.org/html/rfc5246#section-7.3

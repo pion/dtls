@@ -10,7 +10,7 @@ import (
 
 // handshakeRulesThroughClientKeyExchange returns the handshake transcript pull
 // rules through ClientKeyExchange (used for CertificateVerify).
-func handshakeRulesThroughClientKeyExchange(epoch uint16) []dtlsflight.HandshakeCachePullRule {
+func handshakeRulesThroughClientKeyExchange(epoch uint64) []dtlsflight.HandshakeCachePullRule {
 	return []dtlsflight.HandshakeCachePullRule{
 		{Typ: handshake.TypeClientHello, Epoch: epoch, IsClient: true, Optional: false},
 		{Typ: handshake.TypeServerHello, Epoch: epoch, IsClient: false, Optional: false},
@@ -25,6 +25,6 @@ func handshakeRulesThroughClientKeyExchange(epoch uint16) []dtlsflight.Handshake
 
 // handshakeRulesThroughClientFinished returns the handshake transcript pull
 // rules through the client's Finished message.
-func handshakeRulesThroughClientFinished(epoch uint16) []dtlsflight.HandshakeCachePullRule {
+func handshakeRulesThroughClientFinished(epoch uint64) []dtlsflight.HandshakeCachePullRule {
 	return append(handshakeRulesThroughClientKeyExchange(epoch), dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateVerify, Epoch: epoch, IsClient: true, Optional: false}, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeFinished, Epoch: epoch + 1, IsClient: true, Optional: false})
 }

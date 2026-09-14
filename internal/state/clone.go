@@ -5,6 +5,7 @@ package state
 
 import (
 	"bytes"
+	"maps"
 	"slices"
 
 	"github.com/pion/dtls/v3/internal/util"
@@ -23,8 +24,11 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 		return &State13{Common: common}
 	}
 
-	common.LocalSequenceNumber = slices.Clone(state.LocalSequenceNumber)
-	common.RemoteSequenceNumber = slices.Clone(state.RemoteSequenceNumber)
+	state.sequenceMu.Lock()
+	common.LocalSequenceNumber = maps.Clone(state.LocalSequenceNumber)
+	common.RemoteSequenceNumber = maps.Clone(state.RemoteSequenceNumber)
+	common.exhaustedLocalEpoch = maps.Clone(state.exhaustedLocalEpoch)
+	state.sequenceMu.Unlock()
 	common.LocalRandom = state.LocalRandom
 	common.RemoteRandom = state.RemoteRandom
 	common.CipherSuite = state.CipherSuite
