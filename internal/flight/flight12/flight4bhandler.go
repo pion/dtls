@@ -83,7 +83,11 @@ func flight4bGenerate(_ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsfl
 		extensions = append(extensions, &extension.ALPNSelection{Protocol: selectedProto})
 		state.NegotiatedProtocol = selectedProto
 	}
-	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
+	cid, err := serverCIDExtension(state, cfg, offer)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	if cid != nil {
 		extensions = dtlsflight.AppendConnectionIDExtensions(extensions, cid.CID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
 	}
 
@@ -93,6 +97,9 @@ func flight4bGenerate(_ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsfl
 	serverHelloMessage, err = dtlsflight.FinalizeServerHello(serverHelloMessage, cfg.ServerHelloMessageHook, offer, cfg.EnableRRC)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err = dtlsflight.ValidateHookedConnectionIDLength(serverHelloMessage.Extensions, cfg, cfg.ServerHelloMessageHook != nil); err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	if err = validateServerSRTP(offer, serverHelloMessage.Extensions, cfg.LocalSRTPProtectionProfiles, srtpSelection); err != nil {
 		return nil, nil, err

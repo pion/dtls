@@ -334,9 +334,7 @@ func flight3Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 		clientHello = retry
 	}
 
-	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
-		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,
-	)
+	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(clientHello, cfg)
 	if err != nil {
 		return nil, nil, err
 	}

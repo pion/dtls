@@ -215,7 +215,11 @@ func flight4Generate( //nolint:cyclop
 	if cfg.ConnectionIDGenerator != nil && offer.Offered(extension.TypeConnectionID) {
 		localCID := state.LocalConnectionID()
 		if !state.CID.Negotiated {
-			localCID = bytes.Clone(cfg.ConnectionIDGenerator())
+			localCID, err = cfg.GenerateConnectionID()
+			if err != nil {
+				return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+			localCID = bytes.Clone(localCID)
 		}
 		serverHelloExtensions = dtlsflight.AppendConnectionIDExtensions(serverHelloExtensions, localCID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
 	}

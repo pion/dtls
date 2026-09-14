@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v3/internal/config"
+	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
@@ -49,11 +51,29 @@ func AppendConnectionIDExtensions(
 	return values
 }
 
+// ValidateHookedConnectionIDLength checks that a hello hook preserves the
+// configured receive-cid length.
+func ValidateHookedConnectionIDLength(values []extension.Value, cfg *dtlsconfig.HandshakeConfig, hookConfigured bool) error {
+	if !hookConfigured || cfg.ConnectionIDGenerator == nil {
+		return nil
+	}
+	for _, value := range values {
+		if cid, ok := value.(*extension.ConnectionID); ok && len(cid.CID) != cfg.ReceiveCIDLength {
+			return fmt.Errorf("%w: hello hook returned %d bytes, want %d", dtlserrors.ErrInvalidConnectionIDLength, len(cid.CID), cfg.ReceiveCIDLength)
+		}
+	}
+
+	return nil
+}
+
 // FinalizeClientHello applies the hook and prevents it from enabling RRC when
 // the configured CID path-migration policy does not permit RRC.
-func FinalizeClientHello(base *handshake.MessageClientHello, hook func(handshake.MessageClientHello) handshake.Message, enableRRC bool) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
-	clientHello, snapshot, err := negotiation.FinalizeClientHello(base, hook)
-	if err != nil || enableRRC || !snapshot.Offered(extension.TypeReturnRoutabilityCheck) {
+func FinalizeClientHello(base *handshake.MessageClientHello, cfg *dtlsconfig.HandshakeConfig) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	clientHello, snapshot, err := negotiation.FinalizeClientHello(base, cfg.ClientHelloMessageHook)
+	if err == nil {
+		err = ValidateHookedConnectionIDLength(clientHello.Extensions, cfg, cfg.ClientHelloMessageHook != nil)
+	}
+	if err != nil || cfg.EnableRRC || !snapshot.Offered(extension.TypeReturnRoutabilityCheck) {
 		return clientHello, snapshot, err
 	}
 

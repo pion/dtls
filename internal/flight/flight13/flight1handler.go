@@ -111,8 +111,12 @@ func flight1Generate(
 	}
 
 	if cfg.ConnectionIDGenerator != nil {
+		cid, err := cfg.GenerateConnectionID()
+		if err != nil {
+			return nil, nil, err
+		}
 		extensions = dtlsflight.AppendConnectionIDExtensions(
-			extensions, cfg.ConnectionIDGenerator(), cfg.EnableRRC,
+			extensions, cid, cfg.EnableRRC,
 		)
 	}
 
@@ -129,9 +133,7 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
-		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,
-	)
+	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(clientHello, cfg)
 	if err != nil {
 		return nil, nil, err
 	}

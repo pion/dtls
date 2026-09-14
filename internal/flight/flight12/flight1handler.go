@@ -136,16 +136,18 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 	// in which case we are just requesting that the server send us a CID to
 	// use.
 	if cfg.ConnectionIDGenerator != nil {
+		cid, err := cfg.GenerateConnectionID()
+		if err != nil {
+			return nil, nil, err
+		}
 		extensions = dtlsflight.AppendConnectionIDExtensions(
-			extensions, cfg.ConnectionIDGenerator(), cfg.EnableRRC,
+			extensions, cid, cfg.EnableRRC,
 		)
 	}
 
 	clientHello := &handshake.MessageClientHello{Version: protocol.Version1_2, SessionID: state.SessionID, Cookie: state.Cookie, Random: state.LocalRandom, CipherSuiteIDs: dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites), CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions}
 
-	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(
-		clientHello, cfg.ClientHelloMessageHook, cfg.EnableRRC,
-	)
+	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(clientHello, cfg)
 	if err != nil {
 		return nil, nil, err
 	}

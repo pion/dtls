@@ -260,7 +260,11 @@ func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 		state.NegotiatedProtocol = selectedProto
 	}
 
-	if cid := serverCIDExtension(state, cfg, offer); cid != nil {
+	cid, err := serverCIDExtension(state, cfg, offer)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	if cid != nil {
 		extensions = dtlsflight.AppendConnectionIDExtensions(extensions, cid.CID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
 	}
 
@@ -281,6 +285,9 @@ func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 	)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err = dtlsflight.ValidateHookedConnectionIDLength(serverHello.Extensions, cfg, cfg.ServerHelloMessageHook != nil); err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	if err = validateServerSRTP(offer, serverHello.Extensions, cfg.LocalSRTPProtectionProfiles, srtpSelection); err != nil {
 		return nil, nil, err
@@ -393,14 +400,18 @@ func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 	return pkts, nil, nil
 }
 
-func serverCIDExtension(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, offer negotiation.ClientHelloSnapshot) *extension.ConnectionID {
+func serverCIDExtension(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, offer negotiation.ClientHelloSnapshot) (*extension.ConnectionID, error) {
 	if cfg.ConnectionIDGenerator == nil || !offer.Offered(extension.TypeConnectionID) {
-		return nil
+		return nil, nil //nolint:nilnil // No extension is a successful outcome.
 	}
 	cid := state.LocalConnectionID()
 	if !state.LocalCIDOffered {
-		cid = cfg.ConnectionIDGenerator()
+		var err error
+		cid, err = cfg.GenerateConnectionID()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return &extension.ConnectionID{CID: cid}
+	return &extension.ConnectionID{CID: cid}, nil
 }

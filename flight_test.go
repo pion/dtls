@@ -2658,6 +2658,7 @@ func TestFlight13_1GenerateConnectionIDOffer(t *testing.T) {
 			cfg, calls := testHandshakeConfig13(t), 0
 			cfg.EnableRRC = true
 			if test.generator {
+				cfg.ReceiveCIDLength = len(test.generated)
 				cfg.ConnectionIDGenerator = func() []byte {
 					calls++
 
@@ -2707,6 +2708,32 @@ func TestFlight13_1GenerateConnectionIDOffer(t *testing.T) {
 	}
 }
 
+func TestFlight13_1GenerateRejectsConnectionIDLength(t *testing.T) {
+	for name, hook := range map[string]bool{"generator": false, "hook": true} {
+		t.Run(name, func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			cfg.ReceiveCIDLength = 2
+			generated := []byte{0x01}
+			if hook {
+				generated = append(generated, 0x02)
+				cfg.ClientHelloMessageHook = func(clientHello handshake.MessageClientHello) handshake.Message {
+					setConnectionIDs(&clientHello, []byte{0xff})
+
+					return &clientHello
+				}
+			}
+			cfg.ConnectionIDGenerator = func() []byte { return generated }
+			state := newTestState13(t, true)
+
+			packets, dtlsAlert, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg})
+			require.ErrorIs(t, err, dtlserrors.ErrInvalidConnectionIDLength)
+			assert.Nil(t, dtlsAlert)
+			assert.Nil(t, packets)
+			assert.False(t, state.LocalClientHelloSnapshots.Current().Valid())
+		})
+	}
+}
+
 func TestFlight13_3GenerateConnectionIDOffer(t *testing.T) { //nolint:cyclop // Compact scenario table.
 	tests := map[string]struct {
 		generated, expected  []byte
@@ -2727,6 +2754,7 @@ func TestFlight13_3GenerateConnectionIDOffer(t *testing.T) { //nolint:cyclop // 
 		t.Run(name, func(t *testing.T) {
 			cfg, generatorCalls, hookCalls := testHandshakeConfig13(t), 0, 0
 			if test.generator {
+				cfg.ReceiveCIDLength = len(test.generated)
 				cfg.ConnectionIDGenerator = func() []byte {
 					generatorCalls++
 					if generatorCalls == 1 {
@@ -2859,6 +2887,7 @@ func TestFlight13_4GenerateNegotiatesConnectionIDs(t *testing.T) { //nolint:cycl
 			cfg.LocalCertificates = []tls.Certificate{certificate}
 			generatorCalls := 0
 			if len(test.serverCIDs) > 0 {
+				cfg.ReceiveCIDLength = len(serverCID)
 				cfg.ConnectionIDGenerator = func() []byte {
 					generatorCalls++
 
@@ -2983,6 +3012,7 @@ func parseFlight13ServerHelloConnectionID(t *testing.T, clientOffers bool, clien
 
 	cfg := testHandshakeConfig13(t)
 	if clientOffers {
+		cfg.ReceiveCIDLength = len(clientCID)
 		cfg.ConnectionIDGenerator = func() []byte {
 			return clientCID
 		}

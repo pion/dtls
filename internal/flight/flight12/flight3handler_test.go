@@ -193,7 +193,7 @@ func TestFlight4bGenerateCommitsConnectionIDOnce(t *testing.T) {
 			state.LocalVerifyData = []byte{1}
 			recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: test.clientCID})
 			calls := 0
-			cfg := &dtlsconfig.HandshakeConfig{ConnectionIDGenerator: func() []byte {
+			cfg := &dtlsconfig.HandshakeConfig{ReceiveCIDLength: len(test.serverCID), ConnectionIDGenerator: func() []byte {
 				calls++
 
 				return test.serverCID
@@ -218,6 +218,7 @@ func TestFlight4bGenerateDoesNotCommitConnectionIDAfterLateResponseError(t *test
 	state.LocalVerifyData = []byte{1}
 	recordCH12(t, &state.RemoteClientHelloSnapshots, &extension.ConnectionID{CID: []byte{0xc1}})
 	cfg := &dtlsconfig.HandshakeConfig{
+		ReceiveCIDLength:      1,
 		ConnectionIDGenerator: func() []byte { return []byte{0x51} },
 		ServerHelloMessageHook: func(serverHello handshake.MessageServerHello) handshake.Message {
 			serverHello.Extensions = append(serverHello.Extensions, extension.Raw{Type: 0xfafa})
