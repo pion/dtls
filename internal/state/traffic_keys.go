@@ -90,27 +90,19 @@ func (s *TrafficKeyState) CurrentRead() (*TrafficGeneration, bool) {
 	return s.readCurrent, s.readCurrent != nil
 }
 
-// ReadCandidates appends installed generations matching the low epoch bits to
-// candidates. The current generation is added first if it matches.
-func (s *TrafficKeyState) ReadCandidates(
-	epochLow uint8,
-	candidates []*TrafficGeneration,
-) []*TrafficGeneration {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	const epochLowMask = uint16(0x3)
-	if s.readCurrent != nil && uint8(s.readCurrent.Epoch&epochLowMask) == epochLow {
-		candidates = append(candidates, s.readCurrent)
+// ReadCandidate selects the current or most recent past epoch with matching low bits.
+// A missing generation does not allow falling back to an older matching epoch.
+// https://www.rfc-editor.org/rfc/rfc9147.html#section-4.2.2
+func (s *TrafficKeyState) ReadCandidate(epochLow uint8, currentEpoch uint16) (*TrafficGeneration, bool) {
+	if epochLow > 3 {
+		return nil, false
+	}
+	distance := (4 + (currentEpoch & 3) - uint16(epochLow)) & 3
+	if distance > currentEpoch {
+		return nil, false
 	}
 
-	for _, generation := range s.readOld {
-		if uint8(generation.Epoch&epochLowMask) == epochLow {
-			candidates = append(candidates, generation)
-		}
-	}
-
-	return candidates
+	return s.Read(currentEpoch - distance)
 }
 
 func installTrafficGeneration(current **TrafficGeneration, old *map[uint16]*TrafficGeneration, generation *TrafficGeneration) {

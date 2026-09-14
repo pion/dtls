@@ -1580,58 +1580,23 @@ func (c *Conn) ciphertextCIDPolicy(localCID []byte) (expected, allowed bool, err
 }
 
 func (c *Conn) openCiphertextRecord(record recordlayer.CiphertextRecord) (recordlayer.InnerPlaintext, uint64, uint16, error) {
-	var candidateBuffer [4]*dtlsstate.TrafficGeneration
-	candidates, remoteEpoch, err := c.readTrafficCandidates(record.Header.EpochLow, candidateBuffer[:0])
+	state13, ok := c.state.(*dtlsstate.State13)
+	if !ok || state13.TrafficKeys == nil {
+		return recordlayer.InnerPlaintext{}, 0, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	}
+	generation, ok := state13.TrafficKeys.ReadCandidate(record.Header.EpochLow, state13.RemoteEpoch())
+	if !ok {
+		return recordlayer.InnerPlaintext{}, 0, 0, dtlserrors.ErrInvalidEpoch
+	}
+	if generation.Protection == nil {
+		return recordlayer.InnerPlaintext{}, 0, 0, operationalProtectionError(dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+	}
+	plaintext, sequence, err := c.openCiphertextWithGeneration(record, generation)
 	if err != nil {
 		return recordlayer.InnerPlaintext{}, 0, 0, err
 	}
 
-	var candidateErr error
-	eligible := false
-	for _, generation := range candidates {
-		// Reject generations before it's authorized and
-		// the receive epoch has advanced.
-		if generation.Epoch > remoteEpoch {
-			continue
-		}
-		eligible = true
-		if generation.Protection == nil {
-			return recordlayer.InnerPlaintext{}, 0, 0, operationalProtectionError(dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
-		}
-		innerPlaintext, sequenceNumber, err := c.openCiphertextWithGeneration(record, generation)
-		if err != nil {
-			if errors.Is(err, errRecordAuthentication) {
-				candidateErr = err
-
-				continue
-			}
-
-			return recordlayer.InnerPlaintext{}, 0, 0, err
-		}
-
-		return innerPlaintext, sequenceNumber, generation.Epoch, nil
-	}
-	if !eligible {
-		return recordlayer.InnerPlaintext{}, 0, 0, dtlserrors.ErrInvalidEpoch
-	}
-	if candidateErr == nil {
-		candidateErr = dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
-	}
-
-	return recordlayer.InnerPlaintext{}, 0, 0, candidateErr
-}
-
-func (c *Conn) readTrafficCandidates(epochLow uint8, candidates []*dtlsstate.TrafficGeneration) ([]*dtlsstate.TrafficGeneration, uint16, error) {
-	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok || state13.TrafficKeys == nil {
-		return nil, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
-	}
-	candidates = state13.TrafficKeys.ReadCandidates(epochLow, candidates)
-	if len(candidates) == 0 {
-		return nil, 0, dtlserrors.ErrInvalidEpoch
-	}
-
-	return candidates, state13.RemoteEpoch(), nil
+	return plaintext, sequence, generation.Epoch, nil
 }
 
 func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop

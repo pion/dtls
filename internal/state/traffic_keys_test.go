@@ -81,34 +81,38 @@ func TestTrafficKeyStateAdvancesDirectionsIndependently(t *testing.T) {
 	assert.Equal(t, readSecret0, oldRead.Secret)
 }
 
-func TestTrafficKeyStateReadCandidates(t *testing.T) {
+func TestTrafficKeyStateReadCandidate(t *testing.T) {
 	var keys TrafficKeyState
-	readGenerations := []*TrafficGeneration{
-		{Epoch: 2},
-		{Epoch: 3},
-		{Epoch: 4},
-		{Epoch: 5},
-		{Epoch: 6},
-	}
-	for _, generation := range readGenerations {
-		keys.Install(nil, generation)
+	for _, epoch := range []uint16{2, 3, 4, 5, 6, 7} {
+		keys.Install(nil, &TrafficGeneration{Epoch: epoch})
 	}
 
-	storage := make([]*TrafficGeneration, 0, 2)
-	candidates := keys.ReadCandidates(2, storage)
-	require.Len(t, candidates, 2)
-	assert.Same(t, readGenerations[4], candidates[0], "current generation must be tried first")
-	assert.Same(t, readGenerations[0], candidates[1])
-
-	candidates = keys.ReadCandidates(0, storage[:0])
-	require.Len(t, candidates, 1)
-	assert.Same(t, readGenerations[2], candidates[0])
-
-	candidates = keys.ReadCandidates(1, storage[:0])
-	require.Len(t, candidates, 1)
-	assert.Same(t, readGenerations[3], candidates[0])
-
-	assert.Empty(t, keys.ReadCandidates(7, storage[:0]))
+	for _, test := range []struct {
+		name    string
+		current uint16
+		low     uint8
+		want    uint16
+		found   bool
+	}{
+		{name: "current", current: 6, low: 2, want: 6, found: true},
+		{name: "past", current: 6, low: 1, want: 5, found: true},
+		{name: "unauthorized future", current: 6, low: 3, want: 3, found: true},
+		{name: "missing current does not fall back", current: 10, low: 2},
+		{name: "missing past does not fall back", current: 10, low: 1},
+		{name: "invalid low bits", current: 6, low: 7},
+		{name: "no past epoch", current: 1, low: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			generation, found := keys.ReadCandidate(test.low, test.current)
+			require.Equal(t, test.found, found)
+			if found {
+				require.NotNil(t, generation)
+				assert.Equal(t, test.want, generation.Epoch)
+			} else {
+				assert.Nil(t, generation)
+			}
+		})
+	}
 }
 
 func TestTrafficGenerationCloneCopiesSecret(t *testing.T) {
