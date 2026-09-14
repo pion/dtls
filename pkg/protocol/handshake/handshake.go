@@ -131,19 +131,18 @@ func (h *Handshake) Marshal() ([]byte, error) {
 		return nil, dtlserrors.ErrUnableToMarshalFragmented
 	}
 
-	message, err := h.Message.Marshal()
+	out := make([]byte, HeaderLength+h.Message.MarshalSize())
+	n, err := h.Message.MarshalTo(out[HeaderLength:])
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]byte, HeaderLength+len(message))
-	h.Header.Length = uint32(len(message)) //nolint:gosec // handshake messages are bounded to uint24 on the wire.
+	h.Header.Length = uint32(n) //nolint:gosec // handshake messages are bounded to uint24 on the wire.
 	h.Header.FragmentLength = h.Header.Length
 	h.Header.Type = h.Message.Type()
 	if _, err = h.Header.MarshalTo(out); err != nil {
 		return nil, err
 	}
-	copy(out[HeaderLength:], message)
 
 	return out, nil
 }
