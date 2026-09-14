@@ -5151,6 +5151,42 @@ func TestOpenCiphertextRecordRetainsPreviousReadGeneration(t *testing.T) {
 	assert.Equal(t, []byte("retransmitted KeyUpdate"), innerPlaintext.Content)
 }
 
+func TestDTLS13SequenceTrackingAfterAuthentication(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		tamper       bool
+		nextSequence uint64
+	}{
+		{"authenticated invalid content", false, 65636},
+		{"authentication failure", true, 101},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn, peer := newTestConnWithReadProtection(t)
+			receive := func(sequence uint64, contentType protocol.ContentType, tamper bool) bool {
+				record, err := peer.SealRecord(recordlayer.UnifiedHeader{EpochLow: 2}, sequence, contentType, []byte("content"))
+				require.NoError(t, err)
+				if tamper {
+					record.EncryptedRecord[len(record.EncryptedRecord)-1] ^= 1
+				}
+				raw, err := record.Marshal()
+				require.NoError(t, err)
+				prepared, ok, err := conn.prepareIncomingPacket(raw, nil, nil, false)
+				require.NoError(t, err)
+				if ok {
+					assert.Equal(t, []byte("content"), prepared.content)
+					prepared.markPacketAsValid()
+				}
+
+				return ok
+			}
+
+			require.True(t, receive(100, protocol.ContentTypeApplicationData, false))
+			require.False(t, receive(32868, protocol.ContentTypeChangeCipherSpec, test.tamper))
+			require.True(t, receive(test.nextSequence, protocol.ContentTypeApplicationData, false))
+		})
+	}
+}
+
 func TestQueueIfCipherSuiteUninitializedUsesReadTrafficGeneration(t *testing.T) {
 	conn, state, suite := newTrafficKeyTestConn(t)
 	for _, epoch := range []uint16{dtlsflight13.EpochHandshake, dtlsflight13.EpochApplication} {

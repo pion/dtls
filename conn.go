@@ -1645,6 +1645,8 @@ func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop
 		return recordlayer.InnerPlaintext{}, 0, operationalProtectionError(lengthErr)
 	}
 
+	c.updateRemoteSequenceNumber(generation.Epoch, sequenceNumber)
+
 	var innerPlaintext recordlayer.InnerPlaintext
 	if err = innerPlaintext.Unmarshal(plaintext); err != nil {
 		return recordlayer.InnerPlaintext{}, 0, err
@@ -1834,14 +1836,7 @@ func (c *Conn) protectedReplayMarker(epoch uint16, sequenceNumber uint64) (func(
 		return nil, false
 	}
 
-	return func() bool {
-		latest := accept()
-		if latest {
-			c.updateRemoteSequenceNumber(epoch, sequenceNumber)
-		}
-
-		return latest
-	}, true
+	return accept, true
 }
 
 func (c *Conn) queueIfCipherSuiteUninitialized(rAddr net.Addr, buf []byte, bufferLease *readBufferLease, message string) bool {
