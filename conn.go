@@ -23,9 +23,9 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
-	"github.com/pion/transport/v4/deadline"
-	"github.com/pion/transport/v4/netctx"
-	"github.com/pion/transport/v4/replaydetector"
+	"github.com/pion/transport/v5/deadline"
+	"github.com/pion/transport/v5/netctx"
+	"github.com/pion/transport/v5/replaydetector"
 )
 
 const (
@@ -497,7 +497,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		return 0, err
 	}
 
-	ctx, cancel := c.contextWithClose(c.writeDeadline)
+	ctx, cancel := c.contextWithClose(c.writeDeadline.Context())
 	defer cancel()
 
 	return len(payload), c.writePackets(ctx, []*packet{
@@ -664,7 +664,7 @@ func (c *closeContext) Err() error {
 		return err
 	}
 
-	return c.Context.Err()
+	return context.Cause(c.Context)
 }
 
 func (c *closeContext) close(err error) {
@@ -687,7 +687,7 @@ func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.C
 		case <-c.closed.Done():
 			closeCtx.close(context.Canceled)
 		case <-ctx.Done():
-			err := ctx.Err()
+			err := context.Cause(ctx)
 			if err == nil {
 				err = context.DeadlineExceeded
 			}
