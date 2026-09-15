@@ -46,15 +46,19 @@ type fragments struct {
 	hasStart        bool
 }
 
-// add stores a fragment and returns the change in stored fragment count and
-// bytes, which is negative when the fragment replaces smaller ones.
-func (f *fragments) add(offset uint32, data []byte) (fragmentDelta, byteDelta int) {
+// add stores a fragment if its count increase fits within available, returning
+// the change in stored fragment count and bytes. Replacing smaller fragments
+// can decrease both counts.
+func (f *fragments) add(offset uint32, data []byte, available int) (fragmentDelta, byteDelta int, err error) {
+	if len(data) == 0 {
+		data = nil
+	}
 	frag := fragmentRange{offset: offset, data: data}
 
 	// First fragment starting at or after offset.
 	i := sort.Search(len(f.ranges), func(k int) bool { return f.ranges[k].offset >= offset })
 	if f.covers(i, frag) {
-		return 0, 0
+		return 0, 0, nil
 	}
 
 	// ranges[i:j] start inside the new fragment and end inside it: covered.
@@ -64,10 +68,15 @@ func (f *fragments) add(offset uint32, data []byte) (fragmentDelta, byteDelta in
 		byteDelta -= len(f.ranges[j].data)
 		j++
 	}
+	fragmentDelta++
+	if fragmentDelta > available {
+		return 0, 0, errFragmentBufferOverflow
+	}
+
 	f.ranges = slices.Replace(f.ranges, i, j, frag)
 	f.advanceCovered(i)
 
-	return fragmentDelta + 1, byteDelta + len(data)
+	return fragmentDelta, byteDelta + len(data), nil
 }
 
 // covers reports whether a stored fragment already carries every byte of
@@ -117,7 +126,7 @@ func (f *fragmentBuffer) size() int {
 // when an error returns it is fatal, and the DTLS connection should be stopped.
 // The fragments keep referencing buf, so it must not be reused by the caller.
 func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err error) { //nolint:cyclop
-	if f.size()+len(buf) >= fragmentBufferMaxSize || f.totalFragmentCount >= fragmentBufferMaxCount {
+	if f.size()+len(buf) >= fragmentBufferMaxSize {
 		return false, false, errFragmentBufferOverflow
 	}
 
@@ -157,22 +166,28 @@ func (f *fragmentBuffer) push(buf []byte) (isHandshake, isRetransmit bool, err e
 		messageFragments, ok := f.cache[header.MessageSequence]
 		if !ok {
 			messageFragments = &fragments{handshakeType: header.Type, handshakeLength: header.Length}
-			f.cache[header.MessageSequence] = messageFragments
 		} else if header.Type != messageFragments.handshakeType || header.Length != messageFragments.handshakeLength {
 			// Disagrees with the message's earlier fragments; admitting it
 			// would break the bounds pop relies on.
 			continue
+		}
+
+		// empty fragments also count because retaining them consumes memory.
+		fragmentDelta, byteDelta, err := messageFragments.add(
+			header.FragmentOffset, data, fragmentBufferMaxCount-f.totalFragmentCount,
+		)
+		if err != nil {
+			return false, false, err
+		}
+		if !ok {
+			f.cache[header.MessageSequence] = messageFragments
 		}
 		if header.FragmentOffset == 0 && !messageFragments.hasStart {
 			messageFragments.handshakeHeader = header
 			messageFragments.epoch = recordLayerHeader.Epoch
 			messageFragments.hasStart = true
 		}
-		if len(data) == 0 {
-			continue
-		}
 
-		fragmentDelta, byteDelta := messageFragments.add(header.FragmentOffset, data)
 		f.totalFragmentCount += fragmentDelta
 		f.totalBufferSize += byteDelta
 	}

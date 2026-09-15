@@ -431,3 +431,55 @@ func TestFragmentBuffer_FragmentDisagreeingWithMessageIgnored(t *testing.T) {
 		})
 	}
 }
+
+func TestFragmentBuffer_EmptyFragmentLimit(t *testing.T) {
+	for _, testCase := range []struct {
+		name               string
+		messageLength      int
+		fragmentsPerRecord int
+	}{
+		{"nonempty message/separate records", 100, 1},
+		{"nonempty message/single record", 100, fragmentBufferMaxCount + 1},
+		{"empty message/separate records", 0, 1},
+		{"empty message/single record", 0, fragmentBufferMaxCount + 1},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			buffer := newFragmentBuffer()
+			body := make([]byte, testCase.messageLength)
+
+			for first := 1; first <= fragmentBufferMaxCount+1; first += testCase.fragmentsPerRecord {
+				var payload []byte
+				for sequence := first; sequence < first+testCase.fragmentsPerRecord; sequence++ {
+					fragment := handshakeFragmentRecord(t,
+						uint16(sequence), body, 0, 0) //nolint:gosec
+					payload = append(payload, fragment[recordlayer.FixedHeaderSize:]...)
+				}
+				header := recordlayer.Header{
+					ContentType: protocol.ContentTypeHandshake,
+					Version:     protocol.Version1_2,
+					ContentLen:  uint16(len(payload)), //nolint:gosec
+				}
+				record, err := header.Marshal()
+				require.NoError(t, err)
+
+				isHandshake, _, err := buffer.push(append(record, payload...))
+				if first+testCase.fragmentsPerRecord-1 <= fragmentBufferMaxCount {
+					require.NoError(t, err)
+					assert.True(t, isHandshake)
+				} else {
+					require.ErrorIs(t, err, errFragmentBufferOverflow)
+				}
+			}
+
+			assert.Len(t, buffer.cache, fragmentBufferMaxCount)
+			assert.Equal(t, fragmentBufferMaxCount, buffer.totalFragmentCount)
+			for _, frags := range buffer.cache {
+				require.Len(t, frags.ranges, 1)
+				require.Nil(t, frags.ranges[0].data, "empty fragments must not retain the packet backing array")
+			}
+			assert.Zero(t, buffer.size())
+			out, _ := buffer.pop()
+			assert.Nil(t, out)
+		})
+	}
+}
