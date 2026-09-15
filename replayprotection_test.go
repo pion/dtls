@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/transport/v4/dpipe"
-	"github.com/pion/transport/v4/test"
+	"github.com/pion/transport/v5/dpipe"
+	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
 )
 
