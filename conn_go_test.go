@@ -102,6 +102,9 @@ func testListenConnectionIDRebindingRequiresRRC(t *testing.T, clientMin, clientM
 		require.NoError(t, reboundSocket.Close())
 	}()
 
+	client.writeLock.Lock()
+	defer client.writeLock.Unlock()
+
 	reboundPacket := client.newApplicationDataPacket([]byte("rebound"))
 	reboundPacket.Epoch = dtlsstate.CommonState(client.state).LocalEpoch()
 	datagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Outbound{reboundPacket})
