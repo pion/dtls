@@ -18,7 +18,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/transport/v4/test"
+	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -18,7 +18,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
-	"github.com/pion/transport/v4/replaydetector"
+	"github.com/pion/transport/v5/replaydetector"
 )
 
 // Common is the protocol-independent connection state shared by DTLS versions.

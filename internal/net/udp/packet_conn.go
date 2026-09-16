@@ -27,7 +27,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	idtlsnet "github.com/pion/dtls/v3/internal/net"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
-	"github.com/pion/transport/v4/deadline"
+	"github.com/pion/transport/v5/deadline"
 )
 
 const (

@@ -14,7 +14,7 @@ import (
 	"github.com/pion/dtls/v3"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
-	transportTest "github.com/pion/transport/v4/test"
+	transportTest "github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -16,7 +16,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/transport/v4/test"
+	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

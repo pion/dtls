@@ -22,7 +22,7 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
-	"github.com/pion/transport/v4/deadline"
+	"github.com/pion/transport/v5/deadline"
 )
 
 // MaxInboundDatagramSize is the largest complete datagram DTLS will accept.

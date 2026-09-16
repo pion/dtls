@@ -34,9 +34,9 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
-	"github.com/pion/transport/v4/deadline"
-	"github.com/pion/transport/v4/netctx"
-	"github.com/pion/transport/v4/replaydetector"
+	"github.com/pion/transport/v5/deadline"
+	"github.com/pion/transport/v5/netctx"
+	"github.com/pion/transport/v5/replaydetector"
 )
 
 const (
@@ -583,7 +583,7 @@ func (c *Conn) Write(payload []byte) (int, error) {
 		return 0, err
 	}
 
-	ctx, cancel := c.contextWithClose(c.writeDeadline)
+	ctx, cancel := c.contextWithClose(c.writeDeadline.Context())
 	defer cancel()
 
 	err := c.writeApplicationData(ctx, []*dtlsflight.Outbound{
@@ -856,24 +856,16 @@ func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *hand
 }
 
 func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.CancelFunc) {
-	closeCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	closeCtx, cancel := context.WithCancel(ctx)
 	go func() {
 		select {
 		case <-c.closed.Done():
-			cancel(context.Canceled)
-		case <-ctx.Done():
-			err := ctx.Err()
-			if err == nil {
-				err = context.DeadlineExceeded
-			}
-			cancel(err)
+			cancel()
 		case <-closeCtx.Done():
 		}
 	}()
 
-	return closeCtx, func() {
-		cancel(context.Canceled)
-	}
+	return closeCtx, cancel
 }
 
 func (c *Conn) contextWithCloseAndWriteDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
