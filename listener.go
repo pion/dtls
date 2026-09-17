@@ -30,7 +30,7 @@ func packetListenerOptions(config *dtlsConfig) []udp.ListenerOption {
 	}
 	// A non-empty local receive CID must also be supported by listener routing.
 	if config.ReceiveCIDLength > 0 {
-		opts = append(opts, udp.WithDatagramRouter(cidDatagramRouter(config.ReceiveCIDLength)), udp.WithConnectionIdentifier(cidConnIdentifier()))
+		opts = append(opts, udp.WithDatagramRouter(cidDatagramRouter(config.ReceiveCIDLength)))
 	}
 
 	return opts

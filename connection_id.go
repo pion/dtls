@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -14,8 +15,6 @@ import (
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
@@ -95,7 +94,7 @@ func (c returnRoutabilityConn) HandleRecord(ctx context.Context, message *protoc
 	case protocol.ReturnRoutabilityCheckPathResponse:
 		if c.conn.rrc.HandleResponse(addr, message.Cookie) {
 			c.conn.lock.Lock()
-			c.conn.rAddr = addr
+			err = c.conn.updateRemoteAddr(addr)
 			c.conn.lock.Unlock()
 		}
 		isLatestSeqNum = false
@@ -147,7 +146,9 @@ func (c returnRoutabilityConn) useCandidatePath(
 		)
 	case CIDPathMigrationUnsafe:
 		c.conn.lock.Lock()
-		c.conn.rAddr = candidateAddr
+		if err := c.conn.updateRemoteAddr(candidateAddr); err != nil {
+			c.conn.log.Debugf("unable to move address route: %v", err)
+		}
 		c.conn.lock.Unlock()
 	case CIDPathMigrationRRC:
 		if rrcNegotiated {
@@ -200,70 +201,59 @@ func cidDatagramRouter(size int) func([]byte) (string, bool) {
 			return "", false
 		}
 		for _, pkt := range pkts {
-			if protocol.IsDTLS13Ciphertext(protocol.ContentType(pkt[0])) {
-				if pkt[0]&recordlayer.UnifiedHeaderCIDBit == 0 {
-					continue
-				}
-
-				h := recordlayer.UnifiedHeader{ConnectionID: make([]byte, size)}
-				if err := h.Unmarshal(pkt); err != nil {
-					continue
-				}
-
-				return string(h.ConnectionID), true
+			if cid := recordConnectionID(pkt, size); len(cid) > 0 {
+				return string(cid), true
 			}
-
-			h := &recordlayer.Header{
-				ConnectionID: make([]byte, size),
-			}
-			if err := h.Unmarshal(pkt); err != nil {
-				continue
-			}
-			if h.ContentType != protocol.ContentTypeConnectionID {
-				continue
-			}
-
-			return string(h.ConnectionID), true
 		}
 
 		return "", false
 	}
 }
 
-// cidConnIdentifier extracts connection IDs from outgoing ServerHello records
-// and associates them with the associated connection.
-// NOTE: a ServerHello should always be the first record in a datagram if
-// multiple are present, so we avoid iterating through all packets if the first
-// is not a ServerHello.
-func cidConnIdentifier() func([]byte) (string, bool) { //nolint:cyclop
-	return func(packet []byte) (string, bool) {
-		var h recordlayer.Header
-		if err := h.Unmarshal(packet); err != nil {
-			return "", false
-		}
-		if h.ContentType != protocol.ContentTypeHandshake {
-			return "", false
-		}
-		firstRecordSize := h.MarshalSize() + int(h.ContentLen)
-		if len(packet) < firstRecordSize {
-			return "", false
-		}
-		firstRecord := packet[:firstRecordSize]
-
-		var hh handshake.Header
-		var sh handshake.MessageServerHello
-		if err := hh.Unmarshal(firstRecord[recordlayer.FixedHeaderSize:]); err != nil {
-			return "", false
-		}
-		if err := sh.Unmarshal(firstRecord[recordlayer.FixedHeaderSize+handshake.HeaderLength:]); err != nil {
-			return "", false
-		}
-		for _, ext := range sh.Extensions {
-			if e, ok := ext.(*extension.ConnectionID); ok {
-				return string(e.CID), true
-			}
-		}
-
-		return "", false
+// recordConnectionID returns CID bytes borrowed from an already scanned record.
+func recordConnectionID(record []byte, size int) []byte {
+	if size == 0 {
+		return nil
 	}
+	if protocol.IsDTLS13Ciphertext(protocol.ContentType(record[0])) {
+		if record[0]&recordlayer.UnifiedHeaderCIDBit != 0 {
+			return record[1 : 1+size]
+		}
+	} else if protocol.ContentType(record[0]) == protocol.ContentTypeConnectionID {
+		const cidOffset = recordlayer.FixedHeaderSize - 2
+
+		return record[cidOffset : cidOffset+size]
+	}
+
+	return nil
+}
+
+// registerLocalCID is called with c.lock held when preparing a handshake or importing a session.
+func (c *Conn) registerLocalCID() error {
+	if c.packetConn == nil {
+		return nil
+	}
+	cid := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
+	if bytes.Equal(cid, c.registeredLocalCID) {
+		return nil
+	}
+	if err := c.packetConn.RegisterCID(cid); err != nil {
+		return err
+	}
+	c.registeredLocalCID = bytes.Clone(cid)
+
+	return nil
+}
+
+// updateRemoteAddr is called only after the migration policy accepts a path.
+// Sending an RRC probe must not move the listener's address route.
+func (c *Conn) updateRemoteAddr(addr net.Addr) error {
+	if c.packetConn != nil {
+		if err := c.packetConn.SetRemoteAddr(addr); err != nil {
+			return err
+		}
+	}
+	c.rAddr = addr
+
+	return nil
 }

@@ -441,18 +441,6 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 
 			return fmt.Sprint(p.ID), true
 		}),
-		// Use the outgoing "set" payload to add an identifier for a connection.
-		WithConnectionIdentifier(func(buf []byte) (string, bool) {
-			var p pkt
-			if err := json.Unmarshal(buf, &p); err != nil {
-				return "", false
-			}
-			if p.Payload == setPayload {
-				return fmt.Sprint(p.ID), true
-			}
-
-			return "", false
-		}),
 	)
 	assert.NoError(t, err)
 
@@ -486,10 +474,15 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 			assert.Equal(t, helloPayload, udpPkt.Payload)
 			connID := udpPkt.ID
 
-			// Send set message to associate ID with this connection.
+			// Register the connection ID before advertising it to the peer.
+			packetConn, ok := conn.(*PacketConn)
+			assert.True(t, ok)
+			assert.NoError(t, packetConn.RegisterCID(fmt.Append(nil, connID)))
+
+			// Send set message to advertise the registered ID.
 			buf, err = json.Marshal(&pkt{
 				ID:      connID,
-				Payload: "set",
+				Payload: setPayload,
 			})
 			assert.NoError(t, err)
 
@@ -548,10 +541,8 @@ func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
 
 			assert.NoError(t, json.Unmarshal(buf[:n], &udpPacket))
 
-			// Second message should be a set and custom connection identifier
-			// function will update the connection ID from remote address to the
-			// supplied ID.
-			assert.Equal(t, "set", udpPacket.Payload)
+			// The set message advertises the registered connection ID.
+			assert.Equal(t, setPayload, udpPacket.Payload)
 
 			// Ensure the connection ID matches what the "hello" message
 			// indicated.

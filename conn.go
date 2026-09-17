@@ -24,6 +24,7 @@ import (
 	dtlshandshake "github.com/pion/dtls/v3/internal/handshake"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	idtlsnet "github.com/pion/dtls/v3/internal/net"
+	"github.com/pion/dtls/v3/internal/net/udp"
 	dtlsrrc "github.com/pion/dtls/v3/internal/rrc"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
@@ -195,6 +196,7 @@ func srvCliStr(isClient bool) string {
 type Conn struct {
 	lock           sync.RWMutex                       // Internal lock (must not be public)
 	nextConn       netctx.PacketConn                  // Embedded Conn, typically a udpconn we read/write from
+	packetConn     *udp.PacketConn                    // Listener CID and address routing.
 	fragmentBuffer *dtlsfragmentbuffer.FragmentBuffer // out-of-order and missing fragment handling
 	handshakeCache *dtlsflight.Cache                  // caching of handshake messages for verifyData generation
 	pendingACKs    []protocol.RecordNumber
@@ -235,6 +237,7 @@ type Conn struct {
 	handshakeConfig *dtlsconfig.HandshakeConfig
 
 	cidPathMigrationPolicy cidPathMigrationPolicy
+	registeredLocalCID     []byte
 	rrc                    dtlsrrc.Manager
 }
 
@@ -289,6 +292,7 @@ func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigVal
 	}
 	if nextConn != nil {
 		conn.nextConn = netctx.NewPacketConn(nextConn)
+		conn.packetConn, _ = nextConn.(*udp.PacketConn)
 	}
 
 	return conn
@@ -387,7 +391,11 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 // transcript.
 func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error) {
 	if c.handshakeConfig.MaxVersion == protocol.Version1_2 {
-		return c.prepareHandshakeStart12(), nil
+		start := c.prepareHandshakeStart12()
+		c.lock.Lock()
+		defer c.lock.Unlock()
+
+		return start, c.registerLocalCID()
 	}
 	if c.handshakeConfig.MinVersion == protocol.Version1_3 {
 		return c.prepareHandshakeStart13(), nil
@@ -828,6 +836,9 @@ func (c *Conn) prepareOutbound(outbound *dtlsflight.Outbound) ([]preparedRecord,
 	}
 	if dtlsHandshake, ok := outbound.Content.(*handshake.Handshake); ok {
 		if err := c.cacheHandshake(outbound, dtlsHandshake); err != nil {
+			return nil, err
+		}
+		if err := c.registerLocalCID(); err != nil {
 			return nil, err
 		}
 
@@ -1455,32 +1466,26 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 	}
 
 	common := dtlsstate.CommonState(c.state)
-	cidLength := len(common.LocalConnectionIDForInboundRecords())
+	localCID := common.LocalConnectionIDForInboundRecords()
+	cidLength := len(localCID)
 	config := recordlayer.UnpackDatagramConfig{TargetVersion: common.LocalVersion, CIDLength: cidLength, CIDRequired: c.inboundCIDRequired()}
 	records, err := recordlayer.UnpackDatagram(buf, config)
 	if cidLength == 0 {
 		return records, err
 	}
 
-	var firstCID []byte
-	seenCiphertext := false
 	for i, record := range records {
-		if !protocol.IsDTLS13Ciphertext(protocol.ContentType(record[0])) ||
-			record[0]&recordlayer.UnifiedHeaderCIDBit == 0 {
+		cid := recordConnectionID(record, cidLength)
+		if len(cid) == 0 {
 			continue
 		}
+		if !bytes.Equal(localCID, cid) {
+			// Without a matching CID, protected siblings cannot inherit this
+			// association from an unrecognized later record.
+			if config.CIDRequired && !recordsContainCID(records[:i]) {
+				return nil, dtlserrors.ErrInvalidCiphertextHeader
+			}
 
-		header := recordlayer.UnifiedHeader{ConnectionID: make([]byte, cidLength)}
-		if unmarshalErr := header.Unmarshal(record); unmarshalErr != nil {
-			return records[:i], unmarshalErr
-		}
-		if !seenCiphertext {
-			firstCID = bytes.Clone(header.ConnectionID)
-			seenCiphertext = true
-
-			continue
-		}
-		if !bytes.Equal(firstCID, header.ConnectionID) {
 			return records[:i], nil
 		}
 	}
