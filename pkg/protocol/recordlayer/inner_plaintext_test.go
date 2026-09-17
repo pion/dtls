@@ -4,6 +4,7 @@
 package recordlayer
 
 import (
+	"math"
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
@@ -12,39 +13,44 @@ import (
 )
 
 func TestInnerPlaintextRoundTrip(t *testing.T) {
-	inner := &InnerPlaintext{
-		Content:  []byte{0x01, 0x02},
-		RealType: protocol.ContentTypeApplicationData,
-		Zeros:    2,
-	}
-
-	raw, err := inner.Marshal()
+	raw, err := MarshalInnerPlaintext([]byte{1, 2}, protocol.ContentTypeApplicationData, 2)
 	require.NoError(t, err)
-	require.Equal(t, []byte{0x01, 0x02, 0x17, 0x00, 0x00}, raw)
-
-	var roundTrip InnerPlaintext
-	require.NoError(t, roundTrip.Unmarshal(raw))
-	require.Equal(t, inner.Content, roundTrip.Content)
-	require.Equal(t, inner.RealType, roundTrip.RealType)
-	require.Equal(t, inner.Zeros, roundTrip.Zeros)
+	require.Equal(t, []byte{1, 2, 0x17, 0, 0}, raw)
+	content, typ, padding, err := ParseInnerPlaintext(raw)
+	require.NoError(t, err)
+	require.Equal(t, []byte{1, 2}, content)
+	require.Equal(t, protocol.ContentTypeApplicationData, typ)
+	require.Equal(t, 2, padding)
+	raw[0] = 3
+	require.Equal(t, byte(3), content[0])
 }
 
 func TestInnerPlaintextAllowsEmptyContent(t *testing.T) {
-	var inner InnerPlaintext
-	require.NoError(t, inner.Unmarshal([]byte{byte(protocol.ContentTypeAlert)}))
-	require.Empty(t, inner.Content)
-	require.Equal(t, protocol.ContentTypeAlert, inner.RealType)
-	require.Equal(t, uint(0), inner.Zeros)
+	raw, err := MarshalInnerPlaintext(nil, protocol.ContentTypeApplicationData, 0)
+	require.NoError(t, err)
+	content, typ, padding, err := ParseInnerPlaintext(raw)
+	require.NoError(t, err)
+	require.Empty(t, content)
+	require.Equal(t, protocol.ContentTypeApplicationData, typ)
+	require.Zero(t, padding)
 }
 
 func TestInnerPlaintextRejectsMissingContentType(t *testing.T) {
-	for _, raw := range [][]byte{
-		nil,
-		{},
-		{0x00},
-		{0x00, 0x00},
-	} {
-		var inner InnerPlaintext
-		require.ErrorIs(t, inner.Unmarshal(raw), dtlserrors.ErrBufferTooSmall)
+	for _, raw := range [][]byte{nil, {}, {0}, {0, 0}} {
+		content, typ, padding, err := ParseInnerPlaintext(raw)
+		require.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
+		require.Nil(t, content)
+		require.Zero(t, typ)
+		require.Zero(t, padding)
+	}
+	_, err := MarshalInnerPlaintext([]byte{1}, 0, 0)
+	require.Error(t, err)
+}
+
+func TestInnerPlaintextRejectsInvalidPadding(t *testing.T) {
+	for _, n := range []int{-1, math.MaxInt, 65535} {
+		raw, err := MarshalInnerPlaintext([]byte{1}, protocol.ContentTypeAlert, n)
+		require.Error(t, err)
+		require.Nil(t, raw)
 	}
 }

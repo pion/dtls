@@ -212,20 +212,12 @@ func cidDatagramRouter(size int) func([]byte) (string, bool) {
 
 // recordConnectionID returns CID bytes borrowed from an already scanned record.
 func recordConnectionID(record []byte, size int) []byte {
-	if size == 0 {
+	parsed, err := recordlayer.ParseRecord(record, size)
+	if err != nil {
 		return nil
 	}
-	if protocol.IsDTLS13Ciphertext(protocol.ContentType(record[0])) {
-		if record[0]&recordlayer.UnifiedHeaderCIDBit != 0 {
-			return record[1 : 1+size]
-		}
-	} else if protocol.ContentType(record[0]) == protocol.ContentTypeConnectionID {
-		const cidOffset = recordlayer.FixedHeaderSize - 2
 
-		return record[cidOffset : cidOffset+size]
-	}
-
-	return nil
+	return parsed.ConnectionID()
 }
 
 // registerLocalCID is called with c.lock held when preparing a handshake or importing a session.

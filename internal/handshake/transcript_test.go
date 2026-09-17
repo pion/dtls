@@ -16,6 +16,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
+	"github.com/pion/dtls/v3/internal/recordwire"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
 	"github.com/pion/dtls/v3/internal/util"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
@@ -582,17 +583,12 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 	require.NoError(t, err)
 
 	sequenceNumber := uint64(0x0102030405061234)
-	innerPlaintextRaw, err := (&recordlayer.InnerPlaintext{Content: []byte("application traffic after finished"), RealType: protocol.ContentTypeApplicationData}).Marshal()
+	innerPlaintextRaw, err := recordlayer.MarshalInnerPlaintext([]byte("application traffic after finished"), protocol.ContentTypeApplicationData, 0)
 	require.NoError(t, err)
 	protectedLen, err := cipherSuite.Capabilities().ProtectedLen(len(innerPlaintextRaw))
 	require.NoError(t, err)
-	header := recordlayer.UnifiedHeader{
-		EpochLow:       2,
-		SeqBit:         true,
-		LengthBit:      true,
-		SequenceNumber: uint16(sequenceNumber), //nolint:gosec // deliberately truncated on wire.
-		Length:         uint16(protectedLen),   //nolint:gosec // bounded test input.
-	}
+	header, err := recordwire.AppendUnifiedHeader(nil, 2, uint16(sequenceNumber&0xffff), true, nil, true, protectedLen)
+	require.NoError(t, err)
 	record, err := ciphersuite.NewUnifiedRecord(2, sequenceNumber, header, protectedLen)
 	require.NoError(t, err)
 	encryptedRecord, err := applicationWrite.Protection.Seal(record, innerPlaintextRaw)
@@ -600,10 +596,10 @@ func TestInitApplicationRecordProtection13Rekeys(t *testing.T) {
 
 	plaintext, err := serverApplicationProtection.Open(record, encryptedRecord)
 	require.NoError(t, err)
-	var innerPlaintext recordlayer.InnerPlaintext
-	require.NoError(t, innerPlaintext.Unmarshal(plaintext))
-	assert.Equal(t, []byte("application traffic after finished"), innerPlaintext.Content)
-	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
+	content, contentType, _, err := recordlayer.ParseInnerPlaintext(plaintext)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("application traffic after finished"), content)
+	assert.Equal(t, protocol.ContentTypeApplicationData, contentType)
 
 	_, err = serverHandshakeProtection.Open(record, encryptedRecord)
 	require.ErrorIs(t, err, cryptosuite.ErrAuthenticationFailed)

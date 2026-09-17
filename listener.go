@@ -19,12 +19,12 @@ func packetListenerOptions(config *dtlsConfig) []udp.ListenerOption {
 			if len(pkts) == 0 {
 				return false
 			}
-			h := &recordlayer.Header{}
-			if err := h.Unmarshal(pkts[0]); err != nil {
+			h, err := recordlayer.ParseRecord(pkts[0], 0)
+			if err != nil {
 				return false
 			}
 
-			return h.ContentType == protocol.ContentTypeHandshake
+			return h.ContentType() == protocol.ContentTypeHandshake
 		}),
 		udp.WithReceiveBufferSize(config.ReceiveBufferSize),
 	}

@@ -68,9 +68,9 @@ func TestOnlySendCIDGenerator(t *testing.T) {
 func TestCIDDatagramRouter(t *testing.T) {
 	cid := []byte("abcd1234")
 	cidLen := 8
-	epochZeroRecord, err := marshalTestRecord(recordlayer.Header{Epoch: 0, Version: protocol.Version1_2}, &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify})
+	epochZeroRecord, err := marshalTestRecord(recordlayer.RecordConfig{Epoch: 0, Version: protocol.Version1_2}, &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify})
 	assert.NoError(t, err)
-	protectedWithoutCIDRecord, err := marshalTestRecord(recordlayer.Header{Epoch: 1, Version: protocol.Version1_2}, &protocol.ApplicationData{Data: []byte("application data")})
+	protectedWithoutCIDRecord, err := marshalTestRecord(recordlayer.RecordConfig{Epoch: 1, Version: protocol.Version1_2}, &protocol.ApplicationData{Data: []byte("application data")})
 	assert.NoError(t, err)
 
 	appData, err := (&protocol.ApplicationData{
@@ -78,20 +78,13 @@ func TestCIDDatagramRouter(t *testing.T) {
 	}).Marshal()
 	assert.NoError(t, err)
 
-	inner, err := (&recordlayer.InnerPlaintext{
-		Content:  appData,
-		RealType: protocol.ContentTypeApplicationData,
-	}).Marshal()
+	inner, err := recordlayer.MarshalInnerPlaintext(appData, protocol.ContentTypeApplicationData, 0)
 	assert.NoError(t, err)
 
-	cidHeader, err := (&recordlayer.Header{
-		Epoch:          1,
-		Version:        protocol.Version1_2,
-		ContentType:    protocol.ContentTypeConnectionID,
-		ContentLen:     uint16(len(inner)), //nolint:gosec // G115
-		ConnectionID:   cid,
-		SequenceNumber: 1,
-	}).Marshal()
+	cidRecord, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
+		ContentType: protocol.ContentTypeConnectionID, Version: protocol.Version1_2,
+		Epoch: 1, SequenceNumber: 1, ConnectionID: cid,
+	}, inner)
 	assert.NoError(t, err)
 
 	cases := map[string]struct {
@@ -105,31 +98,24 @@ func TestCIDDatagramRouter(t *testing.T) {
 		"NotADTLSRecord":           {reason: "If datagram is not a DTLS record, we cannot extract an identifier", size: cidLen, datagram: []byte("not a DTLS record"), ok: false, want: ""},
 		"NotAConnectionIDDatagram": {reason: "If datagram does not contain any Connection ID records, we cannot extract an identifier", size: cidLen, datagram: epochZeroRecord, ok: false, want: ""},
 		"ProtectedRecordWithoutCIDPrefix": {
-			reason: "A protected DTLS 1.2 record without type 25 is invalid after CID negotiation and must not route through a later CID.",
-			size:   cidLen,
-			datagram: append(
-				append(append([]byte{}, protectedWithoutCIDRecord...), cidHeader...),
-				inner...,
-			),
-			ok:   false,
-			want: "",
+			reason:   "A protected DTLS 1.2 record without type 25 is invalid after CID negotiation and must not route through a later CID.",
+			size:     cidLen,
+			datagram: append(bytes.Clone(protectedWithoutCIDRecord), cidRecord...),
+			ok:       false,
+			want:     "",
 		},
-		"OneRecordConnectionID": {reason: "If datagram contains one Connection ID record, we should be able to extract it.", size: cidLen, datagram: append(cidHeader, inner...), ok: true, want: string(cid)},
+		"OneRecordConnectionID": {reason: "If datagram contains one Connection ID record, we should be able to extract it.", size: cidLen, datagram: cidRecord, ok: true, want: string(cid)},
 		"OneRecordConnectionIDAltLength": {
 			reason: "If datagram contains one Connection ID record, but it has the wrong length we should not be able to extract it.",
 			size:   cidLen,
 			datagram: func() []byte {
-				altCIDHeader, err := (&recordlayer.Header{
-					Epoch:          1,
-					Version:        protocol.Version1_2,
-					ContentType:    protocol.ContentTypeConnectionID,
-					ContentLen:     uint16(len(inner)), //nolint:gosec // G115
-					ConnectionID:   []byte("abcd"),
-					SequenceNumber: 1,
-				}).Marshal()
+				altCIDRecord, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
+					ContentType: protocol.ContentTypeConnectionID, Version: protocol.Version1_2,
+					Epoch: 1, SequenceNumber: 1, ConnectionID: []byte("abcd"),
+				}, inner)
 				assert.NoError(t, err)
 
-				return append(altCIDHeader, inner...)
+				return altCIDRecord
 			}(),
 			ok:   false,
 			want: "",
@@ -137,26 +123,22 @@ func TestCIDDatagramRouter(t *testing.T) {
 		"MultipleRecordOneConnectionID": {
 			reason:   "An epoch-zero DTLS 1.2 record may precede a protected Connection ID record in the same datagram.",
 			size:     8,
-			datagram: append(append(epochZeroRecord, cidHeader...), inner...),
+			datagram: append(bytes.Clone(epochZeroRecord), cidRecord...),
 			ok:       true,
 			want:     string(cid),
 		},
 		"MultipleRecordMultipleConnectionID": {
 			reason: "If datagram contains multiple records and multiple are Connection ID records, we should extract the first one.",
 			size:   8,
-			datagram: append(append(append(epochZeroRecord, func() []byte {
-				altCIDHeader, err := (&recordlayer.Header{
-					Epoch:          1,
-					Version:        protocol.Version1_2,
-					ContentType:    protocol.ContentTypeConnectionID,
-					ContentLen:     uint16(len(inner)), //nolint:gosec // G115
-					ConnectionID:   []byte("1234abcd"),
-					SequenceNumber: 1,
-				}).Marshal()
+			datagram: append(append(bytes.Clone(epochZeroRecord), func() []byte {
+				altCIDRecord, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
+					ContentType: protocol.ContentTypeConnectionID, Version: protocol.Version1_2,
+					Epoch: 1, SequenceNumber: 1, ConnectionID: []byte("1234abcd"),
+				}, inner)
 				assert.NoError(t, err)
 
-				return append(altCIDHeader, inner...)
-			}()...), cidHeader...), inner...),
+				return altCIDRecord
+			}()...), cidRecord...),
 			ok:   true,
 			want: "1234abcd",
 		},
@@ -172,13 +154,13 @@ func TestCIDDatagramRouter(t *testing.T) {
 
 func TestCIDDatagramRouter13(t *testing.T) {
 	cid := []byte("abcd1234")
-	plaintextPrefix, err := marshalTestRecord(recordlayer.Header{Version: protocol.Version1_2}, &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify})
+	plaintextPrefix, err := marshalTestRecord(recordlayer.RecordConfig{Version: protocol.Version1_2}, &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify})
 	assert.NoError(t, err)
 
 	makeRecord := func(t *testing.T, connectionID []byte, sequenceNumber uint16) []byte {
 		t.Helper()
 
-		record, err := (&recordlayer.CiphertextRecord{Header: recordlayer.UnifiedHeader{ConnectionID: connectionID, SequenceNumber: sequenceNumber}, EncryptedRecord: make([]byte, 16)}).Marshal()
+		record, err := recordlayer.MarshalCiphertext(recordlayer.CiphertextConfig{ConnectionID: connectionID, SequenceNumber: sequenceNumber, TwoByteSequence: true, LengthPresent: true}, make([]byte, 16))
 		assert.NoError(t, err)
 
 		return record
@@ -260,10 +242,10 @@ type fragmentedServerHelloConn struct {
 }
 
 func (c *fragmentedServerHelloConn) WriteTo(packet []byte, addr net.Addr) (int, error) {
-	var recordHeader recordlayer.Header
+	recordHeader, parseErr := recordlayer.ParseRecord(packet, 0)
 	var handshakeHeader handshake.Header
-	if recordHeader.Unmarshal(packet) == nil && recordHeader.ContentType == protocol.ContentTypeHandshake &&
-		handshakeHeader.Unmarshal(packet[recordHeader.MarshalSize():]) == nil &&
+	if parseErr == nil && recordHeader.ContentType() == protocol.ContentTypeHandshake &&
+		handshakeHeader.Unmarshal(packet[len(recordHeader.HeaderBytes()):]) == nil &&
 		handshakeHeader.Type == handshake.TypeServerHello && handshakeHeader.FragmentLength < handshakeHeader.Length {
 		c.fragmented.Store(true)
 	}
@@ -370,26 +352,24 @@ func TestConnectionIDPreflight(t *testing.T) {
 func marshalCIDPreflightRecord(t *testing.T, version protocol.Version, cid []byte) []byte {
 	t.Helper()
 	if version == protocol.Version1_3 {
-		raw, err := (&recordlayer.CiphertextRecord{
-			Header: recordlayer.UnifiedHeader{ConnectionID: cid, SequenceNumber: 1}, EncryptedRecord: make([]byte, 16),
-		}).Marshal()
+		raw, err := recordlayer.MarshalCiphertext(recordlayer.CiphertextConfig{ConnectionID: cid, SequenceNumber: 1, TwoByteSequence: true, LengthPresent: true}, make([]byte, 16))
 		assert.NoError(t, err)
 
 		return raw
 	}
 	if len(cid) == 0 {
-		raw, err := marshalTestRecord(recordlayer.Header{Version: version}, &protocol.ChangeCipherSpec{})
+		raw, err := marshalTestRecord(recordlayer.RecordConfig{Version: version}, &protocol.ChangeCipherSpec{})
 		assert.NoError(t, err)
 
 		return raw
 	}
-	header, err := (&recordlayer.Header{
-		Epoch: 1, Version: version, ContentType: protocol.ContentTypeConnectionID,
-		ContentLen: 16, ConnectionID: cid, SequenceNumber: 1,
-	}).Marshal()
+	raw, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
+		ContentType: protocol.ContentTypeConnectionID, Version: version,
+		Epoch: 1, SequenceNumber: 1, ConnectionID: cid,
+	}, make([]byte, 16))
 	assert.NoError(t, err)
 
-	return append(header, make([]byte, 16)...)
+	return raw
 }
 
 func assertCIDListenerData(t *testing.T, sender, receiver *Conn) {
@@ -454,7 +434,7 @@ func pendingCIDTestOffer(t *testing.T, conn *Conn) (*dtlsstate.State13, *dtlssta
 
 func pendingCIDTestRecord(t *testing.T, peer *testRecordProtection13, cid []byte, sequence uint16) []byte {
 	t.Helper()
-	record, err := peer.SealRecord(recordlayer.UnifiedHeader{EpochLow: 2, ConnectionID: cid}, uint64(sequence), protocol.ContentTypeHandshake, encryptedExtensionsHandshakeWithSequence(t, sequence))
+	record, err := peer.SealRecord(recordlayer.CiphertextConfig{EpochLow: 2, ConnectionID: cid}, uint64(sequence), protocol.ContentTypeHandshake, encryptedExtensionsHandshakeWithSequence(t, sequence))
 	assert.NoError(t, err)
 	raw, err := record.Marshal()
 	assert.NoError(t, err)

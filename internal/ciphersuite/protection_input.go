@@ -5,12 +5,13 @@ package ciphersuite
 
 import (
 	"bytes"
+	"encoding/binary"
 	"math"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/recordwire"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -79,7 +80,7 @@ func (r protectionRecord) AuthenticationData(recordLen int) ([]byte, error) {
 }
 
 func NewLegacyRecord(contentType protocol.ContentType, version protocol.Version, epoch uint16, sequenceNumber uint64, connectionID []byte) (cryptosuite.Record, error) {
-	if contentType == 0 || version != protocol.Version1_2 || sequenceNumber > recordlayer.MaxSequenceNumber || len(connectionID) > math.MaxUint8 || (contentType == protocol.ContentTypeConnectionID) != (len(connectionID) > 0) {
+	if contentType == 0 || version != protocol.Version1_2 || sequenceNumber > recordwire.MaxSequenceNumber || len(connectionID) > math.MaxUint8 || (contentType == protocol.ContentTypeConnectionID) != (len(connectionID) > 0) {
 		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
 
@@ -109,33 +110,33 @@ func NewLegacyRecord(contentType protocol.ContentType, version protocol.Version,
 	return protectionRecord{recordNumber: uint64(epoch)<<48 | sequenceNumber, authenticationData: authenticationData, legacy: true}, nil
 }
 
-func NewUnifiedRecord( //nolint:cyclop
-	epoch, sequenceNumber uint64,
-	header recordlayer.UnifiedHeader,
-	protectedLen int,
-) (cryptosuite.Record, error) {
-	if header.EpochLow > 3 || uint8(epoch&3) != header.EpochLow || len(header.ConnectionID) > math.MaxUint8 || protectedLen < 0 || protectedLen > math.MaxUint16 {
+// NewUnifiedRecord snapshots the clear, exact unified header used as AAD.
+//
+//nolint:cyclop
+func NewUnifiedRecord(epoch, sequenceNumber uint64, header []byte, protectedLen int) (cryptosuite.Record, error) {
+	if len(header) < 2 || !protocol.IsDTLS13Ciphertext(protocol.ContentType(header[0])) || protectedLen < 0 || protectedLen > math.MaxUint16 {
 		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
-	if header.SeqBit {
-		if uint16(sequenceNumber&math.MaxUint16) != header.SequenceNumber {
+	sequenceEnd := len(header)
+	if header[0]&recordwire.LengthBit != 0 {
+		if len(header) < 4 || int(binary.BigEndian.Uint16(header[len(header)-2:])) != protectedLen {
 			return nil, dtlserrors.ErrInvalidProtectionInput
 		}
-	} else if header.SequenceNumber > math.MaxUint8 ||
-		uint16(sequenceNumber&math.MaxUint8) != header.SequenceNumber {
+		sequenceEnd -= 2
+	}
+	sequenceLen := 1
+	if header[0]&recordwire.SequenceBit != 0 {
+		sequenceLen = 2
+	}
+	cidLength := sequenceEnd - sequenceLen - 1
+	if cidLength < 0 || cidLength > math.MaxUint8 || (header[0]&recordwire.CIDBit != 0) != (cidLength != 0) || uint8(epoch&3) != header[0]&recordwire.EpochMask {
 		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
-
-	if header.LengthBit {
-		if header.Length != 0 && int(header.Length) != protectedLen {
+	for i := 0; i < sequenceLen; i++ {
+		if header[sequenceEnd-1-i] != byte((sequenceNumber>>uint(8*i))&0xff) {
 			return nil, dtlserrors.ErrInvalidProtectionInput
 		}
-		header.Length = uint16(protectedLen) //nolint:gosec // checked above.
-	}
-	authenticationData, err := header.Marshal()
-	if err != nil {
-		return nil, err
 	}
 
-	return protectionRecord{recordNumber: sequenceNumber, authenticationData: authenticationData, protectedLen: protectedLen}, nil
+	return protectionRecord{recordNumber: sequenceNumber, authenticationData: bytes.Clone(header), protectedLen: protectedLen}, nil
 }

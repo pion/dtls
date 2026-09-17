@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/recordwire"
 	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
@@ -29,50 +30,48 @@ type recordProtectionPair13 struct {
 	remote *recordTrafficProtection13
 }
 
-func (r *recordProtectionPair13) seal(header recordlayer.UnifiedHeader, sequenceNumber uint64, plaintext []byte) (recordlayer.CiphertextRecord, error) {
-	innerPlaintext, err := (&recordlayer.InnerPlaintext{Content: plaintext, RealType: protocol.ContentTypeApplicationData}).Marshal()
+func (r *recordProtectionPair13) seal(header recordlayer.CiphertextConfig, sequenceNumber uint64, plaintext []byte) (sealedTestRecord, error) {
+	innerPlaintext, err := recordlayer.MarshalInnerPlaintext(plaintext, protocol.ContentTypeApplicationData, 0)
 	if err != nil {
-		return recordlayer.CiphertextRecord{}, err
+		return sealedTestRecord{}, err
 	}
 
 	header.SequenceNumber = uint16(sequenceNumber) //nolint:gosec
-	header.SeqBit = true
-	header.LengthBit = true
-	header.Length = uint16(len(innerPlaintext) + r.local.aead.Overhead()) //nolint:gosec
-	metadata, err := newUnifiedRecordForTest(header, sequenceNumber, int(header.Length))
+	header.TwoByteSequence = true
+	header.LengthPresent = true
+	protectedLen := len(innerPlaintext) + r.local.aead.Overhead()
+	metadata, err := newUnifiedRecordForTest(header, sequenceNumber, protectedLen)
 	if err != nil {
-		return recordlayer.CiphertextRecord{}, err
+		return sealedTestRecord{}, err
 	}
 
 	protected, err := r.local.Seal(metadata, innerPlaintext)
 	if err != nil {
-		return recordlayer.CiphertextRecord{}, err
+		return sealedTestRecord{}, err
 	}
 
-	return recordlayer.CiphertextRecord{Header: header, EncryptedRecord: protected}, nil
+	return sealedTestRecord{Header: header, EncryptedRecord: protected}, nil
 }
 
-func (r *recordProtectionPair13) open(header recordlayer.UnifiedHeader, sequenceNumber uint64, encryptedRecord []byte) (recordlayer.InnerPlaintext, error) {
+func (r *recordProtectionPair13) open(header recordlayer.CiphertextConfig, sequenceNumber uint64, encryptedRecord []byte) (openedTestRecord, error) {
 	protectedLen := len(encryptedRecord)
-	if header.LengthBit {
-		protectedLen = int(header.Length)
-	}
 	metadata, err := newUnifiedRecordForTest(header, sequenceNumber, protectedLen)
 	if err != nil {
-		return recordlayer.InnerPlaintext{}, fmt.Errorf("%w: %w", dtlserrors.ErrInvalidCiphertextHeader, err)
+		return openedTestRecord{}, fmt.Errorf("%w: %w", dtlserrors.ErrInvalidCiphertextHeader, err)
 	}
 
 	plaintext, err := r.remote.Open(metadata, encryptedRecord)
 	if errors.Is(err, cryptosuite.ErrAuthenticationFailed) {
-		return recordlayer.InnerPlaintext{}, dtlserrors.ErrDecryptPacket
+		return openedTestRecord{}, dtlserrors.ErrDecryptPacket
 	}
 	if err != nil {
-		return recordlayer.InnerPlaintext{}, err
+		return openedTestRecord{}, err
 	}
 
-	var innerPlaintext recordlayer.InnerPlaintext
-	if err = innerPlaintext.Unmarshal(plaintext); err != nil {
-		return recordlayer.InnerPlaintext{}, err
+	content, realType, padding, err := recordlayer.ParseInnerPlaintext(plaintext)
+	innerPlaintext := openedTestRecord{Content: content, RealType: realType, Zeros: padding}
+	if err != nil {
+		return openedTestRecord{}, err
 	}
 
 	return innerPlaintext, nil
@@ -82,20 +81,20 @@ func (r *recordProtectionPair13) sequenceNumberMask(encryptedRecord []byte) ([]b
 	return r.local.Mask(encryptedRecord)
 }
 
-func newUnifiedRecordForTest(header recordlayer.UnifiedHeader, sequenceNumber uint64, protectedLen int) (cryptosuite.Record, error) {
-	return NewUnifiedRecord(
-		uint64(header.EpochLow),
-		sequenceNumber,
-		header,
-		protectedLen,
-	)
+func newUnifiedRecordForTest(header recordlayer.CiphertextConfig, sequenceNumber uint64, protectedLen int) (cryptosuite.Record, error) {
+	raw, err := recordwire.AppendUnifiedHeader(nil, header.EpochLow, header.SequenceNumber, header.TwoByteSequence, header.ConnectionID, header.LengthPresent, protectedLen)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewUnifiedRecord(uint64(header.EpochLow), sequenceNumber, raw, protectedLen)
 }
 
-func applySequenceNumberMask13ForTest(header *recordlayer.UnifiedHeader, mask []byte) error {
+func applySequenceNumberMask13ForTest(header *recordlayer.CiphertextConfig, mask []byte) error {
 	if header == nil {
 		return dtlserrors.ErrInvalidCiphertextHeader
 	}
-	if header.SeqBit {
+	if header.TwoByteSequence {
 		if len(mask) < 2 {
 			return dtlserrors.ErrBufferTooSmall
 		}
@@ -313,7 +312,7 @@ func assertTLS13RecordProtectionKnownVector(t *testing.T, vector tls13KnownVecto
 	assert.Equal(t, mustDecodeHex13(t, vector.expectedNonce), nonce)
 
 	record, err := protection.seal(
-		recordlayer.UnifiedHeader{
+		recordlayer.CiphertextConfig{
 			ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
 			SequenceNumber: uint16(sequenceNumber), //nolint:gosec // G115
 			EpochLow:       3,
@@ -324,13 +323,12 @@ func assertTLS13RecordProtectionKnownVector(t *testing.T, vector tls13KnownVecto
 	require.NoError(t, err)
 
 	assert.Equal(t, uint8(3), record.Header.EpochLow)
-	assert.True(t, record.Header.SeqBit)
-	assert.True(t, record.Header.LengthBit)
+	assert.True(t, record.Header.TwoByteSequence)
+	assert.True(t, record.Header.LengthPresent)
 	assert.Equal(t, uint16(0x0607), record.Header.SequenceNumber)
 	expectedEncryptedRecord := mustDecodeHex13(t, vector.expectedEncryptedRecord)
-	assert.Equal(t, uint16(len(expectedEncryptedRecord)), record.Header.Length) //nolint:gosec // G115
 
-	additionalData, err := record.Header.Marshal()
+	additionalData, err := recordwire.AppendUnifiedHeader(nil, record.Header.EpochLow, record.Header.SequenceNumber, record.Header.TwoByteSequence, record.Header.ConnectionID, record.Header.LengthPresent, len(record.EncryptedRecord))
 	require.NoError(t, err)
 	assert.Equal(t, mustDecodeHex13(t, vector.expectedAdditionalData), additionalData)
 	assert.Equal(t, expectedEncryptedRecord, record.EncryptedRecord)
@@ -343,7 +341,7 @@ func assertTLS13RecordProtectionKnownVector(t *testing.T, vector tls13KnownVecto
 	require.NoError(t, applySequenceNumberMask13ForTest(&maskedHeader, mask))
 	assert.Equal(t, vector.expectedMaskedSequenceNumber, maskedHeader.SequenceNumber)
 
-	maskedRaw, err := (&recordlayer.CiphertextRecord{Header: maskedHeader, EncryptedRecord: record.EncryptedRecord}).Marshal()
+	maskedRaw, err := recordlayer.MarshalCiphertext(maskedHeader, record.EncryptedRecord)
 	require.NoError(t, err)
 	assert.Equal(t, mustDecodeHex13(t, vector.expectedMaskedRaw), maskedRaw)
 
@@ -351,7 +349,7 @@ func assertTLS13RecordProtectionKnownVector(t *testing.T, vector tls13KnownVecto
 	require.NoError(t, err)
 	assert.Equal(t, plaintext, innerPlaintext.Content)
 	assert.Equal(t, protocol.ContentTypeApplicationData, innerPlaintext.RealType)
-	assert.Equal(t, uint(0), innerPlaintext.Zeros)
+	assert.Equal(t, 0, innerPlaintext.Zeros)
 }
 
 func assertTLS13TrafficKeys(t *testing.T, keys recordTrafficKeys13, expectedKey, expectedIV, expectedSequenceNumberKey string) {
@@ -383,7 +381,7 @@ func assertTLS13OpenRejectsKnownVectorMutations(t *testing.T, vector tls13KnownV
 	require.NoError(t, err)
 
 	record, err := protection.seal(
-		recordlayer.UnifiedHeader{
+		recordlayer.CiphertextConfig{
 			ConnectionID:   []byte{0xca, 0xfe, 0xba, 0xbe},
 			SequenceNumber: uint16(sequenceNumber), //nolint:gosec // G115
 			EpochLow:       3,
@@ -414,7 +412,7 @@ func assertTLS13OpenRejectsKnownVectorMutations(t *testing.T, vector tls13KnownV
 
 type tls13KnownVectorMutationCase struct {
 	name            string
-	mutateHeader    func(*recordlayer.UnifiedHeader)
+	mutateHeader    func(*recordlayer.CiphertextConfig)
 	mutateEncrypted func([]byte)
 	sequenceNumber  uint64
 	expectedError   error
@@ -422,8 +420,7 @@ type tls13KnownVectorMutationCase struct {
 
 func tls13KnownVectorMutationCases(sequenceNumber uint64) []tls13KnownVectorMutationCase {
 	return []tls13KnownVectorMutationCase{
-		{name: "header length authenticated", mutateHeader: func(header *recordlayer.UnifiedHeader) { header.Length ^= 0x0001 }, sequenceNumber: sequenceNumber, expectedError: dtlserrors.ErrDecryptPacket},
-		{name: "connection id authenticated", mutateHeader: func(header *recordlayer.UnifiedHeader) { header.ConnectionID[0] ^= 0x80 }, sequenceNumber: sequenceNumber, expectedError: dtlserrors.ErrDecryptPacket},
+		{name: "connection id authenticated", mutateHeader: func(header *recordlayer.CiphertextConfig) { header.ConnectionID[0] ^= 0x80 }, sequenceNumber: sequenceNumber, expectedError: dtlserrors.ErrDecryptPacket},
 		{name: "nonce sequence number authenticated", sequenceNumber: sequenceNumber + 1, expectedError: dtlserrors.ErrInvalidCiphertextHeader},
 		{name: "ciphertext authenticated", mutateEncrypted: func(encryptedRecord []byte) { encryptedRecord[0] ^= 0x80 }, sequenceNumber: sequenceNumber, expectedError: dtlserrors.ErrDecryptPacket},
 		{name: "tag authenticated", mutateEncrypted: func(encryptedRecord []byte) { encryptedRecord[len(encryptedRecord)-1] ^= 0x01 }, sequenceNumber: sequenceNumber, expectedError: dtlserrors.ErrDecryptPacket},
@@ -435,7 +432,7 @@ func TestRecordProtection13SealRejectsOversizedInnerPlaintext(t *testing.T) {
 	protection, err := newRecordProtection13ForTest(suite, trafficSecret13(suite, 0xaa), trafficSecret13(suite, 0xab))
 	require.NoError(t, err)
 
-	header := recordlayer.UnifiedHeader{SequenceNumber: 0x1234, EpochLow: 2}
+	header := recordlayer.CiphertextConfig{SequenceNumber: 0x1234, EpochLow: 2}
 	maxContentLen := 1 << 14
 	_, err = protection.seal(
 		header,
@@ -528,4 +525,14 @@ func TestDeriveRecordTrafficKeys13RejectsInvalidKeyLength(t *testing.T) {
 	suite := testSuite13(cryptosuite.TLS_AES_256_GCM_SHA384)
 	_, err := deriveRecordTrafficKeys13(suite.HashFunc(), trafficSecret13(suite, 0x3c), 0)
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+}
+
+type sealedTestRecord struct {
+	Header          recordlayer.CiphertextConfig
+	EncryptedRecord []byte
+}
+type openedTestRecord struct {
+	Content  []byte
+	RealType protocol.ContentType
+	Zeros    int
 }

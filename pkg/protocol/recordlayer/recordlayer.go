@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
+// Package recordlayer frames, inspects, and encodes DTLS wire records.
 package recordlayer
 
 import (
@@ -8,183 +9,298 @@ import (
 	"math"
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	"github.com/pion/dtls/v3/internal/recordwire"
+	"github.com/pion/dtls/v3/internal/util"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
-// DTLS fixed size record layer header when Connection IDs are not in-use.
-
-// ---------------------------------
-// | Type   |   Version   |  Epoch |
-// ---------------------------------
-// | Epoch  |    Sequence Number   |
-// ---------------------------------
-// |   Sequence Number   |  Length |
-// ---------------------------------
-// | Length |      Fragment...     |
-// ---------------------------------
-
 const (
-	// fixedHeaderLenIdx is the index at which the record layer content length is
-	// specified in a fixed length header (i.e. one that does not include a
-	// Connection ID).
-	fixedHeaderLenIdx     = 11
-	maxConnectionIDLength = 255
+	// FixedHeaderSize is the fixed record header size without a CID.
+	FixedHeaderSize = recordwire.FixedHeaderSize
+	// MaxSequenceNumber is the largest sequence number in a fixed record header.
+	MaxSequenceNumber = recordwire.MaxSequenceNumber
 
-	maxDTLSPlaintextRecordLen  = 1 << 14
+	maxConnectionIDLength      = math.MaxUint8
 	minDTLSCiphertextRecordLen = 16
-	maxDTLSCiphertextRecordLen = maxDTLSPlaintextRecordLen + 256
+	maxDTLSCiphertextRecordLen = (1 << 14) + 256
 )
 
-// RecordLayer describes a mutable outbound fixed-header DTLS record. Inbound
-// datagrams are framed with UnpackDatagram and opened by connection state.
-type RecordLayer struct {
-	Header Header
+// RecordConfig selects fixed-header fields. Version is the wire version.
+// ConnectionID must be nonempty exactly when ContentType is ContentTypeConnectionID.
+type RecordConfig struct {
+	ContentType    protocol.ContentType
+	Version        protocol.Version
+	Epoch          uint16
+	SequenceNumber uint64
+	ConnectionID   []byte
+}
+
+// CiphertextConfig selects unified record wire fields. SequenceNumber is the
+// wire value (masked for protected traffic).
+// A record without LengthPresent must be last in its datagram.
+type CiphertextConfig struct {
+	EpochLow        uint8
+	SequenceNumber  uint16
+	TwoByteSequence bool
+	ConnectionID    []byte
+	LengthPresent   bool
+}
+
+// MarshalRecord encodes one fixed-header record, deriving its payload length.
+func MarshalRecord(config RecordConfig, payload []byte) ([]byte, error) {
+	if len(payload) > math.MaxUint16 {
+		return nil, ErrInvalidPacketLength
+	}
+	if len(config.ConnectionID) > maxConnectionIDLength {
+		return nil, dtlserrors.ErrCIDTooBig
+	}
+	if config.SequenceNumber > MaxSequenceNumber {
+		return nil, dtlserrors.ErrSequenceNumberOverflow
+	}
+	if config.ContentType == 0 || protocol.IsDTLS13Ciphertext(config.ContentType) ||
+		(config.ContentType == protocol.ContentTypeConnectionID) != (len(config.ConnectionID) != 0) {
+		return nil, dtlserrors.ErrInvalidContentType
+	}
+	if config.Version != protocol.Version1_0 && config.Version != protocol.Version1_2 {
+		return nil, dtlserrors.ErrUnsupportedProtocolVersion
+	}
+	headerLen := FixedHeaderSize + len(config.ConnectionID)
+	out := make([]byte, headerLen+len(payload))
+	out[0], out[1], out[2] = byte(config.ContentType), config.Version.Major(), config.Version.Minor()
+	binary.BigEndian.PutUint16(out[3:], config.Epoch)
+	util.PutBigEndianUint48(out[5:], config.SequenceNumber)
+	copy(out[11:], config.ConnectionID)
+	binary.BigEndian.PutUint16(out[headerLen-2:], uint16(len(payload))) //nolint:gosec // Checked above.
+	copy(out[headerLen:], payload)
+
+	return out, nil
+}
+
+// MarshalCiphertext encodes one unified record with the selected C/S/L layout.
+// It derives the length.
+func MarshalCiphertext(config CiphertextConfig, ciphertext []byte) ([]byte, error) {
+	if !isValidDTLSCiphertextRecordLen(len(ciphertext)) {
+		return nil, ErrInvalidPacketLength
+	}
+	if len(config.ConnectionID) > maxConnectionIDLength {
+		return nil, dtlserrors.ErrCIDTooBig
+	}
+	out := make([]byte, 0, 5+len(config.ConnectionID)+len(ciphertext))
+	out, err := recordwire.AppendUnifiedHeader(out, config.EpochLow, config.SequenceNumber, config.TwoByteSequence, config.ConnectionID, config.LengthPresent, len(ciphertext))
+	if err != nil {
+		return nil, err
+	}
+
+	return append(out, ciphertext...), nil
+}
+
+// ParsedRecord borrows its input. Keep it unchanged while using returned slices.
+type ParsedRecord struct {
+	raw       []byte
+	headerLen int
+	cidLen    int
+}
+
+// ParseRecord parses exactly one fixed or unified record with an explicit CID
+// length.
+func ParseRecord(raw []byte, cidLength int) (ParsedRecord, error) {
+	headerLen, payloadLen, err := recordwire.DecodeHeader(raw, cidLength)
+	if err != nil {
+		return ParsedRecord{}, err
+	}
+	record := ParsedRecord{raw: raw, headerLen: headerLen}
+	if payloadLen != len(raw)-headerLen {
+		return ParsedRecord{}, ErrInvalidPacketLength
+	}
+	if record.IsUnified() {
+		if !isValidDTLSCiphertextRecordLen(payloadLen) {
+			return ParsedRecord{}, ErrInvalidPacketLength
+		}
+		if raw[0]&recordwire.CIDBit != 0 {
+			record.cidLen = cidLength
+		}
+	} else {
+		version := protocol.VersionFromBytes(raw[1], raw[2])
+		if version != protocol.Version1_0 && version != protocol.Version1_2 {
+			return ParsedRecord{}, dtlserrors.ErrUnsupportedProtocolVersion
+		}
+		record.cidLen = headerLen - FixedHeaderSize
+	}
+
+	return record, nil
+}
+
+// IsUnified reports whether this is a DTLS 1.3 unified header.
+func (r ParsedRecord) IsUnified() bool {
+	return len(r.raw) != 0 && protocol.IsDTLS13Ciphertext(protocol.ContentType(r.raw[0]))
+}
+
+// Raw returns the exact borrowed wire record.
+func (r ParsedRecord) Raw() []byte { return r.raw }
+
+// HeaderBytes returns the exact borrowed header, including masked sequence bytes.
+func (r ParsedRecord) HeaderBytes() []byte { return r.raw[:r.headerLen] }
+
+// Payload returns the borrowed fragment or ciphertext.
+func (r ParsedRecord) Payload() []byte { return r.raw[r.headerLen:] }
+
+// ConnectionID returns the borrowed CID, or nil when absent.
+func (r ParsedRecord) ConnectionID() []byte {
+	if r.cidLen == 0 {
+		return nil
+	}
+
+	offset := 11
+	if r.IsUnified() {
+		offset = 1
+	}
+
+	return r.raw[offset : offset+r.cidLen]
+}
+
+// ContentType returns the fixed header's outer type, or zero for unified records.
+func (r ParsedRecord) ContentType() protocol.ContentType {
+	if r.IsUnified() || len(r.raw) == 0 {
+		return 0
+	}
+
+	return protocol.ContentType(r.raw[0])
+}
+
+// Version returns the fixed header's wire version, or zero for unified records.
+func (r ParsedRecord) Version() protocol.Version {
+	if r.IsUnified() || len(r.raw) == 0 {
+		return 0
+	}
+
+	return protocol.VersionFromBytes(r.raw[1], r.raw[2])
+}
+
+// Epoch returns the fixed header's epoch, or zero for unified records.
+func (r ParsedRecord) Epoch() uint16 {
+	if r.IsUnified() || len(r.raw) == 0 {
+		return 0
+	}
+
+	return binary.BigEndian.Uint16(r.raw[3:])
+}
+
+// EpochLow returns the two epoch bits of a unified header, or zero otherwise.
+func (r ParsedRecord) EpochLow() uint8 {
+	if !r.IsUnified() {
+		return 0
+	}
+
+	return r.raw[0] & recordwire.EpochMask
+}
+
+// SequenceNumber returns the fixed sequence or masked truncated unified sequence.
+func (r ParsedRecord) SequenceNumber() uint64 {
+	if len(r.raw) == 0 {
+		return 0
+	}
+	offset := 5
+	if r.IsUnified() {
+		offset = 1 + r.cidLen
+	}
+	var sequence uint64
+	for _, b := range r.raw[offset : offset+r.SequenceBytes()] {
+		sequence = sequence<<8 | uint64(b)
+	}
+
+	return sequence
+}
+
+// SequenceBytes returns the wire sequence width (6, 2, or 1), or 0 when empty.
+func (r ParsedRecord) SequenceBytes() int {
+	if len(r.raw) == 0 {
+		return 0
+	}
+	if !r.IsUnified() {
+		return 6
+	}
+	if r.raw[0]&recordwire.SequenceBit != 0 {
+		return 2
+	}
+
+	return 1
+}
+
+// LengthPresent reports whether the wire header carries an explicit length.
+func (r ParsedRecord) LengthPresent() bool {
+	return len(r.raw) != 0 && (!r.IsUnified() || r.raw[0]&recordwire.LengthBit != 0)
 }
 
 // UnpackDatagramConfig configures datagram framing.
 type UnpackDatagramConfig struct {
-	// TargetVersion selects the permitted record forms. The zero value permits
-	// both DTLS 1.2 and DTLS 1.3 forms for pre-negotiation stage.
+	// TargetVersion selects record forms; zero permits both DTLS 1.2 and 1.3.
 	TargetVersion protocol.Version
 	// CIDLength is the known receive CID length used to locate record fields.
 	CIDLength int
-	// CIDRequired requires the CID form for protected DTLS 1.2 records and at
-	// least one CID-bearing record in each DTLS 1.3 datagram that contains a
-	// unified record. Epoch-zero plaintext-only datagrams cannot carry a CID.
+	// CIDRequired requires CID on each protected DTLS 1.2 record, or at least
+	// once per DTLS 1.3 datagram containing unified records.
 	CIDRequired bool
 
 	noUnkeyedLiterals struct{}
 }
 
-type unpackedDatagramRecord struct {
-	raw      []byte
-	consumed int
-	hasCID   bool
+// UnpackDatagram returns borrowed records from a datagram.
+//
+//nolint:cyclop
+func UnpackDatagram(datagram []byte, config UnpackDatagramConfig) (records [][]byte, err error) {
+	if err = validateUnpackDatagramConfig(config); err != nil {
+		return nil, err
+	}
+
+	cidPresent, sawUnified := false, false
+	for len(datagram) != 0 {
+		unified := protocol.IsDTLS13Ciphertext(protocol.ContentType(datagram[0]))
+		sawUnified = sawUnified || unified
+		var record []byte
+		record, err = nextRecord(datagram, config)
+		if err != nil {
+			break
+		}
+		cidPresent = cidPresent || (unified && record[0]&recordwire.CIDBit != 0) || record[0] == byte(protocol.ContentTypeConnectionID)
+		records = append(records, record)
+		datagram = datagram[len(record):]
+	}
+	if config.CIDRequired && sawUnified && !cidPresent {
+		records = nil
+		if err == nil {
+			err = dtlserrors.ErrInvalidCiphertextHeader
+		}
+	}
+
+	return records, err
 }
 
-// MarshalRecord encodes one fixed-header or DTLS 1.2 CID record.
-func MarshalRecord(header Header, contentType protocol.ContentType, content []byte) ([]byte, error) {
-	if len(content) > math.MaxUint16 {
+//nolint:cyclop
+func nextRecord(datagram []byte, config UnpackDatagramConfig) ([]byte, error) {
+	contentType := protocol.ContentType(datagram[0])
+	unified := protocol.IsDTLS13Ciphertext(contentType)
+	if config.TargetVersion == protocol.Version1_2 && unified ||
+		config.TargetVersion == protocol.Version1_3 && !unified && !isDTLS13PlaintextContentType(contentType) {
+		return nil, dtlserrors.ErrInvalidContentType
+	}
+	headerLen, payloadLen, err := recordwire.DecodeHeader(datagram, config.CIDLength)
+	if err != nil {
+		return nil, err
+	}
+	if payloadLen > len(datagram)-headerLen || unified && !isValidDTLSCiphertextRecordLen(payloadLen) || !unified && len(datagram) <= headerLen {
 		return nil, ErrInvalidPacketLength
 	}
-	header.ContentLen = uint16(len(content)) //nolint:gosec // bounded above
-	header.ContentType = contentType
-	out := make([]byte, header.MarshalSize()+len(content))
-	headerSize, err := header.MarshalTo(out)
-	if err != nil {
-		return nil, err
-	}
-	copy(out[headerSize:], content)
-
-	return out, nil
-}
-
-// UnpackDatagram extracts all records from a single datagram.
-// Note that as with TLS, multiple handshake messages may be placed in
-// the same DTLS record, provided that there is room and that they are
-// part of the same flight.  Thus, there are two acceptable ways to pack
-// two DTLS messages into the same datagram: in the same record or in
-// separate records.
-// https://www.rfc-editor.org/rfc/rfc6347#section-4.2.3
-// https://www.rfc-editor.org/rfc/rfc9147#section-4
-//
-// Callers must copy records retained after datagram is
-// reused.
-func UnpackDatagram(datagram []byte, config UnpackDatagramConfig) ([][]byte, error) {
-	if err := validateUnpackDatagramConfig(config); err != nil {
-		return nil, err
-	}
-
-	var records [][]byte
-	cidPresent := false
-	sawUnified := false
-	for len(datagram) != 0 {
-		currentIsUnified := protocol.IsDTLS13Ciphertext(protocol.ContentType(datagram[0]))
-		record, err := unpackNextDatagramRecord(datagram, config)
-		if err != nil {
-			return unpackDatagramError(
-				records,
-				cidPresent,
-				requiresDatagramCID(config, sawUnified || currentIsUnified),
-				err,
-			)
+	if !unified {
+		epoch := binary.BigEndian.Uint16(datagram[3:5])
+		if config.TargetVersion == protocol.Version1_3 && epoch != 0 {
+			return nil, dtlserrors.ErrInvalidEpoch
 		}
-
-		sawUnified = sawUnified || currentIsUnified
-		cidPresent = cidPresent || record.hasCID
-		records = append(records, record.raw)
-		datagram = datagram[record.consumed:]
-	}
-
-	if requiresDatagramCID(config, sawUnified) && !cidPresent {
-		return nil, dtlserrors.ErrInvalidCiphertextHeader
-	}
-
-	return records, nil
-}
-
-func requiresDatagramCID(config UnpackDatagramConfig, sawUnified bool) bool {
-	return config.CIDRequired && sawUnified
-}
-
-func unpackNextDatagramRecord(
-	datagram []byte,
-	config UnpackDatagramConfig,
-) (unpackedDatagramRecord, error) {
-	contentType := protocol.ContentType(datagram[0])
-	isUnified := protocol.IsDTLS13Ciphertext(contentType)
-	if err := validateRecordForm(config.TargetVersion, contentType, isUnified); err != nil {
-		return unpackedDatagramRecord{}, err
-	}
-
-	if isUnified {
-		record, consumed, err := unpackUnifiedDatagramRecord(datagram, config.CIDLength)
-
-		return unpackedDatagramRecord{
-			raw:      record,
-			consumed: consumed,
-			hasCID:   datagram[0]&UnifiedHeaderCIDBit != 0,
-		}, err
-	}
-
-	return unpackNextFixedDatagramRecord(datagram, contentType, config)
-}
-
-func unpackNextFixedDatagramRecord(datagram []byte, contentType protocol.ContentType, config UnpackDatagramConfig) (unpackedDatagramRecord, error) {
-	headerSize := FixedHeaderSize
-	hasCID := contentType == protocol.ContentTypeConnectionID
-	if hasCID {
-		if config.CIDLength == 0 {
-			return unpackedDatagramRecord{}, ErrInvalidPacketLength
+		if config.CIDRequired && epoch != 0 && contentType != protocol.ContentTypeConnectionID {
+			return nil, dtlserrors.ErrInvalidCiphertextHeader
 		}
-		headerSize += config.CIDLength
 	}
 
-	record, consumed, err := unpackDatagramRecord(datagram, headerSize)
-	if err != nil {
-		return unpackedDatagramRecord{}, err
-	}
-	if err = validateFixedRecordPolicy(record, contentType, config); err != nil {
-		return unpackedDatagramRecord{}, err
-	}
-
-	return unpackedDatagramRecord{raw: record, consumed: consumed, hasCID: hasCID}, nil
-}
-
-func validateFixedRecordPolicy(
-	record []byte,
-	contentType protocol.ContentType,
-	config UnpackDatagramConfig,
-) error {
-	epoch := binary.BigEndian.Uint16(record[3:5])
-	if config.TargetVersion == protocol.Version1_3 && epoch != 0 {
-		return dtlserrors.ErrInvalidEpoch
-	}
-	if config.CIDRequired && epoch != 0 && contentType != protocol.ContentTypeConnectionID {
-		return dtlserrors.ErrInvalidCiphertextHeader
-	}
-
-	return nil
+	return datagram[:headerLen+payloadLen], nil
 }
 
 func validateUnpackDatagramConfig(config UnpackDatagramConfig) error {
@@ -202,166 +318,10 @@ func validateUnpackDatagramConfig(config UnpackDatagramConfig) error {
 	return dtlserrors.ErrUnsupportedProtocolVersion
 }
 
-func validateRecordForm(
-	targetVersion protocol.Version,
-	contentType protocol.ContentType,
-	isUnified bool,
-) error {
-	switch targetVersion { //nolint:exhaustive
-	case protocol.Version1_2:
-		if isUnified {
-			return dtlserrors.ErrInvalidContentType
-		}
-	case protocol.Version1_3:
-		if !isUnified && !isDTLS13PlaintextContentType(contentType) {
-			return dtlserrors.ErrInvalidContentType
-		}
-	}
-
-	return nil
-}
-
 func isDTLS13PlaintextContentType(contentType protocol.ContentType) bool {
 	return contentType == protocol.ContentTypeAlert || contentType == protocol.ContentTypeHandshake || contentType == protocol.ContentTypeACK
 }
 
-func unpackDatagramError(
-	records [][]byte,
-	cidPresent bool,
-	datagramCIDRequired bool,
-	err error,
-) ([][]byte, error) {
-	if datagramCIDRequired && !cidPresent {
-		return nil, err
-	}
-
-	return records, err
-}
-
-func unpackDatagramRecord(buf []byte, headerSize int) ([]byte, int, error) {
-	if len(buf) <= headerSize {
-		return nil, 0, ErrInvalidPacketLength
-	}
-
-	contentLength := int(binary.BigEndian.Uint16(buf[headerSize-2 : headerSize]))
-	if contentLength > len(buf)-headerSize {
-		return nil, 0, ErrInvalidPacketLength
-	}
-
-	consumed := headerSize + contentLength
-
-	return buf[:consumed], consumed, nil
-}
-
-// CiphertextRecord implements DTLSCiphertext for protected records.
-type CiphertextRecord struct {
-	Header          UnifiedHeader
-	EncryptedRecord []byte
-}
-
-// Marshal encodes a DTLS 1.3 DTLSCiphertext record.
-func (r *CiphertextRecord) Marshal() ([]byte, error) {
-	if err := r.prepareMarshal(); err != nil {
-		return nil, err
-	}
-
-	out := make([]byte, r.MarshalSize())
-	_, err := r.marshalTo(out)
-
-	return out, err
-}
-
-// MarshalSize returns the minimal buffer size required for MarshalTo.
-func (r *CiphertextRecord) MarshalSize() int {
-	return 1 + len(r.Header.ConnectionID) + 2 + 2 + len(r.EncryptedRecord)
-}
-
-// MarshalTo encodes a DTLS 1.3 DTLSCiphertext record to a pre-allocated buffer.
-func (r *CiphertextRecord) MarshalTo(out []byte) (int, error) {
-	if err := r.prepareMarshal(); err != nil {
-		return 0, err
-	}
-
-	return r.marshalTo(out)
-}
-
-func (r *CiphertextRecord) prepareMarshal() error {
-	if !isValidDTLSCiphertextRecordLen(len(r.EncryptedRecord)) {
-		return ErrInvalidPacketLength
-	}
-	if len(r.Header.ConnectionID) > math.MaxUint8 {
-		return dtlserrors.ErrCIDTooBig
-	}
-
-	r.Header.SeqBit = true
-	r.Header.Length = uint16(len(r.EncryptedRecord)) //nolint:gosec // G115: checked above.
-	r.Header.LengthBit = true
-
-	return nil
-}
-
-func (r *CiphertextRecord) marshalTo(out []byte) (int, error) {
-	if len(out) < r.MarshalSize() {
-		return 0, dtlserrors.ErrBufferTooSmall
-	}
-
-	headerSize, err := r.Header.MarshalTo(out)
-	if err != nil {
-		return 0, err
-	}
-	copy(out[headerSize:], r.EncryptedRecord)
-
-	return headerSize + len(r.EncryptedRecord), nil
-}
-
-func unpackUnifiedDatagramRecord(buf []byte, cidLength int) ([]byte, int, error) {
-	firstByte := buf[0]
-	headerCIDLength := 0
-	if firstByte&UnifiedHeaderCIDBit != 0 {
-		if cidLength == 0 {
-			return nil, 0, ErrInvalidPacketLength
-		}
-		headerCIDLength = cidLength
-	}
-
-	headerSize := unifiedHeaderWireSize(firstByte, headerCIDLength)
-	if len(buf) < headerSize {
-		return nil, 0, ErrInvalidPacketLength
-	}
-
-	if firstByte&UnifiedHeaderLengthBit == 0 {
-		recordLen := len(buf) - headerSize
-		if !isValidDTLSCiphertextRecordLen(recordLen) {
-			return nil, 0, ErrInvalidPacketLength
-		}
-
-		return buf, len(buf), nil
-	}
-
-	recordLen := int(binary.BigEndian.Uint16(buf[headerSize-2 : headerSize]))
-	if !isValidDTLSCiphertextRecordLen(recordLen) || recordLen > len(buf)-headerSize {
-		return nil, 0, ErrInvalidPacketLength
-	}
-	consumed := headerSize + recordLen
-
-	return buf[:consumed], consumed, nil
-}
-
 func isValidDTLSCiphertextRecordLen(recordLen int) bool {
-	return recordLen >= minDTLSCiphertextRecordLen &&
-		recordLen <= maxDTLSCiphertextRecordLen
-}
-
-func unifiedHeaderWireSize(firstByte byte, cidLength int) int {
-	size := 1 + cidLength
-	if firstByte&UnifiedHeaderSeqBit != 0 {
-		size += 2
-	} else {
-		size++
-	}
-	if firstByte&UnifiedHeaderLengthBit != 0 {
-		size += 2
-	}
-
-	return size
+	return recordLen >= minDTLSCiphertextRecordLen && recordLen <= maxDTLSCiphertextRecordLen
 }

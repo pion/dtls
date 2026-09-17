@@ -4,225 +4,118 @@
 package recordlayer
 
 import (
+	"bytes"
 	"testing"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestUnifiedHeader(t *testing.T) {
-	uh := UnifiedHeader{SequenceNumber: 0xaabb, SeqBit: true, Length: 42, LengthBit: true, EpochLow: 15}
-
-	raw, err := uh.Marshal()
-	assert.NoError(t, err)
-
-	expect := []byte{
-		0x2f,       // 0b00101111
-		0xaa, 0xbb, // Sequence number
-		0x00, 0x2a, // length
+func TestUnifiedRecordWireChoices(t *testing.T) {
+	for _, cid := range [][]byte{nil, {0xca, 0xfe}} {
+		for _, two := range []bool{false, true} {
+			for _, length := range []bool{false, true} {
+				config := CiphertextConfig{EpochLow: 3, SequenceNumber: 0x42, ConnectionID: cid, TwoByteSequence: two, LengthPresent: length}
+				want := byte(0x23)
+				if len(cid) > 0 {
+					want |= 0x10
+				}
+				if two {
+					want |= 0x08
+					config.SequenceNumber = 0xaabb
+				}
+				if length {
+					want |= 0x04
+				}
+				header := append([]byte{want}, cid...)
+				if two {
+					header = append(header, 0xaa, 0xbb)
+				} else {
+					header = append(header, 0x42)
+				}
+				if length {
+					header = append(header, 0, 16)
+				}
+				ciphertext := bytes.Repeat([]byte{0xde}, 16)
+				raw, err := MarshalCiphertext(config, ciphertext)
+				require.NoError(t, err)
+				require.Equal(t, append(bytes.Clone(header), ciphertext...), raw)
+				parsed, err := ParseRecord(raw, len(cid))
+				require.NoError(t, err)
+				require.True(t, parsed.IsUnified())
+				require.Zero(t, parsed.ContentType())
+				require.Zero(t, parsed.Version())
+				require.Zero(t, parsed.Epoch())
+				require.Equal(t, config.EpochLow, parsed.EpochLow())
+				require.Equal(t, uint64(config.SequenceNumber), parsed.SequenceNumber())
+				require.Equal(t, two, parsed.SequenceBytes() == 2)
+				require.Equal(t, length, parsed.LengthPresent())
+				require.Equal(t, cid, parsed.ConnectionID())
+				require.Equal(t, header, parsed.HeaderBytes())
+				require.Equal(t, ciphertext, parsed.Payload())
+				require.Equal(t, config.TwoByteSequence, two)
+				require.Equal(t, config.LengthPresent, length)
+				records, err := UnpackDatagram(raw, UnpackDatagramConfig{CIDLength: len(cid)})
+				require.NoError(t, err)
+				require.Equal(t, [][]byte{raw}, records)
+				ciphertext[0] ^= 0xff
+				require.Equal(t, byte(0xde), parsed.Payload()[0])
+				if length {
+					_, err = ParseRecord(append(bytes.Clone(raw), 0), len(cid))
+					require.Error(t, err)
+				}
+			}
+		}
 	}
-	assert.Equal(t, expect, raw)
-
-	newUh := UnifiedHeader{}
-	err = newUh.Unmarshal(expect)
-
-	assert.NoError(t, err)
-	assert.Empty(t, newUh.ConnectionID)
-	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
-	assert.True(t, newUh.SeqBit)
-	assert.Equal(t, uh.Length, newUh.Length)
-	assert.True(t, newUh.LengthBit)
-	assert.Equal(t, uh.EpochLow&0b11, newUh.EpochLow)
 }
 
-func TestUnifiedHeader_Minimal(t *testing.T) {
-	uh := UnifiedHeader{SequenceNumber: 0x42}
-
-	raw, err := uh.Marshal()
-	assert.NoError(t, err)
-
-	expect := []byte{
-		0x20, // 0b00100000
-		0x42, // Sequence number
+func TestUnifiedRecordRejectsInvalidInputs(t *testing.T) {
+	for _, config := range []CiphertextConfig{{EpochLow: 4}, {SequenceNumber: 256}, {ConnectionID: make([]byte, 256)}} {
+		raw, err := MarshalCiphertext(config, make([]byte, 16))
+		require.Error(t, err)
+		require.Nil(t, raw)
 	}
-	assert.Equal(t, expect, raw)
-
-	newUh := UnifiedHeader{}
-	err = newUh.Unmarshal(expect)
-
-	assert.NoError(t, err)
-	assert.Empty(t, newUh.ConnectionID)
-	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
-	assert.False(t, newUh.SeqBit)
-	assert.Equal(t, uh.Length, newUh.Length)
-	assert.False(t, newUh.LengthBit)
-	assert.Equal(t, uint8(0b00), newUh.EpochLow)
+	for _, n := range []int{0, 1, 15, maxDTLSCiphertextRecordLen + 1} {
+		raw, err := MarshalCiphertext(CiphertextConfig{}, make([]byte, n))
+		require.ErrorIs(t, err, ErrInvalidPacketLength)
+		require.Nil(t, raw)
+	}
+	raw, err := MarshalCiphertext(CiphertextConfig{ConnectionID: []byte{1, 2}, LengthPresent: true}, make([]byte, 16))
+	require.NoError(t, err)
+	for _, n := range []int{-1, 0, 1, 3, 256} {
+		parsed, err := ParseRecord(raw, n)
+		require.Error(t, err)
+		require.Empty(t, parsed.Raw())
+	}
+	for n := range len(raw) {
+		parsed, err := ParseRecord(raw[:n], 2)
+		require.Error(t, err)
+		require.Empty(t, parsed.Raw())
+	}
 }
 
-func TestUnifiedHeader_CID(t *testing.T) {
-	CID := []byte{0x1, 0x2, 0x3, 0x4}
-	uh := UnifiedHeader{ConnectionID: CID, SequenceNumber: 0xaa}
-
-	raw, err := uh.Marshal()
-	assert.NoError(t, err)
-
-	expect := []byte{
-		0x30,      // 0b00110000
-		0x01, 0x2, // CID
-		0x03, 0x4, // CID
-		0xaa, // Seq no
+func fuzzUnifiedRecord(f *testing.F, cidLength int) {
+	f.Helper()
+	for _, two := range []bool{false, true} {
+		for _, length := range []bool{false, true} {
+			raw, err := MarshalCiphertext(CiphertextConfig{EpochLow: 2, SequenceNumber: 0x42, TwoByteSequence: two, LengthPresent: length, ConnectionID: bytes.Repeat([]byte{0xab}, cidLength)}, make([]byte, 16))
+			if err != nil {
+				f.Fatal(err)
+			}
+			f.Add(raw)
+		}
 	}
-	assert.Equal(t, expect, raw)
-
-	newUh := UnifiedHeader{ConnectionID: make([]byte, len(CID))}
-	err = newUh.Unmarshal(expect)
-
-	assert.NoError(t, err)
-	assert.Equal(t, uh.ConnectionID, newUh.ConnectionID)
-	assert.Equal(t, uh.SequenceNumber, newUh.SequenceNumber)
-	assert.False(t, newUh.SeqBit)
-	assert.Equal(t, uh.Length, newUh.Length)
-	assert.False(t, newUh.LengthBit)
-	assert.Equal(t, uint8(0b00), newUh.EpochLow)
-}
-
-func TestUnifiedHeaderSizeUsesEncodedBits(t *testing.T) {
-	uh := UnifiedHeader{
-		SeqBit:    true,
-		LengthBit: true,
-	}
-	assert.Equal(t, 5, uh.MarshalSize())
-
-	uh = UnifiedHeader{
-		SequenceNumber: 0x0100,
-		Length:         1,
-	}
-	assert.Equal(t, 2, uh.MarshalSize())
-}
-
-func TestUnifiedHeaderUnmarshalClearsBits(t *testing.T) {
-	uh := UnifiedHeader{
-		SeqBit:    true,
-		Length:    5,
-		LengthBit: true,
-	}
-
-	err := uh.Unmarshal([]byte{0x20, 0x42})
-	assert.NoError(t, err)
-	assert.False(t, uh.SeqBit)
-	assert.False(t, uh.LengthBit)
-	assert.Equal(t, 2, uh.MarshalSize())
-}
-
-func FuzzUnifiedHeaderUnmarshal(f *testing.F) {
-	testcases := [][]byte{
-		{
-			0x2f,       // 0b00101111
-			0xaa, 0xbb, // Sequence number
-			0x00, 0x2a, // length
-		},
-		{
-			0x20, // 0b00100000
-			0x42, // Sequence number
-		},
-		{
-			0x30,      // 0b00110000
-			0x01, 0x2, // CID
-			0x03, 0x4, // CID
-			0xaa, // Seq no
-		},
-	}
-
-	for _, tc := range testcases {
-		f.Add(tc)
-	}
-	f.Fuzz(func(t *testing.T, data []byte) {
-		uh := UnifiedHeader{}
-		err := uh.Unmarshal(data)
-		if err != nil {
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		parsed, err := ParseRecord(raw, cidLength)
+		if err != nil || !parsed.IsUnified() {
 			return
 		}
-		content := data[0]
-		assert.Less(t, int(content), 64)
-		assert.Greater(t, int(content), 31)
-		parsedLength := len(uh.ConnectionID)
-		assert.Zero(t, parsedLength)
-		assert.LessOrEqual(t, uh.EpochLow, uint8(0b000000011))
+		before := bytes.Clone(raw)
+		encoded, err := MarshalCiphertext(CiphertextConfig{EpochLow: parsed.EpochLow(), SequenceNumber: uint16(parsed.SequenceNumber() & 0xffff), TwoByteSequence: parsed.SequenceBytes() == 2, LengthPresent: parsed.LengthPresent(), ConnectionID: parsed.ConnectionID()}, parsed.Payload())
+		require.NoError(t, err)
+		require.Equal(t, before, raw)
+		require.Equal(t, raw, encoded)
 	})
 }
 
-func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) {
-	const cidLength = 32
-
-	testcases := [][]byte{
-		{
-			0x2f,       // 0b00101111
-			0xaa, 0xbb, // Sequence number
-			0x00, 0x2a, // length
-		},
-		{
-			0x20, // 0b00100000
-			0x42, // Sequence number
-		},
-		{
-			0x30,      // 0b00110000
-			0x01, 0x2, // CID
-			0x03, 0x4, // CID
-			0xaa, // Seq no
-		},
-	}
-
-	for _, tc := range testcases {
-		f.Add(tc)
-	}
-
-	cid := make([]byte, cidLength)
-	for i := range cid {
-		cid[i] = byte(i)
-	}
-	raw, err := (&UnifiedHeader{ConnectionID: cid, SequenceNumber: 0xaabb, SeqBit: true, Length: 42, LengthBit: true, EpochLow: 3}).Marshal()
-	if err != nil {
-		f.Fatalf("marshal fuzz seed: %v", err)
-	}
-	f.Add(raw)
-
-	f.Fuzz(func(t *testing.T, data []byte) {
-		uh := UnifiedHeader{ConnectionID: make([]byte, cidLength)}
-		err := uh.Unmarshal(data)
-		if err != nil {
-			return
-		}
-		content := data[0]
-		assert.Less(t, int(content), 64)
-		assert.Greater(t, int(content), 31)
-		if (content & UnifiedHeaderCIDBit) != 0 {
-			parsedLength := len(uh.ConnectionID)
-			assert.Equal(t, cidLength, parsedLength)
-		}
-		assert.LessOrEqual(t, uh.EpochLow, uint8(0b000000011))
-
-		raw, err := uh.Marshal()
-		assert.NoError(t, err)
-		assert.Equal(t, data[:uh.MarshalSize()], raw)
-	})
-}
-
-func TestUnifiedHeaderMarshalTo(t *testing.T) {
-	header := UnifiedHeader{ConnectionID: []byte{0xca, 0xfe, 0xba, 0xbe}, SequenceNumber: 0xaabb, SeqBit: true, Length: 42, LengthBit: true, EpochLow: 3}
-	want, err := header.Marshal()
-	assert.NoError(t, err)
-
-	out := make([]byte, header.MarshalSize()+1)
-	n, err := header.MarshalTo(out)
-	assert.NoError(t, err)
-	assert.Equal(t, len(want), n)
-	assert.Equal(t, want, out[:n])
-
-	_, err = header.MarshalTo(out[:n-1])
-	assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
-
-	header = UnifiedHeader{ConnectionID: make([]byte, 256)}
-
-	_, err = header.MarshalTo(make([]byte, header.MarshalSize()))
-	assert.ErrorIs(t, err, dtlserrors.ErrCIDTooBig)
-}
+func FuzzUnifiedHeaderUnmarshal(f *testing.F)    { fuzzUnifiedRecord(f, 0) }
+func FuzzUnifiedHeaderCIDUnmarshal(f *testing.F) { fuzzUnifiedRecord(f, 32) }
