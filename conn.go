@@ -1302,7 +1302,7 @@ var noContentFragments = [][]byte{ //nolint:gochecknoglobals
 
 func (c *Conn) fragmentHandshake(dtlsHandshake *handshake.Handshake) ([][]byte, error) {
 	messageSize := dtlsHandshake.Message.MarshalSize()
-	numFragments := (messageSize-1)/c.maximumTransmissionUnit + 1
+	numFragments := max(1, (messageSize-1)/c.maximumTransmissionUnit+1)
 
 	fragmentedHandshakes := make([][]byte, numFragments)
 
