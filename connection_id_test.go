@@ -424,7 +424,9 @@ func assertCIDListenerRebinding(t *testing.T, listener net.Listener, client, ser
 	n, err := server.Read(buffer)
 	assert.NoError(t, err)
 	assert.Equal(t, payload, buffer[:n])
-	assert.Equal(t, rebound.LocalAddr().String(), server.RemoteAddr().String())
+	assert.Eventually(t, func() bool {
+		return rebound.LocalAddr().String() == server.RemoteAddr().String()
+	}, time.Second, time.Millisecond, "peer address must update after CID rebinding")
 }
 
 func pendingCIDTestOffer(t *testing.T, conn *Conn) (*dtlsstate.State13, *dtlsstate.TrafficKeyState) {
