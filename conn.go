@@ -967,7 +967,8 @@ func (c *Conn) compactPreparedRecords(records []preparedRecord) []preparedDatagr
 		}
 	}
 
-	datagrams[datagramIndex].raw = flatRaw[offset : offset+currentSize]
+	end := offset + currentSize
+	datagrams[datagramIndex].raw = flatRaw[offset:end:end]
 
 	return datagrams[:datagramIndex+1]
 }
