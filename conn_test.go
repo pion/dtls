@@ -3897,7 +3897,9 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 		packetTestConn: &packetTestConn{Conn: br.GetConn0(), remoteAddr: br.GetConn1().LocalAddr()},
 		onWrite: func(raw []byte) {
 			if datagramContainsHandshake(raw, handshake.TypeClientHello, 1) {
-				retryClientHelloWrites.Add(1)
+				if retryClientHelloWrites.Add(1) == 1 {
+					impairNetwork(br)
+				}
 			}
 		},
 	}
@@ -3962,7 +3964,6 @@ func testDTLS13HelloRetryRequestNetworkRecovery(
 	waitForBridgePacket(t, br, 0)
 	deliverNextBridgePacket(t, br)
 	waitForBridgePacket(t, br, 1)
-	impairNetwork(br)
 	br.Tick()
 
 	waitForBridgeHandshakes(t, ctx, br, handshakeResults)
