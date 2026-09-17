@@ -13,12 +13,17 @@ import (
 
 	dtlserrors "github.com/pion/dtls/v3/internal/errors"
 	dtlsflight "github.com/pion/dtls/v3/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
 	"github.com/pion/dtls/v3/internal/negotiation"
 	"github.com/pion/dtls/v3/internal/net/udp"
 	dtlsstate "github.com/pion/dtls/v3/internal/state"
+	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
@@ -420,4 +425,112 @@ func assertCIDListenerRebinding(t *testing.T, listener net.Listener, client, ser
 	assert.NoError(t, err)
 	assert.Equal(t, payload, buffer[:n])
 	assert.Equal(t, rebound.LocalAddr().String(), server.RemoteAddr().String())
+}
+
+func pendingCIDTestOffer(t *testing.T, conn *Conn) (*dtlsstate.State13, *dtlsstate.TrafficKeyState) {
+	t.Helper()
+	state, err := dtlsstate.As13(conn.state)
+	assert.NoError(t, err)
+	trafficKeys := state.TrafficKeys
+	state.TrafficKeys = nil
+	state.SetRemoteEpoch(dtlsflight13.EpochInitial)
+	_, snapshot, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
+		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(cryptosuite.TLS_AES_128_GCM_SHA256)},
+		Extensions: []extension.Value{
+			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
+			&extension13.ClientKeyShare{},
+			&extension.ConnectionID{CID: []byte{0xc1}},
+		},
+	}, nil)
+	assert.NoError(t, err)
+	assert.NoError(t, state.RecordLocalClientHello(snapshot))
+
+	return state, trafficKeys
+}
+
+func pendingCIDTestRecord(t *testing.T, peer *testRecordProtection13, cid []byte, sequence uint16) []byte {
+	t.Helper()
+	record, err := peer.SealRecord(recordlayer.UnifiedHeader{EpochLow: 2, ConnectionID: cid}, uint64(sequence), protocol.ContentTypeHandshake, encryptedExtensionsHandshakeWithSequence(t, sequence))
+	assert.NoError(t, err)
+	raw, err := record.Marshal()
+	assert.NoError(t, err)
+
+	return raw
+}
+
+func TestPendingCIDDatagramFinalDecision(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		response       *extension.ConnectionID
+		wantWithoutCID int
+		wantWithCID    int
+	}{
+		{name: "omitted", wantWithoutCID: 2, wantWithCID: 1},
+		{name: "present empty", response: &extension.ConnectionID{}, wantWithCID: 2},
+		{name: "present nonempty", response: &extension.ConnectionID{CID: []byte{0x51}}, wantWithCID: 2},
+	} {
+		for _, withCID := range []bool{false, true} {
+			name := test.name + "/CID-less"
+			wantRecords := test.wantWithoutCID
+			if withCID {
+				name = test.name + "/CID-bearing"
+				wantRecords = test.wantWithCID
+			}
+			t.Run(name, func(t *testing.T) {
+				conn, peer := newTestConnWithReadProtection(t)
+				state, trafficKeys := pendingCIDTestOffer(t, conn)
+				var finalCID []byte
+				if withCID {
+					finalCID = []byte{0xc1}
+				}
+				first := pendingCIDTestRecord(t, peer, nil, 0)
+				second := pendingCIDTestRecord(t, peer, finalCID, 1)
+				datagram := append(bytes.Clone(first), second...)
+				assert.False(t, conn.hasInboundRecordProtection())
+				summary, err := conn.processDatagram(t.Context(), datagram, nil, &readBufferLease{conn: conn})
+				assert.NoError(t, err)
+				assert.False(t, summary.containsHandshake)
+				assert.Len(t, conn.encryptedPackets, 2)
+				for _, packet := range conn.encryptedPackets {
+					assert.True(t, packet.pendingCID)
+					assert.Equal(t, withCID, packet.datagramContainsCID)
+				}
+				clear(datagram)
+				assert.Equal(t, first, conn.encryptedPackets[0].data)
+				assert.Equal(t, second, conn.encryptedPackets[1].data)
+				assert.NoError(t, conn.handleQueuedPackets(t.Context()))
+				assert.Len(t, conn.encryptedPackets, 2)
+				_, opened := state.HighestRemoteSequenceNumber(dtlsflight13.EpochHandshake)
+				assert.False(t, opened)
+				assert.Empty(t, conn.pendingACKs)
+
+				var response []extension.Value
+				if test.response != nil {
+					response = append(response, test.response)
+				}
+				state.CommitNegotiatedExtensions(negotiation.DecideConnectionID(state.LocalClientHelloSnapshots.Current(), response))
+				state.TrafficKeys = trafficKeys
+				state.SetRemoteEpoch(dtlsflight13.EpochHandshake)
+				assert.True(t, conn.hasInboundRecordProtection())
+				assert.NoError(t, conn.handleQueuedPackets(t.Context()))
+				assert.Empty(t, conn.encryptedPackets)
+				for sequence := range uint16(2) {
+					_, delivered := conn.handshakeCache.PullExact(sequence, false)
+					assert.Equal(t, int(sequence) < wantRecords, delivered)
+				}
+				highest, opened := state.HighestRemoteSequenceNumber(dtlsflight13.EpochHandshake)
+				assert.Equal(t, wantRecords > 0, opened)
+				if opened {
+					assert.EqualValues(t, wantRecords-1, highest)
+				}
+				assert.Len(t, conn.pendingACKs, wantRecords)
+				for sequence, ack := range conn.pendingACKs {
+					assert.EqualValues(t, dtlsflight13.EpochHandshake, ack.Epoch)
+					assert.EqualValues(t, sequence, ack.SequenceNumber)
+				}
+			})
+		}
+	}
 }

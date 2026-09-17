@@ -231,6 +231,11 @@ func (s *Common) LocalConnectionIDForInboundRecords() []byte {
 	return s.LocalConnectionID()
 }
 
+// ConnectionIDPending reports whether the client is waiting for a final CID decision.
+func (s *Common) ConnectionIDPending() bool {
+	return s.IsClient && s.pendingLocalConnectionID.Load() != nil
+}
+
 // State is retained as the DTLS 1.2 state alias for callers that still only
 // support DTLS 1.2 resumption/state serialization.
 type State = State12

@@ -245,6 +245,12 @@ func (c *Conn) registerLocalCID() error {
 	return nil
 }
 
+func (c *Conn) pendingCIDNegotiation() bool {
+	common := dtlsstate.CommonState(c.state)
+
+	return common.ConnectionIDPending() && len(common.LocalConnectionIDForInboundRecords()) > 0 && common.LocalVersion != protocol.Version1_2
+}
+
 // updateRemoteAddr is called only after the migration policy accepts a path.
 // Sending an RRC probe must not move the listener's address route.
 func (c *Conn) updateRemoteAddr(addr net.Addr) error {

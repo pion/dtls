@@ -76,6 +76,7 @@ type addrPkt struct {
 	rAddr               net.Addr
 	data                []byte
 	datagramContainsCID bool
+	pendingCID          bool
 }
 
 // readBufferLease owns a recyclable read buffer for one datagram-processing
@@ -85,10 +86,12 @@ type readBufferLease struct {
 	pool                 *sync.Pool
 	recyclableReadBuffer *[]byte
 	datagramContainsCID  bool
+	pendingCID           bool
 }
 
 func (w *readBufferLease) enqueue(packet addrPkt) bool {
 	packet.datagramContainsCID = w.datagramContainsCID
+	packet.pendingCID = w.pendingCID && protocol.IsDTLS13Ciphertext(protocol.ContentType(packet.data[0]))
 
 	return w.conn.enqueueEncryptedPackets(packet)
 }
@@ -1464,6 +1467,17 @@ func (c *Conn) processDatagram(ctx context.Context, datagram []byte, rAddr net.A
 
 func (c *Conn) processDatagramPackets(ctx context.Context, pkts [][]byte, rAddr net.Addr, bufferLease *readBufferLease) (datagramProcessingSummary, error) {
 	datagramContainsCID := recordsContainCID(pkts)
+	bufferLease.pendingCID = c.pendingCIDNegotiation()
+	if bufferLease.pendingCID {
+		datagramContainsCID = false
+		for _, p := range pkts {
+			if protocol.IsDTLS13Ciphertext(protocol.ContentType(p[0])) && p[0]&recordlayer.UnifiedHeaderCIDBit != 0 {
+				datagramContainsCID = true
+
+				break
+			}
+		}
+	}
 	bufferLease.datagramContainsCID = datagramContainsCID
 
 	var summary datagramProcessingSummary
@@ -1493,12 +1507,19 @@ func (c *Conn) takePendingACKs() []protocol.RecordNumber {
 }
 
 func (c *Conn) handleQueuedPackets(ctx context.Context) error {
+	if c.pendingCIDNegotiation() {
+		return nil
+	}
+
 	c.lock.Lock()
 	pkts := c.encryptedPackets
 	c.encryptedPackets = nil
 	c.lock.Unlock()
 
 	for _, p := range pkts {
+		if p.pendingCID && c.inboundCIDRequired() && !p.datagramContainsCID {
+			continue
+		}
 		_, err := c.processIncomingPacket(
 			ctx,
 			p.data,
