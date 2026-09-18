@@ -5633,3 +5633,64 @@ func (r sealedTestRecord) parsed(t *testing.T) recordlayer.ParsedRecord {
 
 	return parsed
 }
+
+func TestHandleIncomingPacketControlRecordEpoch(t *testing.T) {
+	t.Cleanup(test.CheckRoutines(t))
+	defer test.TimeOut(10 * time.Second).Stop()
+
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	client, server := handshakePair(t,
+		[]ClientOption{WithInsecureSkipVerify(true), WithMaxVersion(protocol.Version1_2)},
+		[]ServerOption{WithCertificates(certificate), WithMaxVersion(protocol.Version1_2)},
+	)
+	for _, result := range []handshakeResult{client, server} {
+		require.NoError(t, result.configErr)
+		require.NoError(t, result.handshakeError)
+	}
+
+	for _, testCase := range []struct {
+		name        string
+		version     protocol.Version
+		remoteEpoch uint64
+		recordEpoch uint64
+		content     protocol.Content
+	}{
+		{name: "DTLS12/close_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}},
+		{name: "DTLS13/alert_after_keys", version: protocol.Version1_3, remoteEpoch: 2, content: &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}},
+		{name: "ACK/before_keys", version: protocol.Version1_3, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}}}},
+		{name: "ACK/after_keys", version: protocol.Version1_3, remoteEpoch: 3, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}}}},
+		{name: "ACK/mixed_epochs", version: protocol.Version1_3, remoteEpoch: 3, recordEpoch: 2, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}, {Epoch: 3}}}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			conn, peerProtection := newTestConnWithReadProtection(t)
+			common := dtlsstate.CommonState(conn.state)
+			common.LocalVersion = testCase.version
+			if testCase.version == protocol.Version1_2 {
+				conn.state = &dtlsstate.State12{Common: common}
+				conn.handshakeEstablished = client.conn.handshakeEstablished
+			}
+			conn.setRemoteEpoch(testCase.remoteEpoch)
+			raw, err := marshalTestRecord(recordlayer.RecordConfig{Version: protocol.Version1_2}, testCase.content)
+			require.NoError(t, err)
+			if testCase.recordEpoch != 0 {
+				plaintext, marshalErr := testCase.content.Marshal()
+				require.NoError(t, marshalErr)
+				sealed, sealErr := peerProtection.SealRecord(recordlayer.CiphertextConfig{
+					EpochLow: uint8(testCase.recordEpoch & recordwire.EpochMask),
+				}, 0, testCase.content.ContentType(), plaintext)
+				require.NoError(t, sealErr)
+				raw, err = sealed.Marshal()
+				require.NoError(t, err)
+			}
+
+			outcome, err := conn.handleIncomingPacket(t.Context(), raw, nil, nil, false)
+			require.NoError(t, err)
+			assert.Equal(t, packetOutcome{}, outcome)
+			if detector := common.ReplayDetector[testCase.recordEpoch]; detector != nil {
+				_, acceptable := detector.Check(0)
+				assert.True(t, acceptable, "discarded records must not consume replay sequence numbers")
+			}
+		})
+	}
+}

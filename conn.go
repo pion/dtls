@@ -1952,10 +1952,22 @@ func (c *Conn) hasInboundRecordProtection() bool {
 	return ok && common.CipherSuite != nil && state12.Protection != nil
 }
 
+//nolint:cyclop
 func (c *Conn) prepareLegacyPacket(buf []byte, rAddr net.Addr, bufferLease *readBufferLease) (incomingPacketState, bool, error) {
 	raw := buf
 	header, ok := c.unmarshalLegacyHeader(buf)
 	if !ok {
+		return incomingPacketState{}, false, nil
+	}
+	// Discard old epoch-zero alerts following the earlier-epoch discard recommendation:
+	// https://datatracker.ietf.org/doc/html/rfc9147#section-4.2.1
+	// DTLS 1.2 requires accepting old epochs until the handshake completes:
+	// https://datatracker.ietf.org/doc/html/rfc6347#section-4.1
+	common := dtlsstate.CommonState(c.state)
+	if header.Epoch() == 0 && header.ContentType() == protocol.ContentTypeAlert && common.RemoteEpoch() != 0 &&
+		(common.LocalVersion == protocol.Version1_3 || c.isHandshakeCompletedSuccessfully()) {
+		c.log.Debug("discarded alert from the old plaintext epoch")
+
 		return incomingPacketState{}, false, nil
 	}
 	if c.handleFutureLegacyPacket(header, rAddr, buf, bufferLease) {
@@ -2201,6 +2213,16 @@ func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protoco
 func (c *Conn) handleRecordContent(ctx context.Context, content protocol.Content, prepared incomingPacketState, rAddr net.Addr, bufferLease *readBufferLease) (bool, packetOutcome, error) {
 	switch content := content.(type) {
 	case *protocol.ACK:
+		// The ACK's epoch must be at least that of every acknowledged record.
+		// Validate the entire ACK before applying it.
+		// https://datatracker.ietf.org/doc/html/rfc9147#section-7
+		for _, record := range content.Records {
+			if record.Epoch > prepared.number.Epoch {
+				c.log.Debug("discarded ACK for a record from a higher epoch")
+
+				return false, packetOutcome{}, nil
+			}
+		}
 		isLatestSeqNum := prepared.markPacketAsValid()
 
 		return isLatestSeqNum, packetOutcome{receivedACK: &protocol.ACK{Records: append([]protocol.RecordNumber(nil), content.Records...)}}, nil
