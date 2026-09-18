@@ -20,14 +20,7 @@ concurrency:
 
 jobs:
   interop:
-    name: Interoperability
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out current DTLS commit
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Run interoperability tests
-        uses: pion/dtls-interop@main
+    uses: pion/dtls-interop/.github/workflows/interop-tests.yaml@main
+    with:
+      dtls-repository: ${{ github.repository }}
+      dtls-ref: ${{ github.event.pull_request.head.sha || github.sha }}
