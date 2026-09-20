@@ -7,10 +7,12 @@ import (
 	"bytes"
 	"context"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/pion/dtls/v4/internal/closer"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
@@ -515,4 +517,61 @@ func TestPendingCIDDatagramFinalDecision(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestDynamicCIDAcceptance(t *testing.T) {
+	state := dtlsstate.NewState13(false)
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ServerCID: []byte("original")})
+	conn := &Conn{state: &state, closed: closer.NewCloser()}
+	alias := []byte("newalias")
+	added, err := conn.reserveLocalCIDs([][]byte{alias, alias, []byte("original")})
+	assert.NoError(t, err)
+	assert.Len(t, added, 1)
+	alias[0] = 'X'
+	for _, cid := range []string{"original", "newalias"} {
+		raw := marshalCIDPreflightRecord(t, protocol.Version1_3, []byte(cid))
+		records, unpackErr := conn.unpackDatagram(raw)
+		assert.NoError(t, unpackErr)
+		assert.Len(t, records, 1)
+		_, err = conn.unmarshalCiphertextRecord(raw, false)
+		assert.NoError(t, err)
+	}
+	unknown := marshalCIDPreflightRecord(t, protocol.Version1_3, []byte("unknown!"))
+	_, err = conn.unpackDatagram(unknown)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
+	_, err = conn.unmarshalCiphertextRecord(unknown, false)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCiphertextHeader)
+	prefix := marshalCIDPreflightRecord(t, protocol.Version1_3, nil)
+	aliasRecord := marshalCIDPreflightRecord(t, protocol.Version1_3, added[0])
+	records, err := conn.unpackDatagram(bytes.Join([][]byte{prefix, aliasRecord}, nil))
+	assert.NoError(t, err)
+	assert.Len(t, records, 2)
+	_, err = conn.unmarshalCiphertextRecord(prefix, true)
+	assert.NoError(t, err)
+
+	_, err = conn.reserveLocalCIDs([][]byte{[]byte("rollback"), []byte("short")})
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidConnectionIDLength)
+	assert.False(t, conn.acceptsInboundCID([]byte("rollback")))
+	conn.removeLocalCIDs(added)
+	assert.False(t, conn.acceptsInboundCID([]byte("newalias")))
+	assert.True(t, conn.acceptsInboundCID([]byte("original")))
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 100 {
+			_, _ = conn.unpackDatagram(aliasRecord)
+			_, _ = conn.unmarshalCiphertextRecord(aliasRecord, false)
+		}
+	}()
+	for range 100 {
+		added, err = conn.reserveLocalCIDs([][]byte{[]byte("newalias")})
+		assert.NoError(t, err)
+		conn.removeLocalCIDs(added)
+	}
+	wg.Wait()
+	conn.closed.Close()
+	_, err = conn.reserveLocalCIDs([][]byte{[]byte("newalias")})
+	assert.ErrorIs(t, err, ErrConnClosed)
 }

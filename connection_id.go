@@ -226,15 +226,94 @@ func (c *Conn) registerLocalCID() error {
 		return nil
 	}
 	cid := dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords()
-	if bytes.Equal(cid, c.registeredLocalCID) {
+	var ids *dtlsstate.CIDReceiveSet
+	if state, ok := c.state.(*dtlsstate.State13); ok {
+		ids = state.CID.Receive.IDs
+	}
+	if bytes.Equal(cid, c.registeredLocalCID) && ids == c.registeredReceiveCIDs {
 		return nil
 	}
 	if err := c.packetConn.RegisterCID(cid); err != nil {
 		return err
 	}
 	c.registeredLocalCID = bytes.Clone(cid)
+	c.registeredReceiveCIDs = ids
 
 	return nil
+}
+
+// acceptsInboundCID uses pre-negotiation DTLS 1.2 CID CID,
+// or DTLS 1.3 CID set.
+func (c *Conn) acceptsInboundCID(cid []byte) bool {
+	if state, ok := c.state.(*dtlsstate.State13); ok && state.CID.Negotiated {
+		return state.CID.Receive.IDs.Contains(cid)
+	}
+
+	return bytes.Equal(dtlsstate.CommonState(c.state).LocalConnectionIDForInboundRecords(), cid)
+}
+
+// reserveLocalCIDs reserves CID before publishing acceptance.
+func (c *Conn) reserveLocalCIDs(cids [][]byte) ([][]byte, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.isConnectionClosed() {
+		return nil, ErrConnClosed
+	}
+
+	state, ok := c.state.(*dtlsstate.State13)
+	if !ok || !state.CID.Negotiated || !state.CID.Receive.CanSendNewConnectionID {
+		return nil, dtlserrors.ErrUnexpectedPostHandshakeMessage
+	}
+	receive := &state.CID.Receive
+	added, err := prepareLocalCIDs(receive, cids)
+	if err != nil {
+		return nil, err
+	}
+	if c.packetConn != nil {
+		if err := c.packetConn.RegisterCIDs(added); err != nil {
+			return nil, err
+		}
+	}
+	for _, cid := range added {
+		receive.IDs.Add(cid)
+	}
+
+	return added, nil
+}
+
+// prepareLocalCIDs validates and copies new IDs.
+func prepareLocalCIDs(receive *dtlsstate.CIDReceiveState, cids [][]byte) ([][]byte, error) {
+	seen := make(map[string]bool, len(cids))
+	var added [][]byte
+	for _, cid := range cids {
+		if len(cid) != receive.Length {
+			return nil, dtlserrors.ErrInvalidConnectionIDLength
+		}
+		key := string(cid)
+		if seen[key] || receive.IDs.Contains(cid) {
+			continue
+		}
+		seen[key] = true
+		added = append(added, bytes.Clone(cid))
+	}
+
+	return added, nil
+}
+
+// removeLocalCIDs removes retired or never-advertised IDs.
+func (c *Conn) removeLocalCIDs(cids [][]byte) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	state, ok := c.state.(*dtlsstate.State13)
+	if !ok || state.CID.Receive.IDs == nil {
+		return
+	}
+	for _, cid := range cids {
+		state.CID.Receive.IDs.Remove(cid)
+		if c.packetConn != nil {
+			c.packetConn.UnregisterCID(cid)
+		}
+	}
 }
 
 func (c *Conn) pendingCIDNegotiation() bool {

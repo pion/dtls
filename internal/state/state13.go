@@ -5,6 +5,8 @@ package state
 
 import (
 	"bytes"
+	"maps"
+	"sync"
 
 	"github.com/pion/dtls/v4/internal/negotiation"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
@@ -12,6 +14,65 @@ import (
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
+
+// CIDReceiveSet CID bytes and membership checks.
+type CIDReceiveSet struct {
+	mu  sync.RWMutex
+	ids map[string]struct{}
+}
+
+// Contains reports whether cid is accepted on inbound records.
+func (s *CIDReceiveSet) Contains(cid []byte) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.ids[string(cid)]
+
+	return ok
+}
+
+// Add copies cid into the accepted set.
+func (s *CIDReceiveSet) Add(cid []byte) {
+	if len(cid) == 0 {
+		return
+	}
+	s.mu.Lock()
+	if s.ids == nil {
+		s.ids = make(map[string]struct{})
+	}
+	s.ids[string(cid)] = struct{}{}
+	s.mu.Unlock()
+}
+
+// Remove stops accepting cid.
+func (s *CIDReceiveSet) Remove(cid []byte) {
+	s.mu.Lock()
+	delete(s.ids, string(cid))
+	s.mu.Unlock()
+}
+
+// Clone returns an independent snapshot for certificate verification.
+func (s *CIDReceiveSet) Clone() *CIDReceiveSet {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return &CIDReceiveSet{ids: maps.Clone(s.ids)}
+}
+
+// Clear releases all accepted IDs.
+func (s *CIDReceiveSet) Clear() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	clear(s.ids)
+	s.mu.Unlock()
+}
 
 type TrafficSecrets struct {
 	Client []byte
@@ -70,6 +131,8 @@ type CIDState struct {
 // CIDReceiveState describes locally generated CIDs carried in protected
 // records sent by the peer.
 type CIDReceiveState struct {
+	// IDs contains accepted local CIDs.
+	IDs *CIDReceiveSet
 	// Expected reports whether protected peer datagrams must contain a CID.
 	// CID-less unified records are allowed alongside a CID-carrying record.
 	// Epoch-zero plaintext records have no CID field.
@@ -149,4 +212,6 @@ func (s *State13) CommitNegotiatedExtensions(decision *negotiation.ConnectionID)
 	}
 	localCID, remoteCID := s.LocalConnectionID(), s.RemoteConnectionID
 	s.CID = CIDState{Negotiated: true, Receive: CIDReceiveState{Expected: len(localCID) > 0, Length: len(localCID), CanSendNewConnectionID: len(localCID) > 0}, Send: CIDSendState{UseCID: len(remoteCID) > 0, Active: bytes.Clone(remoteCID)}}
+	s.CID.Receive.IDs = &CIDReceiveSet{}
+	s.CID.Receive.IDs.Add(localCID)
 }

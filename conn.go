@@ -243,6 +243,7 @@ type Conn struct {
 
 	cidPathMigrationPolicy cidPathMigrationPolicy
 	registeredLocalCID     []byte
+	registeredReceiveCIDs  *dtlsstate.CIDReceiveSet
 	rrc                    dtlsrrc.Manager
 }
 
@@ -1576,6 +1577,9 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 	common := dtlsstate.CommonState(c.state)
 	localCID := common.LocalConnectionIDForInboundRecords()
 	cidLength := len(localCID)
+	if state, ok := c.state.(*dtlsstate.State13); ok && state.CID.Negotiated {
+		cidLength = state.CID.Receive.Length
+	}
 	config := recordlayer.UnpackDatagramConfig{TargetVersion: common.LocalVersion, CIDLength: cidLength, CIDRequired: c.inboundCIDRequired()}
 	records, err := recordlayer.UnpackDatagram(buf, config)
 	if cidLength == 0 {
@@ -1587,7 +1591,7 @@ func (c *Conn) unpackDatagram(buf []byte) ([][]byte, error) {
 		if len(cid) == 0 {
 			continue
 		}
-		if !bytes.Equal(localCID, cid) {
+		if !c.acceptsInboundCID(cid) {
 			// Without a matching CID, protected siblings cannot inherit this
 			// association from an unrecognized later record.
 			if config.CIDRequired && !recordsContainCID(records[:i]) {
@@ -1660,7 +1664,7 @@ func (c *Conn) unmarshalCiphertextRecord(
 		return record, dtlserrors.ErrInvalidCiphertextHeader
 	}
 	if hasCID {
-		if !bytes.Equal(localCID, record.ConnectionID()) {
+		if !c.acceptsInboundCID(record.ConnectionID()) {
 			return record, dtlserrors.ErrInvalidCiphertextHeader
 		}
 	}
@@ -2854,10 +2858,17 @@ func (c *Conn) close(byUser bool) error {
 		return nil
 	}
 
-	if c.isHandshakeCompletedSuccessfully() && byUser {
-		// Discard error from notify() to return non-error on user Close()
-		// even if the underlying connection is already closed.
-		_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
+	if c.isHandshakeCompletedSuccessfully() {
+		if byUser {
+			// Discard error from notify() to return non-error on user Close()
+			// even if the underlying connection is already closed.
+			_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
+		}
+		c.lock.Lock()
+		if state, ok := c.state.(*dtlsstate.State13); ok {
+			state.CID.Receive.IDs.Clear()
+		}
+		c.lock.Unlock()
 	}
 
 	if c.detached != nil {
