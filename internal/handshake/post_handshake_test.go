@@ -53,7 +53,8 @@ func (c *postHandshakeAlertConn) Notify(
 
 type postHandshakeWriteConn struct {
 	flightTestConn
-	result *WriteResult
+	result   *WriteResult
+	writeErr error
 }
 
 type postHandshakeKeyUpdateConn struct {
@@ -110,7 +111,7 @@ func (c *postHandshakeWriteConn) WritePackets(
 ) (*WriteResult, error) {
 	c.writtenPackets = append(c.writtenPackets, pkts...)
 
-	return c.result, nil
+	return c.result, c.writeErr
 }
 
 func TestMakeReliableNewSessionTicket(t *testing.T) {
@@ -357,7 +358,7 @@ func TestHandleUnexpectedPostHandshakeMessageAlert(t *testing.T) {
 	conn := &postHandshakeAlertConn{}
 
 	err := post.handlePostHandshakeMessage(context.Background(), conn, &handshake.Handshake{Message: &handshake.MessageFinished{}}, 0)
-	require.NoError(t, err)
+	require.Error(t, err)
 	assert.Equal(t, []postHandshakeAlert{{
 		level:       alert.Fatal,
 		description: alert.UnexpectedMessage,
@@ -377,7 +378,7 @@ func TestServerRejectsNewSessionTicketWithAlert(t *testing.T) {
 		conn,
 		&handshake.MessageNewSessionTicket{},
 	)
-	require.NoError(t, err)
+	require.Error(t, err)
 	assert.Equal(t, []postHandshakeAlert{{
 		level:       alert.Fatal,
 		description: alert.UnexpectedMessage,
@@ -394,7 +395,7 @@ func TestNewSessionTicketLifetimeLimit(t *testing.T) {
 	conn := &postHandshakeAlertConn{}
 
 	err := post.handleNewSessionTicket(context.Background(), conn, &handshake.MessageNewSessionTicket{TicketLifetime: maxSessionTicketLifetime + 1})
-	require.NoError(t, err)
+	require.Error(t, err)
 	assert.Equal(t, []postHandshakeAlert{{
 		level:       alert.Fatal,
 		description: alert.IllegalParameter,
@@ -645,4 +646,29 @@ func TestInvalidKeyUpdateUsesIllegalParameterAlert(t *testing.T) {
 	assert.Equal(t, []postHandshakeAlert{{
 		level: alert.Fatal, description: alert.IllegalParameter,
 	}}, conn.notifications)
+}
+
+func TestPostHandshakeIndependentCategories(t *testing.T) {
+	state := newPostHandshakeKeyUpdateTestState(t, false)
+	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
+	active := postHandshakeFlightID{Category: postHandshakeNewConnectionID}
+	post.flights[active] = &reliablePostHandshakeFlight{ID: active}
+	completion, completed := newPostHandshakeCompletion()
+	post.queue = []postHandshakeCommand{
+		{Kind: commandSendNewConnectionID},
+		{Kind: commandSendRequestConnectionID, Completion: completion},
+		{Kind: commandSendNewSessionTicket},
+		{Kind: commandSendNewSessionTicket},
+		{Kind: commandSendKeyUpdate},
+		applicationDataCommand(&dtlsflight.Outbound{Content: &protocol.ApplicationData{}}),
+	}
+	conn := &postHandshakeKeyUpdateConn{state: state}
+	require.NoError(t, post.startQueuedPostHandshake(t.Context(), conn))
+	require.Len(t, post.queue, 1)
+	assert.Equal(t, commandSendNewConnectionID, post.queue[0].Kind)
+	require.Error(t, completed.Err())
+	assert.ErrorIs(t, completion.result(), dtlserrors.ErrNotImplemented)
+	assert.Len(t, post.flights, 4)
+	assert.Len(t, conn.writtenPackets, 4)
+	assert.Equal(t, 3, state.HandshakeSendSequence)
 }

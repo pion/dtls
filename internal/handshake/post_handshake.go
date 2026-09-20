@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -134,6 +135,8 @@ const (
 
 type keyUpdateCommand struct {
 	Request handshake.KeyUpdateRequest
+	// Required responses must be emitted before queued application writes.
+	Required bool
 }
 
 type postHandshakeCommand struct {
@@ -215,21 +218,22 @@ func (p *postHandshake) initialize() {
 }
 
 func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn) error {
-	for len(p.queue) != 0 {
-		// Reliable post-handshake messages use one active outbound flight.
-		// Application records may follow a flight that has already been emitted.
-		// For KeyUpdate they continue using the current generation until the ACK
-		// commits the pending generation.
-		if len(p.flights) != 0 && p.queue[0].Kind != commandSendApplicationData {
-			return nil
-		}
-		command := p.queue[0]
-		p.queue = p.queue[1:]
+	applicationBlocked := false
+	for i := 0; i < len(p.queue); {
+		command := p.queue[i]
 		if err, canceled := canceledPostHandshakeCommand(command); canceled {
+			p.queue = slices.Delete(p.queue, i, i+1)
 			command.Completion.complete(err)
 
 			continue
 		}
+		if !p.commandEligible(command.Kind, applicationBlocked) {
+			applicationBlocked = applicationBlocked || command.KeyUpdate.Required
+			i++
+
+			continue
+		}
+		p.queue = slices.Delete(p.queue, i, i+1)
 
 		err := p.startPostHandshakeCommand(ctx, conn, command)
 		if err != nil {
@@ -240,6 +244,30 @@ func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn)
 	}
 
 	return nil
+}
+
+func (p *postHandshake) commandEligible(kind postHandshakeCommandKind, applicationBlocked bool) bool {
+	var category postHandshakeCategory
+	switch kind {
+	case commandSendKeyUpdate:
+		category = postHandshakeKeyUpdate
+	case commandSendNewConnectionID:
+		category = postHandshakeNewConnectionID
+	case commandSendRequestConnectionID:
+		category = postHandshakeRequestConnectionID
+	case commandSendApplicationData:
+		return !applicationBlocked
+	default:
+		// tickets may overlap, and invalid commands must reach validation.
+		return true
+	}
+	for id := range p.flights {
+		if id.Category == category {
+			return false
+		}
+	}
+
+	return true
 }
 
 func canceledPostHandshakeCommand(command postHandshakeCommand) (error, bool) {
@@ -259,6 +287,14 @@ func (p *postHandshake) startPostHandshakeCommand(
 	conn Conn,
 	command postHandshakeCommand,
 ) error {
+	if err := p.validatePostHandshakeCommand(command); err != nil {
+		if command.Completion == nil {
+			return err
+		}
+		command.Completion.complete(err)
+
+		return nil
+	}
 	switch command.Kind {
 	case commandSendNewSessionTicket:
 		return p.startNewSessionTicket(ctx, conn, false)
@@ -272,6 +308,27 @@ func (p *postHandshake) startPostHandshakeCommand(
 	default:
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
+}
+
+// Reject local arguments before mutating sequence, key, or flight state.
+func (p *postHandshake) validatePostHandshakeCommand(command postHandshakeCommand) error {
+	switch command.Kind {
+	case commandSendNewSessionTicket:
+		if p.state.IsClient {
+			return dtlserrors.ErrUnexpectedPostHandshakeMessage
+		}
+	case commandSendKeyUpdate:
+		if command.KeyUpdate.Request > handshake.KeyUpdateRequested {
+			return dtlserrors.ErrInvalidKeyUpdate
+		}
+	case commandSendNewConnectionID, commandSendRequestConnectionID:
+		return dtlserrors.ErrNotImplemented
+	case commandSendApplicationData:
+	default:
+		return dtlserrors.ErrUnexpectedPostHandshakeMessage
+	}
+
+	return nil
 }
 
 func (p *postHandshake) writeApplicationData(conn Conn, command postHandshakeCommand) error {
@@ -404,8 +461,10 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 		)
 		if err != nil {
 			var dtlsAlert *alert.Alert
-			errors.As(err, &dtlsAlert)
-			description := dtlsAlert.Description
+			description := alert.DecodeError
+			if errors.As(err, &dtlsAlert) {
+				description = dtlsAlert.Description
+			}
 			if errors.Is(err, dtlserrors.ErrInvalidKeyUpdate) {
 				description = alert.IllegalParameter
 			}
@@ -430,8 +489,16 @@ func (p *postHandshake) handlePostHandshakeMessage(ctx context.Context, conn Con
 	case *handshake.MessageKeyUpdate:
 		return p.handleKeyUpdate(ctx, conn, body, epoch)
 	default:
-		return conn.Notify(ctx, alert.Fatal, alert.UnexpectedMessage)
+		return fatalPostHandshakeAlert(ctx, conn, alert.UnexpectedMessage)
 	}
+}
+
+func fatalPostHandshakeAlert(ctx context.Context, conn Conn, description alert.Description) error {
+	if err := conn.Notify(ctx, alert.Fatal, description); err != nil {
+		return err
+	}
+
+	return &alert.Alert{Level: alert.Fatal, Description: description}
 }
 
 func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message *handshake.MessageKeyUpdate, epoch uint64) error {
@@ -443,7 +510,7 @@ func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message 
 		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
 	if current.Epoch != epoch || p.state.RemoteEpoch() != epoch {
-		return conn.Notify(ctx, alert.Fatal, alert.UnexpectedMessage)
+		return fatalPostHandshakeAlert(ctx, conn, alert.UnexpectedMessage)
 	}
 	next, err := p.nextTrafficGeneration(current)
 	if err != nil {
@@ -463,7 +530,7 @@ func (p *postHandshake) queueRequiredKeyUpdateResponse(request handshake.KeyUpda
 	if request != handshake.KeyUpdateRequested {
 		return
 	}
-	command := postHandshakeCommand{Kind: commandSendKeyUpdate, KeyUpdate: keyUpdateCommand{Request: handshake.KeyUpdateNotRequested}}
+	command := postHandshakeCommand{Kind: commandSendKeyUpdate, KeyUpdate: keyUpdateCommand{Request: handshake.KeyUpdateNotRequested, Required: true}}
 	insertAt := len(p.queue)
 	for i, queued := range p.queue {
 		if queued.Kind == commandSendApplicationData {
@@ -479,10 +546,10 @@ func (p *postHandshake) queueRequiredKeyUpdateResponse(request handshake.KeyUpda
 
 func (p *postHandshake) handleNewSessionTicket(ctx context.Context, conn Conn, message *handshake.MessageNewSessionTicket) error {
 	if !p.state.IsClient {
-		return conn.Notify(ctx, alert.Fatal, alert.UnexpectedMessage)
+		return fatalPostHandshakeAlert(ctx, conn, alert.UnexpectedMessage)
 	}
 	if message.TicketLifetime > maxSessionTicketLifetime {
-		return conn.Notify(ctx, alert.Fatal, alert.IllegalParameter)
+		return fatalPostHandshakeAlert(ctx, conn, alert.IllegalParameter)
 	}
 
 	// todo: ticket persistence and PSK derivation.
