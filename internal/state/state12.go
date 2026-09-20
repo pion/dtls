@@ -4,12 +4,12 @@
 package state
 
 import (
-	dtlsciphersuite "github.com/pion/dtls/v3/internal/ciphersuite"
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 // State12 holds state that is meaningful only for DTLS 1.2.

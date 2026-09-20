@@ -10,7 +10,7 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // X25519KeySize is the size in bytes of an X25519 public key, private key, or

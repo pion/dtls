@@ -6,11 +6,11 @@ package state
 import (
 	"bytes"
 
-	"github.com/pion/dtls/v3/internal/negotiation"
-	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
-	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/negotiation"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 type TrafficSecrets struct {

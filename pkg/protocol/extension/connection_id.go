@@ -6,7 +6,7 @@ package extension
 import (
 	"bytes"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // ConnectionID is a DTLS extension that provides an alternative to IP address

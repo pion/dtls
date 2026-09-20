@@ -7,8 +7,8 @@ import (
 	"crypto/tls"
 	"testing"
 
-	dtlsconfig "github.com/pion/dtls/v3/internal/config"
-	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -6,14 +6,14 @@ package flight12
 import (
 	"testing"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
-	dtlsconfig "github.com/pion/dtls/v3/internal/config"
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v3/pkg/protocol/alert"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/stretchr/testify/require"
 )
 

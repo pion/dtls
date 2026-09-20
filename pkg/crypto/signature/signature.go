@@ -4,7 +4,7 @@
 // Package signature provides our implemented Signature Algorithms
 package signature
 
-import "github.com/pion/dtls/v3/pkg/crypto/hash"
+import "github.com/pion/dtls/v4/pkg/crypto/hash"
 
 // Algorithm as defined in TLS 1.2
 // https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-16

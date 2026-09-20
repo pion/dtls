@@ -10,12 +10,12 @@ import (
 	"math/big"
 	"testing"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlscrypto "github.com/pion/dtls/v3/internal/handshakecrypto"
-	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v3/pkg/crypto/hash"
-	"github.com/pion/dtls/v3/pkg/crypto/signature"
-	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/hash"
+	"github.com/pion/dtls/v4/pkg/crypto/signature"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -6,13 +6,13 @@ package dtlshandshake
 import (
 	"context"
 
-	dtlsconfig "github.com/pion/dtls/v3/internal/config"
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlsflight "github.com/pion/dtls/v3/internal/flight"
-	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
-	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/alert"
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
 )
 
 // handshakeContext groups the DTLS 1.3 state that must move together while

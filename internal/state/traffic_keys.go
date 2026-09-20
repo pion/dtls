@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"sync"
 
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 )
 
 // TrafficGeneration binds an epoch and traffic-secret generation to the

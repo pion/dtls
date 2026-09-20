@@ -21,7 +21,7 @@ import (
 	"encoding/binary"
 	"math"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // ccm represents a Counter with CBC-MAC with a specific key.

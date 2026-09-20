@@ -1,4 +1,4 @@
-module github.com/pion/dtls/v3
+module github.com/pion/dtls/v4
 
 require (
 	github.com/pion/logging v0.2.4
@@ -12,9 +12,3 @@ require (
 require go.yaml.in/yaml/v3 v3.0.5 // indirect
 
 go 1.24.0
-
-// Retract version with broken RSA interop with OpenSSL DTLS 1.2.
-retract v3.1.0
-
-// Retract version with broken interoperability with firefox.
-retract v3.1.3

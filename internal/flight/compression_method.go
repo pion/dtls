@@ -3,7 +3,7 @@
 
 package flight
 
-import "github.com/pion/dtls/v3/pkg/protocol"
+import "github.com/pion/dtls/v4/pkg/protocol"
 
 // DefaultCompressionMethods returns the supported compression methods.
 func DefaultCompressionMethods() []*protocol.CompressionMethod {

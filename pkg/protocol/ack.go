@@ -6,7 +6,7 @@ package protocol
 import (
 	"encoding/binary"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"golang.org/x/crypto/cryptobyte"
 )
 

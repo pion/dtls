@@ -12,14 +12,14 @@ import (
 	"maps"
 	"slices"
 
-	dtlsconfig "github.com/pion/dtls/v3/internal/config"
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlsflight "github.com/pion/dtls/v3/internal/flight"
-	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
-	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	"github.com/pion/dtls/v3/internal/util"
-	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/internal/util"
+	"github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 // tlsHandshakeHeaderLength is the TLS 1.3 transcript handshake header length.

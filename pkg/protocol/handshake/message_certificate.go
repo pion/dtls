@@ -6,8 +6,8 @@ package handshake
 import (
 	"bytes"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/util"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/util"
 )
 
 // MessageCertificate is a DTLS Handshake Message

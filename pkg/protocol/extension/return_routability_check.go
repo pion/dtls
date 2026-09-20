@@ -3,7 +3,7 @@
 
 package extension
 
-import dtlserrors "github.com/pion/dtls/v3/internal/errors"
+import dtlserrors "github.com/pion/dtls/v4/internal/errors"
 
 // ReturnRoutabilityCheck negotiates the RFC 9853 RRC subprotocol.
 type ReturnRoutabilityCheck struct{}

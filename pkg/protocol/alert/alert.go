@@ -7,8 +7,8 @@ package alert
 import (
 	"fmt"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/pkg/protocol"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/pkg/protocol"
 )
 
 // Level is the level of the TLS Alert.

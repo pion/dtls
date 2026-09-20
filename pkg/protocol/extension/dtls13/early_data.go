@@ -6,8 +6,8 @@ package dtls13
 import (
 	"encoding/binary"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
 )
 
 // EarlyData is the empty early_data payload in ClientHello and

@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // Type is the two-byte value assigned to a TLS extension by IANA.

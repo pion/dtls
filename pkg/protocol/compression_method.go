@@ -3,7 +3,7 @@
 
 package protocol
 
-import dtlserrors "github.com/pion/dtls/v3/internal/errors"
+import dtlserrors "github.com/pion/dtls/v4/internal/errors"
 
 // CompressionMethodID is the ID for a CompressionMethod.
 type CompressionMethodID byte

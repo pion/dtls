@@ -6,7 +6,7 @@ package extension
 import (
 	"slices"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // ALPNProtocolSelection negotiates a shared protocol according to #3.2 of rfc7301.

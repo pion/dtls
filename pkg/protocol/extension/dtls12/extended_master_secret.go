@@ -4,8 +4,8 @@
 package dtls12
 
 import (
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
 )
 
 // ExtendedMasterSecret represents the presence of the empty

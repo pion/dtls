@@ -6,10 +6,10 @@ package dtls
 import (
 	"net"
 
-	"github.com/pion/dtls/v3/internal/net/udp"
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
-	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
+	"github.com/pion/dtls/v4/internal/net/udp"
+	dtlsnet "github.com/pion/dtls/v4/pkg/net"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 )
 
 func packetListenerOptions(config *dtlsConfig) []udp.ListenerOption {

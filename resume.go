@@ -8,8 +8,8 @@ import (
 	"errors"
 	"net"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 )
 
 func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {

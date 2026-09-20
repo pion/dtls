@@ -7,17 +7,17 @@ import (
 	"bytes"
 	"context"
 
-	dtlsconfig "github.com/pion/dtls/v3/internal/config"
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlsflight "github.com/pion/dtls/v3/internal/flight"
-	"github.com/pion/dtls/v3/internal/negotiation"
-	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	"github.com/pion/dtls/v3/pkg/crypto/prf"
-	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/alert"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
-	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/internal/negotiation"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/crypto/prf"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls12"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 func flight4bParse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {

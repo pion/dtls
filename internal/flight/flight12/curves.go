@@ -6,7 +6,7 @@ package flight12
 import (
 	"slices"
 
-	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 )
 
 func supportedEllipticCurves(curves []elliptic.Curve) []elliptic.Curve {

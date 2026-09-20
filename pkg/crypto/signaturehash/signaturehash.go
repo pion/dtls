@@ -12,10 +12,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/pkg/crypto/hash"
-	"github.com/pion/dtls/v3/pkg/crypto/signature"
-	"github.com/pion/dtls/v3/pkg/protocol"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/pkg/crypto/hash"
+	"github.com/pion/dtls/v4/pkg/crypto/signature"
+	"github.com/pion/dtls/v4/pkg/protocol"
 )
 
 // Algorithm is a signature/hash algorithm pairs which may be used in

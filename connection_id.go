@@ -10,12 +10,12 @@ import (
 	"errors"
 	"net"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlsflight "github.com/pion/dtls/v3/internal/flight"
-	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/alert"
-	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 )
 
 // RandomCIDGenerator is a random Connection ID generator where CID is the

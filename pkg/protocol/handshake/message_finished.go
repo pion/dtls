@@ -6,7 +6,7 @@ package handshake
 import (
 	"bytes"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // MessageFinished is a DTLS Handshake Message

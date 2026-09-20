@@ -7,10 +7,10 @@ import (
 	"bytes"
 	"fmt"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/negotiation"
-	"github.com/pion/dtls/v3/pkg/protocol/alert"
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/negotiation"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
 )
 
 func validateServerSRTP(snapshot negotiation.ClientHelloSnapshot, responses []extension.Value, localProfiles []extension.SRTPProtectionProfile, want negotiation.SRTPDecision) error {

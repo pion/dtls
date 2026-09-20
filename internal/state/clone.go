@@ -8,9 +8,9 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/pion/dtls/v3/internal/util"
-	"github.com/pion/dtls/v3/pkg/protocol"
-	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/internal/util"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 )
 
 // Clone13ForVerification returns a DTLS 1.3 state snapshot containing the

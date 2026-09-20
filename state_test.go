@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v4/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/stretchr/testify/require"
 )
 

@@ -3,7 +3,7 @@
 
 package protocol
 
-import dtlserrors "github.com/pion/dtls/v3/internal/errors"
+import dtlserrors "github.com/pion/dtls/v4/internal/errors"
 
 // ChangeCipherSpec protocol exists to signal transitions in
 // ciphering strategies.  The protocol consists of a single message,

@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 )
 
 func serverOpenSSL(c *comm) {

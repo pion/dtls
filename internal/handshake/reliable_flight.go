@@ -3,7 +3,7 @@
 
 package dtlshandshake
 
-import "github.com/pion/dtls/v3/pkg/protocol"
+import "github.com/pion/dtls/v4/pkg/protocol"
 
 // reliableFlight tracks one retransmission state machine's logical fragments
 // independently of the record numbers assigned to each transmission.

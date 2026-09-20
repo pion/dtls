@@ -9,7 +9,7 @@ import (
 	"crypto/x509"
 	"fmt"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // Fingerprint creates a fingerprint for a certificate using the specified hash algorithm.

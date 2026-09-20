@@ -10,8 +10,8 @@ import (
 	"hash"
 	"math"
 
-	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
-	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v4/pkg/protocol"
 )
 
 var (

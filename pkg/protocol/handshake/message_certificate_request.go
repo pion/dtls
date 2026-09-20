@@ -7,9 +7,9 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
-	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 )
 
 /*

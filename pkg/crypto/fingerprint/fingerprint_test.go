@@ -8,7 +8,7 @@ import (
 	"crypto/x509"
 	"testing"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 

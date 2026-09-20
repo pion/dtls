@@ -7,9 +7,9 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/pion/dtls/v3/pkg/protocol/extension"
-	extension12 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls12"
-	extension13 "github.com/pion/dtls/v3/pkg/protocol/extension/dtls13"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	extension12 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls12"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/stretchr/testify/require"
 )
 

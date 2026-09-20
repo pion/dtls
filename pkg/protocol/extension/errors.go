@@ -4,7 +4,7 @@
 package extension
 
 import (
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // ErrALPNInvalidFormat is raised when the ALPN format is invalid.

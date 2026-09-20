@@ -6,7 +6,7 @@ package signature
 import (
 	"testing"
 
-	"github.com/pion/dtls/v3/pkg/crypto/hash"
+	"github.com/pion/dtls/v4/pkg/crypto/hash"
 	"github.com/stretchr/testify/assert"
 )
 

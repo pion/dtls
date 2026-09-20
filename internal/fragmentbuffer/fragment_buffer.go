@@ -7,8 +7,8 @@ package fragmentbuffer
 import (
 	"bytes"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 const (

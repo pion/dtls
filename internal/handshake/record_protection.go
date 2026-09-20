@@ -6,11 +6,11 @@ package dtlshandshake
 import (
 	"context"
 
-	dtlsciphersuite "github.com/pion/dtls/v3/internal/ciphersuite"
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlsflight13 "github.com/pion/dtls/v3/internal/flight/flight13"
-	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
+	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 )
 
 func InitHandshakeRecordProtection(state *dtlsstate.State13) error {

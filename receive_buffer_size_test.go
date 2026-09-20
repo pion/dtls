@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlsnet "github.com/pion/dtls/v3/internal/net"
-	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsnet "github.com/pion/dtls/v4/internal/net"
+	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

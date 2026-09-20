@@ -6,7 +6,7 @@ package protocol
 import (
 	"bytes"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // ApplicationData messages are carried by the record layer and are

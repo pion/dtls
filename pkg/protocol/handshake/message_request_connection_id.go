@@ -3,7 +3,7 @@
 
 package handshake
 
-import dtlserrors "github.com/pion/dtls/v3/internal/errors"
+import dtlserrors "github.com/pion/dtls/v4/internal/errors"
 
 // MessageRequestConnectionID requests spare CIDs from a peer.
 //

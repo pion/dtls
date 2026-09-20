@@ -6,8 +6,8 @@ package handshake
 import (
 	"encoding/binary"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	"github.com/pion/dtls/v3/internal/util"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/util"
 )
 
 // HeaderLength msg_len for Handshake messages assumes an extra

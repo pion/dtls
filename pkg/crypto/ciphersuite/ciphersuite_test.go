@@ -6,7 +6,7 @@ package ciphersuite
 import (
 	"testing"
 
-	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/stretchr/testify/require"
 )
 

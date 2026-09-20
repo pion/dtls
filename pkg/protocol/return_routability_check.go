@@ -3,7 +3,7 @@
 
 package protocol
 
-import dtlserrors "github.com/pion/dtls/v3/internal/errors"
+import dtlserrors "github.com/pion/dtls/v4/internal/errors"
 
 // ReturnRoutabilityCheckMessageType identifies an RFC 9853 RRC message.
 type ReturnRoutabilityCheckMessageType uint8

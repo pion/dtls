@@ -4,7 +4,7 @@
 package recordlayer
 
 import (
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // ErrInvalidPacketLength is returned when the packet length too small

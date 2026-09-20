@@ -8,14 +8,14 @@ import (
 	"encoding/gob"
 	"math"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	dtlsstate "github.com/pion/dtls/v3/internal/state"
-	dtlsutil "github.com/pion/dtls/v3/internal/util"
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v3/pkg/crypto/prf"
-	"github.com/pion/dtls/v3/pkg/protocol"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/internal/ciphersuite"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	dtlsutil "github.com/pion/dtls/v4/internal/util"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/prf"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and

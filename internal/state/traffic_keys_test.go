@@ -8,8 +8,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/pion/dtls/v3/internal/ciphersuite"
-	cryptosuite "github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/internal/ciphersuite"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

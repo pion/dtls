@@ -4,8 +4,8 @@
 package flight12
 
 import (
-	dtlsflight "github.com/pion/dtls/v3/internal/flight"
-	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
 // handshakeRulesThroughClientKeyExchange returns the handshake transcript pull

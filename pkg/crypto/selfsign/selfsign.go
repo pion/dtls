@@ -17,7 +17,7 @@ import (
 	"math/big"
 	"time"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 )
 
 // GenerateSelfSigned creates a self-signed certificate.

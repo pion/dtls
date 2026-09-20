@@ -25,9 +25,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	dtlserrors "github.com/pion/dtls/v3/internal/errors"
-	idtlsnet "github.com/pion/dtls/v3/internal/net"
-	dtlsnet "github.com/pion/dtls/v3/pkg/net"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	idtlsnet "github.com/pion/dtls/v4/internal/net"
+	dtlsnet "github.com/pion/dtls/v4/pkg/net"
 	"github.com/pion/transport/v5/deadline"
 )
 

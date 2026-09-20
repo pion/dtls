@@ -10,9 +10,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/pion/dtls/v3"
-	"github.com/pion/dtls/v3/examples/util"
-	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	"github.com/pion/dtls/v4"
+	"github.com/pion/dtls/v4/examples/util"
+	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 )
 
 func main() {
