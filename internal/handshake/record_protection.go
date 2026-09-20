@@ -18,7 +18,7 @@ func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
 
-	return initRecordProtectionFromTrafficSecrets(state, dtlsflight13.EpochHandshake, state.KeySchedule.HandshakeTraffic, false)
+	return initRecordProtectionFromTrafficSecrets(state, dtlsflight13.EpochHandshake, state.KeySchedule.HandshakeTraffic)
 }
 
 // InitApplicationRecordProtection installs DTLS 1.3 application record
@@ -28,7 +28,7 @@ func InitApplicationRecordProtection(state *dtlsstate.State13) error {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
 
-	return initRecordProtectionFromTrafficSecrets(state, dtlsflight13.EpochApplication, dtlsstate.TrafficSecrets{Client: state.KeySchedule.ClientApplicationTrafficSecret0, Server: state.KeySchedule.ServerApplicationTrafficSecret0}, true)
+	return initRecordProtectionFromTrafficSecrets(state, dtlsflight13.EpochApplication, dtlsstate.TrafficSecrets{Client: state.KeySchedule.ClientApplicationTrafficSecret0, Server: state.KeySchedule.ServerApplicationTrafficSecret0})
 }
 
 func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *dtlsstate.State13) error {
@@ -45,7 +45,6 @@ func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
 	state *dtlsstate.State13,
 	epoch uint64,
 	secrets dtlsstate.TrafficSecrets,
-	allowReinitialize bool,
 ) error {
 	tls13CipherSuite, err := recordProtectionCipherSuite(state)
 	if err != nil {
@@ -54,12 +53,10 @@ func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
 	if state.TrafficKeys == nil {
 		state.TrafficKeys = &dtlsstate.TrafficKeyState{}
 	}
-	if !allowReinitialize {
-		_, hasWrite := state.TrafficKeys.Write(epoch)
-		_, hasRead := state.TrafficKeys.Read(epoch)
-		if hasWrite && hasRead {
-			return nil
-		}
+	_, hasWrite := state.TrafficKeys.Write(epoch)
+	_, hasRead := state.TrafficKeys.Read(epoch)
+	if hasWrite && hasRead {
+		return nil
 	}
 
 	writeSecret, readSecret, err := directionalTrafficSecrets(secrets, state.IsClient)

@@ -16,6 +16,7 @@ import (
 type State12 struct {
 	*Common
 	Protection cryptosuite.Protection
+	usage      trafficUsage
 
 	PreMasterSecret []byte
 	MasterSecret    []byte
@@ -99,4 +100,23 @@ func (s *State12) InitCipherSuite() error {
 	s.Protection = protection
 
 	return nil
+}
+
+// Seal counts successful encryption under the DTLS 1.2 write key.
+func (s *State12) Seal(record cryptosuite.Record, plaintext []byte) ([]byte, error) {
+	return s.usage.seal(s.Protection, record, plaintext)
+}
+
+// Open counts authentication failures under the DTLS 1.2 read key.
+func (s *State12) Open(record cryptosuite.Record, protected []byte) ([]byte, error) {
+	return s.usage.open(s.Protection, record, protected)
+}
+
+// Usage returns successful seals and authentication failures for the key pair.
+func (s *State12) Usage() (sealed, failed uint64) { return s.usage.counts() }
+
+// RestoreUsage restores counters before an imported connection starts processing records.
+func (s *State12) RestoreUsage(sealed, failed uint64) {
+	s.usage.sealed.Store(sealed)
+	s.usage.failed.Store(failed)
 }

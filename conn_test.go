@@ -5694,3 +5694,113 @@ func TestHandleIncomingPacketControlRecordEpoch(t *testing.T) {
 		})
 	}
 }
+
+type limitedTrafficSuite struct {
+	cryptosuite.TrafficSuite
+	limits cryptosuite.UsageLimits
+}
+
+func (s *limitedTrafficSuite) ID() cryptosuite.ID                   { return 0xffa8 }
+func (s *limitedTrafficSuite) UsageLimits() cryptosuite.UsageLimits { return s.limits }
+
+func trafficSuiteWithLimits(t *testing.T, seals, failures uint64) *limitedTrafficSuite {
+	t.Helper()
+
+	return &limitedTrafficSuite{
+		TrafficSuite: trafficSuiteForTest(t),
+		limits:       cryptosuite.UsageLimits{MaxSealedRecords: seals, MaxAuthenticationFailures: failures},
+	}
+}
+
+type limitedConnectionSuite struct {
+	cryptosuite.ConnectionSuite
+}
+
+func (s *limitedConnectionSuite) ID() cryptosuite.ID { return 0xffa9 }
+
+func (s *limitedConnectionSuite) UsageLimits() cryptosuite.UsageLimits {
+	return cryptosuite.UsageLimits{MaxSealedRecords: 8, MaxAuthenticationFailures: 2}
+}
+
+func limitedTrafficPair(t *testing.T, version protocol.Version) (*Conn, *Conn) {
+	t.Helper()
+	var suite cryptosuite.Suite = trafficSuiteWithLimits(t, 8, 2)
+	if version == protocol.Version1_2 {
+		connectionSuite, ok := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256).(cryptosuite.ConnectionSuite)
+		require.True(t, ok)
+		suite = &limitedConnectionSuite{ConnectionSuite: connectionSuite}
+	}
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	custom := WithCustomCipherSuites(func() []cryptosuite.Suite { return []cryptosuite.Suite{suite} })
+	client, server := handshakePair(t,
+		[]ClientOption{WithMinVersion(version), WithMaxVersion(version), WithInsecureSkipVerify(true), WithCipherSuites(suite.ID()), custom},
+		[]ServerOption{WithMinVersion(version), WithMaxVersion(version), WithCertificates(certificate), WithCipherSuites(suite.ID()), custom})
+	require.NoError(t, client.configErr)
+	require.NoError(t, server.configErr)
+	require.NoError(t, client.handshakeError)
+	require.NoError(t, server.handshakeError)
+
+	return client.conn, server.conn
+}
+
+func TestConnectionKeyUsage(t *testing.T) {
+	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+		t.Run(fmt.Sprintf("%x", version), func(t *testing.T) {
+			client, server := limitedTrafficPair(t, version)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			require.NoError(t, client.SetWriteDeadline(time.Now().Add(5*time.Second)))
+			require.NoError(t, server.SetReadDeadline(time.Now().Add(5*time.Second)))
+			before, ok := client.ConnectionState()
+			require.True(t, ok)
+			require.NotNil(t, before.KeyUsage)
+			buffer := make([]byte, 32)
+			for range 12 {
+				_, err := client.Write([]byte("payload"))
+				require.NoError(t, err)
+				_, err = server.Read(buffer)
+				require.NoError(t, err)
+			}
+			after, ok := client.ConnectionState()
+			require.True(t, ok)
+			require.GreaterOrEqual(t, after.KeyUsage.SealedRecords, before.KeyUsage.SealedRecords+12)
+			require.Equal(t, uint64(8), after.KeyUsage.RecommendedLimits.MaxSealedRecords)
+			require.Zero(t, after.KeyUsage.RemainingSealedRecords)
+			require.Less(t, before.KeyUsage.SealedRecords, after.KeyUsage.SealedRecords, "snapshots must not change")
+
+			packet := &dtlsflight.Outbound{Epoch: after.KeyUsage.WriteEpoch, Content: &protocol.ApplicationData{Data: []byte("payload")}, Protection: dtlsflight.ProtectionCiphertext}
+			client.writeLock.Lock()
+			datagrams, address, err := client.prepareRawPacketsTracked([]*dtlsflight.Outbound{packet})
+			client.writeLock.Unlock()
+			require.NoError(t, err)
+			require.Len(t, datagrams, 1)
+			raw := datagrams[0].raw
+			raw[len(raw)-1] ^= 1
+			for range 3 {
+				_, err = client.nextConn.WriteToContext(ctx, raw, address)
+				require.NoError(t, err)
+			}
+			_, err = client.Write([]byte("still connected"))
+			require.NoError(t, err)
+			n, err := server.Read(buffer)
+			require.NoError(t, err)
+			require.Equal(t, "still connected", string(buffer[:n]))
+			received, ok := server.ConnectionState()
+			require.True(t, ok)
+			require.Equal(t, uint64(3), received.KeyUsage.AuthenticationFailures)
+			require.Equal(t, uint64(2), received.KeyUsage.RecommendedLimits.MaxAuthenticationFailures)
+			require.Zero(t, received.KeyUsage.RemainingAuthenticationFailures)
+			require.False(t, client.isConnectionClosed())
+			require.False(t, server.isConnectionClosed())
+
+			if version == protocol.Version1_3 {
+				require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
+				updated, ok := client.ConnectionState()
+				require.True(t, ok)
+				require.Equal(t, after.KeyUsage.WriteEpoch+1, updated.KeyUsage.WriteEpoch)
+				require.Positive(t, updated.KeyUsage.RemainingSealedRecords)
+			}
+		})
+	}
+}

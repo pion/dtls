@@ -1094,7 +1094,7 @@ func (c *Conn) encodeRecord( //nolint:cyclop
 	if err != nil {
 		return nil, err
 	}
-	protected, err := state12.Protection.Seal(metadata, payload)
+	protected, err := state12.Seal(metadata, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -1171,7 +1171,7 @@ func (c *Conn) sealRecordContent( //nolint:cyclop
 	if err != nil {
 		return nil, err
 	}
-	protected, err := generation.Protection.Seal(metadata, innerPlaintext)
+	protected, err := generation.Seal(metadata, innerPlaintext)
 	if err != nil {
 		return nil, err
 	}
@@ -1745,7 +1745,7 @@ func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop
 	if err != nil {
 		return openedRecord{}, 0, operationalProtectionError(err)
 	}
-	plaintext, err := generation.Protection.Open(metadata, record.Payload())
+	plaintext, err := generation.Open(metadata, record.Payload())
 	if errors.Is(err, cryptosuite.ErrAuthenticationFailed) {
 		return openedRecord{}, 0, errRecordAuthentication
 	}
@@ -2091,7 +2091,7 @@ func (c *Conn) decryptLegacyRecord( //nolint:cyclop
 	if err != nil {
 		return nil, errRecordAuthentication
 	}
-	plaintext, err := state12.Protection.Open(metadata, protected)
+	plaintext, err := state12.Open(metadata, protected)
 	if errors.Is(err, cryptosuite.ErrAuthenticationFailed) {
 		return nil, errRecordAuthentication
 	}

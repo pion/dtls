@@ -118,6 +118,12 @@ func TestConnectionStateRoleAndVersion(t *testing.T) {
 			require.Equal(t, RoleServer, serverState.Role())
 			require.True(t, clientState.NegotiatedVersion() == test.version)
 			require.True(t, serverState.NegotiatedVersion() == test.version)
+			require.NotNil(t, clientState.KeyUsage)
+			require.NotNil(t, serverState.KeyUsage)
+			require.Equal(t, uint64(23726566), clientState.KeyUsage.RecommendedLimits.MaxSealedRecords)
+			if test.version == protocol.Version1_2 {
+				require.Equal(t, uint64(1<<28), clientState.KeyUsage.RecommendedLimits.MaxAuthenticationFailures)
+			}
 		})
 	}
 }

@@ -66,6 +66,19 @@ const (
 	lengthModeCBC
 )
 
+// UsageLimits describes advisory per-key recommendations for DTLS.
+// Zero means unspecified.
+type UsageLimits struct {
+	MaxSealedRecords          uint64
+	MaxAuthenticationFailures uint64
+}
+
+// UsageLimitProvider is optional metadata for cipher suites that report
+// recommended key-usage limits in connection statistics.
+type UsageLimitProvider interface {
+	UsageLimits() UsageLimits
+}
+
 // Capabilities is protection metadata for one protocol
 // version.
 type Capabilities struct {

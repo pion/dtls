@@ -39,9 +39,74 @@ type State struct {
 	IdentityHint       []byte
 	SessionID          []byte
 	NegotiatedProtocol string
+	// KeyUsage is the current record keys' usage.
+	KeyUsage *KeyUsageStats
+}
+
+// KeyUsageStats reports usage of the current directional record keys.
+// It excludes older keys retained for retransmissions. Counters restart for
+// each new key. DTLS 1.3 connections can use Conn.UpdateKeys to rotate keys.
+// Recommendations are advisory and do not affect the connection.
+type KeyUsageStats struct {
+	WriteEpoch             uint64
+	ReadEpoch              uint64
+	SealedRecords          uint64
+	AuthenticationFailures uint64
+	RecommendedLimits      cryptosuite.UsageLimits
+	// Remaining counts are zero when unspecified or at/above the recommendation.
+	RemainingSealedRecords          uint64
+	RemainingAuthenticationFailures uint64
+}
+
+func keyUsageStats(state *dtlsstate.State13) *KeyUsageStats {
+	if state.TrafficKeys == nil || state.CipherSuite == nil {
+		return nil
+	}
+	write, hasWrite := state.TrafficKeys.CurrentWrite()
+	read, hasRead := state.TrafficKeys.CurrentRead()
+	if !hasWrite || !hasRead {
+		return nil
+	}
+	sealed, _ := write.Usage()
+	_, failed := read.Usage()
+
+	return newKeyUsageStats(state.CipherSuite, write.Epoch, read.Epoch, sealed, failed)
+}
+
+func newKeyUsageStats(suite cryptosuite.Suite, writeEpoch, readEpoch, sealed, failed uint64) *KeyUsageStats {
+	var limits cryptosuite.UsageLimits
+	if provider, ok := suite.(cryptosuite.UsageLimitProvider); ok {
+		limits = provider.UsageLimits()
+	}
+
+	return &KeyUsageStats{
+		WriteEpoch: writeEpoch, ReadEpoch: readEpoch,
+		SealedRecords: sealed, AuthenticationFailures: failed,
+		RecommendedLimits:               limits,
+		RemainingSealedRecords:          remainingUsage(limits.MaxSealedRecords, sealed),
+		RemainingAuthenticationFailures: remainingUsage(limits.MaxAuthenticationFailures, failed),
+	}
+}
+
+func keyUsageStats12(state *dtlsstate.State12) *KeyUsageStats {
+	if state.Protection == nil {
+		return nil
+	}
+	sealed, failed := state.Usage()
+
+	return newKeyUsageStats(state.CipherSuite, state.LocalEpoch(), state.RemoteEpoch(), sealed, failed)
+}
+
+func remainingUsage(limit, used uint64) uint64 {
+	if used >= limit {
+		return 0
+	}
+
+	return limit - used
 }
 
 type serializedState struct {
+	KeyUsage              *KeyUsageStats
 	Version               protocol.Version
 	LocalEpoch            uint16
 	RemoteEpoch           uint16
@@ -78,6 +143,7 @@ func generateState(internalState *dtlsstate.State) (*State, error) {
 	}
 
 	return &State{
+		KeyUsage:              keyUsageStats12(internalState),
 		localEpoch:            internalState.LocalEpoch(),
 		remoteEpoch:           internalState.RemoteEpoch(),
 		localRandom:           internalState.LocalRandom,
@@ -139,6 +205,7 @@ func generateState13(internalState *dtlsstate.State13) (*State, error) {
 		CipherSuiteID:         internalState.CipherSuite.ID(),
 		cipherSuiteDescriptor: internalState.CipherSuite,
 		PeerCertificates:      dtlsutil.CloneByteSlices(common.PeerCertificates),
+		KeyUsage:              keyUsageStats(internalState),
 		IdentityHint:          bytes.Clone(common.IdentityHint),
 		SessionID:             bytes.Clone(common.SessionID),
 		NegotiatedProtocol:    common.NegotiatedProtocol,
@@ -189,6 +256,7 @@ func (s *State) serialize() (*serializedState, error) {
 	}
 
 	return &serializedState{
+		KeyUsage:              s.KeyUsage,
 		Version:               version,
 		LocalEpoch:            uint16(s.localEpoch),  //nolint:gosec // Checked before serialization.
 		RemoteEpoch:           uint16(s.remoteEpoch), //nolint:gosec // Checked before serialization.
@@ -211,6 +279,7 @@ func (s *State) serialize() (*serializedState, error) {
 }
 
 func (s *State) deserialize(serialized serializedState) {
+	s.KeyUsage = serialized.KeyUsage
 	s.cipherSuiteDescriptor = nil
 	s.version = serialized.Version
 	if s.version == 0 {
@@ -300,6 +369,9 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	state.SetLocalConnectionID(s.localConnectionID)
 
 	state.SetLocalSequenceNumber(s.localEpoch, s.sequenceNumber)
+	if s.KeyUsage != nil {
+		state.RestoreUsage(s.KeyUsage.SealedRecords, s.KeyUsage.AuthenticationFailures)
+	}
 
 	if err := state.InitCipherSuite(); err != nil {
 		return nil, err

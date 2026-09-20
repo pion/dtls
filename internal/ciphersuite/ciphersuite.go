@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"hash"
+	"math"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
@@ -67,6 +68,44 @@ func newSuite12(id cryptosuite.ID, certificateType clientcertificate.Type, keyEx
 		keyLen:        keyLen,
 		recordMACHash: recordMACHash,
 		ccmTagLen:     ccmTagLen,
+	}
+}
+
+// UsageLimits reports advisory AEAD recommendations for DTLS 1.2.
+//
+//	| Cipher                                   | Successful encryptions | Authentication failures |
+//	| ---------------------------------------- | ---------------------- | ----------------------- |
+//	| AES-GCM, DTLS 1.2                        | 23,726,566             | 2^28                    |
+//	| ChaCha20-Poly1305                        | MaxUint64*             | 2^36                    |
+//	| AES-CCM, 16-byte tag                     | 2^23                   | 11,863,283              |
+//	| AES-CCM, 8-byte tag (AES-128 or AES-256) | 2^23                   | 128                     |
+//	| AES-CBC with HMAC                        | Unspecified            | Unspecified             |
+//
+// *ChaCha20's record-number limit is reached first.
+//
+// AES-GCM, DTLS 1.2: https://www.rfc-editor.org/rfc/rfc9325.html#section-4.4
+// ChaCha20 limits: https://www.rfc-editor.org/rfc/rfc9147.html#section-4.5.3
+// Encryption bounds: https://www.rfc-editor.org/rfc/rfc8446.html#section-5.5
+// ChaCha20, DTLS 1.2 nonce construction: https://www.rfc-editor.org/rfc/rfc7905.html#section-2
+// CCM analysis adopted for DTLS 1.2: https://www.rfc-editor.org/rfc/rfc9147.html#appendix-B
+// CCM with 8-byte tags: https://www.rfc-editor.org/rfc/rfc9147.html#appendix-B.3
+func (s *suite12) UsageLimits() cryptosuite.UsageLimits {
+	switch s.algorithm {
+	case protection12GCM:
+		return cryptosuite.UsageLimits{MaxSealedRecords: 23726566, MaxAuthenticationFailures: 1 << 28}
+	case protection12ChaCha20Poly1305:
+		return cryptosuite.UsageLimits{MaxSealedRecords: math.MaxUint64, MaxAuthenticationFailures: 1 << 36}
+	case protection12CCM:
+		failures := uint64(11863283)
+		if s.ccmTagLen == ccmTagLength8 {
+			failures = 1 << 7
+		}
+
+		return cryptosuite.UsageLimits{MaxSealedRecords: 1 << 23, MaxAuthenticationFailures: failures}
+	case protection12CBC:
+		return cryptosuite.UsageLimits{}
+	default:
+		return cryptosuite.UsageLimits{}
 	}
 }
 
@@ -165,6 +204,22 @@ func newSuite13(
 	keyLen int,
 ) *suite13 {
 	return &suite13{suiteMetadata: suiteMetadata{id: id, hashFunc: hashFunc, authentication: cryptosuite.AuthenticationTypeAnonymous, keyExchange: cryptosuite.KeyExchangeAlgorithmNone, ecc: true}, algorithm: algorithm, keyLen: keyLen}
+}
+
+// UsageLimits reports advisory AEAD recommendations for DTLS 1.3.
+// AES-GCM, DTLS 1.3 is limited to 23,726,566 successful encryptions and 2^36 authentication failures.
+// ChaCha20-Poly1305 is limited to MaxUint64 successful encryptions (record-number limit) and 2^36 authentication failures.
+//
+// DTLS 1.3 AEAD limits: https://www.rfc-editor.org/rfc/rfc9147.html#section-4.5.3
+// ChaCha20 limits adopted from DTLS 1.3: https://www.rfc-editor.org/rfc/rfc9147.html#section-4.5.3
+// Encryption bounds: https://www.rfc-editor.org/rfc/rfc8446.html#section-5.5
+func (s *suite13) UsageLimits() cryptosuite.UsageLimits {
+	maxSealed := uint64(23726566)
+	if s.algorithm == protection13ChaCha20Poly1305 {
+		maxSealed = math.MaxUint64
+	}
+
+	return cryptosuite.UsageLimits{MaxSealedRecords: maxSealed, MaxAuthenticationFailures: 1 << 36}
 }
 
 func (s *suite13) Capabilities() cryptosuite.Capabilities {
