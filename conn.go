@@ -1862,35 +1862,20 @@ func (c *Conn) prepareCiphertextPacket(buf []byte, rAddr net.Addr, bufferLease *
 		return incomingPacketState{}, false, nil
 	}
 
-	prepared, ok := c.prepareInnerPlaintextRecord(epoch, sequenceNumber, innerPlaintext, markPacketAsValid)
-	if ok {
-		prepared.raw = buf
+	prepared := incomingPacketState{
+		raw:               buf,
+		content:           innerPlaintext.Content,
+		contentType:       innerPlaintext.RealType,
+		number:            protocol.RecordNumber{Epoch: epoch, SequenceNumber: sequenceNumber},
+		markPacketAsValid: markPacketAsValid,
 		// The datagram's source address remains a candidate until the CID and
 		// ciphertext have both been authenticated and replay checks confirm this
 		// is the latest valid record.
 		// https://datatracker.ietf.org/doc/html/rfc9146#section-6
-		prepared.originalCID = len(ciphertext.ConnectionID()) > 0
+		originalCID: len(ciphertext.ConnectionID()) > 0,
 	}
 
-	return prepared, ok, nil
-}
-
-func (c *Conn) prepareInnerPlaintextRecord(remoteEpoch uint64, sequenceNumber uint64, innerPlaintext openedRecord, markPacketAsValid func() bool) (incomingPacketState, bool) {
-	switch innerPlaintext.RealType {
-	case protocol.ContentTypeHandshake, protocol.ContentTypeAlert,
-		protocol.ContentTypeApplicationData, protocol.ContentTypeACK,
-		protocol.ContentTypeReturnRoutabilityCheck:
-		return incomingPacketState{
-			content:           innerPlaintext.Content,
-			contentType:       innerPlaintext.RealType,
-			number:            protocol.RecordNumber{Epoch: remoteEpoch, SequenceNumber: sequenceNumber},
-			markPacketAsValid: markPacketAsValid,
-		}, true
-	default:
-		c.log.Debugf("discarded ciphertext packet with invalid inner type: %d", innerPlaintext.RealType)
-
-		return incomingPacketState{}, false
-	}
+	return prepared, true, nil
 }
 
 func (c *Conn) handleFutureCiphertextPacket(epochLow uint8, remoteEpoch uint64, rAddr net.Addr, buf []byte, bufferLease *readBufferLease) {
