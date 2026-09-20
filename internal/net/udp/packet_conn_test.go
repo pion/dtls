@@ -713,3 +713,57 @@ func TestListenerIngressPreservesTruncatedPrefix(t *testing.T) {
 		})
 	}
 }
+
+func newCIDAliasTestConn(t *testing.T, l *listener, port int) *PacketConn {
+	t.Helper()
+	conn := l.newPacketConn(&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+	l.connWG.Add(1)
+	l.nConns.Add(1)
+	l.addresses[conn.address] = conn
+	t.Cleanup(func() { assert.NoError(t, conn.Close()) })
+
+	return conn
+}
+
+func TestPacketConnCIDAliases(t *testing.T) {
+	l := &listener{
+		cids:      make(map[string]*PacketConn),
+		addresses: make(map[addressKey]*PacketConn),
+		datagramRouter: func(buf []byte) (string, bool) {
+			return string(buf), true
+		},
+	}
+	conn := newCIDAliasTestConn(t, l, 1)
+	other := newCIDAliasTestConn(t, l, 2)
+	routesTo := func(cid string, want *PacketConn) {
+		t.Helper()
+		got, ok, err := l.getConn(&net.UDPAddr{Port: 3}, []byte(cid))
+		assert.NoError(t, err)
+		assert.Equal(t, want != nil, ok)
+		assert.Same(t, want, got)
+	}
+
+	assert.NoError(t, conn.RegisterCID([]byte("initial")))
+	alias := []byte("alias")
+	assert.NoError(t, conn.RegisterCIDs([][]byte{alias, alias, nil}))
+	alias[0] = 'X'
+	routesTo("initial", conn)
+	routesTo("alias", conn)
+	routesTo("unknown", nil)
+	routesTo("", nil)
+
+	assert.NoError(t, other.RegisterCID([]byte("taken")))
+	assert.ErrorIs(t, conn.RegisterCIDs([][]byte{[]byte("unused"), []byte("taken")}), ErrCIDInUse)
+	routesTo("unused", nil)
+	routesTo("alias", conn)
+	routesTo("taken", other)
+	assert.ErrorIs(t, conn.RegisterCID([]byte("taken")), ErrCIDInUse)
+	routesTo("initial", conn)
+
+	conn.UnregisterCID([]byte("taken"))
+	conn.UnregisterCID([]byte("alias"))
+	conn.UnregisterCID([]byte("alias"))
+	routesTo("taken", other)
+	routesTo("alias", nil)
+	routesTo("initial", conn)
+}

@@ -310,7 +310,7 @@ type PacketConn struct {
 	closing atomic.Bool
 	raddr   atomic.Value // net.Addr
 
-	cid     string
+	cids    map[string]struct{}
 	address addressKey
 
 	buffer *idtlsnet.PacketBuffer
@@ -324,6 +324,7 @@ type PacketConn struct {
 func (l *listener) newPacketConn(raddr net.Addr) *PacketConn {
 	res := &PacketConn{
 		listener:      l,
+		cids:          make(map[string]struct{}),
 		address:       keyForAddress(raddr),
 		buffer:        idtlsnet.NewPacketBuffer(),
 		doneCh:        make(chan struct{}),
@@ -334,7 +335,7 @@ func (l *listener) newPacketConn(raddr net.Addr) *PacketConn {
 	return res
 }
 
-// RegisterCID reserves an inbound CID before it is advertised to a peer.
+// RegisterCID replaces all inbound CID aliases with cid.
 func (c *PacketConn) RegisterCID(cid []byte) error {
 	c.listener.routesMu.Lock()
 	defer c.listener.routesMu.Unlock()
@@ -345,15 +346,57 @@ func (c *PacketConn) RegisterCID(cid []byte) error {
 	if owner := c.listener.cids[key]; owner != nil && owner != c {
 		return ErrCIDInUse
 	}
-	if c.listener.cids[c.cid] == c {
-		delete(c.listener.cids, c.cid)
-	}
-	c.cid = key
+	c.removeCIDsLocked()
 	if key != "" {
 		c.listener.cids[key] = c
+		c.cids[key] = struct{}{}
 	}
 
 	return nil
+}
+
+// RegisterCIDs atomically reserves additional inbound CID aliases.
+func (c *PacketConn) RegisterCIDs(cids [][]byte) error {
+	c.listener.routesMu.Lock()
+	defer c.listener.routesMu.Unlock()
+	if c.closing.Load() {
+		return io.EOF
+	}
+	for _, cid := range cids {
+		if owner := c.listener.cids[string(cid)]; owner != nil && owner != c {
+			return ErrCIDInUse
+		}
+	}
+	for _, cid := range cids {
+		if len(cid) != 0 {
+			key := string(cid)
+			c.listener.cids[key] = c
+			c.cids[key] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+// UnregisterCID removes an inbound alias owned by this connection.
+func (c *PacketConn) UnregisterCID(cid []byte) {
+	c.listener.routesMu.Lock()
+	defer c.listener.routesMu.Unlock()
+	key := string(cid)
+	if c.listener.cids[key] == c {
+		delete(c.listener.cids, key)
+	}
+	delete(c.cids, key)
+}
+
+// removeCIDsLocked requires listener.routesMu to be held.
+func (c *PacketConn) removeCIDsLocked() {
+	for key := range c.cids {
+		if c.listener.cids[key] == c {
+			delete(c.listener.cids, key)
+		}
+	}
+	clear(c.cids)
 }
 
 // SetRemoteAddr updates address routing after the migration policy accepts a path.
@@ -380,9 +423,7 @@ func (c *PacketConn) SetRemoteAddr(addr net.Addr) error {
 func (l *listener) removeRoutes(c *PacketConn) {
 	l.routesMu.Lock()
 	defer l.routesMu.Unlock()
-	if l.cids[c.cid] == c {
-		delete(l.cids, c.cid)
-	}
+	c.removeCIDsLocked()
 	if l.addresses[c.address] == c {
 		delete(l.addresses, c.address)
 	}
