@@ -9,12 +9,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"net"
+	"slices"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 )
 
@@ -269,6 +271,9 @@ func (c *Conn) reserveLocalCIDs(cids [][]byte) ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if receive.IDs.Len()+len(added) > dtlsstate.MaxConnectionIDs {
+		return nil, dtlserrors.ErrConnectionIDLimit
+	}
 	if c.packetConn != nil {
 		if err := c.packetConn.RegisterCIDs(added); err != nil {
 			return nil, err
@@ -298,6 +303,65 @@ func prepareLocalCIDs(receive *dtlsstate.CIDReceiveState, cids [][]byte) ([][]by
 	}
 
 	return added, nil
+}
+
+func (c handshakeConn) ReserveLocalCIDs(cids [][]byte) ([][]byte, error) {
+	return c.conn.reserveLocalCIDs(cids)
+}
+
+func (c handshakeConn) RemoveLocalCIDs(cids [][]byte) {
+	c.conn.removeLocalCIDs(cids)
+}
+
+// CommitPeerConnectionIDs serializes selection with every protected writer.
+func (c handshakeConn) CommitPeerConnectionIDs(message *handshake.MessageNewConnectionID) error {
+	c.conn.writeLock.Lock()
+	defer c.conn.writeLock.Unlock()
+	c.conn.lock.Lock()
+	defer c.conn.lock.Unlock()
+	if c.conn.isConnectionClosed() {
+		return ErrConnClosed
+	}
+	state, ok := c.conn.state.(*dtlsstate.State13)
+	if !ok {
+		return dtlserrors.ErrInvalidProtocolVersionState
+	}
+	send := &state.CID.Send
+	cids := message.CIDs
+	if message.Usage == handshake.ConnectionIDImmediate {
+		if len(cids) == 0 {
+			return dtlserrors.ErrInvalidCIDFormat
+		}
+		send.Active = bytes.Clone(cids[0])
+		send.UseCID = len(send.Active) != 0
+		cids = cids[1:]
+		send.Spares = slices.DeleteFunc(send.Spares, func(cid []byte) bool {
+			return bytes.Equal(cid, send.Active)
+		})
+	}
+	for _, cid := range cids {
+		if len(send.Spares) == dtlsstate.MaxConnectionIDs {
+			break
+		}
+		if bytes.Equal(cid, send.Active) || slices.ContainsFunc(send.Spares, func(spare []byte) bool {
+			return bytes.Equal(cid, spare)
+		}) {
+			continue
+		}
+		send.Spares = append(send.Spares, bytes.Clone(cid))
+	}
+
+	return nil
+}
+
+func (c *Conn) clearConnectionIDs() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if state, ok := c.state.(*dtlsstate.State13); ok {
+		state.CID.Receive.IDs.Clear()
+		state.CID.Send.Spares = nil
+		clear(c.pendingCIDACKs)
+	}
 }
 
 // removeLocalCIDs removes retired or never-advertised IDs.
@@ -333,4 +397,47 @@ func (c *Conn) updateRemoteAddr(addr net.Addr) error {
 	c.rAddr = addr
 
 	return nil
+}
+
+func (c *Conn) takePendingACKs() []protocol.RecordNumber {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	records := c.pendingACKs
+	c.pendingACKs = nil
+	for number, sequence := range c.pendingCIDACKs {
+		if int(sequence) < dtlsstate.HandshakeRecvSequence(c.state) {
+			records = append(records, number)
+			delete(c.pendingCIDACKs, number)
+		}
+	}
+
+	return records
+}
+
+func (c *Conn) queueHandshakeACK(content []byte, number protocol.RecordNumber) {
+	lastCIDSequence := -1
+	for len(content) != 0 {
+		var header handshake.Header
+		if err := header.Unmarshal(content); err != nil {
+			return
+		}
+		if header.Type == handshake.TypeNewConnectionID {
+			lastCIDSequence = max(lastCIDSequence, int(header.MessageSequence))
+		}
+		content = content[handshake.HeaderLength+int(header.FragmentLength):]
+	}
+	if lastCIDSequence < dtlsstate.HandshakeRecvSequence(c.state) {
+		c.pendingACKs = append(c.pendingACKs, number)
+
+		return
+	}
+	const maxPendingCIDACKs = 256
+	if len(c.pendingCIDACKs) == maxPendingCIDACKs {
+		return
+	}
+	if c.pendingCIDACKs == nil {
+		c.pendingCIDACKs = make(map[protocol.RecordNumber]uint16)
+	}
+	c.pendingCIDACKs[number] = uint16(lastCIDSequence) //nolint:gosec // copied from a uint16 message sequence.
 }

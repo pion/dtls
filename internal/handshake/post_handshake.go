@@ -4,6 +4,7 @@
 package dtlshandshake
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -25,6 +26,7 @@ import (
 )
 
 const (
+	maxConnectionIDBatch = 8
 	// Same value as BoringsSSL default.
 	// https://boringssl.googlesource.com/boringssl/+/5b0508f29ec17a6a2d4780b3d2715a7feaa99d40/include/openssl/ssl.h#2251
 	newSessionTicketLifetime = 2 * 24 * 60 * 60
@@ -139,13 +141,19 @@ type keyUpdateCommand struct {
 	Required bool
 }
 
+type newConnectionIDCommand struct {
+	NumCIDs uint8
+	Usage   handshake.ConnectionIDUsage
+}
+
 type postHandshakeCommand struct {
 	Kind postHandshakeCommandKind
 
-	Packets   []*dtlsflight.Outbound
-	Write     func(Conn, []*dtlsflight.Outbound) error
-	KeyUpdate keyUpdateCommand
-	Canceled  <-chan struct{}
+	Packets         []*dtlsflight.Outbound
+	Write           func(Conn, []*dtlsflight.Outbound) error
+	KeyUpdate       keyUpdateCommand
+	NewConnectionID newConnectionIDCommand
+	Canceled        <-chan struct{}
 
 	// non-nil for application commands that wait for completion.
 	Completion *postHandshakeCompletion
@@ -173,6 +181,12 @@ type keyUpdateCommitConn interface {
 
 type pendingACKConn interface {
 	TakePendingACKs() []protocol.RecordNumber
+}
+
+type connectionIDConn interface {
+	ReserveLocalCIDs([][]byte) ([][]byte, error)
+	RemoveLocalCIDs([][]byte)
+	CommitPeerConnectionIDs(*handshake.MessageNewConnectionID) error
 }
 
 func newPostHandshakeCompletion() (*postHandshakeCompletion, context.Context) {
@@ -288,26 +302,31 @@ func (p *postHandshake) startPostHandshakeCommand(
 	command postHandshakeCommand,
 ) error {
 	if err := p.validatePostHandshakeCommand(command); err != nil {
-		if command.Completion == nil {
-			return err
-		}
-		command.Completion.complete(err)
-
-		return nil
+		return rejectPostHandshakeCommand(command, err)
 	}
 	switch command.Kind {
 	case commandSendNewSessionTicket:
 		return p.startNewSessionTicket(ctx, conn, false)
 	case commandSendKeyUpdate:
 		return p.startKeyUpdate(ctx, conn, command)
-	case commandSendNewConnectionID,
-		commandSendRequestConnectionID:
+	case commandSendNewConnectionID:
+		return p.startNewConnectionID(ctx, conn, command)
+	case commandSendRequestConnectionID:
 		return dtlserrors.ErrNotImplemented
 	case commandSendApplicationData:
 		return p.writeApplicationData(conn, command)
 	default:
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
+}
+
+func rejectPostHandshakeCommand(command postHandshakeCommand, err error) error {
+	if command.Completion == nil {
+		return err
+	}
+	command.Completion.complete(err)
+
+	return nil
 }
 
 // Reject local arguments before mutating sequence, key, or flight state.
@@ -321,7 +340,9 @@ func (p *postHandshake) validatePostHandshakeCommand(command postHandshakeComman
 		if command.KeyUpdate.Request > handshake.KeyUpdateRequested {
 			return dtlserrors.ErrInvalidKeyUpdate
 		}
-	case commandSendNewConnectionID, commandSendRequestConnectionID:
+	case commandSendNewConnectionID:
+		return p.validateNewConnectionIDCommand(command.NewConnectionID)
+	case commandSendRequestConnectionID:
 		return dtlserrors.ErrNotImplemented
 	case commandSendApplicationData:
 	default:
@@ -488,9 +509,127 @@ func (p *postHandshake) handlePostHandshakeMessage(ctx context.Context, conn Con
 		return p.handleNewSessionTicket(ctx, conn, body)
 	case *handshake.MessageKeyUpdate:
 		return p.handleKeyUpdate(ctx, conn, body, epoch)
+	case *handshake.MessageNewConnectionID:
+		return p.handleNewConnectionID(ctx, conn, body)
 	default:
 		return fatalPostHandshakeAlert(ctx, conn, alert.UnexpectedMessage)
 	}
+}
+
+func (p *postHandshake) validateNewConnectionIDCommand(command newConnectionIDCommand) error {
+	if !p.state.CID.Negotiated || !p.state.CID.Receive.CanSendNewConnectionID {
+		return dtlserrors.ErrUnexpectedPostHandshakeMessage
+	}
+	if command.Usage > handshake.ConnectionIDSpare {
+		return dtlserrors.ErrInvalidConnectionIDUsage
+	}
+	if command.NumCIDs == 0 && command.Usage == handshake.ConnectionIDImmediate {
+		return dtlserrors.ErrInvalidCIDFormat
+	}
+	if command.NumCIDs > maxConnectionIDBatch || p.state.CID.Receive.IDs.Len()+int(command.NumCIDs) > dtlsstate.MaxConnectionIDs {
+		return dtlserrors.ErrConnectionIDLimit
+	}
+	if command.NumCIDs != 0 && p.cfg.ConnectionIDGenerator == nil {
+		return dtlserrors.ErrNilConnectionIDGenerator
+	}
+
+	return nil
+}
+
+func (p *postHandshake) prepareNewConnectionID(command newConnectionIDCommand) (*handshake.MessageNewConnectionID, error) {
+	message := &handshake.MessageNewConnectionID{Usage: command.Usage}
+	seen := make(map[string]bool, command.NumCIDs)
+	for range command.NumCIDs {
+		cid, err := p.cfg.GenerateConnectionID()
+		if err != nil {
+			return nil, err
+		}
+		if seen[string(cid)] || p.state.CID.Receive.IDs.Contains(cid) {
+			return nil, dtlserrors.ErrInvalidCIDFormat
+		}
+		seen[string(cid)] = true
+		message.CIDs = append(message.CIDs, bytes.Clone(cid))
+	}
+
+	return message, nil
+}
+
+func (p *postHandshake) startNewConnectionID(ctx context.Context, conn Conn, command postHandshakeCommand) error {
+	cidConn, ok := conn.(connectionIDConn)
+	if !ok {
+		return rejectPostHandshakeCommand(command, dtlserrors.ErrNotImplemented)
+	}
+	if p.state.HandshakeSendSequence > math.MaxUint16 {
+		return dtlserrors.ErrHandshakeSequenceOverflow
+	}
+	message, err := p.prepareNewConnectionID(command.NewConnectionID)
+	if err != nil {
+		return rejectPostHandshakeCommand(command, err)
+	}
+	// Complete all fallible preparation before reserving routes or a sequence.
+	body, err := message.Marshal()
+	if err != nil {
+		return rejectPostHandshakeCommand(command, err)
+	}
+	added, err := cidConn.ReserveLocalCIDs(message.CIDs)
+	if err != nil {
+		return rejectPostHandshakeCommand(command, err)
+	}
+	if cancelErr, canceled := canceledPostHandshakeCommand(command); canceled {
+		cidConn.RemoveLocalCIDs(added)
+
+		return rejectPostHandshakeCommand(command, cancelErr)
+	}
+	flight := p.newReliableFlight(postHandshakeNewConnectionID, message, len(body))
+	flight.Completion = command.Completion
+
+	return p.startFlight(ctx, conn, flight)
+}
+
+// newReliableFlight consumes a sequence after the caller validates the message and sequence limit.
+func (p *postHandshake) newReliableFlight(category postHandshakeCategory, message handshake.Message, length int) *reliablePostHandshakeFlight {
+	sequence := uint16(p.state.HandshakeSendSequence) //nolint:gosec // caller checks overflow.
+	p.state.HandshakeSendSequence++
+	packet := &dtlsflight.Outbound{
+		Epoch: p.state.LocalEpoch(), Protection: dtlsflight.ProtectionCiphertext, TrackACK: true,
+		Content: &handshake.Handshake{
+			Header: handshake.Header{
+				Type: message.Type(), MessageSequence: sequence,
+				Length: uint32(length), FragmentLength: uint32(length), //nolint:gosec
+			},
+			Message: message,
+		},
+	}
+
+	return &reliablePostHandshakeFlight{
+		ID:      postHandshakeFlightID{Category: category, MessageSequence: sequence},
+		Packets: []*dtlsflight.Outbound{packet}, Epoch: packet.Epoch,
+		PendingFragments: make(map[postHandshakeFragment]struct{}), SentRecords: make(map[protocol.RecordNumber]struct{}),
+		RetransmitInterval: p.initialRetransmitInterval,
+	}
+}
+
+func (p *postHandshake) handleNewConnectionID(ctx context.Context, conn Conn, message *handshake.MessageNewConnectionID) error {
+	// Check the negotiated direction, because a late zero-length CID
+	// can disable sending CIDs without undoing negotiation.
+	switch {
+	case !p.state.CID.Negotiated || len(p.state.RemoteConnectionID) == 0:
+		return fatalPostHandshakeAlert(ctx, conn, alert.UnexpectedMessage)
+	case message.Usage > handshake.ConnectionIDSpare,
+		message.MarshalSize() == 0,
+		message.Usage == handshake.ConnectionIDImmediate && len(message.CIDs) == 0:
+		return fatalPostHandshakeAlert(ctx, conn, alert.IllegalParameter)
+	}
+	cidConn, ok := conn.(connectionIDConn)
+	if !ok {
+		return dtlserrors.ErrNotImplemented
+	}
+	if err := cidConn.CommitPeerConnectionIDs(message); err != nil {
+		return err
+	}
+	p.state.HandshakeRecvSequence++
+
+	return nil
 }
 
 func fatalPostHandshakeAlert(ctx context.Context, conn Conn, description alert.Description) error {
@@ -566,15 +705,7 @@ func (p *postHandshake) startNewSessionTicket(ctx context.Context, conn Conn, is
 		return err
 	}
 
-	result, err := conn.WritePackets(ctx, flight.Packets)
-	if err != nil {
-		return err
-	}
-	p.flights[flight.ID] = flight
-	p.registerTransmission(flight, result.TrackedRecords, true)
-	flight.NextRetransmit = time.Now().Add(flight.RetransmitInterval)
-
-	return nil
+	return p.startFlight(ctx, conn, flight)
 }
 
 func (p *postHandshake) startKeyUpdate(
@@ -587,6 +718,10 @@ func (p *postHandshake) startKeyUpdate(
 		return err
 	}
 
+	return p.startFlight(ctx, conn, flight)
+}
+
+func (p *postHandshake) startFlight(ctx context.Context, conn Conn, flight *reliablePostHandshakeFlight) error {
 	result, err := conn.WritePackets(ctx, flight.Packets)
 	if err != nil {
 		return err
@@ -623,37 +758,11 @@ func (p *postHandshake) buildKeyUpdateFlight(request handshake.KeyUpdateRequest,
 		return nil, dtlserrors.ErrHandshakeSequenceOverflow
 	}
 
-	messageSequence := uint16(p.state.HandshakeSendSequence) //nolint:gosec // bounded above
-	p.state.HandshakeSendSequence++
-	packet := &dtlsflight.Outbound{
-		Epoch: current.Epoch,
-		Content: &handshake.Handshake{
-			Header: handshake.Header{
-				Type:            handshake.TypeKeyUpdate,
-				Length:          uint32(len(body)), //nolint:gosec // marshal limits the message size
-				MessageSequence: messageSequence,
-				FragmentLength:  uint32(len(body)), //nolint:gosec // marshal limits the message size
-			},
-			Message: message,
-		},
-		Protection: dtlsflight.ProtectionCiphertext,
-		TrackACK:   true,
-	}
-	id := postHandshakeFlightID{
-		Category:        postHandshakeKeyUpdate,
-		MessageSequence: messageSequence,
-	}
+	flight := p.newReliableFlight(postHandshakeKeyUpdate, message, len(body))
+	flight.Completion = completion
+	flight.PendingWrite = next
 
-	return &reliablePostHandshakeFlight{
-		ID:                 id,
-		Packets:            []*dtlsflight.Outbound{packet},
-		Epoch:              current.Epoch,
-		PendingFragments:   make(map[postHandshakeFragment]struct{}),
-		SentRecords:        make(map[protocol.RecordNumber]struct{}),
-		RetransmitInterval: p.initialRetransmitInterval,
-		Completion:         completion,
-		PendingWrite:       next,
-	}, nil
+	return flight, nil
 }
 
 func (p *postHandshake) nextTrafficGeneration(current *dtlsstate.TrafficGeneration) (*dtlsstate.TrafficGeneration, error) {
@@ -714,28 +823,7 @@ func (p *postHandshake) makeReliableNewSessionTicket(message *handshake.MessageN
 		return nil, dtlserrors.ErrHandshakeSequenceOverflow
 	}
 
-	messageSequence := uint16(p.state.HandshakeSendSequence) //nolint:gosec // bounded above
-	p.state.HandshakeSendSequence++
-	packet := &dtlsflight.Outbound{
-		Epoch: p.state.LocalEpoch(),
-		Content: &handshake.Handshake{
-			Header: handshake.Header{
-				Type:            handshake.TypeNewSessionTicket,
-				Length:          uint32(len(body)), //nolint:gosec // marshal limits the message size
-				MessageSequence: messageSequence,
-				FragmentLength:  uint32(len(body)), //nolint:gosec // marshal limits the message size
-			},
-			Message: message,
-		},
-		Protection: dtlsflight.ProtectionCiphertext,
-		TrackACK:   true,
-	}
-	id := postHandshakeFlightID{
-		Category:        postHandshakeNewSessionTicket,
-		MessageSequence: messageSequence,
-	}
-
-	return &reliablePostHandshakeFlight{ID: id, Packets: []*dtlsflight.Outbound{packet}, Epoch: p.state.LocalEpoch(), PendingFragments: make(map[postHandshakeFragment]struct{}), SentRecords: make(map[protocol.RecordNumber]struct{}), RetransmitInterval: p.initialRetransmitInterval}, nil
+	return p.newReliableFlight(postHandshakeNewSessionTicket, message, len(body)), nil
 }
 
 func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeFlightID) error {

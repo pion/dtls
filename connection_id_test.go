@@ -29,6 +29,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRandomConnectionIDGenerator(t *testing.T) {
@@ -574,4 +575,31 @@ func TestDynamicCIDAcceptance(t *testing.T) {
 	conn.closed.Close()
 	_, err = conn.reserveLocalCIDs([][]byte{[]byte("newalias")})
 	assert.ErrorIs(t, err, ErrConnClosed)
+}
+
+func TestPeerConnectionIDSelection(t *testing.T) {
+	state := dtlsstate.NewState13(false)
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ServerCID: []byte("local"), ClientCID: []byte("peer")})
+	conn := &Conn{state: &state, closed: closer.NewCloser()}
+	adapter := handshakeConn{conn: conn}
+	spare := []byte("a-longer-peer-id")
+	require.NoError(t, adapter.CommitPeerConnectionIDs(&handshake.MessageNewConnectionID{
+		Usage: handshake.ConnectionIDSpare, CIDs: [][]byte{spare, spare, nil},
+	}))
+	spare[0] = 'X'
+	assert.Equal(t, []byte("peer"), state.CID.Send.Active)
+	assert.Equal(t, [][]byte{[]byte("a-longer-peer-id"), nil}, state.CID.Send.Spares)
+	require.NoError(t, adapter.CommitPeerConnectionIDs(&handshake.MessageNewConnectionID{Usage: handshake.ConnectionIDImmediate, CIDs: [][]byte{nil}}))
+	assert.False(t, state.CID.Send.UseCID)
+	assert.Empty(t, state.CID.Send.Active)
+	assert.Equal(t, [][]byte{[]byte("a-longer-peer-id")}, state.CID.Send.Spares)
+	for i := range dtlsstate.MaxConnectionIDs + 5 {
+		require.NoError(t, adapter.CommitPeerConnectionIDs(&handshake.MessageNewConnectionID{
+			Usage: handshake.ConnectionIDSpare, CIDs: [][]byte{{byte(i)}}, //nolint:gosec
+		}))
+	}
+	assert.Len(t, state.CID.Send.Spares, dtlsstate.MaxConnectionIDs)
+	require.NoError(t, adapter.CommitPeerConnectionIDs(&handshake.MessageNewConnectionID{Usage: handshake.ConnectionIDImmediate, CIDs: [][]byte{[]byte("restored")}}))
+	assert.True(t, state.CID.Send.UseCID)
+	assert.Equal(t, []byte("restored"), state.CID.Send.Active)
 }

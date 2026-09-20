@@ -57,6 +57,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	cid := state.CID
 	cid.Receive.IDs = state.CID.Receive.IDs.Clone()
 	cid.Send.Active = bytes.Clone(state.CID.Send.Active)
+	cid.Send.Spares = util.CloneByteSlices(state.CID.Send.Spares)
 
 	return &State13{
 		Common:                     common,

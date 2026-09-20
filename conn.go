@@ -205,6 +205,7 @@ type Conn struct {
 	fragmentBuffer *dtlsfragmentbuffer.FragmentBuffer // out-of-order and missing fragment handling
 	handshakeCache *dtlsflight.Cache                  // caching of handshake messages for verifyData generation
 	pendingACKs    []protocol.RecordNumber
+	pendingCIDACKs map[protocol.RecordNumber]uint16
 	decrypted      chan any // Decrypted Application Data or error, pull by calling `Read`
 	rAddr          net.Addr
 	state          dtlsstate.Active // active DTLS version state
@@ -1493,16 +1494,6 @@ func (c *Conn) processDatagramPackets(ctx context.Context, pkts [][]byte, rAddr 
 	return summary, nil
 }
 
-func (c *Conn) takePendingACKs() []protocol.RecordNumber {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	records := c.pendingACKs
-	c.pendingACKs = nil
-
-	return records
-}
-
 func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 	if c.pendingCIDNegotiation() {
 		return nil
@@ -2137,7 +2128,7 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 &&
 		number.Epoch >= dtlsflight13.EpochHandshake {
 		c.lock.Lock()
-		c.pendingACKs = append(c.pendingACKs, number)
+		c.queueHandshakeACK(content, number)
 		c.lock.Unlock()
 	}
 
@@ -2864,11 +2855,7 @@ func (c *Conn) close(byUser bool) error {
 			// even if the underlying connection is already closed.
 			_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
 		}
-		c.lock.Lock()
-		if state, ok := c.state.(*dtlsstate.State13); ok {
-			state.CID.Receive.IDs.Clear()
-		}
-		c.lock.Unlock()
+		c.clearConnectionIDs()
 	}
 
 	if c.detached != nil {

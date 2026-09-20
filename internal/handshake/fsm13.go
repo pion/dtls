@@ -149,6 +149,18 @@ type KeyUpdater interface {
 	UpdateKeys(context.Context, handshake.KeyUpdateRequest) error
 }
 
+// ConnectionIDUpdater advertises locally generated receive IDs and waits for ACK.
+type ConnectionIDUpdater interface {
+	SendConnectionIDs(context.Context, uint8, handshake.ConnectionIDUsage) error
+}
+
+func (s *fsm13) SendConnectionIDs(ctx context.Context, count uint8, usage handshake.ConnectionIDUsage) error {
+	return s.submitAndWaitPostHandshakeCommand(ctx, postHandshakeCommand{
+		Kind:            commandSendNewConnectionID,
+		NewConnectionID: newConnectionIDCommand{NumCIDs: count, Usage: usage},
+	})
+}
+
 // ApplicationDataWriter serializes DTLS 1.3 application data with
 // post-handshake messages.
 type ApplicationDataWriter interface {
@@ -159,23 +171,15 @@ type ApplicationDataWriter interface {
 // machine. In particular, a required KeyUpdate response already in the queue is
 // emitted before these records.
 func (s *fsm13) WriteApplicationData(ctx context.Context, packets []*dtlsflight.Outbound) error {
-	completion, completionCtx := newPostHandshakeCompletion()
-	command := postHandshakeCommand{
-		Kind:       commandSendApplicationData,
-		Canceled:   ctx.Done(),
-		Packets:    packets,
-		Completion: completion,
+	return s.submitAndWaitPostHandshakeCommand(ctx, postHandshakeCommand{
+		Kind:    commandSendApplicationData,
+		Packets: packets,
 		Write: func(conn Conn, packets []*dtlsflight.Outbound) error {
 			_, err := conn.WritePackets(ctx, packets)
 
 			return err
 		},
-	}
-	if err := s.submitPostHandshakeCommand(ctx, command); err != nil {
-		return err
-	}
-
-	return s.waitPostHandshakeCompletion(ctx, completionCtx, completion)
+	})
 }
 
 // UpdateKeys queues a reliable DTLS 1.3 KeyUpdate and waits until its ACK has
@@ -185,8 +189,15 @@ func (s *fsm13) UpdateKeys(ctx context.Context, request handshake.KeyUpdateReque
 		return dtlserrors.ErrInvalidKeyUpdate
 	}
 
+	return s.submitAndWaitPostHandshakeCommand(ctx, postHandshakeCommand{
+		Kind: commandSendKeyUpdate, KeyUpdate: keyUpdateCommand{Request: request},
+	})
+}
+
+func (s *fsm13) submitAndWaitPostHandshakeCommand(ctx context.Context, command postHandshakeCommand) error {
 	completion, completionCtx := newPostHandshakeCompletion()
-	command := postHandshakeCommand{Kind: commandSendKeyUpdate, Canceled: ctx.Done(), KeyUpdate: keyUpdateCommand{Request: request}, Completion: completion}
+	command.Canceled = ctx.Done()
+	command.Completion = completion
 	if err := s.submitPostHandshakeCommand(ctx, command); err != nil {
 		return err
 	}

@@ -15,10 +15,27 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
+// MaxConnectionIDs bounds both retained local aliases and peer spare IDs.
+// Issued aliases remain valid until close; reaching the limit stops issuance.
+// the spec doesn't specify a limit, 32 is a reasonable default for the pion
+// implementation, this limit should be configurable in the future.
+const MaxConnectionIDs = 32
+
 // CIDReceiveSet CID bytes and membership checks.
 type CIDReceiveSet struct {
 	mu  sync.RWMutex
 	ids map[string]struct{}
+}
+
+// Len reports the number of accepted local IDs.
+func (s *CIDReceiveSet) Len() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.ids)
 }
 
 // Contains reports whether cid is accepted on inbound records.
@@ -149,6 +166,8 @@ type CIDReceiveState struct {
 // CIDSendState describes peer-generated CIDs carried in protected records
 // sent by this endpoint.
 type CIDSendState struct {
+	// Spares owns peer IDs available for future selection, in issuance order.
+	Spares [][]byte
 	// UseCID reports whether records sent to the peer must set the C bit in the
 	// DTLS 1.3 unified header and carry Active.
 	UseCID bool

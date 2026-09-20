@@ -15,6 +15,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -671,4 +672,89 @@ func TestPostHandshakeIndependentCategories(t *testing.T) {
 	assert.Len(t, post.flights, 4)
 	assert.Len(t, conn.writtenPackets, 4)
 	assert.Equal(t, 3, state.HandshakeSendSequence)
+}
+
+type postHandshakeCIDConn struct {
+	postHandshakeAlertConn
+	state   *dtlsstate.State13
+	commits int
+	ackCID  []byte
+}
+
+func (c *postHandshakeCIDConn) ReserveLocalCIDs(cids [][]byte) ([][]byte, error) {
+	for _, cid := range cids {
+		c.state.CID.Receive.IDs.Add(cid)
+	}
+
+	return cids, nil
+}
+
+func (c *postHandshakeCIDConn) RemoveLocalCIDs(cids [][]byte) {
+	for _, cid := range cids {
+		c.state.CID.Receive.IDs.Remove(cid)
+	}
+}
+
+func (c *postHandshakeCIDConn) CommitPeerConnectionIDs(message *handshake.MessageNewConnectionID) error {
+	c.commits++
+	if message.Usage == handshake.ConnectionIDImmediate {
+		c.state.CID.Send.Active = bytes.Clone(message.CIDs[0])
+	}
+
+	return nil
+}
+
+func (c *postHandshakeCIDConn) WritePackets(_ context.Context, packets []*dtlsflight.Outbound) (*WriteResult, error) {
+	for _, packet := range packets {
+		if _, ok := packet.Content.(*protocol.ACK); ok {
+			c.ackCID = bytes.Clone(c.state.CID.Send.Active)
+		}
+	}
+
+	return &WriteResult{}, nil
+}
+
+func newPostHandshakeCIDTest(t *testing.T) (*postHandshake, *postHandshakeCIDConn) {
+	t.Helper()
+	state := newPostHandshakeKeyUpdateTestState(t, true)
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("locl"), ServerCID: []byte("peer")})
+	cfg := &dtlsconfig.HandshakeConfig{
+		InitialRetransmitInterval: time.Second, ReceiveCIDLength: 4,
+	}
+	post := newPostHandshake(handshakeContext{state: state, cfg: cfg, cache: dtlsflight.NewCache()})
+
+	return post, &postHandshakeCIDConn{state: state}
+}
+
+func TestNewConnectionIDCommitsBeforeACKOnce(t *testing.T) {
+	post, conn := newPostHandshakeCIDTest(t)
+	wire, err := (&handshake.Handshake{Message: &handshake.MessageNewConnectionID{
+		Usage: handshake.ConnectionIDImmediate, CIDs: [][]byte{[]byte("different-length-peer-id")},
+	}}).Marshal()
+	require.NoError(t, err)
+	post.cache.Push(wire, post.state.RemoteEpoch(), 0, handshake.TypeNewConnectionID, false)
+	received := RecvHandshakeState{HasHandshake: true, RecordsToACK: []protocol.RecordNumber{{Epoch: post.state.RemoteEpoch(), SequenceNumber: 1}}}
+	require.NoError(t, post.handlePostHandshakeReceive(t.Context(), conn, received))
+	require.NoError(t, post.handlePostHandshakeReceive(t.Context(), conn, received))
+	assert.Equal(t, []byte("different-length-peer-id"), conn.ackCID)
+	assert.Equal(t, 1, conn.commits)
+	assert.Equal(t, 1, post.state.HandshakeRecvSequence)
+}
+
+func TestNewConnectionIDEmptySpareAndLocalLimits(t *testing.T) {
+	post, conn := newPostHandshakeCIDTest(t)
+	post.queue = []postHandshakeCommand{{
+		Kind:            commandSendNewConnectionID,
+		NewConnectionID: newConnectionIDCommand{Usage: handshake.ConnectionIDSpare},
+	}}
+	require.NoError(t, post.startQueuedPostHandshake(t.Context(), conn))
+	assert.Equal(t, 1, post.state.CID.Receive.IDs.Len())
+	require.NoError(t, post.handleNewConnectionID(t.Context(), conn, &handshake.MessageNewConnectionID{Usage: handshake.ConnectionIDSpare}))
+	assert.Equal(t, []byte("peer"), post.state.CID.Send.Active)
+	for i := range dtlsstate.MaxConnectionIDs - 1 {
+		post.state.CID.Receive.IDs.Add([]byte{0, 0, 0, byte(i)}) //nolint:gosec
+	}
+	assert.ErrorIs(t, post.validateNewConnectionIDCommand(newConnectionIDCommand{NumCIDs: 1}), dtlserrors.ErrConnectionIDLimit)
+	post.state.CID.Negotiated = false
+	assert.ErrorIs(t, post.validateNewConnectionIDCommand(newConnectionIDCommand{NumCIDs: 1}), dtlserrors.ErrUnexpectedPostHandshakeMessage)
 }
