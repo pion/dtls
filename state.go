@@ -436,10 +436,6 @@ func (s *State) UnmarshalBinary(data []byte) error {
 func (s *State) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
 	if s.localEpoch == 0 {
 		return nil, dtlserrors.ErrHandshakeInProgress
-	} else if len(context) != 0 {
-		return nil, dtlserrors.ErrContextUnsupported
-	} else if _, ok := invalidKeyingLabels()[label]; ok {
-		return nil, dtlserrors.ErrReservedExportKeyingMaterial
 	}
 
 	// DTLS 1.3 derives exported keying material with the HKDF-based TLS 1.3
@@ -449,6 +445,12 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 	// dispatch, not an ordered comparison.
 	if s.version == protocol.Version1_3 {
 		return s.exportKeyingMaterialHKDF(label, context, length)
+	}
+
+	if len(context) != 0 {
+		return nil, dtlserrors.ErrContextUnsupported
+	} else if _, ok := invalidKeyingLabels()[label]; ok {
+		return nil, dtlserrors.ErrReservedExportKeyingMaterial
 	}
 
 	return s.exportKeyingMaterialPRF(label, length)
