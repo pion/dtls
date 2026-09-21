@@ -13,6 +13,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	dtlsutil "github.com/pion/dtls/v4/internal/util"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/keyschedule"
 	"github.com/pion/dtls/v4/pkg/crypto/prf"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -41,6 +42,12 @@ type State struct {
 	NegotiatedProtocol string
 	// KeyUsage is the current record keys' usage.
 	KeyUsage *KeyUsageStats
+	// exporterMasterSecret is the DTLS 1.3 exporter_master_secret
+	// (RFC 8446 section 7.5, inherited by RFC 9147). It is only populated for a
+	// DTLS 1.3 connection and is consumed by ExportKeyingMaterial. It is not
+	// serialized (DTLS 1.3 state serialization is unsupported). The hash used to
+	// derive from it comes from cipherSuiteDescriptor.
+	exporterMasterSecret []byte
 }
 
 // KeyUsageStats reports usage of the current directional record keys.
@@ -209,6 +216,7 @@ func generateState13(internalState *dtlsstate.State13) (*State, error) {
 		IdentityHint:          bytes.Clone(common.IdentityHint),
 		SessionID:             bytes.Clone(common.SessionID),
 		NegotiatedProtocol:    common.NegotiatedProtocol,
+		exporterMasterSecret:  bytes.Clone(internalState.KeySchedule.ExporterMasterSecret),
 	}, nil
 }
 
@@ -433,6 +441,24 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 	} else if _, ok := invalidKeyingLabels()[label]; ok {
 		return nil, dtlserrors.ErrReservedExportKeyingMaterial
 	}
+
+	// DTLS 1.3 derives exported keying material with the HKDF-based TLS 1.3
+	// exporter (RFC 8446 section 7.5, inherited by RFC 9147); DTLS 1.2 uses the
+	// legacy TLS 1.2 PRF (RFC 5705). Note DTLS version numbers decrease as the
+	// version increases (1.2 = 0xfefd, 1.3 = 0xfefc), so this is an exact-version
+	// dispatch, not an ordered comparison.
+	if s.version == protocol.Version1_3 {
+		return s.exportKeyingMaterialHKDF(label, context, length)
+	}
+
+	return s.exportKeyingMaterialPRF(label, length)
+}
+
+// exportKeyingMaterialPRF implements the TLS 1.2 PRF keying-material exporter
+// (RFC 5705), used by DTLS 1.2: PRF(master_secret, label, client_random +
+// server_random). The randoms are ordered client-then-server, so the seed is
+// role-dependent.
+func (s *State) exportKeyingMaterialPRF(label string, length int) ([]byte, error) {
 	cipherSuite, err := s.cipherSuite()
 	if err != nil {
 		return nil, err
@@ -449,6 +475,37 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 	}
 
 	return prf.PHash(s.masterSecret, seed, length, cipherSuite.HashFunc())
+}
+
+// exportKeyingMaterialHKDF implements the HKDF-based TLS 1.3 exporter (RFC 8446
+// section 7.5), as used by DTLS 1.3 (RFC 9147). For a given label and context it
+// computes:
+//
+//	Derive-Secret(exporter_master_secret, label, "")             -> secret
+//	HKDF-Expand-Label(secret, "exporter", Hash(context), length) -> keying material
+//
+// HKDF-Expand-Label uses RFC 9147 section 5.9's "dtls13" label prefix (applied
+// by the keyschedule package). Unlike the DTLS 1.2 PRF path, the exporter output
+// does not depend on the endpoint role or the handshake randoms.
+func (s *State) exportKeyingMaterialHKDF(label string, context []byte, length int) ([]byte, error) {
+	if s.cipherSuiteDescriptor == nil || len(s.exporterMasterSecret) == 0 {
+		return nil, dtlserrors.ErrHandshakeInProgress
+	}
+	hashFunc := s.cipherSuiteDescriptor.HashFunc()
+
+	// Derive-Secret(Secret, Label, "") is HKDF-Expand-Label(Secret, Label,
+	// Hash(""), Hash.length); DeriveSecret hashes an empty transcript when nil.
+	exporterSecret, err := keyschedule.DeriveSecret(hashFunc, s.exporterMasterSecret, label, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	h := hashFunc()
+	if _, err := h.Write(context); err != nil {
+		return nil, err
+	}
+
+	return keyschedule.HkdfExpandLabel(hashFunc, exporterSecret, "exporter", h.Sum(nil), length)
 }
 
 // RemoteRandomBytes returns the remote client hello random bytes.

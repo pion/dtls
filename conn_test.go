@@ -5804,3 +5804,176 @@ func TestConnectionKeyUsage(t *testing.T) {
 		})
 	}
 }
+
+// TestExportKeyingMaterial13 verifies the DTLS 1.3 keying-material exporter
+// (RFC 8446 section 7.5 / RFC 9147). It runs a DTLS 1.3 handshake and asserts
+// that both peers export identical EXTRACTOR-dtls_srtp material of the requested
+// length. In DTLS 1.3 the exporter is role-independent, so client and server
+// must derive the same value; a divergence indicates a broken exporter.
+func TestExportKeyingMaterial13(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
+	const exportLabel = "EXTRACTOR-dtls_srtp"
+	const exportLen = 60
+
+	ca, cb := packetPipe()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type result struct {
+		c   *Conn
+		err error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		client, err := testClient(ctx, ca, ca.RemoteAddr(), []ClientOption{
+			WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
+			WithMinVersion(protocol.Version1_3),
+			WithMaxVersion(protocol.Version1_3),
+		}, true)
+		resultCh <- result{client, err}
+	}()
+
+	server, err := testServer(ctx, cb, cb.RemoteAddr(), []ServerOption{
+		WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
+		WithMinVersion(protocol.Version1_3),
+		WithMaxVersion(protocol.Version1_3),
+	}, true)
+	assert.NoError(t, err)
+	res := <-resultCh
+	assert.NoError(t, res.err)
+	client := res.c
+	defer func() {
+		_ = client.Close()
+		_ = server.Close()
+	}()
+
+	clientState, ok := client.ConnectionState()
+	assert.True(t, ok)
+	serverState, ok := server.ConnectionState()
+	assert.True(t, ok)
+
+	assert.Equal(t, protocol.Version1_3, clientState.NegotiatedVersion())
+	assert.Equal(t, protocol.Version1_3, serverState.NegotiatedVersion())
+
+	clientKM, err := clientState.ExportKeyingMaterial(exportLabel, nil, exportLen)
+	assert.NoError(t, err)
+	serverKM, err := serverState.ExportKeyingMaterial(exportLabel, nil, exportLen)
+	assert.NoError(t, err)
+
+	assert.Len(t, clientKM, exportLen)
+	assert.NotEqual(t, make([]byte, exportLen), clientKM)
+	// The DTLS 1.3 exporter is role-independent, so both peers must agree.
+	assert.Equal(t, clientKM, serverKM)
+
+	// A different label must produce different material.
+	otherKM, err := clientState.ExportKeyingMaterial("EXPORTER-other", nil, exportLen)
+	assert.NoError(t, err)
+	assert.NotEqual(t, clientKM, otherKM)
+
+	// A non-empty context is not currently supported and must be rejected.
+	_, err = clientState.ExportKeyingMaterial(exportLabel, []byte{0x00}, exportLen)
+	assert.ErrorIs(t, err, dtlserrors.ErrContextUnsupported)
+}
+
+// TestDTLSVersionNegotiation verifies that a peer configured with a 1.2..1.3
+// version range negotiates the highest version the other peer supports, and in
+// particular falls back to DTLS 1.2 when the other peer is 1.2-only.
+//
+// The production-critical case is a 1.3-capable DTLS SERVER (e.g. a WebRTC SFU,
+// which is the answerer / a=setup:passive and therefore the DTLS server) talking
+// to a 1.2-only DTLS CLIENT (a legacy or embedded WebRTC endpoint). Enabling
+// DTLS 1.3 on the server MUST NOT break these 1.2-only clients: the handshake
+// must negotiate 1.2, not fail.
+func TestDTLSVersionNegotiation(t *testing.T) {
+	report := test.CheckRoutines(t)
+	defer report()
+
+	for _, tc := range []struct {
+		name             string
+		clientMin        protocol.Version
+		clientMax        protocol.Version
+		serverMin        protocol.Version
+		serverMax        protocol.Version
+		expectNegotiated protocol.Version
+	}{
+		{
+			// The SFU case: 1.3-capable server, 1.2-only client -> 1.2.
+			name:             "ServerSupports12And13_Client12Only",
+			clientMin:        protocol.Version1_2,
+			clientMax:        protocol.Version1_2,
+			serverMin:        protocol.Version1_2,
+			serverMax:        protocol.Version1_3,
+			expectNegotiated: protocol.Version1_2,
+		},
+		{
+			// The mirror: 1.3-capable client, 1.2-only server -> 1.2.
+			name:             "Client12And13_Server12Only",
+			clientMin:        protocol.Version1_2,
+			clientMax:        protocol.Version1_3,
+			serverMin:        protocol.Version1_2,
+			serverMax:        protocol.Version1_2,
+			expectNegotiated: protocol.Version1_2,
+		},
+		{
+			// Both support the full range -> highest common version, 1.3.
+			name:             "BothSupport12And13",
+			clientMin:        protocol.Version1_2,
+			clientMax:        protocol.Version1_3,
+			serverMin:        protocol.Version1_2,
+			serverMax:        protocol.Version1_3,
+			expectNegotiated: protocol.Version1_3,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			ca, cb := packetPipe()
+
+			type result struct {
+				c   *Conn
+				err error
+			}
+			clientResult := make(chan result, 1)
+			go func() {
+				client, err := testClient(ctx, ca, ca.RemoteAddr(), []ClientOption{
+					WithMinVersion(tc.clientMin),
+					WithMaxVersion(tc.clientMax),
+				}, true)
+				clientResult <- result{client, err}
+			}()
+
+			server, serverErr := testServer(ctx, cb, cb.RemoteAddr(), []ServerOption{
+				WithMinVersion(tc.serverMin),
+				WithMaxVersion(tc.serverMax),
+			}, true)
+			res := <-clientResult
+
+			defer func() {
+				if server != nil {
+					_ = server.Close()
+				}
+				if res.c != nil {
+					_ = res.c.Close()
+				}
+			}()
+
+			require.NoError(t, serverErr, "server handshake failed")
+			require.NoError(t, res.err, "client handshake failed")
+			client := res.c
+
+			clientState, ok := client.ConnectionState()
+			assert.True(t, ok)
+			serverState, ok := server.ConnectionState()
+			assert.True(t, ok)
+
+			assert.Equal(t, tc.expectNegotiated, clientState.NegotiatedVersion(),
+				"client negotiated version")
+			assert.Equal(t, tc.expectNegotiated, serverState.NegotiatedVersion(),
+				"server negotiated version")
+		})
+	}
+}
