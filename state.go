@@ -488,10 +488,14 @@ func (s *State) exportKeyingMaterialPRF(label string, length int) ([]byte, error
 // by the keyschedule package). Unlike the DTLS 1.2 PRF path, the exporter output
 // does not depend on the endpoint role or the handshake randoms.
 func (s *State) exportKeyingMaterialHKDF(label string, context []byte, length int) ([]byte, error) {
-	if s.cipherSuiteDescriptor == nil || len(s.exporterMasterSecret) == 0 {
+	if len(s.exporterMasterSecret) == 0 {
 		return nil, dtlserrors.ErrHandshakeInProgress
 	}
-	hashFunc := s.cipherSuiteDescriptor.HashFunc()
+	cipherSuite, err := s.cipherSuite()
+	if err != nil {
+		return nil, err
+	}
+	hashFunc := cipherSuite.HashFunc()
 
 	// Derive-Secret(Secret, Label, "") is HKDF-Expand-Label(Secret, Label,
 	// Hash(""), Hash.length); DeriveSecret hashes an empty transcript when nil.
