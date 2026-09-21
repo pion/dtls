@@ -43,42 +43,44 @@ type Option interface {
 }
 
 type dtlsConfig struct {
-	Certificates                  []tls.Certificate
-	CipherSuites                  []cryptosuite.ID
-	SignatureSchemes              []tls.SignatureScheme
-	CertificateSignatureSchemes   []tls.SignatureScheme
-	SRTPProtectionProfiles        []SRTPProtectionProfile
-	SRTPMasterKeyIdentifier       []byte
-	ClientAuth                    ClientAuthType
-	ExtendedMasterSecret          ExtendedMasterSecretType
-	FlightInterval                time.Duration
-	DisableRetransmitBackoff      bool
-	PSKIdentityHint               []byte
-	InsecureSkipVerify            bool
-	InsecureHashes                bool
-	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
-	RootCAs                       *x509.CertPool
-	ClientCAs                     *x509.CertPool
-	ServerName                    string
-	LoggerFactory                 logging.LoggerFactory
-	MTU                           int
-	ReceiveBufferSize             int
-	ReplayProtectionWindow        int
-	KeyLogWriter                  io.Writer
-	SupportedProtocols            []string
-	EllipticCurves                []elliptic.Curve
-	InsecureSkipVerifyHello       bool
-	ReceiveCIDLength              int
-	ConnectionIDGenerator         func() []byte
-	CIDPathMigrationPolicy        cidPathMigrationPolicy
-	PaddingLengthGenerator        func(uint) uint
-	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
-	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
-	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
-	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
-	OnConnectionAttempt           func(net.Addr) error
-	MinVersion                    protocol.Version
-	MaxVersion                    protocol.Version
+	Certificates                       []tls.Certificate
+	CipherSuites                       []cryptosuite.ID
+	SignatureSchemes                   []tls.SignatureScheme
+	CertificateSignatureSchemes        []tls.SignatureScheme
+	SRTPProtectionProfiles             []SRTPProtectionProfile
+	SRTPMasterKeyIdentifier            []byte
+	ClientAuth                         ClientAuthType
+	ExtendedMasterSecret               ExtendedMasterSecretType
+	FlightInterval                     time.Duration
+	DisableRetransmitBackoff           bool
+	PSKIdentityHint                    []byte
+	InsecureSkipVerify                 bool
+	InsecureHashes                     bool
+	VerifyPeerCertificate              func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	RootCAs                            *x509.CertPool
+	ClientCAs                          *x509.CertPool
+	ServerName                         string
+	LoggerFactory                      logging.LoggerFactory
+	MTU                                int
+	ReceiveBufferSize                  int
+	ReplayProtectionWindow             int
+	KeyLogWriter                       io.Writer
+	SupportedProtocols                 []string
+	EllipticCurves                     []elliptic.Curve
+	InsecureSkipVerifyHello            bool
+	ReceiveCIDLength                   int
+	ConnectionIDGenerator              func() []byte
+	CIDPathMigrationPolicy             cidPathMigrationPolicy
+	PaddingLengthGenerator             func(uint) uint
+	HelloRandomBytesGenerator          func() [handshake.RandomBytesLength]byte
+	ClientHelloMessageHook             func(handshake.MessageClientHello) handshake.Message
+	ServerHelloMessageHook             func(handshake.MessageServerHello) handshake.Message
+	CertificateRequestMessageHook      func(handshake.MessageCertificateRequest) handshake.Message
+	OutboundHandshakePacketInterceptor func(datagrams [][]byte, rAddr net.Addr) bool
+	InboundHandshakePacketNotifier     func(packet []byte)
+	OnConnectionAttempt                func(net.Addr) error
+	MinVersion                         protocol.Version
+	MaxVersion                         protocol.Version
 
 	customCipherSuites   func() []cryptosuite.Suite
 	psk                  PSKCallback
@@ -628,7 +630,7 @@ func WithGetCertificate(fn func(*ClientHelloInfo) (*tls.Certificate, error)) Ser
 }
 
 // WithInsecureSkipVerifyHello skips hello verify phase on the server.
-// This has implication on DoS attack resistance.
+// This has implications on DoS attack resistance.
 // This option is only applicable to servers.
 func WithInsecureSkipVerifyHello(skip bool) ServerOption {
 	return serverOnlyOption(func(c *dtlsConfig) error {
@@ -661,6 +663,40 @@ func WithCertificateRequestMessageHook(fn func(handshake.MessageCertificateReque
 			return dtlserrors.ErrNilCertificateRequestMessageHook
 		}
 		c.CertificateRequestMessageHook = fn
+
+		return nil
+	})
+}
+
+// WithOutboundHandshakePacketInterceptor sets a callback that intercepts outgoing
+// raw handshake packets. It is called once per handshake write with the datagrams
+// that write produced and their destination. That is a full flight on the main
+// handshake path, but also covers ACK-only writes and post-handshake messages.
+// Returning true drops all of them so that the caller can deliver them by other
+// means, for example by embedding them into STUN. The datagrams are only valid
+// for the duration of the callback.
+// Returns an error if the callback is nil.
+func WithOutboundHandshakePacketInterceptor(fn func(datagrams [][]byte, rAddr net.Addr) bool) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		if fn == nil {
+			return dtlserrors.ErrNilOutboundHandshakePacketInterceptor
+		}
+		c.OutboundHandshakePacketInterceptor = fn
+
+		return nil
+	})
+}
+
+// WithInboundHandshakePacketNotifier sets a callback that is notified about
+// incoming raw handshake packets. It is called with the raw packet bytes after
+// the packet has been processed.
+// Returns an error if the callback is nil.
+func WithInboundHandshakePacketNotifier(fn func(packet []byte)) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		if fn == nil {
+			return dtlserrors.ErrNilInboundHandshakePacketNotifier
+		}
+		c.InboundHandshakePacketNotifier = fn
 
 		return nil
 	})
