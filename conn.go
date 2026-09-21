@@ -154,7 +154,7 @@ func (c handshakeConn) Notify(ctx context.Context, level alert.Level, desc alert
 }
 
 func (c handshakeConn) WritePackets(ctx context.Context, pkts []*dtlsflight.Outbound) (*dtlshandshake.WriteResult, error) {
-	return c.conn.writePacketsWithResult(ctx, pkts)
+	return c.conn.writePacketsWithResult(ctx, pkts, true)
 }
 
 func (c handshakeConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
@@ -703,7 +703,7 @@ func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Outb
 	for _, pkt := range pkts {
 		pkt.Epoch = epoch
 	}
-	_, err := c.writePacketsWithResult(ctx, pkts)
+	_, err := c.writePacketsWithResult(ctx, pkts, false)
 
 	return err
 }
@@ -757,20 +757,20 @@ func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
 	return bytes.Clone(common.RemoteSRTPMasterKeyIdentifier), true
 }
 
-func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Outbound) error {
-	_, err := c.writePacketsWithResult(ctx, pkts)
+func (c *Conn) writePackets(ctx context.Context, pkts []*dtlsflight.Outbound, handshake bool) error {
+	_, err := c.writePacketsWithResult(ctx, pkts, handshake)
 
 	return err
 }
 
-func (c *Conn) writePacketsWithResult(ctx context.Context, pkts []*dtlsflight.Outbound) (*dtlshandshake.WriteResult, error) {
+func (c *Conn) writePacketsWithResult(ctx context.Context, pkts []*dtlsflight.Outbound, handshake bool) (*dtlshandshake.WriteResult, error) {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
-	return c.writePacketsWithResultLocked(ctx, pkts)
+	return c.writePacketsWithResultLocked(ctx, pkts, handshake)
 }
 
-func (c *Conn) writePacketsWithResultLocked(ctx context.Context, pkts []*dtlsflight.Outbound) (*dtlshandshake.WriteResult, error) {
+func (c *Conn) writePacketsWithResultLocked(ctx context.Context, pkts []*dtlsflight.Outbound, handshake bool) (*dtlshandshake.WriteResult, error) {
 	datagrams, rAddr, err := c.prepareRawPacketsTracked(pkts)
 	if err != nil {
 		return nil, err
@@ -786,7 +786,7 @@ func (c *Conn) writePacketsWithResultLocked(ctx context.Context, pkts []*dtlsfli
 			raw[i] = datagrams[i].raw
 			result.TrackedRecords = append(result.TrackedRecords, datagrams[i].tracked...)
 		}
-		c.detached.publishDatagrams(raw, rAddr)
+		c.detached.publishDatagrams(raw, rAddr, handshake)
 
 		return result, nil
 	}
@@ -2365,7 +2365,7 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 		outbound.Protection = dtlsflight.ProtectionCiphertext
 	}
 
-	return c.writePackets(ctx, []*dtlsflight.Outbound{outbound})
+	return c.writePackets(ctx, []*dtlsflight.Outbound{outbound}, false)
 }
 
 func (c *Conn) isHandshakeCompletedSuccessfully() bool {
@@ -2415,7 +2415,7 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 	if err := dtlshandshake.ValidateClientHelloInitialFlights(pkts); err != nil {
 		return nil, err
 	}
-	if err := c.writePackets(ctx, pkts); err != nil {
+	if err := c.writePackets(ctx, pkts, true); err != nil {
 		return nil, err
 	}
 

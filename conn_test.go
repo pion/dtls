@@ -305,7 +305,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		dtlsstate.CommonState(ca.state).SetLocalSequenceNumber(0, recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
-		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{{Content: &handshake.Handshake{Message: &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: make([]byte, 64), CipherSuiteIDs: cipherSuiteIDs(defaultCipherSuites()), CompressionMethods: dtlsflight.DefaultCompressionMethods()}}}})
+		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{{Content: &handshake.Handshake{Message: &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: make([]byte, 64), CipherSuiteIDs: cipherSuiteIDs(defaultCipherSuites()), CompressionMethods: dtlsflight.DefaultCompressionMethods()}}}}, true)
 		assert.ErrorIs(t, werr, dtlserrors.ErrSequenceNumberOverflow, "Connection must fail when handshake packet reaches maximum sequence num")
 		assert.NoError(t, ca.Close())
 		assert.NoError(t, cb.Close())
