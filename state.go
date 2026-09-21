@@ -42,11 +42,8 @@ type State struct {
 	NegotiatedProtocol string
 	// KeyUsage is the current record keys' usage.
 	KeyUsage *KeyUsageStats
-	// exporterMasterSecret is the DTLS 1.3 exporter_master_secret
-	// (RFC 8446 section 7.5, inherited by RFC 9147). It is only populated for a
-	// DTLS 1.3 connection and is consumed by ExportKeyingMaterial. It is not
-	// serialized (DTLS 1.3 state serialization is unsupported). The hash used to
-	// derive from it comes from cipherSuiteDescriptor.
+	// exporterMasterSecret is exporter_master_secret from
+	// https://www.rfc-editor.org/rfc/rfc8446.html#section-7.1.
 	exporterMasterSecret []byte
 }
 
@@ -430,7 +427,9 @@ func (s *State) UnmarshalBinary(data []byte) error {
 }
 
 // ExportKeyingMaterial returns length bytes of exported key material in a new
-// slice as defined in RFC 5705.
+// slice as defined in https://www.rfc-editor.org/rfc/rfc5705.html#section-4
+// for DTLS 1.2 and https://www.rfc-editor.org/rfc/rfc8446.html#section-7.5
+// for DTLS 1.3.
 // This allows protocols to use DTLS for key establishment, but
 // then use some of the keying material for their own purposes.
 func (s *State) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
@@ -438,11 +437,6 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 		return nil, dtlserrors.ErrHandshakeInProgress
 	}
 
-	// DTLS 1.3 derives exported keying material with the HKDF-based TLS 1.3
-	// exporter (RFC 8446 section 7.5, inherited by RFC 9147); DTLS 1.2 uses the
-	// legacy TLS 1.2 PRF (RFC 5705). Note DTLS version numbers decrease as the
-	// version increases (1.2 = 0xfefd, 1.3 = 0xfefc), so this is an exact-version
-	// dispatch, not an ordered comparison.
 	if s.version == protocol.Version1_3 {
 		return s.exportKeyingMaterialHKDF(label, context, length)
 	}
@@ -456,10 +450,8 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 	return s.exportKeyingMaterialPRF(label, length)
 }
 
-// exportKeyingMaterialPRF implements the TLS 1.2 PRF keying-material exporter
-// (RFC 5705), used by DTLS 1.2: PRF(master_secret, label, client_random +
-// server_random). The randoms are ordered client-then-server, so the seed is
-// role-dependent.
+// exportKeyingMaterialPRF implements the DTLS 1.2 exporter from
+// https://www.rfc-editor.org/rfc/rfc5705.html#section-4.
 func (s *State) exportKeyingMaterialPRF(label string, length int) ([]byte, error) {
 	cipherSuite, err := s.cipherSuite()
 	if err != nil {
@@ -479,16 +471,9 @@ func (s *State) exportKeyingMaterialPRF(label string, length int) ([]byte, error
 	return prf.PHash(s.masterSecret, seed, length, cipherSuite.HashFunc())
 }
 
-// exportKeyingMaterialHKDF implements the HKDF-based TLS 1.3 exporter (RFC 8446
-// section 7.5), as used by DTLS 1.3 (RFC 9147). For a given label and context it
-// computes:
-//
-//	Derive-Secret(exporter_master_secret, label, "")             -> secret
-//	HKDF-Expand-Label(secret, "exporter", Hash(context), length) -> keying material
-//
-// HKDF-Expand-Label uses RFC 9147 section 5.9's "dtls13" label prefix (applied
-// by the keyschedule package). Unlike the DTLS 1.2 PRF path, the exporter output
-// does not depend on the endpoint role or the handshake randoms.
+// exportKeyingMaterialHKDF implements the exporter from
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-7.5 with the DTLS 1.3
+// label prefix from https://www.rfc-editor.org/rfc/rfc9147.html#section-5.9.
 func (s *State) exportKeyingMaterialHKDF(label string, context []byte, length int) ([]byte, error) {
 	if len(s.exporterMasterSecret) == 0 {
 		return nil, dtlserrors.ErrHandshakeInProgress
@@ -499,8 +484,6 @@ func (s *State) exportKeyingMaterialHKDF(label string, context []byte, length in
 	}
 	hashFunc := cipherSuite.HashFunc()
 
-	// Derive-Secret(Secret, Label, "") is HKDF-Expand-Label(Secret, Label,
-	// Hash(""), Hash.length); DeriveSecret hashes an empty transcript when nil.
 	exporterSecret, err := keyschedule.DeriveSecret(hashFunc, s.exporterMasterSecret, label, nil)
 	if err != nil {
 		return nil, err
