@@ -687,64 +687,89 @@ func TestHandshakeDiscardsProtectedRecordWithoutRequiredCID(t *testing.T) {
 }
 
 func TestExportKeyingMaterial(t *testing.T) {
-	// Check for leaking routines
-	report := test.CheckRoutines(t)
-	defer report()
+	const exportLabel = "EXTRACTOR-dtls_srtp"
 
-	var rand [28]byte
-	exportLabel := "EXTRACTOR-dtls_srtp"
-
-	expectedServerKey := []byte{0x61, 0x09, 0x9d, 0x7d, 0xcb, 0x08, 0x52, 0x2c, 0xe7, 0x7b}
-	expectedClientKey := []byte{0x87, 0xf0, 0x40, 0x02, 0xf6, 0x1c, 0xf1, 0xfe, 0x8c, 0x77}
-
-	conn := &Conn{
-		state: &dtlsstate.State12{
-			Common: &dtlsstate.Common{
-				LocalRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0), RandomBytes: rand},
-				RemoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0), RandomBytes: rand},
-				LocalSequenceNumber: map[uint64]uint64{},
-				CipherSuite:         ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
-			},
+	for _, tt := range []struct {
+		name              string
+		version           protocol.Version
+		cipherSuite       cryptosuite.ID
+		expectedServerKey string
+		expectedClientKey string
+		contextErr        error
+		labelErr          error
+	}{
+		{
+			name: "DTLS12", version: protocol.Version1_2,
+			cipherSuite:       cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			expectedServerKey: "61099d7dcb08522ce77b",
+			expectedClientKey: "87f04002f61cf1fe8c77",
+			contextErr:        dtlserrors.ErrContextUnsupported,
+			labelErr:          dtlserrors.ErrReservedExportKeyingMaterial,
 		},
+		{
+			name: "DTLS13", version: protocol.Version1_3,
+			cipherSuite:       cryptosuite.TLS_AES_128_GCM_SHA256,
+			expectedServerKey: "31361451e3d8dc3ad264",
+			expectedClientKey: "31361451e3d8dc3ad264",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			common := &dtlsstate.Common{
+				LocalRandom:         handshake.Random{GMTUnixTime: time.Unix(500, 0)},
+				RemoteRandom:        handshake.Random{GMTUnixTime: time.Unix(1000, 0)},
+				LocalSequenceNumber: map[uint64]uint64{},
+				CipherSuite:         ciphersuite.ForID(tt.cipherSuite),
+			}
+			conn := &Conn{state: &dtlsstate.State12{Common: common}}
+			if tt.version == protocol.Version1_3 {
+				conn.state = &dtlsstate.State13{
+					Common:      common,
+					KeySchedule: dtlsstate.KeySchedule{ExporterMasterSecret: make([]byte, 32)},
+				}
+			}
+
+			state, ok := conn.ConnectionState()
+			require.True(t, ok)
+			_, err := state.ExportKeyingMaterial(exportLabel, nil, 10)
+			assert.ErrorIs(t, err, dtlserrors.ErrHandshakeInProgress)
+
+			conn.setLocalEpoch(1)
+			for _, role := range []struct {
+				name     string
+				isClient bool
+				expected string
+			}{
+				{name: "server", expected: tt.expectedServerKey},
+				{name: "client", isClient: true, expected: tt.expectedClientKey},
+			} {
+				t.Run(role.name, func(t *testing.T) {
+					common.IsClient = role.isClient
+					state, ok := conn.ConnectionState()
+					require.True(t, ok)
+
+					keyingMaterial, err := state.ExportKeyingMaterial(exportLabel, nil, 10)
+					require.NoError(t, err)
+					assert.Equal(t, role.expected, hex.EncodeToString(keyingMaterial))
+
+					otherMaterial, err := state.ExportKeyingMaterial("EXPORTER-other", nil, 10)
+					require.NoError(t, err)
+					assert.NotEqual(t, keyingMaterial, otherMaterial)
+
+					contextMaterial, err := state.ExportKeyingMaterial(exportLabel, []byte{0x00}, 10)
+					assert.ErrorIs(t, err, tt.contextErr)
+					if tt.contextErr == nil {
+						assert.Len(t, contextMaterial, 10)
+						assert.NotEqual(t, keyingMaterial, contextMaterial)
+					}
+
+					for label := range invalidKeyingLabels() {
+						_, err := state.ExportKeyingMaterial(label, nil, 10)
+						assert.ErrorIs(t, err, tt.labelErr, label)
+					}
+				})
+			}
+		})
 	}
-	conn.setLocalEpoch(0)
-	conn.setRemoteEpoch(0)
-
-	state, ok := conn.ConnectionState()
-	assert.True(t, ok)
-
-	_, err := state.ExportKeyingMaterial(exportLabel, nil, 0)
-	assert.ErrorIs(t, err, dtlserrors.ErrHandshakeInProgress, "ExportKeyingMaterial when epoch == 0 error mismatch")
-
-	conn.setLocalEpoch(1)
-	state, ok = conn.ConnectionState()
-	assert.True(t, ok)
-
-	_, err = state.ExportKeyingMaterial(exportLabel, []byte{0x00}, 0)
-	assert.ErrorIs(t, err, dtlserrors.ErrContextUnsupported, "ExportKeyingMaterial with context mismatch")
-
-	for k := range invalidKeyingLabels() {
-		state, ok = conn.ConnectionState()
-		assert.True(t, ok)
-
-		_, err = state.ExportKeyingMaterial(k, nil, 0)
-		assert.ErrorIs(t, err, dtlserrors.ErrReservedExportKeyingMaterial, "ExportKeyingMaterial reserved label mismatch")
-	}
-
-	state, ok = conn.ConnectionState()
-	assert.True(t, ok)
-
-	keyingMaterial, err := state.ExportKeyingMaterial(exportLabel, nil, 10)
-	assert.NoError(t, err, "ExportingKeyingMaterial as server error")
-	assert.Equal(t, expectedServerKey, keyingMaterial, "ExportKeyingMaterial client export mismatch")
-
-	dtlsstate.CommonState(conn.state).IsClient = true
-	state, ok = conn.ConnectionState()
-	assert.True(t, ok)
-
-	keyingMaterial, err = state.ExportKeyingMaterial(exportLabel, nil, 10)
-	assert.NoError(t, err)
-	assert.Equal(t, expectedClientKey, keyingMaterial, "ExportKeyingMaterial client report mismatch")
 }
 
 func TestPSK(t *testing.T) {

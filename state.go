@@ -13,6 +13,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	dtlsutil "github.com/pion/dtls/v4/internal/util"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/keyschedule"
 	"github.com/pion/dtls/v4/pkg/crypto/prf"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -41,6 +42,9 @@ type State struct {
 	NegotiatedProtocol string
 	// KeyUsage is the current record keys' usage.
 	KeyUsage *KeyUsageStats
+	// exporterMasterSecret is exporter_master_secret from
+	// https://www.rfc-editor.org/rfc/rfc8446.html#section-7.1.
+	exporterMasterSecret []byte
 }
 
 // KeyUsageStats reports usage of the current directional record keys.
@@ -209,6 +213,7 @@ func generateState13(internalState *dtlsstate.State13) (*State, error) {
 		IdentityHint:          bytes.Clone(common.IdentityHint),
 		SessionID:             bytes.Clone(common.SessionID),
 		NegotiatedProtocol:    common.NegotiatedProtocol,
+		exporterMasterSecret:  bytes.Clone(internalState.KeySchedule.ExporterMasterSecret),
 	}, nil
 }
 
@@ -422,17 +427,32 @@ func (s *State) UnmarshalBinary(data []byte) error {
 }
 
 // ExportKeyingMaterial returns length bytes of exported key material in a new
-// slice as defined in RFC 5705.
+// slice as defined in https://www.rfc-editor.org/rfc/rfc5705.html#section-4
+// for DTLS 1.2 and https://www.rfc-editor.org/rfc/rfc8446.html#section-7.5
+// for DTLS 1.3.
 // This allows protocols to use DTLS for key establishment, but
 // then use some of the keying material for their own purposes.
 func (s *State) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
 	if s.localEpoch == 0 {
 		return nil, dtlserrors.ErrHandshakeInProgress
-	} else if len(context) != 0 {
+	}
+
+	if s.version == protocol.Version1_3 {
+		return s.exportKeyingMaterialHKDF(label, context, length)
+	}
+
+	if len(context) != 0 {
 		return nil, dtlserrors.ErrContextUnsupported
 	} else if _, ok := invalidKeyingLabels()[label]; ok {
 		return nil, dtlserrors.ErrReservedExportKeyingMaterial
 	}
+
+	return s.exportKeyingMaterialPRF(label, length)
+}
+
+// exportKeyingMaterialPRF implements the DTLS 1.2 exporter from
+// https://www.rfc-editor.org/rfc/rfc5705.html#section-4.
+func (s *State) exportKeyingMaterialPRF(label string, length int) ([]byte, error) {
 	cipherSuite, err := s.cipherSuite()
 	if err != nil {
 		return nil, err
@@ -449,6 +469,32 @@ func (s *State) ExportKeyingMaterial(label string, context []byte, length int) (
 	}
 
 	return prf.PHash(s.masterSecret, seed, length, cipherSuite.HashFunc())
+}
+
+// exportKeyingMaterialHKDF implements the exporter from
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-7.5 with the DTLS 1.3
+// label prefix from https://www.rfc-editor.org/rfc/rfc9147.html#section-5.9.
+func (s *State) exportKeyingMaterialHKDF(label string, context []byte, length int) ([]byte, error) {
+	if len(s.exporterMasterSecret) == 0 {
+		return nil, dtlserrors.ErrHandshakeInProgress
+	}
+	cipherSuite, err := s.cipherSuite()
+	if err != nil {
+		return nil, err
+	}
+	hashFunc := cipherSuite.HashFunc()
+
+	exporterSecret, err := keyschedule.DeriveSecret(hashFunc, s.exporterMasterSecret, label, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	h := hashFunc()
+	if _, err := h.Write(context); err != nil {
+		return nil, err
+	}
+
+	return keyschedule.HkdfExpandLabel(hashFunc, exporterSecret, "exporter", h.Sum(nil), length)
 }
 
 // RemoteRandomBytes returns the remote client hello random bytes.
