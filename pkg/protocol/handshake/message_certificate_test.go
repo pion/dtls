@@ -11,16 +11,6 @@ import (
 )
 
 func TestHandshakeMessageCertificate(t *testing.T) {
-	// Not easy to mock out these members, just copy for now (since everything else matches)
-	copyCertificatePrivateMembers := func(src, dst *x509.Certificate) {
-		dst.PublicKey = src.PublicKey
-		dst.SerialNumber = src.SerialNumber
-		dst.Issuer = src.Issuer
-		dst.Subject = src.Subject
-		dst.NotBefore = src.NotBefore
-		dst.NotAfter = src.NotAfter
-	}
-
 	rawCertificate := []byte{
 		0x00, 0x01, 0x8c, 0x00, 0x01, 0x89, 0x30, 0x82, 0x01, 0x85, 0x30, 0x82, 0x01, 0x2b, 0x02, 0x14,
 		0x7d, 0x00, 0xcf, 0x07, 0xfc, 0xe2, 0xb6, 0xb8, 0x3f, 0x72, 0xeb, 0x11, 0x36, 0x1b, 0xf6, 0x39,
@@ -49,26 +39,13 @@ func TestHandshakeMessageCertificate(t *testing.T) {
 		0x66, 0xbf, 0x16, 0xb3, 0x80, 0x78, 0xd0, 0x0c, 0xef, 0xcc, 0xf5, 0xc1, 0x15, 0x0f, 0x58,
 	}
 
-	parsedCertificate := &x509.Certificate{
-		Raw:                     rawCertificate[6:],
-		RawTBSCertificate:       rawCertificate[10:313],
-		RawSubjectPublicKeyInfo: rawCertificate[222:313],
-		RawSubject:              rawCertificate[48:119],
-		RawIssuer:               rawCertificate[48:119],
-		Signature:               rawCertificate[328:],
-		SignatureAlgorithm:      x509.ECDSAWithSHA256,
-		PublicKeyAlgorithm:      x509.ECDSA,
-		Version:                 1,
-	}
-
 	certMessage := &MessageCertificate{}
 	assert.NoError(t, certMessage.Unmarshal(rawCertificate))
+	assert.Len(t, certMessage.Certificate, 1)
+	assert.Equal(t, rawCertificate[6:], certMessage.Certificate[0])
 
-	certificate, err := x509.ParseCertificate(certMessage.Certificate[0])
+	_, err := x509.ParseCertificate(certMessage.Certificate[0])
 	assert.NoError(t, err)
-
-	copyCertificatePrivateMembers(certificate, parsedCertificate)
-	assert.Equal(t, parsedCertificate, certificate)
 
 	raw, err := certMessage.Marshal()
 	assert.Equal(t, rawCertificate, raw)
