@@ -149,9 +149,17 @@ type KeyUpdater interface {
 	UpdateKeys(context.Context, handshake.KeyUpdateRequest) error
 }
 
-// ConnectionIDUpdater advertises locally generated receive IDs and waits for ACK.
+// ConnectionIDUpdater advertises local receive IDs and requests peer IDs.
 type ConnectionIDUpdater interface {
 	SendConnectionIDs(context.Context, uint8, handshake.ConnectionIDUsage) error
+	RequestConnectionIDs(context.Context, uint8) error
+}
+
+// RequestConnectionIDs waits for both the request ACK and a spare CID response.
+func (s *fsm13) RequestConnectionIDs(ctx context.Context, count uint8) error {
+	return s.submitAndWaitPostHandshakeCommand(ctx, postHandshakeCommand{
+		Kind: commandSendRequestConnectionID, RequestCIDs: count,
+	})
 }
 
 func (s *fsm13) SendConnectionIDs(ctx context.Context, count uint8, usage handshake.ConnectionIDUsage) error {

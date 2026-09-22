@@ -54,6 +54,7 @@ const (
 	AccessDenied           Description = 49
 	DecodeError            Description = 50
 	DecryptError           Description = 51
+	TooManyCIDsRequested   Description = 52
 	ExportRestriction      Description = 60
 	ProtocolVersion        Description = 70
 	InsufficientSecurity   Description = 71
@@ -104,6 +105,8 @@ func (d Description) String() string { //nolint:cyclop
 		return "DecodeError"
 	case DecryptError:
 		return "DecryptError"
+	case TooManyCIDsRequested:
+		return "TooManyCIDsRequested"
 	case ExportRestriction:
 		return "ExportRestriction"
 	case ProtocolVersion:

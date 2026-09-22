@@ -668,7 +668,7 @@ func TestPostHandshakeIndependentCategories(t *testing.T) {
 	require.Len(t, post.queue, 1)
 	assert.Equal(t, commandSendNewConnectionID, post.queue[0].Kind)
 	require.Error(t, completed.Err())
-	assert.ErrorIs(t, completion.result(), dtlserrors.ErrNotImplemented)
+	assert.ErrorIs(t, completion.result(), dtlserrors.ErrUnexpectedPostHandshakeMessage)
 	assert.Len(t, post.flights, 4)
 	assert.Len(t, conn.writtenPackets, 4)
 	assert.Equal(t, 3, state.HandshakeSendSequence)
@@ -705,13 +705,21 @@ func (c *postHandshakeCIDConn) CommitPeerConnectionIDs(message *handshake.Messag
 }
 
 func (c *postHandshakeCIDConn) WritePackets(_ context.Context, packets []*dtlsflight.Outbound) (*WriteResult, error) {
+	result := &WriteResult{}
 	for _, packet := range packets {
+		c.writtenPackets = append(c.writtenPackets, packet)
 		if _, ok := packet.Content.(*protocol.ACK); ok {
 			c.ackCID = bytes.Clone(c.state.CID.Send.Active)
 		}
+		if message, ok := packet.Content.(*handshake.Handshake); ok {
+			result.TrackedRecords = append(result.TrackedRecords, SentHandshakeRecord{
+				Number:    protocol.RecordNumber{Epoch: packet.Epoch, SequenceNumber: uint64(len(c.writtenPackets))},
+				Fragments: []SentHandshakeFragment{{MessageSequence: message.Header.MessageSequence, Length: message.Header.Length}},
+			})
+		}
 	}
 
-	return &WriteResult{}, nil
+	return result, nil
 }
 
 func newPostHandshakeCIDTest(t *testing.T) (*postHandshake, *postHandshakeCIDConn) {

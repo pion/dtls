@@ -153,13 +153,22 @@ type postHandshakeCommand struct {
 	Write           func(Conn, []*dtlsflight.Outbound) error
 	KeyUpdate       keyUpdateCommand
 	NewConnectionID newConnectionIDCommand
+	RequestCIDs     uint8
+	CIDResponse     bool
 	Canceled        <-chan struct{}
 
 	// non-nil for application commands that wait for completion.
 	Completion *postHandshakeCompletion
 }
 
+type connectionIDRequest struct {
+	completion *postHandshakeCompletion
+	acked      bool
+	fulfilled  bool
+}
+
 type postHandshake struct {
+	cidRequest      *connectionIDRequest
 	initialized     bool
 	nextTicketNonce uint64
 
@@ -268,7 +277,7 @@ func (p *postHandshake) commandEligible(kind postHandshakeCommandKind, applicati
 	case commandSendNewConnectionID:
 		category = postHandshakeNewConnectionID
 	case commandSendRequestConnectionID:
-		category = postHandshakeRequestConnectionID
+		return true
 	case commandSendApplicationData:
 		return !applicationBlocked
 	default:
@@ -301,6 +310,13 @@ func (p *postHandshake) startPostHandshakeCommand(
 	conn Conn,
 	command postHandshakeCommand,
 ) error {
+	if command.CIDResponse {
+		available := max(0, dtlsstate.MaxConnectionIDs-p.state.CID.Receive.IDs.Len())
+		command.NewConnectionID.NumCIDs = uint8(min(int(command.NewConnectionID.NumCIDs), maxConnectionIDBatch, available)) //nolint:gosec // bounded by maxConnectionIDBatch.
+		if p.cfg.ConnectionIDGenerator == nil {
+			command.NewConnectionID.NumCIDs = 0
+		}
+	}
 	if err := p.validatePostHandshakeCommand(command); err != nil {
 		return rejectPostHandshakeCommand(command, err)
 	}
@@ -312,7 +328,7 @@ func (p *postHandshake) startPostHandshakeCommand(
 	case commandSendNewConnectionID:
 		return p.startNewConnectionID(ctx, conn, command)
 	case commandSendRequestConnectionID:
-		return dtlserrors.ErrNotImplemented
+		return p.startRequestConnectionID(ctx, conn, command)
 	case commandSendApplicationData:
 		return p.writeApplicationData(conn, command)
 	default:
@@ -343,7 +359,7 @@ func (p *postHandshake) validatePostHandshakeCommand(command postHandshakeComman
 	case commandSendNewConnectionID:
 		return p.validateNewConnectionIDCommand(command.NewConnectionID)
 	case commandSendRequestConnectionID:
-		return dtlserrors.ErrNotImplemented
+		return p.validateRequestConnectionID()
 	case commandSendApplicationData:
 	default:
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
@@ -511,6 +527,8 @@ func (p *postHandshake) handlePostHandshakeMessage(ctx context.Context, conn Con
 		return p.handleKeyUpdate(ctx, conn, body, epoch)
 	case *handshake.MessageNewConnectionID:
 		return p.handleNewConnectionID(ctx, conn, body)
+	case *handshake.MessageRequestConnectionID:
+		return p.handleRequestConnectionID(ctx, conn, body)
 	default:
 		return fatalPostHandshakeAlert(ctx, conn, alert.UnexpectedMessage)
 	}
@@ -627,6 +645,57 @@ func (p *postHandshake) handleNewConnectionID(ctx context.Context, conn Conn, me
 	if err := cidConn.CommitPeerConnectionIDs(message); err != nil {
 		return err
 	}
+	if message.Usage == handshake.ConnectionIDSpare && p.cidRequest != nil {
+		p.cidRequest.fulfilled = true
+		p.completeConnectionIDRequest()
+	}
+	p.state.HandshakeRecvSequence++
+
+	return nil
+}
+
+func (p *postHandshake) validateRequestConnectionID() error {
+	if !p.state.CID.Negotiated || !p.state.CID.Send.UseCID {
+		return dtlserrors.ErrUnexpectedPostHandshakeMessage
+	}
+	if p.cidRequest != nil {
+		return dtlserrors.ErrConnectionIDRequestPending
+	}
+
+	return nil
+}
+
+func (p *postHandshake) startRequestConnectionID(ctx context.Context, conn Conn, command postHandshakeCommand) error {
+	if p.state.HandshakeSendSequence > math.MaxUint16 {
+		return dtlserrors.ErrHandshakeSequenceOverflow
+	}
+	message := &handshake.MessageRequestConnectionID{NumCIDs: command.RequestCIDs}
+	p.cidRequest = &connectionIDRequest{completion: command.Completion}
+
+	return p.startFlight(ctx, conn, p.newReliableFlight(postHandshakeRequestConnectionID, message, message.MarshalSize()))
+}
+
+func (p *postHandshake) completeConnectionIDRequest() {
+	if p.cidRequest != nil && p.cidRequest.acked && p.cidRequest.fulfilled {
+		p.cidRequest.completion.complete(nil)
+		p.cidRequest = nil
+	}
+}
+
+func (p *postHandshake) handleRequestConnectionID(ctx context.Context, conn Conn, message *handshake.MessageRequestConnectionID) error {
+	if !p.state.CID.Negotiated || !p.state.CID.Receive.CanSendNewConnectionID {
+		return fatalPostHandshakeAlert(ctx, conn, alert.UnexpectedMessage)
+	}
+	// This allows  one queued response in addition to an in-flight CID change.
+	for _, command := range p.queue {
+		if command.CIDResponse {
+			return fatalPostHandshakeAlert(ctx, conn, alert.TooManyCIDsRequested)
+		}
+	}
+	p.queue = append(p.queue, postHandshakeCommand{
+		Kind: commandSendNewConnectionID, CIDResponse: true,
+		NewConnectionID: newConnectionIDCommand{NumCIDs: message.NumCIDs, Usage: handshake.ConnectionIDSpare},
+	})
 	p.state.HandshakeRecvSequence++
 
 	return nil
@@ -845,12 +914,20 @@ func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeF
 		delete(p.recordIndex, number)
 	}
 	delete(p.flights, id)
+	if id.Category == postHandshakeRequestConnectionID && p.cidRequest != nil {
+		p.cidRequest.acked = true
+		p.completeConnectionIDRequest()
+	}
 	flight.Completion.complete(completionErr)
 
 	return completionErr
 }
 
 func (p *postHandshake) fail(err error) {
+	if p.cidRequest != nil {
+		p.cidRequest.completion.complete(err)
+		p.cidRequest = nil
+	}
 	for _, command := range p.queue {
 		command.Completion.complete(err)
 	}
