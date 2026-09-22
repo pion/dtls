@@ -10,14 +10,17 @@ import (
 	"errors"
 	"net"
 	"slices"
+	"sync"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	idtlsnet "github.com/pion/dtls/v4/internal/net"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
+	"github.com/pion/transport/v5/netctx"
 )
 
 // RandomCIDGenerator is a random Connection ID generator where CID is the
@@ -389,6 +392,9 @@ func (c *Conn) pendingCIDNegotiation() bool {
 // updateRemoteAddr is called only after the migration policy accepts a path.
 // Sending an RRC probe must not move the listener's address route.
 func (c *Conn) updateRemoteAddr(addr net.Addr) error {
+	if source, ok := addr.(pathAddress); ok {
+		addr = source.Addr
+	}
 	if c.packetConn != nil {
 		if err := c.packetConn.SetRemoteAddr(addr); err != nil {
 			return err
@@ -440,4 +446,152 @@ func (c *Conn) queueHandshakeACK(content []byte, number protocol.RecordNumber) {
 		c.pendingCIDACKs = make(map[protocol.RecordNumber]uint16)
 	}
 	c.pendingCIDACKs[number] = uint16(lastCIDSequence) //nolint:gosec // copied from a uint16 message sequence.
+}
+
+// pathSocket owns one socket and its receiving goroutine.
+type pathSocket struct {
+	transport   *pathTransport
+	socket      netctx.PacketConn
+	remote      net.Addr
+	lifetime    context.Context //nolint:containedctx
+	cancel      context.CancelCauseFunc
+	closeSocket func() error
+}
+
+// pathAddress carries the receiving socket through record processing and queued
+// records.
+type pathAddress struct {
+	net.Addr
+	path *pathSocket
+}
+
+type pathDatagram struct {
+	buffer *[]byte
+	size   int
+	addr   pathAddress
+	err    error
+}
+
+type pathTransport struct {
+	conn     *Conn
+	start    func()
+	incoming chan pathDatagram
+	active   *pathSocket
+	paths    map[*pathSocket]struct{}
+}
+
+func newPathTransport(conn *Conn, socket netctx.PacketConn) *pathTransport {
+	transport := &pathTransport{
+		conn: conn, incoming: make(chan pathDatagram, 16),
+		paths: make(map[*pathSocket]struct{}),
+	}
+	initial := transport.add(socket)
+	transport.active = initial
+	transport.start = sync.OnceFunc(func() { go initial.read() })
+
+	return transport
+}
+
+// add is called with conn.lock held, or during connection construction.
+func (t *pathTransport) add(socket netctx.PacketConn) *pathSocket {
+	lifetime, cancel := context.WithCancelCause(t.conn.closed)
+	path := &pathSocket{transport: t, socket: socket, remote: t.conn.rAddr, lifetime: lifetime, cancel: cancel, closeSocket: sync.OnceValue(socket.Close)}
+	t.paths[path] = struct{}{}
+
+	return path
+}
+
+func (p *pathSocket) read() {
+	conn := p.transport.conn
+	for {
+		buffer, ok := conn.readBufferPool.Get().(*[]byte)
+		if !ok {
+			return
+		}
+		n, addr, err := p.socket.Conn().ReadFrom(*buffer)
+		packet := pathDatagram{buffer: buffer, size: n, addr: pathAddress{Addr: addr, path: p}, err: err}
+		select {
+		case p.transport.incoming <- packet:
+		case <-p.lifetime.Done():
+			conn.readBufferPool.Put(buffer)
+
+			return
+		}
+		if p.readFailed(err) {
+			return
+		}
+	}
+}
+
+func (p *pathSocket) readFailed(err error) bool {
+	if err == nil || idtlsnet.IsShortBuffer(err) {
+		return false
+	}
+	conn := p.transport.conn
+	conn.lock.RLock()
+	defer conn.lock.RUnlock()
+	if p == p.transport.active && conn.classifyReadLoopError(netError(err)) == readLoopDeliverAndContinue {
+		return false
+	}
+	p.cancel(err)
+
+	return true
+}
+
+func (t *pathTransport) ReadFromContext(ctx context.Context, buffer []byte) (int, net.Addr, error) {
+	t.start()
+	for {
+		select {
+		case packet := <-t.incoming:
+			n := copy(buffer, (*packet.buffer)[:packet.size])
+			t.conn.readBufferPool.Put(packet.buffer)
+			t.conn.lock.RLock()
+			path := packet.addr.path
+			accept := path == t.active || (packet.err == nil && path.lifetime.Err() == nil && sameNetworkAddress(packet.addr.Addr, path.remote))
+			t.conn.lock.RUnlock()
+			if !accept {
+				continue
+			}
+
+			return n, packet.addr, packet.err
+		case <-ctx.Done():
+			return 0, nil, ctx.Err()
+		}
+	}
+}
+
+func (t *pathTransport) WriteToContext(ctx context.Context, packet []byte, addr net.Addr) (int, error) {
+	t.conn.lock.RLock()
+	path := t.active
+	if source, ok := addr.(pathAddress); ok {
+		path, addr = source.path, source.Addr
+	}
+	t.conn.lock.RUnlock()
+
+	return path.socket.WriteToContext(ctx, packet, addr)
+}
+
+func (t *pathTransport) LocalAddr() net.Addr {
+	return t.Conn().LocalAddr()
+}
+
+func (t *pathTransport) Conn() net.PacketConn {
+	t.conn.lock.RLock()
+	defer t.conn.lock.RUnlock()
+
+	return t.active.socket.Conn()
+}
+
+func (t *pathTransport) Close() error {
+	t.conn.lock.Lock()
+	paths := t.paths
+	t.paths = nil
+	t.conn.lock.Unlock()
+	var err error
+	for path := range paths {
+		path.cancel(ErrConnClosed)
+		err = errors.Join(err, path.closeSocket())
+	}
+
+	return err
 }

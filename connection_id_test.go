@@ -28,9 +28,61 @@ import (
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
+	"github.com/pion/transport/v5/netctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPathTransport(t *testing.T) {
+	listen := func() net.PacketConn {
+		socket, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = socket.Close() })
+
+		return socket
+	}
+	peer, initial, candidate := listen(), listen(), listen()
+	conn := &Conn{closed: closer.NewCloser(), rAddr: peer.LocalAddr(), readBufferPool: readBufferPoolForSize(1500)}
+	transport := newPathTransport(conn, netctx.NewPacketConn(initial))
+	t.Cleanup(func() { _ = transport.Close() })
+	path := transport.add(netctx.NewPacketConn(candidate))
+	go path.read()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	buffer := make([]byte, 1500)
+	for _, socket := range []net.PacketConn{initial, candidate} {
+		_, err := peer.WriteTo([]byte("request"), socket.LocalAddr())
+		require.NoError(t, err)
+		n, addr, err := transport.ReadFromContext(ctx, buffer)
+		require.NoError(t, err)
+		assert.Equal(t, "request", string(buffer[:n]))
+		assert.True(t, sameNetworkAddress(peer.LocalAddr(), addr))
+		_, err = transport.WriteToContext(ctx, []byte("reply"), addr)
+		require.NoError(t, err)
+		require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+		n, source, err := peer.ReadFrom(buffer)
+		require.NoError(t, err)
+		assert.Equal(t, "reply", string(buffer[:n]))
+		assert.Equal(t, socket.LocalAddr(), source)
+		require.NoError(t, conn.updateRemoteAddr(addr))
+		assert.Equal(t, peer.LocalAddr(), conn.rAddr)
+	}
+	_, err := transport.WriteToContext(ctx, []byte("active"), peer.LocalAddr())
+	require.NoError(t, err)
+	_, source, err := peer.ReadFrom(buffer)
+	require.NoError(t, err)
+	assert.Equal(t, initial.LocalAddr(), source)
+	for _, socket := range []net.PacketConn{initial, candidate} {
+		require.NoError(t, socket.SetReadDeadline(time.Now().Add(time.Second)))
+	}
+	require.NoError(t, transport.Close())
+	require.NoError(t, transport.Close())
+	for _, socket := range []net.PacketConn{initial, candidate} {
+		_, _, err = socket.ReadFrom(buffer)
+		assert.ErrorIs(t, err, net.ErrClosed)
+	}
+	assert.ErrorIs(t, context.Cause(path.lifetime), ErrConnClosed)
+}
 
 func TestRandomConnectionIDGenerator(t *testing.T) {
 	cases := map[string]struct {
