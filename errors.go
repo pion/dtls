@@ -19,6 +19,18 @@ import (
 // ErrConnClosed indicates that the connection is closed.
 var ErrConnClosed = dtlserrors.ErrConnClosed
 
+// errPathMigrationUnavailable indicates that migration or probing requirements are not met.
+var errPathMigrationUnavailable = errors.New("dtls: path migration or probing unavailable") //nolint:gochecknoglobals
+
+// errPathNotValidated indicates that a path needs a successful Probe before Switch.
+var errPathNotValidated = errors.New("dtls: path has not been validated") //nolint:gochecknoglobals
+
+// errPathInUse indicates that a path is already being probed or is the active path.
+var errPathInUse = errors.New("dtls: path is in use") //nolint:gochecknoglobals
+
+// errNoConnectionID indicates that the peer supplied no unused nonempty CID for a new path.
+var errNoConnectionID = errors.New("dtls: no unused peer connection ID") //nolint:gochecknoglobals
+
 // ErrStateSerializationUnsupported indicates that the negotiated DTLS version
 // cannot be represented by the public DTLS 1.2-shaped State snapshot.
 var ErrStateSerializationUnsupported = errors.New("dtls: state serialization unsupported for this protocol version") //nolint:gochecknoglobals

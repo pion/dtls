@@ -31,6 +31,22 @@ type Manager struct {
 	paths map[string]*path
 }
 
+// Reset discards challenges when the local transport changes.
+func (m *Manager) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.resetLocked()
+}
+
+func (m *Manager) resetLocked() {
+	for _, candidate := range m.paths {
+		if candidate.timer != nil {
+			candidate.timer.Stop()
+		}
+	}
+	clear(m.paths)
+}
+
 // WrapReplayMarker counts a record once, after authentication and replay validation.
 func (m *Manager) WrapReplayMarker(marker func() bool, addr net.Addr, wireBytes int, activeAddress func() net.Addr, enabled bool) func() bool {
 	if marker == nil || !enabled {
@@ -106,12 +122,7 @@ func (m *Manager) HandleResponse(
 
 		return false
 	}
-	for _, candidate := range m.paths {
-		if candidate.timer != nil {
-			candidate.timer.Stop()
-		}
-	}
-	clear(m.paths)
+	m.resetLocked()
 
 	return true
 }

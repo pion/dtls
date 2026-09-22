@@ -11,9 +11,11 @@ import (
 	"net"
 	"slices"
 	"sync"
+	"time"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlshandshake "github.com/pion/dtls/v4/internal/handshake"
 	idtlsnet "github.com/pion/dtls/v4/internal/net"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -61,8 +63,8 @@ func (c returnRoutabilityConn) WriteRRC(ctx context.Context, addr net.Addr, mess
 
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
-	packet := &dtlsflight.Outbound{Epoch: common.LocalEpoch(), Content: &protocol.ReturnRoutabilityCheck{MessageType: messageType, Cookie: cookie}, Protection: dtlsflight.ProtectionCiphertext}
-	raw, err := c.conn.prepareRecord(packet)
+	message := &protocol.ReturnRoutabilityCheck{MessageType: messageType, Cookie: cookie}
+	raw, err := c.prepareRecord(message, addr)
 	if err == nil {
 		err = c.conn.rrc.Reserve(addr, c.conn.rAddr, len(raw))
 	}
@@ -91,31 +93,41 @@ func (c returnRoutabilityConn) HandleRecord(ctx context.Context, message *protoc
 	if c.conn.cidPathMigrationPolicy != CIDPathMigrationRRC || prepared.number.Epoch == 0 || !dtlsstate.CommonState(c.conn.state).RRCNegotiated {
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
-	isLatestSeqNum := prepared.markPacketAsValid()
+	prepared.markPacketAsValid()
 	var err error
 	switch message.MessageType {
 	case protocol.ReturnRoutabilityCheckPathChallenge:
 		err = c.WriteRRC(ctx, addr, protocol.ReturnRoutabilityCheckPathResponse, message.Cookie)
 	case protocol.ReturnRoutabilityCheckPathResponse:
-		if c.conn.rrc.HandleResponse(addr, message.Cookie) {
-			c.conn.lock.Lock()
-			err = c.conn.updateRemoteAddr(addr)
-			c.conn.lock.Unlock()
-		}
-		isLatestSeqNum = false
+		err = c.handleResponse(addr, message.Cookie)
 	case protocol.ReturnRoutabilityCheckPathDrop:
-		isLatestSeqNum = false
+		c.conn.rrc.Cancel(addr, message.Cookie)
 	default:
-		// In addition, implementations MUST be able to parse and gracefully
-		// ignore messages with an unknown msg_type.
+		// Ignore unknown message types.
 		// https://datatracker.ietf.org/doc/html/rfc9853#section-4
-		isLatestSeqNum = false
 	}
 	if err != nil {
 		c.conn.log.Debugf("unable to handle return routability message: %v", err)
 	}
 
-	return isLatestSeqNum, packetOutcome{}, nil
+	// A reachability probe does not request migration
+	// https://www.rfc-editor.org/rfc/rfc9853.html#section-1
+	return false, packetOutcome{}, nil
+}
+
+func (c returnRoutabilityConn) handleResponse(addr net.Addr, cookie [protocol.ReturnRoutabilityCheckCookieLength]byte) error {
+	c.conn.lock.Lock()
+	defer c.conn.lock.Unlock()
+	if source, ok := addr.(pathAddress); ok {
+		if source.path.acceptResponse(source.Addr, cookie) || source.path != source.path.transport.active {
+			return nil
+		}
+	}
+	if c.conn.rrc.HandleResponse(addr, cookie) {
+		return c.conn.updateRemoteAddr(addr)
+	}
+
+	return nil
 }
 
 func (c returnRoutabilityConn) HandleCandidate(
@@ -123,7 +135,7 @@ func (c returnRoutabilityConn) HandleCandidate(
 	rrcNegotiated, hasCID, latest bool,
 	addr net.Addr,
 ) {
-	if !hasCID || !latest {
+	if !hasCID || !latest || !c.isActivePath(addr) {
 		return
 	}
 
@@ -448,6 +460,14 @@ func (c *Conn) queueHandshakeACK(content []byte, number protocol.RecordNumber) {
 	c.pendingCIDACKs[number] = uint16(lastCIDSequence) //nolint:gosec // copied from a uint16 message sequence.
 }
 
+// Path is a local transport to the connection's current peer. Obtain one with
+// [Conn.AddPath], validate it with [Path.Probe], then use [Path.Switch] to move
+// application writes. With CIDPathMigrationUnsafe, Switch skips validation.
+// All methods may be called concurrently.
+type Path struct {
+	*pathSocket
+}
+
 // pathSocket owns one socket and its receiving goroutine.
 type pathSocket struct {
 	transport   *pathTransport
@@ -456,6 +476,269 @@ type pathSocket struct {
 	lifetime    context.Context //nolint:containedctx
 	cancel      context.CancelCauseFunc
 	closeSocket func() error
+
+	cid       []byte
+	probe     *pathProbe
+	validated bool
+}
+
+type pathProbe struct {
+	done    chan struct{}
+	cookies [][protocol.ReturnRoutabilityCheckCookieLength]byte
+	expires time.Time
+}
+
+// AddPath adds a dedicated, unconnected packet socket to an established DTLS 1.3
+// connection with a nonempty peer CID. CIDPathMigrationRRC requires negotiated
+// RRC, CIDPathMigrationUnsafe allows switching without validation.
+// The peer address stays unchanged. On success, the connection owns socket and
+// closes it when the path or connection closes.
+func (c *Conn) AddPath(socket net.PacketConn) (*Path, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.isConnectionClosed() {
+		return nil, ErrConnClosed
+	}
+	if !c.isHandshakeCompletedSuccessfully() {
+		return nil, dtlserrors.ErrHandshakeInProgress
+	}
+	transport, supported := c.nextConn.(*pathTransport)
+	if !supported || !c.canMigratePath() {
+		return nil, errPathMigrationUnavailable
+	}
+	if socket == nil {
+		return nil, dtlserrors.ErrNilNextConn
+	}
+	for path := range transport.paths {
+		if sameNetworkAddress(path.socket.LocalAddr(), socket.LocalAddr()) {
+			return nil, errPathInUse
+		}
+	}
+	path := transport.add(netctx.NewPacketConn(socket))
+	go path.read()
+
+	return &Path{pathSocket: path}, nil
+}
+
+// canMigratePath is called with c.lock held.
+func (c *Conn) canMigratePath() bool {
+	state, ok := c.state.(*dtlsstate.State13)
+
+	return ok && state.CID.Send.UseCID &&
+		(c.cidPathMigrationPolicy == CIDPathMigrationUnsafe || state.RRCNegotiated)
+}
+
+// Probe checks reachability using RRC, reserving a peer CID on the first call.
+// Each call performs a new check and honors ctx and the write deadline.
+// Probe requires CIDPathMigrationRRC, it is unavailable in unsafe mode.
+// RRC validation takes at most one second after obtaining a CID. A failed check
+// leaves application writes on the current path and requires a successful retry
+// before switching.
+//
+//nolint:contextcheck
+func (p *Path) Probe(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	conn := p.transport.conn
+	if conn.writeDeadline.Err() != nil {
+		return dtlserrors.ErrDeadlineExceeded
+	}
+	operationCtx, cancel := conn.contextWithCloseAndWriteDeadline(ctx)
+	defer cancel()
+	detach := context.AfterFunc(p.lifetime, cancel)
+	defer detach()
+
+	probe, err := p.beginProbe()
+	if err != nil {
+		return err
+	}
+	if err = p.obtainCID(operationCtx); err == nil {
+		err = p.probePath(operationCtx, probe)
+	}
+
+	return conn.normalizeKeyUpdateError(ctx, operationCtx, p.finishProbe(err))
+}
+
+func (p *Path) beginProbe() (*pathProbe, error) {
+	conn := p.transport.conn
+	conn.lock.Lock()
+	defer conn.lock.Unlock()
+	if conn.isConnectionClosed() {
+		return nil, ErrConnClosed
+	}
+	if err := context.Cause(p.lifetime); err != nil {
+		return nil, err
+	}
+	if conn.cidPathMigrationPolicy != CIDPathMigrationRRC {
+		return nil, errPathMigrationUnavailable
+	}
+	if p.probe != nil {
+		return nil, errPathInUse
+	}
+	if !sameNetworkAddress(p.remote, conn.rAddr) {
+		return nil, errPathNotValidated
+	}
+	p.validated = false
+	p.probe = &pathProbe{done: make(chan struct{})}
+
+	return p.probe, nil
+}
+
+func (p *Path) finishProbe(err error) error {
+	p.transport.conn.lock.Lock()
+	defer p.transport.conn.lock.Unlock()
+	select {
+	case <-p.probe.done:
+		err = nil
+	default:
+	}
+	p.probe = nil
+	if cause := context.Cause(p.lifetime); cause != nil {
+		err = cause
+	}
+	p.validated = err == nil
+
+	return err
+}
+
+func (p *Path) obtainCID(ctx context.Context) error {
+	select {
+	case p.transport.cidRequest <- struct{}{}:
+		defer func() { <-p.transport.cidRequest }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if p.takeCID() {
+		return nil
+	}
+	updater, ok := p.transport.conn.fsm.(dtlshandshake.ConnectionIDUpdater)
+	if !ok {
+		return dtlserrors.ErrNotImplemented
+	}
+	if err := updater.RequestConnectionIDs(ctx, 1); err != nil {
+		return err
+	}
+	if !p.takeCID() {
+		return errNoConnectionID
+	}
+
+	return nil
+}
+
+func (p *Path) takeCID() bool {
+	conn := p.transport.conn
+	conn.lock.Lock()
+	defer conn.lock.Unlock()
+	if len(p.cid) != 0 {
+		return true
+	}
+	state, ok := conn.state.(*dtlsstate.State13)
+	if !ok || conn.isConnectionClosed() {
+		return false
+	}
+	p.transport.usedCIDs[string(state.CID.Send.Active)] = true
+	for len(state.CID.Send.Spares) != 0 {
+		cid := state.CID.Send.Spares[0]
+		state.CID.Send.Spares = state.CID.Send.Spares[1:]
+		if len(cid) == 0 || p.transport.usedCIDs[string(cid)] {
+			continue
+		}
+		p.transport.usedCIDs[string(cid)] = true
+		p.cid = cid
+
+		return true
+	}
+
+	return false
+}
+
+func (p *Path) probePath(ctx context.Context, probe *pathProbe) error {
+	// Use one second when no RTT estimate is available.
+	// https://www.rfc-editor.org/rfc/rfc9853.html#section-5.5
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	conn := p.transport.conn
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for ctx.Err() == nil {
+		var cookie [protocol.ReturnRoutabilityCheckCookieLength]byte
+		if _, err := rand.Read(cookie[:]); err != nil {
+			return err
+		}
+		conn.lock.Lock()
+		probe.expires, _ = ctx.Deadline()
+		probe.cookies = append(probe.cookies, cookie)
+		conn.lock.Unlock()
+		if err := (returnRoutabilityConn{conn: conn}).WriteRRC(ctx, pathAddress{Addr: p.remote, path: p.pathSocket}, protocol.ReturnRoutabilityCheckPathChallenge, cookie); err != nil {
+			return err
+		}
+		select {
+		case <-probe.done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+
+	return ctx.Err()
+}
+
+// Switch makes this validated path the connection's application write path.
+// It changes LocalAddr and the outgoing CID atomically with respect to writers.
+// Existing sockets keep receiving until closed. The peer address must still
+// match the address validated by Probe.
+// With CIDPathMigrationUnsafe, Switch skips validation and reuses the active CID
+// for a new path.
+func (p *Path) Switch() error {
+	conn := p.transport.conn
+	conn.writeLock.Lock()
+	defer conn.writeLock.Unlock()
+	conn.lock.Lock()
+	defer conn.lock.Unlock()
+	if conn.isConnectionClosed() {
+		return ErrConnClosed
+	}
+	if err := context.Cause(p.lifetime); err != nil {
+		return err
+	}
+	if (!p.validated && conn.cidPathMigrationPolicy != CIDPathMigrationUnsafe) || !sameNetworkAddress(p.remote, conn.rAddr) {
+		return errPathNotValidated
+	}
+	if p.transport.active == p.pathSocket {
+		return nil
+	}
+	state, ok := conn.state.(*dtlsstate.State13)
+	if !ok || !state.CID.Send.UseCID {
+		return errPathMigrationUnavailable
+	}
+	p.transport.active.cid = bytes.Clone(state.CID.Send.Active)
+	if len(p.cid) == 0 {
+		p.cid = bytes.Clone(state.CID.Send.Active)
+	}
+	state.CID.Send.Active = bytes.Clone(p.cid)
+	p.transport.active = p.pathSocket
+	conn.rrc.Reset()
+
+	return nil
+}
+
+// Close releases an inactive path's socket and cancels any pending Probe.
+// Closing the active path returns an error.
+func (p *Path) Close() error {
+	conn := p.transport.conn
+	conn.lock.Lock()
+	if p.transport.active == p.pathSocket && !conn.isConnectionClosed() {
+		conn.lock.Unlock()
+
+		return errPathInUse
+	}
+	p.cancel(net.ErrClosed)
+	delete(p.transport.paths, p.pathSocket)
+	conn.lock.Unlock()
+
+	return p.closeSocket()
 }
 
 // pathAddress carries the receiving socket through record processing and queued
@@ -473,17 +756,20 @@ type pathDatagram struct {
 }
 
 type pathTransport struct {
-	conn     *Conn
-	start    func()
-	incoming chan pathDatagram
+	conn       *Conn
+	start      func()
+	incoming   chan pathDatagram
+	cidRequest chan struct{}
+	// Protected by conn.lock.
 	active   *pathSocket
 	paths    map[*pathSocket]struct{}
+	usedCIDs map[string]bool
 }
 
 func newPathTransport(conn *Conn, socket netctx.PacketConn) *pathTransport {
 	transport := &pathTransport{
-		conn: conn, incoming: make(chan pathDatagram, 16),
-		paths: make(map[*pathSocket]struct{}),
+		conn: conn, incoming: make(chan pathDatagram, 16), cidRequest: make(chan struct{}, 1),
+		paths: make(map[*pathSocket]struct{}), usedCIDs: make(map[string]bool),
 	}
 	initial := transport.add(socket)
 	transport.active = initial
@@ -517,25 +803,17 @@ func (p *pathSocket) read() {
 
 			return
 		}
-		if p.readFailed(err) {
-			return
+		if err != nil && !idtlsnet.IsShortBuffer(err) {
+			conn.lock.RLock()
+			if p != p.transport.active || conn.classifyReadLoopError(netError(err)) != readLoopDeliverAndContinue {
+				p.cancel(err)
+				conn.lock.RUnlock()
+
+				return
+			}
+			conn.lock.RUnlock()
 		}
 	}
-}
-
-func (p *pathSocket) readFailed(err error) bool {
-	if err == nil || idtlsnet.IsShortBuffer(err) {
-		return false
-	}
-	conn := p.transport.conn
-	conn.lock.RLock()
-	defer conn.lock.RUnlock()
-	if p == p.transport.active && conn.classifyReadLoopError(netError(err)) == readLoopDeliverAndContinue {
-		return false
-	}
-	p.cancel(err)
-
-	return true
 }
 
 func (t *pathTransport) ReadFromContext(ctx context.Context, buffer []byte) (int, net.Addr, error) {
@@ -594,4 +872,59 @@ func (t *pathTransport) Close() error {
 	}
 
 	return err
+}
+
+func (c returnRoutabilityConn) prepareRecord(message *protocol.ReturnRoutabilityCheck, addr net.Addr) ([]byte, error) {
+	packet := &dtlsflight.Outbound{Epoch: dtlsstate.CommonState(c.conn.state).LocalEpoch(), Content: message, Protection: dtlsflight.ProtectionCiphertext}
+	source, tagged := addr.(pathAddress)
+	if !tagged || source.path == source.path.transport.active {
+		return c.conn.prepareRecord(packet)
+	}
+	path := source.path
+	if err := context.Cause(path.lifetime); err != nil {
+		return nil, err
+	}
+	if len(path.cid) == 0 {
+		return nil, errNoConnectionID
+	}
+	state, ok := c.conn.state.(*dtlsstate.State13)
+	if !ok || !state.CID.Send.UseCID {
+		return nil, errPathMigrationUnavailable
+	}
+	if message.MessageType == protocol.ReturnRoutabilityCheckPathResponse {
+		// This socket is not the preferred path.
+		// https://www.rfc-editor.org/rfc/rfc9853.html#section-5.4
+		message.MessageType = protocol.ReturnRoutabilityCheckPathDrop
+	}
+	active := state.CID.Send.Active
+	state.CID.Send.Active = path.cid
+	defer func() { state.CID.Send.Active = active }()
+
+	return c.conn.prepareRecord(packet)
+}
+
+func (c returnRoutabilityConn) isActivePath(addr net.Addr) bool {
+	c.conn.lock.RLock()
+	defer c.conn.lock.RUnlock()
+	source, tagged := addr.(pathAddress)
+
+	return !tagged || source.path == source.path.transport.active
+}
+
+// acceptResponse is called with conn.lock held, after record authentication.
+func (p *pathSocket) acceptResponse(addr net.Addr, cookie [protocol.ReturnRoutabilityCheckCookieLength]byte) bool {
+	probe := p.probe
+	if probe == nil || p.lifetime.Err() != nil || !sameNetworkAddress(addr, p.remote) {
+		return false
+	}
+	if !time.Now().Before(probe.expires) || !slices.Contains(probe.cookies, cookie) {
+		return false
+	}
+	select {
+	case <-probe.done:
+	default:
+		close(probe.done)
+	}
+
+	return true
 }

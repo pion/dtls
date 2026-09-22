@@ -655,3 +655,129 @@ func TestPeerConnectionIDSelection(t *testing.T) {
 	assert.True(t, state.CID.Send.UseCID)
 	assert.Equal(t, []byte("restored"), state.CID.Send.Active)
 }
+
+type cidOperationTransport struct {
+	net.PacketConn
+	dropNext atomic.Bool
+	dropAll  atomic.Bool
+	mu       sync.Mutex
+	outgoing [][]byte
+}
+
+func (c *cidOperationTransport) WriteTo(packet []byte, addr net.Addr) (int, error) {
+	c.mu.Lock()
+	c.outgoing = append(c.outgoing, bytes.Clone(packet))
+	c.mu.Unlock()
+	if c.dropAll.Load() || c.dropNext.CompareAndSwap(true, false) {
+		return len(packet), nil
+	}
+
+	return c.PacketConn.WriteTo(packet, addr)
+}
+
+func newPathTestPair(t *testing.T, policy cidPathMigrationPolicy) (*Conn, *Conn) {
+	t.Helper()
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	listener, err := ListenAddr("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
+		WithCertificates(certificate), WithInsecureSkipVerifyHello(true),
+		WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3),
+		WithFlightInterval(20*time.Millisecond), WithConnectionID(RandomCIDGenerator(8), policy))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	pair := startCIDListenerPair(t, listener, WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3),
+		WithFlightInterval(20*time.Millisecond), WithConnectionID(RandomCIDGenerator(8), policy))
+	require.NoError(t, <-pair.clientDone)
+	require.NoError(t, <-pair.serverDone)
+
+	return pair.client, pair.server
+}
+
+func addTestPath(t *testing.T, conn *Conn) (*Path, *cidOperationTransport) {
+	t.Helper()
+	socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = socket.Close() })
+	transport := &cidOperationTransport{PacketConn: socket}
+	path, err := conn.AddPath(transport)
+	require.NoError(t, err)
+
+	return path, transport
+}
+
+func TestPathMigration(t *testing.T) {
+	for name, migrateServer := range map[string]bool{"Client": false, "Server": true} {
+		t.Run(name, func(t *testing.T) {
+			client, server := newPathTestPair(t, CIDPathMigrationRRC)
+			mover, peer := client, server
+			if migrateServer {
+				mover, peer = server, client
+			}
+			oldAddr := mover.LocalAddr()
+			mover.lock.RLock()
+			state, ok := mover.state.(*dtlsstate.State13)
+			require.True(t, ok)
+			oldCID := bytes.Clone(state.CID.Send.Active)
+			mover.lock.RUnlock()
+			path, socket := addTestPath(t, mover)
+			assert.ErrorIs(t, path.Switch(), errPathNotValidated)
+			socket.dropNext.Store(true)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			require.NoError(t, path.Probe(ctx))
+			assert.False(t, socket.dropNext.Load(), "lost probes are retried")
+			assert.Equal(t, oldAddr, mover.LocalAddr())
+			assert.Never(t, func() bool {
+				return !sameNetworkAddress(oldAddr, peer.RemoteAddr())
+			}, 50*time.Millisecond, time.Millisecond, "probing must not move the peer")
+			socket.dropAll.Store(true)
+			retryCtx, cancelRetry := context.WithTimeout(ctx, 50*time.Millisecond)
+			assert.ErrorIs(t, path.Probe(retryCtx), context.DeadlineExceeded)
+			cancelRetry()
+			assert.ErrorIs(t, path.Switch(), errPathNotValidated)
+			socket.dropAll.Store(false)
+			require.NoError(t, path.Probe(ctx))
+			mover.lock.RLock()
+			assert.Equal(t, oldCID, state.CID.Send.Active, "probing must not rotate the active path")
+			assert.NotEqual(t, oldCID, path.cid)
+			mover.lock.RUnlock()
+			socket.mu.Lock()
+			for _, raw := range socket.outgoing {
+				record, parseErr := recordlayer.ParseRecord(raw, 8)
+				assert.NoError(t, parseErr)
+				assert.Equal(t, path.cid, record.ConnectionID(), "probes use the candidate CID on the wire")
+			}
+			socket.mu.Unlock()
+			require.NoError(t, path.Switch())
+			assert.Equal(t, socket.LocalAddr(), mover.LocalAddr())
+			assert.ErrorIs(t, path.Close(), errPathInUse)
+			assertPathPayload(t, mover, peer, "migrated")
+			require.Eventually(t, func() bool {
+				return sameNetworkAddress(peer.RemoteAddr(), socket.LocalAddr())
+			}, time.Second, time.Millisecond)
+			assertPathPayload(t, peer, mover, "reply")
+			next, nextSocket := addTestPath(t, mover)
+			require.NoError(t, next.Probe(ctx))
+			require.NoError(t, next.Switch())
+			require.NoError(t, path.Close())
+			assertPathPayload(t, mover, peer, "second migration")
+			require.NoError(t, mover.Close())
+			assert.ErrorIs(t, path.Probe(ctx), ErrConnClosed)
+			assert.ErrorIs(t, path.Switch(), ErrConnClosed)
+			_, _, err := nextSocket.ReadFrom(make([]byte, 1))
+			assert.ErrorIs(t, err, net.ErrClosed)
+		})
+	}
+}
+
+func assertPathPayload(t *testing.T, sender, receiver *Conn, payload string) {
+	t.Helper()
+	_, err := sender.Write([]byte(payload))
+	require.NoError(t, err)
+	require.NoError(t, receiver.SetReadDeadline(time.Now().Add(time.Second)))
+	buffer := make([]byte, 64)
+	n, err := receiver.Read(buffer)
+	require.NoError(t, err)
+	assert.Equal(t, payload, string(buffer[:n]))
+}

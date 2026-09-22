@@ -300,7 +300,7 @@ func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigVal
 	if nextConn != nil {
 		conn.nextConn = netctx.NewPacketConn(nextConn)
 		conn.packetConn, _ = nextConn.(*udp.PacketConn)
-		if conn.cidPathMigrationPolicy == CIDPathMigrationRRC {
+		if conn.cidPathMigrationPolicy == CIDPathMigrationRRC || conn.cidPathMigrationPolicy == CIDPathMigrationUnsafe {
 			conn.nextConn = newPathTransport(conn, conn.nextConn)
 		}
 	}
