@@ -62,7 +62,7 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 
 	//nolint:nestif
 	if verify, hasVerify := pull.Messages[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasVerify {
-		if state.PeerCertificates == nil {
+		if len(state.PeerCertificates) == 0 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrCertificateVerifyNoCertificate
 		}
 
@@ -104,7 +104,7 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 			}
 		}
 		state.PeerCertificatesVerified = verified
-	} else if state.PeerCertificates != nil {
+	} else if len(state.PeerCertificates) > 0 {
 		// A certificate was received, but we haven't seen a CertificateVerify
 		// keep reading until we receive one
 		return 0, nil, nil
@@ -191,7 +191,10 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeAnonymous {
+	// empty certificate list is valid for PSK suites.
+	// https://www.rfc-editor.org/rfc/rfc4279.html#section-2
+	// https://www.rfc-editor.org/rfc/rfc5246.html#section-7.4.6
+	if state.CipherSuite.AuthenticationType() != cryptosuite.AuthenticationTypeCertificate {
 		if cfg.VerifyConnection != nil {
 			if err := cfg.VerifyConnection(state); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
@@ -203,15 +206,15 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 
 	switch cfg.ClientAuth {
 	case dtlsconfig.RequireAnyClientCert:
-		if state.PeerCertificates == nil {
+		if len(state.PeerCertificates) == 0 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrClientCertificateRequired
 		}
 	case dtlsconfig.VerifyClientCertIfGiven:
-		if state.PeerCertificates != nil && !state.PeerCertificatesVerified {
+		if len(state.PeerCertificates) > 0 && !state.PeerCertificatesVerified {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, dtlserrors.ErrClientCertificateNotVerified
 		}
 	case dtlsconfig.RequireAndVerifyClientCert:
-		if state.PeerCertificates == nil {
+		if len(state.PeerCertificates) == 0 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrClientCertificateRequired
 		}
 		if !state.PeerCertificatesVerified {
