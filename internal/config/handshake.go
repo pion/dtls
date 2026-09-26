@@ -6,10 +6,15 @@ package config
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +22,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	internalstate "github.com/pion/dtls/v4/internal/state"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -55,12 +61,31 @@ type ClientHelloInfo struct {
 }
 
 type CertificateRequestInfo struct {
+	CertificateTypes []clientcertificate.Type
 	AcceptableCAs    [][]byte
 	SignatureSchemes []signaturehash.Algorithm
 	Version          protocol.Version
 }
 
 func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certificate) error {
+	if cri.CertificateTypes != nil {
+		signer, ok := certificate.PrivateKey.(crypto.Signer)
+		if !ok {
+			return dtlserrors.ErrInvalidPrivateKey
+		}
+		var certificateType clientcertificate.Type
+		switch signer.Public().(type) {
+		case *rsa.PublicKey:
+			certificateType = clientcertificate.RSASign
+		case *ecdsa.PublicKey, ed25519.PublicKey:
+			certificateType = clientcertificate.ECDSASign
+		default:
+			return dtlserrors.ErrInvalidPrivateKey
+		}
+		if !slices.Contains(cri.CertificateTypes, certificateType) {
+			return dtlserrors.ErrNotAcceptableCertificateChain
+		}
+	}
 	if len(cri.SignatureSchemes) > 0 {
 		if _, err := signaturehash.SelectSignatureScheme(cri.SignatureSchemes, certificate.PrivateKey, cri.Version); err != nil {
 			return err

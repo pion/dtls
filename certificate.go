@@ -8,6 +8,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -33,6 +34,10 @@ type ClientHelloInfo struct {
 // CertificateRequest message, which is used to demand a certificate and proof
 // of control from a client.
 type CertificateRequestInfo struct {
+	// CertificateTypes lists the certificate types accepted by the server.
+	// A nil slice indicates no restriction (DTLS 1.3).
+	CertificateTypes []clientcertificate.Type
+
 	// AcceptableCAs contains zero or more, DER-encoded, X.501
 	// Distinguished Names. These are the names of root or intermediate CAs
 	// that the server wishes the returned certificate to be signed by. An
@@ -59,5 +64,5 @@ func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certific
 		}
 	}
 
-	return (&dtlsconfig.CertificateRequestInfo{AcceptableCAs: cri.AcceptableCAs, SignatureSchemes: signatureSchemes, Version: protocol.Version1_3}).SupportsCertificate(certificate)
+	return (&dtlsconfig.CertificateRequestInfo{CertificateTypes: cri.CertificateTypes, AcceptableCAs: cri.AcceptableCAs, SignatureSchemes: signatureSchemes, Version: protocol.Version1_3}).SupportsCertificate(certificate)
 }

@@ -4,11 +4,17 @@
 package dtls
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"testing"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -53,6 +59,66 @@ func TestGetCertificate(t *testing.T) {
 			cert, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: test.serverName})
 			assert.NoError(t, err)
 			assert.Equal(t, test.expectedCertificate.Leaf, cert.Leaf, "Certificate Leaf should match expected")
+		})
+	}
+}
+
+func TestClientCertificateTypes(t *testing.T) {
+	ecCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	assert.NoError(t, err)
+	rsaCert, err := selfsign.SelfSign(rsaKey)
+	assert.NoError(t, err)
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	assert.NoError(t, err)
+	edCert, err := selfsign.SelfSign(edKey)
+	assert.NoError(t, err)
+	for _, tc := range []struct {
+		name  string
+		types []clientcertificate.Type
+		certs []tls.Certificate
+		want  [][]byte
+	}{
+		{"RSA request with EC certificate", []clientcertificate.Type{clientcertificate.RSASign}, []tls.Certificate{ecCert}, nil},
+		{"EC request with RSA certificate", []clientcertificate.Type{clientcertificate.ECDSASign}, []tls.Certificate{rsaCert}, nil},
+		{"select matching certificate", []clientcertificate.Type{clientcertificate.RSASign}, []tls.Certificate{ecCert, rsaCert}, rsaCert.Certificate},
+		{"matching EC certificate", []clientcertificate.Type{clientcertificate.ECDSASign}, []tls.Certificate{ecCert}, ecCert.Certificate},
+		{"matching Ed25519 certificate", []clientcertificate.Type{clientcertificate.ECDSASign}, []tls.Certificate{edCert}, edCert.Certificate},
+		{"RSA request with Ed25519 certificate", []clientcertificate.Type{clientcertificate.RSASign}, []tls.Certificate{edCert}, nil},
+		{"unknown certificate type", []clientcertificate.Type{255}, []tls.Certificate{ecCert}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, callback := range []bool{false, true} {
+				clientOpts := []ClientOption{WithInsecureSkipVerify(true), WithMaxVersion(protocol.Version1_2), WithCertificates(tc.certs...)}
+				if callback {
+					clientOpts = append(clientOpts, WithGetClientCertificate(func(info *CertificateRequestInfo) (*tls.Certificate, error) {
+						assert.NotNil(t, info.CertificateTypes)
+						for i := range tc.certs {
+							if info.SupportsCertificate(&tc.certs[i]) == nil {
+								return &tc.certs[i], nil
+							}
+						}
+
+						return &tls.Certificate{}, nil
+					}))
+				}
+				client, server := handshakePair(t, clientOpts, []ServerOption{
+					WithCertificates(ecCert), WithMaxVersion(protocol.Version1_2), WithClientAuth(RequestClientCert),
+					WithCertificateRequestMessageHook(func(req handshake.MessageCertificateRequest) handshake.Message {
+						req.CertificateTypes = tc.types
+
+						return &req
+					}),
+				})
+				assert.NoError(t, client.configErr)
+				assert.NoError(t, server.configErr)
+				assert.NoError(t, client.handshakeError)
+				assert.NoError(t, server.handshakeError)
+				state, ok := server.conn.ConnectionState()
+				assert.True(t, ok)
+				assert.Equal(t, tc.want, state.PeerCertificates)
+			}
 		})
 	}
 }

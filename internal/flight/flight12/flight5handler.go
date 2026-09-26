@@ -15,6 +15,7 @@ import (
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/prf"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -73,6 +74,7 @@ func flight5Generate(conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtls
 		}
 		reqInfo := dtlsconfig.CertificateRequestInfo{Version: protocol.Version1_2}
 		if r, ok2 := pull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
+			reqInfo.CertificateTypes = append([]clientcertificate.Type{}, r.CertificateTypes...)
 			reqInfo.AcceptableCAs = make([][]byte, len(r.CertificateAuthoritiesNames))
 			for i := range r.CertificateAuthoritiesNames {
 				reqInfo.AcceptableCAs[i] = bytes.Clone(r.CertificateAuthoritiesNames[i])
