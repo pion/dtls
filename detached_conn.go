@@ -42,6 +42,8 @@ type DetachedEvent struct {
 	Kind DetachedEventKind
 
 	Datagrams [][]byte
+	// Handshake reports whether Datagrams carry handshake records.
+	Handshake bool
 	Data      []byte
 	Addr      net.Addr
 	Err       error
@@ -271,8 +273,8 @@ func (c *DetachedConn) Close() error {
 	return c.conn.Close()
 }
 
-func (c *DetachedConn) publishDatagrams(datagrams [][]byte, addr net.Addr) {
-	c.publishEvent(DetachedEvent{Kind: DetachedWriteDatagrams, Datagrams: datagrams, Addr: addr})
+func (c *DetachedConn) publishDatagrams(datagrams [][]byte, addr net.Addr, handshake bool) {
+	c.publishEvent(DetachedEvent{Kind: DetachedWriteDatagrams, Datagrams: datagrams, Addr: addr, Handshake: handshake})
 }
 
 func (c *DetachedConn) publishApplicationData(data []byte) {

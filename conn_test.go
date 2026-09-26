@@ -305,7 +305,7 @@ func TestSequenceNumberOverflow(t *testing.T) {
 		dtlsstate.CommonState(ca.state).SetLocalSequenceNumber(0, recordlayer.MaxSequenceNumber+1)
 
 		// Try to send handshake packet.
-		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{{Content: &handshake.Handshake{Message: &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: make([]byte, 64), CipherSuiteIDs: cipherSuiteIDs(defaultCipherSuites()), CompressionMethods: dtlsflight.DefaultCompressionMethods()}}}})
+		werr := ca.writePackets(ctx, []*dtlsflight.Outbound{{Content: &handshake.Handshake{Message: &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: make([]byte, 64), CipherSuiteIDs: cipherSuiteIDs(defaultCipherSuites()), CompressionMethods: dtlsflight.DefaultCompressionMethods()}}}}, true)
 		assert.ErrorIs(t, werr, dtlserrors.ErrSequenceNumberOverflow, "Connection must fail when handshake packet reaches maximum sequence num")
 		assert.NoError(t, ca.Close())
 		assert.NoError(t, cb.Close())
@@ -5827,5 +5827,212 @@ func TestConnectionKeyUsage(t *testing.T) {
 				require.Positive(t, updated.KeyUsage.RemainingSealedRecords)
 			}
 		})
+	}
+}
+
+// Injecting waits for the peer, so it must not happen in the interceptor.
+func injectOverPipe(t *testing.T, deliver func([]byte)) (func([][]byte, net.Addr) bool, func()) {
+	t.Helper()
+
+	near, far := dpipe.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 2048)
+		for {
+			n, err := far.Read(buf)
+			if err != nil {
+				return
+			}
+			deliver(buf[:n])
+		}
+	}()
+
+	return func(datagrams [][]byte, _ net.Addr) bool {
+			for _, datagram := range datagrams {
+				_, err := near.Write(datagram)
+				assert.NoError(t, err)
+			}
+
+			return true
+		}, func() {
+			assert.NoError(t, near.Close())
+			assert.NoError(t, far.Close())
+			<-done
+		}
+}
+
+func TestOutboundInterceptor(t *testing.T) {
+	for name, version := range map[string]protocol.Version{
+		"1.2": protocol.Version1_2,
+		"1.3": protocol.Version1_3,
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer test.CheckRoutines(t)()
+			defer test.TimeOut(time.Second * 10).Stop()
+
+			ca, cb := packetPipe()
+			serverCert, err := selfsign.GenerateSelfSigned()
+			assert.NoError(t, err)
+
+			var client *Conn
+			toClient, stopToClient := injectOverPipe(t, func(packet []byte) {
+				client.InjectInboundPacket(packet, ca.RemoteAddr())
+			})
+			defer stopToClient()
+
+			server, err := Server(cb, cb.RemoteAddr(),
+				WithCertificates(serverCert),
+				WithOutboundHandshakePacketInterceptor(toClient),
+				WithInsecureSkipVerify(true),
+				WithInsecureSkipVerifyHello(true),
+				WithMinVersion(version),
+				WithMaxVersion(version),
+			)
+			assert.NoError(t, err)
+
+			go func() {
+				_ = server.Handshake()
+			}()
+
+			clientCert, err := selfsign.GenerateSelfSigned()
+			assert.NoError(t, err)
+
+			toServer, stopToServer := injectOverPipe(t, func(packet []byte) {
+				server.InjectInboundPacket(packet, cb.RemoteAddr())
+			})
+			defer stopToServer()
+
+			client, err = Client(ca, ca.RemoteAddr(),
+				WithCertificates(clientCert),
+				WithOutboundHandshakePacketInterceptor(toServer),
+				WithInsecureSkipVerify(true),
+				WithMinVersion(version),
+				WithMaxVersion(version),
+			)
+			assert.NoError(t, err)
+
+			assert.NoError(t, client.Handshake())
+			state, ok := client.ConnectionState()
+			assert.True(t, ok)
+			assert.Equal(t, version, state.NegotiatedVersion())
+			assert.NoError(t, server.Close())
+			assert.NoError(t, client.Close())
+		})
+	}
+}
+
+func TestOutboundInterceptorSmallMtuFlush(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	ca, cb := packetPipe()
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	var client *Conn
+	toClient, stopToClient := injectOverPipe(t, func(packet []byte) {
+		client.InjectInboundPacket(packet, ca.RemoteAddr())
+	})
+	defer stopToClient()
+
+	serverPackets, serverFlights := 0, 0
+	server, err := Server(cb, cb.RemoteAddr(),
+		WithCertificates(serverCert),
+		WithOutboundHandshakePacketInterceptor(func(datagrams [][]byte, rAddr net.Addr) bool {
+			serverPackets += len(datagrams)
+			serverFlights++
+
+			return toClient(datagrams, rAddr)
+		}),
+		WithInsecureSkipVerify(true),
+		WithInsecureSkipVerifyHello(true),
+		WithMTU(400),
+	)
+	assert.NoError(t, err)
+
+	go func() {
+		_ = server.Handshake()
+	}()
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	toServer, stopToServer := injectOverPipe(t, func(packet []byte) {
+		server.InjectInboundPacket(packet, cb.RemoteAddr())
+	})
+	defer stopToServer()
+
+	clientPackets, clientFlights := 0, 0
+	client, err = Client(ca, ca.RemoteAddr(),
+		WithCertificates(clientCert),
+		WithOutboundHandshakePacketInterceptor(func(datagrams [][]byte, rAddr net.Addr) bool {
+			clientPackets += len(datagrams)
+			clientFlights++
+
+			return toServer(datagrams, rAddr)
+		}),
+		WithInsecureSkipVerify(true),
+		WithMTU(500),
+	)
+	assert.NoError(t, err)
+
+	assert.NoError(t, client.Handshake())
+	assert.NoError(t, server.Close())
+	assert.NoError(t, client.Close())
+	assert.Equal(t, 2, clientPackets)
+	assert.Equal(t, 2, clientFlights)
+	assert.Equal(t, 4, serverPackets)
+	assert.Equal(t, 2, serverFlights)
+}
+
+func TestInboundNotifier(t *testing.T) {
+	defer test.CheckRoutines(t)()
+	defer test.TimeOut(time.Second * 10).Stop()
+
+	ca, cb := packetPipe()
+	serverCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	var inboundHandshakePackets [][]byte
+	server, err := Server(cb, cb.RemoteAddr(),
+		WithCertificates(serverCert),
+		WithInboundHandshakePacketNotifier(func(packet []byte) {
+			inboundHandshakePackets = append(inboundHandshakePackets, bytes.Clone(packet))
+		}),
+		WithInsecureSkipVerify(true),
+		WithInsecureSkipVerifyHello(true),
+	)
+	assert.NoError(t, err)
+
+	go func() {
+		_ = server.Handshake()
+	}()
+
+	clientCert, err := selfsign.GenerateSelfSigned()
+	assert.NoError(t, err)
+
+	var outboundHandshakePackets [][]byte
+	client, err := Client(ca, ca.RemoteAddr(),
+		WithCertificates(clientCert),
+		WithOutboundHandshakePacketInterceptor(func(datagrams [][]byte, _ net.Addr) bool {
+			for _, datagram := range datagrams {
+				outboundHandshakePackets = append(outboundHandshakePackets, bytes.Clone(datagram))
+			}
+
+			return false
+		}),
+		WithInsecureSkipVerify(true),
+	)
+	assert.NoError(t, err)
+
+	assert.NoError(t, client.Handshake())
+	assert.NoError(t, server.Close())
+	assert.NoError(t, client.Close())
+	assert.NotEmpty(t, inboundHandshakePackets)
+	assert.Equal(t, len(inboundHandshakePackets), len(outboundHandshakePackets))
+
+	for i := range inboundHandshakePackets {
+		assert.Equal(t, inboundHandshakePackets[i], outboundHandshakePackets[i])
 	}
 }

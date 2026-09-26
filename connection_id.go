@@ -74,7 +74,7 @@ func (c returnRoutabilityConn) WriteRRC(ctx context.Context, addr net.Addr, mess
 	}
 
 	if c.conn.detached != nil {
-		c.conn.detached.publishDatagrams([][]byte{raw}, addr)
+		c.conn.detached.publishDatagrams([][]byte{raw}, addr, false)
 	} else {
 		_, err = c.conn.nextConn.WriteToContext(ctx, raw, addr)
 	}
