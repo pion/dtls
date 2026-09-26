@@ -9,6 +9,7 @@ import (
 	"crypto"
 	"crypto/x509"
 
+	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -88,6 +89,7 @@ func flight5Generate(
 		}
 		reqInfo := CertificateRequestInfo{}
 		if r, ok2 := msgs[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
+			reqInfo.CertificateTypes = append([]clientcertificate.Type{}, r.CertificateTypes...)
 			reqInfo.AcceptableCAs = r.CertificateAuthoritiesNames
 		} else {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errClientCertificateRequired
