@@ -57,7 +57,7 @@ func flight4Parse(
 
 	//nolint:nestif
 	if verify, hasVerify := msgs[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasVerify {
-		if state.PeerCertificates == nil {
+		if len(state.PeerCertificates) == 0 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errCertificateVerifyNoCertificate
 		}
 
@@ -114,7 +114,7 @@ func flight4Parse(
 			}
 		}
 		state.peerCertificatesVerified = verified
-	} else if state.PeerCertificates != nil {
+	} else if len(state.PeerCertificates) > 0 {
 		// A certificate was received, but we haven't seen a CertificateVerify
 		// keep reading until we receive one
 		return 0, nil, nil
@@ -216,7 +216,10 @@ func flight4Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeAnonymous { //nolint:nestif
+	// empty certificate list is valid for PSK suites.
+	// https://www.rfc-editor.org/rfc/rfc4279.html#section-2
+	// https://www.rfc-editor.org/rfc/rfc5246.html#section-7.4.6
+	if state.cipherSuite.AuthenticationType() != CipherSuiteAuthenticationTypeCertificate { //nolint:nestif
 		if cfg.verifyConnection != nil {
 			stateClone, err := state.clone()
 			if err != nil {
@@ -232,15 +235,15 @@ func flight4Parse(
 
 	switch cfg.clientAuth {
 	case RequireAnyClientCert:
-		if state.PeerCertificates == nil {
+		if len(state.PeerCertificates) == 0 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errClientCertificateRequired
 		}
 	case VerifyClientCertIfGiven:
-		if state.PeerCertificates != nil && !state.peerCertificatesVerified {
+		if len(state.PeerCertificates) > 0 && !state.peerCertificatesVerified {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, errClientCertificateNotVerified
 		}
 	case RequireAndVerifyClientCert:
-		if state.PeerCertificates == nil {
+		if len(state.PeerCertificates) == 0 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errClientCertificateRequired
 		}
 		if !state.peerCertificatesVerified {
