@@ -1793,8 +1793,11 @@ func TestCertificateAndPSKServer(t *testing.T) {
 	defer report()
 
 	for _, test := range []struct {
-		Name      string
-		ClientPSK bool
+		Name              string
+		ClientPSK         bool
+		ClientAuth        ClientAuthType
+		ClientCertificate bool
+		WantServerError   error
 	}{
 		{
 			Name:      "Client uses PKI",
@@ -1803,6 +1806,35 @@ func TestCertificateAndPSKServer(t *testing.T) {
 		{
 			Name:      "Client uses PSK",
 			ClientPSK: true,
+		},
+		{
+			Name:       "PSK with required client certificate",
+			ClientPSK:  true,
+			ClientAuth: RequireAnyClientCert,
+		},
+		{
+			Name:       "PSK with required verified client certificate",
+			ClientPSK:  true,
+			ClientAuth: RequireAndVerifyClientCert,
+		},
+		{
+			Name:            "Certificate suite requires client certificate despite PSK callback",
+			ClientAuth:      RequireAnyClientCert,
+			WantServerError: errClientCertificateRequired,
+		},
+		{
+			Name:            "Certificate suite requires verified client certificate despite PSK callback",
+			ClientAuth:      RequireAndVerifyClientCert,
+			WantServerError: errClientCertificateRequired,
+		},
+		{
+			Name:              "Certificate suite accepts client certificate with PSK callback",
+			ClientAuth:        RequireAnyClientCert,
+			ClientCertificate: true,
+		},
+		{
+			Name:       "Certificate suite permits empty certificate when optional",
+			ClientAuth: RequestClientCert,
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
@@ -1826,7 +1858,7 @@ func TestCertificateAndPSKServer(t *testing.T) {
 					config.CipherSuites = []CipherSuiteID{TLS_PSK_WITH_AES_128_GCM_SHA256}
 				}
 
-				client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config, false)
+				client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config, test.ClientCertificate)
 				resultCh <- result{client, err}
 			}()
 
@@ -1835,20 +1867,29 @@ func TestCertificateAndPSKServer(t *testing.T) {
 				PSK: func([]byte) ([]byte, error) {
 					return []byte{0x00, 0x01, 0x02}, nil
 				},
+				ClientAuth: test.ClientAuth,
 			}
 
 			server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), config, true)
-			assert.NoErrorf(t, err, "TestCertificateAndPSKServer: Server Error Mismatch '%s'", test.Name)
-			if err != nil {
+			assert.ErrorIs(t, err, test.WantServerError)
+			if server != nil {
 				defer func() {
 					assert.NoError(t, server.Close())
 				}()
 			}
 
 			res := <-resultCh
+			if res.c != nil {
+				defer func() {
+					assert.NoError(t, res.c.Close())
+				}()
+			}
+			if test.WantServerError != nil {
+				assert.Error(t, res.err)
+
+				return
+			}
 			assert.NoErrorf(t, res.err, "TestCertificateAndPSKServer: Server Error Mismatch '%s'", test.Name)
-			assert.NoError(t, server.Close())
-			assert.NoError(t, res.c.Close())
 		})
 	}
 }
