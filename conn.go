@@ -1006,6 +1006,7 @@ func (c *Conn) handleQueuedPackets(ctx context.Context) error {
 }
 
 func (c *Conn) enqueueEncryptedPackets(packet addrPkt) bool {
+	packet.data = bytes.Clone(packet.data) // the read buffer comes from poolReadBuffer and is reused
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
