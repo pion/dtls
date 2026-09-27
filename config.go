@@ -188,6 +188,14 @@ type Config struct { //nolint:dupl
 	// This have implication on DoS attack resistance.
 	InsecureSkipVerifyHello bool
 
+	// LegacyClientHello, if true and when acting as server, accepts a
+	// ClientHello whose client_version is DTLS 1.0 (0xFEFF) while still
+	// negotiating DTLS 1.2, as permitted by RFC 6347 Section 4.2.1. Some
+	// clients built on OpenSSL (e.g. openconnect) send the legacy version
+	// because of their fake SSL_SESSION construction. Server flights always
+	// answer with DTLS 1.2 records. Default false keeps the strict check.
+	LegacyClientHello bool
+
 	// ConnectionIDGenerator generates connection identifiers that should be
 	// sent by the remote party if it supports the DTLS Connection Identifier
 	// extension, as determined during the handshake. Generated connection

@@ -37,7 +37,8 @@ func flight2Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if !clientHello.Version.Equal(protocol.Version1_2) {
+	if !clientHello.Version.Equal(protocol.Version1_2) &&
+		!(cfg.legacyClientHello && clientHello.Version.Equal(protocol.Version1_0)) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
 	}
 
