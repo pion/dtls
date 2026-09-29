@@ -17,6 +17,8 @@ type RecvHandshakeState struct {
 	// HasHandshake distinguishes an ACK-only event from a handshake event.
 	HasHandshake bool
 	IsRetransmit bool
+	// IsRetransmitStart identifies an offset-zero fragment of an old message.
+	IsRetransmitStart bool
 	// ACK messages received from the peer.
 	ACKs []protocol.ACK
 	// Protected handshake records that should be acknowledged.

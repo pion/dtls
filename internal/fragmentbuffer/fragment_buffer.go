@@ -85,26 +85,33 @@ func (f *FragmentBuffer) AdvanceTo(messageSequence uint16) {
 	f.currentMessageSequenceNumber = messageSequence
 }
 
+// PushResult identifies retransmitted messages among the received fragments.
+type PushResult struct {
+	IsRetransmit bool
+	// IsRetransmitStart reports an old message's offset-zero fragment.
+	IsRetransmitStart bool
+}
+
 // Push validates and adds handshake fragments from content to the buffer.
 // content starts with a handshake header.
-func (f *FragmentBuffer) Push(epoch uint64, content []byte) (isRetransmit bool, err error) {
+func (f *FragmentBuffer) Push(epoch uint64, content []byte) (PushResult, error) {
 	parsed, err := parseFragments(content)
 	if err != nil {
-		return false, err
+		return PushResult{}, err
 	}
 	if err = f.validateFragments(epoch, parsed); err != nil {
-		return false, err
+		return PushResult{}, err
 	}
 
-	isRetransmit, newFragmentCount, newBufferSize := f.prospectiveResourceUsage(parsed)
+	result, newFragmentCount, newBufferSize := f.prospectiveResourceUsage(parsed)
 	if f.size()+newBufferSize >= fragmentBufferMaxSize ||
 		f.totalFragmentCount+newFragmentCount > fragmentBufferMaxCount {
-		return false, dtlserrors.ErrFragmentBufferOverflow
+		return PushResult{}, dtlserrors.ErrFragmentBufferOverflow
 	}
 
 	f.commitFragments(epoch, parsed)
 
-	return isRetransmit, nil
+	return result, nil
 }
 
 func parseFragments(content []byte) ([]parsedFragment, error) {
@@ -223,12 +230,13 @@ func validateFragmentPair(existingHeader handshake.Header, existingData []byte, 
 	return nil
 }
 
-func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (isRetransmit bool, newFragmentCount int, newBufferSize int) {
+func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (result PushResult, newFragmentCount int, newBufferSize int) {
 	newFragments := map[fragmentKey]struct{}{}
 	for _, candidate := range parsed {
 		header := candidate.header
 		if header.MessageSequence < f.currentMessageSequenceNumber {
-			isRetransmit = true
+			result.IsRetransmit = true
+			result.IsRetransmitStart = result.IsRetransmitStart || header.FragmentOffset == 0
 
 			continue
 		}
@@ -250,7 +258,7 @@ func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (isRe
 		}
 	}
 
-	return isRetransmit, newFragmentCount, newBufferSize
+	return result, newFragmentCount, newBufferSize
 }
 
 func (f *FragmentBuffer) commitFragments(epoch uint64, parsed []parsedFragment) {

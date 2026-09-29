@@ -64,6 +64,7 @@ var (
 	errWriteFailed                  = errors.New("write failed")
 )
 
+//nolint:unused // Used by Go 1.25+ tests in sync_test.go.
 const renegotiationInfoSCSV uint16 = 0x00ff
 
 func defaultCipherSuites() []cryptosuite.Suite {
@@ -424,6 +425,7 @@ func handshakePair(t *testing.T, clientOpts []ClientOption, serverOpts []ServerO
 	return clientResult, serverResult
 }
 
+//nolint:unused // Used by Go 1.25+ tests in sync_test.go.
 func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensions []extension.Value, cipherSuiteIDsOverride ...uint16) error {
 	cipherSuites := cipherSuiteIDsOverride
 	if len(cipherSuites) == 0 {
@@ -1958,6 +1960,7 @@ func readVersionNegotiationAlert(t *testing.T, conn net.Conn) alert.Description 
 	}
 }
 
+//nolint:unparam // The record header is used by Go 1.25+ tests in sync_test.go.
 func unmarshalHandshakeRecord(t *testing.T, raw []byte) (recordlayer.ParsedRecord, *handshake.Handshake) {
 	t.Helper()
 
@@ -1972,16 +1975,17 @@ func unmarshalHandshakeRecord(t *testing.T, raw []byte) (recordlayer.ParsedRecor
 	return header, &content
 }
 
+//nolint:unused // Used by Go 1.25+ tests in sync_test.go.
 func unmarshalAlertRecord(t *testing.T, raw []byte) *alert.Alert {
 	t.Helper()
 
 	header, parseErr := recordlayer.ParseRecord(raw, 0)
-	require.NoError(t, parseErr)
-	require.Equal(t, protocol.ContentTypeAlert, header.ContentType())
-	require.GreaterOrEqual(t, len(raw), len(header.HeaderBytes()))
+	assert.NoError(t, parseErr)
+	assert.Equal(t, protocol.ContentTypeAlert, header.ContentType())
+	assert.GreaterOrEqual(t, len(raw), len(header.HeaderBytes()))
 
 	var content alert.Alert
-	require.NoError(t, content.Unmarshal(raw[len(header.HeaderBytes()):]))
+	assert.NoError(t, content.Unmarshal(raw[len(header.HeaderBytes()):]))
 
 	return &content
 }
@@ -2807,16 +2811,16 @@ func TestFragmentBuffer_Retransmission(t *testing.T) {
 	fragmentBuffer := dtlsfragmentbuffer.New()
 	frag := []byte{0x16, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x30, 0x03, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xfe, 0xff, 0x01, 0x01}
 
-	isRetransmission, err := fragmentBuffer.Push(0, frag[recordlayer.FixedHeaderSize:])
+	result, err := fragmentBuffer.Push(0, frag[recordlayer.FixedHeaderSize:])
 	assert.NoError(t, err)
-	assert.False(t, isRetransmission)
+	assert.False(t, result.IsRetransmit)
 
 	v, _ := fragmentBuffer.Pop()
 	assert.NotNil(t, v)
 
-	isRetransmission, err = fragmentBuffer.Push(0, frag[recordlayer.FixedHeaderSize:])
+	result, err = fragmentBuffer.Push(0, frag[recordlayer.FixedHeaderSize:])
 	assert.NoError(t, err)
-	assert.True(t, isRetransmission)
+	assert.True(t, result.IsRetransmit)
 }
 
 func TestConnectionState(t *testing.T) {
@@ -4583,13 +4587,17 @@ func TestDetachedConnEventReadyCoalesces(t *testing.T) {
 }
 
 func TestDetachedConnAutonomousRetransmit(t *testing.T) {
-	for name, version := range map[string]protocol.Version{"DTLS12": protocol.Version1_2, "DTLS13": protocol.Version1_3} {
+	for name, versions := range map[string][2]protocol.Version{
+		"DTLS12":    {protocol.Version1_2, protocol.Version1_2},
+		"DTLS13":    {protocol.Version1_3, protocol.Version1_3},
+		"DualStack": {protocol.Version1_2, protocol.Version1_3},
+	} {
 		t.Run(name, func(t *testing.T) {
 			client, err := DetachedClient(
 				&net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 5555},
 				WithInsecureSkipVerify(true),
-				WithMinVersion(version),
-				WithMaxVersion(version),
+				WithMinVersion(versions[0]),
+				WithMaxVersion(versions[1]),
 				WithFlightInterval(100*time.Millisecond),
 			)
 			require.NoError(t, err)

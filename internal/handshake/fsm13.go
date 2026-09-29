@@ -385,6 +385,11 @@ func (s *fsm13) handleReceivedFlight( //nolint:cyclop
 		return receivedFlightTransition{}, err
 	}
 	if nextFlight == 0 {
+		// HRR has no retransmission timer. Only the first fragment
+		// of a retried ClientHello triggers a replay.
+		if s.currentFlight == dtlsflight13.Flight2 && received.IsRetransmitStart {
+			return receivedFlightTransition{state: StateSending}, nil
+		}
 		if ackErr := sendACK(ctx, conn, s.state.LocalEpoch(), received.RecordsToACK); ackErr != nil {
 			return receivedFlightTransition{}, ackErr
 		}

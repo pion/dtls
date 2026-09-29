@@ -118,6 +118,7 @@ type incomingPacketState struct {
 type packetOutcome struct {
 	containsHandshake bool
 	retransmit        bool
+	retransmitStart   bool
 	receivedACK       *protocol.ACK
 	responseAlert     *alert.Alert
 }
@@ -125,6 +126,7 @@ type packetOutcome struct {
 type datagramProcessingSummary struct {
 	containsHandshake bool
 	retransmit        bool
+	retransmitStart   bool
 	receivedACKs      []protocol.ACK
 }
 
@@ -1404,7 +1406,14 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 		return nil
 	}
 
-	s := dtlshandshake.RecvHandshakeState{Done: make(chan struct{}), HasHandshake: summary.containsHandshake, IsRetransmit: summary.retransmit, ACKs: summary.receivedACKs, RecordsToACK: c.takePendingACKs()}
+	s := dtlshandshake.RecvHandshakeState{
+		Done:              make(chan struct{}),
+		HasHandshake:      summary.containsHandshake,
+		IsRetransmit:      summary.retransmit,
+		IsRetransmitStart: summary.retransmitStart,
+		ACKs:              summary.receivedACKs,
+		RecordsToACK:      c.takePendingACKs(),
+	}
 	select {
 	case c.handshakeRecv <- s:
 		// If the other party may retransmit the flight,
@@ -1470,14 +1479,7 @@ func (c *Conn) processDatagramPackets(ctx context.Context, pkts [][]byte, rAddr 
 	datagramContainsCID := recordsContainCID(pkts)
 	bufferLease.pendingCID = c.pendingCIDNegotiation()
 	if bufferLease.pendingCID {
-		datagramContainsCID = false
-		for _, p := range pkts {
-			if protocol.IsDTLS13Ciphertext(protocol.ContentType(p[0])) && p[0]&recordwire.CIDBit != 0 {
-				datagramContainsCID = true
-
-				break
-			}
-		}
+		datagramContainsCID = recordsContainDTLS13CID(pkts)
 	}
 	bufferLease.datagramContainsCID = datagramContainsCID
 
@@ -1489,6 +1491,7 @@ func (c *Conn) processDatagramPackets(ctx context.Context, pkts [][]byte, rAddr 
 		}
 		summary.containsHandshake = summary.containsHandshake || outcome.containsHandshake
 		summary.retransmit = summary.retransmit || outcome.retransmit
+		summary.retransmitStart = summary.retransmitStart || outcome.retransmitStart
 		if outcome.receivedACK != nil {
 			summary.receivedACKs = append(summary.receivedACKs, *outcome.receivedACK)
 		}
@@ -1608,6 +1611,16 @@ func (c *Conn) inboundCIDRequired() bool {
 	}
 	if common.LocalVersion == protocol.Version1_2 {
 		return len(common.LocalConnectionID()) > 0
+	}
+
+	return false
+}
+
+func recordsContainDTLS13CID(records [][]byte) bool {
+	for _, record := range records {
+		if protocol.IsDTLS13Ciphertext(protocol.ContentType(record[0])) && record[0]&recordwire.CIDBit != 0 {
+			return true
+		}
 	}
 
 	return false
@@ -2118,7 +2131,7 @@ func (c *Conn) validateLegacyCID(header recordlayer.ParsedRecord) bool {
 
 func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumber, markPacketAsValid func() bool) (packetOutcome, bool) {
 	c.syncFragmentBufferHandshakeSequence()
-	isRetransmit, err := c.fragmentBuffer.Push(number.Epoch, content)
+	result, err := c.fragmentBuffer.Push(number.Epoch, content)
 	if err != nil {
 		// Decode error must be silently discarded
 		// [RFC6347 Section-4.1.2.7]
@@ -2145,7 +2158,11 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 		c.handshakeCache.Push(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient)
 	}
 
-	return packetOutcome{containsHandshake: true, retransmit: isRetransmit}, isLatestSeqNum
+	return packetOutcome{
+		containsHandshake: true,
+		retransmit:        result.IsRetransmit,
+		retransmitStart:   result.IsRetransmitStart,
+	}, isLatestSeqNum
 }
 
 func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr net.Addr, bufferLease *readBufferLease) bool {
@@ -2422,10 +2439,29 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 		return nil, err
 	}
 
+	interval := c.handshakeConfig.InitialRetransmitInterval
+	// Preserve the flight's retry deadline across reads, including discarded datagrams.
+	// DTLS 1.2: partial reads do not reset the timer:
+	// https://www.rfc-editor.org/rfc/rfc6347.html#section-4.2.4
+	// DTLS 1.3: Figure 11 keeps ordinary record reception in WAITING and the timer
+	// is armed on sending only:
+	// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.8.1
+	retryDeadline := time.Now().Add(interval)
 	for {
-		c.signalHandshakeQuiescent()
-		if err := c.readAndBufferNoFSM(ctx); err != nil {
+		timedOut, err := c.readVersionNegotiationResponse(ctx, time.Until(retryDeadline))
+		if err != nil {
 			return nil, err
+		}
+		if timedOut {
+			if err := c.writePackets(ctx, pkts); err != nil {
+				return nil, err
+			}
+			if !c.handshakeConfig.DisableRetransmitBackoff {
+				interval = min(2*interval, 60*time.Second)
+			}
+			retryDeadline = time.Now().Add(interval)
+
+			continue
 		}
 		if ok, err := c.pickVersionFromServerResponse(); err != nil {
 			var negotiationAlert *alert.Alert
@@ -2440,6 +2476,44 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 		}
 		// ServerHello or HelloVerifyRequest not yet (fully) received; keep reading.
 	}
+}
+
+// readVersionNegotiationResponse keeps the initial ClientHello flight retryable
+// before version negotiation has selected a handshake state machine.
+func (c *Conn) readVersionNegotiationResponse(ctx context.Context, timeout time.Duration) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	// An Incoming datagrams shouldn't postpone an already-due retransmission.
+	if timeout <= 0 {
+		return true, nil
+	}
+	c.signalHandshakeQuiescent()
+	readCtx, cancel := context.WithCancelCause(ctx)
+	timer := c.handshakeConfig.NewTimer(timeout)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case <-timer.C():
+			cancel(context.DeadlineExceeded)
+		case <-readCtx.Done():
+		}
+	}()
+	err := c.readAndBufferNoFSM(readCtx)
+	timer.Stop()
+	cause := context.Cause(readCtx)
+	cancel(nil)
+	<-done
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	// A read may deliver a datagram or another error concurrently with expiry.
+	if errors.Is(err, context.Canceled) && errors.Is(cause, context.DeadlineExceeded) {
+		return true, nil
+	}
+
+	return false, err
 }
 
 // pickVersionFromClientHello inspects the handshake cache for incoming

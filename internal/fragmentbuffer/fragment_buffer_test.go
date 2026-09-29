@@ -281,9 +281,9 @@ func TestFragmentBuffer_ExactDuplicateDoesNotConsumeResources(t *testing.T) {
 	assert.Equal(t, fragmentBufferMaxCount, fragmentBuffer.totalFragmentCount)
 	assert.Zero(t, fragmentBuffer.totalBufferSize)
 
-	isRetransmit, err := fragmentBuffer.Push(7, marshalHandshakeContent(t, headers[0]))
+	result, err := fragmentBuffer.Push(7, marshalHandshakeContent(t, headers[0]))
 	require.NoError(t, err)
-	assert.False(t, isRetransmit)
+	assert.Equal(t, PushResult{}, result)
 	assert.Equal(t, fragmentBufferMaxCount, fragmentBuffer.totalFragmentCount)
 	assert.Zero(t, fragmentBuffer.totalBufferSize)
 }
@@ -325,14 +325,25 @@ func TestFragmentBuffer_ClonesRetainedPayload(t *testing.T) {
 }
 
 func TestFragmentBuffer_RetransmitDetection(t *testing.T) {
+	first := handshake.Header{Type: handshake.TypeCertificate, Length: 3, FragmentLength: 1}
+	middle, last, whole, current := first, first, first, first
+	middle.FragmentOffset, last.FragmentOffset = 1, 2
+	whole.Length, current.MessageSequence = 1, 1
+	start := PushResult{IsRetransmit: true, IsRetransmitStart: true}
+	continuation := PushResult{IsRetransmit: true}
 	tests := []struct {
-		name               string
-		headers            []handshake.Header
-		expectedRetransmit bool
+		name     string
+		headers  []handshake.Header
+		expected PushResult
 	}{
-		{name: "old nonzero-offset fragment", headers: []handshake.Header{{Type: handshake.TypeCertificate, Length: 2, MessageSequence: 0, FragmentOffset: 1, FragmentLength: 1}}, expectedRetransmit: true},
-		{name: "old fragment followed by current fragment", headers: []handshake.Header{{Type: handshake.TypeCertificate, Length: 1, MessageSequence: 0, FragmentLength: 1}, {Type: handshake.TypeCertificate, Length: 1, MessageSequence: 1, FragmentLength: 1}}, expectedRetransmit: true},
-		{name: "current fragment", headers: []handshake.Header{{Type: handshake.TypeCertificate, Length: 1, MessageSequence: 1, FragmentLength: 1}}},
+		{"old first fragment", []handshake.Header{first}, start},
+		{"old middle fragment", []handshake.Header{middle}, continuation},
+		{"old last fragment", []handshake.Header{last}, continuation},
+		{"old unfragmented message", []handshake.Header{whole}, start},
+		{"old first followed by old last", []handshake.Header{first, last}, start},
+		{"old first followed by current", []handshake.Header{first, current}, start},
+		{"old last followed by current", []handshake.Header{last, current}, continuation},
+		{"current fragment", []handshake.Header{current}, PushResult{}},
 	}
 
 	for _, test := range tests {
@@ -340,9 +351,9 @@ func TestFragmentBuffer_RetransmitDetection(t *testing.T) {
 			fragmentBuffer := New()
 			fragmentBuffer.AdvanceTo(1)
 
-			isRetransmit, err := fragmentBuffer.Push(0, marshalHandshakeContent(t, test.headers...))
+			result, err := fragmentBuffer.Push(0, marshalHandshakeContent(t, test.headers...))
 			require.NoError(t, err)
-			assert.Equal(t, test.expectedRetransmit, isRetransmit)
+			assert.Equal(t, test.expected, result)
 		})
 	}
 }
