@@ -6,6 +6,7 @@ package dtls
 import (
 	"context"
 	"crypto/rand"
+	"slices"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -76,7 +77,11 @@ func flight0Parse(
 			if len(ext.EllipticCurves) == 0 {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
 			}
-			state.namedCurve = ext.EllipticCurves[0]
+			namedCurve, ok := selectEllipticCurve(cfg.ellipticCurves, ext.EllipticCurves)
+			if !ok {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
+			}
+			state.namedCurve = namedCurve
 		case *extension.UseSRTP:
 			profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
 			if !ok {
@@ -131,6 +136,26 @@ func flight0Parse(
 	}
 
 	return handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
+}
+
+// selectEllipticCurve returns the first curve the client offered that the server
+// is also configured to use, honoring the client's preference order. It reports
+// ok=false when the two lists do not intersect, so the caller refuses the
+// handshake instead of falling back to a curve the server never advertised.
+//
+// This brings elliptic-curve negotiation in line with the cipher-suite and SRTP
+// selection in flight0Parse (findMatchingCipherSuite / findMatchingSRTPProfile),
+// and with the offer side, which already restricts curves to the configured set.
+// Previously the server used the client's first offered curve unconditionally —
+// the only handshake parameter that ignored the server's own configuration.
+func selectEllipticCurve(configured, offered []elliptic.Curve) (elliptic.Curve, bool) {
+	for _, curve := range offered {
+		if slices.Contains(configured, curve) {
+			return curve, true
+		}
+	}
+
+	return 0, false
 }
 
 func handleHelloResume(
