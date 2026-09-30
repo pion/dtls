@@ -231,7 +231,6 @@ func createConn(
 		localGetCertificate:           config.GetCertificate,
 		localGetClientCertificate:     config.GetClientCertificate,
 		insecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
-		legacyClientHello:             config.LegacyClientHello,
 		connectionIDGenerator:         config.ConnectionIDGenerator,
 		helloRandomBytesGenerator:     config.HelloRandomBytesGenerator,
 		clientHelloMessageHook:        config.ClientHelloMessageHook,
@@ -516,51 +515,6 @@ func (c *Conn) Write(payload []byte) (int, error) {
 			shouldEncrypt: true,
 		},
 	})
-}
-
-// WriteBatch writes each payload as its own DTLS application-data record,
-// then sends all records in as few datagrams as possible: several records
-// may share one datagram up to the MTU (RFC 6347 Section 4.1.1), which is
-// legal and understood by GnuTLS/OpenSSL clients. Records are assigned
-// consecutive sequence numbers and written in order, one call instead of
-// one syscall per record. Use it instead of looping Write when several
-// payloads are ready at once.
-func (c *Conn) WriteBatch(payloads [][]byte) error {
-	if c.isConnectionClosed() {
-		return ErrConnClosed
-	}
-
-	select {
-	case <-c.writeDeadline.Done():
-		return errDeadlineExceeded
-	default:
-	}
-
-	if err := c.Handshake(); err != nil {
-		return err
-	}
-
-	ctx, cancel := c.contextWithClose(c.writeDeadline.Context())
-	defer cancel()
-
-	pkts := make([]*packet, len(payloads))
-	for i, payload := range payloads {
-		pkts[i] = &packet{
-			record: &recordlayer.RecordLayer{
-				Header: recordlayer.Header{
-					Epoch:   c.state.getLocalEpoch(),
-					Version: protocol.Version1_2,
-				},
-				Content: &protocol.ApplicationData{
-					Data: payload,
-				},
-			},
-			shouldWrapCID: len(c.state.remoteConnectionID) > 0,
-			shouldEncrypt: true,
-		}
-	}
-
-	return c.writePackets(ctx, pkts)
 }
 
 // Close closes the connection.

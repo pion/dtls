@@ -73,7 +73,6 @@ type dtlsConfig struct { //nolint:dupl
 	getCertificate                func(*ClientHelloInfo) (*tls.Certificate, error)
 	getClientCertificate          func(*CertificateRequestInfo) (*tls.Certificate, error)
 	insecureSkipVerifyHello       bool
-	legacyClientHello             bool
 	connectionIDGenerator         func() []byte
 	paddingLengthGenerator        func(uint) uint
 	helloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
@@ -120,7 +119,6 @@ func (c *dtlsConfig) toConfig() *Config {
 		GetCertificate:                c.getCertificate,
 		GetClientCertificate:          c.getClientCertificate,
 		InsecureSkipVerifyHello:       c.insecureSkipVerifyHello,
-		LegacyClientHello:             c.legacyClientHello,
 		ConnectionIDGenerator:         c.connectionIDGenerator,
 		PaddingLengthGenerator:        c.paddingLengthGenerator,
 		HelloRandomBytesGenerator:     c.helloRandomBytesGenerator,
@@ -645,19 +643,6 @@ func WithGetCertificate(fn func(*ClientHelloInfo) (*tls.Certificate, error)) Ser
 func WithInsecureSkipVerifyHello(skip bool) ServerOption {
 	return serverOnlyOption(func(c *dtlsConfig) error {
 		c.insecureSkipVerifyHello = skip
-
-		return nil
-	})
-}
-
-// WithLegacyClientHello makes the server tolerate a DTLS 1.0 (0xFEFF)
-// client_version in the ClientHello, negotiating DTLS 1.2 as usual
-// (RFC 6347 Section 4.2.1). Needed for OpenSSL-based clients that send the
-// legacy version (e.g. openconnect); GnuTLS and pion clients are unaffected.
-// This option is only applicable to servers.
-func WithLegacyClientHello() ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		c.legacyClientHello = true
 
 		return nil
 	})

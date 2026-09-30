@@ -118,7 +118,6 @@ type handshakeConfig struct {
 	customCipherSuites           func() []CipherSuite
 	ellipticCurves               []elliptic.Curve
 	insecureSkipHelloVerify      bool
-	legacyClientHello            bool
 	connectionIDGenerator        func() []byte
 	helloRandomBytesGenerator    func() [handshake.RandomBytesLength]byte
 

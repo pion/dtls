@@ -48,8 +48,11 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
+	// Some clients built on OpenSSL (e.g. openconnect) put the legacy DTLS 1.0
+	// version (0xFEFF) in the ClientHello while still negotiating DTLS 1.2
+	// (RFC 6347 Section 4.2.1). Accept it and answer with DTLS 1.2.
 	if !clientHello.Version.Equal(protocol.Version1_2) &&
-		!(cfg.legacyClientHello && clientHello.Version.Equal(protocol.Version1_0)) {
+		!clientHello.Version.Equal(protocol.Version1_0) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
 	}
 

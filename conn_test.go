@@ -2152,7 +2152,7 @@ func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
 						},
 						Content: &handshake.Handshake{
 							Message: &handshake.MessageClientHello{
-								Version:            protocol.Version{Major: 0xfe, Minor: 0xff}, // try to downgrade
+								Version:            protocol.Version1_3, // try to downgrade
 								Cookie:             cookie,
 								Random:             random,
 								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
@@ -2188,7 +2188,7 @@ func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
 								MessageSequence: 1,
 							},
 							Message: &handshake.MessageClientHello{
-								Version:            protocol.Version{Major: 0xfe, Minor: 0xff}, // try to downgrade
+								Version:            protocol.Version1_3, // try to downgrade
 								Cookie:             cookie,
 								Random:             random,
 								CipherSuiteIDs:     []uint16{uint16((&ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}).ID())},
@@ -2331,6 +2331,69 @@ func TestProtocolVersionValidation(t *testing.T) { //nolint:maintidx
 			})
 		}
 	})
+}
+
+// TestLegacyClientHelloVersion verifies that the server tolerates a ClientHello
+// carrying the legacy DTLS 1.0 version (0xFEFF) while still negotiating
+// DTLS 1.2, as sent by some OpenSSL-based clients such as openconnect
+// (RFC 6347 Section 4.2.1).
+func TestLegacyClientHelloVersion(t *testing.T) {
+	// Limit runtime in case of deadlocks
+	lim := test.TimeOut(time.Second * 20)
+	defer lim.Stop()
+
+	// Check for leaking routines
+	report := test.CheckRoutines(t)
+	defer report()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	psk := func([]byte) ([]byte, error) {
+		return []byte{0xAB, 0xC1, 0x23}, nil
+	}
+	cipherSuites := []CipherSuiteID{TLS_PSK_WITH_AES_128_GCM_SHA256}
+
+	ca, cb := dpipe.Pipe()
+	defer func() {
+		assert.NoError(t, ca.Close())
+	}()
+
+	type serverResult struct {
+		conn *Conn
+		err  error
+	}
+	serverRes := make(chan serverResult, 1)
+	go func() {
+		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+			PSK:          psk,
+			CipherSuites: cipherSuites,
+		}, false)
+		serverRes <- serverResult{server, err}
+	}()
+
+	client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+		PSK:             psk,
+		PSKIdentityHint: []byte("pion"),
+		CipherSuites:    cipherSuites,
+		ClientHelloMessageHook: func(ch handshake.MessageClientHello) handshake.Message {
+			ch.Version = protocol.Version1_0
+
+			return &ch
+		},
+	}, false)
+	assert.NoError(t, err)
+	if client != nil {
+		defer func() {
+			_ = client.Close()
+		}()
+	}
+
+	res := <-serverRes
+	assert.NoError(t, res.err)
+	if res.conn != nil {
+		assert.NoError(t, res.conn.Close())
+	}
 }
 
 func TestMultipleHelloVerifyRequest(t *testing.T) {
