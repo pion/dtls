@@ -339,11 +339,12 @@ func validateRetryCookie(retry ClientHelloSnapshot, request RetryRequest) error 
 }
 
 // retryExtensionsMatch compares the extensions of both ClientHellos regardless
-// of their order. Extensions may appear in any order and a ClientHello cannot
-// repeat an extension type, so this only tolerates a client that reorders its
-// extensions when it retries.
+// of their order for compatibility with clients such as wolfSSL that can reorder
+// extensions on retry. The spec requires the retry ClientHello to
+// remain unchanged except for the listed modifications, which do not include
+// reordering extensions.
 //
-// https://www.rfc-editor.org/rfc/rfc9846#section-4.3
+// https://www.rfc-editor.org/rfc/rfc9846#section-4.2.2
 func retryExtensionsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bool {
 	remaining := make(map[extension.Type][]byte, len(initial.extensions))
 	for _, value := range initial.extensions {
