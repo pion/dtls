@@ -230,14 +230,7 @@ func (p *postHandshake) initialize() {
 	}
 	p.initialized = true
 
-	if !p.state.IsClient {
-		p.queue = append(
-			p.queue,
-			postHandshakeCommand{
-				Kind: commandSendNewSessionTicket,
-			},
-		)
-	}
+	// Do not issue NewSessionTicket until DTLS 1.3 session resumption is supported.
 }
 
 func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn) error {
