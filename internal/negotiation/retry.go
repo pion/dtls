@@ -93,7 +93,8 @@ func BuildClientHelloRetry(initial ClientHelloSnapshot, request RetryRequest, fr
 
 // ValidateClientHelloRetry requires ClientHello2 to equal ClientHello1
 // except for the changes authorized by a validated HelloRetryRequest, removal
-// of early_data, and padding changes.
+// of early_data, and padding changes. Extensions are compared regardless of
+// their order.
 //
 // https://www.rfc-editor.org/rfc/rfc9846#section-4.2.2
 func ValidateClientHelloRetry(
@@ -337,27 +338,40 @@ func validateRetryCookie(retry ClientHelloSnapshot, request RetryRequest) error 
 	return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("ClientHello2 did not echo the HelloRetryRequest cookie: %w", dtlserrors.ErrCookieMismatch), alert.IllegalParameter)
 }
 
+// retryExtensionsMatch compares the extensions of both ClientHellos regardless
+// of their order for compatibility with clients such as wolfSSL that can reorder
+// extensions on retry. The spec requires the retry ClientHello to
+// remain unchanged except for the listed modifications, which do not include
+// reordering extensions.
+//
+// https://www.rfc-editor.org/rfc/rfc9846#section-4.2.2
 func retryExtensionsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bool {
-	first := comparableRetryExtensions(initial.extensions, true, request)
-	second := comparableRetryExtensions(retry.extensions, false, request)
-
-	return slices.EqualFunc(first, second, func(a, b extension.Raw) bool { return a.Type == b.Type && bytes.Equal(a.Data, b.Data) })
-}
-
-func comparableRetryExtensions(
-	values []extension.Raw,
-	initial bool,
-	request RetryRequest,
-) []extension.Raw {
-	result := make([]extension.Raw, 0, len(values))
-	for _, value := range values {
-		if value.Type == extension.TypePadding || (value.Type == extension.TypeEarlyData && initial) || (value.Type == extension.TypeKeyShare && request.HasSelectedGroup) || (value.Type == extension.TypeCookie && request.HasCookie) {
+	remaining := make(map[extension.Type][]byte, len(initial.extensions))
+	for _, value := range initial.extensions {
+		if skipRetryExtension(value.Type, true, request) {
 			continue
 		}
-		result = append(result, value)
+		remaining[value.Type] = value.Data
+	}
+	for _, value := range retry.extensions {
+		if skipRetryExtension(value.Type, false, request) {
+			continue
+		}
+		data, present := remaining[value.Type]
+		if !present || !bytes.Equal(data, value.Data) {
+			return false
+		}
+		delete(remaining, value.Type)
 	}
 
-	return result
+	return len(remaining) == 0
+}
+
+func skipRetryExtension(typ extension.Type, initial bool, request RetryRequest) bool {
+	return typ == extension.TypePadding ||
+		(typ == extension.TypeEarlyData && initial) ||
+		(typ == extension.TypeKeyShare && request.HasSelectedGroup) ||
+		(typ == extension.TypeCookie && request.HasCookie)
 }
 
 func clientKeyShares(snapshot ClientHelloSnapshot) ([]extension13.KeyShareEntry, error) {

@@ -179,7 +179,7 @@ func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
 			replaceRetryExtension(ch, unknownExtensionType,
 				extension.Raw{Type: unknownExtensionType, Data: []byte{0xff}})
 		}},
-		"unknown order": {mutate: func(ch *handshake.MessageClientHello) {
+		"unknown order": {valid: true, mutate: func(ch *handshake.MessageClientHello) {
 			first, second := -1, -1
 			for i, value := range ch.Extensions {
 				if value.ExtensionType() == unknownExtensionType {
@@ -245,6 +245,34 @@ func TestValidateClientHelloRetryCookieOnlyKeepsKeyShare(t *testing.T) {
 		replaceRetryExtension(ch, extension.TypeKeyShare, &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: elliptic.P256, KeyExchange: []byte{0xff}}}})
 	})
 	require.ErrorIs(t, ValidateClientHelloRetry(initial, retry, request), dtlserrors.ErrInvalidClientHello)
+}
+
+// Some clients reorder their extensions when they retry.
+func TestValidateClientHelloRetryAcceptsReorderedExtensions(t *testing.T) {
+	initial := snapshotClientHelloForRetryTest(t, clientHelloForTest(
+		&extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE}},
+		&extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: elliptic.P256, KeyExchange: []byte{0x04, 0x01}}}},
+		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+		&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+		&extension.ServerNameOffer{ServerName: "example.com"},
+		&extension.ConnectionID{CID: []byte{}},
+		&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.P256}},
+	))
+	request, err := ValidateHelloRetryRequest(initial, helloRetryRequest13ForTest(0x1301, nil, []byte("cookie")))
+	require.NoError(t, err)
+
+	moved := func(value extension.Value) bool {
+		return value.ExtensionType() == extension.TypeSupportedVersions || value.ExtensionType() == extension.TypeCookie
+	}
+	retry := mutateSnapshotForRetryTest(t, finalizedRetryForTest(t, initial, request), func(ch *handshake.MessageClientHello) {
+		front := slices.DeleteFunc(slices.Clone(ch.Extensions), func(value extension.Value) bool { return !moved(value) })
+		rest := slices.DeleteFunc(slices.Clone(ch.Extensions), moved)
+		ch.Extensions = slices.Concat(front, rest)
+	})
+	require.Equal(t, extension.TypeSupportedVersions, retry.extensions[0].Type)
+	require.Equal(t, extension.TypeCookie, retry.extensions[1].Type)
+
+	require.NoError(t, ValidateClientHelloRetry(initial, retry, request))
 }
 
 func TestValidateHelloVerifyRequestResponse(t *testing.T) {
