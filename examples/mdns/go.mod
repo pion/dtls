@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/pion/dtls/v3 v3.1.10
-	github.com/pion/mdns/v2 v2.2.1
+	github.com/pion/mdns/v2 v2.2.2
 	golang.org/x/net v0.49.0
 )
 
