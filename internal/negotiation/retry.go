@@ -5,6 +5,7 @@ package negotiation
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"slices"
 
@@ -93,7 +94,8 @@ func BuildClientHelloRetry(initial ClientHelloSnapshot, request RetryRequest, fr
 
 // ValidateClientHelloRetry requires ClientHello2 to equal ClientHello1
 // except for the changes authorized by a validated HelloRetryRequest, removal
-// of early_data, and padding changes.
+// of early_data, and padding changes. Extensions are compared regardless of
+// their order.
 //
 // https://www.rfc-editor.org/rfc/rfc9846#section-4.2.2
 func ValidateClientHelloRetry(
@@ -337,9 +339,18 @@ func validateRetryCookie(retry ClientHelloSnapshot, request RetryRequest) error 
 	return negotiationError(dtlserrors.ErrInvalidClientHello, fmt.Errorf("ClientHello2 did not echo the HelloRetryRequest cookie: %w", dtlserrors.ErrCookieMismatch), alert.IllegalParameter)
 }
 
+// retryExtensionsMatch compares the extensions of both ClientHellos regardless
+// of their order. Extensions may appear in any order and a ClientHello cannot
+// repeat an extension type, so this only tolerates a client that reorders its
+// extensions when it retries.
+//
+// https://www.rfc-editor.org/rfc/rfc9846#section-4.3
 func retryExtensionsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bool {
 	first := comparableRetryExtensions(initial.extensions, true, request)
 	second := comparableRetryExtensions(retry.extensions, false, request)
+	byType := func(a, b extension.Raw) int { return cmp.Compare(a.Type, b.Type) }
+	slices.SortStableFunc(first, byType)
+	slices.SortStableFunc(second, byType)
 
 	return slices.EqualFunc(first, second, func(a, b extension.Raw) bool { return a.Type == b.Type && bytes.Equal(a.Data, b.Data) })
 }
