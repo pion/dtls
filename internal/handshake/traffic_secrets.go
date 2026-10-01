@@ -181,9 +181,10 @@ func populateOutboundFinished(
 }
 
 // deriveHandshakeTrafficSecrets derives the DTLS 1.3 client and server
-// handshake traffic secrets from the ECDHE secret and transcript hash.
-func deriveHandshakeTrafficSecrets(hashFunc func() hash.Hash, keyAgreementSecret, transcriptHash []byte) (dtlsstate.TrafficSecrets, error) {
-	secrets, err := deriveHandshakeKeySchedule(hashFunc, keyAgreementSecret, transcriptHash)
+// handshake traffic secrets from the optional PSK, ECDHE secret, and transcript hash.
+// A nil PSK selects the certificate-only key schedule.
+func deriveHandshakeTrafficSecrets(hashFunc func() hash.Hash, psk, keyAgreementSecret, transcriptHash []byte) (dtlsstate.TrafficSecrets, error) {
+	secrets, err := deriveHandshakeKeySchedule(hashFunc, psk, keyAgreementSecret, transcriptHash)
 	if err != nil {
 		return dtlsstate.TrafficSecrets{}, err
 	}
@@ -191,7 +192,7 @@ func deriveHandshakeTrafficSecrets(hashFunc func() hash.Hash, keyAgreementSecret
 	return secrets.HandshakeTrafficSecrets, nil
 }
 
-func deriveHandshakeKeySchedule(hashFunc func() hash.Hash, keyAgreementSecret, transcriptHash []byte) (handshakeKeySchedule, error) {
+func deriveHandshakeKeySchedule(hashFunc func() hash.Hash, psk, keyAgreementSecret, transcriptHash []byte) (handshakeKeySchedule, error) {
 	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return handshakeKeySchedule{}, err
@@ -200,7 +201,7 @@ func deriveHandshakeKeySchedule(hashFunc func() hash.Hash, keyAgreementSecret, t
 		return handshakeKeySchedule{}, dtlserrors.ErrLengthMismatch
 	}
 
-	handshakeSecret, err := deriveHandshakeSecret(hashFunc, keyAgreementSecret)
+	handshakeSecret, err := deriveHandshakeSecret(hashFunc, psk, keyAgreementSecret)
 	if err != nil {
 		return handshakeKeySchedule{}, err
 	}
@@ -233,17 +234,29 @@ func deriveHandshakeKeySchedule(hashFunc func() hash.Hash, keyAgreementSecret, t
 	return handshakeKeySchedule{HandshakeTrafficSecrets: dtlsstate.TrafficSecrets{Client: clientSecret, Server: serverSecret}, MasterSecret: masterSecret}, nil
 }
 
-func deriveHandshakeSecret(hashFunc func() hash.Hash, keyAgreementSecret []byte) ([]byte, error) {
+// deriveEarlySecret uses a hash-length zero PSK when no PSK was selected.
+// A non-nil, empty PSK is invalid rather than an alias for no PSK.
+func deriveEarlySecret(hashFunc func() hash.Hash, psk []byte) ([]byte, error) {
 	hashSize, err := hashSize(hashFunc)
 	if err != nil {
 		return nil, err
 	}
+	if psk == nil {
+		psk = make([]byte, hashSize)
+	} else if len(psk) == 0 {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+
+	return keyschedule.HkdfExtract(hashFunc, nil, psk)
+}
+
+// deriveHandshakeSecret retains the key-agreement requirement for psk_dhe_ke.
+func deriveHandshakeSecret(hashFunc func() hash.Hash, psk, keyAgreementSecret []byte) ([]byte, error) {
 	if len(keyAgreementSecret) == 0 {
 		return nil, dtlserrors.ErrLengthMismatch
 	}
 
-	zeroSecret := make([]byte, hashSize)
-	earlySecret, err := keyschedule.HkdfExtract(hashFunc, nil, zeroSecret)
+	earlySecret, err := deriveEarlySecret(hashFunc, psk)
 	if err != nil {
 		return nil, err
 	}
@@ -336,8 +349,8 @@ func deriveNextApplicationTrafficSecret(
 	return keyschedule.HkdfExpandLabel(hashFunc, current, trafficUpdateLabel, nil, hashSize)
 }
 
-func deriveMasterSecretFromKeyAgreementSecret(hashFunc func() hash.Hash, keyAgreementSecret []byte) ([]byte, error) {
-	handshakeSecret, err := deriveHandshakeSecret(hashFunc, keyAgreementSecret)
+func deriveMasterSecretFromKeyAgreementSecret(hashFunc func() hash.Hash, psk, keyAgreementSecret []byte) ([]byte, error) {
+	handshakeSecret, err := deriveHandshakeSecret(hashFunc, psk, keyAgreementSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -373,6 +386,7 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript 
 
 	secrets, err := deriveHandshakeKeySchedule(
 		state.CipherSuite.HashFunc(),
+		nil, // PSK selection is not yet wired into the handshake.
 		state.KeyAgreementSecret,
 		transcriptHash,
 	)
@@ -479,6 +493,7 @@ func ensureMasterSecret(state *dtlsstate.State13) ([]byte, error) {
 
 	masterSecret, err := deriveMasterSecretFromKeyAgreementSecret(
 		state.CipherSuite.HashFunc(),
+		nil,
 		state.KeyAgreementSecret,
 	)
 	if err != nil {

@@ -108,7 +108,7 @@ func TestKeySchedule13RegressionVectors(t *testing.T) {
 			keyAgreementSecret := decodeRegressionHex(t, test.keyAgreementSecret)
 			handshakeHash := decodeRegressionHex(t, test.handshakeTranscriptHash)
 
-			schedule, err := deriveHandshakeKeySchedule(test.hash, keyAgreementSecret, handshakeHash)
+			schedule, err := deriveHandshakeKeySchedule(test.hash, nil, keyAgreementSecret, handshakeHash)
 			require.NoError(t, err)
 			assert.Equal(t, decodeRegressionHex(t, test.clientHandshakeSecret),
 				schedule.HandshakeTrafficSecrets.Client)
@@ -204,4 +204,24 @@ func decodeRegressionHex(t *testing.T, value string) []byte {
 	require.NoError(t, err)
 
 	return decoded
+}
+
+func TestPSKKeySchedule(t *testing.T) {
+	psk := decodeRegressionHex(t, "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5")
+	dhe := decodeRegressionHex(t, "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	transcriptHash := sha256.Sum256([]byte("ClientHello...ServerHello"))
+
+	schedule, err := deriveHandshakeKeySchedule(sha256.New, psk, dhe, transcriptHash[:])
+	require.NoError(t, err)
+	// computed using OpenSSL.
+	assert.Equal(t, decodeRegressionHex(t, "69c0b082b9e8b4d0dd89066f4025f18bd943883af5bfc05237f10689a2b7f6bc"), schedule.MasterSecret)
+	master, err := deriveMasterSecretFromKeyAgreementSecret(sha256.New, psk, dhe)
+	require.NoError(t, err)
+	assert.Equal(t, schedule.MasterSecret, master)
+	traffic, err := deriveHandshakeTrafficSecrets(sha256.New, psk, dhe, transcriptHash[:])
+	require.NoError(t, err)
+	assert.Equal(t, schedule.HandshakeTrafficSecrets, traffic)
+
+	_, err = deriveHandshakeKeySchedule(sha256.New, psk, nil, transcriptHash[:])
+	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
 }

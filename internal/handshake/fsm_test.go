@@ -469,7 +469,7 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	assert.Equal(t, expectedTranscript, fsm.transcript.Bytes())
 	assertFlight13ClientTranscriptThroughServerFinished(t, fsm.transcript)
 
-	expectedSecrets, err := deriveHandshakeTrafficSecrets(state.CipherSuite.HashFunc(), state.KeyAgreementSecret, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
+	expectedSecrets, err := deriveHandshakeTrafficSecrets(state.CipherSuite.HashFunc(), nil, state.KeyAgreementSecret, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
 	require.NoError(t, err)
 	assert.Equal(t, expectedSecrets, state.KeySchedule.HandshakeTraffic)
 	assert.True(t, testTrafficProtectionInitialized(state, dtlsflight13.EpochHandshake))

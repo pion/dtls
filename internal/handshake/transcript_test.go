@@ -319,13 +319,13 @@ func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
 	serverHello := canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte{0x02})
 	noHRRTranscriptHash := hashTranscript13(clientHello, serverHello)
 
-	noHRRSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, keyAgreementSecret, noHRRTranscriptHash)
+	noHRRSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, nil, keyAgreementSecret, noHRRTranscriptHash)
 	require.NoError(t, err)
 	require.Len(t, noHRRSecrets.Client, sha256.Size)
 	require.Len(t, noHRRSecrets.Server, sha256.Size)
 	assert.NotEqual(t, noHRRSecrets.Client, noHRRSecrets.Server)
 
-	again, err := deriveHandshakeTrafficSecrets(sha256.New, keyAgreementSecret, noHRRTranscriptHash)
+	again, err := deriveHandshakeTrafficSecrets(sha256.New, nil, keyAgreementSecret, noHRRTranscriptHash)
 	require.NoError(t, err)
 	assert.Equal(t, noHRRSecrets, again)
 
@@ -336,14 +336,14 @@ func TestDeriveHandshakeTrafficSecrets13NoHRRAndHRR(t *testing.T) {
 	messageHash := canonicalTranscriptHandshake13(handshake.TypeMessageHash, hashTranscript13(clientHello1))
 	hrrTranscriptHash := hashTranscript13(messageHash, helloRetryRequest, clientHello2, serverHello2)
 
-	hrrSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, keyAgreementSecret, hrrTranscriptHash)
+	hrrSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, nil, keyAgreementSecret, hrrTranscriptHash)
 	require.NoError(t, err)
 	assert.NotEqual(t, noHRRSecrets.Client, hrrSecrets.Client)
 	assert.NotEqual(t, noHRRSecrets.Server, hrrSecrets.Server)
 
 	changedSecret := append([]byte(nil), keyAgreementSecret...)
 	changedSecret[0] ^= 0xff
-	changedSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, changedSecret, noHRRTranscriptHash)
+	changedSecrets, err := deriveHandshakeTrafficSecrets(sha256.New, nil, changedSecret, noHRRTranscriptHash)
 	require.NoError(t, err)
 	assert.NotEqual(t, noHRRSecrets.Client, changedSecrets.Client)
 	assert.NotEqual(t, noHRRSecrets.Server, changedSecrets.Server)
@@ -371,7 +371,7 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 
 			preMasterSecret := bytes.Repeat([]byte{test.secretByte}, test.hashSize)
 			handshakeTranscriptHash := bytes.Repeat([]byte{test.hashByte}, test.hashSize)
-			schedule, err := deriveHandshakeKeySchedule(hashFunc, preMasterSecret, handshakeTranscriptHash)
+			schedule, err := deriveHandshakeKeySchedule(hashFunc, nil, preMasterSecret, handshakeTranscriptHash)
 			require.NoError(t, err)
 			require.Len(t, schedule.HandshakeTrafficSecrets.Client, test.hashSize)
 			require.Len(t, schedule.HandshakeTrafficSecrets.Server, test.hashSize)
@@ -448,6 +448,7 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 			changedHandshakeTranscriptHash[0] ^= 0xff
 			changedSchedule, err := deriveHandshakeKeySchedule(
 				hashFunc,
+				nil,
 				preMasterSecret,
 				changedHandshakeTranscriptHash,
 			)
@@ -468,7 +469,7 @@ func TestDeriveTrafficSecrets13KeySchedule(t *testing.T) {
 
 			changedPreMasterSecret := append([]byte(nil), preMasterSecret...)
 			changedPreMasterSecret[0] ^= 0xff
-			changedPreMasterSchedule, err := deriveHandshakeKeySchedule(hashFunc, changedPreMasterSecret, handshakeTranscriptHash)
+			changedPreMasterSchedule, err := deriveHandshakeKeySchedule(hashFunc, nil, changedPreMasterSecret, handshakeTranscriptHash)
 			require.NoError(t, err)
 			assert.NotEqual(t, schedule.HandshakeTrafficSecrets.Client,
 				changedPreMasterSchedule.HandshakeTrafficSecrets.Client)
@@ -506,7 +507,7 @@ func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 
 	transcriptHash, err := transcript.SnapshotHash()
 	require.NoError(t, err)
-	expected, err := deriveHandshakeTrafficSecrets(cipherSuite.HashFunc(), state.KeyAgreementSecret, transcriptHash)
+	expected, err := deriveHandshakeTrafficSecrets(cipherSuite.HashFunc(), nil, state.KeyAgreementSecret, transcriptHash)
 	require.NoError(t, err)
 	assert.Equal(t, expected, state.KeySchedule.HandshakeTraffic)
 	assert.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Client)
