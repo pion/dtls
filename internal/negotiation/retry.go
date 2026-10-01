@@ -5,7 +5,6 @@ package negotiation
 
 import (
 	"bytes"
-	"cmp"
 	"fmt"
 	"slices"
 
@@ -346,29 +345,32 @@ func validateRetryCookie(retry ClientHelloSnapshot, request RetryRequest) error 
 //
 // https://www.rfc-editor.org/rfc/rfc9846#section-4.3
 func retryExtensionsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bool {
-	first := comparableRetryExtensions(initial.extensions, true, request)
-	second := comparableRetryExtensions(retry.extensions, false, request)
-	byType := func(a, b extension.Raw) int { return cmp.Compare(a.Type, b.Type) }
-	slices.SortStableFunc(first, byType)
-	slices.SortStableFunc(second, byType)
-
-	return slices.EqualFunc(first, second, func(a, b extension.Raw) bool { return a.Type == b.Type && bytes.Equal(a.Data, b.Data) })
-}
-
-func comparableRetryExtensions(
-	values []extension.Raw,
-	initial bool,
-	request RetryRequest,
-) []extension.Raw {
-	result := make([]extension.Raw, 0, len(values))
-	for _, value := range values {
-		if value.Type == extension.TypePadding || (value.Type == extension.TypeEarlyData && initial) || (value.Type == extension.TypeKeyShare && request.HasSelectedGroup) || (value.Type == extension.TypeCookie && request.HasCookie) {
+	remaining := make(map[extension.Type][]byte, len(initial.extensions))
+	for _, value := range initial.extensions {
+		if skipRetryExtension(value.Type, true, request) {
 			continue
 		}
-		result = append(result, value)
+		remaining[value.Type] = value.Data
+	}
+	for _, value := range retry.extensions {
+		if skipRetryExtension(value.Type, false, request) {
+			continue
+		}
+		data, present := remaining[value.Type]
+		if !present || !bytes.Equal(data, value.Data) {
+			return false
+		}
+		delete(remaining, value.Type)
 	}
 
-	return result
+	return len(remaining) == 0
+}
+
+func skipRetryExtension(typ extension.Type, initial bool, request RetryRequest) bool {
+	return typ == extension.TypePadding ||
+		(typ == extension.TypeEarlyData && initial) ||
+		(typ == extension.TypeKeyShare && request.HasSelectedGroup) ||
+		(typ == extension.TypeCookie && request.HasCookie)
 }
 
 func clientKeyShares(snapshot ClientHelloSnapshot) ([]extension13.KeyShareEntry, error) {
