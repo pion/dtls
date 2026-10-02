@@ -188,6 +188,11 @@ type State13 struct {
 	// TLS 1.3 HKDF key schedule.
 	KeyAgreementSecret []byte
 
+	// LocalPSK is the client offer, PSK is populated only after selection.
+	LocalPSK    []byte
+	PSK         []byte
+	PSKIdentity uint16
+
 	SelectedGroup elliptic.Curve
 
 	LocalKeypair  *elliptic.Keypair
