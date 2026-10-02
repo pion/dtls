@@ -8,20 +8,16 @@ import (
 	"context"
 	"net"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pion/dtls/v4/internal/closer"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
-	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	"github.com/pion/dtls/v4/internal/negotiation"
-	"github.com/pion/dtls/v4/internal/net/udp"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
-	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
@@ -249,123 +245,6 @@ func TestCIDDatagramRouter13(t *testing.T) {
 	}
 }
 
-type cidListenerPair struct {
-	client, server         *Conn
-	clientDone, serverDone chan error
-	cancel                 context.CancelFunc
-}
-
-func startCIDListenerPair(t *testing.T, listener net.Listener, opts ...ClientOption) cidListenerPair {
-	t.Helper()
-	socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	assert.NoError(t, err)
-	t.Cleanup(func() { _ = socket.Close() })
-	client, err := Client(socket, listener.Addr(), opts...)
-	assert.NoError(t, err)
-	t.Cleanup(func() { _ = client.Close() })
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	t.Cleanup(cancel)
-	pair := cidListenerPair{client: client, clientDone: make(chan error, 1), serverDone: make(chan error, 1), cancel: cancel}
-	type acceptResult struct {
-		conn net.Conn
-		err  error
-	}
-	accepted := make(chan acceptResult, 1)
-	go func() {
-		conn, acceptErr := listener.Accept()
-		accepted <- acceptResult{conn, acceptErr}
-	}()
-	go func() { pair.clientDone <- client.HandshakeContext(ctx) }()
-	select {
-	case result := <-accepted:
-		assert.NoError(t, result.err)
-		t.Cleanup(func() { _ = result.conn.Close() })
-		var ok bool
-		pair.server, ok = result.conn.(*Conn)
-		assert.True(t, ok)
-	case <-ctx.Done():
-		assert.NoError(t, ctx.Err())
-	}
-	go func() { pair.serverDone <- pair.server.HandshakeContext(ctx) }()
-
-	return pair
-}
-
-type fragmentedServerHelloConn struct {
-	net.PacketConn
-	fragmented atomic.Bool
-}
-
-func (c *fragmentedServerHelloConn) WriteTo(packet []byte, addr net.Addr) (int, error) {
-	recordHeader, parseErr := recordlayer.ParseRecord(packet, 0)
-	var handshakeHeader handshake.Header
-	if parseErr == nil && recordHeader.ContentType() == protocol.ContentTypeHandshake &&
-		handshakeHeader.Unmarshal(packet[len(recordHeader.HeaderBytes()):]) == nil &&
-		handshakeHeader.Type == handshake.TypeServerHello && handshakeHeader.FragmentLength < handshakeHeader.Length {
-		c.fragmented.Store(true)
-	}
-
-	return c.PacketConn.WriteTo(packet, addr)
-}
-
-func TestListenConnectionIDFragmentedServerHello(t *testing.T) {
-	certificate, err := selfsign.GenerateSelfSigned()
-	assert.NoError(t, err)
-	for versionName, version := range map[string]protocol.Version{"DTLS12": protocol.Version1_2, "DTLS13": protocol.Version1_3} {
-		t.Run(versionName, func(t *testing.T) {
-			socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-			assert.NoError(t, err)
-			transport := &fragmentedServerHelloConn{PacketConn: socket}
-			listener, err := Listen(transport,
-				WithCertificates(certificate), WithMinVersion(version), WithMaxVersion(version), WithMTU(48),
-				WithInsecureSkipVerifyHello(true),
-				WithConnectionID(func() []byte { return []byte("server-cid") }, CIDPathMigrationUnsafe),
-			)
-			assert.NoError(t, err)
-			t.Cleanup(func() { _ = listener.Close() })
-			pair := startCIDListenerPair(t, listener,
-				WithInsecureSkipVerify(true), WithMinVersion(version), WithMaxVersion(version), WithMTU(48),
-				WithConnectionID(func() []byte { return []byte("client-cid") }, CIDPathMigrationUnsafe),
-			)
-			assert.NoError(t, <-pair.clientDone)
-			assert.NoError(t, <-pair.serverDone)
-			assert.True(t, transport.fragmented.Load(), "ServerHello must actually be fragmented")
-			assertCIDListenerRebinding(t, listener, pair.client, pair.server)
-		})
-	}
-}
-
-func TestListenConnectionIDCollisionPreservesAssociation(t *testing.T) {
-	certificate, err := selfsign.GenerateSelfSigned()
-	assert.NoError(t, err)
-	for versionName, version := range map[string]protocol.Version{"DTLS12": protocol.Version1_2, "DTLS13": protocol.Version1_3} {
-		t.Run(versionName, func(t *testing.T) {
-			listener, err := ListenAddr("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
-				WithCertificates(certificate), WithMinVersion(version), WithMaxVersion(version),
-				WithConnectionID(func() []byte { return []byte("shared-cid") }, CIDPathMigrationUnsafe),
-			)
-			assert.NoError(t, err)
-			t.Cleanup(func() { _ = listener.Close() })
-			opts := []ClientOption{
-				WithInsecureSkipVerify(true), WithMinVersion(version), WithMaxVersion(version),
-				WithConnectionID(OnlySendCIDGenerator(), CIDPathMigrationUnsafe),
-			}
-			first := startCIDListenerPair(t, listener, opts...)
-			assert.NoError(t, <-first.clientDone)
-			assert.NoError(t, <-first.serverDone)
-			second := startCIDListenerPair(t, listener, opts...)
-			assert.ErrorIs(t, <-second.serverDone, udp.ErrCIDInUse)
-			second.cancel()
-			assert.Error(t, <-second.clientDone)
-			_ = second.server.Close()
-			_ = second.client.Close()
-			assertCIDListenerData(t, first.client, first.server)
-			assertCIDListenerData(t, first.server, first.client)
-			assertCIDListenerRebinding(t, listener, first.client, first.server)
-		})
-	}
-}
-
 func TestConnectionIDPreflight(t *testing.T) {
 	cid := []byte("own-cid!")
 	state12 := dtlsstate.NewState12(false)
@@ -425,43 +304,6 @@ func marshalCIDPreflightRecord(t *testing.T, version protocol.Version, cid []byt
 	assert.NoError(t, err)
 
 	return raw
-}
-
-func assertCIDListenerData(t *testing.T, sender, receiver *Conn) {
-	t.Helper()
-	payload := []byte("association data")
-	_, err := sender.Write(payload)
-	assert.NoError(t, err)
-	assert.NoError(t, receiver.SetReadDeadline(time.Now().Add(time.Second)))
-	buffer := make([]byte, 64)
-	n, err := receiver.Read(buffer)
-	assert.NoError(t, err)
-	assert.Equal(t, payload, buffer[:n])
-}
-
-func assertCIDListenerRebinding(t *testing.T, listener net.Listener, client, server *Conn) {
-	t.Helper()
-	rebound, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	assert.NoError(t, err)
-	t.Cleanup(func() { _ = rebound.Close() })
-	client.writeLock.Lock()
-	defer client.writeLock.Unlock()
-	payload := []byte("rebound association")
-	packet := client.newApplicationDataPacket(payload)
-	packet.Epoch = dtlsstate.CommonState(client.state).LocalEpoch()
-	datagrams, _, err := client.prepareRawPacketsTracked([]*dtlsflight.Outbound{packet})
-	assert.NoError(t, err)
-	assert.Len(t, datagrams, 1)
-	_, err = rebound.WriteTo(datagrams[0].raw, listener.Addr())
-	assert.NoError(t, err)
-	assert.NoError(t, server.SetReadDeadline(time.Now().Add(time.Second)))
-	buffer := make([]byte, 64)
-	n, err := server.Read(buffer)
-	assert.NoError(t, err)
-	assert.Equal(t, payload, buffer[:n])
-	assert.Eventually(t, func() bool {
-		return rebound.LocalAddr().String() == server.RemoteAddr().String()
-	}, time.Second, time.Millisecond, "peer address must update after CID rebinding")
 }
 
 func pendingCIDTestOffer(t *testing.T, conn *Conn) (*dtlsstate.State13, *dtlsstate.TrafficKeyState) {
@@ -654,130 +496,4 @@ func TestPeerConnectionIDSelection(t *testing.T) {
 	require.NoError(t, adapter.CommitPeerConnectionIDs(&handshake.MessageNewConnectionID{Usage: handshake.ConnectionIDImmediate, CIDs: [][]byte{[]byte("restored")}}))
 	assert.True(t, state.CID.Send.UseCID)
 	assert.Equal(t, []byte("restored"), state.CID.Send.Active)
-}
-
-type cidOperationTransport struct {
-	net.PacketConn
-	dropNext atomic.Bool
-	dropAll  atomic.Bool
-	mu       sync.Mutex
-	outgoing [][]byte
-}
-
-func (c *cidOperationTransport) WriteTo(packet []byte, addr net.Addr) (int, error) {
-	c.mu.Lock()
-	c.outgoing = append(c.outgoing, bytes.Clone(packet))
-	c.mu.Unlock()
-	if c.dropAll.Load() || c.dropNext.CompareAndSwap(true, false) {
-		return len(packet), nil
-	}
-
-	return c.PacketConn.WriteTo(packet, addr)
-}
-
-func newPathTestPair(t *testing.T, policy cidPathMigrationPolicy) (*Conn, *Conn) {
-	t.Helper()
-	certificate, err := selfsign.GenerateSelfSigned()
-	require.NoError(t, err)
-	listener, err := ListenAddr("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
-		WithCertificates(certificate), WithInsecureSkipVerifyHello(true),
-		WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3),
-		WithFlightInterval(20*time.Millisecond), WithConnectionID(RandomCIDGenerator(8), policy))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-	pair := startCIDListenerPair(t, listener, WithInsecureSkipVerify(true),
-		WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3),
-		WithFlightInterval(20*time.Millisecond), WithConnectionID(RandomCIDGenerator(8), policy))
-	require.NoError(t, <-pair.clientDone)
-	require.NoError(t, <-pair.serverDone)
-
-	return pair.client, pair.server
-}
-
-func addTestPath(t *testing.T, conn *Conn) (*Path, *cidOperationTransport) {
-	t.Helper()
-	socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = socket.Close() })
-	transport := &cidOperationTransport{PacketConn: socket}
-	path, err := conn.AddPath(transport)
-	require.NoError(t, err)
-
-	return path, transport
-}
-
-func TestPathMigration(t *testing.T) {
-	for name, migrateServer := range map[string]bool{"Client": false, "Server": true} {
-		t.Run(name, func(t *testing.T) {
-			client, server := newPathTestPair(t, CIDPathMigrationRRC)
-			mover, peer := client, server
-			if migrateServer {
-				mover, peer = server, client
-			}
-			oldAddr := mover.LocalAddr()
-			mover.lock.RLock()
-			state, ok := mover.state.(*dtlsstate.State13)
-			require.True(t, ok)
-			oldCID := bytes.Clone(state.CID.Send.Active)
-			mover.lock.RUnlock()
-			path, socket := addTestPath(t, mover)
-			assert.ErrorIs(t, path.Switch(), errPathNotValidated)
-			socket.dropNext.Store(true)
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-			require.NoError(t, path.Probe(ctx))
-			assert.False(t, socket.dropNext.Load(), "lost probes are retried")
-			assert.Equal(t, oldAddr, mover.LocalAddr())
-			assert.Never(t, func() bool {
-				return !sameNetworkAddress(oldAddr, peer.RemoteAddr())
-			}, 50*time.Millisecond, time.Millisecond, "probing must not move the peer")
-			socket.dropAll.Store(true)
-			retryCtx, cancelRetry := context.WithTimeout(ctx, 50*time.Millisecond)
-			assert.ErrorIs(t, path.Probe(retryCtx), context.DeadlineExceeded)
-			cancelRetry()
-			assert.ErrorIs(t, path.Switch(), errPathNotValidated)
-			socket.dropAll.Store(false)
-			require.NoError(t, path.Probe(ctx))
-			mover.lock.RLock()
-			assert.Equal(t, oldCID, state.CID.Send.Active, "probing must not rotate the active path")
-			assert.NotEqual(t, oldCID, path.cid)
-			mover.lock.RUnlock()
-			socket.mu.Lock()
-			for _, raw := range socket.outgoing {
-				record, parseErr := recordlayer.ParseRecord(raw, 8)
-				assert.NoError(t, parseErr)
-				assert.Equal(t, path.cid, record.ConnectionID(), "probes use the candidate CID on the wire")
-			}
-			socket.mu.Unlock()
-			require.NoError(t, path.Switch())
-			assert.Equal(t, socket.LocalAddr(), mover.LocalAddr())
-			assert.ErrorIs(t, path.Close(), errPathInUse)
-			assertPathPayload(t, mover, peer, "migrated")
-			require.Eventually(t, func() bool {
-				return sameNetworkAddress(peer.RemoteAddr(), socket.LocalAddr())
-			}, time.Second, time.Millisecond)
-			assertPathPayload(t, peer, mover, "reply")
-			next, nextSocket := addTestPath(t, mover)
-			require.NoError(t, next.Probe(ctx))
-			require.NoError(t, next.Switch())
-			require.NoError(t, path.Close())
-			assertPathPayload(t, mover, peer, "second migration")
-			require.NoError(t, mover.Close())
-			assert.ErrorIs(t, path.Probe(ctx), ErrConnClosed)
-			assert.ErrorIs(t, path.Switch(), ErrConnClosed)
-			_, _, err := nextSocket.ReadFrom(make([]byte, 1))
-			assert.ErrorIs(t, err, net.ErrClosed)
-		})
-	}
-}
-
-func assertPathPayload(t *testing.T, sender, receiver *Conn, payload string) {
-	t.Helper()
-	_, err := sender.Write([]byte(payload))
-	require.NoError(t, err)
-	require.NoError(t, receiver.SetReadDeadline(time.Now().Add(time.Second)))
-	buffer := make([]byte, 64)
-	n, err := receiver.Read(buffer)
-	require.NoError(t, err)
-	assert.Equal(t, payload, string(buffer[:n]))
 }

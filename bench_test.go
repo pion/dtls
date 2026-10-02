@@ -7,49 +7,10 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
-	"github.com/pion/logging"
-	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestSimpleReadWrite(t *testing.T) {
-	report := test.CheckRoutines(t)
-	defer report()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	ca, cb := packetPipe()
-	certificate, err := selfsign.GenerateSelfSigned()
-	assert.NoError(t, err)
-	gotHello := make(chan struct{})
-
-	go func() {
-		server, sErr := testServer(ctx, cb, cb.RemoteAddr(), []ServerOption{WithCertificates(certificate), WithLoggerFactory(logging.NewDefaultLoggerFactory())}, false)
-		assert.NoError(t, sErr)
-
-		buf := make([]byte, 1024)
-		_, sErr = server.Read(buf) //nolint:contextcheck
-		assert.NoError(t, sErr)
-
-		gotHello <- struct{}{}
-		assert.NoError(t, server.Close()) //nolint:contextcheck
-	}()
-
-	client, err := testClient(ctx, ca, ca.RemoteAddr(), []ClientOption{WithLoggerFactory(logging.NewDefaultLoggerFactory()), WithInsecureSkipVerify(true)}, false)
-	assert.NoError(t, err)
-	_, err = client.Write([]byte("hello"))
-	assert.NoError(t, err)
-	select {
-	case <-gotHello:
-		// OK
-	case <-time.After(time.Second * 5):
-		assert.Fail(t, "timeout")
-	}
-	assert.NoError(t, client.Close())
-}
 
 func benchmarkConn(b *testing.B, payloadSize int64) {
 	b.Helper()

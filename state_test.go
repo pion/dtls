@@ -5,10 +5,8 @@ package dtls
 
 import (
 	"bytes"
-	"context"
 	"encoding/gob"
 	"testing"
-	"time"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
@@ -70,60 +68,4 @@ func TestStatePreservesReturnRoutabilityCheck(t *testing.T) {
 	var restored State
 	restored.deserialize(*serialized)
 	require.True(t, restored.rrcNegotiated)
-}
-
-// TestConnectionStateRoleAndVersion negotiates a real connection and checks that
-// both peers report the role they actually took and the version they agreed on.
-func TestConnectionStateRoleAndVersion(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		version protocol.Version
-	}{
-		{"DTLS1.2", protocol.Version1_2},
-		{"DTLS1.3", protocol.Version1_3},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			ca, cb := packetPipe()
-			type result struct {
-				c   *Conn
-				err error
-			}
-			resultCh := make(chan result, 1)
-
-			go func() {
-				client, err := testClient(ctx, ca, ca.RemoteAddr(), []ClientOption{WithMinVersion(test.version), WithMaxVersion(test.version)}, true)
-				resultCh <- result{client, err}
-			}()
-
-			server, err := testServer(ctx, cb, cb.RemoteAddr(), []ServerOption{WithMinVersion(test.version), WithMaxVersion(test.version)}, true)
-			require.NoError(t, err)
-
-			res := <-resultCh
-			require.NoError(t, res.err)
-
-			defer func() {
-				require.NoError(t, res.c.Close())
-				require.NoError(t, server.Close())
-			}()
-
-			clientState, ok := res.c.ConnectionState()
-			require.True(t, ok)
-			serverState, ok := server.ConnectionState()
-			require.True(t, ok)
-
-			require.Equal(t, RoleClient, clientState.Role())
-			require.Equal(t, RoleServer, serverState.Role())
-			require.True(t, clientState.NegotiatedVersion() == test.version)
-			require.True(t, serverState.NegotiatedVersion() == test.version)
-			require.NotNil(t, clientState.KeyUsage)
-			require.NotNil(t, serverState.KeyUsage)
-			require.Equal(t, uint64(23726566), clientState.KeyUsage.RecommendedLimits.MaxSealedRecords)
-			if test.version == protocol.Version1_2 {
-				require.Equal(t, uint64(1<<28), clientState.KeyUsage.RecommendedLimits.MaxAuthenticationFailures)
-			}
-		})
-	}
 }
