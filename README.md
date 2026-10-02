@@ -65,6 +65,11 @@ Pion DTLS supports DTLS 1.2 and DTLS 1.3. We welcome contributions and bug fixes
 * DTLS 1.2 session serialization and resumption
 * Extended Master Secret extension ([RFC 7627][rfc7627])
 * ALPN extension ([RFC 7301][rfc7301])
+* Connection IDs (CIDs) for DTLS 1.2 and DTLS 1.3, including listener routing across peer address changes
+* DTLS 1.3 post-handshake CID updates and spare CIDs for path migration
+* Return Routability Check (RRC) for DTLS 1.2 and DTLS 1.3 ([RFC 9853][rfc9853])
+* DTLS 1.3 local path probing and migration with `Conn.AddPath`, `Path.Probe`, and `Path.Switch`
+* DTLS 1.3 traffic-key updates with `Conn.UpdateKeys`
 
 #### Supported ciphers
 
