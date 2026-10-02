@@ -169,37 +169,6 @@ func flight4Generate( //nolint:cyclop
 		return nil, nil, dtlserrors.ErrServerKeyShareMissing
 	}
 
-	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: state.ServerName, CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()}, RandomBytes: state.RemoteRandom.RandomBytes})
-	if err != nil {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
-	}
-	if certificate == nil || len(certificate.Certificate) == 0 {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure},
-			dtlserrors.ErrNoCertificates
-	}
-
-	signer, ok := certificate.PrivateKey.(crypto.Signer)
-	if !ok {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure},
-			dtlserrors.ErrInvalidPrivateKey
-	}
-
-	commonSignatureSchemes := make([]signaturehash.Algorithm, 0, len(state.RemoteSignatureSchemes))
-	for _, remote := range state.RemoteSignatureSchemes {
-		if slices.Contains(cfg.LocalSignatureSchemes, remote) {
-			commonSignatureSchemes = append(commonSignatureSchemes, remote)
-		}
-	}
-
-	signatureScheme, err := signaturehash.SelectSignatureScheme(
-		commonSignatureSchemes,
-		signer,
-		protocol.Version1_3,
-	)
-	if err != nil {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
-	}
-
 	cipherSuiteID := uint16(state.CipherSuite.ID())
 	serverHelloExtensions := []extension.Value{
 		&extension13.SelectedVersion{
@@ -207,6 +176,9 @@ func flight4Generate( //nolint:cyclop
 		},
 	}
 	serverHelloExtensions = append(serverHelloExtensions, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: state.LocalKeypair.Curve, KeyExchange: state.LocalKeypair.PublicKey}})
+	if len(state.PSK) != 0 {
+		serverHelloExtensions = append(serverHelloExtensions, &extension13.SelectedPSK{Identity: state.PSKIdentity})
+	}
 	offer := state.RemoteClientHelloSnapshots.Current()
 	srtpDecision, err := negotiation.NegotiateSRTP(offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier)
 	if err != nil {
@@ -245,6 +217,53 @@ func flight4Generate( //nolint:cyclop
 		serverHello,
 		encryptedExtensions,
 	}
+	if len(state.PSK) == 0 {
+		certificatePackets, dtlsAlert, err := serverCertificatePackets(state, cfg)
+		if err != nil {
+			return nil, dtlsAlert, err
+		}
+		pkts = append(pkts, certificatePackets...)
+	}
+	pkts = append(pkts, HandshakePacket(&handshake.MessageFinished{}))
+	state.CommitNegotiatedExtensions(decision)
+	dtlsflight.CommitSRTP(state.Common, srtpDecision)
+
+	return pkts, nil, nil
+}
+
+func serverCertificatePackets(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: state.ServerName, CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()}, RandomBytes: state.RemoteRandom.RandomBytes})
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
+	}
+	if certificate == nil || len(certificate.Certificate) == 0 {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure},
+			dtlserrors.ErrNoCertificates
+	}
+
+	signer, ok := certificate.PrivateKey.(crypto.Signer)
+	if !ok {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure},
+			dtlserrors.ErrInvalidPrivateKey
+	}
+
+	commonSignatureSchemes := make([]signaturehash.Algorithm, 0, len(state.RemoteSignatureSchemes))
+	for _, remote := range state.RemoteSignatureSchemes {
+		if slices.Contains(cfg.LocalSignatureSchemes, remote) {
+			commonSignatureSchemes = append(commonSignatureSchemes, remote)
+		}
+	}
+
+	signatureScheme, err := signaturehash.SelectSignatureScheme(
+		commonSignatureSchemes,
+		signer,
+		protocol.Version1_3,
+	)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
+	}
+
+	var pkts []*dtlsflight.Outbound
 	if cfg.ClientAuth > dtlsconfig.NoClientCert {
 		// RFC 8446 Section 4.3.2 requires signature_algorithms in the request.
 		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
@@ -273,10 +292,7 @@ func flight4Generate( //nolint:cyclop
 			},
 			signer,
 		),
-		HandshakePacket(&handshake.MessageFinished{}),
 	)
-	state.CommitNegotiatedExtensions(decision)
-	dtlsflight.CommitSRTP(state.Common, srtpDecision)
 
 	return pkts, nil, nil
 }

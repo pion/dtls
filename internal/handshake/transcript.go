@@ -488,10 +488,13 @@ func (t *Transcript) AppendVerifiedInbound(
 // Messages that require explicit authentication, such as CertificateVerify and
 // Finished, must be verified first and then appended with AppendVerifiedInbound.
 func AppendVerifiedInboundHandshakeCacheItems(transcript *Transcript, cipherSuite dtlsconfig.CipherSuite, items []dtlsflight.DecodedHandshakeCacheItem) error {
-	if transcript == nil {
+	return (&handshakeContext{transcript: transcript}).appendInboundHandshake(cipherSuite, items)
+}
+
+func (c *handshakeContext) appendInboundHandshake(cipherSuite dtlsconfig.CipherSuite, items []dtlsflight.DecodedHandshakeCacheItem) error {
+	if c.transcript == nil {
 		return nil
 	}
-
 	for _, item := range items {
 		if err := item.Validate(); err != nil {
 			return err
@@ -499,7 +502,13 @@ func AppendVerifiedInboundHandshakeCacheItems(transcript *Transcript, cipherSuit
 		if requiresExplicitAuthenticationBeforeTranscriptCommit(item.Raw.Typ) {
 			return dtlserrors.ErrHandshakeTranscriptExplicitAuthenticationRequired
 		}
-		if err := appendParsedInboundHandshake(transcript, item.Raw.IsClient, cipherSuite, item.Parsed, item.Raw.Data); err != nil {
+		if hello, ok := item.Parsed.Message.(*handshake.MessageClientHello); ok && c.cfg != nil {
+			if err := c.selectPSK(hello, item.Raw.Data); err != nil {
+				return err
+			}
+			cipherSuite = c.state.CipherSuite
+		}
+		if err := appendParsedInboundHandshake(c.transcript, item.Raw.IsClient, cipherSuite, item.Parsed, item.Raw.Data); err != nil {
 			return err
 		}
 	}

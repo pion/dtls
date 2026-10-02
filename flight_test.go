@@ -168,7 +168,12 @@ func flight13GenerateForTest(testingT require.TestingT, flight dtlsflight13.Flig
 	gen, _, ok := dtlsflight13.GetGenerator(flight)
 	require.True(testingT, ok)
 
-	return gen(nil, flightCtx.state, flightCtx.cache, flightCtx.cfg)
+	transcript := flightCtx.transcript
+	if transcript == nil {
+		transcript = dtlshandshake.NewTranscript()
+	}
+
+	return gen(nil, flightCtx.state, flightCtx.cache, flightCtx.cfg, transcript.FinalizeClientHello)
 }
 
 func retryRequestForTest(tb testing.TB, state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, initial negotiation.ClientHelloSnapshot, group elliptic.Curve) negotiation.RetryRequest {
@@ -238,10 +243,12 @@ func hashTranscript13(messages ...[]byte) []byte {
 	return hash.Sum(nil)
 }
 
-func deriveHandshakeTrafficSecrets13(hashFunc func() hash.Hash, keyAgreementSecret, transcriptHash []byte) (dtlsstate.TrafficSecrets, error) {
+func deriveHandshakeTrafficSecrets13(hashFunc func() hash.Hash, psk, keyAgreementSecret, transcriptHash []byte) (dtlsstate.TrafficSecrets, error) {
 	hashSize := hashFunc().Size()
-	zeroSecret := make([]byte, hashSize)
-	earlySecret, err := keyschedule.HkdfExtract(hashFunc, nil, zeroSecret)
+	if len(psk) == 0 {
+		psk = make([]byte, hashSize)
+	}
+	earlySecret, err := keyschedule.HkdfExtract(hashFunc, nil, psk)
 	if err != nil {
 		return dtlsstate.TrafficSecrets{}, err
 	}
@@ -320,10 +327,13 @@ type flight13ProtectedServerFlightFixture struct {
 	handshakeSecrets             dtlsstate.TrafficSecrets
 }
 
-func newFlight13ProtectedServerFlightFixture(t *testing.T) flight13ProtectedServerFlightFixture {
+func newFlight13ProtectedServerFlightFixture(t *testing.T, psk bool) flight13ProtectedServerFlightFixture {
 	t.Helper()
 
 	cfg := testHandshakeConfig13(t)
+	if psk {
+		configureTestPSK13(cfg)
+	}
 	state := newTestState13(t, true)
 	transcript := dtlshandshake.NewTranscript()
 	clientHello, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg})
@@ -360,7 +370,7 @@ func newFlight13ProtectedServerFlightFixtureFromClientHello(t *testing.T, cfg *d
 	require.NotNil(t, clientKeypair)
 	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
-	handshakeSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), keyAgreementSecret, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
+	handshakeSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), state.LocalPSK, keyAgreementSecret, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
 	require.NoError(t, err)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	state.KeySchedule.HandshakeTraffic = handshakeSecrets
@@ -569,6 +579,9 @@ func marshalServerHelloWithSequence(t *testing.T, cfg *dtlsconfig.HandshakeConfi
 
 	cipherSuiteID := uint16(cfg.LocalCipherSuites[0].ID())
 	serverHello := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: extensions}
+	if cfg.LocalPSKCallback != nil && !dtlsflight13.IsHelloRetryRequest(serverHello) {
+		serverHello.Extensions = append(serverHello.Extensions, &extension13.SelectedPSK{Identity: 0})
+	}
 	rawServerHello, err := (&handshake.Handshake{Header: handshake.Header{MessageSequence: seq}, Message: serverHello}).Marshal()
 	require.NoError(t, err)
 
@@ -974,6 +987,7 @@ func TestFlight13_3GeneratePrioritizesHelloRetryRequestSelectedGroup(t *testing.
 
 func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
+	configureTestPSK13(cfg)
 	state := newTestState13(t, false)
 	transcript := dtlshandshake.NewTranscript()
 	clientHello, _, err := flight13GenerateForTest(t, dtlsflight13.Flight1, &handshakeTestContext13{state: state, cfg: cfg})
@@ -1002,7 +1016,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.NotNil(t, clientKeypair)
 	expected, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
-	expectedSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), expected, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
+	expectedSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), state.LocalPSK, expected, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
 	require.NoError(t, err)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	state.KeySchedule.HandshakeTraffic = expectedSecrets
@@ -1043,7 +1057,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 }
 
 func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(t *testing.T) {
-	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture := newFlight13ProtectedServerFlightFixture(t, true)
 	cache := dtlsflight.NewCache()
 	cache.Push(fixture.rawServerHello, fixture.cfg.InitialEpoch, 0, handshake.TypeServerHello, false)
 	drained := false
@@ -1069,6 +1083,7 @@ func TestFlight13_3ParseDrainsQueuedProtectedHandshakeBeforeEncryptedExtensions(
 
 func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
+	configureTestPSK13(cfg)
 	cache := dtlsflight.NewCache()
 	commonState := &dtlsstate.Common{IsClient: true, LocalVersion: protocol.Version1_3}
 	conn := &Conn{fragmentBuffer: dtlsfragmentbuffer.New(), handshakeCache: cache, maximumTransmissionUnit: defaultMTU, replayProtectionWindow: defaultReplayProtectionWindow, log: logging.NewDefaultLoggerFactory().NewLogger("dtls"), state: &dtlsstate.State13{Common: commonState}}
@@ -1112,6 +1127,7 @@ func TestFlight13ClientParsesEncryptedExtensionsFromProtectedRecord(t *testing.T
 
 func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
+	configureTestPSK13(cfg)
 	state := newTestState13(t, false)
 	transcript := dtlshandshake.NewTranscript()
 
@@ -1142,6 +1158,7 @@ func TestFlight13ClientParseAppendsNoHRRTranscriptOrder(t *testing.T) {
 
 func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	cfg := testHandshakeConfig13(t)
+	configureTestPSK13(cfg)
 	cfg.ClientHelloMessageHook = omitInitialKeyShares()
 	state := newTestState13(t, false)
 	transcript := dtlshandshake.NewTranscript()
@@ -1203,7 +1220,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	require.NotNil(t, clientKeypair)
 	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
-	secrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), keyAgreementSecret, hashTranscript13(messageHash, helloRetryRequestCanonical, clientHello2Canonical, serverHelloCanonical))
+	secrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), state.LocalPSK, keyAgreementSecret, hashTranscript13(messageHash, helloRetryRequestCanonical, clientHello2Canonical, serverHelloCanonical))
 	require.NoError(t, err)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	state.KeySchedule.HandshakeTraffic = secrets
@@ -1266,7 +1283,7 @@ func TestFlight13_3ParseRejectsInvalidServerFinished(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newFlight13ProtectedServerFlightFixture(t)
+			fixture := newFlight13ProtectedServerFlightFixture(t, true)
 			cache := fixture.cacheWithFinished(test.finished(t, fixture))
 
 			nextFlight, dtlsAlert, err := flight13ParseForTest(t, dtlsflight13.Flight3, context.Background(), &handshakeTestContext13{state: fixture.state, cache: cache, cfg: fixture.cfg, transcript: fixture.transcript})
@@ -1285,7 +1302,7 @@ func TestFlight13_3ParseRejectsInvalidServerFinished(t *testing.T) {
 }
 
 func TestFlight13_3ParseRunsVerifyConnectionWithoutServerCertificate(t *testing.T) {
-	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture := newFlight13ProtectedServerFlightFixture(t, true)
 	var verifyConnectionCalled bool
 	fixture.cfg.VerifyConnection = adaptVerifyConnection(func(state *State) error {
 		verifyConnectionCalled = true
@@ -1305,7 +1322,7 @@ func TestFlight13_3ParseRunsVerifyConnectionWithoutServerCertificate(t *testing.
 }
 
 func TestFlight13_3ParseRejectsVerifyConnectionErrorWithoutServerCertificate(t *testing.T) {
-	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture := newFlight13ProtectedServerFlightFixture(t, true)
 	callbackErr := errFlight13ConnectionCallbackRejected
 	fixture.cfg.VerifyConnection = adaptVerifyConnection(func(*State) error {
 		return callbackErr
@@ -1329,7 +1346,7 @@ func TestFlight13_3ParseValidatesServerCertificate(t *testing.T) {
 	certificate, err := selfsign.GenerateSelfSignedWithDNS("server.test")
 	require.NoError(t, err)
 
-	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture := newFlight13ProtectedServerFlightFixture(t, false)
 	fixture.cfg.RootCAs = flight13RootCAsForCertificate(t, certificate)
 	fixture.cfg.ServerName = "server.test"
 
@@ -1375,7 +1392,7 @@ func TestFlight13_3ParseRejectsWrongServerName(t *testing.T) {
 	certificate, err := selfsign.GenerateSelfSignedWithDNS("server.test")
 	require.NoError(t, err)
 
-	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture := newFlight13ProtectedServerFlightFixture(t, false)
 	fixture.cfg.RootCAs = flight13RootCAsForCertificate(t, certificate)
 	fixture.cfg.ServerName = "wrong.test"
 	certificateFlight := fixture.cacheWithCertificate(t, certificate)
@@ -1400,7 +1417,7 @@ func TestFlight13_3ParseInsecureSkipVerifyStillRunsCertificateCallback(t *testin
 	certificate, err := selfsign.GenerateSelfSignedWithDNS("server.test")
 	require.NoError(t, err)
 
-	fixture := newFlight13ProtectedServerFlightFixture(t)
+	fixture := newFlight13ProtectedServerFlightFixture(t, false)
 	fixture.cfg.InsecureSkipVerify = true
 	fixture.cfg.ServerName = "wrong.test"
 
@@ -1460,7 +1477,7 @@ func TestFlight13_3ParseRejectsServerIdentityCallbackErrors(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newFlight13ProtectedServerFlightFixture(t)
+			fixture := newFlight13ProtectedServerFlightFixture(t, false)
 			fixture.cfg.RootCAs = flight13RootCAsForCertificate(t, certificate)
 			fixture.cfg.ServerName = "server.test"
 			test.configure(fixture.cfg)
@@ -3099,4 +3116,18 @@ func TestFlight13_1ParseRejectsHelloRetryRequestExtension(t *testing.T) {
 			assert.Zero(t, nextFlight)
 		})
 	}
+}
+
+// Certificate-free flight fixtures must explicitly negotiate PSK authentication.
+func configureTestPSK13(cfg *dtlsconfig.HandshakeConfig) {
+	cfg.LocalPSKIdentityHint = []byte("client")
+	cfg.LocalPSKCallback = func([]byte) ([]byte, error) { return []byte("shared secret"), nil }
+}
+
+func TestFlight13RejectsMissingServerAuthentication(t *testing.T) {
+	fixture := newFlight13ProtectedServerFlightFixture(t, false)
+	_, _, err := flight13ParseForTest(t, dtlsflight13.Flight3, t.Context(), &handshakeTestContext13{
+		state: fixture.state, cache: fixture.cacheWithFinished(fixture.rawFinished), cfg: fixture.cfg, transcript: fixture.transcript,
+	})
+	require.ErrorIs(t, err, dtlserrors.ErrCertificateVerifyNoCertificate)
 }

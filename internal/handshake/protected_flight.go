@@ -13,6 +13,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
@@ -70,6 +71,12 @@ func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCache
 		return err
 	}
 	hs := item.Parsed
+	if len(f.state.PSK) != 0 {
+		switch hs.Message.(type) {
+		case *handshake.MessageCertificate13, *handshake.MessageCertificateVerify, *handshake.MessageCertificateRequest13:
+			return pskHandshakeError(alert.UnexpectedMessage, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
+		}
+	}
 
 	switch msg := hs.Message.(type) {
 	case *handshake.MessageCertificate13:
@@ -121,11 +128,14 @@ func (f *protectedHandshakeFlight) processCertificateVerify(item *dtlsflight.Han
 	return f.append(item, parsedHandshake)
 }
 
-func (f *protectedHandshakeFlight) processFinished(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, finished *handshake.MessageFinished) error {
+func (f *protectedHandshakeFlight) processFinished(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, finished *handshake.MessageFinished) error { //nolint:cyclop
 	if len(f.peerCertificates) != 0 && !f.hasCertificateVerify {
 		return dtlserrors.ErrClientCertificateNotVerified
 	}
-	if item.IsClient && clientCertificateRequired(f.cfg) && len(f.peerCertificates) == 0 {
+	if !item.IsClient && len(f.state.PSK) == 0 && !f.hasCertificateVerify {
+		return dtlserrors.ErrCertificateVerifyNoCertificate
+	}
+	if item.IsClient && len(f.state.PSK) == 0 && clientCertificateRequired(f.cfg) && len(f.peerCertificates) == 0 {
 		return dtlserrors.ErrClientCertificateRequired
 	}
 	if err := verifyPeerFinished(

@@ -56,7 +56,7 @@ func flight13GenerateForTest(testingT require.TestingT, flight dtlsflight13.Flig
 	gen, _, ok := dtlsflight13.GetGenerator(flight)
 	require.True(testingT, ok)
 
-	return gen(nil, flightCtx.state, flightCtx.cache, flightCtx.cfg)
+	return gen(nil, flightCtx.state, flightCtx.cache, flightCtx.cfg, NewTranscript().FinalizeClientHello)
 }
 
 type flightTestConn struct {

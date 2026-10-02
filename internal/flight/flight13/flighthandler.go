@@ -14,6 +14,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
@@ -42,11 +43,14 @@ type flightParser func(
 
 type contextFlightGenerator func(dtlsflight.Conn, *handshakeContext) ([]*dtlsflight.Outbound, *alert.Alert, error)
 
+type ClientHelloFinalizer func(*dtlsstate.State13, *dtlsconfig.HandshakeConfig, *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error)
+
 type Generator func(
 	dtlsflight.Conn,
 	*dtlsstate.State13,
 	*dtlsflight.Cache,
 	*dtlsconfig.HandshakeConfig,
+	ClientHelloFinalizer,
 ) ([]*dtlsflight.Outbound, *alert.Alert, error)
 
 type InboundHandshakeHandler func(dtlsconfig.CipherSuite, []dtlsflight.DecodedHandshakeCacheItem) error
@@ -88,6 +92,7 @@ type protectedFlightPull struct {
 }
 
 type handshakeContext struct {
+	finalizeClientHello                  ClientHelloFinalizer
 	state                                *dtlsstate.State13
 	cache                                *dtlsflight.Cache
 	cfg                                  *dtlsconfig.HandshakeConfig
@@ -104,7 +109,7 @@ func (h *handshakeContext) handleInboundHandshake(
 		return nil
 	}
 	if err := h.inboundHandshakeHandler(h.state.CipherSuite, items); err != nil {
-		return newFlightParseFailure(alert.InternalError, err)
+		return protectedFlightParseFailure(err)
 	}
 
 	return nil
@@ -239,12 +244,12 @@ func adaptFlightGenerator(gen contextFlightGenerator) Generator {
 		state *dtlsstate.State13,
 		cache *dtlsflight.Cache,
 		cfg *dtlsconfig.HandshakeConfig,
+		finalize ClientHelloFinalizer,
 	) ([]*dtlsflight.Outbound, *alert.Alert, error) {
-		return gen(conn, newHandshakeContext(ParseDependencies{
-			State:  state,
-			Cache:  cache,
-			Config: cfg,
-		}))
+		flightCtx := newHandshakeContext(ParseDependencies{State: state, Cache: cache, Config: cfg})
+		flightCtx.finalizeClientHello = finalize
+
+		return gen(conn, flightCtx)
 	}
 }
 
@@ -373,6 +378,10 @@ func serverHelloKeyShare(extensions []extension.Value) *extension13.KeyShareEntr
 }
 
 func protectedFlightParseFailure(err error) *flightParseFailure {
+	var dtlsAlert *alert.Alert
+	if errors.As(err, &dtlsAlert) {
+		return &flightParseFailure{alert: dtlsAlert, err: err}
+	}
 	switch {
 	case errors.Is(err, dtlserrors.ErrVerifyDataMismatch):
 		return newFlightParseFailure(alert.HandshakeFailure, err)

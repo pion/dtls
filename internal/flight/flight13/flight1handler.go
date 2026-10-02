@@ -36,7 +36,7 @@ func flight1Generate(
 	if len(cfg.EllipticCurves) == 0 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
-	if len(cfg.LocalSignatureSchemes) == 0 {
+	if len(cfg.LocalSignatureSchemes) == 0 && cfg.LocalPSKCallback == nil {
 		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 	state.SelectedGroup = cfg.EllipticCurves[0]
@@ -51,7 +51,10 @@ func flight1Generate(
 		state.LocalRandom.RandomBytes = cfg.HelloRandomBytesGenerator()
 	}
 
-	extensions := []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)}}
+	extensions := []extension.Value{}
+	if len(cfg.LocalSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)})
+	}
 
 	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret || cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
 		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
@@ -61,18 +64,7 @@ func flight1Generate(
 		RenegotiatedConnection: 0,
 	})
 
-	var setEllipticCurveCryptographyClientHelloExtensions bool
-	for _, c := range cfg.LocalCipherSuites {
-		if c.ECC() {
-			setEllipticCurveCryptographyClientHelloExtensions = true
-
-			break
-		}
-	}
-
-	if setEllipticCurveCryptographyClientHelloExtensions {
-		extensions = append(extensions, []extension.Value{&extension.SupportedGroups{Groups: cfg.EllipticCurves}, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}}}...)
-	}
+	extensions = append(extensions, &extension.SupportedGroups{Groups: cfg.EllipticCurves}, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}})
 
 	if len(cfg.SupportedProtocols) > 0 {
 		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
@@ -120,8 +112,6 @@ func flight1Generate(
 		)
 	}
 
-	// Pre_shared_key must be last extension
-
 	clientHello := &handshake.MessageClientHello{
 		Version:   protocol.Version1_2,
 		SessionID: state.SessionID,
@@ -133,7 +123,7 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(clientHello, cfg)
+	clientHello, snapshot, err := flightCtx.finalizeClientHello(flightCtx.state, flightCtx.cfg, clientHello)
 	if err != nil {
 		return nil, nil, err
 	}

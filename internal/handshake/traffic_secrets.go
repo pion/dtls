@@ -386,7 +386,7 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript 
 
 	secrets, err := deriveHandshakeKeySchedule(
 		state.CipherSuite.HashFunc(),
-		nil, // PSK selection is not yet wired into the handshake.
+		state.PSK,
 		state.KeyAgreementSecret,
 		transcriptHash,
 	)
@@ -493,7 +493,7 @@ func ensureMasterSecret(state *dtlsstate.State13) ([]byte, error) {
 
 	masterSecret, err := deriveMasterSecretFromKeyAgreementSecret(
 		state.CipherSuite.HashFunc(),
-		nil,
+		state.PSK,
 		state.KeyAgreementSecret,
 	)
 	if err != nil {

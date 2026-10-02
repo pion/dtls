@@ -2421,7 +2421,8 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 	}
 	state13 := dtlsstate.Activate13(c.state)
 	c.state = state13
-	pkts, dtlsAlert, err := gen(adaptFlightConn(c), state13, c.handshakeCache, c.handshakeConfig)
+	pkts, dtlsAlert, err := gen(adaptFlightConn(c), state13, c.handshakeCache, c.handshakeConfig,
+		dtlshandshake.NewTranscript().FinalizeClientHello)
 	if dtlsAlert != nil {
 		if alertErr := c.notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil && err == nil {
 			err = alertErr

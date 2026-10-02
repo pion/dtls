@@ -96,10 +96,8 @@ func flight0Parse(
 		}
 	}
 
-	if flightCtx.inboundHandshakeHandler != nil {
-		if err := flightCtx.inboundHandshakeHandler(state.CipherSuite, pull.Items); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
+	if failure := flightCtx.handleInboundHandshake(pull.Items); failure != nil {
+		return 0, failure.alert, failure.err
 	}
 	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
 		return 0, nil, err

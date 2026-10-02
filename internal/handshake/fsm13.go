@@ -258,7 +258,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 		err = dtlserrors.ErrFlightUnimplemented13
 		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
 	} else {
-		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg)
+		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg, s.transcript.FinalizeClientHello)
 		s.retransmit = retransmit
 	}
 	if err = notifyAlert(ctx, conn, dtlsAlert, err); err != nil {

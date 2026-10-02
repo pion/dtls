@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
@@ -306,7 +308,7 @@ func validateRetryClientHello(initial, retry ClientHelloSnapshot, request RetryR
 	if err := validateRetryCookie(retry, request); err != nil {
 		return err
 	}
-	if retryExtensionsMatch(initial, retry, request) {
+	if retryPSKsMatch(initial, retry, request) && retryExtensionsMatch(initial, retry, request) {
 		return nil
 	}
 
@@ -368,7 +370,7 @@ func retryExtensionsMatch(initial, retry ClientHelloSnapshot, request RetryReque
 }
 
 func skipRetryExtension(typ extension.Type, initial bool, request RetryRequest) bool {
-	return typ == extension.TypePadding ||
+	return typ == extension.TypePadding || typ == extension.TypePreSharedKey ||
 		(typ == extension.TypeEarlyData && initial) ||
 		(typ == extension.TypeKeyShare && request.HasSelectedGroup) ||
 		(typ == extension.TypeCookie && request.HasCookie)
@@ -408,4 +410,35 @@ func validateHelloVerifyExtension(initial, retry ClientHelloSnapshot, typ extens
 
 func retryKeyShare(share *extension13.KeyShareEntry) *extension13.ClientKeyShare {
 	return &extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: share.Group, KeyExchange: bytes.Clone(share.KeyExchange)}}}
+}
+
+// Retry may update ages and binders, and remove identities with incompatible hashes.
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.1.2
+func retryPSKsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bool { //nolint:cyclop
+	first, firstPresent := initial.Extension(extension.TypePreSharedKey)
+	second, secondPresent := retry.Extension(extension.TypePreSharedKey)
+	if !firstPresent {
+		return !secondPresent
+	}
+	var offered, retried extension13.OfferedPSKs
+	if offered.UnmarshalData(first.Data) != nil {
+		return false
+	}
+	if secondPresent && retried.UnmarshalData(second.Data) != nil {
+		return false
+	}
+	suite := ciphersuite.ForID(cryptosuite.ID(request.CipherSuiteID))
+	next := 0
+	for i, identity := range offered.Identities {
+		if next < len(retried.Identities) && bytes.Equal(identity.Identity, retried.Identities[next].Identity) {
+			if len(offered.Binders[i]) != len(retried.Binders[next]) {
+				return false
+			}
+			next++
+		} else if suite == nil || len(offered.Binders[i]) == suite.HashFunc()().Size() {
+			return false
+		}
+	}
+
+	return next == len(retried.Identities)
 }

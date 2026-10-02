@@ -5,6 +5,7 @@ package flight13
 
 import (
 	"context"
+	"crypto"
 	"errors"
 	"slices"
 
@@ -137,6 +138,9 @@ func processFlight3ServerHello(flightCtx *handshakeContext, serverHello *handsha
 		return newFlightParseFailure(dtlsAlert.Description, err)
 	}
 	flightCtx.state.CipherSuite = selectedCipherSuite
+	if failure := selectServerPSK(flightCtx, serverHello); failure != nil {
+		return failure
+	}
 	flightCtx.state.RemoteRandom = serverHello.Random
 	flightCtx.cfg.Log.Tracef("[handshake13] use cipher suite: %s", selectedCipherSuite.String())
 
@@ -293,7 +297,7 @@ func flight3Generate(
 	if err != nil {
 		return nil, nil, err
 	}
-	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(clientHello, flightCtx.cfg)
+	clientHello, snapshot, err := flightCtx.finalizeClientHello(flightCtx.state, flightCtx.cfg, clientHello)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -310,4 +314,26 @@ func flight3Generate(
 			Content: &content,
 		},
 	}, nil, nil
+}
+
+// The initial implementation offers one external SHA-256 PSK with psk_dhe_ke.
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
+func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServerHello) *flightParseFailure {
+	for _, value := range hello.Extensions {
+		selected, ok := value.(*extension13.SelectedPSK)
+		if !ok {
+			continue
+		}
+		if selected.Identity != 0 || len(flightCtx.state.LocalPSK) == 0 || flightCtx.state.CipherSuite.HashFunc()().Size() != crypto.SHA256.Size() {
+			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
+		}
+		flightCtx.state.PSK = flightCtx.state.LocalPSK
+
+		return nil
+	}
+	if flightCtx.cfg.LocalPSKCallback != nil {
+		return newFlightParseFailure(alert.HandshakeFailure, dtlserrors.ErrPSKNotNegotiated)
+	}
+
+	return nil
 }
