@@ -59,13 +59,19 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	cid.Send.Active = bytes.Clone(state.CID.Send.Active)
 	cid.Send.Spares = util.CloneByteSlices(state.CID.Send.Spares)
 
+	psks := slices.Clone(state.LocalPSKs)
+	for i := range psks {
+		psks[i].Identity = bytes.Clone(psks[i].Identity)
+		psks[i].Secret = bytes.Clone(psks[i].Secret)
+	}
+
 	return &State13{
 		Common:                     common,
 		CID:                        cid,
 		KeySchedule:                cloneKeySchedule(state.KeySchedule),
 		TrafficKeys:                state.TrafficKeys.Clone(),
 		KeyAgreementSecret:         bytes.Clone(state.KeyAgreementSecret),
-		LocalPSK:                   bytes.Clone(state.LocalPSK),
+		LocalPSKs:                  psks,
 		PSK:                        bytes.Clone(state.PSK),
 		PSKIdentity:                state.PSKIdentity,
 		SelectedGroup:              state.SelectedGroup,

@@ -11,6 +11,7 @@ import (
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
@@ -44,7 +45,7 @@ func TestFinalizeClientHelloWithPSKs(t *testing.T) {
 		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{0x1301},
 		CompressionMethods: []*protocol.CompressionMethod{{ID: 0}},
 	}
-	psks := []PSK{
+	psks := []dtlsstate.PSK{
 		{Identity: []byte("one"), Secret: []byte("secret1"), Hash: crypto.SHA256, External: true},
 		{Identity: []byte("two"), Secret: []byte("secret2"), Hash: crypto.SHA384, External: true},
 		{Identity: []byte("three"), Secret: []byte("secret3"), Hash: crypto.SHA256, External: true},

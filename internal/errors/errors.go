@@ -117,7 +117,7 @@ var (
 	ErrInvalidPSKIdentityLimit  = stderrors.New("PSK identity limit must be positive")
 	ErrTooManyPSKIdentities     = stderrors.New("PSK offer exceeds the configured identity limit")
 	ErrPSKIdentity              = stderrors.New("selected PSK identity was not offered")
-	ErrPSKCount                 = stderrors.New("client PSK callback must return exactly one PSK")
+	ErrPSKCount                 = stderrors.New("client PSK callback must return at least one PSK")
 	ErrPSKHash                  = stderrors.New("only SHA-256 PSKs are supported")
 	ErrNilVerifyPeerCertificate = stderrors.New(
 		"verify peer certificate option requires a non-nil callback",

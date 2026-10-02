@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -49,7 +50,7 @@ func TestSelectPSK(t *testing.T) {
 				Version: protocol.Version1_2, CipherSuiteIDs: []uint16{0x1301},
 				CompressionMethods: []*protocol.CompressionMethod{{ID: 0}},
 			}
-			hello, _, err := FinalizeClientHelloWithPSKs(base, cfg, []PSK{
+			hello, _, err := FinalizeClientHelloWithPSKs(base, cfg, []dtlsstate.PSK{
 				{Identity: []byte("unknown"), Secret: []byte("other"), Hash: crypto.SHA256, External: true},
 				{Identity: []byte("known"), Secret: []byte("secret"), Hash: crypto.SHA256, External: true},
 			}, NewTranscript())

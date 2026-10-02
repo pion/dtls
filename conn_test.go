@@ -754,6 +754,8 @@ func TestPSK(t *testing.T) {
 	for _, test := range []struct {
 		Name                   string
 		ClientIdentity         []byte
+		pskCount               int
+		selectedPSK            int
 		cipherSuites           []cryptosuite.ID
 		minVersion             protocol.Version
 		maxVersion             protocol.Version
@@ -764,6 +766,10 @@ func TestPSK(t *testing.T) {
 		ExpectedClientErr      string
 	}{
 		{Name: "DTLS 1.3", ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
+		{Name: "DTLS 1.3 selects second PSK", ClientIdentity: []byte("Client Identity"), pskCount: 2, selectedPSK: 1, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
+		{Name: "DTLS 1.3 selects last PSK", ClientIdentity: []byte("Client Identity"), pskCount: 3, selectedPSK: 2, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
+		{Name: "Dual version selects second PSK", ClientIdentity: []byte("Client Identity"), pskCount: 2, selectedPSK: 1, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}, minVersion: protocol.Version1_2, maxVersion: protocol.Version1_3},
+		{Name: "DTLS 1.2 uses first PSK", ClientIdentity: []byte("Client Identity"), pskCount: 2, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
 		{Name: "DTLS 1.2", ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
 		{
 			Name:           "Server verify connection fails",
@@ -804,11 +810,20 @@ func TestPSK(t *testing.T) {
 			}
 			clientRes := make(chan result, 1)
 
+			count := max(test.pskCount, 1)
+			psks := make([]PSK, count)
+			for i := range psks {
+				psks[i] = PSK{Identity: fmt.Appendf(nil, "unused-%d", i), Key: []byte("unused secret")}
+			}
+			psks[test.selectedPSK] = PSK{Identity: test.ClientIdentity, Key: []byte{0xAB, 0xC1, 0x23}}
+			clientCalls := 0
 			ca, cb := packetPipe()
 			go func() {
 				clientOpts := []ClientOption{
 					WithPSK(func() ([]PSK, error) {
-						return []PSK{{Identity: test.ClientIdentity, Key: []byte{0xAB, 0xC1, 0x23}}}, nil
+						clientCalls++
+
+						return psks, nil
 					}, nil),
 					WithCipherSuites(test.cipherSuites...),
 					WithMinVersion(test.minVersion),
@@ -824,13 +839,13 @@ func TestPSK(t *testing.T) {
 
 			serverOpts := []ServerOption{
 				WithPSK(nil, func(identities [][]byte) (*PSK, error) {
-					hint := identities[0]
-					t.Log(hint)
-					if !bytes.Equal(test.ClientIdentity, hint) {
-						return nil, fmt.Errorf("%w: expected(% 02x) actual(% 02x)", errTestPSKInvalidIdentity, test.ClientIdentity, hint)
+					for _, identity := range identities {
+						if bytes.Equal(identity, test.ClientIdentity) {
+							return &PSK{Identity: identity, Key: []byte{0xAB, 0xC1, 0x23}}, nil
+						}
 					}
 
-					return &PSK{Identity: identities[0], Key: []byte{0xAB, 0xC1, 0x23}}, nil
+					return nil, errTestPSKInvalidIdentity
 				}),
 				WithCipherSuites(test.cipherSuites...),
 				WithMinVersion(test.minVersion),
@@ -864,6 +879,7 @@ func TestPSK(t *testing.T) {
 
 			res := <-clientRes
 			assert.NoError(t, res.err)
+			assert.Equal(t, 1, clientCalls)
 			assert.NoError(t, res.c.Close())
 		})
 	}

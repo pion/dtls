@@ -23,29 +23,24 @@ import (
 // FinalizeClientHello binds the client offer to its finalized wire bytes.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
-	if cfg.LocalPSKCallback == nil {
+	if cfg.GetPSKs == nil {
 		return dtlsflight.FinalizeClientHello(hello, cfg)
 	}
-	if len(state.LocalPSK) == 0 {
-		secret, err := cfg.LocalPSKCallback(nil)
-		if err != nil {
-			return nil, negotiation.ClientHelloSnapshot{}, err
-		}
-		if len(secret) == 0 {
-			return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrPSKNotNegotiated
-		}
-		state.LocalPSK = bytes.Clone(secret)
+	psks, err := cfg.GetPSKs()
+	if err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
 	}
-	if len(cfg.LocalPSKIdentityHint) == 0 {
-		return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
+	state.LocalPSKs = psks
+	for _, psk := range state.LocalPSKs {
+		if len(psk.Identity) == 0 {
+			return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
+		}
 	}
 	if state.CipherSuite != nil && state.CipherSuite.HashFunc()().Size() != crypto.SHA256.Size() {
 		return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrNoAvailablePSKCipherSuite
 	}
 
-	return FinalizeClientHelloWithPSKs(hello, cfg, []PSK{{
-		Identity: cfg.LocalPSKIdentityHint, Secret: state.LocalPSK, Hash: crypto.SHA256, External: true,
-	}}, t)
+	return FinalizeClientHelloWithPSKs(hello, cfg, state.LocalPSKs, t)
 }
 
 // selectPSK runs before ClientHello enters the transcript, including on retry.

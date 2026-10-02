@@ -36,7 +36,7 @@ func flight1Generate(
 	if len(cfg.EllipticCurves) == 0 {
 		return nil, nil, dtlserrors.ErrEmptyEllipticCurves
 	}
-	if len(cfg.LocalSignatureSchemes) == 0 && cfg.LocalPSKCallback == nil {
+	if len(cfg.LocalSignatureSchemes) == 0 && cfg.GetPSKs == nil {
 		return nil, nil, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 	state.SelectedGroup = cfg.EllipticCurves[0]

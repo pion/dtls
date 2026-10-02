@@ -14,22 +14,12 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/crypto/keyschedule"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
-
-// PSK associates an offered identity state with its secret, hash, and binder label.
-//
-// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
-type PSK struct {
-	Identity            []byte
-	Secret              []byte
-	Hash                crypto.Hash
-	External            bool
-	ObfuscatedTicketAge uint32
-}
 
 const (
 	labelResBinder = "res binder"
@@ -84,7 +74,7 @@ func VerifyPSKBinder(hashFunc func() hash.Hash, psk, transcriptHash, binder []by
 func FinalizeClientHelloWithPSKs(
 	base *handshake.MessageClientHello,
 	cfg *dtlsconfig.HandshakeConfig,
-	psks []PSK,
+	psks []dtlsstate.PSK,
 	transcript *Transcript,
 ) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
 	clientHello, err := clientHelloWithPSKs(base, psks)
@@ -111,7 +101,7 @@ func FinalizeClientHelloWithPSKs(
 	return clientHello, snapshots.Current(), nil
 }
 
-func populatePSKBinders(hello *handshake.MessageClientHello, psks []PSK, transcript *Transcript) error { //nolint:cyclop
+func populatePSKBinders(hello *handshake.MessageClientHello, psks []dtlsstate.PSK, transcript *Transcript) error { //nolint:cyclop
 	// the shared finalizer has already decoded and validated the hooked hello.
 	if len(hello.Extensions) == 0 {
 		return dtlserrors.ErrPreSharedKeyFormat
@@ -220,7 +210,7 @@ func truncatePSKBinders(canonical []byte, offer *extension13.OfferedPSKs) []byte
 	return canonical[:end:end]
 }
 
-func clientHelloWithPSKs(base *handshake.MessageClientHello, psks []PSK) (*handshake.MessageClientHello, error) { //nolint:cyclop
+func clientHelloWithPSKs(base *handshake.MessageClientHello, psks []dtlsstate.PSK) (*handshake.MessageClientHello, error) { //nolint:cyclop
 	if base == nil || len(psks) == 0 {
 		return nil, dtlserrors.ErrPreSharedKeyFormat
 	}

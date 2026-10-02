@@ -5,6 +5,7 @@ package state
 
 import (
 	"bytes"
+	"crypto"
 	"maps"
 	"sync"
 
@@ -14,6 +15,17 @@ import (
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
+
+// PSK associates an offered identity state with its secret, hash, and binder label.
+//
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
+type PSK struct {
+	Identity            []byte
+	Secret              []byte
+	Hash                crypto.Hash
+	External            bool
+	ObfuscatedTicketAge uint32
+}
 
 // MaxConnectionIDs bounds both retained local aliases and peer spare IDs.
 // Issued aliases remain valid until close; reaching the limit stops issuance.
@@ -188,8 +200,8 @@ type State13 struct {
 	// TLS 1.3 HKDF key schedule.
 	KeyAgreementSecret []byte
 
-	// LocalPSK is the client offer, PSK is populated only after selection.
-	LocalPSK    []byte
+	// LocalPSKs retains the client offers across retries. PSK is set after selection.
+	LocalPSKs   []PSK
 	PSK         []byte
 	PSKIdentity uint16
 

@@ -370,7 +370,7 @@ func newFlight13ProtectedServerFlightFixtureFromClientHello(t *testing.T, cfg *d
 	require.NotNil(t, clientKeypair)
 	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
-	handshakeSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), state.LocalPSK, keyAgreementSecret, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
+	handshakeSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), firstPSKSecret13(state), keyAgreementSecret, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
 	require.NoError(t, err)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	state.KeySchedule.HandshakeTraffic = handshakeSecrets
@@ -579,7 +579,7 @@ func marshalServerHelloWithSequence(t *testing.T, cfg *dtlsconfig.HandshakeConfi
 
 	cipherSuiteID := uint16(cfg.LocalCipherSuites[0].ID())
 	serverHello := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: extensions}
-	if cfg.LocalPSKCallback != nil && !dtlsflight13.IsHelloRetryRequest(serverHello) {
+	if cfg.GetPSKs != nil && !dtlsflight13.IsHelloRetryRequest(serverHello) {
 		serverHello.Extensions = append(serverHello.Extensions, &extension13.SelectedPSK{Identity: 0})
 	}
 	rawServerHello, err := (&handshake.Handshake{Header: handshake.Header{MessageSequence: seq}, Message: serverHello}).Marshal()
@@ -1016,7 +1016,7 @@ func TestFlight13_3ParseNegotiatesVersionCipherAndKeyShare(t *testing.T) {
 	require.NotNil(t, clientKeypair)
 	expected, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
-	expectedSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), state.LocalPSK, expected, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
+	expectedSecrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), firstPSKSecret13(state), expected, hashTranscript13(clientHelloCanonical, serverHelloCanonical))
 	require.NoError(t, err)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	state.KeySchedule.HandshakeTraffic = expectedSecrets
@@ -1220,7 +1220,7 @@ func TestFlight13ClientParseAppendsHRRTranscriptOrder(t *testing.T) {
 	require.NotNil(t, clientKeypair)
 	keyAgreementSecret, err := prf.PreMasterSecret(clientKeypair.PublicKey, serverKeypair.PrivateKey, group)
 	require.NoError(t, err)
-	secrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), state.LocalPSK, keyAgreementSecret, hashTranscript13(messageHash, helloRetryRequestCanonical, clientHello2Canonical, serverHelloCanonical))
+	secrets, err := deriveHandshakeTrafficSecrets13(cfg.LocalCipherSuites[0].HashFunc(), firstPSKSecret13(state), keyAgreementSecret, hashTranscript13(messageHash, helloRetryRequestCanonical, clientHello2Canonical, serverHelloCanonical))
 	require.NoError(t, err)
 	state.CipherSuite = cfg.LocalCipherSuites[0]
 	state.KeySchedule.HandshakeTraffic = secrets
@@ -3120,8 +3120,9 @@ func TestFlight13_1ParseRejectsHelloRetryRequestExtension(t *testing.T) {
 
 // Certificate-free flight fixtures must explicitly negotiate PSK authentication.
 func configureTestPSK13(cfg *dtlsconfig.HandshakeConfig) {
-	cfg.LocalPSKIdentityHint = []byte("client")
-	cfg.LocalPSKCallback = func([]byte) ([]byte, error) { return []byte("shared secret"), nil }
+	cfg.GetPSKs = func() ([]dtlsstate.PSK, error) {
+		return []dtlsstate.PSK{{Identity: []byte("client"), Secret: []byte("shared secret"), Hash: crypto.SHA256, External: true}}, nil
+	}
 	cfg.SelectPSK = func([][]byte) (int, []byte, error) { return 0, []byte("shared secret"), nil }
 }
 
@@ -3131,4 +3132,12 @@ func TestFlight13RejectsMissingServerAuthentication(t *testing.T) {
 		state: fixture.state, cache: fixture.cacheWithFinished(fixture.rawFinished), cfg: fixture.cfg, transcript: fixture.transcript,
 	})
 	require.ErrorIs(t, err, dtlserrors.ErrCertificateVerifyNoCertificate)
+}
+
+func firstPSKSecret13(state *dtlsstate.State13) []byte {
+	if len(state.LocalPSKs) == 0 {
+		return nil
+	}
+
+	return state.LocalPSKs[0].Secret
 }

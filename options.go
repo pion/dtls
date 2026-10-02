@@ -25,6 +25,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsnet "github.com/pion/dtls/v4/internal/net"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/internal/util"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
@@ -246,6 +247,7 @@ type PSK struct {
 }
 
 // PSKClientCallback supplies the client's PSKs once per connection.
+// DTLS 1.3 offers all entries in order and DTLS 1.2 uses only the first.
 // An error aborts the handshake. The callback does not receive a DTLS 1.2 server hint.
 type PSKClientCallback func() ([]PSK, error)
 
@@ -793,26 +795,41 @@ func (c *dtlsConfig) configurePSK(cfg *dtlsconfig.HandshakeConfig) {
 
 		return
 	}
-	var key []byte
-	cfg.LocalPSKCallback = func([]byte) ([]byte, error) {
-		if key != nil {
-			return bytes.Clone(key), nil
+	var cached []dtlsstate.PSK
+	cfg.GetPSKs = func() ([]dtlsstate.PSK, error) {
+		if cached != nil {
+			return cached, nil
 		}
 		psks, err := c.pskClient()
 		if err != nil {
 			return nil, err
 		}
-		if len(psks) != 1 {
+		if len(psks) == 0 {
 			return nil, dtlserrors.ErrPSKCount
 		}
-		key, err = psks[0].cloneKey()
+		offered := make([]dtlsstate.PSK, len(psks))
+		for i, psk := range psks {
+			key, err := psk.cloneKey()
+			if err != nil {
+				return nil, err
+			}
+			offered[i] = dtlsstate.PSK{
+				Identity: bytes.Clone(psk.Identity), Secret: key, Hash: crypto.SHA256, External: true,
+			}
+		}
+		cached = offered
+
+		return cached, nil
+	}
+	cfg.LocalPSKCallback = func([]byte) ([]byte, error) {
+		psks, err := cfg.GetPSKs()
 		if err != nil {
 			return nil, err
 		}
-		// DTLS 1.2 uses a non-nil slice to encode even an empty identity.
+		// DTLS 1.2 sends one identity, including an explicitly empty one.
 		cfg.LocalPSKIdentityHint = append([]byte{}, psks[0].Identity...)
 
-		return bytes.Clone(key), nil
+		return bytes.Clone(psks[0].Secret), nil
 	}
 }
 
@@ -820,11 +837,7 @@ func (c *dtlsConfig) selectPSK(identities [][]byte) (int, []byte, error) {
 	if len(identities) > c.pskIdentityLimit {
 		return -1, nil, dtlserrors.ErrTooManyPSKIdentities
 	}
-	offered := make([][]byte, len(identities))
-	for i, identity := range identities {
-		offered[i] = bytes.Clone(identity)
-	}
-	psk, err := c.pskServer(offered)
+	psk, err := c.pskServer(util.CloneByteSlices(identities))
 	if err != nil || psk == nil {
 		return -1, nil, err
 	}

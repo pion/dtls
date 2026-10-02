@@ -254,3 +254,29 @@ func flight4TestContext(t *testing.T) *handshakeContext {
 		cfg:   &dtlsconfig.HandshakeConfig{LocalCertificates: []tls.Certificate{certificate}, LocalSignatureSchemes: append([]signaturehash.Algorithm(nil), signatureSchemes...)},
 	}
 }
+
+func TestSelectServerPSKIndex(t *testing.T) {
+	for _, selected := range []uint16{0, 1, 2, 65535} {
+		state := dtlsstate.NewState13(true)
+		state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
+		state.LocalPSKs = []dtlsstate.PSK{
+			{Identity: []byte("first"), Secret: []byte("first key")},
+			{Identity: []byte("second"), Secret: []byte("second key")},
+		}
+		ctx := &handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{}}
+		failure := selectServerPSK(ctx, &handshake.MessageServerHello{
+			Extensions: []extension.Value{&extension13.SelectedPSK{Identity: selected}},
+		})
+		if int(selected) >= len(state.LocalPSKs) {
+			require.NotNil(t, failure)
+			require.Equal(t, alert.IllegalParameter, failure.alert.Description)
+			require.Empty(t, state.PSK)
+
+			continue
+		}
+		require.Nil(t, failure)
+		require.Equal(t, state.LocalPSKs[selected].Secret, state.PSK)
+		require.Equal(t, state.LocalPSKs[selected].Identity, state.IdentityHint)
+		require.Equal(t, selected, state.PSKIdentity)
+	}
+}
