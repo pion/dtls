@@ -472,6 +472,11 @@ func flight4Generate(
 			IdentityHint: cfg.localPSKIdentityHint,
 		}
 		if state.cipherSuite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe) {
+			// ECDHE-PSK always encodes the hint length, including an empty hint.
+			if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypePreSharedKey &&
+				srvExchange.IdentityHint == nil {
+				srvExchange.IdentityHint = []byte{}
+			}
 			srvExchange.EllipticCurveType = elliptic.CurveTypeNamedCurve
 			srvExchange.NamedCurve = state.namedCurve
 			srvExchange.PublicKey = state.localKeypair.PublicKey
