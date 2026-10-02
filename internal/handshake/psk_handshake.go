@@ -14,6 +14,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
@@ -58,17 +59,23 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 		return nil
 	}
 	var offer *extension13.OfferedPSKs
-	var dhe bool
+	var dhe, ke bool
 	for _, value := range hello.Extensions {
 		switch ext := value.(type) {
 		case *extension13.OfferedPSKs:
 			offer = ext
 		case *extension13.PSKKeyExchangeModes:
 			dhe = slices.Contains(ext.Modes, extension13.PSKDHEKE)
+			ke = slices.Contains(ext.Modes, extension13.PSKKE)
 		}
 	}
 	c.state.PSK = nil
-	if offer == nil || !dhe {
+	c.state.PSKOnly = false
+	// prefer DHE whenever a common group exists, this can require a retry.
+	dhe = dhe && slices.ContainsFunc(c.cfg.EllipticCurves, func(group elliptic.Curve) bool {
+		return slices.Contains(c.state.RemoteGroups, group)
+	})
+	if offer == nil || (!dhe && !ke) {
 		return c.pskFallback()
 	}
 	identities := make([][]byte, len(offer.Identities))
@@ -99,6 +106,10 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	}
 	if err = VerifyPSKBinder(hashID.New, secret, transcriptHash, offer.Binders[i], true); err != nil {
 		return pskHandshakeError(alert.DecryptError, err)
+	}
+	c.state.PSKOnly = !dhe
+	if c.state.PSKOnly {
+		c.state.KeyAgreementSecret = make([]byte, hashID.Size())
 	}
 	c.state.CipherSuite = suite
 	c.state.PSK = bytes.Clone(secret)

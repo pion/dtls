@@ -197,13 +197,14 @@ type State13 struct {
 	TrafficKeys *TrafficKeyState
 
 	// KeyAgreementSecret is the ECDHE or hybrid shared secret that feeds the
-	// TLS 1.3 HKDF key schedule.
+	// TLS 1.3 HKDF key schedule, or Hash.length zero bytes for psk_ke.
 	KeyAgreementSecret []byte
 
 	// LocalPSKs retains the client offers across retries. PSK is set after selection.
 	LocalPSKs   []PSK
 	PSK         []byte
 	PSKIdentity uint16
+	PSKOnly     bool // Negotiated psk_ke, without a key share.
 
 	SelectedGroup elliptic.Curve
 

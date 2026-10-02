@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -742,7 +743,7 @@ func TestExportKeyingMaterial(t *testing.T) {
 	}
 }
 
-func TestPSK(t *testing.T) {
+func TestPSK(t *testing.T) { //nolint:cyclop,maintidx
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(time.Second * 20)
 	defer lim.Stop()
@@ -759,6 +760,9 @@ func TestPSK(t *testing.T) {
 		pskHash                crypto.Hash
 		unusedHash             crypto.Hash
 		skipRetry              bool
+		pskOnly                bool
+		noCommonGroup          bool
+		keyShareRetry          bool
 		wantSuite              cryptosuite.ID
 		cipherSuites           []cryptosuite.ID
 		minVersion             protocol.Version
@@ -770,6 +774,10 @@ func TestPSK(t *testing.T) {
 		ExpectedClientErr      string
 	}{
 		{Name: "DTLS 1.3", ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
+		{Name: "prefer DHE with key share retry", ClientIdentity: []byte("dhe"), keyShareRetry: true, skipRetry: true, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
+		{Name: "psk_ke", ClientIdentity: []byte("ke"), pskOnly: true, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
+		{Name: "psk_ke SHA384 without retry", ClientIdentity: []byte("ke"), pskOnly: true, pskHash: crypto.SHA384, skipRetry: true, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_256_GCM_SHA384}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
+		{Name: "psk_ke without common group", ClientIdentity: []byte("ke"), noCommonGroup: true, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
 		{Name: "DTLS 1.3 selects second PSK", ClientIdentity: []byte("Client Identity"), pskCount: 2, selectedPSK: 1, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
 		{Name: "DTLS 1.3 selects last PSK", ClientIdentity: []byte("Client Identity"), pskCount: 3, selectedPSK: 2, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
 		{Name: "Dual version selects second PSK", ClientIdentity: []byte("Client Identity"), pskCount: 2, selectedPSK: 1, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}, minVersion: protocol.Version1_2, maxVersion: protocol.Version1_3},
@@ -850,6 +858,34 @@ func TestPSK(t *testing.T) {
 					WithMinVersion(test.minVersion),
 					WithMaxVersion(test.maxVersion),
 				}
+				if test.keyShareRetry {
+					clientOpts = append(clientOpts, WithClientHelloMessageHook(func(hello handshake.MessageClientHello) handshake.Message {
+						for _, value := range hello.Extensions {
+							if share, ok := value.(*extension13.ClientKeyShare); ok && len(share.Shares) > 1 {
+								share.Shares = nil
+							}
+						}
+
+						return &hello
+					}))
+				}
+				if test.pskOnly {
+					clientOpts = append(clientOpts, WithClientHelloMessageHook(func(hello handshake.MessageClientHello) handshake.Message {
+						hello.Extensions = slices.DeleteFunc(hello.Extensions, func(value extension.Value) bool {
+							return value.ExtensionType() == extension.TypeKeyShare || value.ExtensionType() == extension.TypeSupportedGroups
+						})
+						for _, value := range hello.Extensions {
+							if modes, ok := value.(*extension13.PSKKeyExchangeModes); ok {
+								modes.Modes = []extension13.PSKKeyExchangeMode{extension13.PSKKE}
+							}
+						}
+
+						return &hello
+					}))
+				}
+				if test.noCommonGroup {
+					clientOpts = append(clientOpts, WithEllipticCurves(elliptic.X25519))
+				}
 				if test.ClientVerifyConnection != nil {
 					clientOpts = append(clientOpts, WithVerifyConnection(test.ClientVerifyConnection))
 				}
@@ -872,6 +908,9 @@ func TestPSK(t *testing.T) {
 				WithCipherSuites(test.cipherSuites...),
 				WithMinVersion(test.minVersion),
 				WithMaxVersion(test.maxVersion),
+			}
+			if test.noCommonGroup {
+				serverOpts = append(serverOpts, WithEllipticCurves(elliptic.P256))
 			}
 			if test.ServerVerifyConnection != nil {
 				serverOpts = append(serverOpts, WithVerifyConnection(test.ServerVerifyConnection))
@@ -905,6 +944,16 @@ func TestPSK(t *testing.T) {
 			res := <-clientRes
 			assert.NoError(t, res.err)
 			assert.Equal(t, 1, clientCalls)
+			if test.minVersion == protocol.Version1_3 {
+				for _, conn := range []*Conn{server, res.c} {
+					state13, err := dtlsstate.As13(conn.state)
+					assert.NoError(t, err)
+					assert.Equal(t, test.pskOnly || test.noCommonGroup, state13.PSKOnly)
+					if state13.PSKOnly {
+						assert.Equal(t, make([]byte, state13.CipherSuite.HashFunc()().Size()), state13.KeyAgreementSecret)
+					}
+				}
+			}
 			assert.NoError(t, res.c.Close())
 		})
 	}

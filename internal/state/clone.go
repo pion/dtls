@@ -74,6 +74,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 		LocalPSKs:                  psks,
 		PSK:                        bytes.Clone(state.PSK),
 		PSKIdentity:                state.PSKIdentity,
+		PSKOnly:                    state.PSKOnly,
 		SelectedGroup:              state.SelectedGroup,
 		LocalKeyEntries:            cloneKeyShareEntries(state.LocalKeyEntries),
 		RemoteKeyEntries:           cloneKeyShareEntries(state.RemoteKeyEntries),

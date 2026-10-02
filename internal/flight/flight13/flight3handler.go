@@ -16,6 +16,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/prf"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
@@ -144,13 +145,10 @@ func processFlight3ServerHello(flightCtx *handshakeContext, serverHello *handsha
 	flightCtx.state.RemoteRandom = serverHello.Random
 	flightCtx.cfg.Log.Tracef("[handshake13] use cipher suite: %s", selectedCipherSuite.String())
 
-	serverShare := serverHelloKeyShare(serverHello.Extensions)
-	if serverShare == nil {
-		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareMissing)
-	}
-
-	if failure := applyFlight3ServerKeyShare(flightCtx, serverShare); failure != nil {
-		return failure
+	if !flightCtx.state.PSKOnly {
+		if failure := applyFlight3ServerKeyShare(flightCtx, serverHelloKeyShare(serverHello.Extensions)); failure != nil {
+			return failure
+		}
 	}
 	flightCtx.state.CommitNegotiatedExtensions(decision)
 
@@ -181,6 +179,9 @@ func validateFlight3ServerHello(serverHello *handshake.MessageServerHello) ([]pr
 }
 
 func applyFlight3ServerKeyShare(flightCtx *handshakeContext, serverShare *extension13.KeyShareEntry) *flightParseFailure {
+	if serverShare == nil {
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareMissing)
+	}
 	localKeypair, ok := flightCtx.state.LocalKeypairs[serverShare.Group]
 	if !ok || localKeypair == nil {
 		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrServerKeyShareUnknownGroup)
@@ -316,7 +317,7 @@ func flight3Generate(
 	}, nil, nil
 }
 
-// Validate the selected external PSK with psk_dhe_ke.
+// Validate the selected external PSK and key exchange mode.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServerHello) *flightParseFailure {
 	for _, value := range hello.Extensions {
@@ -330,6 +331,19 @@ func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServer
 		psk := flightCtx.state.LocalPSKs[selected.Identity]
 		if psk.Hash.Size() != flightCtx.state.CipherSuite.HashFunc()().Size() {
 			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
+		}
+		mode := extension13.PSKDHEKE
+		if serverHelloKeyShare(hello.Extensions) == nil {
+			mode = extension13.PSKKE
+		}
+		raw, _ := flightCtx.state.LocalClientHelloSnapshots.Current().Extension(extension.TypePSKKeyExchangeModes)
+		var modes extension13.PSKKeyExchangeModes
+		if modes.UnmarshalData(raw.Data) != nil || !slices.Contains(modes.Modes, mode) {
+			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrNoPskKeyExchangeMode)
+		}
+		flightCtx.state.PSKOnly = mode == extension13.PSKKE
+		if flightCtx.state.PSKOnly {
+			flightCtx.state.KeyAgreementSecret = make([]byte, psk.Hash.Size())
 		}
 		flightCtx.state.PSK = psk.Secret
 		flightCtx.state.PSKIdentity = selected.Identity

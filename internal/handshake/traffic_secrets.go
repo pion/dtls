@@ -250,7 +250,8 @@ func deriveEarlySecret(hashFunc func() hash.Hash, psk []byte) ([]byte, error) {
 	return keyschedule.HkdfExtract(hashFunc, nil, psk)
 }
 
-// deriveHandshakeSecret retains the key-agreement requirement for psk_dhe_ke.
+// deriveHandshakeSecret requires a shared secret or the hash-length zero input for psk_ke.
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-7.1
 func deriveHandshakeSecret(hashFunc func() hash.Hash, psk, keyAgreementSecret []byte) ([]byte, error) {
 	if len(keyAgreementSecret) == 0 {
 		return nil, dtlserrors.ErrLengthMismatch

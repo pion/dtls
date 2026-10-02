@@ -110,12 +110,14 @@ func populatePSKBinders(hello *handshake.MessageClientHello, psks []dtlsstate.PS
 	if !ok || len(offer.Identities) != len(psks) {
 		return dtlserrors.ErrPreSharedKeyFormat
 	}
-	// Hooks must preserve psk_dhe_ke.
+	// Hooks may restrict the offer to either supported mode.
 	// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.9
 	if !slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
 		modes, ok := value.(*extension13.PSKKeyExchangeModes)
 
-		return ok && slices.Equal(modes.Modes, []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE})
+		return ok && len(modes.Modes) > 0 && !slices.ContainsFunc(modes.Modes, func(mode extension13.PSKKeyExchangeMode) bool {
+			return mode != extension13.PSKDHEKE && mode != extension13.PSKKE
+		})
 	}) {
 		return dtlserrors.ErrPreSharedKeyFormat
 	}
@@ -231,7 +233,7 @@ func clientHelloWithPSKs(base *handshake.MessageClientHello, psks []dtlsstate.PS
 		clientHello.Extensions = append(clientHello.Extensions, value)
 	}
 	clientHello.Extensions = append(clientHello.Extensions,
-		&extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE}}, offer)
+		&extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE, extension13.PSKKE}}, offer)
 
 	return &clientHello, nil
 }

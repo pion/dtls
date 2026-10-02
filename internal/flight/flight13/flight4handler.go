@@ -165,7 +165,7 @@ func flight4Generate( //nolint:cyclop
 	if state.CipherSuite == nil {
 		return nil, nil, dtlserrors.ErrCipherSuiteUnset
 	}
-	if state.LocalKeypair == nil {
+	if !state.PSKOnly && state.LocalKeypair == nil {
 		return nil, nil, dtlserrors.ErrServerKeyShareMissing
 	}
 
@@ -175,7 +175,9 @@ func flight4Generate( //nolint:cyclop
 			Version: protocol.Version1_3,
 		},
 	}
-	serverHelloExtensions = append(serverHelloExtensions, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: state.LocalKeypair.Curve, KeyExchange: state.LocalKeypair.PublicKey}})
+	if !state.PSKOnly {
+		serverHelloExtensions = append(serverHelloExtensions, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: state.LocalKeypair.Curve, KeyExchange: state.LocalKeypair.PublicKey}})
+	}
 	if len(state.PSK) != 0 {
 		serverHelloExtensions = append(serverHelloExtensions, &extension13.SelectedPSK{Identity: state.PSKIdentity})
 	}

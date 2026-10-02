@@ -275,6 +275,11 @@ func TestSelectServerPSKIndex(t *testing.T) {
 			{Identity: []byte("first"), Secret: []byte("first key"), Hash: crypto.SHA256},
 			{Identity: []byte("second"), Secret: []byte("second key"), Hash: crypto.SHA384},
 		}
+		_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
+			Extensions: []extension.Value{&extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{extension13.PSKKE}}},
+		}, nil)
+		require.NoError(t, err)
+		require.NoError(t, state.LocalClientHelloSnapshots.Record(offer))
 		ctx := &handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{}}
 		failure := selectServerPSK(ctx, &handshake.MessageServerHello{
 			Extensions: []extension.Value{&extension13.SelectedPSK{Identity: test.selected}},
@@ -290,5 +295,44 @@ func TestSelectServerPSKIndex(t *testing.T) {
 		require.Equal(t, state.LocalPSKs[test.selected].Secret, state.PSK)
 		require.Equal(t, state.LocalPSKs[test.selected].Identity, state.IdentityHint)
 		require.Equal(t, test.selected, state.PSKIdentity)
+	}
+}
+
+func TestServerPSKMode(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		mode      extension13.PSKKeyExchangeMode
+		share     *extension13.KeyShareEntry
+		wantError bool
+	}{
+		{name: "accept psk_ke", mode: extension13.PSKKE},
+		{name: "reject unoffered psk_ke", mode: extension13.PSKDHEKE, wantError: true},
+		{name: "reject unoffered psk_dhe_ke", mode: extension13.PSKKE, share: &extension13.KeyShareEntry{}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
+				Extensions: []extension.Value{&extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{test.mode}}},
+			}, nil)
+			require.NoError(t, err)
+			state := dtlsstate.NewState13(true)
+			state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
+			state.LocalPSKs = []dtlsstate.PSK{{Secret: []byte("secret"), Hash: crypto.SHA256}}
+			require.NoError(t, state.LocalClientHelloSnapshots.Record(offer))
+			hello := &handshake.MessageServerHello{Extensions: []extension.Value{&extension13.SelectedPSK{Identity: 0}}}
+			if test.share != nil {
+				hello.Extensions = append(hello.Extensions, &extension13.ServerKeyShare{Share: *test.share})
+			}
+			failure := selectServerPSK(&handshakeContext{state: &state}, hello)
+			if test.wantError {
+				require.NotNil(t, failure)
+				require.Equal(t, alert.IllegalParameter, failure.alert.Description)
+				require.ErrorIs(t, failure.err, dtlserrors.ErrNoPskKeyExchangeMode)
+
+				return
+			}
+			require.Nil(t, failure)
+			require.True(t, state.PSKOnly)
+			require.Equal(t, make([]byte, crypto.SHA256.Size()), state.KeyAgreementSecret)
+		})
 	}
 }

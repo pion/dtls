@@ -51,11 +51,13 @@ func flight2Parse( //nolint:cyclop
 	if failure := processClientHelloExtensions(flightCtx.state, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
 	}
-	if failure := generateClientKeyShareSecret(flightCtx.state, flightCtx.cfg); failure != nil {
-		return 0, failure.alert, failure.err
-	}
 	if failure := flightCtx.handleInboundHandshake(pull.Items); failure != nil {
 		return 0, failure.alert, failure.err
+	}
+	if !flightCtx.state.PSKOnly {
+		if failure := generateClientKeyShareSecret(flightCtx.state, flightCtx.cfg); failure != nil {
+			return 0, failure.alert, failure.err
+		}
 	}
 	flightCtx.state.RemoteClientHelloSnapshots = snapshots
 	flightCtx.state.HandshakeRecvSequence = pull.NextSequence
@@ -82,7 +84,7 @@ func flight2Generate(
 	})
 	cipherSuiteID := uint16(flightCtx.state.CipherSuite.ID())
 
-	if flightCtx.state.SelectedGroup != 0 {
+	if !flightCtx.state.PSKOnly && flightCtx.state.SelectedGroup != 0 {
 		// RFC 8446 Section 4.2.8 requires a client to abort with illegal_parameter
 		// if an HRR selects a group for which it already supplied a key share.
 		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1

@@ -83,12 +83,20 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidProtocolVersionState
 	}
 
+	if failure := flightCtx.handleInboundHandshake(pull.Items); failure != nil {
+		return 0, failure.alert, failure.err
+	}
+
 	nextFlight := Flight2
 
-	selectClientKeyShare(state, cfg)
+	if !state.PSKOnly {
+		selectClientKeyShare(state, cfg)
+	}
 
 	if cfg.InsecureSkipHelloVerify {
-		if _, ok := matchingClientKeyShare(state, cfg); ok {
+		if state.PSKOnly {
+			nextFlight = Flight4
+		} else if _, ok := matchingClientKeyShare(state, cfg); ok {
 			if failure := generateClientKeyShareSecret(state, cfg); failure != nil {
 				return 0, failure.alert, failure.err
 			}
@@ -96,9 +104,6 @@ func flight0Parse(
 		}
 	}
 
-	if failure := flightCtx.handleInboundHandshake(pull.Items); failure != nil {
-		return 0, failure.alert, failure.err
-	}
 	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
 		return 0, nil, err
 	}
