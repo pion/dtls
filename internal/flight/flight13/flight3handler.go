@@ -6,7 +6,6 @@ package flight13
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"errors"
 	"slices"
 
@@ -317,7 +316,7 @@ func flight3Generate(
 	}, nil, nil
 }
 
-// Validate the selected external SHA-256 PSK with psk_dhe_ke.
+// Validate the selected external PSK with psk_dhe_ke.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServerHello) *flightParseFailure {
 	for _, value := range hello.Extensions {
@@ -325,10 +324,13 @@ func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServer
 		if !ok {
 			continue
 		}
-		if int(selected.Identity) >= len(flightCtx.state.LocalPSKs) || flightCtx.state.CipherSuite.HashFunc()().Size() != crypto.SHA256.Size() {
+		if int(selected.Identity) >= len(flightCtx.state.LocalPSKs) {
 			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
 		}
 		psk := flightCtx.state.LocalPSKs[selected.Identity]
+		if psk.Hash.Size() != flightCtx.state.CipherSuite.HashFunc()().Size() {
+			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
+		}
 		flightCtx.state.PSK = psk.Secret
 		flightCtx.state.PSKIdentity = selected.Identity
 		flightCtx.state.IdentityHint = bytes.Clone(psk.Identity)

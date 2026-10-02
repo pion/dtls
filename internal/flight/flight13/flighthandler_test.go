@@ -4,6 +4,7 @@
 package flight13
 
 import (
+	"crypto"
 	"crypto/tls"
 	"testing"
 
@@ -256,18 +257,29 @@ func flight4TestContext(t *testing.T) *handshakeContext {
 }
 
 func TestSelectServerPSKIndex(t *testing.T) {
-	for _, selected := range []uint16{0, 1, 2, 65535} {
+	for _, test := range []struct {
+		selected uint16
+		suite    cryptosuite.ID
+		rejected bool
+	}{
+		{0, cryptosuite.TLS_AES_128_GCM_SHA256, false},
+		{1, cryptosuite.TLS_AES_256_GCM_SHA384, false},
+		{0, cryptosuite.TLS_AES_256_GCM_SHA384, true},
+		{1, cryptosuite.TLS_AES_128_GCM_SHA256, true},
+		{2, cryptosuite.TLS_AES_128_GCM_SHA256, true},
+		{65535, cryptosuite.TLS_AES_128_GCM_SHA256, true},
+	} {
 		state := dtlsstate.NewState13(true)
-		state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
+		state.CipherSuite = ciphersuite.ForID(test.suite)
 		state.LocalPSKs = []dtlsstate.PSK{
-			{Identity: []byte("first"), Secret: []byte("first key")},
-			{Identity: []byte("second"), Secret: []byte("second key")},
+			{Identity: []byte("first"), Secret: []byte("first key"), Hash: crypto.SHA256},
+			{Identity: []byte("second"), Secret: []byte("second key"), Hash: crypto.SHA384},
 		}
 		ctx := &handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{}}
 		failure := selectServerPSK(ctx, &handshake.MessageServerHello{
-			Extensions: []extension.Value{&extension13.SelectedPSK{Identity: selected}},
+			Extensions: []extension.Value{&extension13.SelectedPSK{Identity: test.selected}},
 		})
-		if int(selected) >= len(state.LocalPSKs) {
+		if test.rejected {
 			require.NotNil(t, failure)
 			require.Equal(t, alert.IllegalParameter, failure.alert.Description)
 			require.Empty(t, state.PSK)
@@ -275,8 +287,8 @@ func TestSelectServerPSKIndex(t *testing.T) {
 			continue
 		}
 		require.Nil(t, failure)
-		require.Equal(t, state.LocalPSKs[selected].Secret, state.PSK)
-		require.Equal(t, state.LocalPSKs[selected].Identity, state.IdentityHint)
-		require.Equal(t, selected, state.PSKIdentity)
+		require.Equal(t, state.LocalPSKs[test.selected].Secret, state.PSK)
+		require.Equal(t, state.LocalPSKs[test.selected].Identity, state.IdentityHint)
+		require.Equal(t, test.selected, state.PSKIdentity)
 	}
 }

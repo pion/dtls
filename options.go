@@ -242,7 +242,8 @@ func WithDisableRetransmitBackoff(disable bool) Option {
 type PSK struct {
 	Identity []byte
 	Key      []byte
-	// Hash is the DTLS 1.3 PSK hash. Zero defaults to crypto.SHA256.
+	// Hash is the DTLS 1.3 PSK hash: crypto.SHA256 or crypto.SHA384.
+	// Zero defaults to crypto.SHA256. It does not select the DTLS 1.2 cipher hash.
 	Hash crypto.Hash
 }
 
@@ -814,7 +815,7 @@ func (c *dtlsConfig) configurePSK(cfg *dtlsconfig.HandshakeConfig) {
 				return nil, err
 			}
 			offered[i] = dtlsstate.PSK{
-				Identity: bytes.Clone(psk.Identity), Secret: key, Hash: crypto.SHA256, External: true,
+				Identity: bytes.Clone(psk.Identity), Secret: key, Hash: psk.hash(), External: true,
 			}
 		}
 		cached = offered
@@ -833,27 +834,35 @@ func (c *dtlsConfig) configurePSK(cfg *dtlsconfig.HandshakeConfig) {
 	}
 }
 
-func (c *dtlsConfig) selectPSK(identities [][]byte) (int, []byte, error) {
+func (c *dtlsConfig) selectPSK(identities [][]byte) (int, []byte, crypto.Hash, error) {
 	if len(identities) > c.pskIdentityLimit {
-		return -1, nil, dtlserrors.ErrTooManyPSKIdentities
+		return -1, nil, 0, dtlserrors.ErrTooManyPSKIdentities
 	}
 	psk, err := c.pskServer(util.CloneByteSlices(identities))
 	if err != nil || psk == nil {
-		return -1, nil, err
+		return -1, nil, 0, err
 	}
 	index := slices.IndexFunc(identities, func(identity []byte) bool {
 		return bytes.Equal(identity, psk.Identity)
 	})
 	if index < 0 {
-		return -1, nil, dtlserrors.ErrPSKIdentity
+		return -1, nil, 0, dtlserrors.ErrPSKIdentity
 	}
 	key, err := psk.cloneKey()
 
-	return index, key, err
+	return index, key, psk.hash(), err
+}
+
+func (p PSK) hash() crypto.Hash {
+	if p.Hash == 0 {
+		return crypto.SHA256
+	}
+
+	return p.Hash
 }
 
 func (p PSK) cloneKey() ([]byte, error) {
-	if p.Hash != 0 && p.Hash != crypto.SHA256 {
+	if p.hash() != crypto.SHA256 && p.hash() != crypto.SHA384 {
 		return nil, dtlserrors.ErrPSKHash
 	}
 	if len(p.Key) == 0 {

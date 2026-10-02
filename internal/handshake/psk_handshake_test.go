@@ -34,17 +34,17 @@ func TestSelectPSK(t *testing.T) {
 			}
 			var identities [][]byte
 			calls := 0
-			cfg.SelectPSK = func(offered [][]byte) (int, []byte, error) {
+			cfg.SelectPSK = func(offered [][]byte) (int, []byte, crypto.Hash, error) {
 				calls++
 				identities = offered
 				if !test.known {
-					return -1, nil, nil
+					return -1, nil, 0, nil
 				}
 				if test.wrongKey {
-					return 1, []byte("wrong"), nil
+					return 1, []byte("wrong"), crypto.SHA256, nil
 				}
 
-				return 1, []byte("secret"), nil
+				return 1, []byte("secret"), crypto.SHA256, nil
 			}
 			base := &handshake.MessageClientHello{
 				Version: protocol.Version1_2, CipherSuiteIDs: []uint16{0x1301},

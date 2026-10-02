@@ -3123,7 +3123,9 @@ func configureTestPSK13(cfg *dtlsconfig.HandshakeConfig) {
 	cfg.GetPSKs = func() ([]dtlsstate.PSK, error) {
 		return []dtlsstate.PSK{{Identity: []byte("client"), Secret: []byte("shared secret"), Hash: crypto.SHA256, External: true}}, nil
 	}
-	cfg.SelectPSK = func([][]byte) (int, []byte, error) { return 0, []byte("shared secret"), nil }
+	cfg.SelectPSK = func([][]byte) (int, []byte, crypto.Hash, error) {
+		return 0, []byte("shared secret"), crypto.SHA256, nil
+	}
 }
 
 func TestFlight13RejectsMissingServerAuthentication(t *testing.T) {

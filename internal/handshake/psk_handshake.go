@@ -30,14 +30,21 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 	if err != nil {
 		return nil, negotiation.ClientHelloSnapshot{}, err
 	}
+	// After HRR, offer only PSKs matching the committed cipher-suite hash.
+	// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.1.4
+	if state.CipherSuite != nil {
+		psks = slices.DeleteFunc(slices.Clone(psks), func(psk dtlsstate.PSK) bool {
+			return psk.Hash.Size() != state.CipherSuite.HashFunc()().Size()
+		})
+		if len(psks) == 0 {
+			return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrNoAvailablePSKCipherSuite
+		}
+	}
 	state.LocalPSKs = psks
 	for _, psk := range state.LocalPSKs {
 		if len(psk.Identity) == 0 {
 			return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
 		}
-	}
-	if state.CipherSuite != nil && state.CipherSuite.HashFunc()().Size() != crypto.SHA256.Size() {
-		return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrNoAvailablePSKCipherSuite
 	}
 
 	return FinalizeClientHelloWithPSKs(hello, cfg, state.LocalPSKs, t)
@@ -60,16 +67,15 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 			dhe = slices.Contains(ext.Modes, extension13.PSKDHEKE)
 		}
 	}
-	suite := c.pskCipherSuite(hello)
 	c.state.PSK = nil
-	if offer == nil || !dhe || suite == nil {
+	if offer == nil || !dhe {
 		return c.pskFallback()
 	}
 	identities := make([][]byte, len(offer.Identities))
 	for i, identity := range offer.Identities {
 		identities[i] = identity.Identity
 	}
-	i, secret, err := c.cfg.SelectPSK(identities)
+	i, secret, hashID, err := c.cfg.SelectPSK(identities)
 	if err != nil {
 		return pskHandshakeError(alert.HandshakeFailure, err)
 	}
@@ -79,15 +85,19 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	if i < 0 || i >= len(offer.Identities) {
 		return pskHandshakeError(alert.HandshakeFailure, dtlserrors.ErrPSKIdentity)
 	}
+	suite := c.pskCipherSuite(hello, hashID)
+	if suite == nil {
+		return c.pskFallback()
+	}
 	prefix, err := ClientHelloBinderPrefix(raw)
 	if err != nil {
 		return pskHandshakeError(alert.DecodeError, err)
 	}
-	transcriptHash, err := pskBinderTranscriptHash(crypto.SHA256, c.transcript, prefix)
+	transcriptHash, err := pskBinderTranscriptHash(hashID, c.transcript, prefix)
 	if err != nil {
 		return err
 	}
-	if err = VerifyPSKBinder(crypto.SHA256.New, secret, transcriptHash, offer.Binders[i], true); err != nil {
+	if err = VerifyPSKBinder(hashID.New, secret, transcriptHash, offer.Binders[i], true); err != nil {
 		return pskHandshakeError(alert.DecryptError, err)
 	}
 	c.state.CipherSuite = suite
@@ -106,10 +116,10 @@ func (c *handshakeContext) pskFallback() error {
 	return nil
 }
 
-func (c *handshakeContext) pskCipherSuite(hello *handshake.MessageClientHello) dtlsconfig.CipherSuite {
+func (c *handshakeContext) pskCipherSuite(hello *handshake.MessageClientHello, hashID crypto.Hash) dtlsconfig.CipherSuite {
 	// HRR commits to a cipher suite and ClientHello2 cannot change it...
 	if len(c.transcript.order) != 0 {
-		if c.state.CipherSuite.HashFunc()().Size() == crypto.SHA256.Size() {
+		if c.state.CipherSuite.HashFunc()().Size() == hashID.Size() {
 			return c.state.CipherSuite
 		}
 
@@ -117,7 +127,7 @@ func (c *handshakeContext) pskCipherSuite(hello *handshake.MessageClientHello) d
 	}
 	for _, id := range hello.CipherSuiteIDs {
 		suite, ok := dtlsflight.FindCipherSuiteByID(id, c.cfg.LocalCipherSuites)
-		if ok && suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.HashFunc()().Size() == crypto.SHA256.Size() {
+		if ok && suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.HashFunc()().Size() == hashID.Size() {
 			return suite
 		}
 	}

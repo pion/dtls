@@ -756,6 +756,10 @@ func TestPSK(t *testing.T) {
 		ClientIdentity         []byte
 		pskCount               int
 		selectedPSK            int
+		pskHash                crypto.Hash
+		unusedHash             crypto.Hash
+		skipRetry              bool
+		wantSuite              cryptosuite.ID
 		cipherSuites           []cryptosuite.ID
 		minVersion             protocol.Version
 		maxVersion             protocol.Version
@@ -769,6 +773,23 @@ func TestPSK(t *testing.T) {
 		{Name: "DTLS 1.3 selects second PSK", ClientIdentity: []byte("Client Identity"), pskCount: 2, selectedPSK: 1, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
 		{Name: "DTLS 1.3 selects last PSK", ClientIdentity: []byte("Client Identity"), pskCount: 3, selectedPSK: 2, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
 		{Name: "Dual version selects second PSK", ClientIdentity: []byte("Client Identity"), pskCount: 2, selectedPSK: 1, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}, minVersion: protocol.Version1_2, maxVersion: protocol.Version1_3},
+		{Name: "SHA384", ClientIdentity: []byte("sha384"), pskHash: crypto.SHA384, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_256_GCM_SHA384}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3, wantSuite: cryptosuite.TLS_AES_256_GCM_SHA384},
+		{Name: "SHA384 without retry", ClientIdentity: []byte("sha384"), pskHash: crypto.SHA384, skipRetry: true, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_256_GCM_SHA384}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3, wantSuite: cryptosuite.TLS_AES_256_GCM_SHA384},
+		{
+			Name: "Mixed hashes select SHA384", ClientIdentity: []byte("sha384"), pskHash: crypto.SHA384, pskCount: 2, selectedPSK: 1,
+			cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_AES_256_GCM_SHA384},
+			minVersion:   protocol.Version1_3, maxVersion: protocol.Version1_3, wantSuite: cryptosuite.TLS_AES_256_GCM_SHA384,
+		},
+		{
+			Name: "Mixed hashes select SHA256", ClientIdentity: []byte("sha256"), pskHash: crypto.SHA256, unusedHash: crypto.SHA384, pskCount: 2, selectedPSK: 1,
+			cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_256_GCM_SHA384, cryptosuite.TLS_AES_128_GCM_SHA256},
+			minVersion:   protocol.Version1_3, maxVersion: protocol.Version1_3, wantSuite: cryptosuite.TLS_AES_128_GCM_SHA256,
+		},
+		{
+			Name: "Dual version SHA384", ClientIdentity: []byte("sha384"), pskHash: crypto.SHA384, pskCount: 2, selectedPSK: 1,
+			cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_AES_256_GCM_SHA384, cryptosuite.TLS_PSK_WITH_AES_128_CCM_8},
+			minVersion:   protocol.Version1_2, maxVersion: protocol.Version1_3, wantSuite: cryptosuite.TLS_AES_256_GCM_SHA384,
+		},
 		{Name: "DTLS 1.2 uses first PSK", ClientIdentity: []byte("Client Identity"), pskCount: 2, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
 		{Name: "DTLS 1.2", ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
 		{
@@ -813,9 +834,9 @@ func TestPSK(t *testing.T) {
 			count := max(test.pskCount, 1)
 			psks := make([]PSK, count)
 			for i := range psks {
-				psks[i] = PSK{Identity: fmt.Appendf(nil, "unused-%d", i), Key: []byte("unused secret")}
+				psks[i] = PSK{Identity: fmt.Appendf(nil, "unused-%d", i), Key: []byte("unused secret"), Hash: test.unusedHash}
 			}
-			psks[test.selectedPSK] = PSK{Identity: test.ClientIdentity, Key: []byte{0xAB, 0xC1, 0x23}}
+			psks[test.selectedPSK] = PSK{Identity: test.ClientIdentity, Key: []byte{0xAB, 0xC1, 0x23}, Hash: test.pskHash}
 			clientCalls := 0
 			ca, cb := packetPipe()
 			go func() {
@@ -838,10 +859,11 @@ func TestPSK(t *testing.T) {
 			}()
 
 			serverOpts := []ServerOption{
+				WithInsecureSkipVerifyHello(test.skipRetry),
 				WithPSK(nil, func(identities [][]byte) (*PSK, error) {
 					for _, identity := range identities {
 						if bytes.Equal(identity, test.ClientIdentity) {
-							return &PSK{Identity: identity, Key: []byte{0xAB, 0xC1, 0x23}}, nil
+							return &PSK{Identity: identity, Key: []byte{0xAB, 0xC1, 0x23}, Hash: test.pskHash}, nil
 						}
 					}
 
@@ -869,6 +891,9 @@ func TestPSK(t *testing.T) {
 
 			state, ok := server.ConnectionState()
 			assert.True(t, ok, "TestPSK: Server ConnectionState failed")
+			if test.wantSuite != 0 {
+				assert.Equal(t, test.wantSuite, state.CipherSuiteID)
+			}
 
 			actualPSKIdentityHint := state.IdentityHint
 			assert.Equal(t, test.ClientIdentity, actualPSKIdentityHint, "TestPSK: Server ClientPSKIdentity Mismatch")
