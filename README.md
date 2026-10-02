@@ -60,6 +60,8 @@ Pion DTLS supports DTLS 1.2 and DTLS 1.3. We welcome contributions and bug fixes
 
 * DTLS 1.2 and DTLS 1.3 client/server
 * Key Exchange via ECDHE(curve25519, nistp256, nistp384) and PSK
+* DTLS 1.3 external PSK with `psk_ke` and `psk_dhe_ke`, supporting SHA-256 and SHA-384
+* DTLS 1.3 offers multiple PSK identities per handshake for server selection
 * Packet loss and re-ordering is handled during handshaking
 * Key export ([RFC 5705][rfc5705])
 * DTLS 1.2 session serialization and resumption
@@ -73,7 +75,7 @@ Pion DTLS supports DTLS 1.2 and DTLS 1.3. We welcome contributions and bug fixes
 
 #### Supported ciphers
 
-##### DTLS 1.3
+##### DTLS 1.3: Certificate & PSK
 
 * TLS_AES_128_GCM_SHA256 ([RFC 8446][rfc8446])
 * TLS_AES_256_GCM_SHA384 ([RFC 8446][rfc8446])
@@ -137,6 +139,11 @@ Pion DTLS can connect to itself and OpenSSL.
 ```
 
 ### Using with PSK
+
+DTLS 1.3 supports external PSKs with `psk_ke` (PSK-only) and `psk_dhe_ke`
+(PSK with ephemeral ECDHE), using SHA-256 or SHA-384. Clients can offer multiple
+PSK identities per handshake for the server to select from.
+
 Pion DTLS also comes with examples that do key exchange via DTLS 1.2 PSK.
 
 #### Pion DTLS
