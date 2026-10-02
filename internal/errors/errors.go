@@ -73,6 +73,7 @@ var (
 	ErrServerKeyShareUnknownGroup        = stderrors.New(
 		"ServerHello key_share selected a group the client did not offer",
 	)
+	ErrPSKNotNegotiated                 = stderrors.New("DTLS 1.3 external PSK was not negotiated")
 	ErrPSKAndIdentityMustBeSetForClient = stderrors.New("PSK and PSK Identity Hint must both be set for client")
 	ErrRequestedButNoSRTPExtension      = stderrors.New("SRTP support was requested but server did not respond with use_srtp extension")
 	ErrServerNoMatchingSRTPProfile      = stderrors.New("client requested SRTP but we have no matching profiles")
