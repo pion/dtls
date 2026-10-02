@@ -6,6 +6,10 @@ package dtls
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/fips140"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -16,10 +20,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/dtls/v4/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsnet "github.com/pion/dtls/v4/internal/net"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/pion/logging"
@@ -91,51 +100,30 @@ type dtlsConfig struct {
 	getClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error)
 }
 
-// applyDefaults applies default values to the config.
-func (c *dtlsConfig) applyDefaults() {
-	c.ExtendedMasterSecret = RequestExtendedMasterSecret
-	c.FlightInterval = time.Second
-	c.MTU = defaultMTU
-	c.ReceiveBufferSize = defaultReceiveBufferSize
-	c.ReplayProtectionWindow = defaultReplayProtectionWindow
-	c.PaddingLengthGenerator = func(uint) uint { return 0 }
-}
-
-// buildConfig builds a config from the provided options, for mixed client/server cases.
 func buildConfig(opts ...Option) (*dtlsConfig, error) {
-	cfg := &dtlsConfig{}
-	cfg.applyDefaults()
-
-	for _, opt := range opts {
-		if err := opt.applyServer(cfg); err != nil {
-			return nil, err
-		}
-	}
-
-	return cfg, nil
+	return applyOptions(false, opts, Option.applyServer)
 }
 
-// buildServerConfig builds a config for server from the provided options.
 func buildServerConfig(opts ...ServerOption) (*dtlsConfig, error) {
-	cfg := &dtlsConfig{}
-	cfg.applyDefaults()
-
-	for _, opt := range opts {
-		if err := opt.applyServer(cfg); err != nil {
-			return nil, err
-		}
-	}
-
-	return cfg, nil
+	return applyOptions(false, opts, ServerOption.applyServer)
 }
 
-// buildClientConfig builds a config for client from the provided options.
 func buildClientConfig(opts ...ClientOption) (*dtlsConfig, error) {
-	cfg := &dtlsConfig{isClient: true}
-	cfg.applyDefaults()
+	return applyOptions(true, opts, ClientOption.applyClient)
+}
 
+func applyOptions[T any](isClient bool, opts []T, apply func(T, *dtlsConfig) error) (*dtlsConfig, error) {
+	cfg := &dtlsConfig{
+		isClient:               isClient,
+		ExtendedMasterSecret:   RequestExtendedMasterSecret,
+		FlightInterval:         time.Second,
+		MTU:                    defaultMTU,
+		ReceiveBufferSize:      defaultReceiveBufferSize,
+		ReplayProtectionWindow: defaultReplayProtectionWindow,
+		PaddingLengthGenerator: func(uint) uint { return 0 },
+	}
 	for _, opt := range opts {
-		if err := opt.applyClient(cfg); err != nil {
+		if err := apply(opt, cfg); err != nil {
 			return nil, err
 		}
 	}
@@ -150,56 +138,62 @@ type sharedOption func(*dtlsConfig) error
 func (o sharedOption) applyServer(c *dtlsConfig) error { return o(c) }
 func (o sharedOption) applyClient(c *dtlsConfig) error { return o(c) }
 
+// valueOption assigns a value only after its validation succeeds.
+func valueOption[T any](field func(*dtlsConfig) *T, value T, errs ...error) sharedOption {
+	return func(c *dtlsConfig) error {
+		for _, err := range errs {
+			if err != nil {
+				return err
+			}
+		}
+		*field(c) = value
+
+		return nil
+	}
+}
+
+func optionError(invalid bool, err error) error {
+	if invalid {
+		return err
+	}
+
+	return nil
+}
+
+// sliceOption copies each slice when applied, so configurations do not share it.
+func sliceOption[T any](field func(*dtlsConfig) *[]T, values []T, emptyErr error) sharedOption {
+	return func(c *dtlsConfig) error {
+		if len(values) == 0 {
+			return emptyErr
+		}
+		*field(c) = slices.Clone(values)
+
+		return nil
+	}
+}
+
 // WithCertificates sets the certificate chain to present to the other side of the connection.
 // For functional options, an explicitly empty slice is not allowed.
 func WithCertificates(certs ...tls.Certificate) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if len(certs) == 0 {
-			return dtlserrors.ErrEmptyCertificates
-		}
-		c.Certificates = slices.Clone(certs)
-
-		return nil
-	})
+	return sliceOption(func(c *dtlsConfig) *[]tls.Certificate { return &c.Certificates }, certs, dtlserrors.ErrEmptyCertificates)
 }
 
 // WithCipherSuites sets the supported cipher suites.
 // For functional options, an explicitly empty slice is not allowed.
 func WithCipherSuites(suites ...cryptosuite.ID) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if len(suites) == 0 {
-			return dtlserrors.ErrEmptyCipherSuites
-		}
-		c.CipherSuites = slices.Clone(suites)
-
-		return nil
-	})
+	return sliceOption(func(c *dtlsConfig) *[]cryptosuite.ID { return &c.CipherSuites }, suites, dtlserrors.ErrEmptyCipherSuites)
 }
 
 // WithCustomCipherSuites sets the custom cipher suites provider.
 // Returns an error if the provider is nil.
 func WithCustomCipherSuites(fn func() []cryptosuite.Suite) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilCustomCipherSuites
-		}
-		c.customCipherSuites = fn
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *func() []cryptosuite.Suite { return &c.customCipherSuites }, fn, optionError(fn == nil, dtlserrors.ErrNilCustomCipherSuites))
 }
 
 // WithSignatureSchemes sets the signature schemes.
 // For functional options, an explicitly empty slice is not allowed.
 func WithSignatureSchemes(schemes ...tls.SignatureScheme) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if len(schemes) == 0 {
-			return dtlserrors.ErrEmptySignatureSchemes
-		}
-		c.SignatureSchemes = slices.Clone(schemes)
-
-		return nil
-	})
+	return sliceOption(func(c *dtlsConfig) *[]tls.SignatureScheme { return &c.SignatureSchemes }, schemes, dtlserrors.ErrEmptySignatureSchemes)
 }
 
 // WithCertificateSignatureSchemes sets the signature and hash schemes that may be used
@@ -208,27 +202,13 @@ func WithSignatureSchemes(schemes ...tls.SignatureScheme) Option {
 // certificate chain validation, as specified in RFC 8446 Section 4.2.3.
 // For functional options, an explicitly empty slice is not allowed.
 func WithCertificateSignatureSchemes(schemes ...tls.SignatureScheme) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if len(schemes) == 0 {
-			return dtlserrors.ErrEmptyCertificateSignatureSchemes
-		}
-		c.CertificateSignatureSchemes = slices.Clone(schemes)
-
-		return nil
-	})
+	return sliceOption(func(c *dtlsConfig) *[]tls.SignatureScheme { return &c.CertificateSignatureSchemes }, schemes, dtlserrors.ErrEmptyCertificateSignatureSchemes)
 }
 
 // WithSRTPProtectionProfiles sets the SRTP protection profiles.
 // For functional options, an explicitly empty slice is not allowed.
 func WithSRTPProtectionProfiles(profiles ...SRTPProtectionProfile) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if len(profiles) == 0 {
-			return dtlserrors.ErrEmptySRTPProtectionProfiles
-		}
-		c.SRTPProtectionProfiles = slices.Clone(profiles)
-
-		return nil
-	})
+	return sliceOption(func(c *dtlsConfig) *[]SRTPProtectionProfile { return &c.SRTPProtectionProfiles }, profiles, dtlserrors.ErrEmptySRTPProtectionProfiles)
 }
 
 // WithSRTPMasterKeyIdentifier sets the SRTP master key identifier.
@@ -243,36 +223,18 @@ func WithSRTPMasterKeyIdentifier(identifier []byte) Option {
 // WithExtendedMasterSecret sets the extended master secret policy.
 // Returns an error if the type is invalid.
 func WithExtendedMasterSecret(ems ExtendedMasterSecretType) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if ems < RequestExtendedMasterSecret || ems > DisableExtendedMasterSecret {
-			return dtlserrors.ErrInvalidExtendedMasterSecretType
-		}
-		c.ExtendedMasterSecret = ems
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *ExtendedMasterSecretType { return &c.ExtendedMasterSecret }, ems, optionError(ems < RequestExtendedMasterSecret || ems > DisableExtendedMasterSecret, dtlserrors.ErrInvalidExtendedMasterSecretType))
 }
 
 // WithFlightInterval sets the flight interval for handshake messages.
 // Returns an error if the interval is not positive.
 func WithFlightInterval(interval time.Duration) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if interval <= 0 {
-			return dtlserrors.ErrInvalidFlightInterval
-		}
-		c.FlightInterval = interval
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *time.Duration { return &c.FlightInterval }, interval, optionError(interval <= 0, dtlserrors.ErrInvalidFlightInterval))
 }
 
 // WithDisableRetransmitBackoff disables retransmit backoff.
 func WithDisableRetransmitBackoff(disable bool) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.DisableRetransmitBackoff = disable
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *bool { return &c.DisableRetransmitBackoff }, disable)
 }
 
 // PSK is an external pre-shared key and its identity.
@@ -305,14 +267,7 @@ func (o pskOption) applyPSK(c *dtlsConfig) error { return o(c) }
 // WithPSKIdentityLimit sets the maximum number of identities accepted by the server.
 // The limit must be positive. Offers exceeding it are rejected before the server callback.
 func WithPSKIdentityLimit(limit int) PSKOption {
-	return pskOption(func(c *dtlsConfig) error {
-		if limit <= 0 {
-			return dtlserrors.ErrInvalidPSKIdentityLimit
-		}
-		c.pskIdentityLimit = limit
-
-		return nil
-	})
+	return pskOption(valueOption(func(c *dtlsConfig) *int { return &c.pskIdentityLimit }, limit, optionError(limit <= 0, dtlserrors.ErrInvalidPSKIdentityLimit)))
 }
 
 // WithPSK sets the client offer and server lookup callbacks.
@@ -335,86 +290,47 @@ func WithPSK(client PSKClientCallback, server PSKServerCallback, opts ...PSKOpti
 // WithInsecureSkipVerify skips certificate verification.
 // This should only be used for testing.
 func WithInsecureSkipVerify(skip bool) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.InsecureSkipVerify = skip
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *bool { return &c.InsecureSkipVerify }, skip)
 }
 
 // WithInsecureHashes allows the use of insecure hash algorithms.
 func WithInsecureHashes(allow bool) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.InsecureHashes = allow
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *bool { return &c.InsecureHashes }, allow)
 }
 
 // WithVerifyPeerCertificate sets the peer certificate verification callback.
 // Returns an error if the callback is nil.
 func WithVerifyPeerCertificate(fn func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilVerifyPeerCertificate
-		}
-		c.VerifyPeerCertificate = fn
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		return &c.VerifyPeerCertificate
+	}, fn, optionError(fn == nil, dtlserrors.ErrNilVerifyPeerCertificate))
 }
 
 // WithVerifyConnection sets the connection verification callback.
 // Returns an error if the callback is nil.
 func WithVerifyConnection(fn func(*State) error) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilVerifyConnection
-		}
-		c.verifyConnection = fn
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *func(*State) error { return &c.verifyConnection }, fn, optionError(fn == nil, dtlserrors.ErrNilVerifyConnection))
 }
 
 // WithRootCAs sets the root certificate authorities.
 func WithRootCAs(pool *x509.CertPool) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.RootCAs = pool
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) **x509.CertPool { return &c.RootCAs }, pool)
 }
 
 // WithServerName sets the server name for certificate verification.
 func WithServerName(name string) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.ServerName = name
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *string { return &c.ServerName }, name)
 }
 
 // WithLoggerFactory sets the logger factory for creating loggers.
 func WithLoggerFactory(factory logging.LoggerFactory) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.LoggerFactory = factory
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *logging.LoggerFactory { return &c.LoggerFactory }, factory)
 }
 
 // WithMTU sets the size used for handshake fragmentation and record packing.
 // The default is 1200 bytes.
 func WithMTU(mtu int) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if mtu < minMTU || mtu > dtlsnet.MaxInboundDatagramSize {
-			return dtlserrors.ErrInvalidMTU
-		}
-		c.MTU = mtu
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *int { return &c.MTU }, mtu, optionError(mtu < minMTU || mtu > dtlsnet.MaxInboundDatagramSize, dtlserrors.ErrInvalidMTU))
 }
 
 // WithReceiveBufferSize sets the size of the in-memory buffers used to read
@@ -427,85 +343,44 @@ func WithMTU(mtu int) Option {
 // net.UDPConn.SetReadBuffer for that.
 // Returns an error if the buffer size is not positive or greater than the 65535.
 func WithReceiveBufferSize(size int) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if size < minReceiveBufferSize || size > dtlsnet.MaxInboundDatagramSize {
-			return dtlserrors.ErrInvalidReceiveBufferSize
-		}
-		c.ReceiveBufferSize = size
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *int { return &c.ReceiveBufferSize }, size, optionError(size < minReceiveBufferSize || size > dtlsnet.MaxInboundDatagramSize, dtlserrors.ErrInvalidReceiveBufferSize))
 }
 
 // WithReplayProtectionWindow sets the replay protection window size.
 // Returns an error if the window size is negative.
 func WithReplayProtectionWindow(window int) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if window < 0 {
-			return dtlserrors.ErrInvalidReplayProtectionWindow
-		}
-		c.ReplayProtectionWindow = window
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *int { return &c.ReplayProtectionWindow }, window, optionError(window < 0, dtlserrors.ErrInvalidReplayProtectionWindow))
 }
 
 // WithKeyLogWriter sets the key log writer for debugging.
 // Use of KeyLogWriter compromises security and should only be used for debugging.
 func WithKeyLogWriter(writer io.Writer) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.KeyLogWriter = writer
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *io.Writer { return &c.KeyLogWriter }, writer)
 }
 
 // WithSessionStore sets the session store for resumption.
 func WithSessionStore(store SessionStore) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		c.sessionStore = store
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *SessionStore { return &c.sessionStore }, store)
 }
 
 // WithSupportedProtocols sets the supported application protocols for ALPN.
 // For functional options, an explicitly empty slice is not allowed.
 func WithSupportedProtocols(protocols ...string) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if len(protocols) == 0 {
-			return dtlserrors.ErrEmptySupportedProtocols
-		}
-		c.SupportedProtocols = slices.Clone(protocols)
-
-		return nil
-	})
+	return sliceOption(func(c *dtlsConfig) *[]string { return &c.SupportedProtocols }, protocols, dtlserrors.ErrEmptySupportedProtocols)
 }
 
 // WithEllipticCurves sets the elliptic curves.
 // For functional options, an explicitly empty slice is not allowed.
 func WithEllipticCurves(curves ...elliptic.Curve) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if len(curves) == 0 {
-			return dtlserrors.ErrEmptyEllipticCurves
-		}
-		c.EllipticCurves = slices.Clone(curves)
-
-		return nil
-	})
+	return sliceOption(func(c *dtlsConfig) *[]elliptic.Curve { return &c.EllipticCurves }, curves, dtlserrors.ErrEmptyEllipticCurves)
 }
 
 // WithGetClientCertificate sets the client certificate getter callback.
 // Returns an error if the callback is nil.
 func WithGetClientCertificate(fn func(*CertificateRequestInfo) (*tls.Certificate, error)) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilGetClientCertificate
-		}
-		c.getClientCertificate = fn
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *func(*CertificateRequestInfo) (*tls.Certificate, error) {
+		return &c.getClientCertificate
+	}, fn, optionError(fn == nil, dtlserrors.ErrNilGetClientCertificate))
 }
 
 type cidPathMigrationPolicy uint8
@@ -558,68 +433,35 @@ func WithConnectionID(generator func() []byte, policy cidPathMigrationPolicy) Op
 // WithPaddingLengthGenerator sets the padding length generator.
 // Returns an error if the generator is nil.
 func WithPaddingLengthGenerator(fn func(uint) uint) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilPaddingLengthGenerator
-		}
-		c.PaddingLengthGenerator = fn
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *func(uint) uint { return &c.PaddingLengthGenerator }, fn, optionError(fn == nil, dtlserrors.ErrNilPaddingLengthGenerator))
 }
 
 // WithHelloRandomBytesGenerator sets the hello random bytes generator.
 // Returns an error if the generator is nil.
 func WithHelloRandomBytesGenerator(fn func() [handshake.RandomBytesLength]byte) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilHelloRandomBytesGenerator
-		}
-		c.HelloRandomBytesGenerator = fn
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *func() [handshake.RandomBytesLength]byte { return &c.HelloRandomBytesGenerator }, fn, optionError(fn == nil, dtlserrors.ErrNilHelloRandomBytesGenerator))
 }
 
 // WithClientHelloMessageHook sets the client hello message hook.
 // Returns an error if the hook is nil.
 func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.Message) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilClientHelloMessageHook
-		}
-		c.ClientHelloMessageHook = fn
-
-		return nil
-	})
+	return valueOption(func(c *dtlsConfig) *func(handshake.MessageClientHello) handshake.Message {
+		return &c.ClientHelloMessageHook
+	}, fn, optionError(fn == nil, dtlserrors.ErrNilClientHelloMessageHook))
 }
 
 // WithMinVersion sets the minimum TLS version that is acceptable.
 // By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
 func WithMinVersion(version protocol.Version) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if version == protocol.Version1_2 || version == protocol.Version1_3 {
-			c.MinVersion = version
-
-			return nil
-		}
-
-		return dtlserrors.ErrUnsupportedProtocolVersion
-	})
+	return valueOption(func(c *dtlsConfig) *protocol.Version { return &c.MinVersion }, version,
+		optionError(version != protocol.Version1_2 && version != protocol.Version1_3, dtlserrors.ErrUnsupportedProtocolVersion))
 }
 
 // WithMaxVersion sets the maximum TLS version that is acceptable.
 // By default, DTLS 1.2 is currently used as the maximum.
 func WithMaxVersion(version protocol.Version) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if version == protocol.Version1_2 || version == protocol.Version1_3 {
-			c.MaxVersion = version
-
-			return nil
-		}
-
-		return dtlserrors.ErrUnsupportedProtocolVersion
-	})
+	return valueOption(func(c *dtlsConfig) *protocol.Version { return &c.MaxVersion }, version,
+		optionError(version != protocol.Version1_2 && version != protocol.Version1_3, dtlserrors.ErrUnsupportedProtocolVersion))
 }
 
 // serverOnlyOption wraps an apply function for server-only options.
@@ -631,89 +473,711 @@ func (o serverOnlyOption) applyServer(c *dtlsConfig) error { return o(c) }
 // Returns an error if the type is invalid.
 // This option is only applicable to servers.
 func WithClientAuth(auth ClientAuthType) ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		if auth < NoClientCert || auth > RequireAndVerifyClientCert {
-			return dtlserrors.ErrInvalidClientAuthType
-		}
-		c.ClientAuth = auth
-
-		return nil
-	})
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) *ClientAuthType { return &c.ClientAuth }, auth, optionError(auth < NoClientCert || auth > RequireAndVerifyClientCert, dtlserrors.ErrInvalidClientAuthType)))
 }
 
 // WithClientCAs sets the client certificate authorities.
 // This option is only applicable to servers.
 func WithClientCAs(pool *x509.CertPool) ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		c.ClientCAs = pool
-
-		return nil
-	})
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) **x509.CertPool { return &c.ClientCAs }, pool))
 }
 
 // WithGetCertificate sets the certificate getter callback.
 // Returns an error if the callback is nil.
 // This option is only applicable to servers.
 func WithGetCertificate(fn func(*ClientHelloInfo) (*tls.Certificate, error)) ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilGetCertificate
-		}
-		c.getCertificate = fn
-
-		return nil
-	})
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(*ClientHelloInfo) (*tls.Certificate, error) { return &c.getCertificate }, fn, optionError(fn == nil, dtlserrors.ErrNilGetCertificate)))
 }
 
 // WithInsecureSkipVerifyHello skips hello verify phase on the server.
 // This has implication on DoS attack resistance.
 // This option is only applicable to servers.
 func WithInsecureSkipVerifyHello(skip bool) ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		c.InsecureSkipVerifyHello = skip
-
-		return nil
-	})
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) *bool { return &c.InsecureSkipVerifyHello }, skip))
 }
 
 // WithServerHelloMessageHook sets the server hello message hook.
 // Returns an error if the hook is nil.
 // This option is only applicable to servers.
 func WithServerHelloMessageHook(fn func(handshake.MessageServerHello) handshake.Message) ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilServerHelloMessageHook
-		}
-		c.ServerHelloMessageHook = fn
-
-		return nil
-	})
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(handshake.MessageServerHello) handshake.Message {
+		return &c.ServerHelloMessageHook
+	}, fn, optionError(fn == nil, dtlserrors.ErrNilServerHelloMessageHook)))
 }
 
 // WithCertificateRequestMessageHook sets the certificate request message hook.
 // Returns an error if the hook is nil.
 // This option is only applicable to servers.
 func WithCertificateRequestMessageHook(fn func(handshake.MessageCertificateRequest) handshake.Message) ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilCertificateRequestMessageHook
-		}
-		c.CertificateRequestMessageHook = fn
-
-		return nil
-	})
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(handshake.MessageCertificateRequest) handshake.Message {
+		return &c.CertificateRequestMessageHook
+	}, fn, optionError(fn == nil, dtlserrors.ErrNilCertificateRequestMessageHook)))
 }
 
 // WithOnConnectionAttempt sets the connection attempt callback.
 // Returns an error if the callback is nil.
 // This option is only applicable to servers.
 func WithOnConnectionAttempt(fn func(net.Addr) error) ServerOption {
-	return serverOnlyOption(func(c *dtlsConfig) error {
-		if fn == nil {
-			return dtlserrors.ErrNilOnConnectionAttempt
-		}
-		c.OnConnectionAttempt = fn
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(net.Addr) error { return &c.OnConnectionAttempt }, fn, optionError(fn == nil, dtlserrors.ErrNilOnConnectionAttempt)))
+}
 
+const (
+	minMTU     = 1
+	defaultMTU = 1200 // bytes
+
+	minReceiveBufferSize = 1
+)
+
+var defaultCurves = []elliptic.Curve{ //nolint:gochecknoglobals
+	elliptic.X25519MLKEM768,
+	elliptic.X25519,
+	elliptic.P256,
+	elliptic.P384,
+}
+
+type connConfigValues struct {
+	logger                      logging.LeveledLogger
+	maximumTransmissionUnit     int
+	receiveBufferSize           int
+	paddingLengthGenerator      func(uint) uint
+	replayProtectionWindow      int
+	initialRetransmitInterval   time.Duration
+	minVersion                  protocol.Version
+	maxVersion                  protocol.Version
+	cipherSuites                []dtlsconfig.CipherSuite
+	signatureSchemes            []signaturehash.Algorithm
+	certificateSignatureSchemes []signaturehash.Algorithm
+	ellipticCurves              []elliptic.Curve
+	serverName                  string
+	cidPathMigrationPolicy      cidPathMigrationPolicy
+}
+
+func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
+	minVersion, maxVersion, err := effectiveProtocolVersionRange(config)
+	if err != nil {
+		return connConfigValues{}, err
+	}
+
+	cipherSuites, err := selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.pskEnabled(), minVersion, maxVersion)
+	if err != nil {
+		return connConfigValues{}, err
+	}
+
+	signatureSchemes, certSignatureSchemes, err := parseConnSignatureSchemes(config)
+	if err != nil {
+		return connConfigValues{}, err
+	}
+
+	return connConfigValues{
+		logger:                      newConnLogger(config),
+		maximumTransmissionUnit:     config.MTU,
+		receiveBufferSize:           config.ReceiveBufferSize,
+		paddingLengthGenerator:      config.PaddingLengthGenerator,
+		replayProtectionWindow:      effectiveReplayProtectionWindow(config.ReplayProtectionWindow),
+		initialRetransmitInterval:   config.FlightInterval,
+		minVersion:                  minVersion,
+		maxVersion:                  maxVersion,
+		cipherSuites:                cipherSuites,
+		signatureSchemes:            signatureSchemes,
+		certificateSignatureSchemes: certSignatureSchemes,
+		ellipticCurves:              effectiveEllipticCurves(config.EllipticCurves),
+		serverName:                  effectiveServerName(config.ServerName),
+		cidPathMigrationPolicy:      config.CIDPathMigrationPolicy,
+	}, nil
+}
+
+func parseConnSignatureSchemes(
+	config *dtlsConfig,
+) ([]signaturehash.Algorithm, []signaturehash.Algorithm, error) {
+	signatureSchemes, err := signaturehash.ParseSignatureSchemes(config.SignatureSchemes, config.InsecureHashes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var certSignatureSchemes []signaturehash.Algorithm
+	if len(config.CertificateSignatureSchemes) > 0 {
+		certSignatureSchemes, err = signaturehash.ParseSignatureSchemes(config.CertificateSignatureSchemes, config.InsecureHashes)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return signatureSchemes, certSignatureSchemes, nil
+}
+
+func newConnLogger(config *dtlsConfig) logging.LeveledLogger {
+	loggerFactory := config.LoggerFactory
+	if loggerFactory == nil {
+		loggerFactory = logging.NewDefaultLoggerFactory()
+	}
+
+	return loggerFactory.NewLogger("dtls")
+}
+
+func effectiveReplayProtectionWindow(replayProtectionWindow int) int {
+	if replayProtectionWindow <= 0 {
+		return defaultReplayProtectionWindow
+	}
+
+	return replayProtectionWindow
+}
+
+func effectiveServerName(serverName string) string {
+	// Do not allow the use of an IP address literal as an SNI value.
+	// See RFC 6066, Section 3.
+	if net.ParseIP(serverName) != nil {
+		return ""
+	}
+
+	return serverName
+}
+
+func effectiveEllipticCurves(curves []elliptic.Curve) []elliptic.Curve {
+	if len(curves) == 0 {
+		curves = defaultCurves
+	}
+	if !fips140.Enabled() {
+		return curves
+	}
+
+	return filterFIPSCurves(curves)
+}
+
+func filterFIPSCurves(curves []elliptic.Curve) []elliptic.Curve {
+	filtered := make([]elliptic.Curve, 0, len(curves))
+	for _, curve := range curves {
+		if curve != elliptic.X25519 && curve != elliptic.X25519MLKEM768 {
+			filtered = append(filtered, curve)
+		}
+	}
+
+	return filtered
+}
+
+// cipherSuiteFIPSApproved reports whether a suite's cipher comes from the Go FIPS
+// module. ChaCha20-Poly1305 and AES-CCM don't, so they're not approved in FIPS
+// mode; AES-GCM and AES-CBC are fine.
+func cipherSuiteFIPSApproved(id cryptosuite.ID) bool {
+	switch id {
+	case cryptosuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+		cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+		cryptosuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256,
+		cryptosuite.TLS_CHACHA20_POLY1305_SHA256,
+		cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
+		cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
+		cryptosuite.TLS_PSK_WITH_AES_128_CCM,
+		cryptosuite.TLS_PSK_WITH_AES_128_CCM_8,
+		cryptosuite.TLS_PSK_WITH_AES_256_CCM_8:
+		return false
+	default:
+		return true
+	}
+}
+
+func adaptVerifyConnection(verifyConnection func(*State) error) func(dtlsstate.Active) error {
+	if verifyConnection == nil {
 		return nil
+	}
+
+	return func(state dtlsstate.Active) error {
+		stateSnapshot, err := generateStateForVerifyConnection(state)
+		if err != nil {
+			return err
+		}
+
+		return verifyConnection(stateSnapshot)
+	}
+}
+
+func adaptGetCertificate(getCertificate func(*ClientHelloInfo) (*tls.Certificate, error)) func(*dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
+	if getCertificate == nil {
+		return nil
+	}
+
+	return func(info *dtlsconfig.ClientHelloInfo) (*tls.Certificate, error) {
+		return getCertificate(&ClientHelloInfo{ServerName: info.ServerName, CipherSuites: info.CipherSuites, RandomBytes: info.RandomBytes})
+	}
+}
+
+func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error)) func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
+	if getClientCertificate == nil {
+		return nil
+	}
+
+	return func(info *dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
+		signatureSchemes := make([]tls.SignatureScheme, 0, len(info.SignatureSchemes))
+		for _, algorithm := range info.SignatureSchemes {
+			raw := algorithm.Marshal()
+			signatureSchemes = append(signatureSchemes, tls.SignatureScheme(uint16(raw[0])<<8|uint16(raw[1])))
+		}
+
+		return getClientCertificate(&CertificateRequestInfo{CertificateTypes: info.CertificateTypes, AcceptableCAs: info.AcceptableCAs, SignatureSchemes: signatureSchemes})
+	}
+}
+
+func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState *dtlsstate.State) *dtlsconfig.HandshakeConfig {
+	handshakeConfig := &dtlsconfig.HandshakeConfig{
+		LocalCipherSuites:             configValues.cipherSuites,
+		LocalSignatureSchemes:         configValues.signatureSchemes,
+		LocalCertSignatureSchemes:     configValues.certificateSignatureSchemes,
+		ExtendedMasterSecret:          dtlsconfig.ExtendedMasterSecretType(config.ExtendedMasterSecret),
+		LocalSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
+		LocalSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
+		ServerName:                    configValues.serverName,
+		SupportedProtocols:            config.SupportedProtocols,
+		ClientAuth:                    dtlsconfig.ClientAuthType(config.ClientAuth),
+		LocalCertificates:             config.Certificates,
+		InsecureSkipVerify:            config.InsecureSkipVerify,
+		VerifyPeerCertificate:         config.VerifyPeerCertificate,
+		VerifyConnection:              adaptVerifyConnection(config.verifyConnection),
+		HasSessionStore:               config.sessionStore != nil,
+		RootCAs:                       config.RootCAs,
+		ClientCAs:                     config.ClientCAs,
+		InitialRetransmitInterval:     configValues.initialRetransmitInterval,
+		DisableRetransmitBackoff:      config.DisableRetransmitBackoff,
+		EllipticCurves:                configValues.ellipticCurves,
+		InsecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
+		ReceiveCIDLength:              config.ReceiveCIDLength,
+		ConnectionIDGenerator:         config.ConnectionIDGenerator,
+		EnableRRC:                     config.CIDPathMigrationPolicy == CIDPathMigrationRRC,
+		HelloRandomBytesGenerator:     config.HelloRandomBytesGenerator,
+		Log:                           configValues.logger,
+		KeyLogWriter:                  config.KeyLogWriter,
+		LocalGetCertificate:           adaptGetCertificate(config.getCertificate),
+		LocalGetClientCertificate:     adaptGetClientCertificate(config.getClientCertificate),
+		InitialEpoch:                  0,
+		ClientHelloMessageHook:        config.ClientHelloMessageHook,
+		ServerHelloMessageHook:        config.ServerHelloMessageHook,
+		CertificateRequestMessageHook: config.CertificateRequestMessageHook,
+		ResumeState:                   resumeState,
+		MinVersion:                    configValues.minVersion,
+		MaxVersion:                    configValues.maxVersion,
+	}
+	if config.sessionStore != nil {
+		handshakeConfig.GetSession = func(key []byte) (id, secret []byte, err error) {
+			session, err := config.sessionStore.Get(key)
+
+			return session.ID, session.Secret, err
+		}
+		handshakeConfig.SetSession = func(key, id, secret []byte) error {
+			return config.sessionStore.Set(key, Session{ID: id, Secret: secret})
+		}
+		handshakeConfig.DelSession = config.sessionStore.Del
+	}
+
+	config.configurePSK(handshakeConfig)
+
+	return handshakeConfig
+}
+
+func (c *dtlsConfig) includeCertificateSuites() bool {
+	return !c.pskEnabled() || len(c.Certificates) > 0 || c.getCertificate != nil || c.getClientCertificate != nil
+}
+
+func (c *dtlsConfig) pskEnabled() bool {
+	if c.isClient {
+		return c.pskClient != nil
+	}
+
+	return c.pskServer != nil
+}
+
+// configurePSK adapts the public callbacks to the flight handlers, keeping the
+// client's identity and key together for the lifetime of this handshake.
+func (c *dtlsConfig) configurePSK(cfg *dtlsconfig.HandshakeConfig) {
+	if !c.pskEnabled() {
+		return
+	}
+	if !c.isClient {
+		cfg.SelectPSK = c.selectPSK
+
+		return
+	}
+	var key []byte
+	cfg.LocalPSKCallback = func([]byte) ([]byte, error) {
+		if key != nil {
+			return bytes.Clone(key), nil
+		}
+		psks, err := c.pskClient()
+		if err != nil {
+			return nil, err
+		}
+		if len(psks) != 1 {
+			return nil, dtlserrors.ErrPSKCount
+		}
+		key, err = psks[0].cloneKey()
+		if err != nil {
+			return nil, err
+		}
+		// DTLS 1.2 uses a non-nil slice to encode even an empty identity.
+		cfg.LocalPSKIdentityHint = append([]byte{}, psks[0].Identity...)
+
+		return bytes.Clone(key), nil
+	}
+}
+
+func (c *dtlsConfig) selectPSK(identities [][]byte) (int, []byte, error) {
+	if len(identities) > c.pskIdentityLimit {
+		return -1, nil, dtlserrors.ErrTooManyPSKIdentities
+	}
+	offered := make([][]byte, len(identities))
+	for i, identity := range identities {
+		offered[i] = bytes.Clone(identity)
+	}
+	psk, err := c.pskServer(offered)
+	if err != nil || psk == nil {
+		return -1, nil, err
+	}
+	index := slices.IndexFunc(identities, func(identity []byte) bool {
+		return bytes.Equal(identity, psk.Identity)
+	})
+	if index < 0 {
+		return -1, nil, dtlserrors.ErrPSKIdentity
+	}
+	key, err := psk.cloneKey()
+
+	return index, key, err
+}
+
+func (p PSK) cloneKey() ([]byte, error) {
+	if p.Hash != 0 && p.Hash != crypto.SHA256 {
+		return nil, dtlserrors.ErrPSKHash
+	}
+	if len(p.Key) == 0 {
+		return nil, dtlserrors.ErrPSKNotNegotiated
+	}
+
+	return bytes.Clone(p.Key), nil
+}
+
+// ClientAuthType declares the policy the server will follow for
+// TLS Client Authentication.
+type ClientAuthType int
+
+// ClientAuthType enums.
+const (
+	NoClientCert ClientAuthType = iota
+	RequestClientCert
+	RequireAnyClientCert
+	VerifyClientCertIfGiven
+	RequireAndVerifyClientCert
+)
+
+// ExtendedMasterSecretType declares the policy the client and server
+// will follow for the Extended Master Secret extension.
+type ExtendedMasterSecretType int
+
+// ExtendedMasterSecretType enums.
+const (
+	RequestExtendedMasterSecret ExtendedMasterSecretType = iota
+	RequireExtendedMasterSecret
+	DisableExtendedMasterSecret
+)
+
+func validateConfig(config *dtlsConfig) error { //nolint:cyclop
+	if config == nil {
+		return dtlserrors.ErrNoConfigProvided
+	}
+
+	for _, cert := range config.Certificates {
+		if cert.Certificate == nil {
+			return dtlserrors.ErrInvalidCertificate
+		}
+		if cert.PrivateKey != nil {
+			signer, ok := cert.PrivateKey.(crypto.Signer)
+			if !ok {
+				return dtlserrors.ErrInvalidPrivateKey
+			}
+			switch signer.Public().(type) {
+			case ed25519.PublicKey:
+			case *ecdsa.PublicKey:
+			case *rsa.PublicKey:
+			default:
+				return dtlserrors.ErrInvalidPrivateKey
+			}
+		}
+	}
+
+	minVersion, maxVersion, err := effectiveProtocolVersionRange(config)
+	if err != nil {
+		return err
+	}
+
+	_, err = selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.pskEnabled(), minVersion, maxVersion)
+
+	return err
+}
+
+func defaultCipherSuitesForVersion(version protocol.Version) []cryptosuite.Suite {
+	var ids []cryptosuite.ID
+	switch version {
+	case protocol.Version1_3:
+		ids = []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_AES_256_GCM_SHA384, cryptosuite.TLS_CHACHA20_POLY1305_SHA256}
+	case protocol.Version1_2:
+		ids = []cryptosuite.ID{
+			cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			cryptosuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			cryptosuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+			cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+			cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+			cryptosuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+			cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			cryptosuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		}
+	case protocol.Version1_0:
+		return nil
+	}
+
+	suites := make([]cryptosuite.Suite, len(ids))
+	for i, id := range ids {
+		suites[i] = ciphersuite.ForID(id)
+	}
+
+	return suites
+}
+
+func filterCipherSuitesForVersion(
+	cipherSuites []cryptosuite.Suite,
+	version protocol.Version,
+) []cryptosuite.Suite {
+	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool { return !suite.Capabilities().SupportsVersion(version) })
+}
+
+//nolint:cyclop,gocognit
+func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, includeCertificateSuites, includePSKSuites bool, minVersion, maxVersion protocol.Version) ([]cryptosuite.Suite, error) {
+	customByID := make(map[cryptosuite.ID]cryptosuite.Suite)
+	var custom []cryptosuite.Suite
+	if customCipherSuites != nil {
+		custom = customCipherSuites()
+		for _, suite := range custom {
+			if suite == nil || ciphersuite.ForID(suite.ID()) != nil || customByID[suite.ID()] != nil {
+				return nil, dtlserrors.ErrInvalidCipherSuite
+			}
+			if err := validateCipherSuite(suite); err != nil {
+				return nil, err
+			}
+			customByID[suite.ID()] = suite
+		}
+	}
+
+	var cipherSuites []cryptosuite.Suite
+	if selectedIDs != nil {
+		cipherSuites = make([]cryptosuite.Suite, 0, len(selectedIDs))
+		for _, id := range selectedIDs {
+			suite := customByID[id]
+			if suite == nil {
+				suite = ciphersuite.ForID(id)
+			}
+			if suite == nil {
+				return nil, &invalidCipherSuiteError{id}
+			}
+			if err := validateCipherSuite(suite); err != nil {
+				return nil, err
+			}
+			cipherSuites = append(cipherSuites, suite)
+		}
+	} else {
+		for _, version := range dtlsconfig.SupportedVersionsRange(minVersion, maxVersion) {
+			cipherSuites = append(cipherSuites, defaultCipherSuitesForVersion(version)...)
+		}
+	}
+
+	// Without an explicit ID list, external suites are enabled ahead of the
+	// defaults. With an explicit list, the provider is only a registry.
+	if selectedIDs == nil && len(custom) > 0 {
+		cipherSuites = append(append(make([]cryptosuite.Suite, 0, len(custom)+len(cipherSuites)), custom...), cipherSuites...)
+	}
+
+	versions := dtlsconfig.SupportedVersionsRange(minVersion, maxVersion)
+	cipherSuites = slices.DeleteFunc(cipherSuites, func(suite cryptosuite.Suite) bool {
+		return !slices.ContainsFunc(versions, suite.Capabilities().SupportsVersion)
+	})
+
+	// Drop ciphers the Go FIPS module can't provide when FIPS mode is on,
+	// mirroring effectiveEllipticCurves/filterFIPSCurves above.
+	if fips140.Enabled() {
+		cipherSuites = slices.DeleteFunc(cipherSuites, func(suite cryptosuite.Suite) bool {
+			return !cipherSuiteFIPSApproved(suite.ID())
+		})
+	}
+
+	var foundCertificateSuite, foundPSKSuite, foundTrafficSuite bool
+	i := 0
+	for _, suite := range cipherSuites {
+		if suite.Capabilities().SupportsVersion(protocol.Version1_3) {
+			foundTrafficSuite = true
+			cipherSuites[i] = suite
+			i++
+
+			continue
+		}
+		switch {
+		case includeCertificateSuites && suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate:
+			foundCertificateSuite = true
+		case includePSKSuites && suite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey:
+			foundPSKSuite = true
+		case suite.AuthenticationType() == cryptosuite.AuthenticationTypeAnonymous:
+		default:
+			continue
+		}
+		cipherSuites[i] = suite
+		i++
+	}
+
+	switch {
+	case includeCertificateSuites && !foundCertificateSuite && !foundTrafficSuite:
+		return nil, dtlserrors.ErrNoAvailableCertificateCipherSuite
+	case includePSKSuites && !foundPSKSuite && !foundTrafficSuite:
+		return nil, dtlserrors.ErrNoAvailablePSKCipherSuite
+	case i == 0:
+		return nil, dtlserrors.ErrNoAvailableCipherSuites
+	}
+
+	return cipherSuites[:i], nil
+}
+
+func validateCipherSuite(suite cryptosuite.Suite) error { //nolint:cyclop
+	if suite == nil || suite.ID() == 0 {
+		return dtlserrors.ErrInvalidCipherSuite
+	}
+	hashFunc := suite.HashFunc()
+	if hashFunc == nil {
+		return dtlserrors.ErrInvalidCipherSuite
+	}
+	hashInstance := hashFunc()
+	if hashInstance == nil || hashInstance.Size() <= 0 || hashInstance.BlockSize() <= 0 {
+		return dtlserrors.ErrInvalidCipherSuite
+	}
+
+	switch suite.Capabilities().Version() {
+	case protocol.Version1_2:
+		if _, ok := suite.(cryptosuite.ConnectionSuite); !ok {
+			return dtlserrors.ErrInvalidCipherSuite
+		}
+	case protocol.Version1_3:
+		if _, ok := suite.(cryptosuite.TrafficSuite); !ok {
+			return dtlserrors.ErrInvalidCipherSuite
+		}
+	default:
+		return dtlserrors.ErrInvalidCipherSuite
+	}
+
+	return nil
+}
+
+func filterCipherSuitesForCertificate(
+	cert *tls.Certificate,
+	cipherSuites []cryptosuite.Suite,
+) []cryptosuite.Suite {
+	if cert == nil || cert.PrivateKey == nil {
+		return cipherSuites
+	}
+	signer, ok := cert.PrivateKey.(crypto.Signer)
+	if !ok {
+		return cipherSuites
+	}
+
+	var certType clientcertificate.Type
+	switch signer.Public().(type) {
+	case ed25519.PublicKey, *ecdsa.PublicKey:
+		certType = clientcertificate.ECDSASign
+	case *rsa.PublicKey:
+		certType = clientcertificate.RSASign
+	}
+
+	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool {
+		return !suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate && certType != suite.CertificateType()
+	})
+}
+
+// effectiveProtocolVersionRange restricts a configured version range to the
+// versions supported by explicitly selected cipher suites and curves. This
+// prevents advertising a version for which the local configuration cannot
+// complete a handshake.
+func effectiveProtocolVersionRange(config *dtlsConfig) (protocol.Version, protocol.Version, error) {
+	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
+	versions := dtlsconfig.SupportedVersionsRange(minVersion, maxVersion)
+
+	if cipherVersions := supportedCipherSuiteVersions(config.CipherSuites, config.customCipherSuites, versions); len(cipherVersions) != 0 {
+		versions = cipherVersions
+	}
+
+	curveVersions := supportedEllipticCurveVersions(config.EllipticCurves, dtlsconfig.SupportedVersionsRange(minVersion, maxVersion))
+	if len(config.EllipticCurves) != 0 && len(curveVersions) == 0 {
+		return 0, 0, dtlserrors.ErrUnsupportedEllipticCurveVersion
+	}
+	versions = intersectSupportedVersions(versions, curveVersions)
+
+	if len(versions) == 0 {
+		return 0, 0, dtlserrors.ErrNoCommonProtocolVersion
+	}
+
+	return versions[len(versions)-1], versions[0], nil
+}
+
+func supportedCipherSuiteVersions(suites []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, versions []protocol.Version) []protocol.Version {
+	if suites == nil {
+		return versions
+	}
+
+	customByID := make(map[cryptosuite.ID]cryptosuite.Suite)
+	if customCipherSuites != nil {
+		for _, suite := range customCipherSuites() {
+			if suite != nil {
+				customByID[suite.ID()] = suite
+			}
+		}
+	}
+	descriptors := make([]cryptosuite.Suite, 0, len(suites))
+	for _, id := range suites {
+		suite := customByID[id]
+		if suite == nil {
+			suite = ciphersuite.ForID(id)
+		}
+		if suite == nil {
+			return versions
+		}
+		descriptors = append(descriptors, suite)
+	}
+
+	return filterSupportedVersions(versions, func(version protocol.Version) bool {
+		return slices.ContainsFunc(descriptors, func(suite cryptosuite.Suite) bool { return suite.Capabilities().SupportsVersion(version) })
+	})
+}
+
+func supportedEllipticCurveVersions(
+	curves []elliptic.Curve,
+	versions []protocol.Version,
+) []protocol.Version {
+	if len(curves) == 0 {
+		return versions
+	}
+
+	return filterSupportedVersions(versions, func(version protocol.Version) bool {
+		return slices.ContainsFunc(curves, func(curve elliptic.Curve) bool {
+			return curve != elliptic.X25519MLKEM768 || version == protocol.Version1_3
+		})
+	})
+}
+
+func filterSupportedVersions(
+	versions []protocol.Version,
+	supports func(protocol.Version) bool,
+) []protocol.Version {
+	filtered := make([]protocol.Version, 0, len(versions))
+	for _, version := range versions {
+		if supports(version) {
+			filtered = append(filtered, version)
+		}
+	}
+
+	return filtered
+}
+
+func intersectSupportedVersions(
+	left, right []protocol.Version,
+) []protocol.Version {
+	return filterSupportedVersions(left, func(version protocol.Version) bool {
+		return slices.Contains(right, version)
 	})
 }

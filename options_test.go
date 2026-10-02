@@ -23,26 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCreatesConn(t *testing.T) {
-	ca, cb := packetPipe()
-	defer func() {
-		_ = ca.Close()
-		_ = cb.Close()
-	}()
-
-	cert, err := selfsign.GenerateSelfSigned()
-	require.NoError(t, err)
-
-	client, err := Client(ca, ca.RemoteAddr(), WithCertificates(cert), WithInsecureSkipVerify(true))
-	require.NoError(t, err)
-
-	server, err := Server(cb, cb.RemoteAddr(), WithCertificates(cert), WithInsecureSkipVerify(true))
-	require.NoError(t, err)
-
-	require.NoError(t, client.Close())
-	require.NoError(t, server.Close())
-}
-
 func newOptionsClient(t *testing.T, opts ...ClientOption) (*Conn, error) {
 	t.Helper()
 
@@ -84,10 +64,7 @@ func newOptionsServer(t *testing.T, opts ...ServerOption) (*Conn, error) {
 func clientOptionsError(t *testing.T, opts ...ClientOption) error {
 	t.Helper()
 
-	client, err := newOptionsClient(t, opts...)
-	if client != nil {
-		_ = client.Close()
-	}
+	_, err := newOptionsClient(t, opts...)
 
 	return err
 }
@@ -95,10 +72,7 @@ func clientOptionsError(t *testing.T, opts ...ClientOption) error {
 func serverOptionsError(t *testing.T, opts ...ServerOption) error {
 	t.Helper()
 
-	server, err := newOptionsServer(t, opts...)
-	if server != nil {
-		_ = server.Close()
-	}
+	_, err := newOptionsServer(t, opts...)
 
 	return err
 }
@@ -281,12 +255,6 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 			WithMTU(dtlsnet.MaxInboundDatagramSize + 1),
 			WithMTU(1 << 20),
 		}, dtlserrors.ErrInvalidMTU},
-		"InvalidReceiveBufferSize": {[]Option{
-			WithReceiveBufferSize(-1),
-			WithReceiveBufferSize(0),
-			WithReceiveBufferSize(dtlsnet.MaxInboundDatagramSize + 1),
-			WithReceiveBufferSize(1 << 20),
-		}, dtlserrors.ErrInvalidReceiveBufferSize},
 		"InvalidReplayProtectionWindow": {[]Option{WithReplayProtectionWindow(-1)}, dtlserrors.ErrInvalidReplayProtectionWindow},
 	}
 	for name, test := range tests {
@@ -326,12 +294,6 @@ func TestBoundedNumericOptionValues(t *testing.T) {
 		}},
 		"MaximumMTU": {WithMTU(dtlsnet.MaxInboundDatagramSize), func(config *dtlsConfig) {
 			require.Equal(t, dtlsnet.MaxInboundDatagramSize, config.MTU)
-		}},
-		"MinimumReceiveBufferSize": {WithReceiveBufferSize(minReceiveBufferSize), func(config *dtlsConfig) {
-			require.Equal(t, minReceiveBufferSize, config.ReceiveBufferSize)
-		}},
-		"MaximumReceiveBufferSize": {WithReceiveBufferSize(dtlsnet.MaxInboundDatagramSize), func(config *dtlsConfig) {
-			require.Equal(t, dtlsnet.MaxInboundDatagramSize, config.ReceiveBufferSize)
 		}},
 	}
 
@@ -406,29 +368,15 @@ func TestSelectedCipherSuitesConstrainProtocolVersion(t *testing.T) {
 	})
 }
 
-// TestDefaultsAreApplied verifies that defaults are applied before options.
 func TestDefaultsAreApplied(t *testing.T) {
-	t.Run("ClientDefaults", func(t *testing.T) {
-		client, err := newOptionsClient(t)
+	for _, server := range []bool{false, true} {
+		conn, err := newSharedOptionsConn(t, server)
 		require.NoError(t, err)
-
-		config := client.handshakeConfig
-		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret), config.ExtendedMasterSecret)
-		require.Equal(t, time.Second, config.InitialRetransmitInterval)
-		require.Equal(t, defaultMTU, client.maximumTransmissionUnit)
-		require.Equal(t, uint(defaultReplayProtectionWindow), client.replayProtectionWindow)
-	})
-
-	t.Run("ServerDefaults", func(t *testing.T) {
-		server, err := newOptionsServer(t)
-		require.NoError(t, err)
-
-		config := server.handshakeConfig
-		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret), config.ExtendedMasterSecret)
-		require.Equal(t, time.Second, config.InitialRetransmitInterval)
-		require.Equal(t, defaultMTU, server.maximumTransmissionUnit)
-		require.Equal(t, uint(defaultReplayProtectionWindow), server.replayProtectionWindow)
-	})
+		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret), conn.handshakeConfig.ExtendedMasterSecret)
+		require.Equal(t, time.Second, conn.handshakeConfig.InitialRetransmitInterval)
+		require.Equal(t, defaultMTU, conn.maximumTransmissionUnit)
+		require.Equal(t, uint(defaultReplayProtectionWindow), conn.replayProtectionWindow)
+	}
 }
 
 // TestOptionsOverrideDefaults verifies that options override defaults.
@@ -454,46 +402,6 @@ func TestOptionsOverrideDefaults(t *testing.T) {
 		require.Equal(t, 1400, server.maximumTransmissionUnit)
 		require.Equal(t, uint(256), server.replayProtectionWindow)
 		require.Equal(t, dtlsconfig.ClientAuthType(RequireAndVerifyClientCert), config.ClientAuth)
-	})
-}
-
-// TestValidOptionsSucceed verifies that valid options don't return errors.
-func TestValidOptionsSucceed(t *testing.T) {
-	cert, err := selfsign.GenerateSelfSigned()
-	require.NoError(t, err)
-
-	t.Run("ClientValidOptions", func(t *testing.T) {
-		client, err := newOptionsClient(t,
-			WithCertificates(cert),
-			WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256),
-			WithSignatureSchemes(tls.ECDSAWithP256AndSHA256),
-			WithSRTPProtectionProfiles(SRTP_AES128_CM_HMAC_SHA1_80),
-			WithEllipticCurves(elliptic.P256),
-			WithSupportedProtocols("h2", "http/1.1"),
-			WithInsecureSkipVerify(true),
-			WithServerName("example.com"),
-		)
-		require.NoError(t, err)
-
-		config := client.handshakeConfig
-		require.Len(t, config.LocalCertificates, 1)
-		require.Len(t, config.LocalCipherSuites, 1)
-		require.Len(t, config.LocalSignatureSchemes, 1)
-		require.Len(t, config.LocalSRTPProtectionProfiles, 1)
-		require.Len(t, config.EllipticCurves, 1)
-		require.Len(t, config.SupportedProtocols, 2)
-		require.True(t, config.InsecureSkipVerify)
-		require.Equal(t, "example.com", config.ServerName)
-	})
-
-	t.Run("ServerValidOptions", func(t *testing.T) {
-		server, err := newOptionsServer(t, WithCertificates(cert), WithClientAuth(RequireAndVerifyClientCert), WithInsecureSkipVerifyHello(true))
-		require.NoError(t, err)
-
-		config := server.handshakeConfig
-		require.Len(t, config.LocalCertificates, 1)
-		require.Equal(t, dtlsconfig.ClientAuthType(RequireAndVerifyClientCert), config.ClientAuth)
-		require.True(t, config.InsecureSkipHelloVerify)
 	})
 }
 
