@@ -279,8 +279,10 @@ func (c *dtlsConfig) includeCertificateSuites() bool {
 	return c.psk == nil || len(c.Certificates) > 0 || c.getCertificate != nil || c.getClientCertificate != nil
 }
 
-// PSKCallback is called once we have the remote's PSKIdentityHint.
-// If the remote provided none it will be nil.
+// PSKCallback returns the key for the peer's identity (server) or identity hint
+// (client). DTLS 1.3 clients receive nil, since that version has no server hint.
+// DTLS 1.3 servers may return nil, nil for unknown identities.
+// Errors abort the handshake. The callback can be invoked again after a retry.
 type PSKCallback func([]byte) ([]byte, error)
 
 // ClientAuthType declares the policy the server will follow for

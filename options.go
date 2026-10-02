@@ -285,7 +285,8 @@ func WithPSK(callback PSKCallback) Option {
 	})
 }
 
-// WithPSKIdentityHint sets the PSK identity hint.
+// WithPSKIdentityHint sets the client PSK identity or the DTLS 1.2 server hint.
+// DTLS 1.3 requires a nonempty client identity and does not send server hints.
 func WithPSKIdentityHint(hint []byte) Option {
 	return sharedOption(func(c *dtlsConfig) error {
 		c.PSKIdentityHint = slices.Clone(hint)
