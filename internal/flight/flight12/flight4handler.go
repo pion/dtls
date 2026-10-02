@@ -384,6 +384,12 @@ func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 			IdentityHint: cfg.LocalPSKIdentityHint,
 		}
 		if state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
+			// ECDHE-PSK always encodes the hint length, including an empty hint.
+			// the ServerKeyExchange message is always sent
+			// https://www.rfc-editor.org/rfc/rfc5489.html#section-2
+			if srvExchange.IdentityHint == nil {
+				srvExchange.IdentityHint = []byte{}
+			}
 			srvExchange.EllipticCurveType = elliptic.CurveTypeNamedCurve
 			srvExchange.NamedCurve = state.NamedCurve
 			srvExchange.PublicKey = state.LocalKeypair.PublicKey
