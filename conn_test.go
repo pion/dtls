@@ -54,14 +54,13 @@ import (
 )
 
 var (
-	errTestPSKInvalidIdentity       = errors.New("TestPSK: Server got invalid identity")
-	errTestPSKClientInvalidIdentity = errors.New("TestPSK: Client got invalid identity")
-	errPSKRejected                  = errors.New("psk Rejected")
-	errNotExpectedChain             = errors.New("not expected chain")
-	errExpectedChain                = errors.New("expected chain")
-	errWrongCert                    = errors.New("wrong cert")
-	errConnectionAttemptFailed      = errors.New("connection attempt failed")
-	errWriteFailed                  = errors.New("write failed")
+	errTestPSKInvalidIdentity  = errors.New("TestPSK: Server got invalid identity")
+	errPSKRejected             = errors.New("psk Rejected")
+	errNotExpectedChain        = errors.New("not expected chain")
+	errExpectedChain           = errors.New("expected chain")
+	errWrongCert               = errors.New("wrong cert")
+	errConnectionAttemptFailed = errors.New("connection attempt failed")
+	errWriteFailed             = errors.New("write failed")
 )
 
 //nolint:unused // Used by Go 1.25+ tests in sync_test.go.
@@ -755,18 +754,19 @@ func TestPSK(t *testing.T) {
 	for _, test := range []struct {
 		Name                   string
 		ClientIdentity         []byte
-		ServerIdentity         []byte
 		cipherSuites           []cryptosuite.ID
+		minVersion             protocol.Version
+		maxVersion             protocol.Version
 		ClientVerifyConnection func(*State) error
 		ServerVerifyConnection func(*State) error
 		WantFail               bool
 		ExpectedServerErr      string
 		ExpectedClientErr      string
 	}{
-		{Name: "Server identity specified", ServerIdentity: []byte("Test Identity"), ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
+		{Name: "DTLS 1.3", ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256}, minVersion: protocol.Version1_3, maxVersion: protocol.Version1_3},
+		{Name: "DTLS 1.2", ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
 		{
-			Name:           "Server identity specified - Server verify connection fails",
-			ServerIdentity: []byte("Test Identity"),
+			Name:           "Server verify connection fails",
 			ClientIdentity: []byte("Client Identity"),
 			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8},
 			ServerVerifyConnection: func(*State) error {
@@ -777,8 +777,7 @@ func TestPSK(t *testing.T) {
 			ExpectedClientErr: alert.BadCertificate.String(),
 		},
 		{
-			Name:           "Server identity specified - Client verify connection fails",
-			ServerIdentity: []byte("Test Identity"),
+			Name:           "Client verify connection fails",
 			ClientIdentity: []byte("Client Identity"),
 			cipherSuites:   []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8},
 			ClientVerifyConnection: func(*State) error {
@@ -788,11 +787,13 @@ func TestPSK(t *testing.T) {
 			ExpectedServerErr: alert.BadCertificate.String(),
 			ExpectedClientErr: errExample.Error(),
 		},
-		{Name: "Server identity nil", ServerIdentity: nil, ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
-		{Name: "TLS_PSK_WITH_AES_128_CBC_SHA256", ServerIdentity: nil, ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CBC_SHA256}},
-		{Name: "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256", ServerIdentity: nil, ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256}},
-		{Name: "Client identity empty", ServerIdentity: nil, ClientIdentity: []byte{}, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
+		{Name: "TLS_PSK_WITH_AES_128_CBC_SHA256", ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CBC_SHA256}},
+		{Name: "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256", ClientIdentity: []byte("Client Identity"), cipherSuites: []cryptosuite.ID{cryptosuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256}},
+		{Name: "Client identity empty", ClientIdentity: []byte{}, cipherSuites: []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_AES_128_CCM_8}},
 	} {
+		if test.minVersion == 0 {
+			test.minVersion, test.maxVersion = protocol.Version1_2, protocol.Version1_2
+		}
 		t.Run(test.Name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -806,15 +807,12 @@ func TestPSK(t *testing.T) {
 			ca, cb := packetPipe()
 			go func() {
 				clientOpts := []ClientOption{
-					WithPSK(func(hint []byte) ([]byte, error) {
-						if !bytes.Equal(test.ServerIdentity, hint) {
-							return nil, fmt.Errorf("%w expected(% 02x) actual(% 02x)", errTestPSKClientInvalidIdentity, test.ServerIdentity, hint)
-						}
-
-						return []byte{0xAB, 0xC1, 0x23}, nil
-					}),
-					WithPSKIdentityHint(test.ClientIdentity),
+					WithPSK(func() ([]PSK, error) {
+						return []PSK{{Identity: test.ClientIdentity, Key: []byte{0xAB, 0xC1, 0x23}}}, nil
+					}, nil),
 					WithCipherSuites(test.cipherSuites...),
+					WithMinVersion(test.minVersion),
+					WithMaxVersion(test.maxVersion),
 				}
 				if test.ClientVerifyConnection != nil {
 					clientOpts = append(clientOpts, WithVerifyConnection(test.ClientVerifyConnection))
@@ -825,18 +823,18 @@ func TestPSK(t *testing.T) {
 			}()
 
 			serverOpts := []ServerOption{
-				WithPSK(func(hint []byte) ([]byte, error) {
+				WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+					hint := identities[0]
 					t.Log(hint)
 					if !bytes.Equal(test.ClientIdentity, hint) {
 						return nil, fmt.Errorf("%w: expected(% 02x) actual(% 02x)", errTestPSKInvalidIdentity, test.ClientIdentity, hint)
 					}
 
-					return []byte{0xAB, 0xC1, 0x23}, nil
+					return &PSK{Identity: identities[0], Key: []byte{0xAB, 0xC1, 0x23}}, nil
 				}),
 				WithCipherSuites(test.cipherSuites...),
-			}
-			if test.ServerIdentity != nil {
-				serverOpts = append(serverOpts, WithPSKIdentityHint(test.ServerIdentity))
+				WithMinVersion(test.minVersion),
+				WithMaxVersion(test.maxVersion),
 			}
 			if test.ServerVerifyConnection != nil {
 				serverOpts = append(serverOpts, WithVerifyConnection(test.ServerVerifyConnection))
@@ -871,7 +869,7 @@ func TestPSK(t *testing.T) {
 	}
 }
 
-func TestPSKHintFail(t *testing.T) {
+func TestPSKCallbackFail(t *testing.T) {
 	// Check for leaking routines
 	report := test.CheckRoutines(t)
 	defer report()
@@ -889,13 +887,13 @@ func TestPSKHintFail(t *testing.T) {
 
 	ca, cb := packetPipe()
 	go func() {
-		opts := []ClientOption{WithPSK(func([]byte) ([]byte, error) { return nil, pskRejected }), WithPSKIdentityHint([]byte{}), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
+		opts := []ClientOption{WithPSK(func() ([]PSK, error) { return nil, pskRejected }, nil), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
 
 		_, err := testClient(ctx, ca, ca.RemoteAddr(), opts, false)
 		clientErr <- err
 	}()
 
-	opts := []ServerOption{WithPSK(func([]byte) ([]byte, error) { return nil, pskRejected }), WithPSKIdentityHint([]byte{}), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
+	opts := []ServerOption{WithPSK(nil, func(identities [][]byte) (*PSK, error) { return nil, pskRejected }), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
 
 	_, err := testServer(ctx, cb, cb.RemoteAddr(), opts, false)
 	assert.ErrorIs(t, err, serverAlertError, "TestPSK: Server should fail with alert error")
@@ -1570,14 +1568,16 @@ func TestCertificateAndPSKServer(t *testing.T) {
 			go func() {
 				opts := []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
 				if test.ClientPSK {
-					opts = []ClientOption{WithPSK(func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil }), WithPSKIdentityHint([]byte{0x00}), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256)}
+					opts = []ClientOption{WithPSK(func() ([]PSK, error) { return []PSK{{Identity: []byte{0x00}, Key: []byte{0x00, 0x01, 0x02}}}, nil }, nil), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256)}
 				}
 
 				client, err := testClient(ctx, ca, ca.RemoteAddr(), opts, test.ClientCertificate)
 				resultCh <- result{client, err}
 			}()
 
-			opts := []ServerOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256), WithPSK(func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil })}
+			opts := []ServerOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256), WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+				return &PSK{Identity: identities[0], Key: []byte{0x00, 0x01, 0x02}}, nil
+			})}
 
 			opts = append(opts, WithClientAuth(test.ClientAuth))
 			server, err := testServer(ctx, cb, cb.RemoteAddr(), opts, true)
@@ -1613,10 +1613,8 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 		Name                 string
 		ClientHasCertificate bool
 		ServerHasCertificate bool
-		ClientPSK            PSKCallback
-		ServerPSK            PSKCallback
-		ClientPSKIdentity    []byte
-		ServerPSKIdentity    []byte
+		ClientPSK            PSKClientCallback
+		ServerPSK            PSKServerCallback
 		WantClientError      error
 		WantServerError      error
 	}{
@@ -1624,36 +1622,24 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 			Name:                 "psk and no certificate specified",
 			ClientHasCertificate: false,
 			ServerHasCertificate: false,
-			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ClientPSKIdentity:    []byte{0x00},
-			ServerPSKIdentity:    []byte{0x00},
-			WantClientError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
-			WantServerError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
+			ClientPSK:            func() ([]PSK, error) { return []PSK{{Identity: []byte{0x00}, Key: []byte{0x00, 0x01, 0x02}}}, nil },
+			ServerPSK: func(identities [][]byte) (*PSK, error) {
+				return &PSK{Identity: identities[0], Key: []byte{0x00, 0x01, 0x02}}, nil
+			},
+			WantClientError: dtlserrors.ErrNoAvailablePSKCipherSuite,
+			WantServerError: dtlserrors.ErrNoAvailablePSKCipherSuite,
 		},
 		{
 			Name:                 "psk and certificate specified",
 			ClientHasCertificate: true,
 			ServerHasCertificate: true,
-			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ClientPSKIdentity:    []byte{0x00},
-			ServerPSKIdentity:    []byte{0x00},
-			WantClientError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
-			WantServerError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
+			ClientPSK:            func() ([]PSK, error) { return []PSK{{Identity: []byte{0x00}, Key: []byte{0x00, 0x01, 0x02}}}, nil },
+			ServerPSK: func(identities [][]byte) (*PSK, error) {
+				return &PSK{Identity: identities[0], Key: []byte{0x00, 0x01, 0x02}}, nil
+			},
+			WantClientError: dtlserrors.ErrNoAvailablePSKCipherSuite,
+			WantServerError: dtlserrors.ErrNoAvailablePSKCipherSuite,
 		},
-		{
-			Name:                 "psk and no identity specified",
-			ClientHasCertificate: false,
-			ServerHasCertificate: false,
-			ClientPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ServerPSK:            func([]byte) ([]byte, error) { return []byte{0x00, 0x01, 0x02}, nil },
-			ClientPSKIdentity:    nil,
-			ServerPSKIdentity:    nil,
-			WantClientError:      dtlserrors.ErrPSKAndIdentityMustBeSetForClient,
-			WantServerError:      dtlserrors.ErrNoAvailablePSKCipherSuite,
-		},
-		{Name: "No psk and identity specified", ClientHasCertificate: false, ServerHasCertificate: false, ClientPSK: nil, ServerPSK: nil, ClientPSKIdentity: []byte{0x00}, ServerPSKIdentity: []byte{0x00}, WantClientError: dtlserrors.ErrIdentityNoPSK, WantServerError: dtlserrors.ErrIdentityNoPSK},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -1668,10 +1654,7 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 		go func() {
 			var opts []ClientOption
 			if test.ClientPSK != nil {
-				opts = append(opts, WithPSK(test.ClientPSK))
-			}
-			if test.ClientPSKIdentity != nil {
-				opts = append(opts, WithPSKIdentityHint(test.ClientPSKIdentity))
+				opts = append(opts, WithPSK(test.ClientPSK, nil))
 			}
 			client, err := testClient(
 				ctx,
@@ -1685,10 +1668,7 @@ func TestPSKConfiguration(t *testing.T) { //nolint:cyclop
 
 		var opts []ServerOption
 		if test.ServerPSK != nil {
-			opts = append(opts, WithPSK(test.ServerPSK))
-		}
-		if test.ServerPSKIdentity != nil {
-			opts = append(opts, WithPSKIdentityHint(test.ServerPSKIdentity))
+			opts = append(opts, WithPSK(nil, test.ServerPSK))
 		}
 		_, err := testServer(
 			ctx,

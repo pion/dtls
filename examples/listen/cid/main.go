@@ -24,12 +24,11 @@ func main() {
 	//
 
 	listener, err := dtls.ListenAddr("udp", addr,
-		dtls.WithPSK(func(hint []byte) ([]byte, error) {
-			fmt.Printf("Client's hint: %s \n", hint)
+		dtls.WithPSK(nil, func(identities [][]byte) (*dtls.PSK, error) {
+			fmt.Printf("Client's identity: %s \n", identities[0])
 
-			return []byte{0xAB, 0xC1, 0x23}, nil
+			return &dtls.PSK{Identity: identities[0], Key: []byte{0xAB, 0xC1, 0x23}}, nil
 		}),
-		dtls.WithPSKIdentityHint([]byte("Pion DTLS Server")),
 		dtls.WithCipherSuites(ciphersuite.TLS_PSK_WITH_AES_128_CCM_8),
 		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 		dtls.WithConnectionID(dtls.RandomCIDGenerator(8), dtls.CIDPathMigrationUnsafe),

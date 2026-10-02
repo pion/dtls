@@ -26,9 +26,6 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 	if cfg.LocalPSKCallback == nil {
 		return dtlsflight.FinalizeClientHello(hello, cfg)
 	}
-	if len(cfg.LocalPSKIdentityHint) == 0 {
-		return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
-	}
 	if len(state.LocalPSK) == 0 {
 		secret, err := cfg.LocalPSKCallback(nil)
 		if err != nil {
@@ -38,6 +35,9 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 			return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrPSKNotNegotiated
 		}
 		state.LocalPSK = bytes.Clone(secret)
+	}
+	if len(cfg.LocalPSKIdentityHint) == 0 {
+		return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
 	}
 	if state.CipherSuite != nil && state.CipherSuite.HashFunc()().Size() != crypto.SHA256.Size() {
 		return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrNoAvailablePSKCipherSuite
@@ -52,7 +52,7 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 // An invalid binder for a recognized identity is fatal.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []byte) error { //nolint:cyclop
-	if c.cfg.LocalPSKCallback == nil {
+	if c.cfg.SelectPSK == nil {
 		return nil
 	}
 	var offer *extension13.OfferedPSKs
@@ -70,34 +70,37 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	if offer == nil || !dhe || suite == nil {
 		return c.pskFallback()
 	}
+	identities := make([][]byte, len(offer.Identities))
 	for i, identity := range offer.Identities {
-		secret, err := c.cfg.LocalPSKCallback(bytes.Clone(identity.Identity))
-		if err != nil {
-			return pskHandshakeError(alert.HandshakeFailure, err)
-		}
-		if len(secret) == 0 {
-			continue
-		}
-		prefix, err := ClientHelloBinderPrefix(raw)
-		if err != nil {
-			return pskHandshakeError(alert.DecodeError, err)
-		}
-		transcriptHash, err := pskBinderTranscriptHash(crypto.SHA256, c.transcript, prefix)
-		if err != nil {
-			return err
-		}
-		if err = VerifyPSKBinder(crypto.SHA256.New, secret, transcriptHash, offer.Binders[i], true); err != nil {
-			return pskHandshakeError(alert.DecryptError, err)
-		}
-		c.state.CipherSuite = suite
-		c.state.PSK = bytes.Clone(secret)
-		c.state.PSKIdentity = uint16(i) //nolint:gosec // bounded by uint16.
-		c.state.IdentityHint = bytes.Clone(identity.Identity)
-
-		return nil
+		identities[i] = identity.Identity
 	}
+	i, secret, err := c.cfg.SelectPSK(identities)
+	if err != nil {
+		return pskHandshakeError(alert.HandshakeFailure, err)
+	}
+	if len(secret) == 0 {
+		return c.pskFallback()
+	}
+	if i < 0 || i >= len(offer.Identities) {
+		return pskHandshakeError(alert.HandshakeFailure, dtlserrors.ErrPSKIdentity)
+	}
+	prefix, err := ClientHelloBinderPrefix(raw)
+	if err != nil {
+		return pskHandshakeError(alert.DecodeError, err)
+	}
+	transcriptHash, err := pskBinderTranscriptHash(crypto.SHA256, c.transcript, prefix)
+	if err != nil {
+		return err
+	}
+	if err = VerifyPSKBinder(crypto.SHA256.New, secret, transcriptHash, offer.Binders[i], true); err != nil {
+		return pskHandshakeError(alert.DecryptError, err)
+	}
+	c.state.CipherSuite = suite
+	c.state.PSK = bytes.Clone(secret)
+	c.state.PSKIdentity = uint16(i) //nolint:gosec // bounded by uint16.
+	c.state.IdentityHint = bytes.Clone(offer.Identities[i].Identity)
 
-	return c.pskFallback()
+	return nil
 }
 
 func (c *handshakeContext) pskFallback() error {

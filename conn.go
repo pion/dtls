@@ -499,11 +499,8 @@ func Dial(network string, rAddr *net.UDPAddr, opts ...ClientOption) (*Conn, erro
 }
 
 func clientWithConfig(conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
-	switch {
-	case config == nil:
+	if config == nil {
 		return nil, dtlserrors.ErrNoConfigProvided
-	case config.psk != nil && config.PSKIdentityHint == nil:
-		return nil, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
 	}
 
 	if err := validateConfig(config); err != nil {

@@ -118,8 +118,11 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 		var preMasterSecret []byte
 		if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey {
 			var psk []byte
-			if psk, err = cfg.LocalPSKCallback(bytes.Clone(clientKeyExchange.IdentityHint)); err != nil {
+			if _, psk, err = cfg.SelectPSK([][]byte{clientKeyExchange.IdentityHint}); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+			if len(psk) == 0 {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrPSKNotNegotiated
 			}
 			state.IdentityHint = bytes.Clone(clientKeyExchange.IdentityHint)
 			switch state.CipherSuite.KeyExchangeAlgorithm() {

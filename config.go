@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -63,7 +64,7 @@ func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 		return connConfigValues{}, err
 	}
 
-	cipherSuites, err := selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil, minVersion, maxVersion)
+	cipherSuites, err := selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.pskEnabled(), minVersion, maxVersion)
 	if err != nil {
 		return connConfigValues{}, err
 	}
@@ -222,8 +223,6 @@ func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo
 
 func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState *dtlsstate.State) *dtlsconfig.HandshakeConfig {
 	handshakeConfig := &dtlsconfig.HandshakeConfig{
-		LocalPSKCallback:              config.psk,
-		LocalPSKIdentityHint:          config.PSKIdentityHint,
 		LocalCipherSuites:             configValues.cipherSuites,
 		LocalSignatureSchemes:         configValues.signatureSchemes,
 		LocalCertSignatureSchemes:     configValues.certificateSignatureSchemes,
@@ -272,18 +271,90 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		handshakeConfig.DelSession = config.sessionStore.Del
 	}
 
+	config.configurePSK(handshakeConfig)
+
 	return handshakeConfig
 }
 
 func (c *dtlsConfig) includeCertificateSuites() bool {
-	return c.psk == nil || len(c.Certificates) > 0 || c.getCertificate != nil || c.getClientCertificate != nil
+	return !c.pskEnabled() || len(c.Certificates) > 0 || c.getCertificate != nil || c.getClientCertificate != nil
 }
 
-// PSKCallback returns the key for the peer's identity (server) or identity hint
-// (client). DTLS 1.3 clients receive nil, since that version has no server hint.
-// DTLS 1.3 servers may return nil, nil for unknown identities.
-// Errors abort the handshake. The callback can be invoked again after a retry.
-type PSKCallback func([]byte) ([]byte, error)
+func (c *dtlsConfig) pskEnabled() bool {
+	if c.isClient {
+		return c.pskClient != nil
+	}
+
+	return c.pskServer != nil
+}
+
+// configurePSK adapts the public callbacks to the flight handlers, keeping the
+// client's identity and key together for the lifetime of this handshake.
+func (c *dtlsConfig) configurePSK(cfg *dtlsconfig.HandshakeConfig) {
+	if !c.pskEnabled() {
+		return
+	}
+	if !c.isClient {
+		cfg.SelectPSK = c.selectPSK
+
+		return
+	}
+	var key []byte
+	cfg.LocalPSKCallback = func([]byte) ([]byte, error) {
+		if key != nil {
+			return bytes.Clone(key), nil
+		}
+		psks, err := c.pskClient()
+		if err != nil {
+			return nil, err
+		}
+		if len(psks) != 1 {
+			return nil, dtlserrors.ErrPSKCount
+		}
+		key, err = psks[0].cloneKey()
+		if err != nil {
+			return nil, err
+		}
+		// DTLS 1.2 uses a non-nil slice to encode even an empty identity.
+		cfg.LocalPSKIdentityHint = append([]byte{}, psks[0].Identity...)
+
+		return bytes.Clone(key), nil
+	}
+}
+
+func (c *dtlsConfig) selectPSK(identities [][]byte) (int, []byte, error) {
+	if len(identities) > c.pskIdentityLimit {
+		return -1, nil, dtlserrors.ErrTooManyPSKIdentities
+	}
+	offered := make([][]byte, len(identities))
+	for i, identity := range identities {
+		offered[i] = bytes.Clone(identity)
+	}
+	psk, err := c.pskServer(offered)
+	if err != nil || psk == nil {
+		return -1, nil, err
+	}
+	index := slices.IndexFunc(identities, func(identity []byte) bool {
+		return bytes.Equal(identity, psk.Identity)
+	})
+	if index < 0 {
+		return -1, nil, dtlserrors.ErrPSKIdentity
+	}
+	key, err := psk.cloneKey()
+
+	return index, key, err
+}
+
+func (p PSK) cloneKey() ([]byte, error) {
+	if p.Hash != 0 && p.Hash != crypto.SHA256 {
+		return nil, dtlserrors.ErrPSKHash
+	}
+	if len(p.Key) == 0 {
+		return nil, dtlserrors.ErrPSKNotNegotiated
+	}
+
+	return bytes.Clone(p.Key), nil
+}
 
 // ClientAuthType declares the policy the server will follow for
 // TLS Client Authentication.
@@ -310,11 +381,8 @@ const (
 )
 
 func validateConfig(config *dtlsConfig) error { //nolint:cyclop
-	switch {
-	case config == nil:
+	if config == nil {
 		return dtlserrors.ErrNoConfigProvided
-	case config.PSKIdentityHint != nil && config.psk == nil:
-		return dtlserrors.ErrIdentityNoPSK
 	}
 
 	for _, cert := range config.Certificates {
@@ -341,7 +409,7 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 		return err
 	}
 
-	_, err = selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.psk != nil, minVersion, maxVersion)
+	_, err = selectCipherSuites(config.CipherSuites, config.customCipherSuites, config.includeCertificateSuites(), config.pskEnabled(), minVersion, maxVersion)
 
 	return err
 }

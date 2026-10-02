@@ -27,12 +27,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	dtlsConn, err := dtls.Dial("udp", addr,
-		dtls.WithPSK(func(hint []byte) ([]byte, error) {
-			fmt.Printf("Server's hint: %s \n", hint)
-
-			return []byte{0xAB, 0xC1, 0x23}, nil
-		}),
-		dtls.WithPSKIdentityHint([]byte("Pion DTLS Client")),
+		dtls.WithPSK(func() ([]dtls.PSK, error) {
+			return []dtls.PSK{{Identity: []byte("Pion DTLS Client"), Key: []byte{0xAB, 0xC1, 0x23}}}, nil
+		}, nil),
 		dtls.WithCipherSuites(ciphersuite.TLS_PSK_WITH_AES_128_CCM_8),
 		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
 		dtls.WithConnectionID(dtls.OnlySendCIDGenerator(), dtls.CIDPathMigrationUnsafe),

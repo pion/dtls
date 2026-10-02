@@ -5,6 +5,7 @@ package dtls
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -53,7 +54,6 @@ type dtlsConfig struct {
 	ExtendedMasterSecret          ExtendedMasterSecretType
 	FlightInterval                time.Duration
 	DisableRetransmitBackoff      bool
-	PSKIdentityHint               []byte
 	InsecureSkipVerify            bool
 	InsecureHashes                bool
 	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
@@ -81,7 +81,10 @@ type dtlsConfig struct {
 	MaxVersion                    protocol.Version
 
 	customCipherSuites   func() []cryptosuite.Suite
-	psk                  PSKCallback
+	pskClient            PSKClientCallback
+	pskServer            PSKServerCallback
+	pskIdentityLimit     int
+	isClient             bool
 	verifyConnection     func(*State) error
 	sessionStore         SessionStore
 	getCertificate       func(*ClientHelloInfo) (*tls.Certificate, error)
@@ -128,7 +131,7 @@ func buildServerConfig(opts ...ServerOption) (*dtlsConfig, error) {
 
 // buildClientConfig builds a config for client from the provided options.
 func buildClientConfig(opts ...ClientOption) (*dtlsConfig, error) {
-	cfg := &dtlsConfig{}
+	cfg := &dtlsConfig{isClient: true}
 	cfg.applyDefaults()
 
 	for _, opt := range opts {
@@ -272,24 +275,58 @@ func WithDisableRetransmitBackoff(disable bool) Option {
 	})
 }
 
-// WithPSK sets the pre-shared key callback.
-// Returns an error if the callback is nil.
-func WithPSK(callback PSKCallback) Option {
-	return sharedOption(func(c *dtlsConfig) error {
-		if callback == nil {
-			return dtlserrors.ErrNilPSKCallback
+// PSK is an external pre-shared key and its identity.
+type PSK struct {
+	Identity []byte
+	Key      []byte
+	// Hash is the DTLS 1.3 PSK hash. Zero defaults to crypto.SHA256.
+	Hash crypto.Hash
+}
+
+// PSKClientCallback supplies the client's PSKs once per connection.
+// An error aborts the handshake. The callback does not receive a DTLS 1.2 server hint.
+type PSKClientCallback func() ([]PSK, error)
+
+// PSKServerCallback selects a PSK from the client's offered identities.
+// The returned PSK must include an offered Identity, its Key, and Hash.
+// Return nil, nil if none match. An error aborts the handshake.
+// DTLS 1.2 supplies one identity. DTLS 1.3 may call again after a retry.
+type PSKServerCallback func(identities [][]byte) (*PSK, error)
+
+// PSKOption configures PSK-specific settings in WithPSK.
+type PSKOption interface {
+	applyPSK(*dtlsConfig) error
+}
+
+type pskOption func(*dtlsConfig) error
+
+func (o pskOption) applyPSK(c *dtlsConfig) error { return o(c) }
+
+// WithPSKIdentityLimit sets the maximum number of identities accepted by the server.
+// The limit must be positive. Offers exceeding it are rejected before the server callback.
+func WithPSKIdentityLimit(limit int) PSKOption {
+	return pskOption(func(c *dtlsConfig) error {
+		if limit <= 0 {
+			return dtlserrors.ErrInvalidPSKIdentityLimit
 		}
-		c.psk = callback
+		c.pskIdentityLimit = limit
 
 		return nil
 	})
 }
 
-// WithPSKIdentityHint sets the client PSK identity or the DTLS 1.2 server hint.
-// DTLS 1.3 requires a nonempty client identity and does not send server hints.
-func WithPSKIdentityHint(hint []byte) Option {
+// WithPSK sets the client offer and server lookup callbacks.
+// The server accepts at most 32 identities per offer unless overridden by opts.
+// A nil callback disables PSK for that role. Both callbacks may be nil.
+func WithPSK(client PSKClientCallback, server PSKServerCallback, opts ...PSKOption) Option {
 	return sharedOption(func(c *dtlsConfig) error {
-		c.PSKIdentityHint = slices.Clone(hint)
+		c.pskIdentityLimit = 32
+		for _, opt := range opts {
+			if err := opt.applyPSK(c); err != nil {
+				return err
+			}
+		}
+		c.pskClient, c.pskServer = client, server
 
 		return nil
 	})

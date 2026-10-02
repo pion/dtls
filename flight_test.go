@@ -3122,6 +3122,7 @@ func TestFlight13_1ParseRejectsHelloRetryRequestExtension(t *testing.T) {
 func configureTestPSK13(cfg *dtlsconfig.HandshakeConfig) {
 	cfg.LocalPSKIdentityHint = []byte("client")
 	cfg.LocalPSKCallback = func([]byte) ([]byte, error) { return []byte("shared secret"), nil }
+	cfg.SelectPSK = func([][]byte) (int, []byte, error) { return 0, []byte("shared secret"), nil }
 }
 
 func TestFlight13RejectsMissingServerAuthentication(t *testing.T) {

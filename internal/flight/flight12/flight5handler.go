@@ -99,6 +99,17 @@ func flight5Generate(conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtls
 		pkts = append(pkts, &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake.MessageCertificate{Certificate: certificate.Certificate}}})
 	}
 
+	serverKeyExchange := state.RemoteServerKeyExchange()
+
+	// handshakeMessageServerKeyExchange is optional for PSK
+	if serverKeyExchange == nil {
+		serverKeyExchange = &handshake.MessageServerKeyExchange{}
+		alertPtr, err := handleServerKeyExchange(conn, state, cfg, serverKeyExchange)
+		if err != nil {
+			return nil, alertPtr, err
+		}
+	}
+
 	clientKeyExchange := &handshake.MessageClientKeyExchange{}
 	if cfg.LocalPSKCallback == nil {
 		clientKeyExchange.PublicKey = state.LocalKeypair.PublicKey
@@ -115,17 +126,6 @@ func flight5Generate(conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtls
 				Message: clientKeyExchange,
 			},
 		})
-
-	serverKeyExchange := state.RemoteServerKeyExchange()
-
-	// handshakeMessageServerKeyExchange is optional for PSK
-	if serverKeyExchange == nil {
-		serverKeyExchange = &handshake.MessageServerKeyExchange{}
-		alertPtr, err := handleServerKeyExchange(conn, state, cfg, serverKeyExchange)
-		if err != nil {
-			return nil, alertPtr, err
-		}
-	}
 
 	// Append not-yet-sent packets
 	merged := []byte{}

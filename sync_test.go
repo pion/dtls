@@ -88,7 +88,9 @@ func TestPSKMismatchNoRetransmitLoop(t *testing.T) {
 		serverErr := make(chan error, 1)
 
 		go func() {
-			opts := []ClientOption{WithPSK(func([]byte) ([]byte, error) { return []byte("client-psk"), nil }), WithPSKIdentityHint([]byte("Client Identity")), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
+			opts := []ClientOption{WithPSK(func() ([]PSK, error) {
+				return []PSK{{Identity: []byte("Client Identity"), Key: []byte("client-psk")}}, nil
+			}, nil), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
 
 			c, err := testClient(ctx, caCount, caCount.RemoteAddr(), opts, false)
 			if c != nil {
@@ -98,7 +100,9 @@ func TestPSKMismatchNoRetransmitLoop(t *testing.T) {
 		}()
 
 		go func() {
-			opts := []ServerOption{WithPSK(func([]byte) ([]byte, error) { return []byte("server-psk"), nil }), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
+			opts := []ServerOption{WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+				return &PSK{Identity: identities[0], Key: []byte("server-psk")}, nil
+			}), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
 
 			s, err := testServer(ctx, cbCount, cbCount.RemoteAddr(), opts, false)
 			if s != nil {
@@ -126,96 +130,79 @@ func TestPSKMismatchNoRetransmitLoop(t *testing.T) {
 	})
 }
 
-// Assert that ServerKeyExchange is only sent if Identity is set on server side.
+// Assert that plain PSK omits ServerKeyExchange without a server hint.
 func TestPSKServerKeyExchange(t *testing.T) { //nolint:cyclop
-	for _, test := range []struct {
-		Name        string
-		SetIdentity bool
-	}{
-		{
-			Name:        "Server Identity Set",
-			SetIdentity: true,
-		},
-		{
-			Name:        "Server Not Identity Set",
-			SetIdentity: false,
-		},
-	} {
-		testCase := test
-		t.Run(testCase.Name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-				defer cancel()
-				var gotServerKeyExchange atomic.Bool
-				expectedServerKeyExchange := testCase.SetIdentity
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		var gotServerKeyExchange atomic.Bool
 
-				clientErr := make(chan error, 1)
-				serverHandshakeDone := make(chan struct{})
-				ca, cb := packetPipe()
-				cbAnalyzer := &connWithCallback{packetTestConn: cb}
-				cbAnalyzer.onWrite = func(in []byte) {
-					messages, err := recordlayer.UnpackDatagram(in, recordlayer.UnpackDatagramConfig{TargetVersion: protocol.Version1_2})
-					assert.NoError(t, err)
+		clientErr := make(chan error, 1)
+		serverHandshakeDone := make(chan struct{})
+		ca, cb := packetPipe()
+		cbAnalyzer := &connWithCallback{packetTestConn: cb}
+		cbAnalyzer.onWrite = func(in []byte) {
+			messages, err := recordlayer.UnpackDatagram(in, recordlayer.UnpackDatagramConfig{TargetVersion: protocol.Version1_2})
+			assert.NoError(t, err)
 
-					for i := range messages {
-						header, err := recordlayer.ParseRecord(messages[i], 0)
-						if err != nil {
-							continue
-						}
-						if header.ContentType() != protocol.ContentTypeHandshake || header.Epoch() != 0 {
-							continue
-						}
-						payload := messages[i][recordlayer.FixedHeaderSize:]
-						for len(payload) >= handshake.HeaderLength {
-							var h handshake.Header
-							if err := h.Unmarshal(payload); err != nil {
-								break
-							}
-							if h.Type == handshake.TypeServerKeyExchange {
-								gotServerKeyExchange.Store(true)
-
-								break
-							}
-							fragLen := int(h.FragmentLength)
-							if fragLen <= 0 || handshake.HeaderLength+fragLen > len(payload) {
-								break
-							}
-							payload = payload[handshake.HeaderLength+fragLen:]
-						}
+			for i := range messages {
+				header, err := recordlayer.ParseRecord(messages[i], 0)
+				if err != nil {
+					continue
+				}
+				if header.ContentType() != protocol.ContentTypeHandshake || header.Epoch() != 0 {
+					continue
+				}
+				payload := messages[i][recordlayer.FixedHeaderSize:]
+				for len(payload) >= handshake.HeaderLength {
+					var h handshake.Header
+					if err := h.Unmarshal(payload); err != nil {
+						break
 					}
-				}
+					if h.Type == handshake.TypeServerKeyExchange {
+						gotServerKeyExchange.Store(true)
 
-				go func() {
-					opts := []ClientOption{WithPSK(func([]byte) ([]byte, error) { return []byte{0xAB, 0xC1, 0x23}, nil }), WithPSKIdentityHint([]byte{0xAB, 0xC1, 0x23}), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
-
-					if client, err := testClient(ctx, ca, ca.RemoteAddr(), opts, false); err != nil {
-						clientErr <- err
-					} else {
-						<-serverHandshakeDone
-						clientErr <- client.Close() //nolint
+						break
 					}
-				}()
-
-				opts := []ServerOption{WithPSK(func([]byte) ([]byte, error) { return []byte{0xAB, 0xC1, 0x23}, nil }), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
-				if testCase.SetIdentity {
-					opts = append(opts, WithPSKIdentityHint([]byte{0xAB, 0xC1, 0x23}))
+					fragLen := int(h.FragmentLength)
+					if fragLen <= 0 || handshake.HeaderLength+fragLen > len(payload) {
+						break
+					}
+					payload = payload[handshake.HeaderLength+fragLen:]
 				}
+			}
+		}
 
-				server, err := testServer(ctx, cbAnalyzer, cbAnalyzer.RemoteAddr(), opts, false)
-				close(serverHandshakeDone)
-				assert.NoError(t, err)
+		go func() {
+			opts := []ClientOption{WithPSK(func() ([]PSK, error) {
+				return []PSK{{Identity: []byte{0xAB, 0xC1, 0x23}, Key: []byte{0xAB, 0xC1, 0x23}}}, nil
+			}, nil), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
 
-				// Read the value immediately after handshake completes, before closing
-				receivedServerKeyExchange := gotServerKeyExchange.Load()
+			if client, err := testClient(ctx, ca, ca.RemoteAddr(), opts, false); err != nil {
+				clientErr <- err
+			} else {
+				<-serverHandshakeDone
+				clientErr <- client.Close() //nolint
+			}
+		}()
 
-				assert.NoError(t, server.Close())
-				if err := <-clientErr; err != nil {
-					assert.ErrorIs(t, err, &alertError{&alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}}, "TestPSK: Client error")
-				}
-				assert.Equal(t, expectedServerKeyExchange, receivedServerKeyExchange)
-			})
-		})
-	}
+		opts := []ServerOption{WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+			return &PSK{Identity: identities[0], Key: []byte{0xAB, 0xC1, 0x23}}, nil
+		}), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)}
+
+		server, err := testServer(ctx, cbAnalyzer, cbAnalyzer.RemoteAddr(), opts, false)
+		close(serverHandshakeDone)
+		assert.NoError(t, err)
+
+		// Read the value immediately after handshake completes, before closing
+		receivedServerKeyExchange := gotServerKeyExchange.Load()
+
+		assert.NoError(t, server.Close())
+		if err := <-clientErr; err != nil {
+			assert.ErrorIs(t, err, &alertError{&alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}}, "TestPSK: Client error")
+		}
+		assert.False(t, receivedServerKeyExchange)
+	})
 }
 
 func TestClientTimeout(t *testing.T) {

@@ -23,7 +23,7 @@ func TestSelectPSK(t *testing.T) {
 	}{
 		{name: "unknown identity without certificate", wantError: dtlserrors.ErrPSKNotNegotiated, wantAlert: alert.HandshakeFailure},
 		{name: "unknown identity with certificate", certificate: true},
-		{name: "skip unknown identity", known: true},
+		{name: "select second identity", known: true},
 		{name: "bad binder cannot fall back", certificate: true, known: true, wrongKey: true, wantError: dtlserrors.ErrVerifyDataMismatch, wantAlert: alert.DecryptError},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -31,17 +31,19 @@ func TestSelectPSK(t *testing.T) {
 			if !test.certificate {
 				cfg.LocalCertificates = nil
 			}
-			var identities []string
-			cfg.LocalPSKCallback = func(identity []byte) ([]byte, error) {
-				identities = append(identities, string(identity))
-				if !test.known || string(identity) != "known" {
-					return nil, nil
+			var identities [][]byte
+			calls := 0
+			cfg.SelectPSK = func(offered [][]byte) (int, []byte, error) {
+				calls++
+				identities = offered
+				if !test.known {
+					return -1, nil, nil
 				}
 				if test.wrongKey {
-					return []byte("wrong"), nil
+					return 1, []byte("wrong"), nil
 				}
 
-				return []byte("secret"), nil
+				return 1, []byte("secret"), nil
 			}
 			base := &handshake.MessageClientHello{
 				Version: protocol.Version1_2, CipherSuiteIDs: []uint16{0x1301},
@@ -58,7 +60,8 @@ func TestSelectPSK(t *testing.T) {
 			transcript := NewTranscript()
 			c := &handshakeContext{state: state, cfg: cfg, transcript: transcript}
 			err = c.selectPSK(hello, raw)
-			require.Equal(t, []string{"unknown", "known"}, identities)
+			require.Equal(t, [][]byte{[]byte("unknown"), []byte("known")}, identities)
+			require.Equal(t, 1, calls)
 			if test.wantError != nil {
 				require.ErrorIs(t, err, test.wantError)
 				var gotAlert *alert.Alert

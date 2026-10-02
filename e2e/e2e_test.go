@@ -101,8 +101,8 @@ type comm struct {
 	serverCipherSuites       []cryptosuite.ID
 	clientCertificates       []tls.Certificate
 	serverCertificates       []tls.Certificate
-	clientPSK                dtls.PSKCallback
-	serverPSK                dtls.PSKCallback
+	clientPSK                func([]byte) ([]byte, error)
+	serverPSK                func([]byte) ([]byte, error)
 	clientPSKIdentityHint    []byte
 	serverPSKIdentityHint    []byte
 	clientInsecureSkipVerify bool
@@ -304,8 +304,8 @@ type commOpts struct {
 	serverCipherSuites       []cryptosuite.ID
 	clientCertificates       []tls.Certificate
 	serverCertificates       []tls.Certificate
-	clientPSK                dtls.PSKCallback
-	serverPSK                dtls.PSKCallback
+	clientPSK                func([]byte) ([]byte, error)
+	serverPSK                func([]byte) ([]byte, error)
 	clientPSKIdentityHint    []byte
 	serverPSKIdentityHint    []byte
 	clientInsecureSkipVerify bool
@@ -409,17 +409,22 @@ func testPionE2EChaCha20Poly1305RSA(t *testing.T, server, client func(*comm), op
 	testPionE2EWithCipherSuites(t, server, client, []cryptosuite.ID{cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256}, selfSignedRSACert, opts...)
 }
 
-func testPionE2EPSK(t *testing.T, server, client func(*comm), cipherSuites []cryptosuite.ID, pskHint []byte, hintOnServer bool, opts ...dtlsTestOpts) {
+func testPionE2EPSK(t *testing.T, server, client func(*comm), cipherSuites []cryptosuite.ID, pskHint []byte, opts ...dtlsTestOpts) {
 	t.Helper()
 	guardTest(t)
 	for _, cipherSuite := range cipherSuites {
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			pskFunc := func([]byte) ([]byte, error) { return []byte{0xAB, 0xC1, 0x23}, nil }
-			clientOpts := []dtls.ClientOption{dtls.WithPSK(pskFunc), dtls.WithPSKIdentityHint(pskHint), dtls.WithCipherSuites(cipherSuite)} // Compact option matrix.
-			serverOpts := []dtls.ServerOption{dtls.WithPSK(pskFunc), dtls.WithCipherSuites(cipherSuite)}
-			if hintOnServer {
-				serverOpts = append(serverOpts, dtls.WithPSKIdentityHint(pskHint))
-			}
+			clientOpts := []dtls.ClientOption{dtls.WithPSK(func() ([]dtls.PSK, error) {
+				key, err := pskFunc(nil)
+
+				return []dtls.PSK{{Identity: pskHint, Key: key}}, err
+			}, nil), dtls.WithCipherSuites(cipherSuite)} // Compact option matrix.
+			serverOpts := []dtls.ServerOption{dtls.WithPSK(nil, func(identities [][]byte) (*dtls.PSK, error) {
+				key, err := pskFunc(identities[0])
+
+				return &dtls.PSK{Identity: identities[0], Key: key}, err
+			}), dtls.WithCipherSuites(cipherSuite)}
 			runComm(t, server, client, commOpts{clientOpts: clientOpts, serverOpts: serverOpts, clientCipherSuites: []cryptosuite.ID{cipherSuite}, serverCipherSuites: []cryptosuite.ID{cipherSuite}, clientPSK: pskFunc, serverPSK: pskFunc, clientPSKIdentityHint: pskHint, serverPSKIdentityHint: pskHint}, opts...)
 		})
 	}
@@ -433,12 +438,12 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtls
 		cryptosuite.TLS_PSK_WITH_AES_256_CCM_8,
 		cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256,
 		cryptosuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
-	}, []byte{0x01, 0x02, 0x03, 0x04, 0x05}, true, opts...)
+	}, []byte{0x01, 0x02, 0x03, 0x04, 0x05}, opts...)
 }
 
 func testPionE2EChaCha20Poly1305PSK(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {
 	t.Helper()
-	testPionE2EPSK(t, server, client, []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256}, []byte{0x01, 0x02, 0x03}, false, opts...)
+	testPionE2EPSK(t, server, client, []cryptosuite.ID{cryptosuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256}, []byte{0x01, 0x02, 0x03}, opts...)
 }
 
 func testPionE2EMTUs(t *testing.T, server, client func(*comm), opts ...dtlsTestOpts) {

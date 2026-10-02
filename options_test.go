@@ -159,7 +159,6 @@ func TestNilCallbackOptionsReturnError(t *testing.T) {
 		want   error
 	}{
 		"NilCustomCipherSuites":        {WithCustomCipherSuites(nil), dtlserrors.ErrNilCustomCipherSuites},
-		"NilPSKCallback":               {WithPSK(nil), dtlserrors.ErrNilPSKCallback},
 		"NilVerifyPeerCertificate":     {WithVerifyPeerCertificate(nil), dtlserrors.ErrNilVerifyPeerCertificate},
 		"NilVerifyConnection":          {WithVerifyConnection(nil), dtlserrors.ErrNilVerifyConnection},
 		"NilGetClientCertificate":      {WithGetClientCertificate(nil), dtlserrors.ErrNilGetClientCertificate},
@@ -509,7 +508,6 @@ func TestOptionImmutability(t *testing.T) {
 	profiles := []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80}
 	protocols := []string{"h2", "http/1.1"}
 	curves := []elliptic.Curve{elliptic.P256}
-	hint := []byte("test-hint")
 	identifier := []byte{0x01, 0x02, 0x03}
 	expectedScheme, err := signaturehash.ParseSignatureSchemes(schemes, false)
 	require.NoError(t, err)
@@ -519,16 +517,12 @@ func TestOptionImmutability(t *testing.T) {
 		got    func(*Conn) any
 		want   any
 	}{
-		"certificates":           {[]ClientOption{WithCertificates(certs...)}, func() { _ = append(certs, cert) }, func(c *Conn) any { return len(c.handshakeConfig.LocalCertificates) }, 1},
-		"cipherSuites":           {[]ClientOption{WithCipherSuites(suites...)}, func() { suites[0] = cryptosuite.TLS_PSK_WITH_AES_128_CCM_8 }, func(c *Conn) any { return c.handshakeConfig.LocalCipherSuites[0].ID() }, suites[0]},
-		"signatureSchemes":       {[]ClientOption{WithSignatureSchemes(schemes...)}, func() { schemes[0] = tls.ECDSAWithP384AndSHA384 }, func(c *Conn) any { return c.handshakeConfig.LocalSignatureSchemes[0] }, expectedScheme[0]},
-		"srtpProtectionProfiles": {[]ClientOption{WithSRTPProtectionProfiles(profiles...)}, func() { profiles[0] = SRTP_AES128_CM_HMAC_SHA1_32 }, func(c *Conn) any { return c.handshakeConfig.LocalSRTPProtectionProfiles[0] }, profiles[0]},
-		"SupportedProtocols":     {[]ClientOption{WithSupportedProtocols(protocols...)}, func() { protocols[0] = "grpc" }, func(c *Conn) any { return c.handshakeConfig.SupportedProtocols }, []string{"h2", "http/1.1"}},
-		"EllipticCurves":         {[]ClientOption{WithEllipticCurves(curves...)}, func() { curves[0] = elliptic.P384 }, func(c *Conn) any { return c.handshakeConfig.EllipticCurves[0] }, curves[0]},
-		"pskIdentityHint": {
-			[]ClientOption{WithPSK(func([]byte) ([]byte, error) { return nil, nil }), WithPSKIdentityHint(hint), WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)},
-			func() { hint[0] = 'X' }, func(c *Conn) any { return c.handshakeConfig.LocalPSKIdentityHint }, []byte("test-hint"),
-		},
+		"certificates":            {[]ClientOption{WithCertificates(certs...)}, func() { _ = append(certs, cert) }, func(c *Conn) any { return len(c.handshakeConfig.LocalCertificates) }, 1},
+		"cipherSuites":            {[]ClientOption{WithCipherSuites(suites...)}, func() { suites[0] = cryptosuite.TLS_PSK_WITH_AES_128_CCM_8 }, func(c *Conn) any { return c.handshakeConfig.LocalCipherSuites[0].ID() }, suites[0]},
+		"signatureSchemes":        {[]ClientOption{WithSignatureSchemes(schemes...)}, func() { schemes[0] = tls.ECDSAWithP384AndSHA384 }, func(c *Conn) any { return c.handshakeConfig.LocalSignatureSchemes[0] }, expectedScheme[0]},
+		"srtpProtectionProfiles":  {[]ClientOption{WithSRTPProtectionProfiles(profiles...)}, func() { profiles[0] = SRTP_AES128_CM_HMAC_SHA1_32 }, func(c *Conn) any { return c.handshakeConfig.LocalSRTPProtectionProfiles[0] }, profiles[0]},
+		"SupportedProtocols":      {[]ClientOption{WithSupportedProtocols(protocols...)}, func() { protocols[0] = "grpc" }, func(c *Conn) any { return c.handshakeConfig.SupportedProtocols }, []string{"h2", "http/1.1"}},
+		"EllipticCurves":          {[]ClientOption{WithEllipticCurves(curves...)}, func() { curves[0] = elliptic.P384 }, func(c *Conn) any { return c.handshakeConfig.EllipticCurves[0] }, curves[0]},
 		"srtpMasterKeyIdentifier": {[]ClientOption{WithSRTPMasterKeyIdentifier(identifier)}, func() { identifier[0] = 0xFF }, func(c *Conn) any { return c.handshakeConfig.LocalSRTPMasterKeyIdentifier }, []byte{0x01, 0x02, 0x03}},
 	}
 	for name, test := range tests {
@@ -556,12 +550,17 @@ func TestOptionConfiguration(t *testing.T) {
 		wantAnyErr bool
 		expErr     error
 	}{
-		"psk and Certificate, valid cipher suites":     {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSK(func([]byte) ([]byte, error) { return nil, nil }), WithCertificates(cert)}},
-		"psk and Certificate, no psk cipher suite":     {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSK(func([]byte) ([]byte, error) { return nil, nil }), WithCertificates(cert)}, expErr: dtlserrors.ErrNoAvailablePSKCipherSuite},
-		"psk and Certificate, no non-psk cipher suite": {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8), WithPSK(func([]byte) ([]byte, error) { return nil, nil }), WithCertificates(cert)}, expErr: dtlserrors.ErrNoAvailableCertificateCipherSuite},
-		"psk identity hint with not psk":               {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSKIdentityHint([]byte{})}, expErr: dtlserrors.ErrIdentityNoPSK},
-		"Invalid private key":                          {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithCertificates(tls.Certificate{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey})}, expErr: dtlserrors.ErrInvalidPrivateKey},
-		"PrivateKey without Certificate":               {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithCertificates(tls.Certificate{PrivateKey: cert.PrivateKey})}, expErr: dtlserrors.ErrInvalidCertificate},
+		"psk and Certificate, valid cipher suites": {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+			return &PSK{Identity: identities[0], Key: []byte("key")}, nil
+		}), WithCertificates(cert)}},
+		"psk and Certificate, no psk cipher suite": {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+			return &PSK{Identity: identities[0], Key: []byte("key")}, nil
+		}), WithCertificates(cert)}, expErr: dtlserrors.ErrNoAvailablePSKCipherSuite},
+		"psk and Certificate, no non-psk cipher suite": {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8), WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+			return &PSK{Identity: identities[0], Key: []byte("key")}, nil
+		}), WithCertificates(cert)}, expErr: dtlserrors.ErrNoAvailableCertificateCipherSuite},
+		"Invalid private key":            {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithCertificates(tls.Certificate{Certificate: cert.Certificate, PrivateKey: dsaPrivateKey})}, expErr: dtlserrors.ErrInvalidPrivateKey},
+		"PrivateKey without Certificate": {clientOpts: []ClientOption{WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithCertificates(tls.Certificate{PrivateKey: cert.PrivateKey})}, expErr: dtlserrors.ErrInvalidCertificate},
 		"Invalid cipher suites": {
 			clientOpts: []ClientOption{WithCipherSuites(0x0000)},
 			wantAnyErr: true,

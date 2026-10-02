@@ -88,9 +88,6 @@ func DetachedClient(remoteAddr net.Addr, opts ...ClientOption) (*DetachedConn, e
 	if err != nil {
 		return nil, err
 	}
-	if config.psk != nil && config.PSKIdentityHint == nil {
-		return nil, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
-	}
 	if err = validateConfig(config); err != nil {
 		return nil, err
 	}

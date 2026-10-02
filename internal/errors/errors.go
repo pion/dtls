@@ -31,7 +31,6 @@ var (
 	ErrClientNoMatchingSRTPProfile          = stderrors.New("server responded with SRTP Profile we do not support")
 	ErrClientRequiredButNoServerEMS         = stderrors.New("client required Extended Master Secret extension, but server does not support it")
 	ErrCookieMismatch                       = stderrors.New("client+server cookie does not match")
-	ErrIdentityNoPSK                        = stderrors.New("PSK Identity Hint provided but PSK is nil")
 	ErrInvalidCertificate                   = stderrors.New("no certificate provided")
 	ErrCertificateVerificationFailed        = stderrors.New("certificate verification failed")
 	ErrInvalidCipherSuite                   = stderrors.New("invalid or unknown cipher suite")
@@ -115,7 +114,11 @@ var (
 		"SRTP protection profiles option requires at least one profile",
 	)
 	ErrInvalidFlightInterval    = stderrors.New("flight interval must be positive")
-	ErrNilPSKCallback           = stderrors.New("PSK option requires a non-nil callback")
+	ErrInvalidPSKIdentityLimit  = stderrors.New("PSK identity limit must be positive")
+	ErrTooManyPSKIdentities     = stderrors.New("PSK offer exceeds the configured identity limit")
+	ErrPSKIdentity              = stderrors.New("selected PSK identity was not offered")
+	ErrPSKCount                 = stderrors.New("client PSK callback must return exactly one PSK")
+	ErrPSKHash                  = stderrors.New("only SHA-256 PSKs are supported")
 	ErrNilVerifyPeerCertificate = stderrors.New(
 		"verify peer certificate option requires a non-nil callback",
 	)
