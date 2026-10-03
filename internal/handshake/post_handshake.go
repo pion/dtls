@@ -22,6 +22,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
@@ -230,7 +231,10 @@ func (p *postHandshake) initialize() {
 	}
 	p.initialized = true
 
-	// Do not issue NewSessionTicket until DTLS 1.3 session resumption is supported.
+	if !p.state.IsClient && p.cfg.SetSessionTicket != nil &&
+		p.state.RemoteClientHelloSnapshots.Current().Offered(extension.TypePSKKeyExchangeModes) {
+		p.queue = append(p.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket})
+	}
 }
 
 func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn) error {
@@ -753,8 +757,11 @@ func (p *postHandshake) handleNewSessionTicket(ctx context.Context, conn Conn, m
 		return fatalPostHandshakeAlert(ctx, conn, alert.IllegalParameter)
 	}
 
-	// todo: ticket persistence and PSK derivation.
-	// nolint:godox
+	if message.TicketLifetime != 0 && p.cfg.SetSessionTicket != nil {
+		if err := p.storeSessionTicket(conn.SessionKey(), message); err != nil {
+			return err
+		}
+	}
 
 	p.state.HandshakeRecvSequence++
 
@@ -762,12 +769,41 @@ func (p *postHandshake) handleNewSessionTicket(ctx context.Context, conn Conn, m
 }
 
 func (p *postHandshake) startNewSessionTicket(ctx context.Context, conn Conn, isClient bool) error {
+	if p.cfg.SetSessionTicket == nil {
+		return dtlserrors.ErrUnexpectedPostHandshakeMessage
+	}
 	flight, err := p.prepareNewSessionTicket(isClient)
 	if err != nil {
 		return err
 	}
 
+	message := flight.Packets[0].Content.(*handshake.Handshake).Message.(*handshake.MessageNewSessionTicket) //nolint:forcetypeassert // constructed by prepareNewSessionTicket.
+	if err := p.storeSessionTicket(message.Ticket, message); err != nil {
+		return err
+	}
+
 	return p.startFlight(ctx, conn, flight)
+}
+
+func (p *postHandshake) storeSessionTicket(key []byte, message *handshake.MessageNewSessionTicket) error {
+	if p.state.CipherSuite == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+	secret, err := DeriveResumptionPSK(p.state.CipherSuite.HashFunc(), p.state.KeySchedule.ResumptionMasterSecret, message.TicketNonce)
+	if err != nil {
+		return err
+	}
+
+	serverName := p.state.ServerName
+	if p.state.IsClient {
+		serverName = p.cfg.ServerName
+	}
+
+	return p.cfg.SetSessionTicket(bytes.Clone(key), bytes.Clone(message.Ticket), secret, dtlsstate.SessionTicket{
+		CipherSuite: p.state.CipherSuite.ID(), Lifetime: message.TicketLifetime,
+		AgeAdd: message.TicketAgeAdd, Nonce: bytes.Clone(message.TicketNonce),
+		CreatedAt: time.Now(), ServerName: serverName,
+	})
 }
 
 func (p *postHandshake) startKeyUpdate(

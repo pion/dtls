@@ -17,6 +17,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
@@ -25,6 +26,16 @@ import (
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
 	if cfg.GetPSKs == nil {
+		if cfg.SetSessionTicket != nil && !slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
+			return value.ExtensionType() == extension.TypePSKKeyExchangeModes
+		}) {
+			copyHello := *hello
+			copyHello.Extensions = append(slices.Clone(hello.Extensions), &extension13.PSKKeyExchangeModes{
+				Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE},
+			})
+			hello = &copyHello
+		}
+
 		return dtlsflight.FinalizeClientHello(hello, cfg)
 	}
 	psks, err := cfg.GetPSKs()

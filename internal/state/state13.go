@@ -8,8 +8,10 @@ import (
 	"crypto"
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/pion/dtls/v4/internal/negotiation"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
@@ -251,4 +253,14 @@ func (s *State13) CommitNegotiatedExtensions(decision *negotiation.ConnectionID)
 	s.CID = CIDState{Negotiated: true, Receive: CIDReceiveState{Expected: len(localCID) > 0, Length: len(localCID), CanSendNewConnectionID: len(localCID) > 0}, Send: CIDSendState{UseCID: len(remoteCID) > 0, Active: bytes.Clone(remoteCID)}}
 	s.CID.Receive.IDs = &CIDReceiveSet{}
 	s.CID.Receive.IDs.Add(localCID)
+}
+
+// SessionTicket holds DTLS 1.3 ticket metadata alongside its identity and PSK.
+type SessionTicket struct {
+	CipherSuite cryptosuite.ID
+	Lifetime    uint32 // Seconds from CreatedAt.
+	AgeAdd      uint32
+	Nonce       []byte
+	CreatedAt   time.Time
+	ServerName  string
 }
