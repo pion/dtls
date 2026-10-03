@@ -66,7 +66,7 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 // An invalid binder for a recognized identity is fatal.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []byte) error { //nolint:cyclop
-	if c.cfg.SelectPSK == nil {
+	if c.cfg.SelectPSK == nil && c.cfg.GetSessionTicket == nil {
 		return nil
 	}
 	var offer *extension13.OfferedPSKs
@@ -89,20 +89,17 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	if offer == nil || (!dhe && !ke) {
 		return c.pskFallback()
 	}
-	identities := make([][]byte, len(offer.Identities))
-	for i, identity := range offer.Identities {
-		identities[i] = identity.Identity
-	}
-	i, secret, hashID, err := c.cfg.SelectPSK(identities)
+	i, psk, err := c.selectOfferedPSK(hello, offer, dhe)
 	if err != nil {
 		return pskHandshakeError(alert.HandshakeFailure, err)
 	}
-	if len(secret) == 0 {
+	if psk == nil {
 		return c.pskFallback()
 	}
 	if i < 0 || i >= len(offer.Identities) {
 		return pskHandshakeError(alert.HandshakeFailure, dtlserrors.ErrPSKIdentity)
 	}
+	secret, hashID := psk.Secret, psk.Hash
 	suite := c.pskCipherSuite(hello, hashID)
 	if suite == nil {
 		return c.pskFallback()
@@ -115,7 +112,7 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	if err != nil {
 		return err
 	}
-	if err = VerifyPSKBinder(hashID.New, secret, transcriptHash, offer.Binders[i], true); err != nil {
+	if err = VerifyPSKBinder(hashID.New, secret, transcriptHash, offer.Binders[i], psk.External); err != nil {
 		return pskHandshakeError(alert.DecryptError, err)
 	}
 	c.state.PSKOnly = !dhe
@@ -128,6 +125,44 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	c.state.IdentityHint = bytes.Clone(offer.Identities[i].Identity)
 
 	return nil
+}
+
+func (c *handshakeContext) selectOfferedPSK(hello *handshake.MessageClientHello, offer *extension13.OfferedPSKs, dhe bool) (int, *dtlsstate.PSK, error) {
+	if dhe && c.cfg.ClientAuth == dtlsconfig.NoClientCert && c.cfg.GetSessionTicket != nil {
+		if i, psk, err := c.selectSessionTicket(hello, offer); err != nil || psk != nil {
+			return i, psk, err
+		}
+	}
+	if c.cfg.SelectPSK == nil {
+		return 0, nil, nil
+	}
+	identities := make([][]byte, len(offer.Identities))
+	for i, identity := range offer.Identities {
+		identities[i] = identity.Identity
+	}
+	i, secret, hashID, err := c.cfg.SelectPSK(identities)
+	if err != nil || len(secret) == 0 {
+		return i, nil, err
+	}
+
+	return i, &dtlsstate.PSK{Secret: secret, Hash: hashID, External: true}, nil
+}
+
+func (c *handshakeContext) selectSessionTicket(hello *handshake.MessageClientHello, offer *extension13.OfferedPSKs) (int, *dtlsstate.PSK, error) {
+	if len(offer.Identities) > c.cfg.PSKIdentityLimit {
+		return 0, nil, dtlserrors.ErrTooManyPSKIdentities
+	}
+	for i, identity := range offer.Identities {
+		psk, err := c.cfg.GetSessionTicket(identity.Identity, c.state.ServerName)
+		if err != nil {
+			return 0, nil, err
+		}
+		if psk != nil && bytes.Equal(psk.Identity, identity.Identity) && c.pskCipherSuite(hello, psk.Hash) != nil {
+			return i, psk, nil
+		}
+	}
+
+	return 0, nil, nil
 }
 
 func (c *handshakeContext) pskFallback() error {

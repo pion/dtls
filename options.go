@@ -720,6 +720,7 @@ func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo
 
 func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState *dtlsstate.State) *dtlsconfig.HandshakeConfig {
 	handshakeConfig := &dtlsconfig.HandshakeConfig{
+		PSKIdentityLimit:              config.pskIdentityLimit,
 		LocalCipherSuites:             configValues.cipherSuites,
 		LocalSignatureSchemes:         configValues.signatureSchemes,
 		LocalCertSignatureSchemes:     configValues.certificateSignatureSchemes,
@@ -782,6 +783,9 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		}
 	}
 
+	if handshakeConfig.PSKIdentityLimit == 0 {
+		handshakeConfig.PSKIdentityLimit = 32
+	}
 	config.configurePSK(handshakeConfig)
 
 	return handshakeConfig

@@ -120,6 +120,7 @@ func SupportsCertificate(acceptableCAs [][]byte, c *tls.Certificate) error {
 }
 
 type HandshakeConfig struct {
+	PSKIdentityLimit int
 	// SelectPSK returns the selected offer index, key, and hash, or a nil key if none match.
 	SelectPSK                     func(identities [][]byte) (index int, key []byte, hash crypto.Hash, err error)
 	GetPSKs                       func() ([]internalstate.PSK, error)
