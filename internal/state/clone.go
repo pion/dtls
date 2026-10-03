@@ -63,6 +63,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	for i := range psks {
 		psks[i].Identity = bytes.Clone(psks[i].Identity)
 		psks[i].Secret = bytes.Clone(psks[i].Secret)
+		psks[i].PeerCertificates = util.CloneByteSlices(psks[i].PeerCertificates)
 	}
 
 	return &State13{

@@ -27,6 +27,7 @@ type PSK struct {
 	Hash                crypto.Hash
 	External            bool
 	ObfuscatedTicketAge uint32
+	PeerCertificates    [][]byte
 }
 
 // MaxConnectionIDs bounds both retained local aliases and peer spare IDs.

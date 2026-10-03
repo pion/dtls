@@ -142,6 +142,7 @@ type HandshakeConfig struct {
 	GetSession                    func(key []byte) (id, secret []byte, err error)
 	SetSession                    func(key, id, secret []byte) error
 	SetSessionTicket              func(key, id, secret []byte, ticket internalstate.SessionTicket) error
+	GetSessionTicket              func(key []byte, serverName string) (*internalstate.PSK, error)
 	DelSession                    func(key []byte) error
 	RootCAs                       *x509.CertPool
 	ClientCAs                     *x509.CertPool

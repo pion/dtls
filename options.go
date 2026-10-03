@@ -772,6 +772,14 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		handshakeConfig.SetSessionTicket = func(key, id, secret []byte, ticket dtlsstate.SessionTicket) error {
 			return config.sessionStore.Set(key, Session{ID: id, Secret: secret, Ticket: &ticket})
 		}
+		handshakeConfig.GetSessionTicket = func(key []byte, serverName string) (*dtlsstate.PSK, error) {
+			session, err := config.sessionStore.Get(key)
+			if err != nil {
+				return nil, err
+			}
+
+			return session.ticketPSK(serverName, time.Now()), nil
+		}
 	}
 
 	config.configurePSK(handshakeConfig)
