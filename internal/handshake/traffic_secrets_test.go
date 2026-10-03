@@ -4,6 +4,7 @@
 package dtlshandshake
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -14,6 +15,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDeriveResumptionPSK(t *testing.T) {
+	for _, hashFunc := range []func() hash.Hash{sha256.New, sha512.New384} {
+		secret := bytes.Repeat([]byte{0x42}, hashFunc().Size())
+		first, err := DeriveResumptionPSK(hashFunc, secret, []byte{0})
+		require.NoError(t, err)
+		require.Len(t, first, len(secret))
+		second, err := DeriveResumptionPSK(hashFunc, secret, []byte{1})
+		require.NoError(t, err)
+		assert.NotEqual(t, first, second)
+		again, err := DeriveResumptionPSK(hashFunc, secret, []byte{0})
+		require.NoError(t, err)
+		assert.Equal(t, first, again)
+		_, err = DeriveResumptionPSK(hashFunc, nil, []byte{0})
+		require.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+	}
+}
 
 // These vectors apply the RFC 8446 key schedule and Finished construction with
 // RFC 9147 section 5.9's "dtls13" label prefix. The encoding was

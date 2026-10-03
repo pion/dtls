@@ -479,6 +479,20 @@ func DeriveAndStoreResumptionMasterSecret(state *dtlsstate.State13, transcript *
 	return err
 }
 
+// DeriveResumptionPSK derives a ticket PSK using the ticket's nonce.
+// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.6.1
+func DeriveResumptionPSK(hashFunc func() hash.Hash, resumptionMasterSecret, ticketNonce []byte) ([]byte, error) {
+	size, err := hashSize(hashFunc)
+	if err != nil {
+		return nil, err
+	}
+	if len(resumptionMasterSecret) != size {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+
+	return keyschedule.HkdfExpandLabel(hashFunc, resumptionMasterSecret, "resumption", ticketNonce, size)
+}
+
 func ensureMasterSecret(state *dtlsstate.State13) ([]byte, error) {
 	hashSize, err := hashSize(state.CipherSuite.HashFunc())
 	if err != nil {

@@ -35,6 +35,9 @@ func (c *handshakeContext) commitPreparedFlight(conn Conn, flight dtlsflight13.F
 	if !c.state.IsClient && flight == dtlsflight13.Flight4 {
 		return DeriveAndStoreApplicationTrafficSecrets(c.state, c.transcript)
 	}
+	if c.state.IsClient && flight.IsLastSendFlight() {
+		return DeriveAndStoreResumptionMasterSecret(c.state, c.transcript)
+	}
 
 	return nil
 }
@@ -92,6 +95,9 @@ func (c *handshakeContext) advanceAfterReceivedFlight(ctx context.Context, conn 
 	if !c.state.IsClient &&
 		currentFlight == nextFlight &&
 		nextFlight.IsLastRecvFlight() {
+		if err := DeriveAndStoreResumptionMasterSecret(c.state, c.transcript); err != nil {
+			return receivedFlightTransition{}, err
+		}
 		if err := activateApplicationRecordProtection(ctx, conn, c.state); err != nil {
 			return receivedFlightTransition{}, err
 		}
