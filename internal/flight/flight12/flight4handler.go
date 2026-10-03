@@ -387,7 +387,8 @@ func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 			// ECDHE-PSK always encodes the hint length, including an empty hint.
 			// the ServerKeyExchange message is always sent
 			// https://www.rfc-editor.org/rfc/rfc5489.html#section-2
-			if srvExchange.IdentityHint == nil {
+			if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey &&
+				srvExchange.IdentityHint == nil {
 				srvExchange.IdentityHint = []byte{}
 			}
 			srvExchange.EllipticCurveType = elliptic.CurveTypeNamedCurve
