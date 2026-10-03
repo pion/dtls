@@ -12,6 +12,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
+	"github.com/pion/dtls/v4/internal/util"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/prf"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -274,7 +275,7 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 }
 
 func flight3Generate(
-	_ dtlsflight.Conn,
+	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	if !slices.Contains(flightCtx.state.RemoteVersions, protocol.Version1_3) {
@@ -298,7 +299,7 @@ func flight3Generate(
 	if err != nil {
 		return nil, nil, err
 	}
-	clientHello, snapshot, err := flightCtx.finalizeClientHello(flightCtx.state, flightCtx.cfg, clientHello)
+	clientHello, snapshot, err := flightCtx.finalizeClientHello(flightCtx.state, flightCtx.cfg, clientHello, conn)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -317,7 +318,7 @@ func flight3Generate(
 	}, nil, nil
 }
 
-// Validate the selected external PSK and key exchange mode.
+// Validate the selected PSK and key exchange mode.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServerHello) *flightParseFailure {
 	for _, value := range hello.Extensions {
@@ -336,10 +337,8 @@ func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServer
 		if serverHelloKeyShare(hello.Extensions) == nil {
 			mode = extension13.PSKKE
 		}
-		raw, _ := flightCtx.state.LocalClientHelloSnapshots.Current().Extension(extension.TypePSKKeyExchangeModes)
-		var modes extension13.PSKKeyExchangeModes
-		if modes.UnmarshalData(raw.Data) != nil || !slices.Contains(modes.Modes, mode) {
-			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrNoPskKeyExchangeMode)
+		if failure := validateServerPSKMode(flightCtx, mode, psk.External); failure != nil {
+			return failure
 		}
 		flightCtx.state.PSKOnly = mode == extension13.PSKKE
 		if flightCtx.state.PSKOnly {
@@ -348,11 +347,25 @@ func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServer
 		flightCtx.state.PSK = psk.Secret
 		flightCtx.state.PSKIdentity = selected.Identity
 		flightCtx.state.IdentityHint = bytes.Clone(psk.Identity)
+		flightCtx.state.PeerCertificates = util.CloneByteSlices(psk.PeerCertificates)
 
 		return nil
 	}
 	if flightCtx.cfg.GetPSKs != nil {
 		return newFlightParseFailure(alert.HandshakeFailure, dtlserrors.ErrPSKNotNegotiated)
+	}
+
+	return nil
+}
+
+func validateServerPSKMode(flightCtx *handshakeContext, mode extension13.PSKKeyExchangeMode, external bool) *flightParseFailure {
+	if !external && mode != extension13.PSKDHEKE {
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrNoPskKeyExchangeMode)
+	}
+	raw, _ := flightCtx.state.LocalClientHelloSnapshots.Current().Extension(extension.TypePSKKeyExchangeModes)
+	var modes extension13.PSKKeyExchangeModes
+	if modes.UnmarshalData(raw.Data) != nil || !slices.Contains(modes.Modes, mode) {
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrNoPskKeyExchangeMode)
 	}
 
 	return nil

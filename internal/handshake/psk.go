@@ -218,6 +218,9 @@ func clientHelloWithPSKs(base *handshake.MessageClientHello, psks []dtlsstate.PS
 	}
 	offer := &extension13.OfferedPSKs{}
 	for _, psk := range psks {
+		if len(psk.Identity) == 0 {
+			return nil, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
+		}
 		if len(psk.Secret) == 0 || (psk.Hash != crypto.SHA256 && psk.Hash != crypto.SHA384) || !psk.Hash.Available() || (psk.External && psk.ObfuscatedTicketAge != 0) {
 			return nil, dtlserrors.ErrPreSharedKeyFormat
 		}
@@ -225,15 +228,21 @@ func clientHelloWithPSKs(base *handshake.MessageClientHello, psks []dtlsstate.PS
 		offer.Binders = append(offer.Binders, make([]byte, psk.Hash.Size()))
 	}
 	clientHello := *base
+	modes := []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE, extension13.PSKKE}
 	clientHello.Extensions = make([]extension.Value, 0, len(base.Extensions)+2)
 	for _, value := range base.Extensions {
+		if previous, ok := value.(*extension13.PSKKeyExchangeModes); ok {
+			modes = slices.Clone(previous.Modes)
+		}
 		if value != nil && (value.ExtensionType() == extension.TypePreSharedKey || value.ExtensionType() == extension.TypePSKKeyExchangeModes) {
 			continue
 		}
 		clientHello.Extensions = append(clientHello.Extensions, value)
 	}
-	clientHello.Extensions = append(clientHello.Extensions,
-		&extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE, extension13.PSKKE}}, offer)
+	if slices.ContainsFunc(psks, func(psk dtlsstate.PSK) bool { return !psk.External }) {
+		modes = []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE}
+	}
+	clientHello.Extensions = append(clientHello.Extensions, &extension13.PSKKeyExchangeModes{Modes: modes}, offer)
 
 	return &clientHello, nil
 }

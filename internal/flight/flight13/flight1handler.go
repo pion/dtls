@@ -22,7 +22,7 @@ import (
 
 //nolint:cyclop
 func flight1Generate(
-	_ dtlsflight.Conn,
+	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state := flightCtx.state
@@ -123,7 +123,7 @@ func flight1Generate(
 		Extensions:         extensions,
 	}
 
-	clientHello, snapshot, err := flightCtx.finalizeClientHello(flightCtx.state, flightCtx.cfg, clientHello)
+	clientHello, snapshot, err := flightCtx.finalizeClientHello(flightCtx.state, flightCtx.cfg, clientHello, conn)
 	if err != nil {
 		return nil, nil, err
 	}

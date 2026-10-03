@@ -43,7 +43,7 @@ type flightParser func(
 
 type contextFlightGenerator func(dtlsflight.Conn, *handshakeContext) ([]*dtlsflight.Outbound, *alert.Alert, error)
 
-type ClientHelloFinalizer func(*dtlsstate.State13, *dtlsconfig.HandshakeConfig, *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error)
+type ClientHelloFinalizer func(*dtlsstate.State13, *dtlsconfig.HandshakeConfig, *handshake.MessageClientHello, dtlsflight.Conn) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error)
 
 type Generator func(
 	dtlsflight.Conn,

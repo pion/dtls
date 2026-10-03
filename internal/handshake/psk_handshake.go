@@ -12,6 +12,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
@@ -24,42 +25,81 @@ import (
 
 // FinalizeClientHello binds the client offer to its finalized wire bytes.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
-func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
-	if cfg.GetPSKs == nil {
-		if cfg.SetSessionTicket != nil && !slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
-			return value.ExtensionType() == extension.TypePSKKeyExchangeModes
-		}) {
-			copyHello := *hello
-			copyHello.Extensions = append(slices.Clone(hello.Extensions), &extension13.PSKKeyExchangeModes{
-				Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE},
-			})
-			hello = &copyHello
+func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, conn dtlsflight.Conn) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	psks := state.LocalPSKs
+	if !t.helloRetryApplied {
+		var err error
+		psks, err = clientPSKs(cfg, hello, conn)
+		if err != nil {
+			return nil, negotiation.ClientHelloSnapshot{}, err
 		}
-
-		return dtlsflight.FinalizeClientHello(hello, cfg)
 	}
-	psks, err := cfg.GetPSKs()
-	if err != nil {
-		return nil, negotiation.ClientHelloSnapshot{}, err
-	}
-	// After HRR, offer only PSKs matching the committed cipher-suite hash.
-	// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.1.4
+	// HRR commits to a hash. Incompatible tickets can be dropped for a full handshake.
 	if state.CipherSuite != nil {
 		psks = slices.DeleteFunc(slices.Clone(psks), func(psk dtlsstate.PSK) bool {
 			return psk.Hash.Size() != state.CipherSuite.HashFunc()().Size()
 		})
-		if len(psks) == 0 {
+		if len(psks) == 0 && cfg.GetPSKs != nil {
 			return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrNoAvailablePSKCipherSuite
 		}
 	}
 	state.LocalPSKs = psks
-	for _, psk := range state.LocalPSKs {
-		if len(psk.Identity) == 0 {
-			return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
+	if len(psks) != 0 {
+		return FinalizeClientHelloWithPSKs(hello, cfg, state.LocalPSKs, t)
+	}
+
+	return finalizeClientHelloWithoutPSK(hello, cfg)
+}
+
+func finalizeClientHelloWithoutPSK(hello *handshake.MessageClientHello, cfg *dtlsconfig.HandshakeConfig) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	copyHello := *hello
+	copyHello.Extensions = slices.DeleteFunc(slices.Clone(hello.Extensions), func(value extension.Value) bool {
+		return value.ExtensionType() == extension.TypePreSharedKey
+	})
+	hello = &copyHello
+	if cfg.SetSessionTicket != nil && !slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
+		return value.ExtensionType() == extension.TypePSKKeyExchangeModes
+	}) {
+		hello.Extensions = append(hello.Extensions, &extension13.PSKKeyExchangeModes{
+			Modes: []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE},
+		})
+	}
+
+	return dtlsflight.FinalizeClientHello(hello, cfg)
+}
+
+func clientPSKs(cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, conn dtlsflight.Conn) ([]dtlsstate.PSK, error) { //nolint:cyclop
+	var psks []dtlsstate.PSK
+	if cfg.GetPSKs != nil {
+		var err error
+		psks, err = cfg.GetPSKs()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if cfg.GetSessionTicket == nil {
+		return psks, nil
+	}
+	psk, err := cfg.GetSessionTicket(conn.SessionKey(), cfg.ServerName)
+	if err != nil || psk == nil {
+		return psks, err
+	}
+	if !slices.ContainsFunc(cfg.LocalCipherSuites, func(suite dtlsconfig.CipherSuite) bool {
+		return suite.Capabilities().SupportsVersion(protocol.Version1_3) && slices.Contains(hello.CipherSuiteIDs, uint16(suite.ID())) && suite.HashFunc()().Size() == psk.Hash.Size()
+	}) || (len(psk.PeerCertificates) == 0 && cfg.GetPSKs == nil) {
+		return psks, nil
+	}
+	if len(psk.PeerCertificates) != 0 && !cfg.InsecureSkipVerify {
+		algorithms := cfg.LocalCertSignatureSchemes
+		if len(algorithms) == 0 {
+			algorithms = cfg.LocalSignatureSchemes
+		}
+		if _, err := dtlscrypto.VerifyServerCert(psk.PeerCertificates, cfg.RootCAs, cfg.ServerName, algorithms); err != nil {
+			return psks, nil //nolint:nilerr // unusable cached certificate triggers a full handshake.
 		}
 	}
 
-	return FinalizeClientHelloWithPSKs(hello, cfg, state.LocalPSKs, t)
+	return append([]dtlsstate.PSK{*psk}, psks...), nil
 }
 
 // selectPSK runs before ClientHello enters the transcript, including on retry.

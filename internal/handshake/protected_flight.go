@@ -235,7 +235,11 @@ func clientCertificateRequired(cfg *dtlsconfig.HandshakeConfig) bool {
 
 func (f *protectedHandshakeFlight) verifyConnection() error {
 	if f.cfg.VerifyConnection != nil {
-		if err := f.cfg.VerifyConnection(dtlsstate.Clone13ForVerification(f.state, f.peerCertificates)); err != nil {
+		certificates := f.peerCertificates
+		if len(f.state.PSK) != 0 {
+			certificates = f.state.PeerCertificates
+		}
+		if err := f.cfg.VerifyConnection(dtlsstate.Clone13ForVerification(f.state, certificates)); err != nil {
 			return certificateVerificationError(err)
 		}
 	}

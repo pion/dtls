@@ -272,8 +272,8 @@ func TestSelectServerPSKIndex(t *testing.T) {
 		state := dtlsstate.NewState13(true)
 		state.CipherSuite = ciphersuite.ForID(test.suite)
 		state.LocalPSKs = []dtlsstate.PSK{
-			{Identity: []byte("first"), Secret: []byte("first key"), Hash: crypto.SHA256},
-			{Identity: []byte("second"), Secret: []byte("second key"), Hash: crypto.SHA384},
+			{Identity: []byte("first"), Secret: []byte("first key"), Hash: crypto.SHA256, External: true},
+			{Identity: []byte("second"), Secret: []byte("second key"), Hash: crypto.SHA384, External: true},
 		}
 		_, offer, err := negotiation.FinalizeClientHello(&handshake.MessageClientHello{
 			Extensions: []extension.Value{&extension13.PSKKeyExchangeModes{Modes: []extension13.PSKKeyExchangeMode{extension13.PSKKE}}},
@@ -300,12 +300,14 @@ func TestSelectServerPSKIndex(t *testing.T) {
 
 func TestServerPSKMode(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		mode      extension13.PSKKeyExchangeMode
-		share     *extension13.KeyShareEntry
-		wantError bool
+		name       string
+		mode       extension13.PSKKeyExchangeMode
+		share      *extension13.KeyShareEntry
+		wantError  bool
+		resumption bool
 	}{
 		{name: "accept psk_ke", mode: extension13.PSKKE},
+		{name: "reject resumption psk_ke", mode: extension13.PSKKE, resumption: true, wantError: true},
 		{name: "reject unoffered psk_ke", mode: extension13.PSKDHEKE, wantError: true},
 		{name: "reject unoffered psk_dhe_ke", mode: extension13.PSKKE, share: &extension13.KeyShareEntry{}, wantError: true},
 	} {
@@ -316,7 +318,7 @@ func TestServerPSKMode(t *testing.T) {
 			require.NoError(t, err)
 			state := dtlsstate.NewState13(true)
 			state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
-			state.LocalPSKs = []dtlsstate.PSK{{Secret: []byte("secret"), Hash: crypto.SHA256}}
+			state.LocalPSKs = []dtlsstate.PSK{{Secret: []byte("secret"), Hash: crypto.SHA256, External: !test.resumption}}
 			require.NoError(t, state.LocalClientHelloSnapshots.Record(offer))
 			hello := &handshake.MessageServerHello{Extensions: []extension.Value{&extension13.SelectedPSK{Identity: 0}}}
 			if test.share != nil {
