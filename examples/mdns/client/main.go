@@ -8,7 +8,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/pion/dtls/v3/examples/mdns/internal/mdnsdemo"
+	"github.com/pion/dtls/v4/examples/mdns/internal/mdnsdemo"
 )
 
 func main() {
