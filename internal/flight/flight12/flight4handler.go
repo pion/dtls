@@ -235,15 +235,61 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 	return Flight6, nil, nil
 }
 
-//nolint:gocognit,cyclop,maintidx
 func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	offer := state.RemoteClientHelloSnapshots.Current()
-	extensions := []extension.Value{}
 	srtpSelection, err := negotiation.NegotiateSRTP(offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	serverHello, alertMsg, err := generateServerHello(state, cfg, offer, srtpSelection)
+	if err != nil {
+		return nil, alertMsg, err
+	}
+	var pkts []*dtlsflight.Outbound
+	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions)
+	content := handshake.Handshake{Message: serverHello}
+
+	pkts = append(pkts, &dtlsflight.Outbound{
+		Content: &content,
+	})
+
+	switch {
+	case state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate:
+		certificatePackets, alertMsg, err := serverCertificateFlight(state, cfg)
+		if err != nil {
+			return nil, alertMsg, err
+		}
+		pkts = append(pkts, certificatePackets...)
+	case cfg.LocalPSKIdentityHint != nil ||
+		state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe):
+		// To help the client in selecting which identity to use, the server
+		// can provide a "PSK identity hint" in the ServerKeyExchange message.
+		// If no hint is provided and cipher suite doesn't use elliptic curve,
+		// the ServerKeyExchange message is omitted.
+		//
+		// https://tools.ietf.org/html/rfc4279#section-2
+		srvExchange := unsignedServerKeyExchange(state, cfg.LocalPSKIdentityHint)
+		pkts = append(pkts, &dtlsflight.Outbound{
+			Content: &handshake.Handshake{
+				Message: srvExchange,
+			},
+		})
+	}
+
+	pkts = append(pkts, &dtlsflight.Outbound{
+		Content: &handshake.Handshake{
+			Message: &handshake.MessageServerHelloDone{},
+		},
+	})
+	state.CommitNegotiatedExtensions(decision)
+	dtlsflight.CommitSRTP(state.Common, srtpSelection)
+
+	return pkts, nil, nil
+}
+
+func serverHelloBaseExtensions(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, offer negotiation.ClientHelloSnapshot, srtpSelection negotiation.SRTPDecision) []extension.Value {
+	extensions := []extension.Value{}
 	if (cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret || cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
 		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
@@ -257,6 +303,11 @@ func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 		extensions = append(extensions, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}})
 	}
 
+	return extensions
+}
+
+func serverHelloExtensions(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, offer negotiation.ClientHelloSnapshot, srtpSelection negotiation.SRTPDecision) ([]extension.Value, *alert.Alert, error) {
+	extensions := serverHelloBaseExtensions(state, cfg, offer, srtpSelection)
 	selectedProto, err := extension.ALPNProtocolSelection(cfg.SupportedProtocols, state.PeerSupportedProtocols)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.NoApplicationProtocol}, err
@@ -274,7 +325,15 @@ func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 		extensions = dtlsflight.AppendConnectionIDExtensions(extensions, cid.CID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
 	}
 
-	var pkts []*dtlsflight.Outbound
+	return extensions, nil, nil
+}
+
+func generateServerHello(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, offer negotiation.ClientHelloSnapshot, srtpSelection negotiation.SRTPDecision) (*handshake.MessageServerHello, *alert.Alert, error) {
+	extensions, alertMsg, err := serverHelloExtensions(state, cfg, offer, srtpSelection)
+	if err != nil {
+		return nil, alertMsg, err
+	}
+
 	cipherSuiteID := uint16(state.CipherSuite.ID())
 
 	if cfg.HasSessionStore {
@@ -298,119 +357,99 @@ func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 	if err = validateServerSRTP(offer, serverHello.Extensions, cfg.LocalSRTPProtectionProfiles, srtpSelection); err != nil {
 		return nil, nil, err
 	}
-	decision := negotiation.DecideConnectionID(offer, serverHello.Extensions)
-	content := handshake.Handshake{Message: serverHello}
 
-	pkts = append(pkts, &dtlsflight.Outbound{
-		Content: &content,
-	})
+	return serverHello, nil, nil
+}
 
-	switch {
-	case state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate:
-		certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: state.ServerName, CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()}, RandomBytes: state.RemoteRandom.RandomBytes})
-		if err != nil {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
-		}
-
-		pkts = append(pkts, &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake.MessageCertificate{Certificate: certificate.Certificate}}})
-
-		serverRandom := state.LocalRandom.MarshalFixed()
-		clientRandom := state.RemoteRandom.MarshalFixed()
-
-		signer, ok := certificate.PrivateKey.(crypto.Signer)
-		if !ok {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidPrivateKey
-		}
-
-		// Find compatible signature scheme
-		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(
-			cfg.LocalSignatureSchemes,
-			signer,
-			protocol.Version1_2,
-		)
-		if err != nil {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
-		}
-
-		signature, err := dtlscrypto.GenerateKeySignature(clientRandom[:], serverRandom[:], state.LocalKeypair.PublicKey, state.NamedCurve, signer, signatureHashAlgo.Hash, signatureHashAlgo.Signature)
-		if err != nil {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
-		state.LocalKeySignature = signature
-
-		pkts = append(pkts, &dtlsflight.Outbound{
-			Content: &handshake.Handshake{
-				Message: &handshake.MessageServerKeyExchange{EllipticCurveType: elliptic.CurveTypeNamedCurve, NamedCurve: state.NamedCurve, PublicKey: state.LocalKeypair.PublicKey, HashAlgorithm: signatureHashAlgo.Hash, SignatureAlgorithm: signatureHashAlgo.Signature, Signature: state.LocalKeySignature},
-			},
-		})
-
-		if cfg.ClientAuth > dtlsconfig.NoClientCert {
-			// An empty list of certificateAuthorities signals to
-			// the client that it may send any certificate in response
-			// to our request. When we know the CAs we trust, then
-			// we can send them down, so that the client can choose
-			// an appropriate certificate to give to us.
-			var certificateAuthorities [][]byte
-			if cfg.ClientCAs != nil {
-				// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR
-				// because cert does not come from SystemCertPool and it's ok if certificate
-				// authorities is empty.
-				certificateAuthorities = cfg.ClientCAs.Subjects()
-			}
-
-			certReq := &handshake.MessageCertificateRequest{CertificateTypes: []clientcertificate.Type{clientcertificate.RSASign, clientcertificate.ECDSASign}, SignatureHashAlgorithms: cfg.LocalSignatureSchemes, CertificateAuthoritiesNames: certificateAuthorities}
-
-			var content handshake.Handshake
-
-			if cfg.CertificateRequestMessageHook != nil {
-				content = handshake.Handshake{Message: cfg.CertificateRequestMessageHook(*certReq)}
-			} else {
-				content = handshake.Handshake{Message: certReq}
-			}
-
-			pkts = append(pkts, &dtlsflight.Outbound{
-				Content: &content,
-			})
-		}
-	case cfg.LocalPSKIdentityHint != nil ||
-		state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe):
-		// To help the client in selecting which identity to use, the server
-		// can provide a "PSK identity hint" in the ServerKeyExchange message.
-		// If no hint is provided and cipher suite doesn't use elliptic curve,
-		// the ServerKeyExchange message is omitted.
-		//
-		// https://tools.ietf.org/html/rfc4279#section-2
-		srvExchange := &handshake.MessageServerKeyExchange{
-			IdentityHint: cfg.LocalPSKIdentityHint,
-		}
-		if state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
-			// ECDHE-PSK always encodes the hint length, including an empty hint.
-			// the ServerKeyExchange message is always sent
-			// https://www.rfc-editor.org/rfc/rfc5489.html#section-2
-			if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey &&
-				srvExchange.IdentityHint == nil {
-				srvExchange.IdentityHint = []byte{}
-			}
-			srvExchange.EllipticCurveType = elliptic.CurveTypeNamedCurve
-			srvExchange.NamedCurve = state.NamedCurve
-			srvExchange.PublicKey = state.LocalKeypair.PublicKey
-		}
-		pkts = append(pkts, &dtlsflight.Outbound{
-			Content: &handshake.Handshake{
-				Message: srvExchange,
-			},
-		})
+func serverCertificateFlight(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	var pkts []*dtlsflight.Outbound
+	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: state.ServerName, CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()}, RandomBytes: state.RemoteRandom.RandomBytes})
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 	}
+
+	pkts = append(pkts, &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake.MessageCertificate{Certificate: certificate.Certificate}}})
+
+	serverRandom := state.LocalRandom.MarshalFixed()
+	clientRandom := state.RemoteRandom.MarshalFixed()
+
+	signer, ok := certificate.PrivateKey.(crypto.Signer)
+	if !ok {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidPrivateKey
+	}
+
+	// Find compatible signature scheme
+	signatureHashAlgo, err := signaturehash.SelectSignatureScheme(
+		cfg.LocalSignatureSchemes,
+		signer,
+		protocol.Version1_2,
+	)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
+	}
+
+	signature, err := dtlscrypto.GenerateKeySignature(clientRandom[:], serverRandom[:], state.LocalKeypair.PublicKey, state.NamedCurve, signer, signatureHashAlgo.Hash, signatureHashAlgo.Signature)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	state.LocalKeySignature = signature
 
 	pkts = append(pkts, &dtlsflight.Outbound{
 		Content: &handshake.Handshake{
-			Message: &handshake.MessageServerHelloDone{},
+			Message: &handshake.MessageServerKeyExchange{EllipticCurveType: elliptic.CurveTypeNamedCurve, NamedCurve: state.NamedCurve, PublicKey: state.LocalKeypair.PublicKey, HashAlgorithm: signatureHashAlgo.Hash, SignatureAlgorithm: signatureHashAlgo.Signature, Signature: state.LocalKeySignature},
 		},
 	})
-	state.CommitNegotiatedExtensions(decision)
-	dtlsflight.CommitSRTP(state.Common, srtpSelection)
+
+	if cfg.ClientAuth > dtlsconfig.NoClientCert {
+		// An empty list of certificateAuthorities signals to
+		// the client that it may send any certificate in response
+		// to our request. When we know the CAs we trust, then
+		// we can send them down, so that the client can choose
+		// an appropriate certificate to give to us.
+		var certificateAuthorities [][]byte
+		if cfg.ClientCAs != nil {
+			// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR
+			// because cert does not come from SystemCertPool and it's ok if certificate
+			// authorities is empty.
+			certificateAuthorities = cfg.ClientCAs.Subjects()
+		}
+
+		certReq := &handshake.MessageCertificateRequest{CertificateTypes: []clientcertificate.Type{clientcertificate.RSASign, clientcertificate.ECDSASign}, SignatureHashAlgorithms: cfg.LocalSignatureSchemes, CertificateAuthoritiesNames: certificateAuthorities}
+
+		var content handshake.Handshake
+
+		if cfg.CertificateRequestMessageHook != nil {
+			content = handshake.Handshake{Message: cfg.CertificateRequestMessageHook(*certReq)}
+		} else {
+			content = handshake.Handshake{Message: certReq}
+		}
+
+		pkts = append(pkts, &dtlsflight.Outbound{
+			Content: &content,
+		})
+	}
 
 	return pkts, nil, nil
+}
+
+func unsignedServerKeyExchange(state *dtlsstate.State12, identityHint []byte) *handshake.MessageServerKeyExchange {
+	srvExchange := &handshake.MessageServerKeyExchange{
+		IdentityHint: identityHint,
+	}
+	if state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
+		// ECDHE-PSK always encodes the hint length, including an empty hint.
+		// ServerKeyExchange is always sent, even when the hint is empty.
+		// https://www.rfc-editor.org/rfc/rfc5489.html#section-2
+		if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey &&
+			srvExchange.IdentityHint == nil {
+			srvExchange.IdentityHint = []byte{}
+		}
+		srvExchange.EllipticCurveType = elliptic.CurveTypeNamedCurve
+		srvExchange.NamedCurve = state.NamedCurve
+		srvExchange.PublicKey = state.LocalKeypair.PublicKey
+	}
+
+	return srvExchange
 }
 
 func serverCIDExtension(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, offer negotiation.ClientHelloSnapshot) (*extension.ConnectionID, error) {
