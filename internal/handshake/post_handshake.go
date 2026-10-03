@@ -20,6 +20,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/internal/util"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
@@ -757,7 +758,7 @@ func (p *postHandshake) handleNewSessionTicket(ctx context.Context, conn Conn, m
 		return fatalPostHandshakeAlert(ctx, conn, alert.IllegalParameter)
 	}
 
-	if message.TicketLifetime != 0 && p.cfg.SetSessionTicket != nil {
+	if message.TicketLifetime != 0 && p.cfg.SetSessionTicket != nil && p.state.RemoteCertificateRequest == nil {
 		if err := p.storeSessionTicket(conn.SessionKey(), message); err != nil {
 			return err
 		}
@@ -803,6 +804,7 @@ func (p *postHandshake) storeSessionTicket(key []byte, message *handshake.Messag
 		CipherSuite: p.state.CipherSuite.ID(), Lifetime: message.TicketLifetime,
 		AgeAdd: message.TicketAgeAdd, Nonce: bytes.Clone(message.TicketNonce),
 		CreatedAt: time.Now(), ServerName: serverName,
+		PeerCertificates: util.CloneByteSlices(p.state.PeerCertificates),
 	})
 }
 

@@ -257,10 +257,11 @@ func (s *State13) CommitNegotiatedExtensions(decision *negotiation.ConnectionID)
 
 // SessionTicket holds DTLS 1.3 ticket metadata alongside its identity and PSK.
 type SessionTicket struct {
-	CipherSuite cryptosuite.ID
-	Lifetime    uint32 // Seconds from CreatedAt.
-	AgeAdd      uint32
-	Nonce       []byte
-	CreatedAt   time.Time
-	ServerName  string
+	CipherSuite      cryptosuite.ID
+	Lifetime         uint32 // Seconds from CreatedAt.
+	AgeAdd           uint32
+	Nonce            []byte
+	CreatedAt        time.Time
+	ServerName       string
+	PeerCertificates [][]byte
 }
