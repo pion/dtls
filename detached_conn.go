@@ -34,6 +34,17 @@ const (
 	DetachedHandshakeDone
 	// DetachedClosed indicates that the connection has terminated with Err.
 	DetachedClosed
+	// DetachedEarlyDataReady indicates that the client may call WriteEarlyData.
+	// 0-RTT only.
+	DetachedEarlyDataReady
+	// DetachedEarlyDataAccepted indicates that the server accepted the client's
+	// early data. It does not indicate delivery or handshake completion.
+	// 0-RTT only.
+	DetachedEarlyDataAccepted
+	// DetachedEarlyDataRejected indicates that the server rejected the client's
+	// early data. The application decides whether to retry after the handshake.
+	// 0-RTT only.
+	DetachedEarlyDataRejected
 )
 
 // DetachedEvent is an event produced by a DetachedConn. Fields are populated
@@ -217,6 +228,14 @@ func (c *DetachedConn) Write(data []byte) (int, error) {
 	}
 
 	return n, err
+}
+
+// WriteEarlyData sends client application data before handshake completion,
+// after DetachedEarlyDataReady. Early data may be replayed or rejected; a
+// successful write does not imply server acceptance. Rejected data is not
+// automatically resent.
+func (c *DetachedConn) WriteEarlyData(_ []byte) (int, error) {
+	return 0, dtlserrors.ErrNotImplemented
 }
 
 // EventReady is signaled when NextEvent may return an event and may be selected
