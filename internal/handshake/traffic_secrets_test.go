@@ -16,6 +16,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDeriveEarlyTrafficSecret(t *testing.T) {
+	raw := decodeRegressionHex(t, "0100002c000000000000002cfefd000000000000000000000000000000000000000000000000000000000000000000000002130101000000")
+	// calculated using Node's OpenSSL HMAC
+	for _, test := range []struct {
+		hash func() hash.Hash
+		want string
+	}{
+		{sha256.New, "822ba2d240a84149f158a479e7e4790d36306b03a7769fe5b4c2be92383e5004"},
+		{sha512.New384, "ef73f110094761886a4570e80d711c9e755e98df5ef9b27b1dd9c152e0835b02684cf39777863cbb52c7c9543198a35e"},
+	} {
+		psk := bytes.Repeat([]byte{0x42}, test.hash().Size())
+		secret, err := DeriveEarlyTrafficSecret(test.hash, psk, raw)
+		require.NoError(t, err)
+		assert.Equal(t, decodeRegressionHex(t, test.want), secret)
+		changed := bytes.Clone(raw)
+		changed[5]++
+		same, err := DeriveEarlyTrafficSecret(test.hash, psk, changed)
+		require.NoError(t, err)
+		assert.Equal(t, secret, same)
+		changed[len(changed)-1]++
+		different, err := DeriveEarlyTrafficSecret(test.hash, psk, changed)
+		require.NoError(t, err)
+		assert.NotEqual(t, secret, different)
+		_, err = DeriveEarlyTrafficSecret(test.hash, nil, raw)
+		require.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+		_, err = DeriveEarlyTrafficSecret(test.hash, psk, raw[:len(raw)-1])
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
+		changed[0] = 2
+		_, err = DeriveEarlyTrafficSecret(test.hash, psk, changed)
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
+	}
+	_, err := DeriveEarlyTrafficSecret(nil, []byte{1}, raw)
+	require.ErrorIs(t, err, dtlserrors.ErrKeyScheduleMissingHashFunction)
+}
+
 func TestDeriveResumptionPSK(t *testing.T) {
 	for _, hashFunc := range []func() hash.Hash{sha256.New, sha512.New384} {
 		secret := bytes.Repeat([]byte{0x42}, hashFunc().Size())

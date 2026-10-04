@@ -21,6 +21,24 @@ func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
 	return initRecordProtectionFromTrafficSecrets(state, dtlsflight13.EpochHandshake, state.KeySchedule.HandshakeTraffic)
 }
 
+// DeriveEarlyRecordProtection derives client early-data encryption and record
+// number protection using the ticket's cipher suite and finalized ClientHello.
+func DeriveEarlyRecordProtection(suite cryptosuite.TrafficSuite, psk, clientHello []byte) (cryptosuite.TrafficProtection, error) {
+	if suite == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotSet
+	}
+	secret, err := DeriveEarlyTrafficSecret(suite.HashFunc(), psk, clientHello)
+	if err != nil {
+		return nil, err
+	}
+	trafficSecret, err := dtlsciphersuite.NewTrafficSecret(secret)
+	if err != nil {
+		return nil, err
+	}
+
+	return suite.NewTrafficProtection(trafficSecret)
+}
+
 // InitApplicationRecordProtection installs DTLS 1.3 application record
 // protection from the stored application traffic secrets.
 func InitApplicationRecordProtection(state *dtlsstate.State13) error {

@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	clientEarlyTrafficLabel       = "c e traffic"
 	clientHandshakeTrafficLabel   = "c hs traffic"
 	serverHandshakeTrafficLabel   = "s hs traffic"
 	clientApplicationTrafficLabel = "c ap traffic"
@@ -232,6 +233,33 @@ func deriveHandshakeKeySchedule(hashFunc func() hash.Hash, psk, keyAgreementSecr
 	}
 
 	return handshakeKeySchedule{HandshakeTrafficSecrets: dtlsstate.TrafficSecrets{Client: clientSecret, Server: serverSecret}, MasterSecret: masterSecret}, nil
+}
+
+// DeriveEarlyTrafficSecret derives the client early traffic secret from a PSK
+// and the complete, finalized DTLS ClientHello, and its binders. raw contain
+// one reassembled handshake message with its DTLS handshake header.
+//
+// https://datatracker.ietf.org/doc/html/rfc9846#section-7.1
+// https://datatracker.ietf.org/doc/html/rfc9147#section-5.9
+func DeriveEarlyTrafficSecret(hashFunc func() hash.Hash, psk, raw []byte) ([]byte, error) {
+	if len(psk) == 0 {
+		return nil, dtlserrors.ErrLengthMismatch
+	}
+	earlySecret, err := deriveEarlySecret(hashFunc, psk)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := canonicalHandshake(raw)
+	if err != nil {
+		return nil, err
+	}
+	if handshake.Type(canonical[0]) != handshake.TypeClientHello {
+		return nil, dtlserrors.ErrInvalidHandshakeTranscriptMessage
+	}
+	transcriptHash := hashFunc()
+	_, _ = transcriptHash.Write(canonical)
+
+	return deriveTrafficSecret(hashFunc, earlySecret, clientEarlyTrafficLabel, transcriptHash.Sum(nil))
 }
 
 // deriveEarlySecret uses a hash-length zero PSK when no PSK was selected.
