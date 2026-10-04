@@ -141,6 +141,8 @@ type HandshakeConfig struct {
 	VerifyConnection              func(internalstate.Active) error
 	HasSessionStore               bool
 	MaxEarlyDataSize              uint32
+	EnableEarlyData               bool
+	ClaimEarlyData                func(ticket []byte, expiresAt time.Time) (bool, error)
 	GetSession                    func(key []byte) (id, secret []byte, err error)
 	SetSession                    func(key, id, secret []byte) error
 	SetSessionTicket              func(key, id, secret []byte, ticket internalstate.SessionTicket) error

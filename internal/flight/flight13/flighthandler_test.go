@@ -338,3 +338,19 @@ func TestServerPSKMode(t *testing.T) {
 		})
 	}
 }
+
+func TestEarlyDataRejectsChangedALPN(t *testing.T) {
+	state := &dtlsstate.State13{
+		Common:          &dtlsstate.Common{NegotiatedProtocol: "new", CipherSuite: ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)},
+		EarlyDataStatus: dtlsstate.EarlyDataReady,
+		PSK:             []byte{1},
+		LocalPSKs: []dtlsstate.PSK{{Ticket: &dtlsstate.SessionTicket{
+			CipherSuite: cryptosuite.TLS_AES_128_GCM_SHA256, NegotiatedProtocol: "old",
+		}}},
+	}
+	failure := validateEarlyDataResponse(state, &handshake.MessageEncryptedExtensions{
+		Extensions: []extension.Value{&extension13.EarlyData{}},
+	})
+	require.NotNil(t, failure)
+	require.Equal(t, alert.IllegalParameter, failure.alert.Description)
+}

@@ -176,6 +176,20 @@ func (s *TrafficKeyState) CurrentRead() (*TrafficGeneration, bool) {
 	return s.readCurrent, s.readCurrent != nil
 }
 
+// Discard removes both directions of an epoch when its keys are no longer usable.
+func (s *TrafficKeyState) Discard(epoch uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.writeCurrent != nil && s.writeCurrent.Epoch == epoch {
+		s.writeCurrent = nil
+	}
+	if s.readCurrent != nil && s.readCurrent.Epoch == epoch {
+		s.readCurrent = nil
+	}
+	delete(s.writeOld, epoch)
+	delete(s.readOld, epoch)
+}
+
 // ReadCandidate selects the current or most recent past epoch with matching low bits.
 // A missing generation does not allow falling back to an older matching epoch.
 // https://www.rfc-editor.org/rfc/rfc9147.html#section-4.2.2

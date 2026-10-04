@@ -47,6 +47,10 @@ func (s Session) ticketPSK(serverName string, now time.Time) *dtlsstate.PSK {
 	}
 
 	return &dtlsstate.PSK{
+		Ticket: &SessionTicket{
+			CipherSuite: ticket.CipherSuite, Lifetime: ticket.Lifetime, AgeAdd: ticket.AgeAdd,
+			CreatedAt: ticket.CreatedAt, MaxEarlyDataSize: ticket.MaxEarlyDataSize, NegotiatedProtocol: ticket.NegotiatedProtocol,
+		},
 		Identity: bytes.Clone(s.ID), Secret: bytes.Clone(s.Secret), Hash: hashID,
 		//nolint:gosec // Age is bounded to seven days, addition wraps modulo 2^32 https://datatracker.ietf.org/doc/html/rfc9846#section-4.3.11.1
 		ObfuscatedTicketAge: uint32(age.Milliseconds()) + ticket.AgeAdd,

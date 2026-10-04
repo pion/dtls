@@ -815,6 +815,9 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 	if handshakeConfig.PSKIdentityLimit == 0 {
 		handshakeConfig.PSKIdentityLimit = 32
 	}
+	if store, ok := config.sessionStore.(EarlyDataSessionStore); ok && config.maxEarlyDataSize > 0 {
+		handshakeConfig.ClaimEarlyData = store.Claim
+	}
 	config.configurePSK(handshakeConfig)
 
 	return handshakeConfig

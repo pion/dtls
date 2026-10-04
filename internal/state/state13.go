@@ -22,6 +22,7 @@ import (
 //
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 type PSK struct {
+	Ticket              *SessionTicket
 	Identity            []byte
 	Secret              []byte
 	Hash                crypto.Hash
@@ -194,6 +195,11 @@ type CIDSendState struct {
 // State13 holds state that is meaningful only for DTLS 1.3.
 type State13 struct {
 	*Common
+	EarlyDataStatus  EarlyDataStatus
+	EarlyDataLimit   uint32
+	EarlyDataBytes   uint64
+	EarlyDataPSK     *PSK
+	EarlyClientHello []byte
 
 	CID         CIDState
 	KeySchedule KeySchedule
@@ -258,12 +264,23 @@ func (s *State13) CommitNegotiatedExtensions(decision *negotiation.ConnectionID)
 
 // SessionTicket holds DTLS 1.3 ticket metadata alongside its identity and PSK.
 type SessionTicket struct {
-	MaxEarlyDataSize uint32 // Maximum early-data bytes; zero disables early data.
-	CipherSuite      cryptosuite.ID
-	Lifetime         uint32 // Seconds from CreatedAt.
-	AgeAdd           uint32
-	Nonce            []byte
-	CreatedAt        time.Time
-	ServerName       string
-	PeerCertificates [][]byte
+	NegotiatedProtocol string
+	MaxEarlyDataSize   uint32 // Maximum early-data bytes; zero disables early data.
+	CipherSuite        cryptosuite.ID
+	Lifetime           uint32 // Seconds from CreatedAt.
+	AgeAdd             uint32
+	Nonce              []byte
+	CreatedAt          time.Time
+	ServerName         string
+	PeerCertificates   [][]byte
 }
+
+// EarlyDataStatus tracks client offers and the server's acceptance decision.
+type EarlyDataStatus uint8
+
+const (
+	EarlyDataNone EarlyDataStatus = iota
+	EarlyDataReady
+	EarlyDataAccepted
+	EarlyDataRejected
+)

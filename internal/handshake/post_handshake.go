@@ -809,8 +809,9 @@ func (p *postHandshake) storeSessionTicket(key []byte, message *handshake.Messag
 	}
 
 	return p.cfg.SetSessionTicket(bytes.Clone(key), bytes.Clone(message.Ticket), secret, dtlsstate.SessionTicket{
-		MaxEarlyDataSize: maxEarlyDataSize,
-		CipherSuite:      p.state.CipherSuite.ID(), Lifetime: message.TicketLifetime,
+		MaxEarlyDataSize:   maxEarlyDataSize,
+		NegotiatedProtocol: p.state.NegotiatedProtocol,
+		CipherSuite:        p.state.CipherSuite.ID(), Lifetime: message.TicketLifetime,
 		AgeAdd: message.TicketAgeAdd, Nonce: bytes.Clone(message.TicketNonce),
 		CreatedAt: time.Now(), ServerName: serverName,
 		PeerCertificates: util.CloneByteSlices(p.state.PeerCertificates),

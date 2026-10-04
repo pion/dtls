@@ -12,6 +12,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/prf"
@@ -267,8 +268,31 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 	if encryptedExtensions == nil {
 		return nil
 	}
+	if failure := validateALPNResponse(flightCtx, encryptedExtensions); failure != nil {
+		return failure
+	}
 
-	return validateALPNResponse(flightCtx, encryptedExtensions)
+	return validateEarlyDataResponse(flightCtx.state, encryptedExtensions)
+}
+
+func validateEarlyDataResponse(state *dtlsstate.State13, message *handshake.MessageEncryptedExtensions) *flightParseFailure {
+	accepted := slices.ContainsFunc(message.Extensions, func(value extension.Value) bool {
+		return value.ExtensionType() == extension.TypeEarlyData
+	})
+	if accepted {
+		if state.EarlyDataStatus != dtlsstate.EarlyDataReady || len(state.PSK) == 0 || state.PSKIdentity != 0 {
+			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
+		}
+		ticket := state.LocalPSKs[0].Ticket
+		if ticket == nil || ticket.CipherSuite != state.CipherSuite.ID() || ticket.NegotiatedProtocol != state.NegotiatedProtocol {
+			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
+		}
+		state.EarlyDataStatus = dtlsstate.EarlyDataAccepted
+	} else if state.EarlyDataStatus == dtlsstate.EarlyDataReady {
+		state.EarlyDataStatus = dtlsstate.EarlyDataRejected
+	}
+
+	return nil
 }
 
 func flight3Generate(

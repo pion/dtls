@@ -254,6 +254,9 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 		if err != nil {
 			return StateErrored, pskHandshakeError(alert.NoApplicationProtocol, err)
 		}
+		if err = s.acceptEarlyData(); err != nil {
+			return StateErrored, err
+		}
 	}
 	// Prepare flights
 	var (

@@ -8,13 +8,16 @@ import (
 	"crypto"
 	"fmt"
 	"slices"
+	"time"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
@@ -44,8 +47,12 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 		}
 	}
 	state.LocalPSKs = psks
+	if t.helloRetryApplied && state.EarlyDataStatus == dtlsstate.EarlyDataReady {
+		state.EarlyDataStatus = dtlsstate.EarlyDataRejected
+		state.TrafficKeys.Discard(dtlsflight13.EpochEarlyData)
+	}
 	if len(psks) != 0 {
-		return FinalizeClientHelloWithPSKs(hello, cfg, state.LocalPSKs, t)
+		return t.finalizeEarlyClientHello(state, cfg, hello)
 	}
 
 	return finalizeClientHelloWithoutPSK(hello, cfg)
@@ -54,7 +61,7 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 func finalizeClientHelloWithoutPSK(hello *handshake.MessageClientHello, cfg *dtlsconfig.HandshakeConfig) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
 	copyHello := *hello
 	copyHello.Extensions = slices.DeleteFunc(slices.Clone(hello.Extensions), func(value extension.Value) bool {
-		return value.ExtensionType() == extension.TypePreSharedKey
+		return value.ExtensionType() == extension.TypePreSharedKey || value.ExtensionType() == extension.TypeEarlyData
 	})
 	hello = &copyHello
 	if cfg.SetSessionTicket != nil && !slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
@@ -163,6 +170,13 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	c.state.PSK = bytes.Clone(secret)
 	c.state.PSKIdentity = uint16(i) //nolint:gosec // bounded by uint16.
 	c.state.IdentityHint = bytes.Clone(offer.Identities[i].Identity)
+	if i == 0 && psk.Ticket != nil && slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
+		return value.ExtensionType() == extension.TypeEarlyData
+	}) {
+		c.state.EarlyDataPSK = psk
+		c.state.EarlyClientHello = bytes.Clone(raw)
+		psk.ObfuscatedTicketAge = offer.Identities[0].ObfuscatedTicketAge
+	}
 
 	return nil
 }
@@ -234,4 +248,89 @@ func (c *handshakeContext) pskCipherSuite(hello *handshake.MessageClientHello, h
 
 func pskHandshakeError(description alert.Description, err error) error {
 	return fmt.Errorf("%w: %w", &alert.Alert{Level: alert.Fatal, Description: description}, err)
+}
+
+func (t *Transcript) finalizeEarlyClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	copyHello := *hello
+	copyHello.Extensions = slices.DeleteFunc(slices.Clone(hello.Extensions), func(value extension.Value) bool {
+		return value.ExtensionType() == extension.TypeEarlyData
+	})
+	suite := earlyTicketSuite(state.LocalPSKs[0], cfg)
+	if !t.helloRetryApplied && suite != nil {
+		copyHello.Extensions = append(copyHello.Extensions, &extension13.EarlyData{})
+	}
+	final, snapshot, err := FinalizeClientHelloWithPSKs(&copyHello, cfg, state.LocalPSKs, t)
+	if err != nil || !snapshot.Offered(extension.TypeEarlyData) {
+		return final, snapshot, err
+	}
+	if t.helloRetryApplied || suite == nil || !slices.Contains(final.CipherSuiteIDs, uint16(suite.ID())) {
+		return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrInvalidClientHello
+	}
+	raw, err := (&handshake.Handshake{Message: final}).Marshal()
+	if err == nil {
+		err = InitEarlyRecordProtection(state, suite, state.LocalPSKs[0].Secret, raw)
+	}
+	if err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
+	state.NegotiatedProtocol = state.LocalPSKs[0].Ticket.NegotiatedProtocol
+	state.EarlyDataStatus = dtlsstate.EarlyDataReady
+	state.EarlyDataLimit = state.LocalPSKs[0].Ticket.MaxEarlyDataSize
+
+	return final, snapshot, nil
+}
+
+func earlyTicketSuite(psk dtlsstate.PSK, cfg *dtlsconfig.HandshakeConfig) cryptosuite.TrafficSuite {
+	if !cfg.EnableEarlyData || psk.Ticket == nil || psk.Ticket.MaxEarlyDataSize == 0 {
+		return nil
+	}
+	if psk.Ticket.NegotiatedProtocol != "" && !slices.Contains(cfg.SupportedProtocols, psk.Ticket.NegotiatedProtocol) {
+		return nil
+	}
+	for _, suite := range cfg.LocalCipherSuites {
+		if suite.ID() == psk.Ticket.CipherSuite {
+			trafficSuite, _ := suite.(cryptosuite.TrafficSuite)
+
+			return trafficSuite
+		}
+	}
+
+	return nil
+}
+
+func (s *fsm13) acceptEarlyData() error {
+	state := s.state
+	defer func() { state.EarlyDataPSK, state.EarlyClientHello = nil, nil }()
+	psk := state.EarlyDataPSK
+	if psk == nil || s.transcript.helloRetryApplied || s.cfg.ClaimEarlyData == nil {
+		return nil
+	}
+	suite := earlyTicketSuite(*psk, s.cfg)
+	if suite == nil {
+		return nil
+	}
+	ticket := psk.Ticket
+	if !freshEarlyTicket(ticket, psk.ObfuscatedTicketAge-ticket.AgeAdd, time.Now(), state.CipherSuite.ID(), state.NegotiatedProtocol) || s.cfg.MaxEarlyDataSize < ticket.MaxEarlyDataSize {
+		return nil
+	}
+	fresh, err := s.cfg.ClaimEarlyData(bytes.Clone(psk.Identity), ticket.CreatedAt.Add(time.Duration(ticket.Lifetime)*time.Second))
+	if err != nil || !fresh {
+		return nil //nolint:nilerr // failures means early data is rejected, resumption is continued
+	}
+	if err := InitEarlyRecordProtection(state, suite, psk.Secret, state.EarlyClientHello); err != nil {
+		return err
+	}
+	state.EarlyDataStatus = dtlsstate.EarlyDataAccepted
+	state.EarlyDataLimit = ticket.MaxEarlyDataSize
+
+	return nil
+}
+
+func freshEarlyTicket(ticket *dtlsstate.SessionTicket, clientAge uint32, now time.Time, suite cryptosuite.ID, protocol string) bool {
+	age := now.Sub(ticket.CreatedAt)
+	// https://datatracker.ietf.org/doc/html/rfc9846#section-8.3
+	skew := age - time.Duration(clientAge)*time.Millisecond
+
+	return ticket.NegotiatedProtocol == protocol && ticket.CipherSuite == suite && age >= 0 && age < time.Duration(ticket.Lifetime)*time.Second &&
+		skew >= -10*time.Second && skew <= 10*time.Second
 }
