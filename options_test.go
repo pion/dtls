@@ -455,9 +455,23 @@ func TestOptionConfiguration(t *testing.T) {
 	cases := map[string]struct {
 		clientOpts []ClientOption
 		serverOpts []ServerOption
+		resumeOpts []Option
+		isClient   bool
 		wantAnyErr bool
 		expErr     error
 	}{
+		"resumed PSK client": {isClient: true, resumeOpts: []Option{
+			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
+			WithPSK(func() ([]PSK, error) {
+				return []PSK{{Identity: []byte("client"), Key: []byte("key")}}, nil
+			}, nil),
+		}},
+		"resumed PSK server": {resumeOpts: []Option{
+			WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
+			WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+				return &PSK{Identity: identities[0], Key: []byte("key")}, nil
+			}),
+		}},
 		"psk and Certificate, valid cipher suites": {serverOpts: []ServerOption{WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8, cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), WithPSK(nil, func(identities [][]byte) (*PSK, error) {
 			return &PSK{Identity: identities[0], Key: []byte("key")}, nil
 		}), WithCertificates(cert)}},
@@ -495,7 +509,25 @@ func TestOptionConfiguration(t *testing.T) {
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			var err error
-			if testCase.clientOpts != nil {
+			if testCase.resumeOpts != nil {
+				ca, cb := packetPipe()
+				t.Cleanup(func() {
+					_ = ca.Close()
+					_ = cb.Close()
+				})
+				state := &State{
+					isClient: testCase.isClient, version: protocol.Version1_2,
+					CipherSuiteID: cryptosuite.TLS_PSK_WITH_AES_128_CCM_8,
+					masterSecret:  make([]byte, 48), localEpoch: 1, remoteEpoch: 1,
+				}
+				var conn *Conn
+				conn, err = Resume(state, ca, ca.RemoteAddr(), testCase.resumeOpts...)
+				if err == nil {
+					t.Cleanup(func() { _ = conn.Close() })
+					assert.Equal(t, testCase.isClient, conn.handshakeConfig.GetPSKs != nil)
+					assert.Equal(t, !testCase.isClient, conn.handshakeConfig.SelectPSK != nil)
+				}
+			} else if testCase.clientOpts != nil {
 				err = clientOptionsError(t, testCase.clientOpts...)
 			} else {
 				err = serverOptionsError(t, testCase.serverOpts...)
