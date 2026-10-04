@@ -24,6 +24,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
@@ -800,8 +801,16 @@ func (p *postHandshake) storeSessionTicket(key []byte, message *handshake.Messag
 		serverName = p.cfg.ServerName
 	}
 
+	var maxEarlyDataSize uint32
+	for _, value := range message.Extensions {
+		if earlyData, ok := value.(*extension13.MaxEarlyData); ok {
+			maxEarlyDataSize = earlyData.Size
+		}
+	}
+
 	return p.cfg.SetSessionTicket(bytes.Clone(key), bytes.Clone(message.Ticket), secret, dtlsstate.SessionTicket{
-		CipherSuite: p.state.CipherSuite.ID(), Lifetime: message.TicketLifetime,
+		MaxEarlyDataSize: maxEarlyDataSize,
+		CipherSuite:      p.state.CipherSuite.ID(), Lifetime: message.TicketLifetime,
 		AgeAdd: message.TicketAgeAdd, Nonce: bytes.Clone(message.TicketNonce),
 		CreatedAt: time.Now(), ServerName: serverName,
 		PeerCertificates: util.CloneByteSlices(p.state.PeerCertificates),
@@ -911,7 +920,12 @@ func (p *postHandshake) prepareNewSessionTicket(isClient bool) (*reliablePostHan
 	binary.BigEndian.PutUint64(nonce[:], p.nextTicketNonce)
 	p.nextTicketNonce++
 
-	return p.makeReliableNewSessionTicket(&handshake.MessageNewSessionTicket{TicketLifetime: newSessionTicketLifetime, TicketAgeAdd: binary.BigEndian.Uint32(ageAdd[:]), TicketNonce: nonce[:], Ticket: identity})
+	message := &handshake.MessageNewSessionTicket{TicketLifetime: newSessionTicketLifetime, TicketAgeAdd: binary.BigEndian.Uint32(ageAdd[:]), TicketNonce: nonce[:], Ticket: identity}
+	if p.cfg.MaxEarlyDataSize != 0 {
+		message.Extensions = append(message.Extensions, &extension13.MaxEarlyData{Size: p.cfg.MaxEarlyDataSize})
+	}
+
+	return p.makeReliableNewSessionTicket(message)
 }
 
 func (p *postHandshake) makeReliableNewSessionTicket(message *handshake.MessageNewSessionTicket) (*reliablePostHandshakeFlight, error) {

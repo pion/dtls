@@ -258,6 +258,7 @@ func (s *State13) CommitNegotiatedExtensions(decision *negotiation.ConnectionID)
 
 // SessionTicket holds DTLS 1.3 ticket metadata alongside its identity and PSK.
 type SessionTicket struct {
+	MaxEarlyDataSize uint32 // Maximum early-data bytes; zero disables early data.
 	CipherSuite      cryptosuite.ID
 	Lifetime         uint32 // Seconds from CreatedAt.
 	AgeAdd           uint32

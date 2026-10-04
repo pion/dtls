@@ -97,6 +97,7 @@ type dtlsConfig struct {
 	isClient             bool
 	verifyConnection     func(*State) error
 	sessionStore         SessionStore
+	maxEarlyDataSize     uint32
 	getCertificate       func(*ClientHelloInfo) (*tls.Certificate, error)
 	getClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error)
 }
@@ -361,9 +362,34 @@ func WithKeyLogWriter(writer io.Writer) Option {
 	return valueOption(func(c *dtlsConfig) *io.Writer { return &c.KeyLogWriter }, writer)
 }
 
-// WithSessionStore sets the session store for resumption.
-func WithSessionStore(store SessionStore) Option {
-	return valueOption(func(c *dtlsConfig) *SessionStore { return &c.sessionStore }, store)
+// SessionOption configures session-specific settings in WithSessionStore.
+type SessionOption interface {
+	applySession(*dtlsConfig) error
+}
+
+type sessionOption func(*dtlsConfig) error
+
+func (o sessionOption) applySession(c *dtlsConfig) error { return o(c) }
+
+// WithSessionStore sets the session store and options for resumption.
+func WithSessionStore(store SessionStore, opts ...SessionOption) Option {
+	return sharedOption(func(c *dtlsConfig) error {
+		c.sessionStore = store
+		for _, opt := range opts {
+			if err := opt.applySession(c); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// WithMaxEarlyDataSize sets the maximum early-data bytes advertised in DTLS 1.3
+// session tickets issued by servers. Use it inside WithSessionStore; it has no
+// effect on clients. Zero (the default) omits early-data permission.
+func WithMaxEarlyDataSize(size uint32) SessionOption {
+	return sessionOption(valueOption(func(c *dtlsConfig) *uint32 { return &c.maxEarlyDataSize }, size))
 }
 
 // WithSupportedProtocols sets the supported application protocols for ALPN.
@@ -735,6 +761,7 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		VerifyPeerCertificate:         config.VerifyPeerCertificate,
 		VerifyConnection:              adaptVerifyConnection(config.verifyConnection),
 		HasSessionStore:               config.sessionStore != nil,
+		MaxEarlyDataSize:              config.maxEarlyDataSize,
 		RootCAs:                       config.RootCAs,
 		ClientCAs:                     config.ClientCAs,
 		InitialRetransmitInterval:     configValues.initialRetransmitInterval,

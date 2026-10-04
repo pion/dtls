@@ -439,6 +439,7 @@ func TestPrepareNewSessionTicket(t *testing.T) {
 
 	first, err := post.prepareNewSessionTicket(false)
 	require.NoError(t, err)
+	post.cfg.MaxEarlyDataSize = 4096
 	second, err := post.prepareNewSessionTicket(false)
 	require.NoError(t, err)
 	firstHandshake, ok := first.Packets[0].Content.(*handshake.Handshake)
@@ -452,6 +453,26 @@ func TestPrepareNewSessionTicket(t *testing.T) {
 	assert.Len(t, firstMessage.Ticket, 32)
 	assert.NotEqual(t, firstMessage.Ticket, secondMessage.Ticket)
 	assert.NotEqual(t, firstMessage.TicketNonce, secondMessage.TicketNonce)
+	assert.Empty(t, firstMessage.Extensions)
+	assert.Equal(t, []extension.Value{&extension13.MaxEarlyData{Size: 4096}}, secondMessage.Extensions)
+	for _, isClient := range []bool{false, true} {
+		post.state = newPostHandshakeKeyUpdateTestState(t, isClient)
+		post.state.KeySchedule.ResumptionMasterSecret = make([]byte, 32)
+		var cached dtlsstate.SessionTicket
+		post.cfg.SetSessionTicket = func(_, _, _ []byte, ticket dtlsstate.SessionTicket) error {
+			cached = ticket
+
+			return nil
+		}
+		wire, err := secondMessage.Marshal()
+		require.NoError(t, err)
+		var received handshake.MessageNewSessionTicket
+		require.NoError(t, received.Unmarshal(wire))
+		require.NoError(t, post.storeSessionTicket(received.Ticket, &received))
+		assert.Equal(t, uint32(4096), cached.MaxEarlyDataSize)
+		require.NoError(t, post.storeSessionTicket(firstMessage.Ticket, firstMessage))
+		assert.Zero(t, cached.MaxEarlyDataSize)
+	}
 }
 
 func TestKeyUpdateCommitsWriteKeysOnlyAfterACK(t *testing.T) {

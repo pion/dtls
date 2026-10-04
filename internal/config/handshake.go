@@ -140,6 +140,7 @@ type HandshakeConfig struct {
 	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 	VerifyConnection              func(internalstate.Active) error
 	HasSessionStore               bool
+	MaxEarlyDataSize              uint32
 	GetSession                    func(key []byte) (id, secret []byte, err error)
 	SetSession                    func(key, id, secret []byte) error
 	SetSessionTicket              func(key, id, secret []byte, ticket internalstate.SessionTicket) error
