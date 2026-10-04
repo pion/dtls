@@ -71,3 +71,13 @@ type SessionStore interface {
 	// Del clean saved session.
 	Del(key []byte) error
 }
+
+// EarlyDataSessionStore optionally supports replay-protected early data.
+// Claim atomically marks a ticket used for early data, returning true only once.
+// Claims must be shared across all servers using the tickets and retained until
+// expiresAt, even if the session is updated or deleted. Claim preserves the
+// session for ordinary resumption. Errors reject early data, not resumption.
+type EarlyDataSessionStore interface {
+	SessionStore
+	Claim(ticket []byte, expiresAt time.Time) (bool, error)
+}

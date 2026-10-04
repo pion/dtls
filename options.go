@@ -381,13 +381,15 @@ func WithSessionStore(store SessionStore, opts ...SessionOption) Option {
 			}
 		}
 
-		return nil
+		return c.validateSessionStore()
 	})
 }
 
-// WithMaxEarlyDataSize sets the maximum early-data bytes advertised in DTLS 1.3
-// session tickets issued by servers. Use it inside WithSessionStore; it has no
-// effect on clients. Zero (the default) omits early-data permission.
+// WithMaxEarlyDataSize opts detached connections into early data.
+// Servers advertise this limit in new session tickets; clients may offer early
+// data using cached tickets. Zero (the default) disables early data.
+// A nonzero size requires a store implementing EarlyDataSessionStore.
+// Use inside WithSessionStore.
 func WithMaxEarlyDataSize(size uint32) SessionOption {
 	return sessionOption(valueOption(func(c *dtlsConfig) *uint32 { return &c.maxEarlyDataSize }, size))
 }
@@ -946,6 +948,10 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 		return dtlserrors.ErrNoConfigProvided
 	}
 
+	if err := config.validateSessionStore(); err != nil {
+		return err
+	}
+
 	for _, cert := range config.Certificates {
 		if cert.Certificate == nil {
 			return dtlserrors.ErrInvalidCertificate
@@ -1247,4 +1253,12 @@ func intersectSupportedVersions(
 	return filterSupportedVersions(left, func(version protocol.Version) bool {
 		return slices.Contains(right, version)
 	})
+}
+
+func (c *dtlsConfig) validateSessionStore() error {
+	if _, ok := c.sessionStore.(EarlyDataSessionStore); c.maxEarlyDataSize > 0 && !ok {
+		return dtlserrors.ErrEarlyDataRequiresClaimStore
+	}
+
+	return nil
 }

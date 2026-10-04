@@ -10,7 +10,8 @@ import (
 )
 
 var (
-	ErrConnClosed = stderrors.New("conn is closed")
+	ErrEarlyDataRequiresClaimStore = stderrors.New("nonzero maximum early-data size requires an EarlyDataSessionStore")
+	ErrConnClosed                  = stderrors.New("conn is closed")
 
 	ErrDeadlineExceeded   = context.DeadlineExceeded
 	ErrEpochOverflow      = stderrors.New("epoch overflow")
