@@ -240,24 +240,18 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 	flightCtx.state.RemoteCertificateRequest = nil
 	offer := flightCtx.state.LocalClientHelloSnapshots.Current()
 	var srtpDecision negotiation.SRTPDecision
+	var encryptedExtensions *handshake.MessageEncryptedExtensions
 	for _, item := range items {
 		if item.Parsed == nil {
 			continue
 		}
 		switch message := item.Parsed.Message.(type) {
 		case *handshake.MessageEncryptedExtensions:
-			if err := negotiation.ValidateResponseExtensions(offer, message.Extensions, nil); err != nil {
-				return newFlightParseFailure(alert.UnsupportedExtension, err)
-			}
-			var err error
-			srtpDecision, err = negotiation.ValidateSRTPSelection(offer, message.Extensions, flightCtx.cfg.LocalSRTPProtectionProfiles)
-			if err != nil {
-				var dtlsAlert *alert.Alert
-				if !errors.As(err, &dtlsAlert) {
-					return newFlightParseFailure(alert.InternalError, err)
-				}
-
-				return &flightParseFailure{alert: dtlsAlert, err: err}
+			encryptedExtensions = message
+			var failure *flightParseFailure
+			srtpDecision, failure = validateEncryptedExtensions(flightCtx, offer, message)
+			if failure != nil {
+				return failure
 			}
 		case *handshake.MessageCertificateRequest13:
 			flightCtx.state.RemoteCertificateRequest = message
@@ -270,8 +264,11 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 	if err := flightCtx.protectedHandshakeHandler(flightCtx.state.CipherSuite, items); err != nil {
 		return protectedFlightParseFailure(err)
 	}
+	if encryptedExtensions == nil {
+		return nil
+	}
 
-	return nil
+	return validateALPNResponse(flightCtx, encryptedExtensions)
 }
 
 func flight3Generate(
@@ -369,4 +366,39 @@ func validateServerPSKMode(flightCtx *handshakeContext, mode extension13.PSKKeyE
 	}
 
 	return nil
+}
+
+func validateALPNResponse(ctx *handshakeContext, message *handshake.MessageEncryptedExtensions) *flightParseFailure {
+	ctx.state.NegotiatedProtocol = ""
+	for _, value := range message.Extensions {
+		selection, ok := value.(*extension.ALPNSelection)
+		if !ok {
+			continue
+		}
+		raw, offered := ctx.state.LocalClientHelloSnapshots.Current().Extension(extension.TypeALPN)
+		var offer extension.ALPNOffer
+		if !offered || offer.UnmarshalData(raw.Data) != nil || !slices.Contains(offer.Protocols, selection.Protocol) {
+			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrALPNNoAppProto)
+		}
+		ctx.state.NegotiatedProtocol = selection.Protocol
+	}
+
+	return nil
+}
+
+func validateEncryptedExtensions(ctx *handshakeContext, offer negotiation.ClientHelloSnapshot, message *handshake.MessageEncryptedExtensions) (negotiation.SRTPDecision, *flightParseFailure) {
+	if err := negotiation.ValidateResponseExtensions(offer, message.Extensions, nil); err != nil {
+		return negotiation.SRTPDecision{}, newFlightParseFailure(alert.UnsupportedExtension, err)
+	}
+	decision, err := negotiation.ValidateSRTPSelection(offer, message.Extensions, ctx.cfg.LocalSRTPProtectionProfiles)
+	if err != nil {
+		var dtlsAlert *alert.Alert
+		if !errors.As(err, &dtlsAlert) {
+			return decision, newFlightParseFailure(alert.InternalError, err)
+		}
+
+		return decision, &flightParseFailure{alert: dtlsAlert, err: err}
+	}
+
+	return decision, nil
 }

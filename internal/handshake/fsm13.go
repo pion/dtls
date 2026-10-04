@@ -14,6 +14,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
@@ -248,6 +249,12 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 	}()
 
 	s.flights = nil
+	if s.currentFlight == dtlsflight13.Flight4 {
+		s.state.NegotiatedProtocol, err = extension.ALPNProtocolSelection(s.cfg.SupportedProtocols, s.state.PeerSupportedProtocols)
+		if err != nil {
+			return StateErrored, pskHandshakeError(alert.NoApplicationProtocol, err)
+		}
+	}
 	// Prepare flights
 	var (
 		dtlsAlert *alert.Alert

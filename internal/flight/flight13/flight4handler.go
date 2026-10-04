@@ -208,6 +208,9 @@ func flight4Generate( //nolint:cyclop
 	}
 
 	encryptedExtensionsList := []extension.Value{}
+	if state.NegotiatedProtocol != "" {
+		encryptedExtensionsList = append(encryptedExtensionsList, &extension.ALPNSelection{Protocol: state.NegotiatedProtocol})
+	}
 	if srtpDecision.ProtectionProfile != 0 {
 		encryptedExtensionsList = append(encryptedExtensionsList, &extension.SRTPSelection{ProtectionProfile: srtpDecision.ProtectionProfile, MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier)})
 	}

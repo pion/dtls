@@ -1670,10 +1670,8 @@ func (c *Conn) unmarshalCiphertextRecord(
 	if cidExpected && !hasCID && !datagramContainsCID {
 		return record, dtlserrors.ErrInvalidCiphertextHeader
 	}
-	if hasCID {
-		if !c.acceptsInboundCID(record.ConnectionID()) {
-			return record, dtlserrors.ErrInvalidCiphertextHeader
-		}
+	if hasCID && !c.acceptsInboundCID(record.ConnectionID()) {
+		return record, dtlserrors.ErrInvalidCiphertextHeader
 	}
 
 	return record, nil
