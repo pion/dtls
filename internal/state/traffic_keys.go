@@ -6,7 +6,9 @@ package state
 import (
 	"bytes"
 	"errors"
+	"maps"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -91,6 +93,12 @@ func (g *TrafficGeneration) Usage() (sealed, failed uint64) {
 	return g.usageCounters().counts()
 }
 
+// RestoreUsage restores counters before a deserialized generation is installed.
+func (g *TrafficGeneration) RestoreUsage(sealed, failed uint64) {
+	g.usageCounters().sealed.Store(sealed)
+	g.usageCounters().failed.Store(failed)
+}
+
 func (usage *trafficUsage) counts() (sealed, failed uint64) {
 	return usage.sealed.Load(), usage.failed.Load()
 }
@@ -122,6 +130,15 @@ type TrafficKeyState struct {
 	writeOld     map[uint64]*TrafficGeneration
 	readCurrent  *TrafficGeneration
 	readOld      map[uint64]*TrafficGeneration
+}
+
+// Generations returns read-only generations.
+func (s *TrafficKeyState) Generations() (write, read []*TrafficGeneration) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return append(slices.Collect(maps.Values(s.writeOld)), s.writeCurrent),
+		append(slices.Collect(maps.Values(s.readOld)), s.readCurrent)
 }
 
 // Install any supplied current write and read generations.

@@ -74,6 +74,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 		CID:                        cid,
 		KeySchedule:                cloneKeySchedule(state.KeySchedule),
 		TrafficKeys:                state.TrafficKeys.Clone(),
+		ReplayCutoff:               maps.Clone(state.ReplayCutoff),
 		KeyAgreementSecret:         bytes.Clone(state.KeyAgreementSecret),
 		LocalPSKs:                  psks,
 		PSK:                        bytes.Clone(state.PSK),

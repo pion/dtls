@@ -253,6 +253,9 @@ func (c *Conn) registerLocalCID() error {
 	if err := c.packetConn.RegisterCID(cid); err != nil {
 		return err
 	}
+	if err := c.packetConn.RegisterCIDs(ids.Values()); err != nil {
+		return err
+	}
 	c.registeredLocalCID = bytes.Clone(cid)
 	c.registeredReceiveCIDs = ids
 

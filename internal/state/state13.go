@@ -54,6 +54,21 @@ func (s *CIDReceiveSet) Len() int {
 	return len(s.ids)
 }
 
+// Values returns owned copies of the accepted connection IDs.
+func (s *CIDReceiveSet) Values() [][]byte {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids := make([][]byte, 0, len(s.ids))
+	for id := range s.ids {
+		ids = append(ids, []byte(id))
+	}
+
+	return ids
+}
+
 // Contains reports whether cid is accepted on inbound records.
 func (s *CIDReceiveSet) Contains(cid []byte) bool {
 	if s == nil {
@@ -205,6 +220,9 @@ type State13 struct {
 	KeySchedule KeySchedule
 	TrafficKeys *TrafficKeyState
 
+	// ReplayCutoff is the highest rejected record sequence number per epoch.
+	ReplayCutoff map[uint64]uint64
+
 	// KeyAgreementSecret is the ECDHE or hybrid shared secret that feeds the
 	// TLS 1.3 HKDF key schedule, or Hash.length zero bytes for psk_ke.
 	KeyAgreementSecret []byte
@@ -237,6 +255,21 @@ type State13 struct {
 	// RemoteCertificateRequest is the authenticated and decoded request
 	// kept for the client's final flight.
 	RemoteCertificateRequest *handshake.MessageCertificateRequest13
+}
+
+// HandshakeSequences snapshots the counters while post-handshake messages advance them.
+func (s *State13) HandshakeSequences() (send, receive int) {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+
+	return s.HandshakeSendSequence, s.HandshakeRecvSequence
+}
+
+// AdvanceHandshakeRecvSequence marks a post-handshake message as processed.
+func (s *State13) AdvanceHandshakeRecvSequence() {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+	s.HandshakeRecvSequence++
 }
 
 // ShouldWrapConnectionID reports whether outgoing records should use the

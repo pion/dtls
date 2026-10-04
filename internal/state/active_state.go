@@ -119,6 +119,8 @@ func HandshakeRecvSequence(active Active) int {
 func NextHandshakeSendSequence(active Active) uint16 {
 	switch state := active.(type) {
 	case *State13:
+		state.sequenceMu.Lock()
+		defer state.sequenceMu.Unlock()
 		seq := state.HandshakeSendSequence
 		state.HandshakeSendSequence++
 

@@ -605,8 +605,7 @@ func (p *postHandshake) startNewConnectionID(ctx context.Context, conn Conn, com
 
 // newReliableFlight consumes a sequence after the caller validates the message and sequence limit.
 func (p *postHandshake) newReliableFlight(category postHandshakeCategory, message handshake.Message, length int) *reliablePostHandshakeFlight {
-	sequence := uint16(p.state.HandshakeSendSequence) //nolint:gosec // caller checks overflow.
-	p.state.HandshakeSendSequence++
+	sequence := dtlsstate.NextHandshakeSendSequence(p.state)
 	packet := &dtlsflight.Outbound{
 		Epoch: p.state.LocalEpoch(), Protection: dtlsflight.ProtectionCiphertext, TrackACK: true,
 		Content: &handshake.Handshake{
@@ -648,7 +647,7 @@ func (p *postHandshake) handleNewConnectionID(ctx context.Context, conn Conn, me
 		p.cidRequest.fulfilled = true
 		p.completeConnectionIDRequest()
 	}
-	p.state.HandshakeRecvSequence++
+	p.state.AdvanceHandshakeRecvSequence()
 
 	return nil
 }
@@ -695,7 +694,7 @@ func (p *postHandshake) handleRequestConnectionID(ctx context.Context, conn Conn
 		Kind: commandSendNewConnectionID, CIDResponse: true,
 		NewConnectionID: newConnectionIDCommand{NumCIDs: message.NumCIDs, Usage: handshake.ConnectionIDSpare},
 	})
-	p.state.HandshakeRecvSequence++
+	p.state.AdvanceHandshakeRecvSequence()
 
 	return nil
 }
@@ -728,7 +727,7 @@ func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message 
 
 	p.state.TrafficKeys.Install(nil, next)
 	p.state.SetRemoteEpoch(next.Epoch)
-	p.state.HandshakeRecvSequence++
+	p.state.AdvanceHandshakeRecvSequence()
 
 	return conn.HandleQueuedPackets(ctx)
 }
@@ -765,7 +764,7 @@ func (p *postHandshake) handleNewSessionTicket(ctx context.Context, conn Conn, m
 		}
 	}
 
-	p.state.HandshakeRecvSequence++
+	p.state.AdvanceHandshakeRecvSequence()
 
 	return nil
 }
