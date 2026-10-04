@@ -2122,3 +2122,53 @@ func TestConnectionKeyUsage(t *testing.T) {
 		})
 	}
 }
+
+func TestEarlyApplicationRecords(t *testing.T) {
+	client, clientState, suite := newTrafficKeyTestConn(t)
+	server, serverState, _ := newTrafficKeyTestConn(t)
+	serverState.IsClient = false
+	clientState.CipherSuite, serverState.CipherSuite = nil, nil
+	server.log = logging.NewDefaultLoggerFactory().NewLogger("dtls")
+	server.replayProtectionWindow = defaultReplayProtectionWindow
+	server.detached = &DetachedConn{eventReady: make(chan struct{}, 1)}
+	hello, err := (&handshake.Handshake{Message: &handshake.MessageClientHello{
+		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(suite.ID())},
+	}}).Marshal()
+	require.NoError(t, err)
+	psk := bytes.Repeat([]byte{0x42}, 32)
+	require.NoError(t, dtlshandshake.InitEarlyRecordProtection(clientState, suite, psk, hello))
+	require.NoError(t, dtlshandshake.InitEarlyRecordProtection(serverState, suite, psk, hello))
+	_, hasClientRead := clientState.TrafficKeys.Read(dtlsflight13.EpochEarlyData)
+	_, hasServerWrite := serverState.TrafficKeys.Write(dtlsflight13.EpochEarlyData)
+	assert.False(t, hasClientRead)
+	assert.False(t, hasServerWrite)
+	assert.Nil(t, clientState.CipherSuite)
+	assert.Nil(t, serverState.CipherSuite)
+	assert.Zero(t, serverState.RemoteEpoch())
+
+	raw, err := client.sealRecordContent(dtlsflight13.EpochEarlyData, 0, protocol.ContentTypeApplicationData, []byte("early"))
+	require.NoError(t, err)
+	prepared, ok, err := server.prepareCiphertextPacket(raw, nil, nil, false)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, dtlsflight13.EpochEarlyData, prepared.number.Epoch)
+	_, _, err = server.handleApplicationDataRecord(t.Context(), &protocol.ApplicationData{Data: prepared.content}, prepared)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("early"), server.detached.NextEvent().Data)
+	_, ok, err = server.prepareCiphertextPacket(raw, nil, nil, false)
+	require.NoError(t, err)
+	assert.False(t, ok, "duplicate early records must be discarded")
+	_, err = server.sealRecordContent(dtlsflight13.EpochEarlyData, 0, protocol.ContentTypeApplicationData, nil)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidContentType)
+	_, err = client.sealRecordContent(dtlsflight13.EpochEarlyData, 1, protocol.ContentTypeHandshake, nil)
+	require.ErrorIs(t, err, dtlserrors.ErrInvalidContentType)
+
+	serverState.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_256_GCM_SHA384)
+	serverState.SetRemoteEpoch(dtlsflight13.EpochHandshake)
+	parsed, err := recordlayer.ParseRecord(raw, 0)
+	require.NoError(t, err)
+	opened, _, epoch, err := server.openCiphertextRecord(parsed)
+	require.NoError(t, err)
+	assert.Equal(t, dtlsflight13.EpochEarlyData, epoch)
+	assert.Equal(t, []byte("early"), opened.Content)
+}

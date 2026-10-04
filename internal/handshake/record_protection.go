@@ -39,6 +39,37 @@ func DeriveEarlyRecordProtection(suite cryptosuite.TrafficSuite, psk, clientHell
 	return suite.NewTrafficProtection(trafficSecret)
 }
 
+// InitEarlyRecordProtection installs epoch 1 write keys on clients or read keys
+// on servers.
+func InitEarlyRecordProtection(state *dtlsstate.State13, suite cryptosuite.TrafficSuite, psk, clientHello []byte) error {
+	if state == nil {
+		return dtlserrors.ErrCipherSuiteNotSet
+	}
+	if state.LocalEpoch() >= dtlsflight13.EpochHandshake || state.RemoteEpoch() >= dtlsflight13.EpochHandshake {
+		return dtlserrors.ErrInvalidEpoch
+	}
+	if state.TrafficKeys == nil {
+		state.TrafficKeys = &dtlsstate.TrafficKeyState{}
+	}
+	_, write := state.TrafficKeys.Write(dtlsflight13.EpochEarlyData)
+	_, read := state.TrafficKeys.Read(dtlsflight13.EpochEarlyData)
+	if write || read {
+		return nil
+	}
+	protection, err := DeriveEarlyRecordProtection(suite, psk, clientHello)
+	if err != nil {
+		return err
+	}
+	generation := &dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochEarlyData, CipherSuite: suite, Protection: protection}
+	if state.IsClient {
+		state.TrafficKeys.Install(generation, nil)
+	} else {
+		state.TrafficKeys.Install(nil, generation)
+	}
+
+	return nil
+}
+
 // InitApplicationRecordProtection installs DTLS 1.3 application record
 // protection from the stored application traffic secrets.
 func InitApplicationRecordProtection(state *dtlsstate.State13) error {

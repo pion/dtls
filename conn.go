@@ -1115,6 +1115,10 @@ func (c *Conn) sealRecordContent( //nolint:cyclop
 	contentType protocol.ContentType,
 	plaintext []byte,
 ) ([]byte, error) {
+	if epoch == dtlsflight13.EpochEarlyData &&
+		(!dtlsstate.CommonState(c.state).IsClient || contentType != protocol.ContentTypeApplicationData) {
+		return nil, dtlserrors.ErrInvalidContentType
+	}
 	generation, err := c.writeTrafficGeneration(epoch)
 	if err != nil {
 		return nil, err
@@ -1133,11 +1137,10 @@ func (c *Conn) sealRecordContent( //nolint:cyclop
 		header.ConnectionID = bytes.Clone(state13.CID.Send.Active)
 	}
 
-	common := dtlsstate.CommonState(c.state)
-	if common.CipherSuite == nil {
-		return nil, dtlserrors.ErrCipherSuiteNotInit
+	capabilities, err := generation.Capabilities(dtlsstate.CommonState(c.state).CipherSuite)
+	if err != nil {
+		return nil, err
 	}
-	capabilities := common.CipherSuite.Capabilities()
 	if !capabilities.SupportsVersion(protocol.Version1_3) {
 		return nil, cryptosuite.ErrInvalidCapabilities
 	}
@@ -1698,7 +1701,7 @@ func (c *Conn) openCiphertextRecord(record recordlayer.ParsedRecord) (openedReco
 	if !ok || state13.TrafficKeys == nil {
 		return openedRecord{}, 0, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
 	}
-	generation, ok := state13.TrafficKeys.ReadCandidate(record.EpochLow(), state13.RemoteEpoch())
+	generation, ok := state13.TrafficKeys.ReadCandidate(record.EpochLow(), max(state13.RemoteEpoch(), dtlsflight13.EpochEarlyData))
 	if !ok {
 		return openedRecord{}, 0, 0, dtlserrors.ErrInvalidEpoch
 	}
@@ -1718,11 +1721,11 @@ func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop
 	generation *dtlsstate.TrafficGeneration,
 ) (openedRecord, uint64, error) {
 	common := dtlsstate.CommonState(c.state)
-	if common.CipherSuite == nil {
-		return openedRecord{}, 0, operationalProtectionError(dtlserrors.ErrCipherSuiteNotInit)
+	capabilities, err := generation.Capabilities(common.CipherSuite)
+	if err != nil {
+		return openedRecord{}, 0, operationalProtectionError(err)
 	}
-	capabilities := common.CipherSuite.Capabilities()
-	_, err := capabilities.PlaintextLenUpperBound(len(record.Payload()))
+	_, err = capabilities.PlaintextLenUpperBound(len(record.Payload()))
 	if err != nil {
 		return openedRecord{}, 0, errRecordAuthentication
 	}
@@ -1776,6 +1779,10 @@ func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop
 	}
 	if len(innerPlaintext.Content) > maxPlaintextRecordLen {
 		return openedRecord{}, 0, dtlserrors.ErrInvalidPacketLength
+	}
+	if generation.Epoch == dtlsflight13.EpochEarlyData &&
+		(common.IsClient || innerPlaintext.RealType != protocol.ContentTypeApplicationData) {
+		return openedRecord{}, 0, dtlserrors.ErrInvalidContentType
 	}
 
 	switch innerPlaintext.RealType {
@@ -1936,7 +1943,7 @@ func (c *Conn) hasInboundRecordProtection() bool {
 		if state13.TrafficKeys == nil {
 			return false
 		}
-		generation, found := state13.TrafficKeys.Read(common.RemoteEpoch())
+		generation, found := state13.TrafficKeys.Read(max(common.RemoteEpoch(), dtlsflight13.EpochEarlyData))
 
 		return found && generation.Protection != nil
 	}

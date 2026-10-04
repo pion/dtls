@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 )
 
@@ -17,16 +18,30 @@ import (
 // record protection derived from that secret.
 // Caller must not modify the secret or protection after creation.
 type TrafficGeneration struct {
-	Epoch      uint64
-	Generation uint64
-	Secret     []byte // nolint:gosec
-	Protection cryptosuite.TrafficProtection
-	usage      atomic.Pointer[trafficUsage]
+	CipherSuite cryptosuite.Suite // Optional override for early data before cipher negotiation.
+	Epoch       uint64
+	Generation  uint64
+	Secret      []byte // nolint:gosec
+	Protection  cryptosuite.TrafficProtection
+	usage       atomic.Pointer[trafficUsage]
 }
 
 type trafficUsage struct {
 	sealed atomic.Uint64
 	failed atomic.Uint64
+}
+
+// Capabilities uses the generation's suite when available, otherwise the
+// negotiated suite. Early-data keys retain the ticket's suite.
+func (g *TrafficGeneration) Capabilities(negotiated cryptosuite.Suite) (cryptosuite.Capabilities, error) {
+	if g.CipherSuite != nil {
+		return g.CipherSuite.Capabilities(), nil
+	}
+	if negotiated == nil {
+		return cryptosuite.Capabilities{}, dtlserrors.ErrCipherSuiteNotInit
+	}
+
+	return negotiated.Capabilities(), nil
 }
 
 func (g *TrafficGeneration) usageCounters() *trafficUsage {
@@ -93,7 +108,7 @@ func (g *TrafficGeneration) Clone() *TrafficGeneration {
 		return nil
 	}
 
-	clone := &TrafficGeneration{Epoch: g.Epoch, Generation: g.Generation, Secret: bytes.Clone(g.Secret), Protection: g.Protection}
+	clone := &TrafficGeneration{CipherSuite: g.CipherSuite, Epoch: g.Epoch, Generation: g.Generation, Secret: bytes.Clone(g.Secret), Protection: g.Protection}
 	clone.usage.Store(g.usageCounters())
 
 	return clone
