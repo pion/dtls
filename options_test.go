@@ -509,7 +509,8 @@ func TestOptionConfiguration(t *testing.T) {
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			var err error
-			if testCase.resumeOpts != nil {
+			switch {
+			case testCase.resumeOpts != nil:
 				ca, cb := packetPipe()
 				t.Cleanup(func() {
 					_ = ca.Close()
@@ -527,9 +528,9 @@ func TestOptionConfiguration(t *testing.T) {
 					assert.Equal(t, testCase.isClient, conn.handshakeConfig.GetPSKs != nil)
 					assert.Equal(t, !testCase.isClient, conn.handshakeConfig.SelectPSK != nil)
 				}
-			} else if testCase.clientOpts != nil {
+			case testCase.clientOpts != nil:
 				err = clientOptionsError(t, testCase.clientOpts...)
-			} else {
+			default:
 				err = serverOptionsError(t, testCase.serverOpts...)
 			}
 			switch {

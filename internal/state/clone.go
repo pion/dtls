@@ -56,8 +56,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 
 	cid := state.CID
 	cid.Receive.IDs = state.CID.Receive.IDs.Clone()
-	cid.Send.Active = bytes.Clone(state.CID.Send.Active)
-	cid.Send.Spares = util.CloneByteSlices(state.CID.Send.Spares)
+	cid.Send = state.CID.Send.Clone()
 
 	psks := slices.Clone(state.LocalPSKs)
 	for i := range psks {
@@ -121,4 +120,12 @@ func cloneTrafficSecrets(in TrafficSecrets) TrafficSecrets {
 		Client: bytes.Clone(in.Client),
 		Server: bytes.Clone(in.Server),
 	}
+}
+
+// Clone returns an independent copy of the peer's active and spare connection IDs.
+func (s CIDSendState) Clone() CIDSendState {
+	s.Active = bytes.Clone(s.Active)
+	s.Spares = util.CloneByteSlices(s.Spares)
+
+	return s
 }

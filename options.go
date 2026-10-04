@@ -711,7 +711,7 @@ func adaptVerifyConnection(verifyConnection func(*State) error) func(dtlsstate.A
 	}
 
 	return func(state dtlsstate.Active) error {
-		stateSnapshot, err := generateStateForVerifyConnection(state)
+		stateSnapshot, err := generateState(state)
 		if err != nil {
 			return err
 		}

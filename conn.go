@@ -731,7 +731,7 @@ func (c *Conn) Close() error {
 func (c *Conn) ConnectionState() (State, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	state, err := generateStateForVerifyConnection(c.state)
+	state, err := generateState(c.state)
 	if err != nil {
 		return State{}, false
 	}

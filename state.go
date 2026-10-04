@@ -131,90 +131,54 @@ type serializedState struct {
 	NegotiatedProtocol    string
 }
 
-func generateState(internalState *dtlsstate.State) (*State, error) {
-	if internalState.CipherSuite == nil {
+func generateState(active dtlsstate.Active) (*State, error) {
+	if active == nil || active.CommonFields() == nil {
+		return nil, dtlserrors.ErrInvalidProtocolVersionState
+	}
+	common := active.CommonFields()
+	if common.CipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
-	if internalState.LocalVersion == protocol.Version1_3 {
-		return nil, ErrStateSerializationUnsupported
-	}
-
-	epoch := internalState.LocalEpoch()
-	profile := internalState.SRTPProtectionProfile()
-	var peerMKI []byte
-	if profile != 0 {
-		peerMKI = bytes.Clone(internalState.RemoteSRTPMasterKeyIdentifier)
-	}
-
-	return &State{
-		KeyUsage:              keyUsageStats12(internalState),
-		localEpoch:            internalState.LocalEpoch(),
-		remoteEpoch:           internalState.RemoteEpoch(),
-		localRandom:           internalState.LocalRandom,
-		remoteRandom:          internalState.RemoteRandom,
-		masterSecret:          internalState.MasterSecret,
-		sequenceNumber:        internalState.NextLocalSequenceNumber(epoch),
-		srtpProtectionProfile: profile,
-		peerSRTPMKI:           peerMKI,
-		localConnectionID:     internalState.LocalConnectionID(),
-		remoteConnectionID:    internalState.RemoteConnectionID,
-		rrcNegotiated:         internalState.RRCNegotiated,
-		isClient:              internalState.IsClient,
-		version:               protocol.Version1_2,
-		CipherSuiteID:         internalState.CipherSuite.ID(),
-		cipherSuiteDescriptor: internalState.CipherSuite,
-		PeerCertificates:      internalState.PeerCertificates,
-		IdentityHint:          internalState.IdentityHint,
-		SessionID:             internalState.SessionID,
-		NegotiatedProtocol:    internalState.NegotiatedProtocol,
-	}, nil
-}
-
-func generateStateForVerifyConnection(active dtlsstate.Active) (*State, error) {
-	switch state := active.(type) {
+	state := snapshotCommonState(common)
+	switch internalState := active.(type) {
 	case *dtlsstate.State:
-		return generateState(state)
+		if common.LocalVersion == protocol.Version1_3 {
+			return nil, ErrStateSerializationUnsupported
+		}
+		state.version = protocol.Version1_2
+		state.KeyUsage = keyUsageStats12(internalState)
+		state.masterSecret = bytes.Clone(internalState.MasterSecret)
 	case *dtlsstate.State13:
-		return generateState13(state)
+		state.version = protocol.Version1_3
+		state.KeyUsage = keyUsageStats(internalState)
+		state.exporterMasterSecret = bytes.Clone(internalState.KeySchedule.ExporterMasterSecret)
 	default:
 		return nil, dtlserrors.ErrInvalidProtocolVersionState
 	}
+
+	return state, nil
 }
 
-func generateState13(internalState *dtlsstate.State13) (*State, error) {
-	if internalState.CipherSuite == nil {
-		return nil, dtlserrors.ErrCipherSuiteNotSet
-	}
-
-	common := internalState.CommonFields()
-	if common == nil {
-		return nil, dtlserrors.ErrInvalidProtocolVersionState
-	}
-
-	epoch := common.LocalEpoch()
-	sequenceNumber := common.NextLocalSequenceNumber(epoch)
-
+func snapshotCommonState(common *dtlsstate.Common) *State {
 	return &State{
 		localEpoch:            common.LocalEpoch(),
 		remoteEpoch:           common.RemoteEpoch(),
 		localRandom:           common.LocalRandom,
 		remoteRandom:          common.RemoteRandom,
-		sequenceNumber:        sequenceNumber,
+		sequenceNumber:        common.NextLocalSequenceNumber(common.LocalEpoch()),
 		srtpProtectionProfile: common.SRTPProtectionProfile(),
+		peerSRTPMKI:           bytes.Clone(common.RemoteSRTPMasterKeyIdentifier),
 		localConnectionID:     bytes.Clone(common.LocalConnectionID()),
 		remoteConnectionID:    bytes.Clone(common.RemoteConnectionID),
 		rrcNegotiated:         common.RRCNegotiated,
 		isClient:              common.IsClient,
-		version:               protocol.Version1_3,
-		CipherSuiteID:         internalState.CipherSuite.ID(),
-		cipherSuiteDescriptor: internalState.CipherSuite,
+		CipherSuiteID:         common.CipherSuite.ID(),
+		cipherSuiteDescriptor: common.CipherSuite,
 		PeerCertificates:      dtlsutil.CloneByteSlices(common.PeerCertificates),
-		KeyUsage:              keyUsageStats(internalState),
 		IdentityHint:          bytes.Clone(common.IdentityHint),
 		SessionID:             bytes.Clone(common.SessionID),
 		NegotiatedProtocol:    common.NegotiatedProtocol,
-		exporterMasterSecret:  bytes.Clone(internalState.KeySchedule.ExporterMasterSecret),
-	}, nil
+	}
 }
 
 // NegotiatedVersion returns the DTLS version negotiated for this connection.
@@ -312,9 +276,7 @@ func (s *State) deserialize(serialized serializedState) {
 
 func (s *State) cipherSuite() (cryptosuite.Suite, error) {
 	cipherSuite := s.cipherSuiteDescriptor
-	if cipherSuite == nil {
-		cipherSuite = nil
-	} else if cipherSuite.ID() != s.CipherSuiteID {
+	if cipherSuite != nil && cipherSuite.ID() != s.CipherSuiteID {
 		return nil, dtlserrors.ErrInvalidCipherSuite
 	}
 	if cipherSuite == nil {
@@ -336,10 +298,7 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
-	if s.version == protocol.Version1_3 {
-		return nil, ErrStateSerializationUnsupported
-	}
-	if s.localEpoch > math.MaxUint16 || s.remoteEpoch > math.MaxUint16 {
+	if s.version != protocol.Version1_3 && (s.localEpoch > math.MaxUint16 || s.remoteEpoch > math.MaxUint16) {
 		return nil, dtlserrors.ErrEpochOverflow
 	}
 
@@ -347,33 +306,14 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.version == protocol.Version1_3 {
+		return nil, ErrStateSerializationUnsupported
+	}
 	if !cipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) {
 		return nil, dtlserrors.ErrInvalidCipherSuite
 	}
 
-	state := &dtlsstate.State{
-		Common: &dtlsstate.Common{
-			LocalRandom:        s.localRandom,
-			RemoteRandom:       s.remoteRandom,
-			CipherSuite:        cipherSuite,
-			RemoteConnectionID: s.remoteConnectionID,
-			RRCNegotiated:      s.rrcNegotiated,
-			IsClient:           s.isClient,
-			PeerCertificates:   s.PeerCertificates,
-			IdentityHint:       s.IdentityHint,
-			SessionID:          s.SessionID,
-			NegotiatedProtocol: s.NegotiatedProtocol,
-			LocalVersion:       protocol.Version1_2,
-		},
-		MasterSecret: s.masterSecret,
-	}
-	state.SetLocalEpoch(s.localEpoch)
-	state.SetRemoteEpoch(s.remoteEpoch)
-	state.RemoteSRTPMasterKeyIdentifier = bytes.Clone(s.peerSRTPMKI)
-	state.SetSRTPProtectionProfile(s.srtpProtectionProfile)
-	state.SetLocalConnectionID(s.localConnectionID)
-
-	state.SetLocalSequenceNumber(s.localEpoch, s.sequenceNumber)
+	state := &dtlsstate.State{Common: s.restoreCommonState(cipherSuite, protocol.Version1_2), MasterSecret: bytes.Clone(s.masterSecret)}
 	if s.KeyUsage != nil {
 		state.RestoreUsage(s.KeyUsage.SealedRecords, s.KeyUsage.AuthenticationFailures)
 	}
@@ -383,6 +323,25 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 	}
 
 	return state, nil
+}
+
+func (s *State) restoreCommonState(suite cryptosuite.Suite, version protocol.Version) *dtlsstate.Common {
+	common := &dtlsstate.Common{
+		LocalRandom: s.localRandom, RemoteRandom: s.remoteRandom,
+		CipherSuite: suite, IsClient: s.isClient, LocalVersion: version,
+		PeerCertificates: dtlsutil.CloneByteSlices(s.PeerCertificates),
+		IdentityHint:     bytes.Clone(s.IdentityHint), SessionID: bytes.Clone(s.SessionID),
+		NegotiatedProtocol: s.NegotiatedProtocol, RRCNegotiated: s.rrcNegotiated,
+		RemoteConnectionID:            bytes.Clone(s.remoteConnectionID),
+		RemoteSRTPMasterKeyIdentifier: bytes.Clone(s.peerSRTPMKI),
+	}
+	common.SetLocalEpoch(s.localEpoch)
+	common.SetRemoteEpoch(s.remoteEpoch)
+	common.SetLocalConnectionID(bytes.Clone(s.localConnectionID))
+	common.SetSRTPProtectionProfile(s.srtpProtectionProfile)
+	common.SetLocalSequenceNumber(s.localEpoch, s.sequenceNumber)
+
+	return common
 }
 
 // MarshalBinary is a binary.BinaryMarshaler.MarshalBinary implementation.
