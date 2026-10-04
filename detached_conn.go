@@ -14,6 +14,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
@@ -29,6 +30,7 @@ const (
 	// Datagrams and its destination in Addr.
 	DetachedWriteDatagrams
 	// DetachedApplicationData provides plaintext received from the peer in Data.
+	// Servers opting into early data may receive it before DetachedHandshakeDone.
 	DetachedApplicationData
 	// DetachedHandshakeDone indicates that the handshake has completed.
 	DetachedHandshakeDone
@@ -73,8 +75,9 @@ type DetachedConn struct {
 	nextEvent  int
 	eventReady chan struct{}
 
-	started bool
-	blocked chan struct{}
+	started         bool
+	earlyDataStatus dtlsstate.EarlyDataStatus
+	blocked         chan struct{}
 
 	established   atomic.Bool
 	quiescentSkip atomic.Bool
@@ -141,6 +144,7 @@ func newDetachedConn(remoteAddr net.Addr, config *dtlsConfig, isClient bool) (*D
 		terminal:   make(chan struct{}),
 	}
 	handshakeConfig := newHandshakeConfig(config, configValues, nil)
+	handshakeConfig.EnableEarlyData = config.maxEarlyDataSize > 0
 	detached.conn = newConn(nil, remoteAddr, configValues, handshakeConfig, isClient)
 	detached.conn.detached = detached
 	detached.conn.handshakeConfig.TimerFactory = detached.newTimer
@@ -234,8 +238,30 @@ func (c *DetachedConn) Write(data []byte) (int, error) {
 // after DetachedEarlyDataReady. Early data may be replayed or rejected; a
 // successful write does not imply server acceptance. Rejected data is not
 // automatically resent.
-func (c *DetachedConn) WriteEarlyData(_ []byte) (int, error) {
-	return 0, dtlserrors.ErrNotImplemented
+func (c *DetachedConn) WriteEarlyData(data []byte) (int, error) {
+	c.driveMu.Lock()
+	defer c.driveMu.Unlock()
+	if err := c.currentError(); err != nil {
+		return 0, err
+	}
+	state, ok := c.conn.state.(*dtlsstate.State13)
+	if !ok || !state.IsClient || state.EarlyDataStatus != dtlsstate.EarlyDataReady || state.LocalEpoch() >= dtlsflight13.EpochHandshake {
+		return 0, dtlserrors.ErrHandshakeInProgress
+	}
+	if uint64(len(data)) > uint64(state.EarlyDataLimit)-state.EarlyDataBytes {
+		return 0, dtlserrors.ErrInvalidPacketLength
+	}
+	// count attempts and transport failures.
+	state.EarlyDataBytes += uint64(len(data))
+	_, err := c.conn.writePacketsWithResult(context.Background(), []*dtlsflight.Outbound{{
+		Epoch: dtlsflight13.EpochEarlyData, Protection: dtlsflight.ProtectionCiphertext,
+		Content: &protocol.ApplicationData{Data: data},
+	}})
+	if err != nil {
+		return 0, err
+	}
+
+	return len(data), nil
 }
 
 // EventReady is signaled when NextEvent may return an event and may be selected
@@ -306,7 +332,11 @@ func (c *DetachedConn) publishEvent(event DetachedEvent) {
 }
 
 func (c *DetachedConn) markQuiescent() {
+	c.publishEarlyDataStatus()
 	if c.conn.isHandshakeCompletedSuccessfully() && c.established.CompareAndSwap(false, true) {
+		if state, ok := c.conn.state.(*dtlsstate.State13); ok && state.TrafficKeys != nil {
+			state.TrafficKeys.Discard(dtlsflight13.EpochEarlyData)
+		}
 		c.publishEvent(DetachedEvent{Kind: DetachedHandshakeDone})
 	}
 
@@ -397,5 +427,19 @@ func (t *detachedTimer) fire() {
 func (t *detachedTimer) Stop() {
 	if t.claimed.CompareAndSwap(false, true) {
 		t.timer.Stop()
+	}
+}
+
+func (c *DetachedConn) publishEarlyDataStatus() {
+	if state, ok := c.conn.state.(*dtlsstate.State13); ok && state.IsClient && state.EarlyDataStatus != c.earlyDataStatus {
+		c.earlyDataStatus = state.EarlyDataStatus
+		kind := map[dtlsstate.EarlyDataStatus]DetachedEventKind{
+			dtlsstate.EarlyDataReady:    DetachedEarlyDataReady,
+			dtlsstate.EarlyDataAccepted: DetachedEarlyDataAccepted,
+			dtlsstate.EarlyDataRejected: DetachedEarlyDataRejected,
+		}[state.EarlyDataStatus]
+		if kind != DetachedNoEvent {
+			c.publishEvent(DetachedEvent{Kind: kind})
+		}
 	}
 }

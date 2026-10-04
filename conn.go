@@ -1606,6 +1606,11 @@ func (c *Conn) inboundCIDRequired() bool {
 	common := dtlsstate.CommonState(c.state)
 	if common.LocalVersion == protocol.Version1_3 {
 		state13, ok := c.state.(*dtlsstate.State13)
+		// because early records precede CID negotiation. but per-record CID validation still
+		// applies to handshake and application epochs in unmarshalCiphertextRecord.
+		if ok && state13.EarlyDataStatus == dtlsstate.EarlyDataAccepted && !c.isHandshakeCompletedSuccessfully() {
+			return false
+		}
 
 		return ok && state13.CID.Negotiated && state13.CID.Receive.Expected
 	}
@@ -1667,14 +1672,21 @@ func (c *Conn) unmarshalCiphertextRecord(
 	if err != nil {
 		return record, err
 	}
-	if cidExpected && !hasCID && !datagramContainsCID {
-		return record, dtlserrors.ErrInvalidCiphertextHeader
+	if cidExpected && !hasCID {
+		if !c.allowsMissingCiphertextCID(record, datagramContainsCID) {
+			return record, dtlserrors.ErrInvalidCiphertextHeader
+		}
 	}
 	if hasCID && !c.acceptsInboundCID(record.ConnectionID()) {
 		return record, dtlserrors.ErrInvalidCiphertextHeader
 	}
 
 	return record, nil
+}
+
+func (c *Conn) allowsMissingCiphertextCID(record recordlayer.ParsedRecord, datagramContainsCID bool) bool {
+	return datagramContainsCID || record.EpochLow() == uint8(dtlsflight13.EpochEarlyData) &&
+		dtlsstate.CommonState(c.state).RemoteEpoch() <= dtlsflight13.EpochApplication
 }
 
 func (c *Conn) ciphertextCIDPolicy(localCID []byte) (expected, allowed bool, err error) {
@@ -2196,6 +2208,14 @@ func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr 
 func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protocol.ApplicationData, prepared incomingPacketState) (bool, packetOutcome, error) {
 	if prepared.number.Epoch == 0 {
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrApplicationDataEpochZero
+	}
+	if ok, err := c.acceptEarlyApplicationData(prepared.number.Epoch, uint64(len(content.Data))); !ok || err != nil {
+		outcome := packetOutcome{}
+		if err != nil {
+			outcome.responseAlert = &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}
+		}
+
+		return false, outcome, err
 	}
 
 	isLatestSeqNum := prepared.markPacketAsValid()
@@ -3044,4 +3064,20 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	c.writeDeadline.Set(t)
 	// Write deadline is also fully managed by this layer.
 	return nil
+}
+
+func (c *Conn) acceptEarlyApplicationData(epoch, size uint64) (bool, error) {
+	state, ok := c.state.(*dtlsstate.State13)
+	if !ok || epoch != dtlsflight13.EpochEarlyData {
+		return true, nil
+	}
+	if state.EarlyDataStatus != dtlsstate.EarlyDataAccepted || c.detached == nil {
+		return false, nil
+	}
+	if size > uint64(state.EarlyDataLimit)-state.EarlyDataBytes {
+		return false, dtlserrors.ErrInvalidPacketLength
+	}
+	state.EarlyDataBytes += size
+
+	return true, nil
 }

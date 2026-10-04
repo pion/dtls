@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -2131,6 +2132,7 @@ func TestEarlyApplicationRecords(t *testing.T) {
 	server.log = logging.NewDefaultLoggerFactory().NewLogger("dtls")
 	server.replayProtectionWindow = defaultReplayProtectionWindow
 	server.detached = &DetachedConn{eventReady: make(chan struct{}, 1)}
+	serverState.EarlyDataStatus, serverState.EarlyDataLimit = dtlsstate.EarlyDataAccepted, 4096
 	hello, err := (&handshake.Handshake{Message: &handshake.MessageClientHello{
 		Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(suite.ID())},
 	}}).Marshal()
@@ -2171,4 +2173,232 @@ func TestEarlyApplicationRecords(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, dtlsflight13.EpochEarlyData, epoch)
 	assert.Equal(t, []byte("early"), opened.Content)
+}
+
+type earlyDataTestStore struct {
+	sync.Mutex
+	session  Session
+	claimed  bool
+	claimErr error
+}
+
+func (s *earlyDataTestStore) Set([]byte, Session) error { return nil }
+func (s *earlyDataTestStore) Del([]byte) error          { return nil }
+
+func (s *earlyDataTestStore) Get([]byte) (Session, error) {
+	s.Lock()
+	defer s.Unlock()
+
+	return s.session, nil
+}
+
+func (s *earlyDataTestStore) Claim(_ []byte, _ time.Time) (bool, error) {
+	s.Lock()
+	defer s.Unlock()
+	if s.claimErr != nil {
+		return false, s.claimErr
+	}
+	if s.claimed {
+		return false, nil
+	}
+	s.claimed = true
+
+	return true, nil
+}
+
+const earlyDataSRTPChanged = "srtp changed"
+
+func TestDetachedEarlyDataNegotiation(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	for _, scenario := range []string{"accepted", "replay", "policy error", "no policy", "retry", "stale age", "expired", "context changed", "reduced limit", "cid", "srtp", earlyDataSRTPChanged, "alpn", "alpn changed", "alpn removed"} {
+		t.Run(scenario, func(t *testing.T) {
+			ticket := Session{ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, 32), Ticket: &SessionTicket{
+				CipherSuite: cryptosuite.TLS_AES_128_GCM_SHA256, CreatedAt: time.Now().Add(-time.Second),
+				Lifetime: 60, AgeAdd: ^uint32(0), MaxEarlyDataSize: 32, PeerCertificates: certificate.Certificate,
+			}}
+			srtpOption := earlyDataSRTPOption(scenario)
+			clientALPN, serverALPN := earlyDataALPNOptions(scenario, ticket.Ticket)
+			clientStore := &earlyDataTestStore{session: ticket}
+			serverTicket := *ticket.Ticket
+			ticket.Ticket = &serverTicket
+			serverStore := &earlyDataTestStore{session: ticket, claimed: scenario == "replay"}
+			serverTicket.CreatedAt = serverTicket.CreatedAt.Add(-map[string]time.Duration{
+				"stale age": 29 * time.Second, "expired": time.Minute,
+			}[scenario])
+			if scenario == "context changed" {
+				serverTicket.NegotiatedProtocol = "previous-protocol"
+			}
+			if scenario == "policy error" {
+				serverStore.claimErr = context.DeadlineExceeded
+			}
+			client, err := DetachedClient(&net.UDPAddr{Port: 5555}, srtpOption, clientALPN, WithSessionStore(clientStore, WithMaxEarlyDataSize(32)),
+				WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithFlightInterval(time.Hour))
+			require.NoError(t, err)
+			limit := uint32(32)
+			if scenario == "no policy" {
+				limit = 0
+			}
+			if scenario == "reduced limit" {
+				limit = 4
+			}
+			server, err := DetachedServer(&net.UDPAddr{Port: 4444}, srtpOption, serverALPN, WithCertificates(certificate), WithSessionStore(serverStore, WithMaxEarlyDataSize(limit)),
+				WithInsecureSkipVerifyHello(scenario != "retry"), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithFlightInterval(time.Hour))
+			require.NoError(t, err)
+			if scenario == "cid" {
+				client.conn.handshakeConfig.ConnectionIDGenerator = func() []byte { return []byte{1, 2} }
+				server.conn.handshakeConfig.ConnectionIDGenerator = func() []byte { return []byte{3, 4} }
+				client.conn.handshakeConfig.ReceiveCIDLength = 2
+				server.conn.handshakeConfig.ReceiveCIDLength = 2
+			}
+			t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			require.NoError(t, server.Start(ctx))
+			require.NoError(t, client.Start(ctx))
+			n, err := client.WriteEarlyData([]byte("early"))
+			require.NoError(t, err)
+			require.Equal(t, 5, n)
+			_, err = client.WriteEarlyData(make([]byte, 32))
+			require.ErrorIs(t, err, dtlserrors.ErrInvalidPacketLength)
+			events, data := pumpEarlyDataPair(t, client, server)
+			require.Contains(t, events, DetachedEarlyDataReady)
+			want := DetachedEarlyDataRejected
+			if map[string]bool{"accepted": true, "cid": true, "srtp": true, earlyDataSRTPChanged: true, "alpn": true}[scenario] {
+				want = DetachedEarlyDataAccepted
+			}
+			require.Contains(t, events, want)
+			require.True(t, client.established.Load())
+			require.True(t, server.established.Load())
+			checkEarlyDataSRTP(t, client, server)
+			checkEarlyDataALPN(t, scenario, client, server)
+			if want == DetachedEarlyDataAccepted {
+				assert.Equal(t, []byte("early"), data)
+			} else {
+				assert.Empty(t, data)
+			}
+			_, err = client.Write([]byte("normal"))
+			require.NoError(t, err)
+			_, data = pumpEarlyDataPair(t, client, server)
+			require.Equal(t, []byte("normal"), data)
+		})
+	}
+}
+
+func pumpEarlyDataPair(t *testing.T, client, server *DetachedConn) ([]DetachedEventKind, []byte) {
+	t.Helper()
+	var events []DetachedEventKind
+	var data []byte
+	for range 30 {
+		progress := false
+		for _, pair := range [][2]*DetachedConn{{client, server}, {server, client}} {
+			for event := pair[0].NextEvent(); event.Kind != DetachedNoEvent; event = pair[0].NextEvent() {
+				progress = true
+				switch event.Kind {
+				case DetachedWriteDatagrams:
+					for _, packet := range event.Datagrams {
+						require.NoError(t, pair[1].HandleDatagram(packet, nil))
+					}
+				case DetachedApplicationData:
+					data = append(data, event.Data...)
+				default:
+					if pair[0] == client {
+						events = append(events, event.Kind)
+					}
+				}
+			}
+		}
+		if !progress {
+			return events, data
+		}
+	}
+	require.FailNow(t, "detached handshake did not quiesce")
+
+	return nil, nil
+}
+
+func TestEarlyDataStoreValidation(t *testing.T) {
+	store := &earlyDataTestStore{}
+	for _, tc := range []struct {
+		name    string
+		store   SessionStore
+		limit   uint32
+		invalid bool
+	}{
+		{"ordinary", struct{ SessionStore }{store}, 0, false},
+		{"claim only", store, 0, false},
+		{"missing claim", struct{ SessionStore }{store}, 32, true},
+		{"missing store", nil, 32, true},
+		{"early data", store, 32, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &dtlsConfig{}
+			err := WithSessionStore(tc.store, WithMaxEarlyDataSize(tc.limit)).applyServer(cfg)
+			if tc.invalid {
+				require.ErrorIs(t, err, dtlserrors.ErrEarlyDataRequiresClaimStore)
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, validateConfig(cfg))
+			}
+		})
+	}
+}
+
+func earlyDataSRTPOption(scenario string) Option {
+	profile := map[string]SRTPProtectionProfile{
+		"srtp": SRTP_AES128_CM_HMAC_SHA1_80, earlyDataSRTPChanged: SRTP_AEAD_AES_128_GCM,
+	}[scenario]
+
+	return sharedOption(func(c *dtlsConfig) error {
+		if profile != 0 {
+			c.SRTPProtectionProfiles = []SRTPProtectionProfile{profile}
+			c.SRTPMasterKeyIdentifier = []byte{1, 2}
+		}
+
+		return nil
+	})
+}
+
+func checkEarlyDataSRTP(t *testing.T, client, server *DetachedConn) {
+	t.Helper()
+	profiles := client.conn.handshakeConfig.LocalSRTPProtectionProfiles
+	if len(profiles) == 0 {
+		return
+	}
+	require.Equal(t, profiles[0], dtlsstate.CommonState(client.conn.state).SRTPProtectionProfile())
+	require.Equal(t, profiles[0], dtlsstate.CommonState(server.conn.state).SRTPProtectionProfile())
+	clientState, _ := client.conn.ConnectionState()
+	serverState, _ := server.conn.ConnectionState()
+	clientKeys, err := clientState.ExportKeyingMaterial("EXTRACTOR-dtls_srtp", nil, 60)
+	require.NoError(t, err)
+	serverKeys, err := serverState.ExportKeyingMaterial("EXTRACTOR-dtls_srtp", nil, 60)
+	require.NoError(t, err)
+	require.Equal(t, clientKeys, serverKeys)
+}
+
+const earlyDataALPN = "old"
+
+func earlyDataALPNOptions(scenario string, ticket *SessionTicket) (Option, Option) {
+	clientProtocols, serverProtocols := []string(nil), []string(nil)
+	switch scenario {
+	case "alpn":
+		ticket.NegotiatedProtocol = earlyDataALPN
+		clientProtocols, serverProtocols = []string{earlyDataALPN}, []string{earlyDataALPN}
+	case "alpn changed":
+		ticket.NegotiatedProtocol = earlyDataALPN
+		clientProtocols, serverProtocols = []string{earlyDataALPN, "new"}, []string{"new", earlyDataALPN}
+	case "alpn removed":
+		ticket.NegotiatedProtocol = earlyDataALPN
+		clientProtocols = []string{earlyDataALPN}
+	}
+
+	return valueOption(func(c *dtlsConfig) *[]string { return &c.SupportedProtocols }, clientProtocols),
+		valueOption(func(c *dtlsConfig) *[]string { return &c.SupportedProtocols }, serverProtocols)
+}
+
+func checkEarlyDataALPN(t *testing.T, scenario string, client, server *DetachedConn) {
+	t.Helper()
+	expected := map[string]string{"alpn": earlyDataALPN, "alpn changed": "new"}[scenario]
+	require.Equal(t, expected, dtlsstate.CommonState(client.conn.state).NegotiatedProtocol)
+	require.Equal(t, expected, dtlsstate.CommonState(server.conn.state).NegotiatedProtocol)
 }
