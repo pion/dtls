@@ -25,6 +25,18 @@ import (
 	"github.com/pion/transport/v5/netctx"
 )
 
+//nolint:gochecknoglobals
+var (
+	// errPathMigrationUnavailable indicates that migration or probing requirements are not met.
+	errPathMigrationUnavailable = errors.New("path migration or probing unavailable")
+	// errPathNotValidated indicates that a path needs a successful Probe before Switch.
+	errPathNotValidated = errors.New("path has not been validated")
+	// errPathInUse indicates that a path is already being probed or is the active path.
+	errPathInUse = errors.New("path is in use")
+	// errNoConnectionID indicates that the peer supplied no unused nonempty CID for a new path.
+	errNoConnectionID = errors.New("no unused peer connection ID")
+)
+
 // RandomCIDGenerator is a random Connection ID generator where CID is the
 // specified size. Specifying a size of 0 will indicate to peers that sending a
 // Connection ID is not necessary.
