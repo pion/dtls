@@ -59,7 +59,7 @@ func flight5Parse(_ context.Context, conn dtlsflight.Conn, state *dtlsstate.Stat
 	return Flight5, nil, nil
 }
 
-//nolint:gocognit,cyclop,maintidx
+//nolint:cyclop
 func flight5Generate(conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	var signer crypto.Signer
 	var pkts []*dtlsflight.Outbound
@@ -206,7 +206,7 @@ func flight5Generate(conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtls
 	return pkts, nil, nil
 }
 
-//nolint:gocognit,cyclop
+//nolint:cyclop
 func initializeCipherSuite(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, handshakeKeyExchange *handshake.MessageServerKeyExchange, sendingPlainText []byte) (*alert.Alert, error) {
 	if state.Protection != nil {
 		return nil, nil //nolint

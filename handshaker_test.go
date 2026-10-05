@@ -49,7 +49,7 @@ func TestWriteKeyLog(t *testing.T) {
 	cfg.WriteKeyLog("LABEL", []byte{0xAA, 0xBB, 0xCC}, []byte{0xDD, 0xEE, 0xFF})
 }
 
-func TestHandshaker(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
+func TestHandshaker(t *testing.T) { //nolint:cyclop
 	// Check for leaking routines
 	report := test.CheckRoutines(t)
 	defer report()

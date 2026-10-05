@@ -24,7 +24,7 @@ import (
 // https://datatracker.ietf.org/doc/html/rfc5746#section-3.3.
 const renegotiationInfoSCSV uint16 = 0x00ff
 
-//nolint:cyclop,gocognit,gocyclo
+//nolint:cyclop
 func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	pull := cache.FullPullMapItems(0, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},

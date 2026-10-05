@@ -144,7 +144,7 @@ func TestValidateHelloRetryRequest13(t *testing.T) {
 
 func ptrRetryGroup(group elliptic.Curve) *elliptic.Curve { return &group }
 
-func TestValidateClientHelloRetryMatrix(t *testing.T) { //nolint:maintidx
+func TestValidateClientHelloRetryMatrix(t *testing.T) {
 	initial := snapshotClientHelloForRetryTest(t, retryClientHelloForTest(true))
 	selected := elliptic.X25519
 	request, err := ValidateHelloRetryRequest(

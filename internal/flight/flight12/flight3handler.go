@@ -24,7 +24,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-//nolint:gocognit,gocyclo,maintidx,cyclop
+//nolint:cyclop
 func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (next Flight, dtlsAlert *alert.Alert, err error) {
 	// Clients may receive multiple HelloVerifyRequest messages with different cookies.
 	// Clients SHOULD handle this by sending a new ClientHello with a cookie in response

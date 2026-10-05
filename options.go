@@ -1019,7 +1019,7 @@ func filterCipherSuitesForVersion(
 	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool { return !suite.Capabilities().SupportsVersion(version) })
 }
 
-//nolint:cyclop,gocognit
+//nolint:cyclop
 func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, includeCertificateSuites, includePSKSuites bool, minVersion, maxVersion protocol.Version) ([]cryptosuite.Suite, error) {
 	customByID := make(map[cryptosuite.ID]cryptosuite.Suite)
 	var custom []cryptosuite.Suite

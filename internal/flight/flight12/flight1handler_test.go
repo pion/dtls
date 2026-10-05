@@ -46,7 +46,7 @@ func (f *flight1TestMockCipherSuite) NewConnectionProtection(
 
 // A later ServerHello exposes an invalid cached message occupying the next
 // sequence number; parsing must fail instead of treating it as packet loss.
-func TestFlight1_Process_RejectsInvalidLateServerFlight(t *testing.T) { //nolint:maintidx
+func TestFlight1_Process_RejectsInvalidLateServerFlight(t *testing.T) {
 	// Limit runtime in case of deadlocks
 	lim := test.TimeOut(5 * time.Second)
 	defer lim.Stop()

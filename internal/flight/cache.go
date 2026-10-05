@@ -183,7 +183,7 @@ func (h *Cache) pullOneOf( //nolint:cyclop
 
 // PullSequential selects messages at consecutive sequence numbers. Missing
 // messages are incomplete.
-func (h *Cache) PullSequential( //nolint:cyclop,gocognit // Ordered required/optional conflict handling.
+func (h *Cache) PullSequential( //nolint:cyclop
 	startSeq int,
 	rules ...HandshakeCachePullRule,
 ) HandshakeCacheItemPullResult {

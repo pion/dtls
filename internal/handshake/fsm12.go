@@ -147,7 +147,7 @@ func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
 	return StateWaiting, nil
 }
 
-func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:gocognit,cyclop
+func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:cyclop
 	retransmitTimer := s.cfg.NewTimer(s.retransmitInterval)
 	defer retransmitTimer.Stop()
 	for {

@@ -29,7 +29,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-//nolint:gocognit,gocyclo,cyclop,maintidx
+//nolint:cyclop
 func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: true},

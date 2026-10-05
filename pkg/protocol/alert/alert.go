@@ -68,7 +68,7 @@ const (
 	ECHRequired            Description = 121
 )
 
-func (d Description) String() string { //nolint:cyclop,gocyclo // Each protocol alert has a distinct name.
+func (d Description) String() string { //nolint:cyclop
 	switch d {
 	case CloseNotify:
 		return "CloseNotify"

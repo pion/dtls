@@ -411,7 +411,7 @@ func TestConnClose(t *testing.T) {
 	})
 }
 
-func TestListenerCustomConnIDs(t *testing.T) { //nolint:gocyclo,cyclop,maintidx
+func TestListenerCustomConnIDs(t *testing.T) { //nolint:cyclop
 	const helloPayload, setPayload = "hello", "set"
 	const serverCount, clientCount = 5, 20
 	// Limit runtime in case of deadlocks.

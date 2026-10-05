@@ -17,7 +17,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-//nolint:cyclop,gocognit,gocyclo
+//nolint:cyclop
 func flight0Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,

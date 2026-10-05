@@ -2792,7 +2792,7 @@ func (c *Conn) deliverReadError(ctx context.Context, err error) {
 	}
 }
 
-//nolint:gocyclo,cyclop,gocognit,contextcheck
+//nolint:cyclop,contextcheck
 func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
 		if err := c.setupHandshakeFSM13(start); err != nil {
