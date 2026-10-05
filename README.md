@@ -59,7 +59,7 @@ Pion DTLS supports DTLS 1.2 and DTLS 1.3. We welcome contributions and bug fixes
 * DTLS 1.3 offers multiple PSK identities per handshake for server selection
 * Packet loss and re-ordering is handled during handshaking
 * Key export ([RFC 5705][rfc5705])
-* DTLS 1.2 session serialization and resumption
+* DTLS 1.2 and DTLS 1.3 connection state serialization and restoration with `Resume`
 * DTLS 1.3 session ticket resumption and optional 0-RTT early data
 * Extended Master Secret extension ([RFC 7627][rfc7627])
 * ALPN extension ([RFC 7301][rfc7301])
@@ -144,6 +144,8 @@ first connection, encrypted session storage, and subsequent connections with res
 and optional early data. See its README for run instructions and the session store's
 single-use `Claim` requirement for 0-RTT.
 
+The `State`/`Resume` API also supports restoring established DTLS 1.3
+connections without a new handshake. See [`Resume`](resume.go).
 ### Using with PSK
 
 DTLS 1.3 supports external PSKs with `psk_ke` (PSK-only) and `psk_dhe_ke`
