@@ -35,6 +35,8 @@ const (
 	TypeKeyShare                Type = 51
 	TypeConnectionID            Type = 54
 	TypeReturnRoutabilityCheck  Type = 61
+	TypeECHOuterExtensions      Type = 64768
+	TypeEncryptedClientHello    Type = 65037
 	TypeRenegotiationInfo       Type = 65281
 )
 

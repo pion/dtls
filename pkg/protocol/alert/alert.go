@@ -65,9 +65,10 @@ const (
 	UnsupportedExtension   Description = 110
 	CertificateRequired    Description = 116
 	NoApplicationProtocol  Description = 120
+	ECHRequired            Description = 121
 )
 
-func (d Description) String() string { //nolint:cyclop
+func (d Description) String() string { //nolint:cyclop,gocyclo // Each protocol alert has a distinct name.
 	switch d {
 	case CloseNotify:
 		return "CloseNotify"
@@ -125,6 +126,8 @@ func (d Description) String() string { //nolint:cyclop
 		return "UnsupportedExtension"
 	case CertificateRequired:
 		return "CertificateRequired"
+	case ECHRequired:
+		return "ECHRequired"
 	case NoApplicationProtocol:
 		return "NoApplicationProtocol"
 	default:
