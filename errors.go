@@ -31,10 +31,6 @@ var errPathInUse = errors.New("dtls: path is in use") //nolint:gochecknoglobals
 // errNoConnectionID indicates that the peer supplied no unused nonempty CID for a new path.
 var errNoConnectionID = errors.New("dtls: no unused peer connection ID") //nolint:gochecknoglobals
 
-// ErrStateSerializationUnsupported indicates that the negotiated DTLS version
-// cannot be represented by the public DTLS 1.2-shaped State snapshot.
-var ErrStateSerializationUnsupported = errors.New("dtls: state serialization unsupported for this protocol version") //nolint:gochecknoglobals
-
 // errInvalidCipherSuite indicates an attempt at using an unsupported cipher suite.
 type invalidCipherSuiteError struct {
 	id cryptosuite.ID

@@ -7,9 +7,12 @@ import (
 	"crypto/fips140"
 	"errors"
 	"net"
+	"slices"
 
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/protocol"
 )
 
 func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config *dtlsConfig) (*Conn, error) {
@@ -19,7 +22,6 @@ func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config 
 	if state.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
-
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
@@ -34,7 +36,7 @@ func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config 
 		return nil, err
 	}
 
-	return createConn(conn, rAddr, config, internalState.IsClient, internalState)
+	return createConn(conn, rAddr, config, state.isClient, internalState)
 }
 
 func resolveResumeCipherSuite(state *State, config *dtlsConfig) (cryptosuite.Suite, error) {
@@ -74,6 +76,19 @@ func Resume(state *State, conn net.PacketConn, rAddr net.Addr, opts ...Option) (
 	config, err := applyOptions(state.isClient, opts, apply)
 	if err != nil {
 		return nil, err
+	}
+	version := state.version
+	if version == 0 {
+		version = protocol.Version1_2
+	}
+	if config.MinVersion == 0 {
+		config.MinVersion = version
+	}
+	if config.MaxVersion == 0 {
+		config.MaxVersion = version
+	}
+	if !slices.Contains(dtlsconfig.SupportedVersionsRange(config.MinVersion, config.MaxVersion), version) {
+		return nil, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
 	return resumeWithConfig(state, conn, rAddr, config)

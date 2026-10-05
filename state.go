@@ -10,6 +10,7 @@ import (
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	dtlsutil "github.com/pion/dtls/v4/internal/util"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
@@ -17,6 +18,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/prf"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 )
 
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and
@@ -45,6 +47,7 @@ type State struct {
 	// exporterMasterSecret is exporter_master_secret from
 	// https://www.rfc-editor.org/rfc/rfc8446.html#section-7.1.
 	exporterMasterSecret []byte
+	state13              *serializedState13
 }
 
 // KeyUsageStats reports usage of the current directional record keys.
@@ -110,6 +113,8 @@ func remainingUsage(limit, used uint64) uint64 {
 }
 
 type serializedState struct {
+	DTLS13                *serializedState13
+	ExporterMasterSecret  []byte
 	KeyUsage              *KeyUsageStats
 	Version               protocol.Version
 	LocalEpoch            uint16
@@ -143,7 +148,7 @@ func generateState(active dtlsstate.Active) (*State, error) {
 	switch internalState := active.(type) {
 	case *dtlsstate.State:
 		if common.LocalVersion == protocol.Version1_3 {
-			return nil, ErrStateSerializationUnsupported
+			return nil, dtlserrors.ErrInvalidProtocolVersionState
 		}
 		state.version = protocol.Version1_2
 		state.KeyUsage = keyUsageStats12(internalState)
@@ -212,10 +217,17 @@ func (s *State) serialize() (*serializedState, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
+	localEpoch, remoteEpoch := s.localEpoch, s.remoteEpoch
 	if s.version == protocol.Version1_3 {
-		return nil, ErrStateSerializationUnsupported
-	}
-	if s.localEpoch > math.MaxUint16 || s.remoteEpoch > math.MaxUint16 {
+		suite, err := s.cipherSuite()
+		if err != nil {
+			return nil, err
+		}
+		if err = s.validate13(suite); err != nil {
+			return nil, err
+		}
+		localEpoch, remoteEpoch = 0, 0
+	} else if s.localEpoch > math.MaxUint16 || s.remoteEpoch > math.MaxUint16 {
 		return nil, dtlserrors.ErrEpochOverflow
 	}
 
@@ -225,10 +237,12 @@ func (s *State) serialize() (*serializedState, error) {
 	}
 
 	return &serializedState{
+		DTLS13:                s.state13,
+		ExporterMasterSecret:  s.exporterMasterSecret,
 		KeyUsage:              s.KeyUsage,
 		Version:               version,
-		LocalEpoch:            uint16(s.localEpoch),  //nolint:gosec // Checked before serialization.
-		RemoteEpoch:           uint16(s.remoteEpoch), //nolint:gosec // Checked before serialization.
+		LocalEpoch:            uint16(localEpoch),  //nolint:gosec // Checked before serialization.
+		RemoteEpoch:           uint16(remoteEpoch), //nolint:gosec // Checked before serialization.
 		CipherSuiteID:         uint16(s.CipherSuiteID),
 		MasterSecret:          s.masterSecret,
 		SequenceNumber:        s.sequenceNumber,
@@ -248,6 +262,8 @@ func (s *State) serialize() (*serializedState, error) {
 }
 
 func (s *State) deserialize(serialized serializedState) {
+	s.state13 = serialized.DTLS13
+	s.exporterMasterSecret = bytes.Clone(serialized.ExporterMasterSecret)
 	s.KeyUsage = serialized.KeyUsage
 	s.cipherSuiteDescriptor = nil
 	s.version = serialized.Version
@@ -256,6 +272,14 @@ func (s *State) deserialize(serialized serializedState) {
 	}
 	s.localEpoch = uint64(serialized.LocalEpoch)
 	s.remoteEpoch = uint64(serialized.RemoteEpoch)
+	if s.version == protocol.Version1_3 && s.state13 != nil {
+		if len(s.state13.Write) > 0 {
+			s.localEpoch = s.state13.Write[len(s.state13.Write)-1].Epoch
+		}
+		if len(s.state13.Read) > 0 {
+			s.remoteEpoch = s.state13.Read[len(s.state13.Read)-1].Epoch
+		}
+	}
 	s.localRandom.UnmarshalFixed(serialized.LocalRandom)
 	s.remoteRandom.UnmarshalFixed(serialized.RemoteRandom)
 	s.masterSecret = serialized.MasterSecret
@@ -294,7 +318,7 @@ func (s *State) cipherSuite() (cryptosuite.Suite, error) {
 
 // generateInternalState is the inverse of generateState: it expands the public
 // State into the internal state used by the connection internals.
-func (s *State) generateInternalState() (*dtlsstate.State, error) {
+func (s *State) generateInternalState() (dtlsstate.Active, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -307,7 +331,7 @@ func (s *State) generateInternalState() (*dtlsstate.State, error) {
 		return nil, err
 	}
 	if s.version == protocol.Version1_3 {
-		return nil, ErrStateSerializationUnsupported
+		return s.generateInternalState13(cipherSuite)
 	}
 	if !cipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) {
 		return nil, dtlserrors.ErrInvalidCipherSuite
@@ -344,6 +368,205 @@ func (s *State) restoreCommonState(suite cryptosuite.Suite, version protocol.Ver
 	return common
 }
 
+// Application traffic keys survive DTLS 1.3 restoration.
+type serializedState13 struct {
+	Write, Read            []serializedTrafficGeneration
+	ResumptionMasterSecret []byte
+	HandshakeSendSequence  int
+	HandshakeRecvSequence  int
+	CIDNegotiated          bool
+	ReceiveIDs             [][]byte
+	Send                   dtlsstate.CIDSendState
+}
+
+type serializedTrafficGeneration struct {
+	Epoch, Generation            uint64
+	Secret                       []byte
+	SequenceNumber               uint64
+	SequenceNumberSeen           bool
+	SealedRecords, FailedRecords uint64
+}
+
+func snapshotState13(state *dtlsstate.State13) *serializedState13 {
+	if state.TrafficKeys == nil {
+		return nil
+	}
+	write, read := state.TrafficKeys.Generations()
+	sendSequence, receiveSequence := state.HandshakeSequences()
+
+	return &serializedState13{
+		Write:                  snapshotTrafficGenerations(state.Common, write, true),
+		Read:                   snapshotTrafficGenerations(state.Common, read, false),
+		ResumptionMasterSecret: bytes.Clone(state.KeySchedule.ResumptionMasterSecret),
+		HandshakeSendSequence:  sendSequence,
+		HandshakeRecvSequence:  receiveSequence,
+		CIDNegotiated:          state.CID.Negotiated,
+		ReceiveIDs:             state.CID.Receive.IDs.Values(),
+		Send:                   state.CID.Send.Clone(),
+	}
+}
+
+func snapshotTrafficGenerations(common *dtlsstate.Common, generations []*dtlsstate.TrafficGeneration, write bool) []serializedTrafficGeneration {
+	var snapshots []serializedTrafficGeneration
+	for _, generation := range generations {
+		if generation == nil || generation.Epoch < dtlsflight13.EpochApplication {
+			continue
+		}
+		sequence, seen := common.HighestRemoteSequenceNumber(generation.Epoch)
+		if write {
+			sequence, seen = common.NextLocalSequenceNumber(generation.Epoch), true
+		}
+		sealed, failed := generation.Usage()
+		snapshots = append(snapshots, serializedTrafficGeneration{
+			Epoch: generation.Epoch, Generation: generation.Generation,
+			Secret: bytes.Clone(generation.Secret), SequenceNumber: sequence, SequenceNumberSeen: seen,
+			SealedRecords: sealed, FailedRecords: failed,
+		})
+	}
+
+	return snapshots
+}
+
+func (s *State) validate13(suite cryptosuite.Suite) error {
+	snapshot := s.state13
+	if snapshot == nil || len(snapshot.Write) == 0 || len(snapshot.Read) == 0 {
+		return dtlserrors.ErrHandshakeInProgress
+	}
+	if !suite.Capabilities().SupportsVersion(protocol.Version1_3) {
+		return dtlserrors.ErrInvalidCipherSuite
+	}
+	secretSize := suite.HashFunc()().Size()
+	if len(s.exporterMasterSecret) != secretSize || !snapshot.validKeySchedule(secretSize) {
+		return dtlserrors.ErrInvalidProtectionInput
+	}
+	if err := validateTrafficGenerations(snapshot.Write, secretSize, recordlayer.MaxSequenceNumber+1); err != nil {
+		return err
+	}
+	if err := validateTrafficGenerations(snapshot.Read, secretSize, recordlayer.MaxSequenceNumber); err != nil {
+		return err
+	}
+
+	return snapshot.validateConnectionIDs(len(s.localConnectionID))
+}
+
+func (snapshot *serializedState13) validKeySchedule(secretSize int) bool {
+	return (len(snapshot.ResumptionMasterSecret) == 0 || len(snapshot.ResumptionMasterSecret) == secretSize) &&
+		snapshot.HandshakeSendSequence >= 0 && snapshot.HandshakeRecvSequence >= 0
+}
+
+func (snapshot *serializedState13) validateConnectionIDs(localLength int) error {
+	if localLength > 255 || len(snapshot.Send.Active) > 255 ||
+		snapshot.Send.UseCID != (len(snapshot.Send.Active) != 0) ||
+		!validConnectionIDs(snapshot.ReceiveIDs, localLength, localLength) ||
+		!validConnectionIDs(snapshot.Send.Spares, 1, 255) {
+		return dtlserrors.ErrInvalidProtectionInput
+	}
+
+	return nil
+}
+
+func validConnectionIDs(ids [][]byte, minLength, maxLength int) bool {
+	if len(ids) > dtlsstate.MaxConnectionIDs {
+		return false
+	}
+	for _, id := range ids {
+		if len(id) == 0 || len(id) < minLength || len(id) > maxLength {
+			return false
+		}
+	}
+
+	return true
+}
+
+func validateTrafficGenerations(generations []serializedTrafficGeneration, secretSize int, maxSequence uint64) error {
+	seen := make(map[uint64]bool, len(generations))
+	currentEpoch := generations[len(generations)-1].Epoch
+	for _, generation := range generations {
+		if generation.Epoch < dtlsflight13.EpochApplication || generation.Epoch > currentEpoch ||
+			seen[generation.Epoch] || generation.Generation != generation.Epoch-dtlsflight13.EpochApplication ||
+			len(generation.Secret) != secretSize || generation.SequenceNumber > maxSequence {
+			return dtlserrors.ErrInvalidProtectionInput
+		}
+		seen[generation.Epoch] = true
+	}
+
+	return nil
+}
+
+func (s *State) generateInternalState13(suite cryptosuite.Suite) (*dtlsstate.State13, error) {
+	if err := s.validate13(suite); err != nil {
+		return nil, err
+	}
+	factory, ok := suite.(cryptosuite.TrafficSuite)
+	if !ok {
+		return nil, dtlserrors.ErrInvalidCipherSuite
+	}
+	snapshot := s.state13
+	state := &dtlsstate.State13{
+		Common: s.restoreCommonState(suite, protocol.Version1_3),
+		KeySchedule: dtlsstate.KeySchedule{
+			ExporterMasterSecret:   bytes.Clone(s.exporterMasterSecret),
+			ResumptionMasterSecret: bytes.Clone(snapshot.ResumptionMasterSecret),
+		},
+		TrafficKeys:           &dtlsstate.TrafficKeyState{},
+		ReplayCutoff:          make(map[uint64]uint64),
+		HandshakeSendSequence: snapshot.HandshakeSendSequence,
+		HandshakeRecvSequence: snapshot.HandshakeRecvSequence,
+		CID: dtlsstate.CIDState{
+			Negotiated: snapshot.CIDNegotiated,
+			Receive: dtlsstate.CIDReceiveState{
+				IDs: &dtlsstate.CIDReceiveSet{}, Expected: len(s.localConnectionID) > 0,
+				Length: len(s.localConnectionID), CanSendNewConnectionID: len(s.localConnectionID) > 0,
+			},
+			Send: snapshot.Send.Clone(),
+		},
+	}
+	state.LocalCIDOffered, state.RemoteCIDOffered = snapshot.CIDNegotiated, snapshot.CIDNegotiated
+	for _, id := range snapshot.ReceiveIDs {
+		state.CID.Receive.IDs.Add(id)
+	}
+	if err := restoreTrafficGenerations(state, factory, snapshot.Write, true); err != nil {
+		return nil, err
+	}
+	if err := restoreTrafficGenerations(state, factory, snapshot.Read, false); err != nil {
+		return nil, err
+	}
+	state.SetLocalEpoch(snapshot.Write[len(snapshot.Write)-1].Epoch)
+	state.SetRemoteEpoch(snapshot.Read[len(snapshot.Read)-1].Epoch)
+
+	return state, nil
+}
+
+func restoreTrafficGenerations(state *dtlsstate.State13, suite cryptosuite.TrafficSuite, snapshots []serializedTrafficGeneration, write bool) error {
+	for _, snapshot := range snapshots {
+		secret := bytes.Clone(snapshot.Secret)
+		trafficSecret, err := ciphersuite.NewTrafficSecret(secret)
+		if err != nil {
+			return err
+		}
+		protection, err := suite.NewTrafficProtection(trafficSecret)
+		if err != nil {
+			return err
+		}
+		generation := &dtlsstate.TrafficGeneration{
+			Epoch: snapshot.Epoch, Generation: snapshot.Generation, Secret: secret, Protection: protection,
+		}
+		generation.RestoreUsage(snapshot.SealedRecords, snapshot.FailedRecords)
+		if write {
+			state.TrafficKeys.Install(generation, nil)
+			state.SetLocalSequenceNumber(snapshot.Epoch, snapshot.SequenceNumber)
+		} else {
+			state.TrafficKeys.Install(nil, generation)
+			if snapshot.SequenceNumberSeen {
+				state.UpdateRemoteSequenceNumber(snapshot.Epoch, snapshot.SequenceNumber)
+				state.ReplayCutoff[snapshot.Epoch] = snapshot.SequenceNumber
+			}
+		}
+	}
+
+	return nil
+}
+
 // MarshalBinary is a binary.BinaryMarshaler.MarshalBinary implementation.
 func (s *State) MarshalBinary() ([]byte, error) {
 	serialized, err := s.serialize()
@@ -367,13 +590,19 @@ func (s *State) UnmarshalBinary(data []byte) error {
 	if err := enc.Decode(&serialized); err != nil {
 		return err
 	}
-	if serialized.Version == protocol.Version1_3 {
-		return ErrStateSerializationUnsupported
-	}
-
 	s.deserialize(serialized)
 	if s.CipherSuiteID == 0 {
 		return dtlserrors.ErrCipherSuiteNotSet
+	}
+	if s.version == protocol.Version1_3 {
+		if suite := ciphersuite.ForID(s.CipherSuiteID); suite != nil {
+			return s.validate13(suite)
+		}
+		if s.state13 == nil {
+			return dtlserrors.ErrInvalidProtectionInput
+		}
+
+		return nil
 	}
 	if len(s.masterSecret) == 0 {
 		return dtlserrors.ErrInvalidProtectionInput

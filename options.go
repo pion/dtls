@@ -746,7 +746,7 @@ func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo
 	}
 }
 
-func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState *dtlsstate.State) *dtlsconfig.HandshakeConfig {
+func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState dtlsstate.Active) *dtlsconfig.HandshakeConfig {
 	handshakeConfig := &dtlsconfig.HandshakeConfig{
 		PSKIdentityLimit:              config.pskIdentityLimit,
 		LocalCipherSuites:             configValues.cipherSuites,

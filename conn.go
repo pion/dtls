@@ -252,7 +252,7 @@ type Conn struct {
 
 // createConn creates a new DTLS connection.
 // Caller is responsible for validating the config before calling this function.
-func createConn(nextConn net.PacketConn, rAddr net.Addr, config *dtlsConfig, isClient bool, resumeState *dtlsstate.State) (*Conn, error) {
+func createConn(nextConn net.PacketConn, rAddr net.Addr, config *dtlsConfig, isClient bool, resumeState dtlsstate.Active) (*Conn, error) {
 	if nextConn == nil {
 		return nil, dtlserrors.ErrNilNextConn
 	}
@@ -402,6 +402,19 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 // DTLS 1.3 is selected, the DTLS 1.3 FSM imports those packets into its
 // transcript.
 func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error) {
+	if resumed := c.handshakeConfig.ResumeState; resumed != nil {
+		c.lock.Lock()
+		defer c.lock.Unlock()
+		c.state = resumed
+		start := handshakeStart{fsmState: dtlshandshake.StateFinished}
+		if dtlsstate.CommonState(resumed).IsClient {
+			start.flight12, start.flight13 = dtlsflight12.Flight5, dtlsflight13.Flight5
+		} else {
+			start.flight12, start.flight13 = dtlsflight12.Flight6, dtlsflight13.Flight4
+		}
+
+		return start, c.registerLocalCID()
+	}
 	if c.handshakeConfig.MaxVersion == protocol.Version1_2 {
 		start := c.prepareHandshakeStart12()
 		c.lock.Lock()
@@ -421,17 +434,6 @@ func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error
 
 func (c *Conn) prepareHandshakeStart12() handshakeStart {
 	isClient := dtlsstate.CommonState(c.state).IsClient
-	if c.handshakeConfig.ResumeState != nil {
-		c.state = c.handshakeConfig.ResumeState
-		dtlsstate.CommonState(c.state).LocalVersion = protocol.Version1_2
-
-		if isClient {
-			return handshakeStart{flight12: dtlsflight12.Flight5, fsmState: dtlshandshake.StateFinished}
-		}
-
-		return handshakeStart{flight12: dtlsflight12.Flight6, fsmState: dtlshandshake.StateFinished}
-	}
-
 	state := dtlsstate.Activate12(c.state)
 	c.state = state
 	state.LocalVersion = protocol.Version1_2
@@ -729,11 +731,16 @@ func (c *Conn) Close() error {
 // ConnectionState returns basic DTLS details about the connection.
 // Note that this replaced the `Export` function of v1.
 func (c *Conn) ConnectionState() (State, bool) {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	state, err := generateState(c.state)
 	if err != nil {
 		return State{}, false
+	}
+	if state13, ok := c.state.(*dtlsstate.State13); ok && c.handshakeEstablished != nil && c.isHandshakeCompletedSuccessfully() {
+		state.state13 = snapshotState13(state13)
 	}
 
 	return *state, true
@@ -1917,6 +1924,11 @@ func (c *Conn) handleFutureCiphertextPacket(epochLow uint8, remoteEpoch uint64, 
 }
 
 func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool, bool) {
+	if state, ok := c.state.(*dtlsstate.State13); ok {
+		if cutoff, restored := state.ReplayCutoff[epoch]; restored && sequenceNumber <= cutoff {
+			return nil, false
+		}
+	}
 	common := dtlsstate.CommonState(c.state)
 	if common.ReplayDetector == nil {
 		common.ReplayDetector = make(map[uint64]replaydetector.ReplayDetector)

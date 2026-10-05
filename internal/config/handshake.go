@@ -166,7 +166,7 @@ type HandshakeConfig struct {
 	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
 	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
-	ResumeState                   *internalstate.State
+	ResumeState                   internalstate.Active
 	MinVersion                    protocol.Version
 	MaxVersion                    protocol.Version
 	TimerFactory                  func(time.Duration) Timer
