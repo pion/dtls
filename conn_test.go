@@ -37,6 +37,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
+	"github.com/pion/transport/v5/deadline"
 	"github.com/pion/transport/v5/dpipe"
 	"github.com/pion/transport/v5/netctx"
 	"github.com/pion/transport/v5/test"
@@ -654,11 +655,13 @@ func TestReadAndBufferNoFSMQueuesExactRecordCopy(t *testing.T) {
 	}()
 
 	conn := &Conn{
-		nextConn:       netctx.NewPacketConn(cb),
-		fragmentBuffer: dtlsfragmentbuffer.New(),
-		handshakeCache: dtlsflight.NewCache(),
-		readBufferPool: readBufferPoolForSize(defaultReceiveBufferSize),
-		log:            logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		nextConn:             netctx.NewPacketConn(cb),
+		readDeadline:         deadline.New(),
+		handshakeEstablished: dtlshandshake.NewEstablishment(),
+		fragmentBuffer:       dtlsfragmentbuffer.New(),
+		handshakeCache:       dtlsflight.NewCache(),
+		readBufferPool:       readBufferPoolForSize(defaultReceiveBufferSize),
+		log:                  logging.NewDefaultLoggerFactory().NewLogger("dtls"),
 		state: &dtlsstate.State13{Common: &dtlsstate.Common{
 			LocalVersion: protocol.Version1_3,
 		}},
@@ -2401,4 +2404,126 @@ func checkEarlyDataALPN(t *testing.T, scenario string, client, server *DetachedC
 	expected := map[string]string{"alpn": earlyDataALPN, "alpn changed": "new"}[scenario]
 	require.Equal(t, expected, dtlsstate.CommonState(client.conn.state).NegotiatedProtocol)
 	require.Equal(t, expected, dtlsstate.CommonState(server.conn.state).NegotiatedProtocol)
+}
+
+type deadlineTestTransport struct {
+	netctx.PacketConn
+	started    chan error
+	blockWrite bool
+}
+
+func (p *deadlineTestTransport) ReadFromContext(ctx context.Context, _ []byte) (int, net.Addr, error) {
+	if !p.blockWrite {
+		p.started <- nil
+	}
+	<-ctx.Done()
+
+	return 0, nil, ctx.Err()
+}
+
+func (p *deadlineTestTransport) WriteToContext(ctx context.Context, b []byte, _ net.Addr) (int, error) {
+	if p.blockWrite {
+		p.started <- nil
+		<-ctx.Done()
+
+		return 0, ctx.Err()
+	}
+
+	return len(b), nil
+}
+
+func awaitDeadlineTest(t *testing.T, ch <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "handshake I/O did not respond")
+	}
+
+	return nil
+}
+
+func newDeadlineTestClient(t *testing.T, minVersion, maxVersion protocol.Version, blockWrite bool) (*Conn, *deadlineTestTransport) {
+	t.Helper()
+	a, b := packetPipe()
+	conn, err := Client(a, a.RemoteAddr(), WithInsecureSkipVerify(true), WithMinVersion(minVersion), WithMaxVersion(maxVersion), WithFlightInterval(time.Hour))
+	require.NoError(t, err)
+	transport := &deadlineTestTransport{PacketConn: conn.nextConn, started: make(chan error, 1), blockWrite: blockWrite}
+	conn.nextConn = transport
+	t.Cleanup(func() { _ = conn.Close(); _ = a.Close(); _ = b.Close() })
+
+	return conn, transport
+}
+
+func TestImplicitHandshakeDeadlines(t *testing.T) {
+	operations := map[string]func(*Conn) error{
+		"Read": func(c *Conn) error {
+			_, err := c.Read(make([]byte, 1))
+
+			return err
+		},
+		"Write": func(c *Conn) error {
+			_, err := c.Write([]byte{1})
+
+			return err
+		},
+	}
+	for _, versions := range [][2]protocol.Version{
+		{protocol.Version1_2, protocol.Version1_2},
+		{protocol.Version1_3, protocol.Version1_3},
+		{protocol.Version1_2, protocol.Version1_3},
+	} {
+		for name, operation := range operations {
+			for _, blockWrite := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%v/%s/write=%v", versions, name, blockWrite), func(t *testing.T) {
+					conn, transport := newDeadlineTestClient(t, versions[0], versions[1], blockWrite)
+					done := make(chan error, 1)
+					go func() { done <- operation(conn) }()
+					require.NoError(t, awaitDeadlineTest(t, transport.started))
+					setDeadline := conn.SetReadDeadline
+					if blockWrite {
+						setDeadline = conn.SetWriteDeadline
+					}
+					require.NoError(t, setDeadline(time.Now().Add(-time.Second)))
+					require.ErrorIs(t, awaitDeadlineTest(t, done), context.DeadlineExceeded)
+				})
+			}
+		}
+	}
+}
+
+func TestReadDeadlineAfterHandshake(t *testing.T) {
+	cert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+		a, b := packetPipe()
+		client, err := Client(a, a.RemoteAddr(), WithInsecureSkipVerify(true), WithMinVersion(version), WithMaxVersion(version))
+		require.NoError(t, err)
+		server, err := Server(b, b.RemoteAddr(), WithCertificates(cert), WithMinVersion(version), WithMaxVersion(version))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = client.Close(); _ = server.Close(); _ = a.Close(); _ = b.Close() })
+		deadline := time.Now().Add(5 * time.Second)
+		require.NoError(t, client.SetDeadline(deadline))
+		require.NoError(t, server.SetDeadline(deadline))
+		done := make(chan error, 1)
+		go func() { done <- client.Handshake() }()
+		require.NoError(t, server.Handshake())
+		require.NoError(t, <-done)
+		readDeadline, _ := client.readDeadline.Deadline()
+		writeDeadline, _ := client.writeDeadline.Deadline()
+		require.Equal(t, deadline, readDeadline)
+		require.Equal(t, deadline, writeDeadline)
+		require.NoError(t, client.SetReadDeadline(time.Now().Add(-time.Second)))
+		_, err = client.Read(make([]byte, 16))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.NoError(t, client.SetReadDeadline(time.Now().Add(5*time.Second)))
+		require.NoError(t, server.SetWriteDeadline(time.Now().Add(5*time.Second)))
+		_, err = server.Write([]byte("hello"))
+		require.NoError(t, err)
+		buf := make([]byte, 16)
+		n, err := client.Read(buf)
+		require.NoError(t, err)
+		require.Equal(t, "hello", string(buf[:n]))
+	}
 }

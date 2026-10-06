@@ -329,6 +329,8 @@ func (c *Conn) Handshake() error {
 // the handshake is complete, the handshake is interrupted and an error is returned.
 // Once the handshake has completed, cancellation of the context will not affect the
 // connection.
+// Connection read and write deadlines also apply to the corresponding handshake
+// I/O, independently of the context deadline.
 //
 // Most uses of this package need not call HandshakeContext explicitly: the
 // first [Conn.Read] or [Conn.Write] will call it automatically.
@@ -550,6 +552,9 @@ func Server(conn net.PacketConn, raddr net.Addr, opts ...ServerOption) (*Conn, e
 }
 
 // Read reads data from the connection.
+// Before the handshake completes, Read also performs handshake reads and writes.
+// Set both read and write deadlines (or use SetDeadline) to bound that I/O,
+// or call HandshakeContext explicitly. Deadlines are not reset after the handshake.
 func (c *Conn) Read(buff []byte) (n int, err error) { //nolint:cyclop
 	if err := c.Handshake(); err != nil {
 		return 0, err
@@ -587,6 +592,9 @@ func (c *Conn) Read(buff []byte) (n int, err error) { //nolint:cyclop
 }
 
 // Write writes len(payload) bytes from payload to the DTLS connection.
+// Before the handshake completes, Write also performs handshake reads and writes.
+// Set both read and write deadlines (or use SetDeadline) to bound that I/O,
+// or call HandshakeContext explicitly. Deadlines are not reset after the handshake.
 func (c *Conn) Write(payload []byte) (int, error) {
 	if c.isConnectionClosed() {
 		return 0, ErrConnClosed
@@ -800,7 +808,7 @@ func (c *Conn) writePacketsWithResultLocked(ctx context.Context, pkts []*dtlsfli
 		return result, nil
 	}
 	for _, datagram := range datagrams {
-		if _, err = c.nextConn.WriteToContext(ctx, datagram.raw, rAddr); err != nil {
+		if err = c.writeDatagram(ctx, datagram.raw, rAddr); err != nil {
 			if errors.Is(err, context.Canceled) && c.isConnectionClosed() {
 				return nil, ErrConnClosed
 			}
@@ -811,6 +819,67 @@ func (c *Conn) writePacketsWithResultLocked(ctx context.Context, pkts []*dtlsfli
 	}
 
 	return result, nil
+}
+
+func (c *Conn) writeDatagram(ctx context.Context, b []byte, addr net.Addr) error {
+	writeCtx, cancel := c.contextWithHandshakeDeadline(ctx, c.writeDeadline)
+	defer cancel()
+
+	err := writeCtx.Err()
+	if err == nil {
+		_, err = c.nextConn.WriteToContext(writeCtx, b, addr)
+	}
+	if errors.Is(err, context.Canceled) && ctx.Err() == nil {
+		return context.Cause(writeCtx)
+	}
+
+	return err
+}
+
+// contextWithHandshakeDeadline applies a directional deadline only while the
+// initial handshake is in progress.
+func (c *Conn) contextWithHandshakeDeadline(ctx context.Context, d *deadline.Deadline) (context.Context, context.CancelFunc) {
+	if c.isHandshakeCompletedSuccessfully() {
+		return ctx, func() {}
+	}
+	ioCtx, cancel := context.WithCancelCause(ctx)
+	expire := func() {
+		if !c.isHandshakeCompletedSuccessfully() {
+			cancel(context.DeadlineExceeded)
+		}
+	}
+	stop := context.AfterFunc(d.Context(), expire)
+	if d.Err() != nil {
+		expire()
+	}
+
+	return ioCtx, func() {
+		stop()
+		cancel(context.Canceled)
+	}
+}
+
+func (c *Conn) readDatagram(ctx context.Context, b []byte) (int, net.Addr, error) {
+	for {
+		readCtx, cancel := c.contextWithHandshakeDeadline(ctx, c.readDeadline)
+		err := readCtx.Err()
+		var n int
+		var addr net.Addr
+		if err == nil {
+			n, addr, err = c.nextConn.ReadFromContext(readCtx, b)
+		}
+		deadlineCanceled := errors.Is(err, context.Canceled) && ctx.Err() == nil &&
+			errors.Is(context.Cause(readCtx), context.DeadlineExceeded)
+		if errors.Is(err, context.Canceled) && ctx.Err() == nil {
+			err = context.Cause(readCtx)
+		}
+		cancel()
+		if n == 0 && deadlineCanceled && c.isHandshakeCompletedSuccessfully() {
+			continue
+		}
+
+		return n, addr, err
+	}
 }
 
 type preparedDatagram struct {
@@ -1447,7 +1516,7 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 	if c.detached != nil {
 		i, rAddr, err = c.detached.readDatagram(ctx, b)
 	} else {
-		i, rAddr, err = c.nextConn.ReadFromContext(ctx, b)
+		i, rAddr, err = c.readDatagram(ctx, b)
 	}
 	if idtlsnet.IsShortBuffer(err) {
 		c.log.Debugf("receive buffer too small (%d bytes); received %d bytes from %v: %v", len(b), i, rAddr, err)
