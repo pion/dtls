@@ -6,9 +6,12 @@ package handshake
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 
+	"github.com/pion/dtls/v4/internal/clienthello"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 )
 
@@ -142,9 +145,13 @@ func (m *MessageClientHello) marshalTo(out []byte, extensions extension.Prepared
 }
 
 // Unmarshal populates the message from encoded data.
-func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
-	if len(data) < 2+RandomLength {
-		return dtlserrors.ErrBufferTooSmall
+func (m *MessageClientHello) Unmarshal(data []byte) error {
+	wire, err := clienthello.Parse(data)
+	if err != nil {
+		return fmt.Errorf("ClientHello: %w: %w", err, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
+	}
+	if len(wire.Trailing) != 0 {
+		return fmt.Errorf("ClientHello: %w: %w", dtlserrors.ErrLengthMismatch, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
 	}
 
 	m.Version = protocol.VersionFromBytes(data[0], data[1])
@@ -153,65 +160,14 @@ func (m *MessageClientHello) Unmarshal(data []byte) error { //nolint:cyclop
 	copy(random[:], data[2:])
 	m.Random.UnmarshalFixed(random)
 
-	// rest of packet has variable width sections
-	currOffset := handshakeMessageClientHelloVariableWidthStart
-
-	currOffset++
-	if len(data) <= currOffset {
-		return dtlserrors.ErrBufferTooSmall
-	}
-	n := int(data[currOffset-1])
-	if len(data) <= currOffset+n {
-		return dtlserrors.ErrBufferTooSmall
-	}
-	m.SessionID = bytes.Clone(data[currOffset : currOffset+n])
-	currOffset += len(m.SessionID)
-
-	currOffset++
-	if len(data) <= currOffset {
-		return dtlserrors.ErrBufferTooSmall
-	}
-	n = int(data[currOffset-1])
-	if len(data) <= currOffset+n {
-		return dtlserrors.ErrBufferTooSmall
-	}
-	m.Cookie = bytes.Clone(data[currOffset : currOffset+n])
-	currOffset += len(m.Cookie)
-
-	// Cipher Suites
-	if len(data) < currOffset {
-		return dtlserrors.ErrBufferTooSmall
-	}
-	cipherSuiteIDs, err := decodeCipherSuiteIDs(data[currOffset:])
+	m.SessionID = bytes.Clone(wire.SessionID)
+	m.Cookie = bytes.Clone(wire.Cookie)
+	m.CipherSuiteIDs = wire.CipherSuites
+	m.CompressionMethods, err = protocol.DecodeCompressionMethods(wire.Compression)
 	if err != nil {
 		return err
 	}
-	m.CipherSuiteIDs = cipherSuiteIDs
-	if len(data) < currOffset+2 {
-		return dtlserrors.ErrBufferTooSmall
-	}
-	currOffset += int(binary.BigEndian.Uint16(data[currOffset:])) + 2
+	m.Extensions, err = decodeRawExtensions(wire.Extensions, extensionContextClientHello)
 
-	// Compression Methods
-	if len(data) < currOffset {
-		return dtlserrors.ErrBufferTooSmall
-	}
-	compressionMethods, err := protocol.DecodeCompressionMethods(data[currOffset:])
-	if err != nil {
-		return err
-	}
-	m.CompressionMethods = compressionMethods
-	if len(data) < currOffset {
-		return dtlserrors.ErrBufferTooSmall
-	}
-	currOffset += int(data[currOffset]) + 1
-
-	// Extensions
-	extensions, err := decodeExtensionList(data[currOffset:], extensionContextClientHello)
-	if err != nil {
-		return err
-	}
-	m.Extensions = extensions
-
-	return nil
+	return err
 }

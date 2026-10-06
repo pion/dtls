@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/pion/dtls/v4/internal/clienthello"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -152,17 +153,8 @@ func decodeRawExtensions(rawExtensions []extension.Raw, context extensionContext
 
 	values := make([]extension.Value, 0, len(rawExtensions))
 	for _, raw := range rawExtensions {
-		contexts, known := extensionRegistry[raw.Type]
-		if !known {
-			values = append(values, extension.Raw{Type: raw.Type, Data: bytes.Clone(raw.Data)})
-
-			continue
-		}
-
-		factory, allowed := contexts[context]
-		if !allowed {
-			return nil, fmt.Errorf("extension %d in %s: %w: %w", raw.Type, context, dtlserrors.ErrExtensionNotAllowed, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
-		}
+		// Context validity was checked above; unknown types have no decoder.
+		factory := extensionRegistry[raw.Type][context]
 		if factory == nil {
 			values = append(values, extension.Raw{Type: raw.Type, Data: bytes.Clone(raw.Data)})
 
@@ -184,20 +176,8 @@ func decodeRawExtensions(rawExtensions []extension.Raw, context extensionContext
 }
 
 func validateRawExtensionBlock(rawExtensions []extension.Raw, context extensionContext) error {
-	seen := make(map[extension.Type]struct{}, len(rawExtensions))
-	for _, raw := range rawExtensions {
-		if _, ok := seen[raw.Type]; ok {
-			return fmt.Errorf("extension %d in %s: %w: %w", raw.Type, context, dtlserrors.ErrDuplicateExtension, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
-		}
-		seen[raw.Type] = struct{}{}
-	}
-
-	if context == extensionContextClientHello {
-		for i, raw := range rawExtensions {
-			if raw.Type == extension.TypePreSharedKey && i != len(rawExtensions)-1 {
-				return fmt.Errorf("extension %d in %s: %w: %w", raw.Type, context, dtlserrors.ErrPreSharedKeyNotLast, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
-			}
-		}
+	if err := clienthello.ValidateExtensions(rawExtensions, context == extensionContextClientHello); err != nil {
+		return fmt.Errorf("extensions in %s: %w: %w", context, err, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter})
 	}
 
 	for _, raw := range rawExtensions {
