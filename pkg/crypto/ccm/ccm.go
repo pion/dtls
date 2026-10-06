@@ -142,18 +142,21 @@ func (c *ccm) tag(nonce, plaintext, adata []byte) ([]byte, error) {
 	var block [ccmBlockSize]byte
 	if adataLength := uint64(len(adata)); adataLength > 0 { //nolint:nestif
 		// First adata block includes adata length
+		// RFC 3610 section 2.2, NIST SP 800-38C A.2.2: lengths of 0xff00 and
+		// above are marked with 0xff 0xfe (4-byte length) or 0xff 0xff
+		// (8-byte length).
 		i := 2
-		if adataLength <= 0xfeff {
+		switch {
+		case adataLength <= 0xfeff:
 			binary.BigEndian.PutUint16(block[:i], uint16(adataLength))
-		} else {
-			binary.BigEndian.PutUint16(block[0:2], 0xfeff)
-			if adataLength < uint64(1<<32) {
-				i = 2 + 4
-				binary.BigEndian.PutUint32(block[2:i], uint32(adataLength)) //nolint:gosec // G115
-			} else {
-				i = 2 + 8
-				binary.BigEndian.PutUint64(block[2:i], adataLength)
-			}
+		case adataLength < uint64(1<<32):
+			binary.BigEndian.PutUint16(block[0:2], 0xfffe)
+			i = 2 + 4
+			binary.BigEndian.PutUint32(block[2:i], uint32(adataLength)) //nolint:gosec // G115
+		default:
+			binary.BigEndian.PutUint16(block[0:2], 0xffff)
+			i = 2 + 8
+			binary.BigEndian.PutUint64(block[2:i], adataLength)
 		}
 		i = copy(block[i:], adata)
 		c.cbcRound(mac[:], block[:])
