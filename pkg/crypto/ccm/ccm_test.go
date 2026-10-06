@@ -449,3 +449,45 @@ func TestOpenError(t *testing.T) {
 		})
 	}
 }
+
+// TestLongAdditionalData checks the encoding of the additional data length
+// on both sides of 0xff00 (RFC 3610 section 2.2, NIST SP 800-38C A.2.2).
+// The 65536 byte case is Example 4 of SP 800-38C Appendix C; the other two
+// were computed with an independent AES-CCM implementation.
+func TestLongAdditionalData(t *testing.T) {
+	cases := map[string]struct {
+		adataLength int
+		ciphertext  string
+	}{
+		"0xfeff": {0xfeff, "69915dad1e84c6376a68c2967e4dab615ae0fd1faec44cc484828529463ccf72bd4d3d3b7bf1365b4577abeccac4"},
+		"0xff00": {0xff00, "69915dad1e84c6376a68c2967e4dab615ae0fd1faec44cc484828529463ccf72107fb78c91dbb3c21cd810ce52a6"},
+		"SP800-38C Example 4": {
+			0x10000, "69915dad1e84c6376a68c2967e4dab615ae0fd1faec44cc484828529463ccf72b4ac6bec93e8598e7f0dadbcea5b",
+		},
+	}
+
+	blk, err := aes.NewCipher(mustHexDecode(t, "404142434445464748494a4b4c4d4e4f"))
+	assert.NoError(t, err)
+
+	lccm, err := NewCCM(blk, 14, 13)
+	assert.NoError(t, err)
+
+	nonce := mustHexDecode(t, "101112131415161718191a1b1c")
+	plaintext := mustHexDecode(t, "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f")
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			adata := make([]byte, c.adataLength)
+			for i := range adata {
+				adata[i] = byte(i)
+			}
+			ciphertext := mustHexDecode(t, c.ciphertext)
+
+			assert.Equal(t, ciphertext, lccm.Seal(nil, nonce, plaintext, adata))
+
+			opened, err := lccm.Open(nil, nonce, ciphertext, adata)
+			assert.NoError(t, err)
+			assert.Equal(t, plaintext, opened)
+		})
+	}
+}
