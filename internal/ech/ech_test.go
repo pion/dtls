@@ -65,6 +65,8 @@ func TestConfigSelection(t *testing.T) {
 		"mandatory_extension": func(config *Config) { config.Extensions = []extension.Raw{{Type: 0x8000}} },
 		"unsupported_kem":     func(config *Config) { config.KemID = 0xffff },
 		"bad_name":            func(config *Config) { config.PublicName = "localhost" },
+		"ipv4_name":           func(config *Config) { config.PublicName = "127.0.0.1" },
+		"ipv6_name":           func(config *Config) { config.PublicName = "::1" },
 		"unsupported_suites":  func(config *Config) { config.SymmetricCipherSuite = []CipherSuite{{0xffff, 1}, {1, 0xffff}} },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -136,13 +138,13 @@ func TestConfigList(t *testing.T) {
 	c := Config{PublicName: "public.example", Extensions: []extension.Raw{{Type: 0x8000}}}
 	require.False(t, c.Usable())
 	for _, name := range []string{
-		"public.example", "Public-Name.EXAMPLE", "127.0.0.1", "127.1", "public.123", "public.0x",
+		"public.example", "Public-Name.EXAMPLE", "127.1", "public.123", "public.0x",
 		strings.Repeat("a", 64) + ".example", strings.Repeat("a", 245) + ".example",
 	} {
 		require.True(t, (Config{PublicName: name}).Usable(), "name %q", name)
 	}
 	for _, name := range []string{
-		"", "localhost", "2130706433", "0x7f000001", "-bad.example", "bad-.example",
+		"", "localhost", "127.0.0.1", "2130706433", "0x7f000001", "-bad.example", "bad-.example",
 		"bad..example", ".bad.example", "bad.example.", "bad_name.example", "bäd.example", "::1",
 		strings.Repeat("a", 246) + ".example",
 	} {

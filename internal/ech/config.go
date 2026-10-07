@@ -7,6 +7,7 @@ package ech
 import (
 	"bytes"
 	"errors"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -114,11 +115,16 @@ func (config *Config) parseContents(input cryptobyte.String) error { //nolint:cy
 
 // Usable checks public-name syntax and rejects
 // unsupported mandatory configuration extensions.
-//
-// We decided to allow all IPv4 literals, because we didn't find a compelling reason to reject them.
-// other than the DNS-only public-name requirement in RFC 9849, and the fact that Go 1.26's ECH selector allows them.
-// IP ECH might not be used in practice, but they can improve privacy by making client hello fingerprinting more difficult.
 func (config Config) Usable() bool {
+	// Reject public names the certificate verifier would interpret as IP addresses.
+	// RFC 9849, Section 6.1.7 explicitly rejects IPv4. IPv6 literals, including
+	// scoped addresses, are already excluded by the DNS syntax (they contain ':').
+	// Inintally we adopted golang's behavior because we thought it was intended to
+	// allow IPv4, but we sent them a patch and it turned out to be a mistake on their side.
+	// https://go-review.googlesource.com/c/go/+/845746
+	if _, err := netip.ParseAddr(config.PublicName); err == nil {
+		return false
+	}
 	if len(config.PublicName) > 253 || !strings.Contains(config.PublicName, ".") {
 		return false
 	}
