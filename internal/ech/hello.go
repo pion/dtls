@@ -5,6 +5,7 @@ package ech
 
 import (
 	"bytes"
+	"crypto/rand"
 	"slices"
 
 	"github.com/pion/dtls/v4/internal/clienthello"
@@ -12,6 +13,128 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 )
+
+// ClientContext retains the initial inner and outer bodies and HPKE state.
+type ClientContext struct {
+	Config       Config
+	Suite        CipherSuite
+	Sender       Sender
+	Inner, Outer []byte
+}
+
+// NewClientHello constructs the initial ECH offer. PSK, early data, and retry.
+func NewClientHello(configList, body []byte) (*ClientContext, error) {
+	configs, err := ParseConfigList(configList)
+	if err != nil {
+		return nil, err
+	}
+	config, suite, err := PickConfig(configs)
+	if err != nil {
+		return nil, err
+	}
+	prefix, exts, err := splitHello(body, false)
+	if err != nil {
+		return nil, err
+	}
+	if prefix[35+int(prefix[34])] != 0 {
+		return nil, ErrInvalid
+	}
+	innerExts, nameLength, err := prepareInnerExtensions(exts)
+	if err != nil {
+		return nil, err
+	}
+	inner, err := appendExtensions(bytes.Clone(prefix), innerExts)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := EncodeInnerClientHello(inner, config.MaxNameLength, nameLength)
+	if err != nil {
+		return nil, err
+	}
+	enc, sender, err := NewSender(*config, suite)
+	if err != nil {
+		return nil, err
+	}
+	outer, err := sealOuterClientHello(prefix, innerExts, *config, suite, enc, sender, encoded)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ClientContext{Config: *config, Suite: suite, Sender: sender, Inner: inner, Outer: outer}, nil
+}
+
+func prepareInnerExtensions(exts []extension.Raw) ([]extension.Raw, int, error) {
+	var err error
+	nameLength := -1
+	innerExts := make([]extension.Raw, 0, len(exts)+1)
+	for _, ext := range exts {
+		switch ext.Type { //nolint:exhaustive
+		case extension.TypeEncryptedClientHello, extension.TypeECHOuterExtensions,
+			extension.TypePreSharedKey, extension.TypeEarlyData, extension.TypeCookie:
+			return nil, 0, ErrUnsupported
+		case extension.TypeRenegotiationInfo, extension.TypeSupportedPointFormats, extension.TypeExtendedMasterSecret:
+			continue
+		case extension.TypeSupportedVersions:
+			var versions extension13.OfferedVersions
+			if versions.UnmarshalData(ext.Data) != nil || !slices.Contains(versions.Versions, protocol.Version1_3) {
+				return nil, 0, ErrUnsupported
+			}
+			ext.Data, err = (extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}}).MarshalData()
+		case extension.TypeServerName:
+			var name extension.ServerNameOffer
+			err = name.UnmarshalData(ext.Data)
+			nameLength = len(name.ServerName)
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		innerExts = append(innerExts, ext)
+	}
+	innerExts = append(innerExts, extension.Raw{Type: extension.TypeEncryptedClientHello, Data: []byte{1}})
+	if !validInnerExtensions(innerExts) {
+		return nil, 0, ErrInvalid
+	}
+
+	return innerExts, nameLength, nil
+}
+
+func sealOuterClientHello(prefix []byte, innerExts []extension.Raw, config Config, suite CipherSuite, enc []byte, sender Sender, encoded []byte) ([]byte, error) {
+	outerPrefix := bytes.Clone(prefix)
+	if _, err := rand.Read(outerPrefix[2:34]); err != nil {
+		return nil, err
+	}
+	outerExts := slices.Clone(innerExts[:len(innerExts)-1])
+	publicName, err := (extension.ServerNameOffer{ServerName: config.PublicName}).MarshalData()
+	if err != nil {
+		return nil, err
+	}
+	name := extension.Raw{Type: extension.TypeServerName, Data: publicName}
+	if i := extensionIndex(outerExts, name.Type); i >= 0 {
+		outerExts[i] = name
+	} else {
+		outerExts = append(outerExts, name)
+	}
+	offer := extension13.ECHClientHello{KDF: suite.KDFID, AEAD: suite.AEADID, ConfigID: config.ConfigID, Enc: enc, Payload: make([]byte, len(encoded)+16)}
+	payload, err := offer.MarshalData()
+	if err != nil {
+		return nil, err
+	}
+	outerExts = append(outerExts, extension.Raw{Type: extension.TypeEncryptedClientHello, Data: payload})
+	aad, err := appendExtensions(bytes.Clone(outerPrefix), outerExts)
+	if err != nil {
+		return nil, err
+	}
+	offer.Payload, err = sender.Seal(aad, encoded)
+	if err != nil {
+		return nil, err
+	}
+	outerExts[len(outerExts)-1].Data, err = offer.MarshalData()
+	if err != nil {
+		return nil, err
+	}
+
+	return appendExtensions(outerPrefix, outerExts)
+}
 
 // splitHello parses a DTLS ClientHello body, retaining exact wire bytes.
 func splitHello(data []byte, padded bool) ([]byte, []extension.Raw, error) {

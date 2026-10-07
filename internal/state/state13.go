@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/dtls/v4/internal/ech"
 	"github.com/pion/dtls/v4/internal/negotiation"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
@@ -210,6 +211,7 @@ type CIDSendState struct {
 // State13 holds state that is meaningful only for DTLS 1.3.
 type State13 struct {
 	*Common
+	ECH              *ech.ClientContext
 	EarlyDataStatus  EarlyDataStatus
 	EarlyDataLimit   uint32
 	EarlyDataBytes   uint64

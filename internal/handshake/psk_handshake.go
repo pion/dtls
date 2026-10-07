@@ -11,6 +11,7 @@ import (
 	"time"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
@@ -29,6 +30,9 @@ import (
 // FinalizeClientHello binds the client offer to its finalized wire bytes.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, conn dtlsflight.Conn) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	if cfg.ECHConfigList != nil {
+		return finalizeECHClientHello(state, cfg, hello)
+	}
 	psks := state.LocalPSKs
 	if !t.helloRetryApplied {
 		var err error
@@ -56,6 +60,35 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 	}
 
 	return finalizeClientHelloWithoutPSK(hello, cfg)
+}
+
+func finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	if state.ECH != nil || cfg.GetPSKs != nil || len(state.LocalPSKs) != 0 {
+		return nil, negotiation.ClientHelloSnapshot{}, ech.ErrUnsupported
+	}
+	final, _, err := dtlsflight.FinalizeClientHello(hello, cfg)
+	if err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
+	body, err := final.Marshal()
+	if err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
+	context, err := ech.NewClientHello(cfg.ECHConfigList, body)
+	if err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
+	outer := &handshake.MessageClientHello{}
+	if err = outer.Unmarshal(context.Outer); err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
+	outer, snapshot, err := negotiation.FinalizeClientHello(outer, nil)
+	if err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
+	state.ECH = context
+
+	return outer, snapshot, nil
 }
 
 func finalizeClientHelloWithoutPSK(hello *handshake.MessageClientHello, cfg *dtlsconfig.HandshakeConfig) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {

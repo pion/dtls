@@ -5,8 +5,10 @@ package dtlshandshake
 
 import (
 	"crypto"
+	"encoding/hex"
 	"testing"
 
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -82,4 +84,34 @@ func TestSelectPSK(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFinalizeECHClientHello(t *testing.T) {
+	if !ech.Available() {
+		t.Skip("HPKE requires Go 1.26")
+	}
+	list, err := hex.DecodeString("0045fe0d0041590020002092a01233db2218518ccbbbbc24df20686af417b37388de6460e94011974777090004000100010012636c6f7564666c6172652d6563682e636f6d0000")
+	require.NoError(t, err)
+	hooks := 0
+	cfg := testHandshakeConfig13(t)
+	cfg.ECHConfigList = list
+	cfg.ServerName = "secret.example"
+	cfg.ClientHelloMessageHook = func(hello handshake.MessageClientHello) handshake.Message {
+		hooks++
+
+		return &hello
+	}
+	state, packets, transcript := newFlight13ClientHelloFixture(t, cfg)
+	message, ok := packets[0].Content.(*handshake.Handshake)
+	require.True(t, ok)
+	outer, ok := message.Message.(*handshake.MessageClientHello)
+	require.True(t, ok)
+	require.Equal(t, 1, hooks)
+	require.NotNil(t, state.ECH)
+	body, err := outer.Marshal()
+	require.NoError(t, err)
+	require.Equal(t, state.ECH.Outer, body)
+	require.NotEqual(t, state.ECH.Inner, body)
+	_, _, err = transcript.FinalizeClientHello(state, cfg, outer, nil)
+	require.ErrorIs(t, err, ech.ErrUnsupported)
 }

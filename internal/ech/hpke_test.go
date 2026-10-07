@@ -6,6 +6,7 @@
 package ech
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"crypto/hpke"
 	"crypto/rand"
@@ -75,5 +76,50 @@ func TestHPKE(t *testing.T) {
 		require.NoError(t, err)
 		_, err = NewRecipient(config, suite, other.Bytes(), enc)
 		require.Error(t, err)
+	}
+}
+
+func TestClientHelloConstruction(t *testing.T) {
+	key, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	list := configList(key.PublicKey().Bytes())
+	for _, serverName := range []string{"secret.example", ""} {
+		t.Run(serverName, func(t *testing.T) {
+			exts := []extension.Value{extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3, protocol.Version1_2}}}
+			if serverName != "" {
+				exts = append(exts, extension.ServerNameOffer{ServerName: serverName})
+			}
+			body := hello(t, []byte{3, 4}, exts...)
+			before := bytes.Clone(body)
+			client, err := NewClientHello(list, body)
+			require.NoError(t, err)
+			require.Equal(t, before, body)
+			require.NotEqual(t, client.Inner[2:34], client.Outer[2:34])
+			_, outerExts, err := splitHello(client.Outer, false)
+			require.NoError(t, err)
+			var name extension.ServerNameOffer
+			require.NoError(t, name.UnmarshalData(outerExts[extensionIndex(outerExts, extension.TypeServerName)].Data))
+			require.Equal(t, "public.example", name.ServerName)
+			var offer extension13.ECHClientHello
+			require.NoError(t, offer.UnmarshalData(outerExts[extensionIndex(outerExts, extension.TypeEncryptedClientHello)].Data))
+			receiver, err := NewRecipient(client.Config, client.Suite, key.Bytes(), offer.Enc)
+			require.NoError(t, err)
+			aad, err := OuterAAD(client.Outer)
+			require.NoError(t, err)
+			encoded, err := receiver.Open(aad, offer.Payload)
+			require.NoError(t, err)
+			decoded, err := DecodeInnerClientHello(encoded, client.Outer)
+			require.NoError(t, err)
+			require.Equal(t, client.Inner, decoded)
+			_, innerExts, err := splitHello(decoded, false)
+			require.NoError(t, err)
+			var versions extension13.OfferedVersions
+			require.NoError(t, versions.UnmarshalData(innerExts[extensionIndex(innerExts, extension.TypeSupportedVersions)].Data))
+			require.Equal(t, []protocol.Version{protocol.Version1_3}, versions.Versions)
+		})
+	}
+	for _, typ := range []extension.Type{extension.TypePreSharedKey, extension.TypeEarlyData, extension.TypeCookie} {
+		_, err := NewClientHello(list, hello(t, nil, extension.Raw{Type: typ}))
+		require.ErrorIs(t, err, ErrUnsupported)
 	}
 }

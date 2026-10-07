@@ -8,6 +8,7 @@ import (
 	"errors"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
@@ -141,6 +142,9 @@ func flight1Generate(
 
 // nolint:cyclop
 func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshakeContext) (Flight, *alert.Alert, error) {
+	if flightCtx.state.ECH != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, ech.ErrUnsupported
+	}
 	state := flightCtx.state
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
