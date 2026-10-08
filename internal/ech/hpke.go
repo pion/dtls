@@ -9,6 +9,8 @@ import (
 	"bytes"
 	"crypto/hpke"
 	"slices"
+
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
 )
 
 func Available() bool { return true }
@@ -47,24 +49,26 @@ func NewSender(config Config, s CipherSuite) ([]byte, Sender, error) {
 }
 
 func NewRecipient(config Config, suite CipherSuite, privateKey, enc []byte) (Recipient, error) {
-	// Like crypto/tls, recipient setup only needs the configured key and suite.
-	if !slices.Contains(config.SymmetricCipherSuite, suite) {
-		return nil, ErrUnsupported
-	}
+	// Validate local key material before trying peer-controlled parameters.
 	kem, err := hpke.NewKEM(config.KemID)
 	if err != nil {
-		return nil, err
+		return nil, serverError(alert.InternalError, err)
 	}
 	key, err := kem.NewPrivateKey(privateKey)
 	if err != nil {
-		return nil, err
+		return nil, serverError(alert.InternalError, err)
 	}
 	if !bytes.Equal(key.PublicKey().Bytes(), config.PublicKey) {
-		return nil, ErrInvalid
+		return nil, serverError(alert.InternalError, ErrInvalid)
+	}
+	// skip configs that do not advertise the offered suite.
+	// https://www.rfc-editor.org/rfc/rfc9849.html#section-7.1
+	if !slices.Contains(config.SymmetricCipherSuite, suite) {
+		return nil, ErrUnsupported
 	}
 	kdf, aead, err := cipherSuite(suite)
 	if err != nil {
-		return nil, err
+		return nil, serverError(alert.InternalError, err)
 	}
 
 	return hpke.NewRecipient(enc, key, kdf, aead, config.info())

@@ -13,6 +13,9 @@ import (
 
 var errECH = errors.New("malformed ECH extension")
 
+// ErrInvalidECHType identifies an unknown encrypted_client_hello variant.
+var ErrInvalidECHType = errors.New("invalid ECH ClientHello type")
+
 // ECHClientHelloType distinguishes the two encrypted_client_hello variants.
 type ECHClientHelloType uint8
 
@@ -68,13 +71,16 @@ func (e *ECHClientHello) UnmarshalData(data []byte) error {
 	if len(data) > 65535 || !input.ReadUint8(&typ) {
 		return errECH
 	}
-	if typ == 1 && input.Empty() {
+	if typ == uint8(ECHClientHelloInner) {
+		if !input.Empty() {
+			return errECH
+		}
 		*e = ECHClientHello{Type: ECHClientHelloInner}
 
 		return nil
 	}
-	if typ != 0 {
-		return errECH
+	if typ != uint8(ECHClientHelloOuter) {
+		return ErrInvalidECHType
 	}
 
 	return e.unmarshalOuter(input)
