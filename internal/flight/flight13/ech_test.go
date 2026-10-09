@@ -16,6 +16,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -108,4 +109,60 @@ func TestServerECHNegotiation(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	require.Equal(t, Flight2, next)
+}
+
+func TestClientECHAcceptance(t *testing.T) {
+	for _, test := range []struct {
+		tamper, unexpectedECH bool
+		want                  alert.Description
+	}{
+		{},
+		{tamper: true, want: alert.InternalError},
+		{unexpectedECH: true, want: alert.UnsupportedExtension},
+	} {
+		ctx := flight4TestContext(t)
+		ctx.cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{ctx.state.CipherSuite}
+		inner := &handshake.MessageClientHello{Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(ctx.state.CipherSuite.ID())}, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: []extension.Value{
+			&extension13.ECHClientHello{Type: extension13.ECHClientHelloInner},
+			&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+			&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}},
+			&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
+			&extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: elliptic.X25519, KeyExchange: make([]byte, 32)}}},
+		}}
+		require.NoError(t, inner.Random.Populate())
+		body, err := inner.Marshal()
+		require.NoError(t, err)
+		ctx.state.ECH = &ech.ClientContext{Inner: body}
+		suiteID := uint16(ctx.state.CipherSuite.ID())
+		server := &handshake.MessageServerHello{Version: protocol.Version1_2, CipherSuiteID: &suiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0]}
+		if test.unexpectedECH {
+			server.Extensions = []extension.Value{extension.Raw{Type: extension.TypeEncryptedClientHello, Data: make([]byte, 8)}}
+		}
+		serverBody, err := server.Marshal()
+		require.NoError(t, err)
+		confirmation, err := ech.AcceptanceConfirmation(ctx.state.CipherSuite.HashFunc(), body, serverBody)
+		require.NoError(t, err)
+		copy(server.Random.RandomBytes[handshake.RandomBytesLength-8:], confirmation)
+		if test.tamper {
+			server.Random.RandomBytes[handshake.RandomBytesLength-1] ^= 1
+		}
+		wire := marshalProtectedTestHandshake(t, 0, server)
+		cache := dtlsflight.NewCache()
+		cache.Push(wire, 0, 0, handshake.TypeServerHello, false)
+		pull := cache.FullPullMapItems(0, ctx.state.CipherSuite, dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeServerHello})
+		require.NoError(t, pull.Err)
+		require.True(t, pull.Ready)
+		err = ctx.acceptECH(pull.Items[0])
+		if test.want != 0 {
+			var failure *alert.Alert
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, test.want, failure.Description)
+			require.False(t, ctx.state.ECH.Accepted)
+		} else {
+			require.NoError(t, err)
+			require.True(t, ctx.state.ECH.Accepted)
+			require.Equal(t, inner.Random.MarshalFixed(), ctx.state.LocalRandom.MarshalFixed())
+			require.True(t, ctx.state.LocalClientHelloSnapshots.Current().Offered(extension.TypeEncryptedClientHello))
+		}
+	}
 }

@@ -10,6 +10,8 @@ import (
 
 	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
@@ -112,6 +114,14 @@ func TestFinalizeECHClientHello(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, state.ECH.Outer, body)
 	require.NotEqual(t, state.ECH.Inner, body)
+	setFlight13HandshakeSequence(t, packets[0], 7)
+	fsm, err := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight1, packets, nil)
+	require.NoError(t, err)
+	require.NotNil(t, fsm.transcript.echInner)
+	require.Equal(t, canonicalTranscriptHandshake13(handshake.TypeClientHello, body), fsm.transcript.Bytes())
+	require.NoError(t, fsm.transcript.selectECHInner())
+	require.Equal(t, canonicalTranscriptHandshake13(handshake.TypeClientHello, state.ECH.Inner), fsm.transcript.Bytes())
+	require.Equal(t, uint16(7), fsm.transcript.order[0].ID.Seq)
 	_, _, err = transcript.FinalizeClientHello(state, cfg, outer, nil)
 	require.ErrorIs(t, err, ech.ErrUnsupported)
 }

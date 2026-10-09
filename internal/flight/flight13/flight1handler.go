@@ -142,9 +142,6 @@ func flight1Generate(
 
 // nolint:cyclop
 func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshakeContext) (Flight, *alert.Alert, error) {
-	if flightCtx.state.ECH != nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, ech.ErrUnsupported
-	}
 	state := flightCtx.state
 	cache := flightCtx.cache
 	cfg := flightCtx.cfg
@@ -179,6 +176,9 @@ func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshak
 		return flight3Parse(ctx, conn, flightCtx)
 	}
 	// Handle HelloRetryRequest
+	if state.ECH != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, ech.ErrUnsupported
+	}
 
 	if sh.Version != protocol.Version1_0 && sh.Version != protocol.Version1_2 {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion

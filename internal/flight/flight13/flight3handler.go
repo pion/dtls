@@ -34,7 +34,7 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshak
 			return 0, pull.failure.alert, pull.failure.err
 		}
 
-		failure := processFlight3ServerHello(flightCtx, pull.serverHello)
+		failure := processFlight3ServerHelloOffer(flightCtx, pull)
 		if failure != nil {
 			return 0, failure.alert, failure.err
 		}
@@ -116,6 +116,17 @@ func flight3PullServerHello(
 	}
 
 	return serverHelloPull{nextHandshakeSequence: pull.NextSequence, serverHello: serverHello, items: pull.Items, ready: true}
+}
+
+func processFlight3ServerHelloOffer(flightCtx *handshakeContext, pull serverHelloPull) *flightParseFailure {
+	if err := flightCtx.acceptECH(pull.items[0]); err != nil {
+		flightCtx.state.ResetConnectionIDs()
+		flightCtx.state.SetSRTPProtectionProfile(0)
+
+		return protectedFlightParseFailure(err)
+	}
+
+	return processFlight3ServerHello(flightCtx, pull.serverHello)
 }
 
 func processFlight3ServerHello(flightCtx *handshakeContext, serverHello *handshake.MessageServerHello) *flightParseFailure {

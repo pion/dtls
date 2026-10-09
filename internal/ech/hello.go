@@ -20,6 +20,7 @@ type ClientContext struct {
 	Suite        CipherSuite
 	Sender       Sender
 	Inner, Outer []byte
+	Accepted     bool
 }
 
 // NewClientHello constructs the initial ECH offer. PSK, early data, and retry.

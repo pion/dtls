@@ -20,6 +20,7 @@ import (
 	"github.com/pion/dtls/v4/internal/util"
 	"github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"golang.org/x/crypto/cryptobyte"
 )
 
 // tlsHandshakeHeaderLength is the TLS 1.3 transcript handshake header length.
@@ -63,6 +64,8 @@ type Transcript struct {
 	order      []transcriptMessage
 
 	helloRetryApplied bool
+	echInnerSelected  bool
+	echInner          *Transcript
 }
 
 // NewTranscript returns an empty DTLS 1.3 handshake transcript.
@@ -277,8 +280,15 @@ func (t *Transcript) clone() (*Transcript, error) {
 		return nil, dtlserrors.ErrHandshakeTranscriptHashNotSelected
 	}
 
-	out := &Transcript{newHash: t.newHash, pending: util.CloneByteSlices(t.pending), transcript: bytes.Clone(t.transcript), seen: make(map[transcriptMessageID]seenTranscriptMessage, len(t.seen)), order: slices.Clone(t.order), helloRetryApplied: t.helloRetryApplied}
+	out := &Transcript{newHash: t.newHash, pending: util.CloneByteSlices(t.pending), transcript: bytes.Clone(t.transcript), seen: make(map[transcriptMessageID]seenTranscriptMessage, len(t.seen)), order: slices.Clone(t.order), helloRetryApplied: t.helloRetryApplied, echInnerSelected: t.echInnerSelected}
 	maps.Copy(out.seen, t.seen)
+	if t.echInner != nil {
+		var err error
+		out.echInner, err = t.echInner.clone()
+		if err != nil {
+			return nil, err
+		}
+	}
 	if t.h == nil {
 		return out, nil
 	}
@@ -330,6 +340,9 @@ func seedTranscriptFromInitialFlights(state *dtlsstate.State13, transcript *Tran
 	}
 	if retransmit && !appended {
 		return dtlserrors.ErrHandshakeTranscriptMissingClientHello
+	}
+	if appended && state.ECH != nil && transcript.echInner == nil && !transcript.echInnerSelected {
+		return transcript.initECHInner(state.ECH.Inner, transcript.order[0].ID.Seq)
 	}
 
 	return nil
@@ -495,6 +508,9 @@ func (c *handshakeContext) appendInboundHandshake(cipherSuite dtlsconfig.CipherS
 	if c.transcript == nil {
 		return nil
 	}
+	if err := c.selectInboundTranscript(); err != nil {
+		return err
+	}
 	for _, item := range items {
 		if err := item.Validate(); err != nil {
 			return err
@@ -512,6 +528,56 @@ func (c *handshakeContext) appendInboundHandshake(cipherSuite dtlsconfig.CipherS
 			return err
 		}
 	}
+
+	return nil
+}
+
+func (c *handshakeContext) selectInboundTranscript() error {
+	if c.state == nil || !c.state.IsClient || c.state.ECH == nil || !c.state.ECH.Accepted {
+		return nil
+	}
+
+	return c.transcript.selectECHInner()
+}
+
+// initECHInner starts the alternate transcript when the inner offer is built.
+func (t *Transcript) initECHInner(inner []byte, seq uint16) error {
+	var builder cryptobyte.Builder
+	builder.AddUint8(uint8(handshake.TypeClientHello))
+	builder.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) { b.AddBytes(inner) })
+	canonical, err := builder.Bytes()
+	if err != nil {
+		return err
+	}
+	alternate := NewTranscript()
+	if err := alternate.appendCanonical(transcriptMessageID{sender: transcriptSenderClient, Seq: seq}, canonical); err != nil {
+		return err
+	}
+	t.echInner = alternate
+
+	return nil
+}
+
+// Select the independently maintained inner history before committing the
+// accepting ServerHello (or HRR).
+func (t *Transcript) selectECHInner() error {
+	if t.echInnerSelected {
+		return nil
+	}
+	if t.echInner == nil {
+		return dtlserrors.ErrInvalidHandshakeTranscriptMessage
+	}
+	selected, err := t.echInner.clone()
+	if err != nil {
+		return err
+	}
+	if t.newHash != nil && selected.newHash == nil {
+		if err := selected.selectHash(t.newHash); err != nil {
+			return err
+		}
+	}
+	selected.echInnerSelected = true
+	*t = *selected
 
 	return nil
 }

@@ -1059,3 +1059,29 @@ func hmacSHA25613(key, data []byte) []byte {
 
 	return mac.Sum(nil)
 }
+
+func TestSelectECHInnerTranscript(t *testing.T) {
+	transcript := NewTranscript()
+	outer := canonicalTranscriptHandshake13(handshake.TypeClientHello, []byte("outer"))
+	id := transcriptMessageID{sender: transcriptSenderClient, Seq: 0}
+	require.NoError(t, transcript.appendCanonical(id, outer))
+	require.NoError(t, transcript.selectHash(sha256.New))
+	inner := []byte("authenticated inner bytes")
+	require.NoError(t, transcript.initECHInner(inner, 0))
+	require.Equal(t, outer, transcript.Bytes())
+	alternateClone, err := transcript.clone()
+	require.NoError(t, err)
+	require.NotSame(t, transcript.echInner, alternateClone.echInner)
+	require.Equal(t, transcript.echInner.Bytes(), alternateClone.echInner.Bytes())
+	require.NoError(t, transcript.selectECHInner())
+	expected := canonicalTranscriptHandshake13(handshake.TypeClientHello, inner)
+	require.Equal(t, expected, transcript.Bytes())
+	require.NoError(t, transcript.selectECHInner())
+	require.Len(t, transcript.order, 1)
+	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte("server"))))
+	require.Equal(t, hashTranscript13(expected, canonicalTranscriptHandshake13(handshake.TypeServerHello, []byte("server"))), transcript.h.Sum(nil))
+	cloned, err := transcript.clone()
+	require.NoError(t, err)
+	require.NoError(t, cloned.selectECHInner())
+	require.Equal(t, transcript.Bytes(), cloned.Bytes())
+}

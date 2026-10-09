@@ -31,7 +31,7 @@ import (
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, conn dtlsflight.Conn) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
 	if cfg.ECHConfigList != nil {
-		return finalizeECHClientHello(state, cfg, hello)
+		return t.finalizeECHClientHello(state, cfg, hello)
 	}
 	psks := state.LocalPSKs
 	if !t.helloRetryApplied {
@@ -62,7 +62,7 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 	return finalizeClientHelloWithoutPSK(hello, cfg)
 }
 
-func finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+func (t *Transcript) finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
 	if state.ECH != nil || cfg.GetPSKs != nil || len(state.LocalPSKs) != 0 {
 		return nil, negotiation.ClientHelloSnapshot{}, ech.ErrUnsupported
 	}
@@ -84,6 +84,9 @@ func finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeC
 	}
 	outer, snapshot, err := negotiation.FinalizeClientHello(outer, nil)
 	if err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
+	if err := t.initECHInner(context.Inner, uint16(state.HandshakeSendSequence)); err != nil { //nolint:gosec // Handshake sequence numbers are bounded by the wire format.
 		return nil, negotiation.ClientHelloSnapshot{}, err
 	}
 	state.ECH = context
