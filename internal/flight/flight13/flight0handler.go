@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
@@ -38,6 +39,7 @@ func flight0Parse(
 	}
 	if !pull.Ready {
 		// No valid message received. Keep reading
+
 		return 0, nil, nil
 	}
 
@@ -48,6 +50,16 @@ func flight0Parse(
 	state.HelloRetryRequest = negotiation.RetryRequest{}
 
 	state.HandshakeRecvSequence = pull.NextSequence
+
+	// Decrypt before selecting cipher suites or extensions.
+	logical, err := flightCtx.processECHClientHello(pull.Items[0])
+	if err != nil {
+		failure := protectedFlightParseFailure(err)
+
+		return 0, failure.alert, failure.err
+	}
+	pull.Items = []dtlsflight.DecodedHandshakeCacheItem{logical}
+	pull.Messages[handshake.TypeClientHello] = logical.Parsed.Message
 
 	// Validate type
 	clientHello, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
@@ -80,6 +92,7 @@ func flight0Parse(
 	if !slices.Contains(state.RemoteVersions, protocol.Version1_3) {
 		// nolint:godox
 		// TODO: This should actually handover the state machine to DTLS 1.2
+
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidProtocolVersionState
 	}
 
@@ -102,6 +115,10 @@ func flight0Parse(
 			}
 			nextFlight = Flight4
 		}
+	}
+
+	if state.ECHServer != nil && nextFlight != Flight4 {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, ech.ErrUnsupported
 	}
 
 	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {

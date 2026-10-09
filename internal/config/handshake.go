@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	internalstate "github.com/pion/dtls/v4/internal/state"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
@@ -122,6 +123,7 @@ func SupportsCertificate(acceptableCAs [][]byte, c *tls.Certificate) error {
 type HandshakeConfig struct {
 	// ECHConfigList enables initial-offer construction internally.
 	ECHConfigList    []byte
+	ECHKeys          []ech.Key
 	PSKIdentityLimit int
 	// SelectPSK returns the selected offer index, key, and hash, or a nil key if none match.
 	SelectPSK                     func(identities [][]byte) (index int, key []byte, hash crypto.Hash, err error)

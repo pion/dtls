@@ -198,6 +198,9 @@ func flight4Generate( //nolint:cyclop
 		serverHelloExtensions = dtlsflight.AppendConnectionIDExtensions(serverHelloExtensions, localCID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
 	}
 	serverHelloMessage := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: state.LocalRandom, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: serverHelloExtensions}
+	if err = flightCtx.confirmECH(serverHelloMessage); err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
 	if _, err = serverHelloMessage.Marshal(); err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}

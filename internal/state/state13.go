@@ -212,6 +212,7 @@ type CIDSendState struct {
 type State13 struct {
 	*Common
 	ECH              *ech.ClientContext
+	ECHServer        *ech.ServerContext
 	EarlyDataStatus  EarlyDataStatus
 	EarlyDataLimit   uint32
 	EarlyDataBytes   uint64
