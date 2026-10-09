@@ -104,7 +104,8 @@ func TestServerECHNegotiation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, initialBody, repeatedBody)
 	flightCtx.cfg.InsecureSkipHelloVerify = false
-	_, dtlsAlert, err = flight0Parse(t.Context(), nil, flightCtx)
-	require.ErrorIs(t, err, ech.ErrUnsupported)
-	require.NotNil(t, dtlsAlert)
+	next, dtlsAlert, err = flight0Parse(t.Context(), nil, flightCtx)
+	require.NoError(t, err)
+	require.Nil(t, dtlsAlert)
+	require.Equal(t, Flight2, next)
 }

@@ -206,3 +206,52 @@ func TestUnadvertisedCipherSuite(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ServerContext{}, server)
 }
+
+func TestECHRetryErrors(t *testing.T) {
+	key, setupErr := ecdh.X25519().GenerateKey(rand.Reader)
+	require.NoError(t, setupErr)
+	list := configList(key.PublicKey().Bytes())
+	body := hello(t, nil, extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}})
+	for _, tc := range []struct {
+		name   string
+		change func(*extension13.ECHClientHello)
+		want   alert.Description
+	}{
+		{"config ID", func(e *extension13.ECHClientHello) { e.ConfigID++ }, alert.IllegalParameter},
+		{"KDF", func(e *extension13.ECHClientHello) { e.KDF++ }, alert.IllegalParameter},
+		{"AEAD", func(e *extension13.ECHClientHello) { e.AEAD++ }, alert.IllegalParameter},
+		{"encapsulation", func(e *extension13.ECHClientHello) { e.Enc = []byte{1} }, alert.IllegalParameter},
+		{"ciphertext", func(e *extension13.ECHClientHello) { e.Payload[0] ^= 1 }, alert.DecryptError},
+		{"type switch", func(e *extension13.ECHClientHello) {
+			*e = extension13.ECHClientHello{Type: extension13.ECHClientHelloInner}
+		}, alert.DecodeError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := NewClientHello(list, body)
+			require.NoError(t, err)
+			server, err := ProcessClientHello(client.Outer, []Key{{Config: list[2:], PrivateKey: key.Bytes()}})
+			require.NoError(t, err)
+			offer := extension13.ECHClientHello{KDF: client.Suite.KDFID, AEAD: client.Suite.AEADID, ConfigID: client.Config.ConfigID, Payload: make([]byte, 16)}
+			tc.change(&offer)
+			_, err = server.ProcessRetry(hello(t, nil, offer))
+			var failure *alert.Alert
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, tc.want, failure.Description)
+		})
+	}
+	server, err := ProcessClientHello(hello(t, nil, extension13.ECHClientHello{Type: extension13.ECHClientHelloInner}, extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}}), nil)
+	require.NoError(t, err)
+	_, err = server.ProcessRetry(body)
+	var failure *alert.Alert
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, alert.MissingExtension, failure.Description)
+	first, err := server.ProcessRetry(server.Inner)
+	require.NoError(t, err)
+	duplicate, err := server.ProcessRetry(first)
+	require.NoError(t, err)
+	require.Equal(t, first, duplicate)
+	first[2] ^= 1
+	_, err = server.ProcessRetry(first)
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, alert.IllegalParameter, failure.Description)
+}

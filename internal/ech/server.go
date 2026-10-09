@@ -25,10 +25,74 @@ type Key struct {
 // ServerContext retains the accepted logical hello and receiving HPKE context.
 // Its zero value means ECH was not accepted.
 type ServerContext struct {
-	Inner     []byte
-	Recipient Recipient
-	ConfigID  uint8
-	Suite     CipherSuite
+	Inner             []byte
+	Recipient         Recipient
+	ConfigID          uint8
+	Suite             CipherSuite
+	InitialInner      []byte
+	HelloRetryRequest []byte
+	retryOuter        []byte
+}
+
+// ProcessRetry reuses the receiving context for ClientHello2. Exact duplicates
+// return the cached plaintext without advancing the HPKE sequence number.
+// https://www.rfc-editor.org/rfc/rfc9849#section-7.1.1
+func (c *ServerContext) ProcessRetry(outer []byte) ([]byte, error) {
+	if c.retryOuter != nil {
+		if !bytes.Equal(c.retryOuter, outer) {
+			return nil, serverError(alert.IllegalParameter, ErrInvalid)
+		}
+
+		return bytes.Clone(c.Inner), nil
+	}
+	_, exts, err := splitHello(outer, false)
+	if err != nil {
+		return nil, serverError(alert.DecodeError, err)
+	}
+	i := extensionIndex(exts, extension.TypeEncryptedClientHello)
+	if i < 0 {
+		return nil, serverError(alert.MissingExtension, ErrInvalid)
+	}
+	var offer extension13.ECHClientHello
+	if err = offer.UnmarshalData(exts[i].Data); err != nil {
+		return nil, serverError(alert.DecodeError, err)
+	}
+	if (offer.Type == extension13.ECHClientHelloInner) != (c.Recipient == nil) {
+		return nil, serverError(alert.DecodeError, ErrInvalid)
+	}
+	inner, err := c.decryptRetry(outer, offer)
+	if err != nil {
+		return nil, err
+	}
+	c.retryOuter = bytes.Clone(outer)
+	c.Inner = inner
+
+	return bytes.Clone(inner), nil
+}
+
+func (c *ServerContext) decryptRetry(outer []byte, offer extension13.ECHClientHello) ([]byte, error) {
+	if c.Recipient == nil {
+		context, err := ProcessClientHello(outer, nil)
+
+		return context.Inner, err
+	}
+	if offer.ConfigID != c.ConfigID || (CipherSuite{KDFID: offer.KDF, AEADID: offer.AEAD}) != c.Suite || len(offer.Enc) != 0 {
+		return nil, serverError(alert.IllegalParameter, ErrInvalid)
+	}
+	aad, err := OuterAAD(outer)
+	if err != nil {
+		return nil, serverError(alert.IllegalParameter, err)
+	}
+	encoded, err := c.Recipient.Open(aad, offer.Payload)
+	if err != nil {
+		return nil, serverError(alert.DecryptError, err)
+	}
+	inner, err := DecodeInnerClientHello(encoded, outer)
+	if err != nil {
+		return nil, serverError(alert.IllegalParameter, err)
+	}
+
+	return inner, nil
 }
 
 // ProcessClientHello follows crypto/tls trial decryption. A zero context means
@@ -126,9 +190,62 @@ func AcceptanceConfirmation(hashFunc func() hash.Hash, inner, serverHello []byte
 	}
 	hello := bytes.Clone(serverHello)
 	clear(hello[26:34])
+
+	return confirmation(hashFunc, inner, nil, hello, "ech accept confirmation")
+}
+
+// RetryConfirmation computes HRR confirmation with its ECH extension zeroed.
+func RetryConfirmation(hashFunc func() hash.Hash, inner, zeroedHRR []byte) ([]byte, error) {
+	if hashFunc == nil || len(inner) < 34 || len(inner) > 0xffffff {
+		return nil, ErrInvalid
+	}
+
+	return confirmation(hashFunc, inner, retryPrefix(hashFunc, inner, nil), zeroedHRR, "hrr ech accept confirmation")
+}
+
+// Confirmation includes the synthetic message_hash and HRR after a retry.
+func (c *ServerContext) Confirmation(hashFunc func() hash.Hash, serverHello []byte) ([]byte, error) {
+	if len(c.HelloRetryRequest) == 0 {
+		return AcceptanceConfirmation(hashFunc, c.Inner, serverHello)
+	}
+	if hashFunc == nil || len(c.InitialInner) < 34 || len(c.InitialInner) > 0xffffff || len(c.HelloRetryRequest) > 0xffffff || len(serverHello) < 34 {
+		return nil, ErrInvalid
+	}
+	hello := bytes.Clone(serverHello)
+	clear(hello[26:34])
+
+	return confirmation(hashFunc, c.Inner, retryPrefix(hashFunc, c.InitialInner, c.HelloRetryRequest), hello, "ech accept confirmation")
+}
+
+func retryPrefix(hashFunc func() hash.Hash, inner, hrr []byte) []byte {
+	digest := hashFunc()
+	digest.Write(canonicalHello(1, inner))
+	prefix := canonicalHello(254, digest.Sum(nil))
+	if hrr != nil {
+		prefix = append(prefix, canonicalHello(2, hrr)...)
+	}
+
+	return prefix
+}
+
+func canonicalHello(typ uint8, body []byte) []byte {
+	var b cryptobyte.Builder
+	b.AddUint8(typ)
+	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) { b.AddBytes(body) })
+
+	return b.BytesOrPanic()
+}
+
+func confirmation(hashFunc func() hash.Hash, inner, prefix, hello []byte, label string) ([]byte, error) {
+	if len(inner) < 34 || hashFunc == nil {
+		return nil, ErrInvalid
+	}
 	var transcript cryptobyte.Builder
-	transcript.AddUint8(1) // ClientHello.
-	transcript.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) { b.AddBytes(inner) })
+	transcript.AddBytes(prefix)
+	if label != "hrr ech accept confirmation" {
+		transcript.AddUint8(1) // ClientHello.
+		transcript.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) { b.AddBytes(inner) })
+	}
 	transcript.AddUint8(2) // ServerHello.
 	transcript.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) { b.AddBytes(hello) })
 	encoded, err := transcript.Bytes()
@@ -142,5 +259,5 @@ func AcceptanceConfirmation(hashFunc func() hash.Hash, inner, serverHello []byte
 		return nil, err
 	}
 
-	return keyschedule.HkdfExpandLabel(hashFunc, secret, "ech accept confirmation", digest.Sum(nil), 8)
+	return keyschedule.HkdfExpandLabel(hashFunc, secret, label, digest.Sum(nil), 8)
 }

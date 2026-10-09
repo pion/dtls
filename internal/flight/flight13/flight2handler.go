@@ -32,6 +32,17 @@ func flight2Parse( //nolint:cyclop
 		return 0, nil, nil
 	}
 
+	// Reuse accepted ECH state.
+	if flightCtx.state.ECHServer != nil {
+		logical, err := flightCtx.processECHClientHello(pull.Items[0])
+		if err != nil {
+			failure := protectedFlightParseFailure(err)
+
+			return 0, failure.alert, failure.err
+		}
+		pull.Items = []dtlsflight.DecodedHandshakeCacheItem{logical}
+		pull.Messages[handshake.TypeClientHello] = logical.Parsed.Message
+	}
 	clientHello, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
 	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
@@ -108,6 +119,9 @@ func flight2Generate(
 		return nil, nil, err
 	}
 	flightCtx.state.HelloRetryRequest = request
+	if err := flightCtx.confirmECHRetry(serverHello); err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
 
 	return []*dtlsflight.Outbound{
 		{
