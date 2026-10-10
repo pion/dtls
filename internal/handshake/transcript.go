@@ -542,6 +542,16 @@ func (c *handshakeContext) selectInboundTranscript() error {
 
 // initECHInner starts the alternate transcript when the inner offer is built.
 func (t *Transcript) initECHInner(inner []byte, seq uint16) error {
+	alternate := NewTranscript()
+	if err := alternate.appendECHInner(inner, seq); err != nil {
+		return err
+	}
+	t.echInner = alternate
+
+	return nil
+}
+
+func (t *Transcript) appendECHInner(inner []byte, seq uint16) error {
 	var builder cryptobyte.Builder
 	builder.AddUint8(uint8(handshake.TypeClientHello))
 	builder.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) { b.AddBytes(inner) })
@@ -549,13 +559,8 @@ func (t *Transcript) initECHInner(inner []byte, seq uint16) error {
 	if err != nil {
 		return err
 	}
-	alternate := NewTranscript()
-	if err := alternate.appendCanonical(transcriptMessageID{sender: transcriptSenderClient, Seq: seq}, canonical); err != nil {
-		return err
-	}
-	t.echInner = alternate
 
-	return nil
+	return t.appendCanonical(transcriptMessageID{sender: transcriptSenderClient, Seq: seq}, canonical)
 }
 
 // Select the independently maintained inner history before committing the

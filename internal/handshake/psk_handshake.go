@@ -63,8 +63,11 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 }
 
 func (t *Transcript) finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
-	if state.ECH != nil || cfg.GetPSKs != nil || len(state.LocalPSKs) != 0 {
+	if cfg.GetPSKs != nil || len(state.LocalPSKs) != 0 {
 		return nil, negotiation.ClientHelloSnapshot{}, ech.ErrUnsupported
+	}
+	if state.ECH != nil {
+		return finalizeECHRetry(state, cfg, hello)
 	}
 	final, _, err := dtlsflight.FinalizeClientHello(hello, cfg)
 	if err != nil {
@@ -90,6 +93,32 @@ func (t *Transcript) finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsc
 		return nil, negotiation.ClientHelloSnapshot{}, err
 	}
 	state.ECH = context
+
+	return outer, snapshot, nil
+}
+
+func finalizeECHRetry(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	if !state.ECH.Accepted {
+		return nil, negotiation.ClientHelloSnapshot{}, ech.ErrUnsupported
+	}
+	inner, snapshot, err := dtlsflight.FinalizeClientHello(hello, cfg)
+	if err != nil {
+		return nil, snapshot, err
+	}
+	if err = negotiation.ValidateClientHelloRetry(state.LocalClientHelloSnapshots.Initial(), snapshot, state.HelloRetryRequest); err != nil {
+		return nil, snapshot, err
+	}
+	body, err := inner.Marshal()
+	if err != nil {
+		return nil, snapshot, err
+	}
+	if err := state.ECH.RetryClientHello(body); err != nil {
+		return nil, snapshot, err
+	}
+	outer := &handshake.MessageClientHello{}
+	if err := outer.Unmarshal(state.ECH.Outer); err != nil {
+		return nil, snapshot, err
+	}
 
 	return outer, snapshot, nil
 }

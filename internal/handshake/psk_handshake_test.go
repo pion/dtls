@@ -4,6 +4,7 @@
 package dtlshandshake
 
 import (
+	"bytes"
 	"crypto"
 	"encoding/hex"
 	"testing"
@@ -15,6 +16,8 @@ import (
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/stretchr/testify/require"
 )
@@ -124,4 +127,56 @@ func TestFinalizeECHClientHello(t *testing.T) {
 	require.Equal(t, uint16(7), fsm.transcript.order[0].ID.Seq)
 	_, _, err = transcript.FinalizeClientHello(state, cfg, outer, nil)
 	require.ErrorIs(t, err, ech.ErrUnsupported)
+}
+
+func TestECHRetryTranscript(t *testing.T) {
+	if !ech.Available() {
+		t.Skip("HPKE requires Go 1.26")
+	}
+	list, err := hex.DecodeString("0045fe0d0041590020002092a01233db2218518ccbbbbc24df20686af417b37388de6460e94011974777090004000100010012636c6f7564666c6172652d6563682e636f6d0000")
+	require.NoError(t, err)
+	cfg := testHandshakeConfig13(t)
+	cfg.ECHConfigList = list
+	state, packets, _ := newFlight13ClientHelloFixture(t, cfg)
+	fsm, err := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight1, packets, nil)
+	require.NoError(t, err)
+	suite := cfg.LocalCipherSuites[0]
+	suiteID := uint16(suite.ID())
+	signal := &extension13.ECHHelloRetryRequest{}
+	hrr := &handshake.MessageServerHello{Version: protocol.Version1_2, CipherSuiteID: &suiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: []extension.Value{
+		&extension13.SelectedVersion{Version: protocol.Version1_3}, &extension13.Cookie{Cookie: []byte("cookie")}, signal,
+	}}
+	hrr.Random.UnmarshalFixed([32]byte(handshake.HelloRetryRequestRandom()))
+	body, err := hrr.Marshal()
+	require.NoError(t, err)
+	confirmation, err := ech.RetryConfirmation(suite.HashFunc(), state.ECH.Inner, body)
+	require.NoError(t, err)
+	copy(signal.Confirmation[:], confirmation)
+	body, err = hrr.Marshal()
+	require.NoError(t, err)
+	tampered := bytes.Clone(body)
+	tampered[len(tampered)-1] ^= 1
+	require.ErrorIs(t, state.ECH.AcceptRetry(suite.HashFunc(), tampered), ech.ErrUnsupported)
+	require.False(t, state.ECH.Accepted)
+	raw, err := (&handshake.Handshake{Message: hrr}).Marshal()
+	require.NoError(t, err)
+	fsm.cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
+	next, failure, err, ok := dtlsflight13.Parse(t.Context(), dtlsflight13.Flight1, nil, fsm.parseDependencies())
+	require.True(t, ok)
+	require.NoError(t, err)
+	require.Nil(t, failure)
+	require.Equal(t, dtlsflight13.Flight3, next)
+	require.True(t, state.ECH.Accepted)
+	require.True(t, fsm.transcript.echInnerSelected)
+	require.True(t, fsm.transcript.helloRetryApplied)
+	prefix := fsm.transcript.Bytes()
+	retry, failure, err := flight13GenerateForTest(t, next, &fsm.handshakeContext)
+	require.NoError(t, err)
+	require.Nil(t, failure)
+	setFlight13HandshakeSequence(t, retry[0], 1)
+	require.NoError(t, appendCommittedOutboundHandshakeFlight(state, fsm.transcript, retry))
+	expected := append(bytes.Clone(prefix), canonicalTranscriptHandshake13(handshake.TypeClientHello, state.ECH.Inner)...)
+	require.Equal(t, expected, fsm.transcript.Bytes())
+	require.NoError(t, appendCommittedOutboundHandshakeFlight(state, fsm.transcript, retry))
+	require.Equal(t, expected, fsm.transcript.Bytes())
 }

@@ -113,12 +113,14 @@ func TestServerECHNegotiation(t *testing.T) {
 
 func TestClientECHAcceptance(t *testing.T) {
 	for _, test := range []struct {
-		tamper, unexpectedECH bool
-		want                  alert.Description
+		tamper, unexpectedECH, retry bool
+		want                         alert.Description
 	}{
 		{},
 		{tamper: true, want: alert.InternalError},
 		{unexpectedECH: true, want: alert.UnsupportedExtension},
+		{retry: true},
+		{retry: true, tamper: true, want: alert.IllegalParameter},
 	} {
 		ctx := flight4TestContext(t)
 		ctx.cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{ctx.state.CipherSuite}
@@ -133,6 +135,12 @@ func TestClientECHAcceptance(t *testing.T) {
 		body, err := inner.Marshal()
 		require.NoError(t, err)
 		ctx.state.ECH = &ech.ClientContext{Inner: body}
+		if test.retry {
+			ctx.state.ECH.Accepted = true
+			ctx.state.ECH.InitialInner = bytes.Clone(body)
+			ctx.state.ECH.HelloRetryRequest = []byte("authenticated HRR")
+			require.NoError(t, ctx.selectECHInnerOffer(body))
+		}
 		suiteID := uint16(ctx.state.CipherSuite.ID())
 		server := &handshake.MessageServerHello{Version: protocol.Version1_2, CipherSuiteID: &suiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0]}
 		if test.unexpectedECH {
@@ -140,7 +148,7 @@ func TestClientECHAcceptance(t *testing.T) {
 		}
 		serverBody, err := server.Marshal()
 		require.NoError(t, err)
-		confirmation, err := ech.AcceptanceConfirmation(ctx.state.CipherSuite.HashFunc(), body, serverBody)
+		confirmation, err := ctx.state.ECH.Confirmation(ctx.state.CipherSuite.HashFunc(), serverBody)
 		require.NoError(t, err)
 		copy(server.Random.RandomBytes[handshake.RandomBytesLength-8:], confirmation)
 		if test.tamper {
@@ -157,7 +165,7 @@ func TestClientECHAcceptance(t *testing.T) {
 			var failure *alert.Alert
 			require.ErrorAs(t, err, &failure)
 			require.Equal(t, test.want, failure.Description)
-			require.False(t, ctx.state.ECH.Accepted)
+			require.Equal(t, test.retry, ctx.state.ECH.Accepted)
 		} else {
 			require.NoError(t, err)
 			require.True(t, ctx.state.ECH.Accepted)

@@ -6,24 +6,29 @@ package ech
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/subtle"
+	"hash"
 	"slices"
 
 	"github.com/pion/dtls/v4/internal/clienthello"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
+	"golang.org/x/crypto/cryptobyte"
 )
 
 // ClientContext retains the initial inner and outer bodies and HPKE state.
 type ClientContext struct {
-	Config       Config
-	Suite        CipherSuite
-	Sender       Sender
-	Inner, Outer []byte
-	Accepted     bool
+	Config                          Config
+	Suite                           CipherSuite
+	Sender                          Sender
+	Inner, Outer                    []byte
+	Accepted                        bool
+	InitialInner, HelloRetryRequest []byte
+	nameLength                      int
 }
 
-// NewClientHello constructs the initial ECH offer. PSK, early data, and retry.
+// NewClientHello constructs the initial ECH offer without PSK or early data.
 func NewClientHello(configList, body []byte) (*ClientContext, error) {
 	configs, err := ParseConfigList(configList)
 	if err != nil {
@@ -61,7 +66,103 @@ func NewClientHello(configList, body []byte) (*ClientContext, error) {
 		return nil, err
 	}
 
-	return &ClientContext{Config: *config, Suite: suite, Sender: sender, Inner: inner, Outer: outer}, nil
+	return &ClientContext{Config: *config, Suite: suite, Sender: sender, Inner: inner, Outer: outer, nameLength: nameLength}, nil
+}
+
+// AcceptRetry verifies HRR confirmation over its exact wire encoding.
+// https://www.rfc-editor.org/rfc/rfc9849#section-6.1.4
+func (c *ClientContext) AcceptRetry(hashFunc func() hash.Hash, body []byte) error {
+	if len(c.HelloRetryRequest) != 0 {
+		return ErrInvalid
+	}
+	zeroed := bytes.Clone(body)
+	received, err := retryConfirmationField(zeroed)
+	if err != nil {
+		return err
+	}
+	signal := bytes.Clone(received)
+	clear(received)
+	expected, err := RetryConfirmation(hashFunc, c.Inner, zeroed)
+	if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare(expected, signal) != 1 {
+		return ErrUnsupported
+	}
+	c.InitialInner = bytes.Clone(c.Inner)
+	c.HelloRetryRequest = bytes.Clone(body)
+	c.Accepted = true
+
+	return nil
+}
+
+func retryConfirmationField(body []byte) ([]byte, error) {
+	input := cryptobyte.String(body)
+	var session, extensions cryptobyte.String
+	if !input.Skip(34) || !input.ReadUint8LengthPrefixed(&session) || !input.Skip(3) ||
+		!input.ReadUint16LengthPrefixed(&extensions) || !input.Empty() {
+		return nil, ErrInvalid
+	}
+
+	return findRetryConfirmation(extensions)
+}
+
+func findRetryConfirmation(extensions cryptobyte.String) ([]byte, error) {
+	for !extensions.Empty() {
+		var typ uint16
+		var data cryptobyte.String
+		if !extensions.ReadUint16(&typ) || !extensions.ReadUint16LengthPrefixed(&data) {
+			return nil, ErrInvalid
+		}
+		if extension.Type(typ) != extension.TypeEncryptedClientHello {
+			continue
+		}
+		if len(data) != 8 {
+			return nil, ErrInvalid
+		}
+
+		return data, nil
+	}
+
+	return nil, ErrUnsupported
+}
+
+// Confirmation includes both inner ClientHellos when the server requested a retry.
+func (c *ClientContext) Confirmation(hashFunc func() hash.Hash, body []byte) ([]byte, error) {
+	return acceptanceConfirmation(hashFunc, c.Inner, c.InitialInner, c.HelloRetryRequest, body)
+}
+
+// RetryClientHello reuses the sender and sends an empty enc in ClientHello2.
+// The caller validates the inner against the authenticated retry request first.
+// https://www.rfc-editor.org/rfc/rfc9849#section-6.1.2
+func (c *ClientContext) RetryClientHello(inner []byte) error {
+	if !c.Accepted || len(c.HelloRetryRequest) == 0 {
+		return ErrUnsupported
+	}
+	if !bytes.Equal(c.Inner, c.InitialInner) {
+		if bytes.Equal(inner, c.Inner) {
+			return nil
+		}
+
+		return ErrInvalid
+	}
+	prefix, exts, err := splitHello(inner, false)
+	if err != nil {
+		return err
+	}
+	encoded, err := EncodeInnerClientHello(inner, c.Config.MaxNameLength, c.nameLength)
+	if err != nil {
+		return err
+	}
+	prefix = bytes.Clone(prefix)
+	copy(prefix[2:34], c.Outer[2:34])
+	outer, err := sealOuterClientHello(prefix, exts, c.Config, c.Suite, nil, c.Sender, encoded)
+	if err != nil {
+		return err
+	}
+	c.Inner, c.Outer = bytes.Clone(inner), outer
+
+	return nil
 }
 
 func prepareInnerExtensions(exts []extension.Raw) ([]extension.Raw, int, error) {
@@ -101,10 +202,12 @@ func prepareInnerExtensions(exts []extension.Raw) ([]extension.Raw, int, error) 
 
 func sealOuterClientHello(prefix []byte, innerExts []extension.Raw, config Config, suite CipherSuite, enc []byte, sender Sender, encoded []byte) ([]byte, error) {
 	outerPrefix := bytes.Clone(prefix)
-	if _, err := rand.Read(outerPrefix[2:34]); err != nil {
-		return nil, err
+	if len(enc) != 0 {
+		if _, err := rand.Read(outerPrefix[2:34]); err != nil {
+			return nil, err
+		}
 	}
-	outerExts := slices.Clone(innerExts[:len(innerExts)-1])
+	outerExts := slices.DeleteFunc(slices.Clone(innerExts), func(ext extension.Raw) bool { return ext.Type == extension.TypeEncryptedClientHello })
 	publicName, err := (extension.ServerNameOffer{ServerName: config.PublicName}).MarshalData()
 	if err != nil {
 		return nil, err

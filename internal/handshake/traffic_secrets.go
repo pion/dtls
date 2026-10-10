@@ -111,12 +111,22 @@ func appendCommittedOutboundHandshakeFlight(state *dtlsstate.State13, transcript
 		if err := populateOutboundFinished(state, transcript, p); err != nil {
 			return err
 		}
-		if err := AppendOutboundHandshakeFlight(transcript, state.IsClient, state.CipherSuite, []*dtlsflight.Outbound{p}); err != nil {
+		if err := appendCommittedHandshake(state, transcript, p); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func appendCommittedHandshake(state *dtlsstate.State13, transcript *Transcript, packet *dtlsflight.Outbound) error {
+	if packet != nil && transcript != nil && state.IsClient && state.ECH != nil && state.ECH.Accepted {
+		if message, ok := packet.Content.(*handshake.Handshake); ok && message.Message != nil && message.Message.Type() == handshake.TypeClientHello {
+			return transcript.appendECHInner(state.ECH.Inner, message.Header.MessageSequence)
+		}
+	}
+
+	return AppendOutboundHandshakeFlight(transcript, state.IsClient, state.CipherSuite, []*dtlsflight.Outbound{packet})
 }
 
 func populateOutboundCertificateVerify(state *dtlsstate.State13, transcript *Transcript, pkt *dtlsflight.Outbound) error {

@@ -205,16 +205,21 @@ func RetryConfirmation(hashFunc func() hash.Hash, inner, zeroedHRR []byte) ([]by
 
 // Confirmation includes the synthetic message_hash and HRR after a retry.
 func (c *ServerContext) Confirmation(hashFunc func() hash.Hash, serverHello []byte) ([]byte, error) {
-	if len(c.HelloRetryRequest) == 0 {
-		return AcceptanceConfirmation(hashFunc, c.Inner, serverHello)
+	return acceptanceConfirmation(hashFunc, c.Inner, c.InitialInner, c.HelloRetryRequest, serverHello)
+}
+
+// acceptanceConfirmation uses the selected inner history, including HRR when present.
+func acceptanceConfirmation(hashFunc func() hash.Hash, inner, initialInner, hrr, serverHello []byte) ([]byte, error) {
+	if len(hrr) == 0 {
+		return AcceptanceConfirmation(hashFunc, inner, serverHello)
 	}
-	if hashFunc == nil || len(c.InitialInner) < 34 || len(c.InitialInner) > 0xffffff || len(c.HelloRetryRequest) > 0xffffff || len(serverHello) < 34 {
+	if hashFunc == nil || len(initialInner) < 34 || len(initialInner) > 0xffffff || len(hrr) > 0xffffff || len(serverHello) < 34 {
 		return nil, ErrInvalid
 	}
 	hello := bytes.Clone(serverHello)
 	clear(hello[26:34])
 
-	return confirmation(hashFunc, c.Inner, retryPrefix(hashFunc, c.InitialInner, c.HelloRetryRequest), hello, "ech accept confirmation")
+	return confirmation(hashFunc, inner, retryPrefix(hashFunc, initialInner, hrr), hello, "ech accept confirmation")
 }
 
 func retryPrefix(hashFunc func() hash.Hash, inner, hrr []byte) []byte {

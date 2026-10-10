@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"errors"
+	"hash"
 	"slices"
 
 	"github.com/pion/dtls/v4/internal/ech"
@@ -18,26 +19,29 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-// acceptECH verifies the confirmation over the exact received ServerHello,
+// acceptECH verifies confirmation over the exact received ServerHello or HRR,
 // then selects the inner offer for all subsequent negotiation checks.
 // https://www.rfc-editor.org/rfc/rfc9849#section-6.1.4
 func (h *handshakeContext) acceptECH(item dtlsflight.DecodedHandshakeCacheItem) error {
 	context := h.state.ECH
-	if context == nil || context.Accepted {
+	if context == nil {
 		return nil
 	}
 	if err := item.Validate(); err != nil {
 		return err
 	}
 	hello, ok := item.Parsed.Message.(*handshake.MessageServerHello)
-	if !ok || IsHelloRetryRequest(hello) {
+	if !ok {
 		return echFailure(alert.IllegalParameter, ech.ErrUnsupported)
 	}
+	previouslyAccepted := context.Accepted
 	if err := h.verifyECHServerHello(hello, item.Raw.Data[handshake.HeaderLength:]); err != nil {
 		return err
 	}
-	if err := h.selectECHInnerOffer(context.Inner); err != nil {
-		return err
+	if !previouslyAccepted {
+		if err := h.selectECHInnerOffer(context.Inner); err != nil {
+			return err
+		}
 	}
 	context.Accepted = true
 
@@ -49,11 +53,17 @@ func (h *handshakeContext) verifyECHServerHello(hello *handshake.MessageServerHe
 	if err != nil {
 		return echFailure(failure.Description, err)
 	}
-	confirmation, err := ech.AcceptanceConfirmation(suite.HashFunc(), h.state.ECH.Inner, body)
+	if IsHelloRetryRequest(hello) {
+		return h.verifyECHRetry(suite.HashFunc(), body)
+	}
+	confirmation, err := h.state.ECH.Confirmation(suite.HashFunc(), body)
 	if err != nil {
 		return echFailure(alert.IllegalParameter, err)
 	}
 	if subtle.ConstantTimeCompare(confirmation, body[26:34]) != 1 {
+		if h.state.ECH.Accepted {
+			return echFailure(alert.IllegalParameter, ech.ErrInvalid)
+		}
 		// Authenticated rejection and retry configs are not implemented yet.
 		return echFailure(alert.InternalError, ech.ErrUnsupported)
 	}
@@ -62,6 +72,19 @@ func (h *handshakeContext) verifyECHServerHello(hello *handshake.MessageServerHe
 		return ext.ExtensionType() == extension.TypeEncryptedClientHello
 	}) {
 		return echFailure(alert.UnsupportedExtension, ech.ErrInvalid)
+	}
+
+	return nil
+}
+
+func (h *handshakeContext) verifyECHRetry(hashFunc func() hash.Hash, body []byte) error {
+	if err := h.state.ECH.AcceptRetry(hashFunc, body); err != nil {
+		// Authenticated rejection is not implemented yet :(
+		if errors.Is(err, ech.ErrUnsupported) {
+			return echFailure(alert.InternalError, err)
+		}
+
+		return echFailure(alert.IllegalParameter, err)
 	}
 
 	return nil

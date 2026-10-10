@@ -8,7 +8,6 @@ import (
 	"errors"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
-	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
@@ -176,8 +175,10 @@ func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshak
 		return flight3Parse(ctx, conn, flightCtx)
 	}
 	// Handle HelloRetryRequest
-	if state.ECH != nil {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, ech.ErrUnsupported
+	if err := flightCtx.acceptECH(pull.Items[0]); err != nil {
+		failure := protectedFlightParseFailure(err)
+
+		return 0, failure.alert, failure.err
 	}
 
 	if sh.Version != protocol.Version1_0 && sh.Version != protocol.Version1_2 {
