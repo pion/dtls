@@ -9,11 +9,13 @@ import (
 	"fmt"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
+	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
@@ -47,6 +49,9 @@ func VerifyAndAppendProtectedHandshakeCacheItems(transcript *Transcript, state *
 	if err := transcript.replaceWith(working); err != nil {
 		return err
 	}
+	if flight.echRejected() {
+		state.ECH.RetryConfigList = bytes.Clone(flight.retryConfigs)
+	}
 	if len(flight.peerCertificates) != 0 {
 		state.PeerCertificates = flight.peerCertificates
 	}
@@ -60,6 +65,7 @@ type protectedHandshakeFlight struct {
 	cfg         *dtlsconfig.HandshakeConfig
 	cipherSuite dtlsconfig.CipherSuite
 
+	retryConfigs         []byte
 	peerCertificates     [][]byte
 	hasCertificate       bool
 	hasCertificateVerify bool
@@ -79,6 +85,8 @@ func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCache
 	}
 
 	switch msg := hs.Message.(type) {
+	case *handshake.MessageEncryptedExtensions:
+		return f.processEncryptedExtensions(item.Raw, hs, msg)
 	case *handshake.MessageCertificate13:
 		return f.processCertificate(item.Raw, hs, msg)
 	case *handshake.MessageCertificateVerify:
@@ -175,13 +183,20 @@ func rawCertificatesFromCertificate(certificate *handshake.MessageCertificate13)
 }
 
 func (f *protectedHandshakeFlight) verifyServerIdentity() error {
+	certAlgs := f.cfg.LocalCertSignatureSchemes
+	if len(certAlgs) == 0 {
+		certAlgs = f.cfg.LocalSignatureSchemes
+	}
+	// Rejection authenticates the public name independently of normal verification overrides.
+	// https://www.rfc-editor.org/rfc/rfc9849#section-6.1.7
+	if f.echRejected() {
+		_, err := dtlscrypto.VerifyServerCert(f.peerCertificates, f.cfg.RootCAs, f.state.ECH.Config.PublicName, certAlgs)
+
+		return certificateVerificationError(err)
+	}
 	var chains [][]*x509.Certificate
 	var err error
 	if !f.cfg.InsecureSkipVerify {
-		certAlgs := f.cfg.LocalCertSignatureSchemes
-		if len(certAlgs) == 0 {
-			certAlgs = f.cfg.LocalSignatureSchemes
-		}
 		chains, err = dtlscrypto.VerifyServerCert(
 			f.peerCertificates, f.cfg.RootCAs, f.cfg.ServerName, certAlgs,
 		)
@@ -234,6 +249,9 @@ func clientCertificateRequired(cfg *dtlsconfig.HandshakeConfig) bool {
 }
 
 func (f *protectedHandshakeFlight) verifyConnection() error {
+	if f.echRejected() {
+		return nil
+	}
 	if f.cfg.VerifyConnection != nil {
 		certificates := f.peerCertificates
 		if len(f.state.PSK) != 0 {
@@ -307,4 +325,29 @@ func appendParsedInboundHandshake(transcript *Transcript, isClient bool, cipherS
 	}
 
 	return appendHandshake(transcript, transcriptSenderForSide(isClient), cipherSuite, hs.Header.MessageSequence, hs.Message, canonical)
+}
+
+func (f *protectedHandshakeFlight) echRejected() bool {
+	return f.state.IsClient && f.state.ECH != nil && f.state.ECH.Rejected
+}
+
+func (f *protectedHandshakeFlight) processEncryptedExtensions(item *dtlsflight.HandshakeCacheItem, parsed *handshake.Handshake, message *handshake.MessageEncryptedExtensions) error {
+	for _, ext := range message.Extensions {
+		if ext.ExtensionType() != extension.TypeEncryptedClientHello {
+			continue
+		}
+		if !f.echRejected() {
+			return pskHandshakeError(alert.UnsupportedExtension, ech.ErrInvalid)
+		}
+		data, err := ext.MarshalData()
+		if err != nil {
+			return pskHandshakeError(alert.DecodeError, err)
+		}
+		if _, err = ech.ParseConfigList(data); err != nil {
+			return pskHandshakeError(alert.DecodeError, err)
+		}
+		f.retryConfigs = data
+	}
+
+	return f.append(item, parsed)
 }

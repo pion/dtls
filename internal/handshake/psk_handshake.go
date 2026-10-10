@@ -98,6 +98,9 @@ func (t *Transcript) finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsc
 }
 
 func finalizeECHRetry(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	if state.ECH.Rejected {
+		return dtlsflight.FinalizeClientHello(hello, cfg)
+	}
 	if !state.ECH.Accepted {
 		return nil, negotiation.ClientHelloSnapshot{}, ech.ErrUnsupported
 	}

@@ -7,11 +7,14 @@ import (
 	"context"
 	"crypto"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"testing"
 	"time"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
@@ -1295,11 +1298,14 @@ type noHRRFlight13Fixture struct {
 	serverFlight4 []*dtlsflight.Outbound
 }
 
-func newNoHRRFlight13Fixture(t *testing.T) noHRRFlight13Fixture {
+func newNoHRRFlight13Fixture(t *testing.T, configure ...func(*dtlsconfig.HandshakeConfig)) noHRRFlight13Fixture {
 	t.Helper()
 
 	cfg := testHandshakeConfig13(t)
 	cfg.InsecureSkipHelloVerify = true
+	for _, configure := range configure {
+		configure(cfg)
+	}
 
 	clientState, clientHello, transcript := newFlight13ClientHelloFixture(t, cfg)
 	serverState := newTestState13(t, false)
@@ -1523,5 +1529,135 @@ func transcriptTestHelloRetryRequestPacket13(tb testing.TB, cipherSuite dtlsconf
 			Header:  handshake.Header{MessageSequence: seq},
 			Message: &handshake.MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: []extension.Value{&extension13.SelectedVersion{Version: protocol.Version1_3}}},
 		},
+	}
+}
+
+func TestECHAuthenticatedRejection(t *testing.T) {
+	if !ech.Available() {
+		t.Skip("HPKE requires Go 1.26")
+	}
+	list, err := hex.DecodeString("0045fe0d0041590020002092a01233db2218518ccbbbbc24df20686af417b37388de6460e94011974777090004000100010012636c6f7564666c6172652d6563682e636f6d0000")
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name string
+		fail bool
+	}{
+		{"retry configs", false}, {"no retry configs", false}, {"untrusted certificate", true}, {"wrong name", true}, {"bad Finished", true}, {"client certificate", false},
+	} {
+		name := test.name
+		t.Run(name, func(t *testing.T) {
+			fixture := newNoHRRFlight13Fixture(t, func(cfg *dtlsconfig.HandshakeConfig) {
+				cfg.ECHConfigList = list
+				cfg.ServerName = "secret.example"
+				cfg.ECHKeys = []ech.Key{{Config: []byte{0x12, 0x34, 0, 0}, SendAsRetry: name != "no retry configs"}}
+				cert, certErr := selfsign.GenerateSelfSignedWithDNS("cloudflare-ech.com")
+				require.NoError(t, certErr)
+				cfg.LocalCertificates = []tls.Certificate{cert}
+				cfg.RootCAs = x509.NewCertPool()
+				if name != "untrusted certificate" {
+					cfg.RootCAs.AddCert(cert.Leaf)
+				}
+				cfg.VerifyPeerCertificate = func([][]byte, [][]*x509.Certificate) error {
+					require.FailNow(t, "normal verification callback on rejection")
+
+					return nil
+				}
+				cfg.VerifyConnection = func(dtlsstate.Active) error {
+					require.FailNow(t, "normal connection callback on rejection")
+
+					return nil
+				}
+			})
+			if name == "client certificate" {
+				fixture = addCertificateRequestToServerFlight13(t, fixture, []byte("context"))
+				fixture.cfg.LocalGetClientCertificate = func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
+					require.FailNow(t, "client identity callback on rejection")
+
+					return &tls.Certificate{}, nil
+				}
+			}
+			if name == "wrong name" {
+				fixture.clientState.ECH.Config.PublicName = "wrong.example"
+			}
+			if name == "bad Finished" {
+				finished, ok := fixture.serverFlight4[4].Content.(*handshake.Handshake)
+				require.True(t, ok)
+				message, ok := finished.Message.(*handshake.MessageFinished)
+				require.True(t, ok)
+				message.VerifyData[0] ^= 1
+			}
+			cache := dtlsflight.NewCache()
+			pushFlight13HandshakePacketsToCache(t, cache, fixture.serverFlight4, false)
+			fsm, err := newFSM13(fixture.clientState, cache, fixture.cfg, dtlsflight13.Flight3, nil, fixture.transcript)
+			require.NoError(t, err)
+			conn := &postHandshakeAlertConn{}
+			next, err := fsm.parseReceivedFlight(t.Context(), conn, dtlsflight13.Flight3)
+			if test.fail {
+				require.Error(t, err)
+				require.NotEmpty(t, conn.notifications)
+				require.Empty(t, fixture.clientState.ECH.RetryConfigList)
+				var rejection *ech.RejectionError
+				require.NotErrorAs(t, err, &rejection)
+
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, dtlsflight13.Flight5, next)
+			require.True(t, fixture.clientState.ECH.Rejected)
+			_, err = fsm.advanceAfterReceivedFlight(t.Context(), conn, dtlsflight13.Flight3, next, nil)
+			require.NoError(t, err)
+			conn.handleQueuedPackets = func(context.Context) error {
+				require.FailNow(t, "rejection must not drain queued application data")
+
+				return nil
+			}
+			fsm.currentFlight = next
+			_, err = fsm.prepare(t.Context(), conn)
+			require.NoError(t, err)
+			nextState, err := fsm.send(t.Context(), conn)
+			require.Equal(t, StateErrored, nextState)
+			var rejection *ech.RejectionError
+			require.ErrorAs(t, err, &rejection)
+			require.Empty(t, conn.notifications)
+			require.Equal(t, &dtlsflight.Outbound{Epoch: dtlsflight13.EpochApplication, Protection: dtlsflight.ProtectionCiphertext, Content: &alert.Alert{Level: alert.Fatal, Description: alert.ECHRequired}}, conn.writtenPackets[len(conn.writtenPackets)-1])
+			require.Equal(t, dtlsflight13.EpochApplication, conn.localEpoch)
+			require.False(t, fsm.establishment.Established())
+			if name == "client certificate" {
+				msg, ok := fsm.flights[0].Content.(*handshake.Handshake)
+				require.True(t, ok)
+				require.Equal(t, &handshake.MessageCertificate13{CertificateRequestContext: []byte("context")}, msg.Message)
+			}
+			if name != "no retry configs" {
+				require.Equal(t, []byte{0, 4, 0x12, 0x34, 0, 0}, rejection.RetryConfigList)
+			} else {
+				require.Empty(t, rejection.RetryConfigList)
+			}
+			require.NotEqual(t, dtlsflight13.EpochApplication, fixture.clientState.LocalEpoch())
+		})
+	}
+}
+
+func TestECHRetryConfigValidation(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		rejected bool
+		data     []byte
+		want     alert.Description
+	}{
+		{"accepted", false, []byte{0, 4, 0x12, 0x34, 0, 0}, alert.UnsupportedExtension},
+		{"malformed list", true, []byte{0, 5, 0x12, 0x34, 0, 0}, alert.DecodeError},
+		{"malformed supported config", true, []byte{0, 4, 0xfe, 0x0d, 0, 0}, alert.DecodeError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := newTestState13(t, true)
+			state.ECH = &ech.ClientContext{Rejected: test.rejected}
+			flight := protectedHandshakeFlight{state: state}
+			message := &handshake.MessageEncryptedExtensions{Extensions: []extension.Value{extension.Raw{Type: extension.TypeEncryptedClientHello, Data: test.data}}}
+			err := flight.processEncryptedExtensions(nil, nil, message)
+			var failure *alert.Alert
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, test.want, failure.Description)
+			require.Empty(t, state.ECH.RetryConfigList)
+		})
 	}
 }

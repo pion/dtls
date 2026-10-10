@@ -117,6 +117,11 @@ func TestFinalizeECHClientHello(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, state.ECH.Outer, body)
 	require.NotEqual(t, state.ECH.Inner, body)
+	for _, ext := range outer.Extensions {
+		if versions, ok := ext.(*extension13.OfferedVersions); ok {
+			require.Equal(t, []protocol.Version{protocol.Version1_3}, versions.Versions)
+		}
+	}
 	setFlight13HandshakeSequence(t, packets[0], 7)
 	fsm, err := newFSM13(state, dtlsflight.NewCache(), cfg, dtlsflight13.Flight1, packets, nil)
 	require.NoError(t, err)
@@ -130,6 +135,14 @@ func TestFinalizeECHClientHello(t *testing.T) {
 }
 
 func TestECHRetryTranscript(t *testing.T) {
+	for _, rejected := range []bool{false, true} {
+		testECHRetryTranscript(t, rejected)
+	}
+}
+
+func testECHRetryTranscript(t *testing.T, rejected bool) {
+	t.Helper()
+
 	if !ech.Available() {
 		t.Skip("HPKE requires Go 1.26")
 	}
@@ -158,6 +171,9 @@ func TestECHRetryTranscript(t *testing.T) {
 	tampered[len(tampered)-1] ^= 1
 	require.ErrorIs(t, state.ECH.AcceptRetry(suite.HashFunc(), tampered), ech.ErrUnsupported)
 	require.False(t, state.ECH.Accepted)
+	if rejected {
+		hrr.Extensions = hrr.Extensions[:len(hrr.Extensions)-1]
+	}
 	raw, err := (&handshake.Handshake{Message: hrr}).Marshal()
 	require.NoError(t, err)
 	fsm.cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
@@ -166,8 +182,9 @@ func TestECHRetryTranscript(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, failure)
 	require.Equal(t, dtlsflight13.Flight3, next)
-	require.True(t, state.ECH.Accepted)
-	require.True(t, fsm.transcript.echInnerSelected)
+	require.Equal(t, !rejected, state.ECH.Accepted)
+	require.Equal(t, rejected, state.ECH.Rejected)
+	require.Equal(t, !rejected, fsm.transcript.echInnerSelected)
 	require.True(t, fsm.transcript.helloRetryApplied)
 	prefix := fsm.transcript.Bytes()
 	retry, failure, err := flight13GenerateForTest(t, next, &fsm.handshakeContext)
@@ -175,7 +192,19 @@ func TestECHRetryTranscript(t *testing.T) {
 	require.Nil(t, failure)
 	setFlight13HandshakeSequence(t, retry[0], 1)
 	require.NoError(t, appendCommittedOutboundHandshakeFlight(state, fsm.transcript, retry))
-	expected := append(bytes.Clone(prefix), canonicalTranscriptHandshake13(handshake.TypeClientHello, state.ECH.Inner)...)
+	body = state.ECH.Inner
+	if rejected {
+		outer, ok := retry[0].Content.(*handshake.Handshake)
+		require.True(t, ok)
+		body, err = outer.Message.Marshal()
+		require.NoError(t, err)
+		initial := state.LocalClientHelloSnapshots.Initial()
+		current := state.LocalClientHelloSnapshots.Current()
+		initialECH, _ := initial.Extension(extension.TypeEncryptedClientHello)
+		currentECH, _ := current.Extension(extension.TypeEncryptedClientHello)
+		require.Equal(t, initialECH, currentECH)
+	}
+	expected := append(bytes.Clone(prefix), canonicalTranscriptHandshake13(handshake.TypeClientHello, body)...)
 	require.Equal(t, expected, fsm.transcript.Bytes())
 	require.NoError(t, appendCommittedOutboundHandshakeFlight(state, fsm.transcript, retry))
 	require.Equal(t, expected, fsm.transcript.Bytes())

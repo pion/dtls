@@ -17,6 +17,12 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
+// RejectionError reports authenticated ECH rejection. RetryConfigList may be
+// used on a new connection.
+type RejectionError struct{ RetryConfigList []byte }
+
+func (*RejectionError) Error() string { return "server rejected ECH" }
+
 // ClientContext retains the initial inner and outer bodies and HPKE state.
 type ClientContext struct {
 	Config                          Config
@@ -24,6 +30,8 @@ type ClientContext struct {
 	Sender                          Sender
 	Inner, Outer                    []byte
 	Accepted                        bool
+	Rejected                        bool   // Selects the outer handshake.
+	RetryConfigList                 []byte // Published only after verifying the server flight.
 	InitialInner, HelloRetryRequest []byte
 	nameLength                      int
 }

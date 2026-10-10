@@ -40,6 +40,9 @@ func flight5ClientAuthPackets(
 		return []*dtlsflight.Outbound{}, nil, nil
 	}
 
+	if flightCtx.state.ECH != nil && flightCtx.state.ECH.Rejected {
+		return []*dtlsflight.Outbound{HandshakePacket(&handshake.MessageCertificate13{CertificateRequestContext: bytes.Clone(certificateRequest.CertificateRequestContext)})}, nil, nil
+	}
 	certificate, err := flight5ClientCertificate(flightCtx.cfg, certificateRequest)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err

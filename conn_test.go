@@ -607,6 +607,13 @@ func TestSelectRemoteVersionActivatesChosenState(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, 3, state12.HandshakeSendSequence)
 	assert.Equal(t, protocol.Version1_2, dtlsstate.CommonState(conn.state).LocalVersion)
+	commonState.IsClient = true
+	cfg.ECHConfigList = []byte{1}
+	err = conn.selectRemoteVersion([]protocol.Version{protocol.Version1_2})
+	require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
+	var failure *alert.Alert
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, alert.ProtocolVersion, failure.Description)
 }
 
 type connWithCallback struct {

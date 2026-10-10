@@ -179,6 +179,15 @@ type HandshakeConfig struct {
 	mu                sync.Mutex
 }
 
+// ValidateECHVersions enforces the client version policy before sending an offer.
+func (c *HandshakeConfig) ValidateECHVersions() error {
+	if c.ECHConfigList != nil && (c.MinVersion != protocol.Version1_3 || c.MaxVersion != protocol.Version1_3) {
+		return fmt.Errorf("ECH requires MinVersion and MaxVersion to be DTLS 1.3: %w", dtlserrors.ErrUnsupportedProtocolVersion)
+	}
+
+	return nil
+}
+
 // GenerateConnectionID returns a CID matching the configured receive length.
 func (c *HandshakeConfig) GenerateConnectionID() ([]byte, error) {
 	cid := c.ConnectionIDGenerator()

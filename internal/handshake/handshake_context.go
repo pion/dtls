@@ -4,9 +4,12 @@
 package dtlshandshake
 
 import (
+	"bytes"
 	"context"
+	"errors"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
@@ -61,7 +64,25 @@ func (c *handshakeContext) afterSend(
 		return false, nil
 	}
 
+	if c.state.ECH != nil && c.state.ECH.Rejected {
+		return false, c.rejectECH(ctx, conn)
+	}
+
 	return true, activateApplicationRecordProtection(ctx, conn, c.state)
+}
+
+func (c *handshakeContext) rejectECH(ctx context.Context, conn Conn) error {
+	if err := InitApplicationRecordProtection(c.state); err != nil {
+		return err
+	}
+	conn.SetLocalEpoch(dtlsflight13.EpochApplication)
+	_, err := conn.WritePackets(ctx, []*dtlsflight.Outbound{{
+		Epoch:      dtlsflight13.EpochApplication,
+		Protection: dtlsflight.ProtectionCiphertext,
+		Content:    &alert.Alert{Level: alert.Fatal, Description: alert.ECHRequired},
+	}})
+
+	return errors.Join(&ech.RejectionError{RetryConfigList: bytes.Clone(c.state.ECH.RetryConfigList)}, err)
 }
 
 func (c *handshakeContext) parseReceivedFlight(ctx context.Context, conn Conn, currentFlight dtlsflight13.Flight) (dtlsflight13.Flight, error) {

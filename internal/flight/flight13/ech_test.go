@@ -117,7 +117,7 @@ func TestClientECHAcceptance(t *testing.T) {
 		want                         alert.Description
 	}{
 		{},
-		{tamper: true, want: alert.InternalError},
+		{tamper: true},
 		{unexpectedECH: true, want: alert.UnsupportedExtension},
 		{retry: true},
 		{retry: true, tamper: true, want: alert.IllegalParameter},
@@ -134,12 +134,12 @@ func TestClientECHAcceptance(t *testing.T) {
 		require.NoError(t, inner.Random.Populate())
 		body, err := inner.Marshal()
 		require.NoError(t, err)
-		ctx.state.ECH = &ech.ClientContext{Inner: body}
+		ctx.state.ECH = &ech.ClientContext{Inner: body, Outer: bytes.Clone(body)}
 		if test.retry {
 			ctx.state.ECH.Accepted = true
 			ctx.state.ECH.InitialInner = bytes.Clone(body)
 			ctx.state.ECH.HelloRetryRequest = []byte("authenticated HRR")
-			require.NoError(t, ctx.selectECHInnerOffer(body))
+			require.NoError(t, ctx.selectECHOffer(body))
 		}
 		suiteID := uint16(ctx.state.CipherSuite.ID())
 		server := &handshake.MessageServerHello{Version: protocol.Version1_2, CipherSuiteID: &suiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0]}
@@ -168,7 +168,8 @@ func TestClientECHAcceptance(t *testing.T) {
 			require.Equal(t, test.retry, ctx.state.ECH.Accepted)
 		} else {
 			require.NoError(t, err)
-			require.True(t, ctx.state.ECH.Accepted)
+			require.Equal(t, !test.tamper, ctx.state.ECH.Accepted)
+			require.Equal(t, test.tamper, ctx.state.ECH.Rejected)
 			require.Equal(t, inner.Random.MarshalFixed(), ctx.state.LocalRandom.MarshalFixed())
 			require.True(t, ctx.state.LocalClientHelloSnapshots.Current().Offered(extension.TypeEncryptedClientHello))
 		}

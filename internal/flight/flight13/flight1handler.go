@@ -27,6 +27,9 @@ func flight1Generate(
 ) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	state := flightCtx.state
 	cfg := flightCtx.cfg
+	if err := cfg.ValidateECHVersions(); err != nil {
+		return nil, nil, err
+	}
 	state.ResetConnectionIDs()
 	state.SetSRTPProtectionProfile(0)
 	state.LocalClientHelloSnapshots.Reset()

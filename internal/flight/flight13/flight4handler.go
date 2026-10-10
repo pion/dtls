@@ -220,6 +220,10 @@ func flight4Generate( //nolint:cyclop
 	if srtpDecision.ProtectionProfile != 0 {
 		encryptedExtensionsList = append(encryptedExtensionsList, &extension.SRTPSelection{ProtectionProfile: srtpDecision.ProtectionProfile, MasterKeyIdentifier: bytes.Clone(srtpDecision.MasterKeyIdentifier)})
 	}
+	encryptedExtensionsList, err = flightCtx.appendECHRetryConfigs(encryptedExtensionsList)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
 	messageExtensions := handshake.MessageEncryptedExtensions{}
 	messageExtensions.Extensions = encryptedExtensionsList
 	encryptedExtensions := HandshakePacket(&messageExtensions)

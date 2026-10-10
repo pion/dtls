@@ -404,6 +404,11 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 // DTLS 1.3 is selected, the DTLS 1.3 FSM imports those packets into its
 // transcript.
 func (c *Conn) prepareHandshakeStart(ctx context.Context) (handshakeStart, error) {
+	if dtlsstate.CommonState(c.state).IsClient {
+		if err := c.handshakeConfig.ValidateECHVersions(); err != nil {
+			return handshakeStart{}, err
+		}
+	}
 	if resumed := c.handshakeConfig.ResumeState; resumed != nil {
 		c.lock.Lock()
 		defer c.lock.Unlock()
@@ -2759,6 +2764,9 @@ func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
 	chosen, ok := dtlsconfig.SelectVersion(remote, c.handshakeConfig.MinVersion, c.handshakeConfig.MaxVersion)
 	if !ok {
 		return fmt.Errorf("%w: %w", dtlserrors.ErrNoCommonProtocolVersion, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion})
+	}
+	if dtlsstate.CommonState(c.state).IsClient && c.handshakeConfig.ECHConfigList != nil && chosen != protocol.Version1_3 {
+		return fmt.Errorf("%w: %w", dtlserrors.ErrUnsupportedProtocolVersion, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion})
 	}
 	c.setNegotiatedVersion(remote, chosen)
 

@@ -17,10 +17,11 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	"golang.org/x/crypto/cryptobyte"
 )
 
 // acceptECH verifies confirmation over the exact received ServerHello or HRR,
-// then selects the inner offer for all subsequent negotiation checks.
+// then selects the accepted inner or rejected outer offer for negotiation checks.
 // https://www.rfc-editor.org/rfc/rfc9849#section-6.1.4
 func (h *handshakeContext) acceptECH(item dtlsflight.DecodedHandshakeCacheItem) error {
 	context := h.state.ECH
@@ -34,18 +35,18 @@ func (h *handshakeContext) acceptECH(item dtlsflight.DecodedHandshakeCacheItem) 
 	if !ok {
 		return echFailure(alert.IllegalParameter, ech.ErrUnsupported)
 	}
-	previouslyAccepted := context.Accepted
+	previouslyDecided := context.Accepted || context.Rejected
 	if err := h.verifyECHServerHello(hello, item.Raw.Data[handshake.HeaderLength:]); err != nil {
 		return err
 	}
-	if !previouslyAccepted {
-		if err := h.selectECHInnerOffer(context.Inner); err != nil {
-			return err
-		}
+	if previouslyDecided {
+		return nil
 	}
-	context.Accepted = true
+	if context.Rejected {
+		return h.selectECHOffer(context.Outer)
+	}
 
-	return nil
+	return h.selectECHOffer(context.Inner)
 }
 
 func (h *handshakeContext) verifyECHServerHello(hello *handshake.MessageServerHello, body []byte) error {
@@ -56,6 +57,9 @@ func (h *handshakeContext) verifyECHServerHello(hello *handshake.MessageServerHe
 	if IsHelloRetryRequest(hello) {
 		return h.verifyECHRetry(suite.HashFunc(), body)
 	}
+	if h.state.ECH.Rejected {
+		return nil
+	}
 	confirmation, err := h.state.ECH.Confirmation(suite.HashFunc(), body)
 	if err != nil {
 		return echFailure(alert.IllegalParameter, err)
@@ -64,8 +68,9 @@ func (h *handshakeContext) verifyECHServerHello(hello *handshake.MessageServerHe
 		if h.state.ECH.Accepted {
 			return echFailure(alert.IllegalParameter, ech.ErrInvalid)
 		}
-		// Authenticated rejection and retry configs are not implemented yet.
-		return echFailure(alert.InternalError, ech.ErrUnsupported)
+		h.state.ECH.Rejected = true
+
+		return nil
 	}
 	// An accepting ServerHello carries confirmation only in its random field.
 	if slices.ContainsFunc(hello.Extensions, func(ext extension.Value) bool {
@@ -74,25 +79,26 @@ func (h *handshakeContext) verifyECHServerHello(hello *handshake.MessageServerHe
 		return echFailure(alert.UnsupportedExtension, ech.ErrInvalid)
 	}
 
+	h.state.ECH.Accepted = true
+
 	return nil
 }
 
 func (h *handshakeContext) verifyECHRetry(hashFunc func() hash.Hash, body []byte) error {
-	if err := h.state.ECH.AcceptRetry(hashFunc, body); err != nil {
-		// Authenticated rejection is not implemented yet :(
-		if errors.Is(err, ech.ErrUnsupported) {
-			return echFailure(alert.InternalError, err)
-		}
-
+	err := h.state.ECH.AcceptRetry(hashFunc, body)
+	// A missing or mismatched signal selects the outer handshake.
+	if errors.Is(err, ech.ErrUnsupported) {
+		h.state.ECH.Rejected = true
+	} else if err != nil {
 		return echFailure(alert.IllegalParameter, err)
 	}
 
 	return nil
 }
 
-func (h *handshakeContext) selectECHInnerOffer(body []byte) error {
-	var inner handshake.MessageClientHello
-	if err := inner.Unmarshal(body); err != nil {
+func (h *handshakeContext) selectECHOffer(body []byte) error {
+	var hello handshake.MessageClientHello
+	if err := hello.Unmarshal(body); err != nil {
 		return err
 	}
 	var snapshots negotiation.ClientHelloSnapshots
@@ -105,7 +111,7 @@ func (h *handshakeContext) selectECHInnerOffer(body []byte) error {
 		return err
 	}
 	h.state.LocalClientHelloSnapshots = snapshots
-	h.state.LocalRandom = inner.Random
+	h.state.LocalRandom = hello.Random
 
 	return nil
 }
@@ -202,4 +208,33 @@ func (h *handshakeContext) confirmECH(serverHello *handshake.MessageServerHello)
 	h.state.LocalRandom = serverHello.Random
 
 	return nil
+}
+
+func (h *handshakeContext) appendECHRetryConfigs(exts []extension.Value) ([]extension.Value, error) {
+	if h.state.ECHServer != nil || !h.state.RemoteClientHelloSnapshots.Initial().Offered(extension.TypeEncryptedClientHello) {
+		return exts, nil
+	}
+	var builder cryptobyte.Builder
+	builder.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+		for _, key := range h.cfg.ECHKeys {
+			if !key.SendAsRetry {
+				continue
+			}
+			if _, _, err := ech.ParseConfig(key.Config); err != nil {
+				b.SetError(err)
+
+				return
+			}
+			b.AddBytes(key.Config)
+		}
+	})
+	configs, err := builder.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	if len(configs) > 2 {
+		exts = append(exts, &extension13.ECHRetryConfigs{ConfigList: configs})
+	}
+
+	return exts, nil
 }
