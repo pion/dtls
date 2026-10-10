@@ -13,6 +13,7 @@ import (
 	"github.com/pion/dtls/v4/internal/ech"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
@@ -44,6 +45,10 @@ func (h *handshakeContext) acceptECH(item dtlsflight.DecodedHandshakeCacheItem) 
 	}
 	if context.Rejected {
 		h.state.LocalPSKs = nil
+		if h.state.EarlyDataStatus == dtlsstate.EarlyDataReady {
+			h.state.EarlyDataStatus = dtlsstate.EarlyDataRejected
+			h.state.TrafficKeys.Discard(EpochEarlyData)
+		}
 
 		return h.selectECHOffer(context.Outer)
 	}
@@ -131,14 +136,6 @@ func (h *handshakeContext) processECHClientHello(item dtlsflight.DecodedHandshak
 	inner := &handshake.MessageClientHello{}
 	if err = inner.Unmarshal(context.Inner); err != nil {
 		return item, echFailure(alert.IllegalParameter, err)
-	}
-	for _, ext := range inner.Extensions {
-		switch ext.ExtensionType() {
-		case extension.TypeEarlyData:
-
-			return item, echFailure(alert.IllegalParameter, ech.ErrUnsupported)
-		default:
-		}
 	}
 	parsed := &handshake.Handshake{Header: item.Parsed.Header, Message: inner}
 	// Typed parsers can discard unknown fields.

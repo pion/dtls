@@ -144,7 +144,7 @@ func TestClientHelloConstruction(t *testing.T) {
 			require.Equal(t, ciphertext, client.Outer)
 		})
 	}
-	for _, typ := range []extension.Type{extension.TypePreSharedKey, extension.TypeEarlyData, extension.TypeCookie} {
+	for _, typ := range []extension.Type{extension.TypePreSharedKey, extension.TypeCookie} {
 		_, err := NewClientHello(list, hello(t, nil, extension.Raw{Type: typ}))
 		require.ErrorIs(t, err, ErrUnsupported)
 	}

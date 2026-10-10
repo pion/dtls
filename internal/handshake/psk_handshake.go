@@ -149,7 +149,7 @@ func (t *Transcript) finalizeECHInner(body []byte, state *dtlsstate.State13, cfg
 
 func (t *Transcript) finalizeECHOffer(hello *handshake.MessageClientHello, state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
 	if len(state.LocalPSKs) != 0 {
-		return FinalizeClientHelloWithPSKs(hello, cfg, state.LocalPSKs, t)
+		return t.finalizeEarlyClientHello(state, cfg, hello)
 	}
 
 	return finalizeClientHelloWithoutPSK(hello, cfg)

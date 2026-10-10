@@ -38,7 +38,7 @@ type ClientContext struct {
 	greasePSK                       []byte
 }
 
-// NewClientHello constructs an initial ECH offer without early data.
+// NewClientHello constructs an initial ECH offer.
 func NewClientHello(configList, body []byte) (*ClientContext, error) {
 	c, err := PrepareClientHello(configList, body)
 	if err != nil {
@@ -222,7 +222,7 @@ func prepareInnerExtensions(exts []extension.Raw) ([]extension.Raw, int, error) 
 	for _, ext := range exts {
 		switch ext.Type { //nolint:exhaustive
 		case extension.TypeEncryptedClientHello, extension.TypeECHOuterExtensions,
-			extension.TypePreSharedKey, extension.TypeEarlyData, extension.TypeCookie:
+			extension.TypePreSharedKey, extension.TypeCookie:
 			return nil, 0, ErrUnsupported
 		case extension.TypeRenegotiationInfo, extension.TypeSupportedPointFormats, extension.TypeExtendedMasterSecret:
 			continue
