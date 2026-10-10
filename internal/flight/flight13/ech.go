@@ -43,6 +43,8 @@ func (h *handshakeContext) acceptECH(item dtlsflight.DecodedHandshakeCacheItem) 
 		return nil
 	}
 	if context.Rejected {
+		h.state.LocalPSKs = nil
+
 		return h.selectECHOffer(context.Outer)
 	}
 
@@ -132,7 +134,7 @@ func (h *handshakeContext) processECHClientHello(item dtlsflight.DecodedHandshak
 	}
 	for _, ext := range inner.Extensions {
 		switch ext.ExtensionType() {
-		case extension.TypePreSharedKey, extension.TypeEarlyData:
+		case extension.TypeEarlyData:
 
 			return item, echFailure(alert.IllegalParameter, ech.ErrUnsupported)
 		default:

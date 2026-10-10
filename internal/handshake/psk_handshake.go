@@ -30,15 +30,29 @@ import (
 // FinalizeClientHello binds the client offer to its finalized wire bytes.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
 func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, conn dtlsflight.Conn) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	if state.ECH != nil && state.ECH.Rejected {
+		return dtlsflight.FinalizeClientHello(hello, cfg)
+	}
+	if err := t.prepareClientPSKs(state, cfg, hello, conn); err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
 	if cfg.ECHConfigList != nil {
 		return t.finalizeECHClientHello(state, cfg, hello)
 	}
+	if len(state.LocalPSKs) != 0 {
+		return t.finalizeEarlyClientHello(state, cfg, hello)
+	}
+
+	return finalizeClientHelloWithoutPSK(hello, cfg)
+}
+
+func (t *Transcript) prepareClientPSKs(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, conn dtlsflight.Conn) error {
 	psks := state.LocalPSKs
 	if !t.helloRetryApplied {
 		var err error
 		psks, err = clientPSKs(cfg, hello, conn)
 		if err != nil {
-			return nil, negotiation.ClientHelloSnapshot{}, err
+			return err
 		}
 	}
 	// HRR commits to a hash. Incompatible tickets can be dropped for a full handshake.
@@ -47,7 +61,7 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 			return psk.Hash.Size() != state.CipherSuite.HashFunc()().Size()
 		})
 		if len(psks) == 0 && cfg.GetPSKs != nil {
-			return nil, negotiation.ClientHelloSnapshot{}, dtlserrors.ErrNoAvailablePSKCipherSuite
+			return dtlserrors.ErrNoAvailablePSKCipherSuite
 		}
 	}
 	state.LocalPSKs = psks
@@ -55,30 +69,27 @@ func (t *Transcript) FinalizeClientHello(state *dtlsstate.State13, cfg *dtlsconf
 		state.EarlyDataStatus = dtlsstate.EarlyDataRejected
 		state.TrafficKeys.Discard(dtlsflight13.EpochEarlyData)
 	}
-	if len(psks) != 0 {
-		return t.finalizeEarlyClientHello(state, cfg, hello)
-	}
 
-	return finalizeClientHelloWithoutPSK(hello, cfg)
+	return nil
 }
 
 func (t *Transcript) finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
-	if cfg.GetPSKs != nil || len(state.LocalPSKs) != 0 {
-		return nil, negotiation.ClientHelloSnapshot{}, ech.ErrUnsupported
-	}
 	if state.ECH != nil {
-		return finalizeECHRetry(state, cfg, hello)
+		return t.finalizeECHRetry(state, cfg, hello)
 	}
-	final, _, err := dtlsflight.FinalizeClientHello(hello, cfg)
+	body, err := hello.Marshal()
 	if err != nil {
 		return nil, negotiation.ClientHelloSnapshot{}, err
 	}
-	body, err := final.Marshal()
+	context, err := ech.PrepareClientHello(cfg.ECHConfigList, body)
 	if err != nil {
 		return nil, negotiation.ClientHelloSnapshot{}, err
 	}
-	context, err := ech.NewClientHello(cfg.ECHConfigList, body)
+	body, err = t.finalizeECHInner(context.Inner, state, cfg)
 	if err != nil {
+		return nil, negotiation.ClientHelloSnapshot{}, err
+	}
+	if err = context.SealClientHello(body); err != nil {
 		return nil, negotiation.ClientHelloSnapshot{}, err
 	}
 	outer := &handshake.MessageClientHello{}
@@ -97,14 +108,11 @@ func (t *Transcript) finalizeECHClientHello(state *dtlsstate.State13, cfg *dtlsc
 	return outer, snapshot, nil
 }
 
-func finalizeECHRetry(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
-	if state.ECH.Rejected {
-		return dtlsflight.FinalizeClientHello(hello, cfg)
-	}
+func (t *Transcript) finalizeECHRetry(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
 	if !state.ECH.Accepted {
 		return nil, negotiation.ClientHelloSnapshot{}, ech.ErrUnsupported
 	}
-	inner, snapshot, err := dtlsflight.FinalizeClientHello(hello, cfg)
+	inner, snapshot, err := t.finalizeECHOffer(hello, state, cfg)
 	if err != nil {
 		return nil, snapshot, err
 	}
@@ -124,6 +132,27 @@ func finalizeECHRetry(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig,
 	}
 
 	return outer, snapshot, nil
+}
+
+func (t *Transcript) finalizeECHInner(body []byte, state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) ([]byte, error) {
+	inner := &handshake.MessageClientHello{}
+	if err := inner.Unmarshal(body); err != nil {
+		return nil, err
+	}
+	inner, _, err := t.finalizeECHOffer(inner, state, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return inner.Marshal()
+}
+
+func (t *Transcript) finalizeECHOffer(hello *handshake.MessageClientHello, state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
+	if len(state.LocalPSKs) != 0 {
+		return FinalizeClientHelloWithPSKs(hello, cfg, state.LocalPSKs, t)
+	}
+
+	return finalizeClientHelloWithoutPSK(hello, cfg)
 }
 
 func finalizeClientHelloWithoutPSK(hello *handshake.MessageClientHello, cfg *dtlsconfig.HandshakeConfig) (*handshake.MessageClientHello, negotiation.ClientHelloSnapshot, error) {
@@ -186,7 +215,12 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	}
 	var offer *extension13.OfferedPSKs
 	var dhe, ke bool
+	c.state.PSK = nil
+	c.state.PSKOnly = false
 	for _, value := range hello.Extensions {
+		if value.ExtensionType() == extension.TypeEncryptedClientHello && c.state.ECHServer == nil {
+			return c.pskFallback()
+		}
 		switch ext := value.(type) {
 		case *extension13.OfferedPSKs:
 			offer = ext
@@ -195,8 +229,6 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 			ke = slices.Contains(ext.Modes, extension13.PSKKE)
 		}
 	}
-	c.state.PSK = nil
-	c.state.PSKOnly = false
 	// prefer DHE whenever a common group exists, this can require a retry.
 	dhe = dhe && slices.ContainsFunc(c.cfg.EllipticCurves, func(group elliptic.Curve) bool {
 		return slices.Contains(c.state.RemoteGroups, group)

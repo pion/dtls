@@ -358,34 +358,39 @@ func selectServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServer
 		if !ok {
 			continue
 		}
-		if int(selected.Identity) >= len(flightCtx.state.LocalPSKs) {
-			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
-		}
-		psk := flightCtx.state.LocalPSKs[selected.Identity]
-		if psk.Hash.Size() != flightCtx.state.CipherSuite.HashFunc()().Size() {
-			return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
-		}
-		mode := extension13.PSKDHEKE
-		if serverHelloKeyShare(hello.Extensions) == nil {
-			mode = extension13.PSKKE
-		}
-		if failure := validateServerPSKMode(flightCtx, mode, psk.External); failure != nil {
-			return failure
-		}
-		flightCtx.state.PSKOnly = mode == extension13.PSKKE
-		if flightCtx.state.PSKOnly {
-			flightCtx.state.KeyAgreementSecret = make([]byte, psk.Hash.Size())
-		}
-		flightCtx.state.PSK = psk.Secret
-		flightCtx.state.PSKIdentity = selected.Identity
-		flightCtx.state.IdentityHint = bytes.Clone(psk.Identity)
-		flightCtx.state.PeerCertificates = util.CloneByteSlices(psk.PeerCertificates)
 
-		return nil
+		return applyServerPSK(flightCtx, hello, selected)
 	}
-	if flightCtx.cfg.GetPSKs != nil {
+	if flightCtx.cfg.GetPSKs != nil && (flightCtx.state.ECH == nil || !flightCtx.state.ECH.Rejected) {
 		return newFlightParseFailure(alert.HandshakeFailure, dtlserrors.ErrPSKNotNegotiated)
 	}
+
+	return nil
+}
+
+func applyServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServerHello, selected *extension13.SelectedPSK) *flightParseFailure {
+	if int(selected.Identity) >= len(flightCtx.state.LocalPSKs) {
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
+	}
+	psk := flightCtx.state.LocalPSKs[selected.Identity]
+	if psk.Hash.Size() != flightCtx.state.CipherSuite.HashFunc()().Size() {
+		return newFlightParseFailure(alert.IllegalParameter, dtlserrors.ErrPreSharedKeyFormat)
+	}
+	mode := extension13.PSKDHEKE
+	if serverHelloKeyShare(hello.Extensions) == nil {
+		mode = extension13.PSKKE
+	}
+	if failure := validateServerPSKMode(flightCtx, mode, psk.External); failure != nil {
+		return failure
+	}
+	flightCtx.state.PSKOnly = mode == extension13.PSKKE
+	if flightCtx.state.PSKOnly {
+		flightCtx.state.KeyAgreementSecret = make([]byte, psk.Hash.Size())
+	}
+	flightCtx.state.PSK = psk.Secret
+	flightCtx.state.PSKIdentity = selected.Identity
+	flightCtx.state.IdentityHint = bytes.Clone(psk.Identity)
+	flightCtx.state.PeerCertificates = util.CloneByteSlices(psk.PeerCertificates)
 
 	return nil
 }

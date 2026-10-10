@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/binary"
 	"hash"
 	"slices"
 
@@ -34,10 +35,24 @@ type ClientContext struct {
 	RetryConfigList                 []byte // Published only after verifying the server flight.
 	InitialInner, HelloRetryRequest []byte
 	nameLength                      int
+	greasePSK                       []byte
 }
 
-// NewClientHello constructs the initial ECH offer without PSK or early data.
+// NewClientHello constructs an initial ECH offer without early data.
 func NewClientHello(configList, body []byte) (*ClientContext, error) {
+	c, err := PrepareClientHello(configList, body)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.SealClientHello(c.Inner); err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
+// PrepareClientHello constructs the inner hello before PSK binders are computed.
+func PrepareClientHello(configList, body []byte) (*ClientContext, error) {
 	configs, err := ParseConfigList(configList)
 	if err != nil {
 		return nil, err
@@ -61,20 +76,47 @@ func NewClientHello(configList, body []byte) (*ClientContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	encoded, err := EncodeInnerClientHello(inner, config.MaxNameLength, nameLength)
-	if err != nil {
-		return nil, err
-	}
-	enc, sender, err := NewSender(*config, suite)
-	if err != nil {
-		return nil, err
-	}
-	outer, err := sealOuterClientHello(prefix, innerExts, *config, suite, enc, sender, encoded)
-	if err != nil {
-		return nil, err
-	}
 
-	return &ClientContext{Config: *config, Suite: suite, Sender: sender, Inner: inner, Outer: outer, nameLength: nameLength}, nil
+	return &ClientContext{Config: *config, Suite: suite, Inner: inner, nameLength: nameLength}, nil
+}
+
+// SealClientHello encrypts the finalized initial inner hello, including binders.
+func (c *ClientContext) SealClientHello(inner []byte) error {
+	if c.Sender != nil {
+		return ErrInvalid
+	}
+	prefix, exts, err := splitHello(inner, false)
+	if err != nil || !validInnerExtensions(exts) {
+		return ErrInvalid
+	}
+	if i := extensionIndex(exts, extension.TypeServerName); i >= 0 {
+		var name extension.ServerNameOffer
+		if err = name.UnmarshalData(exts[i].Data); err != nil {
+			return err
+		}
+		c.nameLength = len(name.ServerName)
+	} else {
+		c.nameLength = -1
+	}
+	c.greasePSK, err = greasePSK(exts)
+	if err != nil {
+		return err
+	}
+	encoded, err := EncodeInnerClientHello(inner, c.Config.MaxNameLength, c.nameLength)
+	if err != nil {
+		return err
+	}
+	enc, sender, err := NewSender(c.Config, c.Suite)
+	if err != nil {
+		return err
+	}
+	outer, err := sealOuterClientHello(prefix, exts, c.Config, c.Suite, enc, sender, encoded, c.greasePSK)
+	if err != nil {
+		return err
+	}
+	c.Sender, c.Inner, c.Outer = sender, bytes.Clone(inner), outer
+
+	return nil
 }
 
 // AcceptRetry verifies HRR confirmation over its exact wire encoding.
@@ -164,7 +206,7 @@ func (c *ClientContext) RetryClientHello(inner []byte) error {
 	}
 	prefix = bytes.Clone(prefix)
 	copy(prefix[2:34], c.Outer[2:34])
-	outer, err := sealOuterClientHello(prefix, exts, c.Config, c.Suite, nil, c.Sender, encoded)
+	outer, err := sealOuterClientHello(prefix, exts, c.Config, c.Suite, nil, c.Sender, encoded, c.greasePSK)
 	if err != nil {
 		return err
 	}
@@ -208,14 +250,14 @@ func prepareInnerExtensions(exts []extension.Raw) ([]extension.Raw, int, error) 
 	return innerExts, nameLength, nil
 }
 
-func sealOuterClientHello(prefix []byte, innerExts []extension.Raw, config Config, suite CipherSuite, enc []byte, sender Sender, encoded []byte) ([]byte, error) {
+func sealOuterClientHello(prefix []byte, innerExts []extension.Raw, config Config, suite CipherSuite, enc []byte, sender Sender, encoded, grease []byte) ([]byte, error) {
 	outerPrefix := bytes.Clone(prefix)
 	if len(enc) != 0 {
-		if _, err := rand.Read(outerPrefix[2:34]); err != nil {
-			return nil, err
-		}
+		_, _ = rand.Read(outerPrefix[2:34])
 	}
-	outerExts := slices.DeleteFunc(slices.Clone(innerExts), func(ext extension.Raw) bool { return ext.Type == extension.TypeEncryptedClientHello })
+	outerExts := slices.DeleteFunc(slices.Clone(innerExts), func(ext extension.Raw) bool {
+		return ext.Type == extension.TypeEncryptedClientHello || ext.Type == extension.TypePreSharedKey
+	})
 	publicName, err := (extension.ServerNameOffer{ServerName: config.PublicName}).MarshalData()
 	if err != nil {
 		return nil, err
@@ -231,7 +273,11 @@ func sealOuterClientHello(prefix []byte, innerExts []extension.Raw, config Confi
 	if err != nil {
 		return nil, err
 	}
+	echIndex := len(outerExts)
 	outerExts = append(outerExts, extension.Raw{Type: extension.TypeEncryptedClientHello, Data: payload})
+	if grease != nil {
+		outerExts = append(outerExts, extension.Raw{Type: extension.TypePreSharedKey, Data: grease})
+	}
 	aad, err := appendExtensions(bytes.Clone(outerPrefix), outerExts)
 	if err != nil {
 		return nil, err
@@ -240,12 +286,36 @@ func sealOuterClientHello(prefix []byte, innerExts []extension.Raw, config Confi
 	if err != nil {
 		return nil, err
 	}
-	outerExts[len(outerExts)-1].Data, err = offer.MarshalData()
+	outerExts[echIndex].Data, err = offer.MarshalData()
 	if err != nil {
 		return nil, err
 	}
 
 	return appendExtensions(outerPrefix, outerExts)
+}
+
+// GREASE identities and binders conceal the real PSKs and retain their lengths.
+// https://www.rfc-editor.org/rfc/rfc9849.html#section-6.1.2
+func greasePSK(exts []extension.Raw) ([]byte, error) {
+	i := extensionIndex(exts, extension.TypePreSharedKey)
+	if i < 0 {
+		return nil, nil
+	}
+	var offer extension13.OfferedPSKs
+	if err := offer.UnmarshalData(bytes.Clone(exts[i].Data)); err != nil {
+		return nil, err
+	}
+	for i := range offer.Identities {
+		_, _ = rand.Read(offer.Identities[i].Identity)
+		var age [4]byte
+		_, _ = rand.Read(age[:])
+		offer.Identities[i].ObfuscatedTicketAge = binary.BigEndian.Uint32(age[:])
+	}
+	for _, binder := range offer.Binders {
+		_, _ = rand.Read(binder)
+	}
+
+	return offer.MarshalData()
 }
 
 // splitHello parses a DTLS ClientHello body, retaining exact wire bytes.
