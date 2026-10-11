@@ -17,6 +17,7 @@ import (
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
 	"github.com/pion/dtls/v4/internal/closer"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight12 "github.com/pion/dtls/v4/internal/flight/flight12"
@@ -299,6 +300,7 @@ func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigVal
 
 		state: dtlsstate.NewActive(isClient),
 	}
+	dtlsstate.CommonState(conn.state).ServerName = handshakeConfig.ServerName
 	if nextConn != nil {
 		conn.nextConn = netctx.NewPacketConn(nextConn)
 		conn.packetConn, _ = nextConn.(*udp.PacketConn)
@@ -343,6 +345,8 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 	if c.isHandshakeCompletedSuccessfully() {
 		return nil
 	}
+
+	defer c.configureECHKeyCallback(ctx)()
 
 	handshakeDone := make(chan struct{})
 	defer close(handshakeDone)
@@ -391,6 +395,25 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *Conn) configureECHKeyCallback(ctx context.Context) func() {
+	getter := c.handshakeConfig.GetECHKeys
+	if getter == nil {
+		return func() {}
+	}
+	callbackCtx, cancel := context.WithCancel(ctx)
+	c.handshakeConfig.GetECHKeys = func(info *dtlsconfig.ClientHelloInfo) ([]ech.Key, error) {
+		info.Context = func() context.Context { return callbackCtx }
+		info.Conn = c
+
+		return getter(info)
+	}
+
+	return func() {
+		cancel()
+		c.handshakeConfig.GetECHKeys = getter
+	}
 }
 
 // prepareHandshakeStart negotiates the DTLS version and decides how the FSM should start.

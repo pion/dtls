@@ -65,7 +65,8 @@ type Common struct {
 
 	IsClient bool
 
-	ServerName string
+	ServerName  string
+	ECHAccepted bool
 
 	ReplayDetector map[uint64]replaydetector.ReplayDetector
 

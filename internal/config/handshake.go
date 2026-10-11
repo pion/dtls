@@ -6,6 +6,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -14,6 +15,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -56,9 +58,13 @@ type (
 )
 
 type ClientHelloInfo struct {
-	ServerName   string
-	CipherSuites []cryptosuite.ID
-	RandomBytes  [handshake.RandomBytesLength]byte
+	ServerName        string
+	CipherSuites      []cryptosuite.ID
+	RandomBytes       [handshake.RandomBytesLength]byte
+	Hello             *handshake.MessageClientHello
+	HelloRetryRequest bool
+	Context           func() context.Context
+	Conn              net.Conn
 }
 
 type CertificateRequestInfo struct {
@@ -122,9 +128,11 @@ func SupportsCertificate(acceptableCAs [][]byte, c *tls.Certificate) error {
 
 type HandshakeConfig struct {
 	// ECHConfigList enables initial-offer construction internally.
-	ECHConfigList    []byte
-	ECHKeys          []ech.Key
-	PSKIdentityLimit int
+	ECHConfigList      []byte
+	ECHKeys            []ech.Key
+	GetECHKeys         func(*ClientHelloInfo) ([]ech.Key, error)
+	ECHRejectionVerify func(internalstate.Active) error
+	PSKIdentityLimit   int
 	// SelectPSK returns the selected offer index, key, and hash, or a nil key if none match.
 	SelectPSK                     func(identities [][]byte) (index int, key []byte, hash crypto.Hash, err error)
 	GetPSKs                       func() ([]internalstate.PSK, error)
@@ -181,8 +189,8 @@ type HandshakeConfig struct {
 
 // ValidateECHVersions enforces the client version policy before sending an offer.
 func (c *HandshakeConfig) ValidateECHVersions() error {
-	if c.ECHConfigList != nil && (c.MinVersion != protocol.Version1_3 || c.MaxVersion != protocol.Version1_3) {
-		return fmt.Errorf("ECH requires MinVersion and MaxVersion to be DTLS 1.3: %w", dtlserrors.ErrUnsupportedProtocolVersion)
+	if c.ECHConfigList != nil && ((c.MinVersion != 0 && c.MinVersion != protocol.Version1_3) || (c.MaxVersion != 0 && c.MaxVersion != protocol.Version1_3)) {
+		return fmt.Errorf("ECH requires DTLS 1.3: %w", dtlserrors.ErrUnsupportedProtocolVersion)
 	}
 
 	return nil

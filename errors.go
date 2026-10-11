@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
@@ -18,6 +19,10 @@ import (
 
 // ErrConnClosed indicates that the connection is closed.
 var ErrConnClosed = dtlserrors.ErrConnClosed
+
+// ECHRejectionError reports authenticated ECH rejection and retry configurations
+// for a new connection. The rejected connection cannot carry application data.
+type ECHRejectionError = ech.RejectionError
 
 // errInvalidCipherSuite indicates an attempt at using an unsupported cipher suite.
 type invalidCipherSuiteError struct {

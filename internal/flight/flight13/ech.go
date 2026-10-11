@@ -10,6 +10,7 @@ import (
 	"hash"
 	"slices"
 
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	"github.com/pion/dtls/v4/internal/ech"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
@@ -40,6 +41,7 @@ func (h *handshakeContext) acceptECH(item dtlsflight.DecodedHandshakeCacheItem) 
 	if err := h.verifyECHServerHello(hello, item.Raw.Data[handshake.HeaderLength:]); err != nil {
 		return err
 	}
+	h.state.ECHAccepted = context.Accepted
 	if previouslyDecided {
 		return nil
 	}
@@ -129,7 +131,7 @@ func (h *handshakeContext) processECHClientHello(item dtlsflight.DecodedHandshak
 	if err := item.Validate(); err != nil {
 		return item, err
 	}
-	context, err := h.echClientHello(item.Raw.Data[handshake.HeaderLength:])
+	context, err := h.echClientHello(item)
 	if err != nil || context.Inner == nil {
 		return item, err
 	}
@@ -149,18 +151,45 @@ func (h *handshakeContext) processECHClientHello(item dtlsflight.DecodedHandshak
 	data = append(data, context.Inner...)
 	raw := dtlsflight.HandshakeCacheItem{Typ: item.Raw.Typ, IsClient: item.Raw.IsClient, Epoch: item.Raw.Epoch, MessageSequence: item.Raw.MessageSequence, Data: data}
 	h.state.ECHServer = &context
+	h.state.ECHAccepted = true
 
 	return dtlsflight.DecodedHandshakeCacheItem{Raw: &raw, Parsed: parsed}, nil
 }
 
-func (h *handshakeContext) echClientHello(body []byte) (ech.ServerContext, error) {
+func (h *handshakeContext) echClientHello(item dtlsflight.DecodedHandshakeCacheItem) (ech.ServerContext, error) {
+	body := item.Raw.Data[handshake.HeaderLength:]
 	if context := h.state.ECHServer; context != nil && len(context.HelloRetryRequest) != 0 {
 		_, err := context.ProcessRetry(body)
 
 		return *context, err
 	}
 
-	return ech.ProcessClientHello(body, h.cfg.ECHKeys)
+	keys := h.cfg.ECHKeys
+	hello, ok := item.Parsed.Message.(*handshake.MessageClientHello)
+	if ok && h.cfg.GetECHKeys != nil && slices.ContainsFunc(hello.Extensions, func(ext extension.Value) bool {
+		return ext.ExtensionType() == extension.TypeEncryptedClientHello
+	}) {
+		var err error
+		keys, err = h.echKeys(hello)
+		if err != nil {
+			return ech.ServerContext{}, err
+		}
+	}
+
+	return ech.ProcessClientHello(body, keys)
+}
+
+func (h *handshakeContext) echKeys(hello *handshake.MessageClientHello) ([]ech.Key, error) {
+	info := &dtlsconfig.ClientHelloInfo{
+		Hello:             hello,
+		HelloRetryRequest: h.state.HelloRetryRequest.HasCookie || h.state.HelloRetryRequest.HasSelectedGroup,
+	}
+	keys, err := h.cfg.GetECHKeys(info)
+	if err != nil {
+		return nil, echFailure(alert.InternalError, err)
+	}
+
+	return keys, nil
 }
 
 func (h *handshakeContext) confirmECHRetry(serverHello *handshake.MessageServerHello) error {
@@ -213,9 +242,25 @@ func (h *handshakeContext) appendECHRetryConfigs(exts []extension.Value) ([]exte
 	if h.state.ECHServer != nil || !h.state.RemoteClientHelloSnapshots.Initial().Offered(extension.TypeEncryptedClientHello) {
 		return exts, nil
 	}
+	keys := h.cfg.ECHKeys
+	if h.cfg.GetECHKeys != nil {
+		hello, err := negotiation.ClientHelloFromSnapshot(h.state.RemoteClientHelloSnapshots.Current())
+		if err != nil {
+			return nil, err
+		}
+		keys, err = h.echKeys(hello)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return appendECHRetryConfigs(exts, keys)
+}
+
+func appendECHRetryConfigs(exts []extension.Value, keys []ech.Key) ([]extension.Value, error) {
 	var builder cryptobyte.Builder
 	builder.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
-		for _, key := range h.cfg.ECHKeys {
+		for _, key := range keys {
 			if !key.SendAsRetry {
 				continue
 			}

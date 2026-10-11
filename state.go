@@ -42,6 +42,10 @@ type State struct {
 	IdentityHint       []byte
 	SessionID          []byte
 	NegotiatedProtocol string
+	// ServerName is the negotiated SNI, or the public name during ECH rejection verification.
+	ServerName string
+	// ECHAccepted reports whether ECH was negotiated successfully.
+	ECHAccepted bool
 	// KeyUsage is the current record keys' usage.
 	KeyUsage *KeyUsageStats
 	// exporterMasterSecret is exporter_master_secret from
@@ -113,6 +117,8 @@ func remainingUsage(limit, used uint64) uint64 {
 }
 
 type serializedState struct {
+	ECHAccepted           bool
+	ServerName            string
 	DTLS13                *serializedState13
 	ExporterMasterSecret  []byte
 	KeyUsage              *KeyUsageStats
@@ -183,6 +189,8 @@ func snapshotCommonState(common *dtlsstate.Common) *State {
 		IdentityHint:          bytes.Clone(common.IdentityHint),
 		SessionID:             bytes.Clone(common.SessionID),
 		NegotiatedProtocol:    common.NegotiatedProtocol,
+		ServerName:            common.ServerName,
+		ECHAccepted:           common.ECHAccepted,
 	}
 }
 
@@ -258,6 +266,8 @@ func (s *State) serialize() (*serializedState, error) {
 		RRCNegotiated:         s.rrcNegotiated,
 		IsClient:              s.isClient,
 		NegotiatedProtocol:    s.NegotiatedProtocol,
+		ServerName:            s.ServerName,
+		ECHAccepted:           s.ECHAccepted,
 	}, nil
 }
 
@@ -296,6 +306,8 @@ func (s *State) deserialize(serialized serializedState) {
 	s.IdentityHint = serialized.IdentityHint
 	s.SessionID = serialized.SessionID
 	s.NegotiatedProtocol = serialized.NegotiatedProtocol
+	s.ServerName = serialized.ServerName
+	s.ECHAccepted = serialized.ECHAccepted
 }
 
 func (s *State) cipherSuite() (cryptosuite.Suite, error) {
@@ -356,6 +368,8 @@ func (s *State) restoreCommonState(suite cryptosuite.Suite, version protocol.Ver
 		PeerCertificates: dtlsutil.CloneByteSlices(s.PeerCertificates),
 		IdentityHint:     bytes.Clone(s.IdentityHint), SessionID: bytes.Clone(s.SessionID),
 		NegotiatedProtocol: s.NegotiatedProtocol, RRCNegotiated: s.rrcNegotiated,
+		ServerName:                    s.ServerName,
+		ECHAccepted:                   s.ECHAccepted,
 		RemoteConnectionID:            bytes.Clone(s.remoteConnectionID),
 		RemoteSRTPMasterKeyIdentifier: bytes.Clone(s.peerSRTPMKI),
 	}

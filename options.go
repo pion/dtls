@@ -22,6 +22,7 @@ import (
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsnet "github.com/pion/dtls/v4/internal/net"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
@@ -54,6 +55,10 @@ type Option interface {
 }
 
 type dtlsConfig struct {
+	echConfigList                 []byte
+	echKeys                       []ech.Key
+	echRejectionVerify            func(*State) error
+	getECHKeys                    func(*ClientHelloInfo) ([]EncryptedClientHelloKey, error)
 	Certificates                  []tls.Certificate
 	CipherSuites                  []cryptosuite.ID
 	SignatureSchemes              []tls.SignatureScheme
@@ -319,6 +324,89 @@ func WithVerifyConnection(fn func(*State) error) Option {
 // WithRootCAs sets the root certificate authorities.
 func WithRootCAs(pool *x509.CertPool) Option {
 	return valueOption(func(c *dtlsConfig) **x509.CertPool { return &c.RootCAs }, pool)
+}
+
+// EncryptedClientHelloKey associates an encoded ECHConfig with its HPKE private
+// key. SendAsRetry includes the configuration in authenticated ECH rejection.
+type EncryptedClientHelloKey = ech.Key
+
+// ECHOption configures ECH-specific settings in WithECH.
+type ECHOption interface {
+	applyECH(*dtlsConfig)
+}
+
+type echOption struct {
+	client bool
+	apply  func(*dtlsConfig)
+}
+
+func (o echOption) applyECH(c *dtlsConfig) {
+	if o.client == c.isClient {
+		o.apply(c)
+	}
+}
+
+// WithECH configures Encrypted Client Hello. Go 1.26 or newer is required.
+// Client-only settings are ignored by servers, and server-only settings by clients.
+func WithECH(opts ...ECHOption) Option {
+	opts = slices.Clone(opts)
+
+	return sharedOption(func(c *dtlsConfig) error {
+		if !ech.Available() {
+			return ech.ErrToolchain
+		}
+		for _, opt := range opts {
+			opt.applyECH(c)
+		}
+
+		return nil
+	})
+}
+
+// WithECHConfigList sets the client's encoded ECHConfigList. A nil list disables
+// ECH. Unset version bounds default to DTLS 1.3. MinVersion must not be DTLS 1.2.
+// Configs are validated during the handshake.
+// Rejection returns ECHRejectionError,Early data uses the same session-ticket and replay policy
+// as connections without ECH.
+func WithECHConfigList(configList []byte) ECHOption {
+	configList = bytes.Clone(configList)
+
+	return echOption{client: true, apply: func(c *dtlsConfig) { c.echConfigList = bytes.Clone(configList) }}
+}
+
+// WithECHKeys sets the server's ECH keys. SendAsRetry selects configurations to
+// include in ECH rejection. Unknown configuration versions are skipped during
+// decryption. WithECHGetKeys overrides these keys.
+func WithECHKeys(keys []EncryptedClientHelloKey) ECHOption {
+	keys = cloneECHKeys(keys)
+
+	return echOption{apply: func(c *dtlsConfig) { c.echKeys = cloneECHKeys(keys) }}
+}
+
+// WithECHRejectionVerify sets the client's ECH provider certificate verifier.
+// It replaces normal certificate verification on rejection. A nil callback uses
+// RootCAs and the ECH public name. VerifyPeerCertificate, VerifyConnection, and
+// InsecureSkipVerify are ignored on rejection. An error aborts the handshake.
+func WithECHRejectionVerify(fn func(*State) error) ECHOption {
+	return echOption{client: true, apply: func(c *dtlsConfig) { c.echRejectionVerify = fn }}
+}
+
+// WithECHGetKeys sets the server's ECH key callback, overriding WithECHKeys.
+// It runs only when ECH is offered, receiving the outer ClientHello before
+// decryption and again when preparing retry configurations after rejection.
+// An error aborts the handshake. A nil callback uses the static
+// keys.
+func WithECHGetKeys(fn func(*ClientHelloInfo) ([]EncryptedClientHelloKey, error)) ECHOption {
+	return echOption{apply: func(c *dtlsConfig) { c.getECHKeys = fn }}
+}
+
+func cloneECHKeys(keys []EncryptedClientHelloKey) []ech.Key {
+	copied := make([]ech.Key, len(keys))
+	for i, key := range keys {
+		copied[i] = ech.Key{Config: bytes.Clone(key.Config), PrivateKey: bytes.Clone(key.PrivateKey), SendAsRetry: key.SendAsRetry}
+	}
+
+	return copied
 }
 
 // WithServerName sets the server name for certificate verification.
@@ -730,6 +818,21 @@ func adaptGetCertificate(getCertificate func(*ClientHelloInfo) (*tls.Certificate
 	}
 }
 
+func adaptGetECHKeys(getKeys func(*ClientHelloInfo) ([]EncryptedClientHelloKey, error)) func(*dtlsconfig.ClientHelloInfo) ([]ech.Key, error) {
+	if getKeys == nil {
+		return nil
+	}
+
+	return func(info *dtlsconfig.ClientHelloInfo) ([]ech.Key, error) {
+		keys, err := getKeys(newECHClientHelloInfo(info))
+		if err != nil {
+			return nil, err
+		}
+
+		return cloneECHKeys(keys), nil
+	}
+}
+
 func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo) (*tls.Certificate, error)) func(*dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
 	if getClientCertificate == nil {
 		return nil
@@ -748,6 +851,10 @@ func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo
 
 func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resumeState dtlsstate.Active) *dtlsconfig.HandshakeConfig {
 	handshakeConfig := &dtlsconfig.HandshakeConfig{
+		ECHConfigList:                 bytes.Clone(config.echConfigList),
+		ECHKeys:                       config.echKeys,
+		GetECHKeys:                    adaptGetECHKeys(config.getECHKeys),
+		ECHRejectionVerify:            adaptVerifyConnection(config.echRejectionVerify),
 		PSKIdentityLimit:              config.pskIdentityLimit,
 		LocalCipherSuites:             configValues.cipherSuites,
 		LocalSignatureSchemes:         configValues.signatureSchemes,
@@ -785,6 +892,11 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		ResumeState:                   resumeState,
 		MinVersion:                    configValues.minVersion,
 		MaxVersion:                    configValues.maxVersion,
+	}
+	// Preserve an explicit ECH minimum for handshake validation, even when
+	// cipher-suite filtering narrowed the effective range to DTLS 1.3.
+	if config.echConfigList != nil && config.MinVersion != 0 {
+		handshakeConfig.MinVersion = config.MinVersion
 	}
 	if config.sessionStore != nil {
 		handshakeConfig.GetSession = func(key []byte) (id, secret []byte, err error) {
@@ -1171,7 +1283,7 @@ func filterCipherSuitesForCertificate(
 // prevents advertising a version for which the local configuration cannot
 // complete a handshake.
 func effectiveProtocolVersionRange(config *dtlsConfig) (protocol.Version, protocol.Version, error) {
-	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(config.MinVersion, config.MaxVersion)
+	minVersion, maxVersion := config.protocolVersionRange()
 	versions := dtlsconfig.SupportedVersionsRange(minVersion, maxVersion)
 
 	if cipherVersions := supportedCipherSuiteVersions(config.CipherSuites, config.customCipherSuites, versions); len(cipherVersions) != 0 {
@@ -1189,6 +1301,18 @@ func effectiveProtocolVersionRange(config *dtlsConfig) (protocol.Version, protoc
 	}
 
 	return versions[len(versions)-1], versions[0], nil
+}
+
+func (c *dtlsConfig) protocolVersionRange() (protocol.Version, protocol.Version) {
+	minVersion, maxVersion := dtlsconfig.NormalizeProtocolVersionRange(c.MinVersion, c.MaxVersion)
+	if c.echConfigList != nil && c.MinVersion == 0 {
+		minVersion = protocol.Version1_3
+	}
+	if (c.echConfigList != nil || len(c.echKeys) > 0 || c.getECHKeys != nil) && c.MaxVersion == 0 {
+		maxVersion = protocol.Version1_3
+	}
+
+	return minVersion, maxVersion
 }
 
 func supportedCipherSuiteVersions(suites []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, versions []protocol.Version) []protocol.Version {

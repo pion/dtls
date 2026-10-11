@@ -4,14 +4,18 @@
 package dtls
 
 import (
+	"bytes"
 	"crypto/dsa" //nolint:staticcheck
+	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
+	"encoding/hex"
 	"testing"
 	"time"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsnet "github.com/pion/dtls/v4/internal/net"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
@@ -543,4 +547,83 @@ func TestOptionConfiguration(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testECHKey(t *testing.T) ([]byte, EncryptedClientHelloKey) {
+	t.Helper()
+	key, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	list, err := hex.DecodeString("0045fe0d0041590020002092a01233db2218518ccbbbbc24df20686af417b37388de6460e94011974777090004000100010012636c6f7564666c6172652d6563682e636f6d0000")
+	require.NoError(t, err)
+	copy(list[11:43], key.PublicKey().Bytes())
+
+	return list, EncryptedClientHelloKey{Config: bytes.Clone(list[2:]), PrivateKey: key.Bytes(), SendAsRetry: true}
+}
+
+func TestECHOptions(t *testing.T) {
+	list, key := testECHKey(t)
+	clientOption := WithECH(WithECHConfigList(list))
+	serverOption := WithECH(WithECHKeys([]EncryptedClientHelloKey{key}))
+	clear(list)
+	clear(key.Config)
+	clear(key.PrivateKey)
+	client, err := buildClientConfig(clientOption)
+	if !ech.Available() {
+		require.ErrorIs(t, err, ech.ErrToolchain)
+		_, err = buildServerConfig(serverOption)
+		require.ErrorIs(t, err, ech.ErrToolchain)
+
+		return
+	}
+	require.NoError(t, err)
+	server, err := buildServerConfig(serverOption)
+	require.NoError(t, err)
+	require.NotEqual(t, list, client.echConfigList)
+	require.NotEqual(t, key.Config, server.echKeys[0].Config)
+	require.NotEqual(t, key.PrivateKey, server.echKeys[0].PrivateKey)
+	conn, err := newOptionsClient(t, clientOption)
+	require.NoError(t, err)
+	require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MinVersion)
+	require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MaxVersion)
+	require.Equal(t, client.echConfigList, conn.handshakeConfig.ECHConfigList)
+	conn, err = newOptionsClient(t, clientOption, WithMinVersion(protocol.Version1_2))
+	require.NoError(t, err)
+	require.ErrorIs(t, conn.Handshake(), dtlserrors.ErrUnsupportedProtocolVersion)
+	conn, err = newOptionsClient(t, clientOption, WithMinVersion(protocol.Version1_2), WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256))
+	require.NoError(t, err)
+	require.ErrorIs(t, conn.Handshake(), dtlserrors.ErrUnsupportedProtocolVersion)
+	conn, err = newOptionsClient(t, WithECH(WithECHConfigList([]byte{0, 4, 0xfe, 0x0d, 0, 0})))
+	require.NoError(t, err)
+	require.Error(t, conn.Handshake())
+}
+
+func TestECHOptionRoles(t *testing.T) {
+	if !ech.Available() {
+		t.Skip("HPKE requires Go 1.26")
+	}
+	list, key := testECHKey(t)
+	options := WithECH(WithECHConfigList(list), WithECHKeys([]EncryptedClientHelloKey{key}),
+		WithECHRejectionVerify(func(*State) error { return nil }),
+		WithECHGetKeys(func(*ClientHelloInfo) ([]EncryptedClientHelloKey, error) {
+			return []EncryptedClientHelloKey{key}, nil
+		}))
+	client, err := buildClientConfig(options)
+	require.NoError(t, err)
+	require.Nil(t, client.echKeys)
+	require.Nil(t, client.getECHKeys)
+	server, err := buildServerConfig(options)
+	require.NoError(t, err)
+	require.Nil(t, server.echConfigList)
+	require.Nil(t, server.echRejectionVerify)
+	_, err = buildServerConfig(WithECH(WithECHConfigList([]byte{1})))
+	require.NoError(t, err)
+	_, err = buildClientConfig(WithECH(WithECHKeys([]EncryptedClientHelloKey{{Config: []byte{1}}})))
+	require.NoError(t, err)
+	client, err = buildClientConfig(WithECH(WithECHConfigList(nil), WithECHRejectionVerify(nil)))
+	require.NoError(t, err)
+	require.Nil(t, client.echConfigList)
+	server, err = buildServerConfig(options, WithECH(WithECHGetKeys(nil)))
+	require.NoError(t, err)
+	require.Nil(t, server.getECHKeys)
+	require.Equal(t, key.Config, server.echKeys[0].Config)
 }

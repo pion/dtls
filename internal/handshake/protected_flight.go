@@ -190,6 +190,12 @@ func (f *protectedHandshakeFlight) verifyServerIdentity() error {
 	// Rejection authenticates the public name independently of normal verification overrides.
 	// https://www.rfc-editor.org/rfc/rfc9849#section-6.1.7
 	if f.echRejected() {
+		if f.cfg.ECHRejectionVerify != nil {
+			state := dtlsstate.Clone13ForVerification(f.state, f.peerCertificates)
+			state.ServerName = f.state.ECH.Config.PublicName
+
+			return certificateVerificationError(f.cfg.ECHRejectionVerify(state))
+		}
 		_, err := dtlscrypto.VerifyServerCert(f.peerCertificates, f.cfg.RootCAs, f.state.ECH.Config.PublicName, certAlgs)
 
 		return certificateVerificationError(err)
