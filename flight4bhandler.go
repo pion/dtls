@@ -72,9 +72,13 @@ func flight4bGenerate(
 		})
 	}
 	if state.getSRTPProtectionProfile() != 0 {
+		var mki []byte
+		if bytes.Equal(state.remoteSRTPMasterKeyIdentifier, cfg.localSRTPMasterKeyIdentifier) {
+			mki = bytes.Clone(state.remoteSRTPMasterKeyIdentifier)
+		}
 		extensions = append(extensions, &extension.UseSRTP{
 			ProtectionProfiles:  []SRTPProtectionProfile{state.getSRTPProtectionProfile()},
-			MasterKeyIdentifier: cfg.localSRTPMasterKeyIdentifier,
+			MasterKeyIdentifier: mki,
 		})
 	}
 

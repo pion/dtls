@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -281,9 +282,13 @@ func flight4Generate(
 		})
 	}
 	if state.getSRTPProtectionProfile() != 0 {
+		var mki []byte
+		if bytes.Equal(state.remoteSRTPMasterKeyIdentifier, cfg.localSRTPMasterKeyIdentifier) {
+			mki = bytes.Clone(state.remoteSRTPMasterKeyIdentifier)
+		}
 		extensions = append(extensions, &extension.UseSRTP{
 			ProtectionProfiles:  []SRTPProtectionProfile{state.getSRTPProtectionProfile()},
-			MasterKeyIdentifier: cfg.localSRTPMasterKeyIdentifier,
+			MasterKeyIdentifier: mki,
 		})
 	}
 	if state.remoteSupportsRenegotiation {
