@@ -559,7 +559,7 @@ func (c *Conn) RemoteSRTPMasterKeyIdentifier() ([]byte, bool) {
 		return nil, false
 	}
 
-	return c.state.remoteSRTPMasterKeyIdentifier, true
+	return bytes.Clone(c.state.remoteSRTPMasterKeyIdentifier), true
 }
 
 func (c *Conn) writePackets(ctx context.Context, pkts []*packet) error {
