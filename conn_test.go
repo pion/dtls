@@ -944,6 +944,16 @@ func TestClientTimeout(t *testing.T) {
 	assert.True(t, netErr.Timeout(), "Client error exp(Timeout) failed")
 }
 
+func serverHelloWithInvalidSRTPMKI(hello handshake.MessageServerHello) handshake.Message {
+	for _, ext := range hello.Extensions {
+		if srtp, ok := ext.(*extension.UseSRTP); ok {
+			srtp.MasterKeyIdentifier = []byte("OtherMKI")
+		}
+	}
+
+	return &hello
+}
+
 func TestSRTPConfiguration(t *testing.T) {
 	// Check for leaking routines
 	report := test.CheckRoutines(t)
@@ -956,6 +966,8 @@ func TestSRTPConfiguration(t *testing.T) {
 		ClientSRTPMasterKeyIdentifier []byte
 		ServerSRTPMasterKeyIdentifier []byte
 		ExpectedProfile               SRTPProtectionProfile
+		ExpectedClientMKI             []byte
+		ServerHelloHook               func(handshake.MessageServerHello) handshake.Message
 		WantClientError               error
 		WantServerError               error
 	}{
@@ -968,14 +980,39 @@ func TestSRTPConfiguration(t *testing.T) {
 			WantServerError: nil,
 		},
 		{
-			Name:                          "SRTP both ends",
+			Name:                          "SRTP with echoed MKI",
 			ClientSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			ServerSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
 			ExpectedProfile:               SRTP_AES128_CM_HMAC_SHA1_80,
 			ClientSRTPMasterKeyIdentifier: []byte("ClientSRTPMKI"),
-			ServerSRTPMasterKeyIdentifier: []byte("ServerSRTPMKI"),
+			ServerSRTPMasterKeyIdentifier: []byte("ClientSRTPMKI"),
+			ExpectedClientMKI:             []byte("ClientSRTPMKI"),
 			WantClientError:               nil,
 			WantServerError:               nil,
+		},
+		{
+			Name:                          "SRTP with declined MKI",
+			ClientSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ServerSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ClientSRTPMasterKeyIdentifier: []byte("ClientSRTPMKI"),
+			ServerSRTPMasterKeyIdentifier: []byte("OtherMKI"),
+			ExpectedProfile:               SRTP_AES128_CM_HMAC_SHA1_80,
+		},
+		{
+			Name:                          "SRTP without offered MKI",
+			ClientSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ServerSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ServerSRTPMasterKeyIdentifier: []byte("OtherMKI"),
+			ExpectedProfile:               SRTP_AES128_CM_HMAC_SHA1_80,
+		},
+		{
+			Name:                          "SRTP with invalid server MKI",
+			ClientSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ServerSRTP:                    []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+			ClientSRTPMasterKeyIdentifier: []byte("ClientSRTPMKI"),
+			WantClientError:               errClientNoMatchingSRTPProfile,
+			WantServerError:               &alertError{&alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}},
+			ServerHelloHook:               serverHelloWithInvalidSRTPMKI,
 		},
 		{
 			Name:            "SRTP client only",
@@ -1010,60 +1047,74 @@ func TestSRTPConfiguration(t *testing.T) {
 			WantServerError: nil,
 		},
 	} {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		t.Run(test.Name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		ca, cb := dpipe.Pipe()
-		type result struct {
-			c   *Conn
-			err error
-		}
-		resultCh := make(chan result)
+			ca, cb := dpipe.Pipe()
+			type result struct {
+				c   *Conn
+				err error
+			}
+			resultCh := make(chan result)
 
-		go func() {
-			client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
-				SRTPProtectionProfiles: test.ClientSRTP, SRTPMasterKeyIdentifier: test.ServerSRTPMasterKeyIdentifier,
+			go func() {
+				client, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+					SRTPProtectionProfiles: test.ClientSRTP, SRTPMasterKeyIdentifier: test.ClientSRTPMasterKeyIdentifier,
+				}, true)
+				resultCh <- result{client, err}
+			}()
+
+			server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+				SRTPProtectionProfiles: test.ServerSRTP, SRTPMasterKeyIdentifier: test.ServerSRTPMasterKeyIdentifier,
+				ServerHelloMessageHook: test.ServerHelloHook,
 			}, true)
-			resultCh <- result{client, err}
-		}()
+			assert.ErrorIs(t, err, test.WantServerError, "TestSRTPConfiguration: Server Error Mismatch")
 
-		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
-			SRTPProtectionProfiles: test.ServerSRTP, SRTPMasterKeyIdentifier: test.ClientSRTPMasterKeyIdentifier,
-		}, true)
-		assert.ErrorIs(t, err, test.WantServerError, "TestSRTPConfiguration: Server Error Mismatch")
+			if err == nil {
+				defer func() {
+					_ = server.Close()
+				}()
+			}
 
-		if err == nil {
-			defer func() {
-				_ = server.Close()
-			}()
-		}
+			res := <-resultCh
+			if res.err == nil {
+				defer func() {
+					_ = res.c.Close()
+				}()
+			}
+			assert.ErrorIsf(t, res.err, test.WantClientError, "TestSRTPConfiguration: Client Error Mismatch '%s'", test.Name)
+			if res.err != nil || err != nil || res.c == nil || server == nil {
+				return
+			}
 
-		res := <-resultCh
-		if res.err == nil {
-			defer func() {
-				_ = res.c.Close()
-			}()
-		}
-		assert.ErrorIsf(t, res.err, test.WantClientError, "TestSRTPConfiguration: Client Error Mismatch '%s'", test.Name)
-		if res.c == nil {
-			return
-		}
+			actualClientSRTP, _ := res.c.SelectedSRTPProtectionProfile()
+			assert.Equalf(t, test.ExpectedProfile, actualClientSRTP,
+				"TestSRTPConfiguration: Client SRTPProtectionProfile Mismatch '%s'", test.Name)
 
-		actualClientSRTP, _ := res.c.SelectedSRTPProtectionProfile()
-		assert.Equalf(t, test.ExpectedProfile, actualClientSRTP,
-			"TestSRTPConfiguration: Client SRTPProtectionProfile Mismatch '%s'", test.Name)
+			actualServerSRTP, _ := server.SelectedSRTPProtectionProfile()
+			assert.Equalf(t, test.ExpectedProfile, actualServerSRTP,
+				"TestSRTPConfiguration: Server SRTPProtectionProfile Mismatch '%s'", test.Name)
 
-		actualServerSRTP, _ := server.SelectedSRTPProtectionProfile()
-		assert.Equalf(t, test.ExpectedProfile, actualServerSRTP,
-			"TestSRTPConfiguration: Server SRTPProtectionProfile Mismatch '%s'", test.Name)
+			actualServerMKI, _ := server.RemoteSRTPMasterKeyIdentifier()
+			assert.Truef(t, bytes.Equal(test.ClientSRTPMasterKeyIdentifier, actualServerMKI),
+				"TestSRTPConfiguration: Server SRTPMKI Mismatch '%s'", test.Name)
 
-		actualServerMKI, _ := server.RemoteSRTPMasterKeyIdentifier()
-		assert.Truef(t, bytes.Equal(test.ServerSRTPMasterKeyIdentifier, actualServerMKI),
-			"TestSRTPConfiguration: Server SRTPMKI Mismatch '%s'", test.Name)
+			if len(actualServerMKI) > 0 {
+				actualServerMKI[0] ^= 0xff
+				again, _ := server.RemoteSRTPMasterKeyIdentifier()
+				assert.Equal(t, test.ClientSRTPMasterKeyIdentifier, again)
+			}
 
-		actualClientMKI, _ := res.c.RemoteSRTPMasterKeyIdentifier()
-		assert.Truef(t, bytes.Equal(test.ClientSRTPMasterKeyIdentifier, actualClientMKI),
-			"TestSRTPConfiguration: Client SRTPMKI Mismatch '%s'", test.Name)
+			actualClientMKI, _ := res.c.RemoteSRTPMasterKeyIdentifier()
+			assert.Truef(t, bytes.Equal(test.ExpectedClientMKI, actualClientMKI),
+				"TestSRTPConfiguration: Client SRTPMKI Mismatch '%s'", test.Name)
+			if len(actualClientMKI) > 0 {
+				actualClientMKI[0] ^= 0xff
+				again, _ := res.c.RemoteSRTPMasterKeyIdentifier()
+				assert.Equal(t, test.ExpectedClientMKI, again)
+			}
+		})
 	}
 }
 
@@ -2852,66 +2903,86 @@ func TestSessionResume(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
-	t.Run("resumed", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	for _, testCase := range []struct {
+		name        string
+		serverMKI   string
+		expectedMKI string
+	}{
+		{"echoed MKI", "ClientMKI", "ClientMKI"},
+		{"declined MKI", "OtherMKI", ""},
+		{"empty MKI", "", ""},
+	} {
+		t.Run("resumed/"+testCase.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-		type result struct {
-			c   *Conn
-			err error
-		}
-		clientRes := make(chan result, 1)
-
-		ss := &memSessStore{}
-
-		id, _ := hex.DecodeString("9b9fc92255634d9fb109febed42166717bb8ded8c738ba71bc7f2a0d9dae0306")
-		secret, _ := hex.DecodeString(
-			"2e942a37aca5241deb2295b5fcedac221c7078d2503d2b62aeb48c880d7da73c001238b708559686b9da6e829c05ead7",
-		)
-
-		s := Session{ID: id, Secret: secret}
-
-		ca, cb := dpipe.Pipe()
-
-		_ = ss.Set(id, s)
-		_ = ss.Set([]byte(ca.RemoteAddr().String()+"_example.com"), s)
-
-		go func() {
-			config := &Config{
-				CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-				ServerName:   "example.com",
-				SessionStore: ss,
-				MTU:          100,
+			type result struct {
+				c   *Conn
+				err error
 			}
-			c, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config, false)
-			clientRes <- result{c, err}
-		}()
+			clientRes := make(chan result, 1)
 
-		config := &Config{
-			CipherSuites: []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			ServerName:   "example.com",
-			SessionStore: ss,
-			MTU:          100,
-		}
-		server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), config, true)
-		assert.NoError(t, err)
+			ss := &memSessStore{}
 
-		state, ok := server.ConnectionState()
-		assert.True(t, ok)
+			id, _ := hex.DecodeString("9b9fc92255634d9fb109febed42166717bb8ded8c738ba71bc7f2a0d9dae0306")
+			secret, _ := hex.DecodeString(
+				"2e942a37aca5241deb2295b5fcedac221c7078d2503d2b62aeb48c880d7da73c001238b708559686b9da6e829c05ead7",
+			)
 
-		actualSessionID := state.SessionID
-		actualMasterSecret := state.masterSecret
-		assert.Equal(t, actualSessionID, id, "TestSessionResumetion SessionID mismatch")
-		assert.Equal(t, actualMasterSecret, secret, "TestSessionResumetion masterSecret mismatch")
+			s := Session{ID: id, Secret: secret}
 
-		defer func() {
-			assert.NoError(t, server.Close())
-		}()
+			ca, cb := dpipe.Pipe()
 
-		res := <-clientRes
-		assert.NoError(t, res.err)
-		assert.NoError(t, res.c.Close())
-	})
+			_ = ss.Set(id, s)
+			_ = ss.Set([]byte(ca.RemoteAddr().String()+"_example.com"), s)
+
+			go func() {
+				config := &Config{
+					CipherSuites:            []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+					ServerName:              "example.com",
+					SessionStore:            ss,
+					SRTPProtectionProfiles:  []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+					SRTPMasterKeyIdentifier: []byte("ClientMKI"),
+					MTU:                     100,
+				}
+				c, err := testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), config, false)
+				clientRes <- result{c, err}
+			}()
+
+			config := &Config{
+				CipherSuites:            []CipherSuiteID{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+				ServerName:              "example.com",
+				SessionStore:            ss,
+				SRTPProtectionProfiles:  []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},
+				SRTPMasterKeyIdentifier: []byte(testCase.serverMKI),
+				MTU:                     100,
+			}
+			server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), config, true)
+			assert.NoError(t, err)
+
+			state, ok := server.ConnectionState()
+			assert.True(t, ok)
+
+			actualSessionID := state.SessionID
+			actualMasterSecret := state.masterSecret
+			assert.Equal(t, actualSessionID, id, "TestSessionResumetion SessionID mismatch")
+			assert.Equal(t, actualMasterSecret, secret, "TestSessionResumetion masterSecret mismatch")
+
+			defer func() {
+				assert.NoError(t, server.Close())
+			}()
+
+			res := <-clientRes
+			assert.NoError(t, res.err)
+			clientMKI, ok := res.c.RemoteSRTPMasterKeyIdentifier()
+			assert.True(t, ok)
+			assert.Equal(t, testCase.expectedMKI, string(clientMKI))
+			serverMKI, ok := server.RemoteSRTPMasterKeyIdentifier()
+			assert.True(t, ok)
+			assert.Equal(t, "ClientMKI", string(serverMKI))
+			assert.NoError(t, res.c.Close())
+		})
+	}
 
 	t.Run("new session", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

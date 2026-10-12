@@ -61,7 +61,8 @@ func flight3Parse(
 			switch ext := v.(type) {
 			case *extension.UseSRTP:
 				profile, found := findMatchingSRTPProfile(ext.ProtectionProfiles, cfg.localSRTPProtectionProfiles)
-				if !found {
+				if !found || (len(ext.MasterKeyIdentifier) > 0 &&
+					!bytes.Equal(ext.MasterKeyIdentifier, cfg.localSRTPMasterKeyIdentifier)) {
 					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errClientNoMatchingSRTPProfile
 				}
 				state.setSRTPProtectionProfile(profile)
