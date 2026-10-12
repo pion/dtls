@@ -71,17 +71,20 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 	}
 
+	var (
+		offeredEllipticCurves []elliptic.Curve
+		sawSupportedGroups    bool
+	)
 	for _, val := range clientHello.Extensions {
 		switch ext := val.(type) {
 		case *extension.SupportedEllipticCurves:
-			if len(ext.EllipticCurves) == 0 {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
-			}
-			namedCurve, ok := selectEllipticCurve(cfg.ellipticCurves, ext.EllipticCurves)
-			if !ok {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
-			}
-			state.namedCurve = namedCurve
+			// Record the client's offered curves (and that it offered the
+			// extension at all). Selection and validation are deferred to the
+			// non-resumption, ECDHE path below: only ECDHE key exchange uses a
+			// curve, so validating here would wrongly reject session resumption
+			// and plain-PSK handshakes, which use none.
+			sawSupportedGroups = true
+			offeredEllipticCurves = ext.EllipticCurves
 		case *extension.UseSRTP:
 			profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
 			if !ok {
@@ -121,21 +124,68 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerRequiredButNoClientEMS
 	}
 
-	if state.localKeypair == nil {
-		var err error
-		state.localKeypair, err = elliptic.GenerateKeypair(state.namedCurve)
-		if err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
-		}
-	}
-
 	nextFlight := flight2
 
 	if cfg.insecureSkipHelloVerify {
 		nextFlight = flight4
 	}
 
-	return handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
+	flight, resumeAlert, err := handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
+	if err != nil || resumeAlert != nil {
+		return flight, resumeAlert, err
+	}
+
+	// handleHelloResume returns flight4b only when the session resumed; a resumed
+	// session reuses cached crypto and performs no key exchange, and only ECDHE
+	// uses a curve. Select/validate the negotiated curve (and generate the server
+	// keypair) only on the non-resumption ECDHE path, so that a server restricting
+	// its configured EllipticCurves cannot wrongly reject session resumption or a
+	// plain-PSK handshake, which use no curve.
+	if flight != flight4b && state.cipherSuite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe) {
+		if alertPtr, err := selectAcceptCurve(state, cfg, offeredEllipticCurves, sawSupportedGroups); err != nil {
+			return 0, alertPtr, err
+		}
+	}
+
+	return flight, nil, nil
+}
+
+// selectAcceptCurve negotiates the server's elliptic curve on the non-resumed
+// ECDHE accept path and generates the server keypair. Behavior depends on what
+// the client advertised in supported_groups:
+//   - a set the server also supports: select the intersection, honoring the
+//     client's preference order;
+//   - a set with no server-supported curve (offeredPresent, but empty after the
+//     extension parser drops curve IDs the server does not implement): refuse,
+//     since the peers share no curve, rather than fall back to one never offered;
+//   - nothing at all: keep the server's default curve (set in flight0Generate),
+//     as RFC 8422 §5.1 permits.
+//
+// The caller must invoke this only for a non-resumed ECDHE handshake.
+func selectAcceptCurve(
+	state *State, cfg *handshakeConfig, offered []elliptic.Curve, offeredPresent bool,
+) (*alert.Alert, error) {
+	if offeredPresent && len(offered) == 0 {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
+	}
+
+	if len(offered) > 0 {
+		namedCurve, ok := selectEllipticCurve(cfg.ellipticCurves, offered)
+		if !ok {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
+		}
+		state.namedCurve = namedCurve
+	}
+
+	if state.localKeypair == nil {
+		keypair, err := elliptic.GenerateKeypair(state.namedCurve)
+		if err != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+		}
+		state.localKeypair = keypair
+	}
+
+	return nil, nil //nolint:nilnil // two-value (alert, error) status, consistent with this handler
 }
 
 // selectEllipticCurve returns the first curve the client offered that the server
