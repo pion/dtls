@@ -142,6 +142,18 @@ func flight0Parse(
 	// its configured EllipticCurves cannot wrongly reject session resumption or a
 	// plain-PSK handshake, which use no curve.
 	if flight != flight4b && state.cipherSuite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe) {
+		if _, sharedCurve := selectEllipticCurve(cfg.ellipticCurves, offeredEllipticCurves); sawSupportedGroups && !sharedCurve {
+			// A fresh ECDHE handshake needs a shared group. Retry with the
+			// remaining suites, preserving the client's preference order.
+			usableSuites := slices.DeleteFunc(slices.Clone(cipherSuites), func(suite CipherSuite) bool {
+				return suite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe)
+			})
+			if fallback, found := findMatchingCipherSuite(usableSuites, cfg.localCipherSuites); found {
+				state.cipherSuite = fallback
+
+				return flight, nil, nil
+			}
+		}
 		if alertPtr, err := selectAcceptCurve(state, cfg, offeredEllipticCurves, sawSupportedGroups); err != nil {
 			return 0, alertPtr, err
 		}
