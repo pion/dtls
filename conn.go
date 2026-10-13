@@ -55,8 +55,9 @@ type addrPkt struct {
 }
 
 type recvHandshakeState struct {
-	done         chan struct{}
-	isRetransmit bool
+	done                    chan struct{}
+	isRetransmit            bool
+	isClientHelloRetransmit bool
 }
 
 // Conn represents a DTLS connection.
@@ -936,9 +937,9 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 		return err
 	}
 
-	var hasHandshake, isRetransmit bool
-	for _, p := range pkts {
-		hs, rtx, alert, err := c.handleIncomingPacket(ctx, p, rAddr, true)
+	var hasHandshake, isRetransmit, isClientHelloRetransmit bool
+	for _, packet := range pkts {
+		hs, rtx, alert, err := c.handleIncomingPacket(ctx, packet, rAddr, true)
 		if alert != nil {
 			if alertErr := c.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 				if err == nil {
@@ -956,6 +957,7 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 		}
 		if hs {
 			hasHandshake = true
+			isClientHelloRetransmit = isClientHelloRetransmit || c.handshakeCache.isClientHelloRetransmit(packet)
 		}
 		if rtx {
 			isRetransmit = true
@@ -963,8 +965,9 @@ func (c *Conn) readAndBuffer(ctx context.Context) error { //nolint:cyclop
 	}
 	if hasHandshake {
 		s := recvHandshakeState{
-			done:         make(chan struct{}),
-			isRetransmit: isRetransmit,
+			done:                    make(chan struct{}),
+			isRetransmit:            isRetransmit,
+			isClientHelloRetransmit: isClientHelloRetransmit,
 		}
 		select {
 		case c.handshakeRecv <- s:

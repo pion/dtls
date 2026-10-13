@@ -4,10 +4,13 @@
 package dtls
 
 import (
+	"bytes"
 	"sync"
 
 	"github.com/pion/dtls/v3/pkg/crypto/prf"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
+	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
 type handshakeCacheItem struct {
@@ -26,8 +29,10 @@ type handshakeCachePullRule struct {
 }
 
 type handshakeCache struct {
-	cache []*handshakeCacheItem
-	mu    sync.Mutex
+	cache                         []*handshakeCacheItem
+	mu                            sync.Mutex
+	clientHelloRetransmit         *fragments
+	clientHelloRetransmitSequence uint16
 }
 
 func newHandshakeCache() *handshakeCache {
@@ -182,4 +187,86 @@ func (h *handshakeCache) sessionHash(hf prf.HashFunc, epoch uint16, additional .
 	}
 
 	return hash.Sum(nil), nil
+}
+
+// isClientHelloRetransmit recognizes an unchanged copy of the most recent
+// ClientHello, including retransmissions fragmented differently from the original.
+// Partial fragments and older cookie exchanges do not trigger a response.
+func (h *handshakeCache) isClientHelloRetransmit(packet []byte) bool {
+	var record recordlayer.Header
+	if err := record.Unmarshal(packet); err != nil {
+		return false
+	}
+	if record.ContentType != protocol.ContentTypeHandshake || record.Epoch != 0 {
+		return false
+	}
+	cached := h.pull(handshakeCachePullRule{typ: handshake.TypeClientHello, epoch: 0, isClient: true})[0]
+	if cached == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for payload := packet[recordlayer.FixedHeaderSize:]; len(payload) > 0; {
+		var header handshake.Header
+		if err := header.Unmarshal(payload); err != nil {
+			return false
+		}
+		size := handshake.HeaderLength + int(header.FragmentLength)
+		if size > len(payload) {
+			return false
+		}
+		data := payload[handshake.HeaderLength:size]
+		payload = payload[size:]
+		complete, err := h.addClientHelloRetransmit(cached, header, data)
+		if err != nil {
+			return false
+		}
+		if complete {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c *handshakeCacheItem) matchesClientHelloFragment(header handshake.Header, data []byte) bool {
+	if header.Type != handshake.TypeClientHello || header.MessageSequence != c.messageSequence ||
+		int(header.Length) != len(c.data)-handshake.HeaderLength ||
+		header.FragmentOffset > header.Length || header.FragmentLength > header.Length-header.FragmentOffset {
+		return false
+	}
+	original := c.data[handshake.HeaderLength:]
+
+	return bytes.Equal(data, original[header.FragmentOffset:header.FragmentOffset+header.FragmentLength])
+}
+
+func (h *handshakeCache) addClientHelloRetransmit(
+	cached *handshakeCacheItem,
+	header handshake.Header,
+	data []byte,
+) (bool, error) {
+	if !cached.matchesClientHelloFragment(header, data) {
+		return false, nil
+	}
+	if h.clientHelloRetransmit == nil || h.clientHelloRetransmitSequence != header.MessageSequence {
+		h.clientHelloRetransmit = &fragments{}
+		h.clientHelloRetransmitSequence = header.MessageSequence
+	}
+	fragments := h.clientHelloRetransmit
+	available := fragmentBufferMaxCount - len(fragments.ranges)
+	original := cached.data[handshake.HeaderLength:]
+	fragment := original[header.FragmentOffset : header.FragmentOffset+header.FragmentLength]
+	if _, _, err := fragments.add(header.FragmentOffset, fragment, available); err != nil {
+		h.clientHelloRetransmit = nil
+
+		return false, err
+	}
+	if fragments.covered == header.Length {
+		h.clientHelloRetransmit = nil
+
+		return true, nil
+	}
+
+	return false, nil
 }
