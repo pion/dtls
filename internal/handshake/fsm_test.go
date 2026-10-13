@@ -9,6 +9,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight12 "github.com/pion/dtls/v4/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	"github.com/pion/dtls/v4/internal/negotiation"
@@ -153,6 +156,8 @@ func TestHandshakeFSMRetransmitTimeout(t *testing.T) {
 			expectedState: StateSending,
 		},
 		{name: "backoff disabled", retransmit: true, disableBackoff: true, initial: time.Second, expected: time.Second, expectedState: StateSending},
+		{name: "long interval", retransmit: true, initial: time.Hour, expected: time.Hour, expectedState: StateSending},
+		{name: "maximum interval", retransmit: true, initial: time.Duration(math.MaxInt64), expected: time.Duration(math.MaxInt64), expectedState: StateSending},
 		{
 			name:          "cap",
 			retransmit:    true,
@@ -170,6 +175,42 @@ func TestHandshakeFSMRetransmitTimeout(t *testing.T) {
 			assert.Equal(t, test.expectedState, handleRetransmitTimeout(test.retransmit, &interval, cfg))
 			assert.Equal(t, test.expected, interval)
 		})
+	}
+}
+
+func TestHandshakeFSM12ClientHelloRecovery(t *testing.T) {
+	for _, flight := range []dtlsflight12.Flight{dtlsflight12.Flight4, dtlsflight12.Flight4b} {
+		for _, interval := range []time.Duration{time.Nanosecond, time.Hour, time.Duration(math.MaxInt64)} {
+			t.Run(fmt.Sprintf("%v/%v", flight, interval), func(t *testing.T) {
+				state := dtlsstate.NewState12(false)
+				fsm := &fsm12{
+					currentFlight: flight, retransmit: true, retransmitInterval: interval,
+					state: &state, cache: dtlsflight.NewCache(),
+					cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: interval},
+				}
+				conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+				want := 2 * time.Nanosecond
+				if interval != time.Nanosecond {
+					conn.recvHandshake <- RecvHandshakeState{Done: make(chan struct{}), IsClientHelloRetransmit: true}
+					want = interval
+				}
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				next, err := fsm.wait(ctx, conn)
+				require.NoError(t, err)
+				require.Equal(t, StateSending, next)
+				require.Equal(t, want, fsm.retransmitInterval)
+				require.True(t, fsm.peerRetransmitAfter.After(time.Now()))
+				// A repeat immediately after either retry trigger must be ignored.
+				fsm.retransmitInterval = time.Hour
+				repeated := RecvHandshakeState{Done: make(chan struct{}), IsClientHelloRetransmit: true}
+				conn.recvHandshake <- repeated
+				go func() { <-repeated.Done; cancel() }()
+				next, err = fsm.wait(ctx, conn)
+				require.ErrorIs(t, err, context.Canceled)
+				require.Equal(t, StateErrored, next)
+			})
+		}
 	}
 }
 

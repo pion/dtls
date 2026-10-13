@@ -18,6 +18,104 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestClientHelloRetransmit(t *testing.T) {
+	const messageLength = 4
+
+	makePacket := func(sequence uint16, offset uint32, fragment string) []byte {
+		t.Helper()
+		fragmentLength := len(fragment)
+		if fragmentLength > messageLength {
+			assert.Fail(t, "test fragment exceeds the ClientHello length")
+
+			return nil
+		}
+
+		header := handshake.Header{
+			Type:            handshake.TypeClientHello,
+			MessageSequence: sequence,
+			Length:          messageLength,
+			FragmentOffset:  offset,
+			FragmentLength:  uint32(fragmentLength),
+		}
+		raw, err := header.Marshal()
+		assert.NoError(t, err)
+
+		return append(raw, fragment...)
+	}
+
+	original := makePacket(1, 0, "abcd")
+	firstFragment := makePacket(1, 0, "ab")
+	lastFragment := makePacket(1, 2, "cd")
+
+	type step struct {
+		packet       []byte
+		wantComplete bool
+	}
+
+	for _, testCase := range []struct {
+		name  string
+		steps []step
+	}{
+		{
+			name: "complete",
+			steps: []step{
+				{packet: original, wantComplete: true},
+				{packet: original, wantComplete: true},
+			},
+		},
+		{
+			name:  "older flight",
+			steps: []step{{packet: makePacket(0, 0, "abcd")}},
+		},
+		{
+			name:  "changed content",
+			steps: []step{{packet: makePacket(1, 0, "abce")}},
+		},
+		{
+			name: "fragmented",
+			steps: []step{
+				{packet: firstFragment},
+				{packet: lastFragment, wantComplete: true},
+			},
+		},
+		{
+			name: "reordered",
+			steps: []step{
+				{packet: lastFragment},
+				{packet: firstFragment, wantComplete: true},
+			},
+		},
+		{
+			name: "overlapping fragments",
+			steps: []step{
+				{packet: firstFragment},
+				{packet: makePacket(1, 1, "bc")},
+				{packet: lastFragment, wantComplete: true},
+			},
+		},
+		{
+			name: "repeated partial",
+			steps: []step{
+				{packet: firstFragment},
+				{packet: firstFragment},
+			},
+		},
+		{
+			name:  "truncated",
+			steps: []step{{packet: original[:len(original)-1]}},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cache := dtlsflight.NewCache()
+			cache.Push(original, 0, 1, handshake.TypeClientHello, true)
+
+			for i, step := range testCase.steps {
+				assert.Equal(t, step.wantComplete, cache.IsClientHelloRetransmit(step.packet), "step %d", i)
+			}
+		})
+	}
+}
+
 func cacheItem(typ handshake.Type, client bool, epoch uint64, sequence uint16, data byte) dtlsflight.HandshakeCacheItem {
 	return dtlsflight.HandshakeCacheItem{Typ: typ, IsClient: client, Epoch: epoch, MessageSequence: sequence, Data: []byte{data}}
 }

@@ -17,6 +17,8 @@ type RecvHandshakeState struct {
 	// HasHandshake distinguishes an ACK-only event from a handshake event.
 	HasHandshake bool
 	IsRetransmit bool
+	// IsClientHelloRetransmit identifies a complete, unchanged DTLS 1.2 ClientHello repeat.
+	IsClientHelloRetransmit bool
 	// IsRetransmitStart identifies an offset-zero fragment of an old message.
 	IsRetransmitStart bool
 	// ACK messages received from the peer.

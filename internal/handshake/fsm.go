@@ -65,13 +65,9 @@ func handleRetransmitTimeout(retransmit bool, retransmitInterval *time.Duration,
 		return StateWaiting
 	}
 
-	// RFC 4347 4.2.4.1: retransmissions use exponential backoff, capped at
-	// 60 seconds.
-	if !cfg.DisableRetransmitBackoff {
-		*retransmitInterval *= 2
-	}
-	if *retransmitInterval > time.Second*60 {
-		*retransmitInterval = time.Second * 60
+	// Clamp before doubling, preserving configured intervals above the normal cap.
+	if !cfg.DisableRetransmitBackoff && *retransmitInterval < time.Minute {
+		*retransmitInterval = min(*retransmitInterval, 30*time.Second) * 2
 	}
 
 	return StateSending

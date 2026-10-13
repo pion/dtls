@@ -18,8 +18,11 @@ import (
 )
 
 type Cache struct {
-	cache []*HandshakeCacheItem
-	mu    sync.Mutex
+	cache                         []*HandshakeCacheItem
+	mu                            sync.Mutex
+	clientHelloRetransmit         []byte
+	clientHelloRetransmitSequence uint16
+	clientHelloRetransmitCovered  uint32
 }
 
 type handshakeCacheDecodeKind uint8
@@ -39,6 +42,72 @@ type HandshakeCacheDecoder func([]byte) (*handshake.Handshake, error)
 
 func NewCache() *Cache {
 	return &Cache{}
+}
+
+// IsClientHelloRetransmit recognizes a complete, unchanged copy of the latest
+// epoch-zero ClientHello, even when its fragmentation differs. Content starts
+// with a handshake header; the caller must check the record epoch and sender.
+func (h *Cache) IsClientHelloRetransmit(content []byte) bool {
+	cached := h.Pull(HandshakeCachePullRule{Typ: handshake.TypeClientHello, IsClient: true})[0]
+	if cached == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for len(content) > 0 {
+		var header handshake.Header
+		if header.Unmarshal(content) != nil {
+			return false
+		}
+		size := handshake.HeaderLength + int(header.FragmentLength)
+		if size > len(content) {
+			return false
+		}
+		if h.addClientHelloRetransmit(cached, header, content[handshake.HeaderLength:size]) {
+			return true
+		}
+		content = content[size:]
+	}
+
+	return false
+}
+
+func (cached *HandshakeCacheItem) matchesClientHelloFragment(header handshake.Header, data []byte) bool {
+	if header.Type != handshake.TypeClientHello || header.MessageSequence != cached.MessageSequence ||
+		int(header.Length) != len(cached.Data)-handshake.HeaderLength ||
+		header.FragmentOffset > header.Length || header.FragmentLength > header.Length-header.FragmentOffset {
+		return false
+	}
+	original := cached.Data[handshake.HeaderLength:]
+
+	return bytes.Equal(data, original[header.FragmentOffset:header.FragmentOffset+header.FragmentLength])
+}
+
+func (h *Cache) addClientHelloRetransmit(cached *HandshakeCacheItem, header handshake.Header, data []byte) bool {
+	if !cached.matchesClientHelloFragment(header, data) {
+		return false
+	}
+	if h.clientHelloRetransmit == nil || h.clientHelloRetransmitSequence != header.MessageSequence {
+		// One bit per cached byte bounds memory independently of fragment count.
+		h.clientHelloRetransmit = make([]byte, (header.Length+7)/8)
+		h.clientHelloRetransmitSequence = header.MessageSequence
+		h.clientHelloRetransmitCovered = 0
+	}
+	for i := header.FragmentOffset; i < header.FragmentOffset+header.FragmentLength; i++ {
+		mask := byte(1 << (i % 8))
+		if h.clientHelloRetransmit[i/8]&mask == 0 {
+			h.clientHelloRetransmit[i/8] |= mask
+			h.clientHelloRetransmitCovered++
+		}
+	}
+	if h.clientHelloRetransmitCovered == header.Length {
+		h.clientHelloRetransmit = nil
+
+		return true
+	}
+
+	return false
 }
 
 func (h *Cache) Push(data []byte, epoch uint64, messageSequence uint16, typ handshake.Type, isClient bool) {

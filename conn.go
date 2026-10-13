@@ -117,18 +117,20 @@ type incomingPacketState struct {
 }
 
 type packetOutcome struct {
-	containsHandshake bool
-	retransmit        bool
-	retransmitStart   bool
-	receivedACK       *protocol.ACK
-	responseAlert     *alert.Alert
+	containsHandshake     bool
+	retransmit            bool
+	retransmitStart       bool
+	clientHelloRetransmit bool
+	receivedACK           *protocol.ACK
+	responseAlert         *alert.Alert
 }
 
 type datagramProcessingSummary struct {
-	containsHandshake bool
-	retransmit        bool
-	retransmitStart   bool
-	receivedACKs      []protocol.ACK
+	containsHandshake     bool
+	retransmit            bool
+	retransmitStart       bool
+	clientHelloRetransmit bool
+	receivedACKs          []protocol.ACK
 }
 
 type readLoopErrorAction uint8
@@ -1510,19 +1512,20 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 		return nil
 	}
 
-	s := dtlshandshake.RecvHandshakeState{
-		Done:              make(chan struct{}),
-		HasHandshake:      summary.containsHandshake,
-		IsRetransmit:      summary.retransmit,
-		IsRetransmitStart: summary.retransmitStart,
-		ACKs:              summary.receivedACKs,
-		RecordsToACK:      c.takePendingACKs(),
+	received := dtlshandshake.RecvHandshakeState{
+		Done:                    make(chan struct{}),
+		HasHandshake:            summary.containsHandshake,
+		IsRetransmit:            summary.retransmit,
+		IsRetransmitStart:       summary.retransmitStart,
+		IsClientHelloRetransmit: summary.clientHelloRetransmit,
+		ACKs:                    summary.receivedACKs,
+		RecordsToACK:            c.takePendingACKs(),
 	}
 	select {
-	case c.handshakeRecv <- s:
+	case c.handshakeRecv <- received:
 		// If the other party may retransmit the flight,
 		// we should respond even if it not a new message.
-		<-s.Done
+		<-received.Done
 	case <-c.fsm.Done():
 	}
 
@@ -1596,6 +1599,7 @@ func (c *Conn) processDatagramPackets(ctx context.Context, pkts [][]byte, rAddr 
 		summary.containsHandshake = summary.containsHandshake || outcome.containsHandshake
 		summary.retransmit = summary.retransmit || outcome.retransmit
 		summary.retransmitStart = summary.retransmitStart || outcome.retransmitStart
+		summary.clientHelloRetransmit = summary.clientHelloRetransmit || outcome.clientHelloRetransmit
 		if outcome.receivedACK != nil {
 			summary.receivedACKs = append(summary.receivedACKs, *outcome.receivedACK)
 		}
@@ -2281,10 +2285,14 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 		c.handshakeCache.Push(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient)
 	}
 
+	common := dtlsstate.CommonState(c.state)
+
 	return packetOutcome{
 		containsHandshake: true,
 		retransmit:        result.IsRetransmit,
 		retransmitStart:   result.IsRetransmitStart,
+		clientHelloRetransmit: !common.IsClient && common.LocalVersion == protocol.Version1_2 &&
+			number.Epoch == 0 && result.IsRetransmit && c.handshakeCache.IsClientHelloRetransmit(content),
 	}, isLatestSeqNum
 }
 

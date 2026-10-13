@@ -52,15 +52,17 @@ import (
 //           Retransmit last flight
 
 type fsm12 struct {
-	currentFlight      dtlsflight12.Flight
-	flights            []*dtlsflight.Outbound
-	retransmit         bool
-	retransmitInterval time.Duration
-	state              *dtlsstate.State12
-	cache              *dtlsflight.Cache
-	cfg                *dtlsconfig.HandshakeConfig
-	closed             chan struct{}
-	establishment      *Establishment
+	currentFlight          dtlsflight12.Flight
+	flights                []*dtlsflight.Outbound
+	retransmit             bool
+	retransmitInterval     time.Duration
+	peerRetransmitAfter    time.Time
+	peerRetransmitInterval time.Duration
+	state                  *dtlsstate.State12
+	cache                  *dtlsflight.Cache
+	cfg                    *dtlsconfig.HandshakeConfig
+	closed                 chan struct{}
+	establishment          *Establishment
 }
 
 func NewFSM12(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight12.Flight, initialFlights []*dtlsflight.Outbound, establishment *Establishment) FSM {
@@ -113,6 +115,8 @@ func (s *fsm12) prepare(ctx context.Context, conn Conn) (State, error) {
 		return StateErrored, err
 	}
 
+	s.peerRetransmitAfter = time.Time{}
+	s.peerRetransmitInterval = 0
 	s.flights = pkts
 	epoch := s.cfg.InitialEpoch
 	nextEpoch := epoch
@@ -153,12 +157,6 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:c
 	for {
 		select {
 		case state := <-conn.RecvHandshake():
-			if !state.IsRetransmit {
-				// only reset retransmit interval on non-retransmit state
-				// https://github.com/pion/dtls/issues/758
-				s.retransmitInterval = s.cfg.InitialRetransmitInterval
-			}
-
 			nextFlight, dtlsAlert, err, ok := dtlsflight12.Parse(
 				ctx,
 				s.currentFlight,
@@ -186,7 +184,18 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:c
 				return StateErrored, err
 			}
 			if nextFlight == 0 {
+				if state.IsClientHelloRetransmit &&
+					(s.currentFlight == dtlsflight12.Flight4 || s.currentFlight == dtlsflight12.Flight4b) &&
+					!time.Now().Before(s.peerRetransmitAfter) {
+					s.backoffPeerRetransmit()
+
+					return StateSending, nil
+				}
+
 				break
+			}
+			if !state.IsRetransmit {
+				s.retransmitInterval = s.cfg.InitialRetransmitInterval
 			}
 			s.cfg.Log.Tracef("[handshake:%s] %s -> %s", sideString(s.state.IsClient), s.currentFlight.String(), nextFlight.String())
 			if nextFlight.IsLastRecvFlight() && s.currentFlight == nextFlight {
@@ -197,11 +206,25 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:c
 			return StatePreparing, nil
 
 		case <-retransmitTimer.C():
+			if s.retransmit {
+				s.backoffPeerRetransmit()
+			}
+
 			return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg), nil
 		case <-ctx.Done():
 			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
 		}
 	}
+}
+
+// Rate-limit peer recovery separately from the configured retransmission timer.
+func (s *fsm12) backoffPeerRetransmit() {
+	if s.peerRetransmitInterval == 0 {
+		s.peerRetransmitInterval = time.Second
+	} else if !s.cfg.DisableRetransmitBackoff {
+		s.peerRetransmitInterval = min(s.peerRetransmitInterval, 30*time.Second) * 2
+	}
+	s.peerRetransmitAfter = time.Now().Add(s.peerRetransmitInterval)
 }
 
 func (s *fsm12) finish(ctx context.Context, c Conn) (State, error) {
