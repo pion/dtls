@@ -6,6 +6,7 @@ package dtls
 import (
 	"context"
 	"crypto/rand"
+	"slices"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -70,13 +71,16 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 	}
 
+	var (
+		offeredEllipticCurves []elliptic.Curve
+		sawSupportedGroups    bool
+	)
 	for _, val := range clientHello.Extensions {
 		switch ext := val.(type) {
 		case *extension.SupportedEllipticCurves:
-			if len(ext.EllipticCurves) == 0 {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
-			}
-			state.namedCurve = ext.EllipticCurves[0]
+			// Defer curve validation until we know whether key exchange is needed.
+			sawSupportedGroups = true
+			offeredEllipticCurves = ext.EllipticCurves
 		case *extension.UseSRTP:
 			profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
 			if !ok {
@@ -116,21 +120,89 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerRequiredButNoClientEMS
 	}
 
-	if state.localKeypair == nil {
-		var err error
-		state.localKeypair, err = elliptic.GenerateKeypair(state.namedCurve)
-		if err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
-		}
-	}
-
 	nextFlight := flight2
 
 	if cfg.insecureSkipHelloVerify {
 		nextFlight = flight4
 	}
 
-	return handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
+	flight, resumeAlert, err := handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
+	if err != nil || resumeAlert != nil {
+		return flight, resumeAlert, err
+	}
+
+	// Resumed sessions and plain PSK do not need a curve.
+	if flight != flight4b && state.cipherSuite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe) {
+		if fallback := selectNonECDHEFallback(cfg, cipherSuites, offeredEllipticCurves, sawSupportedGroups); fallback != nil {
+			state.cipherSuite = fallback
+
+			return flight, nil, nil
+		}
+		if alertPtr, err := selectAcceptCurve(state, cfg, offeredEllipticCurves, sawSupportedGroups); err != nil {
+			return 0, alertPtr, err
+		}
+	}
+
+	return flight, nil, nil
+}
+
+// selectNonECDHEFallback retries suite selection only when no offered group is shared.
+func selectNonECDHEFallback(
+	cfg *handshakeConfig, suites []CipherSuite, offered []elliptic.Curve, offeredPresent bool,
+) CipherSuite {
+	if !offeredPresent {
+		return nil
+	}
+	if _, shared := selectEllipticCurve(cfg.ellipticCurves, offered); shared {
+		return nil
+	}
+
+	usable := slices.DeleteFunc(slices.Clone(suites), func(suite CipherSuite) bool {
+		return suite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe)
+	})
+	fallback, _ := findMatchingCipherSuite(usable, cfg.localCipherSuites)
+
+	return fallback
+}
+
+// selectAcceptCurve selects a curve and generates a keypair for fresh ECDHE.
+// Absent supported_groups keeps the default (RFC 8422 §5.1); a present but
+// empty list, including one whose unknown IDs were dropped, must be rejected.
+func selectAcceptCurve(
+	state *State, cfg *handshakeConfig, offered []elliptic.Curve, offeredPresent bool,
+) (*alert.Alert, error) {
+	if offeredPresent && len(offered) == 0 {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
+	}
+
+	if len(offered) > 0 {
+		namedCurve, ok := selectEllipticCurve(cfg.ellipticCurves, offered)
+		if !ok {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoSupportedEllipticCurves
+		}
+		state.namedCurve = namedCurve
+	}
+
+	if state.localKeypair == nil {
+		keypair, err := elliptic.GenerateKeypair(state.namedCurve)
+		if err != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+		}
+		state.localKeypair = keypair
+	}
+
+	return nil, nil //nolint:nilnil // no alert or error
+}
+
+// selectEllipticCurve returns the first shared curve in client preference order.
+func selectEllipticCurve(configured, offered []elliptic.Curve) (elliptic.Curve, bool) {
+	for _, curve := range offered {
+		if slices.Contains(configured, curve) {
+			return curve, true
+		}
+	}
+
+	return 0, false
 }
 
 func handleHelloResume(
