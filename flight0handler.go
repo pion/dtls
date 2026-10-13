@@ -78,11 +78,7 @@ func flight0Parse(
 	for _, val := range clientHello.Extensions {
 		switch ext := val.(type) {
 		case *extension.SupportedEllipticCurves:
-			// Record the client's offered curves (and that it offered the
-			// extension at all). Selection and validation are deferred to the
-			// non-resumption, ECDHE path below: only ECDHE key exchange uses a
-			// curve, so validating here would wrongly reject session resumption
-			// and plain-PSK handshakes, which use none.
+			// Defer curve validation until we know whether key exchange is needed.
 			sawSupportedGroups = true
 			offeredEllipticCurves = ext.EllipticCurves
 		case *extension.UseSRTP:
@@ -135,12 +131,7 @@ func flight0Parse(
 		return flight, resumeAlert, err
 	}
 
-	// handleHelloResume returns flight4b only when the session resumed; a resumed
-	// session reuses cached crypto and performs no key exchange, and only ECDHE
-	// uses a curve. Select/validate the negotiated curve (and generate the server
-	// keypair) only on the non-resumption ECDHE path, so that a server restricting
-	// its configured EllipticCurves cannot wrongly reject session resumption or a
-	// plain-PSK handshake, which use no curve.
+	// Resumed sessions and plain PSK do not need a curve.
 	if flight != flight4b && state.cipherSuite.KeyExchangeAlgorithm().Has(CipherSuiteKeyExchangeAlgorithmEcdhe) {
 		if _, sharedCurve := selectEllipticCurve(cfg.ellipticCurves, offeredEllipticCurves); sawSupportedGroups && !sharedCurve {
 			// A fresh ECDHE handshake needs a shared group. Retry with the
@@ -162,18 +153,9 @@ func flight0Parse(
 	return flight, nil, nil
 }
 
-// selectAcceptCurve negotiates the server's elliptic curve on the non-resumed
-// ECDHE accept path and generates the server keypair. Behavior depends on what
-// the client advertised in supported_groups:
-//   - a set the server also supports: select the intersection, honoring the
-//     client's preference order;
-//   - a set with no server-supported curve (offeredPresent, but empty after the
-//     extension parser drops curve IDs the server does not implement): refuse,
-//     since the peers share no curve, rather than fall back to one never offered;
-//   - nothing at all: keep the server's default curve (set in flight0Generate),
-//     as RFC 8422 §5.1 permits.
-//
-// The caller must invoke this only for a non-resumed ECDHE handshake.
+// selectAcceptCurve selects a curve and generates a keypair for fresh ECDHE.
+// Absent supported_groups keeps the default (RFC 8422 §5.1); a present but
+// empty list, including one whose unknown IDs were dropped, must be rejected.
 func selectAcceptCurve(
 	state *State, cfg *handshakeConfig, offered []elliptic.Curve, offeredPresent bool,
 ) (*alert.Alert, error) {
@@ -197,19 +179,10 @@ func selectAcceptCurve(
 		state.localKeypair = keypair
 	}
 
-	return nil, nil //nolint:nilnil // two-value (alert, error) status, consistent with this handler
+	return nil, nil //nolint:nilnil // no alert or error
 }
 
-// selectEllipticCurve returns the first curve the client offered that the server
-// is also configured to use, honoring the client's preference order. It reports
-// ok=false when the two lists do not intersect, so the caller refuses the
-// handshake instead of falling back to a curve the server never advertised.
-//
-// This brings elliptic-curve negotiation in line with the cipher-suite and SRTP
-// selection in flight0Parse (findMatchingCipherSuite / findMatchingSRTPProfile),
-// and with the offer side, which already restricts curves to the configured set.
-// Previously the server used the client's first offered curve unconditionally —
-// the only handshake parameter that ignored the server's own configuration.
+// selectEllipticCurve returns the first shared curve in client preference order.
 func selectEllipticCurve(configured, offered []elliptic.Curve) (elliptic.Curve, bool) {
 	for _, curve := range offered {
 		if slices.Contains(configured, curve) {
