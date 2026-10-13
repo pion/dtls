@@ -199,8 +199,16 @@ func TestFlight0PSKFallbackIgnoresCurveConfig(t *testing.T) {
 		want   CipherSuiteID
 	}{
 		{"plain PSK only", []CipherSuiteID{TLS_PSK_WITH_AES_128_CCM_8}, elliptic.P256, TLS_PSK_WITH_AES_128_CCM_8},
-		{"disjoint curves", []CipherSuiteID{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256, TLS_PSK_WITH_AES_128_CCM_8}, elliptic.P256, TLS_PSK_WITH_AES_128_CCM_8},
-		{"shared curve", []CipherSuiteID{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256, TLS_PSK_WITH_AES_128_CCM_8}, elliptic.X25519, TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256},
+		{
+			"disjoint curves",
+			[]CipherSuiteID{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256, TLS_PSK_WITH_AES_128_CCM_8},
+			elliptic.P256, TLS_PSK_WITH_AES_128_CCM_8,
+		},
+		{
+			"shared curve",
+			[]CipherSuiteID{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256, TLS_PSK_WITH_AES_128_CCM_8},
+			elliptic.X25519, TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			testFlight0PSKFallback(t, tc.suites, tc.curve, tc.want)
