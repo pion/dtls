@@ -40,7 +40,7 @@ type handshakeKeySchedule struct {
 
 func commitPreparedFlights(conn Conn, state *dtlsstate.State13, transcript *Transcript, cfg *dtlsconfig.HandshakeConfig, flights []*dtlsflight.Outbound) error {
 	nextEpoch, protectedFlightStart := prepareFlightPackets(state, cfg.InitialEpoch, flights)
-	if err := commitOutboundFlight(state, transcript, flights, protectedFlightStart); err != nil {
+	if err := commitOutboundFlight(state, transcript, cfg, flights, protectedFlightStart); err != nil {
 		return err
 	}
 	if nextEpoch == cfg.InitialEpoch {
@@ -77,14 +77,14 @@ func prepareFlightPackets(
 	return nextEpoch, protectedFlightStart
 }
 
-func commitOutboundFlight(state *dtlsstate.State13, transcript *Transcript, flights []*dtlsflight.Outbound, protectedFlightStart int) error {
+func commitOutboundFlight(state *dtlsstate.State13, transcript *Transcript, cfg *dtlsconfig.HandshakeConfig, flights []*dtlsflight.Outbound, protectedFlightStart int) error {
 	if err := appendCommittedOutboundHandshakeFlight(state, transcript, flights[:protectedFlightStart]); err != nil {
 		return err
 	}
 	if protectedFlightStart == len(flights) {
 		return nil
 	}
-	if err := ensureHandshakeTrafficSecrets(state, transcript); err != nil {
+	if err := ensureHandshakeTrafficSecrets(state, transcript, cfg); err != nil {
 		return err
 	}
 	if err := InitHandshakeRecordProtection(state); err != nil {
@@ -94,10 +94,10 @@ func commitOutboundFlight(state *dtlsstate.State13, transcript *Transcript, flig
 	return appendCommittedOutboundHandshakeFlight(state, transcript, flights[protectedFlightStart:])
 }
 
-func ensureHandshakeTrafficSecrets(state *dtlsstate.State13, transcript *Transcript) error {
+func ensureHandshakeTrafficSecrets(state *dtlsstate.State13, transcript *Transcript, cfg *dtlsconfig.HandshakeConfig) error {
 	secrets := state.KeySchedule.HandshakeTraffic
 	if len(secrets.Client) == 0 && len(secrets.Server) == 0 {
-		return DeriveAndStoreHandshakeTrafficSecrets(state, transcript)
+		return DeriveAndStoreHandshakeTrafficSecrets(state, transcript, cfg)
 	}
 
 	return selectHashIfReady(transcript, state.CipherSuite)
@@ -407,7 +407,7 @@ func deriveResumptionMasterSecret(hashFunc func() hash.Hash, masterSecret, trans
 
 // DeriveAndStoreHandshakeTrafficSecrets derives DTLS 1.3 handshake traffic
 // secrets and stores them in state.
-func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript *Transcript) error {
+func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript *Transcript, cfg *dtlsconfig.HandshakeConfig) error {
 	if state == nil || state.CipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -434,6 +434,8 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript 
 	}
 	state.KeySchedule.HandshakeTraffic = secrets.HandshakeTrafficSecrets
 	state.KeySchedule.MasterSecret = secrets.MasterSecret
+	writeKeyLog(state, cfg, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", secrets.HandshakeTrafficSecrets.Client)
+	writeKeyLog(state, cfg, "SERVER_HANDSHAKE_TRAFFIC_SECRET", secrets.HandshakeTrafficSecrets.Server)
 
 	return nil
 }
@@ -442,7 +444,7 @@ func DeriveAndStoreHandshakeTrafficSecrets(state *dtlsstate.State13, transcript 
 // traffic and exporter master secrets from the current transcript snapshot.
 // The caller is responsible for invoking it with the transcript through server
 // Finished.
-func DeriveAndStoreApplicationTrafficSecrets(state *dtlsstate.State13, transcript *Transcript) error {
+func DeriveAndStoreApplicationTrafficSecrets(state *dtlsstate.State13, transcript *Transcript, cfg *dtlsconfig.HandshakeConfig) error {
 	if state == nil || state.CipherSuite == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -484,6 +486,9 @@ func DeriveAndStoreApplicationTrafficSecrets(state *dtlsstate.State13, transcrip
 	state.KeySchedule.ClientApplicationTrafficSecret0 = secrets.Client
 	state.KeySchedule.ServerApplicationTrafficSecret0 = secrets.Server
 	state.KeySchedule.ExporterMasterSecret = exporterMasterSecret
+	writeKeyLog(state, cfg, "CLIENT_TRAFFIC_SECRET_0", secrets.Client)
+	writeKeyLog(state, cfg, "SERVER_TRAFFIC_SECRET_0", secrets.Server)
+	writeKeyLog(state, cfg, "EXPORTER_SECRET", exporterMasterSecret)
 
 	return nil
 }
@@ -705,4 +710,17 @@ func hashSize(hashFunc func() hash.Hash) (int, error) {
 	}
 
 	return h.Size(), nil
+}
+
+// writeKeyLog identifies both peers' secrets using the ClientHello random.
+func writeKeyLog(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, label string, secret []byte) {
+	if cfg == nil || cfg.KeyLogWriter == nil {
+		return
+	}
+	random := state.LocalRandom
+	if !state.IsClient {
+		random = state.RemoteRandom
+	}
+	clientRandom := random.MarshalFixed()
+	cfg.WriteKeyLog(label, clientRandom[:], secret)
 }

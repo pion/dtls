@@ -1236,7 +1236,7 @@ func serverTranscriptThroughFlight4(t *testing.T, fixture noHRRFlight13Fixture) 
 	transcript := NewTranscript()
 	require.NoError(t, AppendOutboundHandshakeFlight(transcript, true, fixture.serverState.CipherSuite, fixture.clientHello))
 	require.NoError(t, AppendOutboundHandshakeFlight(transcript, false, fixture.serverState.CipherSuite, fixture.serverFlight4))
-	require.NoError(t, DeriveAndStoreApplicationTrafficSecrets(fixture.serverState, transcript))
+	require.NoError(t, DeriveAndStoreApplicationTrafficSecrets(fixture.serverState, transcript, nil))
 
 	return transcript
 }

@@ -503,7 +503,7 @@ func TestDeriveAndStoreHandshakeTrafficSecrets13FromTranscript(t *testing.T) {
 	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient}, clientHello))
 	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, serverHello))
 
-	require.NoError(t, DeriveAndStoreHandshakeTrafficSecrets(state, transcript))
+	require.NoError(t, DeriveAndStoreHandshakeTrafficSecrets(state, transcript, nil))
 
 	transcriptHash, err := transcript.SnapshotHash()
 	require.NoError(t, err)
@@ -926,7 +926,7 @@ func TestDTLS13TranscriptAuthenticatedHandshakeInputs(t *testing.T) {
 	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderClient}, clientHello))
 	require.NoError(t, transcript.appendCanonical(transcriptMessageID{sender: transcriptSenderServer}, serverHello))
 
-	require.NoError(t, DeriveAndStoreHandshakeTrafficSecrets(state, transcript))
+	require.NoError(t, DeriveAndStoreHandshakeTrafficSecrets(state, transcript, nil))
 	require.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Client)
 	require.NotEmpty(t, state.KeySchedule.HandshakeTraffic.Server)
 

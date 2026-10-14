@@ -8,6 +8,9 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
+	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +21,7 @@ import (
 	dtlsflight12 "github.com/pion/dtls/v4/internal/flight/flight12"
 	dtlshandshake "github.com/pion/dtls/v4/internal/handshake"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -26,6 +30,7 @@ import (
 	"github.com/pion/logging"
 	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const nonZeroRetransmitInterval = 100 * time.Millisecond
@@ -424,4 +429,110 @@ func (c *flightTestConn) HandleQueuedPackets(context.Context) error {
 
 func (c *flightTestConn) SessionKey() []byte {
 	return nil
+}
+
+const keyLogEarlyData = "early"
+
+func TestKeyLog(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	for _, testCase := range []struct {
+		name      string
+		version   protocol.Version
+		suites    []cryptosuite.ID
+		scenarios []string
+	}{
+		{"DTLS12", protocol.Version1_2, []cryptosuite.ID{cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}, []string{"full", "retry"}},
+		{"DTLS13", protocol.Version1_3, []cryptosuite.ID{cryptosuite.TLS_AES_128_GCM_SHA256, cryptosuite.TLS_AES_256_GCM_SHA384, cryptosuite.TLS_CHACHA20_POLY1305_SHA256}, []string{"full", "retry", "resumed", keyLogEarlyData}},
+	} {
+		for _, suite := range testCase.suites {
+			for _, scenario := range testCase.scenarios {
+				t.Run(fmt.Sprintf("%s/%s/%s", testCase.name, suite, scenario), func(t *testing.T) {
+					testKeyLogHandshake(t, certificate, testCase.version, suite, scenario)
+				})
+			}
+		}
+	}
+}
+
+func testKeyLogHandshake(t *testing.T, certificate tls.Certificate, version protocol.Version, suite cryptosuite.ID, scenario string) {
+	t.Helper()
+	var clientLog, serverLog bytes.Buffer
+	clientOptions := []ClientOption{WithInsecureSkipVerify(true), WithMinVersion(version), WithMaxVersion(version), WithCipherSuites(suite), WithKeyLogWriter(&clientLog)}
+	serverOptions := []ServerOption{WithCertificates(certificate), WithMinVersion(version), WithMaxVersion(version), WithCipherSuites(suite), WithKeyLogWriter(&serverLog), WithInsecureSkipVerifyHello(scenario != "retry")}
+	if scenario == "resumed" || scenario == keyLogEarlyData {
+		secretLen := 32
+		if suite == cryptosuite.TLS_AES_256_GCM_SHA384 {
+			secretLen = 48
+		}
+		ticket := Session{ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, secretLen), Ticket: &SessionTicket{CipherSuite: suite, CreatedAt: time.Now().Add(-time.Second), Lifetime: 60, MaxEarlyDataSize: 32, PeerCertificates: certificate.Certificate}}
+		limit := uint32(0)
+		if scenario == keyLogEarlyData {
+			limit = 32
+		}
+		clientOptions = append(clientOptions, WithSessionStore(&earlyDataTestStore{session: ticket}, WithMaxEarlyDataSize(limit)))
+		serverOptions = append(serverOptions, WithSessionStore(&earlyDataTestStore{session: ticket}, WithMaxEarlyDataSize(limit)))
+	}
+	client, err := DetachedClient(&net.UDPAddr{Port: 5555}, clientOptions...)
+	require.NoError(t, err)
+	server, err := DetachedServer(&net.UDPAddr{Port: 4444}, serverOptions...)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, server.Start(ctx))
+	require.NoError(t, client.Start(ctx))
+	if scenario == keyLogEarlyData {
+		_, err = client.WriteEarlyData([]byte(keyLogEarlyData))
+		require.NoError(t, err)
+	}
+	pumpEarlyDataPair(t, client, server)
+	require.True(t, client.established.Load())
+	require.True(t, server.established.Load())
+	assertKeyLog(t, client.conn.state, clientLog.String(), serverLog.String(), scenario)
+}
+
+func assertKeyLog(t *testing.T, state dtlsstate.Active, clientLog, serverLog, scenario string) {
+	t.Helper()
+	var random [32]byte
+	var expected map[string][]byte
+	var hashSize int
+	switch clientState := state.(type) {
+	case *dtlsstate.State12:
+		random = clientState.LocalRandom.MarshalFixed()
+		expected = map[string][]byte{"CLIENT_RANDOM": clientState.MasterSecret}
+	case *dtlsstate.State13:
+		random = clientState.LocalRandom.MarshalFixed()
+		hashSize = clientState.CipherSuite.HashFunc()().Size()
+		if scenario == "resumed" || scenario == keyLogEarlyData {
+			require.NotEmpty(t, clientState.PSK)
+		}
+		secrets := clientState.KeySchedule
+		expected = map[string][]byte{
+			"CLIENT_HANDSHAKE_TRAFFIC_SECRET": secrets.HandshakeTraffic.Client,
+			"SERVER_HANDSHAKE_TRAFFIC_SECRET": secrets.HandshakeTraffic.Server,
+			"CLIENT_TRAFFIC_SECRET_0":         secrets.ClientApplicationTrafficSecret0,
+			"SERVER_TRAFFIC_SECRET_0":         secrets.ServerApplicationTrafficSecret0,
+			"EXPORTER_SECRET":                 secrets.ExporterMasterSecret,
+		}
+	default:
+		require.FailNow(t, "unexpected state", "%T", state)
+	}
+	early := scenario == keyLogEarlyData
+	clientLines := strings.Split(strings.TrimSpace(clientLog), "\n")
+	serverLines := strings.Split(strings.TrimSpace(serverLog), "\n")
+	require.ElementsMatch(t, clientLines, serverLines)
+	count := len(expected)
+	if early {
+		count++
+	}
+	require.Len(t, clientLines, count)
+	for label, secret := range expected {
+		require.NotEmpty(t, secret)
+		require.Contains(t, clientLines, fmt.Sprintf("%s %x %x", label, random, secret))
+	}
+	if early {
+		require.True(t, strings.HasPrefix(clientLines[0], fmt.Sprintf("CLIENT_EARLY_TRAFFIC_SECRET %x ", random)))
+		require.Len(t, strings.Fields(clientLines[0])[2], hashSize*2)
+	}
 }

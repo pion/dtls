@@ -368,7 +368,7 @@ func (t *Transcript) finalizeEarlyClientHello(state *dtlsstate.State13, cfg *dtl
 	}
 	raw, err := (&handshake.Handshake{Message: final}).Marshal()
 	if err == nil {
-		err = InitEarlyRecordProtection(state, suite, state.LocalPSKs[0].Secret, raw)
+		err = InitEarlyRecordProtection(state, suite, state.LocalPSKs[0].Secret, raw, cfg)
 	}
 	if err != nil {
 		return nil, negotiation.ClientHelloSnapshot{}, err
@@ -417,7 +417,7 @@ func (s *fsm13) acceptEarlyData() error {
 	if err != nil || !fresh {
 		return nil //nolint:nilerr // failures means early data is rejected, resumption is continued
 	}
-	if err := InitEarlyRecordProtection(state, suite, psk.Secret, state.EarlyClientHello); err != nil {
+	if err := InitEarlyRecordProtection(state, suite, psk.Secret, state.EarlyClientHello, s.cfg); err != nil {
 		return err
 	}
 	state.EarlyDataStatus = dtlsstate.EarlyDataAccepted

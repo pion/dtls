@@ -7,6 +7,7 @@ import (
 	"context"
 
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
+	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
@@ -23,25 +24,27 @@ func InitHandshakeRecordProtection(state *dtlsstate.State13) error {
 
 // DeriveEarlyRecordProtection derives client early-data encryption and record
 // number protection using the ticket's cipher suite and finalized ClientHello.
-func DeriveEarlyRecordProtection(suite cryptosuite.TrafficSuite, psk, clientHello []byte) (cryptosuite.TrafficProtection, error) {
+func DeriveEarlyRecordProtection(suite cryptosuite.TrafficSuite, psk, clientHello []byte) (cryptosuite.TrafficProtection, []byte, error) {
 	if suite == nil {
-		return nil, dtlserrors.ErrCipherSuiteNotSet
+		return nil, nil, dtlserrors.ErrCipherSuiteNotSet
 	}
 	secret, err := DeriveEarlyTrafficSecret(suite.HashFunc(), psk, clientHello)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	trafficSecret, err := dtlsciphersuite.NewTrafficSecret(secret)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return suite.NewTrafficProtection(trafficSecret)
+	protection, err := suite.NewTrafficProtection(trafficSecret)
+
+	return protection, secret, err
 }
 
 // InitEarlyRecordProtection installs epoch 1 write keys on clients or read keys
 // on servers.
-func InitEarlyRecordProtection(state *dtlsstate.State13, suite cryptosuite.TrafficSuite, psk, clientHello []byte) error {
+func InitEarlyRecordProtection(state *dtlsstate.State13, suite cryptosuite.TrafficSuite, psk, clientHello []byte, cfg *dtlsconfig.HandshakeConfig) error {
 	if state == nil {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
@@ -56,10 +59,11 @@ func InitEarlyRecordProtection(state *dtlsstate.State13, suite cryptosuite.Traff
 	if write || read {
 		return nil
 	}
-	protection, err := DeriveEarlyRecordProtection(suite, psk, clientHello)
+	protection, secret, err := DeriveEarlyRecordProtection(suite, psk, clientHello)
 	if err != nil {
 		return err
 	}
+	writeKeyLog(state, cfg, "CLIENT_EARLY_TRAFFIC_SECRET", secret)
 	generation := &dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochEarlyData, CipherSuite: suite, Protection: protection}
 	if state.IsClient {
 		state.TrafficKeys.Install(generation, nil)

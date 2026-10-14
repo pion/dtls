@@ -133,7 +133,7 @@ func flight13ParseForTestWithConn(testingT require.TestingT, flight dtlsflight13
 					return dtlshandshake.VerifyAndAppendProtectedHandshakeCacheItems(flightCtx.transcript, flightCtx.state, flightCtx.cfg, cipherSuite, items)
 				},
 				HandshakeTrafficSecretDeriver: func(state *dtlsstate.State13) error {
-					return dtlshandshake.DeriveAndStoreHandshakeTrafficSecrets(state, flightCtx.transcript)
+					return dtlshandshake.DeriveAndStoreHandshakeTrafficSecrets(state, flightCtx.transcript, nil)
 				},
 				HandshakeRecordProtectionInitializer: dtlshandshake.InitHandshakeRecordProtection,
 			},

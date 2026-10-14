@@ -36,7 +36,7 @@ func (c *handshakeContext) commitPreparedFlight(conn Conn, flight dtlsflight13.F
 		return err
 	}
 	if !c.state.IsClient && flight == dtlsflight13.Flight4 {
-		return DeriveAndStoreApplicationTrafficSecrets(c.state, c.transcript)
+		return DeriveAndStoreApplicationTrafficSecrets(c.state, c.transcript, c.cfg)
 	}
 	if c.state.IsClient && flight.IsLastSendFlight() {
 		return DeriveAndStoreResumptionMasterSecret(c.state, c.transcript)
@@ -109,7 +109,7 @@ type receivedFlightTransition struct {
 
 func (c *handshakeContext) advanceAfterReceivedFlight(ctx context.Context, conn Conn, currentFlight, nextFlight dtlsflight13.Flight, receivedRecords []protocol.RecordNumber) (receivedFlightTransition, error) {
 	if c.state.IsClient && nextFlight.IsLastSendFlight() {
-		if err := DeriveAndStoreApplicationTrafficSecrets(c.state, c.transcript); err != nil {
+		if err := DeriveAndStoreApplicationTrafficSecrets(c.state, c.transcript, c.cfg); err != nil {
 			return receivedFlightTransition{}, err
 		}
 	}
@@ -160,7 +160,7 @@ func (c *handshakeContext) parseDependencies() dtlsflight13.ParseDependencies {
 				)
 			},
 			HandshakeTrafficSecretDeriver: func(state *dtlsstate.State13) error {
-				return DeriveAndStoreHandshakeTrafficSecrets(state, c.transcript)
+				return DeriveAndStoreHandshakeTrafficSecrets(state, c.transcript, c.cfg)
 			},
 			HandshakeRecordProtectionInitializer: InitHandshakeRecordProtection,
 		},
