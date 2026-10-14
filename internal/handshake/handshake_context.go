@@ -87,6 +87,7 @@ func (c *handshakeContext) rejectECH(ctx context.Context, conn Conn) error {
 
 func (c *handshakeContext) parseReceivedFlight(ctx context.Context, conn Conn, currentFlight dtlsflight13.Flight) (dtlsflight13.Flight, error) {
 	nextFlight, dtlsAlert, err, ok := dtlsflight13.Parse(ctx, currentFlight, conn, c.parseDependencies())
+	c.flushPendingEarlyKeyLog()
 	if !ok {
 		if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
 			return 0, alertErr
@@ -165,4 +166,17 @@ func (c *handshakeContext) parseDependencies() dtlsflight13.ParseDependencies {
 			HandshakeRecordProtectionInitializer: InitHandshakeRecordProtection,
 		},
 	}
+}
+
+// flushPendingEarlyKeyLog runs after parsing selects the inner or outer offer,
+// including HRR and rejection paths that discard the early record keys.
+func (c *handshakeContext) flushPendingEarlyKeyLog() {
+	if len(c.state.PendingEarlyKeyLog) == 0 || c.state.ECH == nil {
+		return
+	}
+	if !c.state.ECH.Accepted && !c.state.ECH.Rejected {
+		return
+	}
+	writeKeyLog(c.state, c.cfg, "CLIENT_EARLY_TRAFFIC_SECRET", c.state.PendingEarlyKeyLog)
+	c.state.PendingEarlyKeyLog = nil
 }

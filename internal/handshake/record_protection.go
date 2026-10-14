@@ -63,7 +63,7 @@ func InitEarlyRecordProtection(state *dtlsstate.State13, suite cryptosuite.Traff
 	if err != nil {
 		return err
 	}
-	writeKeyLog(state, cfg, "CLIENT_EARLY_TRAFFIC_SECRET", secret)
+	writeEarlyKeyLog(state, cfg, secret)
 	generation := &dtlsstate.TrafficGeneration{Epoch: dtlsflight13.EpochEarlyData, CipherSuite: suite, Protection: protection}
 	if state.IsClient {
 		state.TrafficKeys.Install(generation, nil)

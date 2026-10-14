@@ -219,6 +219,9 @@ type State13 struct {
 	EarlyDataPSK     *PSK
 	EarlyClientHello []byte
 
+	// PendingEarlyKeyLog retains the early traffic secret until ECH selects the client random.
+	PendingEarlyKeyLog []byte
+
 	CID         CIDState
 	KeySchedule KeySchedule
 	TrafficKeys *TrafficKeyState

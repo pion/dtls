@@ -8,10 +8,14 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"fmt"
 	"hash"
 	"testing"
 
+	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -277,4 +281,49 @@ func TestPSKKeySchedule(t *testing.T) {
 
 	_, err = deriveHandshakeKeySchedule(sha256.New, psk, nil, transcriptHash[:])
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
+}
+
+func TestEarlyKeyLogECHDecision(t *testing.T) {
+	for _, accepted := range []bool{true, false} {
+		t.Run(fmt.Sprintf("accepted=%t", accepted), func(t *testing.T) {
+			var log bytes.Buffer
+			cfg := testHandshakeConfig13(t)
+			cfg.KeyLogWriter = &log
+			cfg.ECHConfigList = []byte{1}
+			state := newTestState13(t, true)
+			state.CipherSuite = cfg.LocalCipherSuites[0]
+			var inner, outer handshake.Random
+			inner.RandomBytes[0] = 1
+			outer.RandomBytes[0] = 2
+			state.LocalRandom = inner
+			suite, err := recordProtectionCipherSuite(state)
+			require.NoError(t, err)
+			raw := decodeRegressionHex(t, "0100002c000000000000002cfefd000000000000000000000000000000000000000000000000000000000000000000000002130101000000")
+			psk := bytes.Repeat([]byte{0x42}, suite.HashFunc()().Size())
+			secret, err := DeriveEarlyTrafficSecret(suite.HashFunc(), psk, raw)
+			require.NoError(t, err)
+			require.NoError(t, InitEarlyRecordProtection(state, suite, psk, raw, cfg))
+			require.Empty(t, log.String())
+			require.Equal(t, secret, state.PendingEarlyKeyLog)
+			handshakeCtx := handshakeContext{state: state, cfg: cfg}
+			handshakeCtx.flushPendingEarlyKeyLog()
+			require.Empty(t, log.String())
+			state.ECH = &ech.ClientContext{}
+			handshakeCtx.flushPendingEarlyKeyLog()
+			require.Empty(t, log.String())
+			state.ECH.Accepted = accepted
+			state.ECH.Rejected = !accepted
+			if !accepted {
+				state.LocalRandom = outer
+			}
+			// Both HRR and rejection can discard early keys before logging.
+			state.TrafficKeys.Discard(dtlsflight13.EpochEarlyData)
+			handshakeCtx.flushPendingEarlyKeyLog()
+			random := state.LocalRandom.MarshalFixed()
+			require.Equal(t, fmt.Sprintf("CLIENT_EARLY_TRAFFIC_SECRET %x %x\n", random, secret), log.String())
+			require.Empty(t, state.PendingEarlyKeyLog)
+			handshakeCtx.flushPendingEarlyKeyLog()
+			require.Equal(t, 1, bytes.Count(log.Bytes(), []byte("\n")))
+		})
+	}
 }

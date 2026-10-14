@@ -724,3 +724,14 @@ func writeKeyLog(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, labe
 	clientRandom := random.MarshalFixed()
 	cfg.WriteKeyLog(label, clientRandom[:], secret)
 }
+
+// writeEarlyKeyLog defers ECH client logging until the selected random is known.
+func writeEarlyKeyLog(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig, secret []byte) {
+	if state.IsClient && cfg != nil && len(cfg.ECHConfigList) != 0 {
+		if cfg.KeyLogWriter != nil {
+			state.PendingEarlyKeyLog = secret
+		}
+	} else {
+		writeKeyLog(state, cfg, "CLIENT_EARLY_TRAFFIC_SECRET", secret)
+	}
+}
