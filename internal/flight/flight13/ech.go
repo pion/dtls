@@ -10,8 +10,10 @@ import (
 	"hash"
 	"slices"
 
+	"github.com/pion/dtls/v4/internal/clienthello"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	"github.com/pion/dtls/v4/internal/ech"
+	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
@@ -158,6 +160,13 @@ func (h *handshakeContext) processECHClientHello(item dtlsflight.DecodedHandshak
 
 func (h *handshakeContext) echClientHello(item dtlsflight.DecodedHandshakeCacheItem) (ech.ServerContext, error) {
 	body := item.Raw.Data[handshake.HeaderLength:]
+	wire, err := clienthello.Parse(body)
+	if err != nil {
+		return ech.ServerContext{}, echFailure(alert.DecodeError, err)
+	}
+	if !bytes.Equal(wire.Compression, []byte{1, 0}) {
+		return ech.ServerContext{}, echFailure(alert.IllegalParameter, dtlserrors.ErrInvalidCompressionMethod)
+	}
 	if context := h.state.ECHServer; context != nil && len(context.HelloRetryRequest) != 0 {
 		_, err := context.ProcessRetry(body)
 
