@@ -1138,12 +1138,15 @@ func TestHandshakeFSM13ServerRejectsTamperedClientFinished(t *testing.T) {
 		serverTranscript,
 	)
 	require.NoError(t, err)
-	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+	conn := &postHandshakeAlertConn{
+		flightTestConn: flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)},
+	}
 	recvState := RecvHandshakeState{Done: make(chan struct{})}
 	conn.recvHandshake <- recvState
 
 	nextState, err = serverFSM.wait(context.Background(), conn)
 	require.ErrorIs(t, err, dtlserrors.ErrVerifyDataMismatch)
+	assert.Equal(t, []postHandshakeAlert{{level: alert.Fatal, description: alert.DecryptError}}, conn.notifications)
 	assert.Equal(t, StateErrored, nextState)
 	assert.Equal(t, transcriptBefore, serverFSM.transcript.Bytes())
 	assert.Empty(t, fixture.serverState.KeySchedule.ResumptionMasterSecret)

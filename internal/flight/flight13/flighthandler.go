@@ -384,7 +384,7 @@ func protectedFlightParseFailure(err error) *flightParseFailure {
 	}
 	switch {
 	case errors.Is(err, dtlserrors.ErrVerifyDataMismatch):
-		return newFlightParseFailure(alert.HandshakeFailure, err)
+		return newFlightParseFailure(alert.DecryptError, err)
 	case errors.Is(err, dtlserrors.ErrCertificateVerifyNoCertificate):
 		return newFlightParseFailure(alert.NoCertificate, err)
 	case errors.Is(err, dtlserrors.ErrClientCertificateRequired):

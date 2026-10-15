@@ -1291,7 +1291,7 @@ func TestFlight13_3ParseRejectsInvalidServerFinished(t *testing.T) {
 			require.ErrorIs(t, err, dtlserrors.ErrVerifyDataMismatch)
 			require.NotNil(t, dtlsAlert)
 			assert.Equal(t, alert.Fatal, dtlsAlert.Level)
-			assert.Equal(t, alert.HandshakeFailure, dtlsAlert.Description)
+			assert.Equal(t, alert.DecryptError, dtlsAlert.Description)
 			assert.Zero(t, nextFlight)
 			assert.Equal(t, 1, fixture.state.HandshakeRecvSequence)
 
