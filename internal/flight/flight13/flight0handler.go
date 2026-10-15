@@ -101,8 +101,8 @@ func flight0Parse(
 
 	nextFlight := Flight2
 
-	if !state.PSKOnly {
-		selectClientKeyShare(state, cfg)
+	if !state.PSKOnly && !selectClientKeyShare(state, cfg) {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves
 	}
 
 	if cfg.InsecureSkipHelloVerify {

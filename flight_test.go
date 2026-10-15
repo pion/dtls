@@ -3143,3 +3143,25 @@ func firstPSKSecret13(state *dtlsstate.State13) []byte {
 
 	return state.LocalPSKs[0].Secret
 }
+
+func TestFlight13_0ParseRejectsNoSharedGroup(t *testing.T) {
+	for _, skipVerify := range []bool{false, true} {
+		for _, group := range []elliptic.Curve{elliptic.P384, elliptic.Curve(0x0a0a)} {
+			cfg := testHandshakeConfig13(t)
+			cfg.EllipticCurves = []elliptic.Curve{elliptic.P256}
+			cfg.InsecureSkipHelloVerify = skipVerify
+			state := newTestState13(t, false)
+			cache := dtlsflight.NewCache()
+			pushFlight13_0ClientHello(t, cache, cfg, []extension.Value{
+				&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)},
+				&extension.SupportedGroups{Groups: []elliptic.Curve{group}},
+				&extension13.ClientKeyShare{Shares: []extension13.KeyShareEntry{{Group: group, KeyExchange: []byte{0x12, 0x34}}}},
+				&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+			})
+			next, received, err := flight13ParseForTest(t, dtlsflight13.Flight0, context.Background(), &handshakeTestContext13{state: state, cache: cache, cfg: cfg})
+			require.ErrorIs(t, err, dtlserrors.ErrNoSupportedEllipticCurves)
+			assert.Zero(t, next)
+			assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, received)
+		}
+	}
+}
