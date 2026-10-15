@@ -4,7 +4,9 @@
 package dtlshandshake
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"time"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
@@ -67,12 +69,17 @@ import (
 //         Server read retransmit
 //             Retransmit ACK
 
+// Keeps delayed ACKs record lists within 1 KiB.
+const maxPendingACKRecords = 64
+
 type fsm13 struct {
 	currentFlight      dtlsflight13.Flight
 	flights            []*dtlsflight.Outbound
 	retransmit         bool
 	retransmitInterval time.Duration
 	flightACK          reliableFlight
+	pendingACKs        []protocol.RecordNumber
+	ackTimer           dtlsconfig.Timer
 	handshakeContext
 	closed        chan struct{}
 	establishment *Establishment
@@ -113,6 +120,7 @@ func newFSM13WithEstablishment(state *dtlsstate.State13, cache *dtlsflight.Cache
 
 func (s *fsm13) Run(ctx context.Context, conn Conn, initialState State) (err error) {
 	defer s.received.release()
+	defer s.takePendingACKs()
 	defer func() {
 		if err != nil {
 			s.postHandshake.fail(err)
@@ -329,6 +337,10 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 
 			return transition.state, nil
 
+		case <-s.ackTimerChannel():
+			if err := sendACK(ctx, conn, s.state.LocalEpoch(), s.takePendingACKs()); err != nil {
+				return StateErrored, err
+			}
 		case <-retransmitTimer.C():
 			return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg), nil
 		case <-ctx.Done():
@@ -394,20 +406,33 @@ func (s *fsm13) handleReceivedFlight( //nolint:cyclop
 	if err != nil {
 		return receivedFlightTransition{}, err
 	}
+	for _, record := range received.RecordsToACK {
+		s.pendingACKs = append(s.pendingACKs, record)
+		if len(s.pendingACKs) == maxPendingACKRecords {
+			if err = sendACK(ctx, conn, s.state.LocalEpoch(), s.takePendingACKs()); err != nil {
+				return receivedFlightTransition{}, err
+			}
+		}
+	}
 	if nextFlight == 0 {
 		// HRR has no retransmission timer. Only the first fragment
 		// of a retried ClientHello triggers a replay.
 		if s.currentFlight == dtlsflight13.Flight2 && received.IsRetransmitStart {
 			return receivedFlightTransition{state: StateSending}, nil
 		}
-		if ackErr := sendACK(ctx, conn, s.state.LocalEpoch(), received.RecordsToACK); ackErr != nil {
-			return receivedFlightTransition{}, ackErr
+		if len(s.pendingACKs) != 0 && s.ackTimer == nil {
+			// Allow the rest of the flight to arrive before acknowledging it.
+			// the spec suggests a quarter of the retransmit timeout.
+			// https://www.rfc-editor.org/rfc/rfc9147.html#section-7.1
+			s.ackTimer = s.cfg.NewTimer(s.retransmitInterval / 4)
 		}
 
 		return s.transitionAfterACK(ackResult, received.IsRetransmit), nil
 	}
 
-	transition, err := s.advanceAfterReceivedFlight(ctx, conn, s.currentFlight, nextFlight, received.RecordsToACK)
+	// A response implicitly acknowledges the completed flight. The server's
+	// final ACK must also cover records retained from its earlier datagrams.
+	transition, err := s.advanceAfterReceivedFlight(ctx, conn, s.currentFlight, nextFlight, s.takePendingACKs())
 	if err != nil {
 		return receivedFlightTransition{}, err
 	}
@@ -416,6 +441,28 @@ func (s *fsm13) handleReceivedFlight( //nolint:cyclop
 	}
 
 	return transition, nil
+}
+
+func (s *fsm13) ackTimerChannel() <-chan time.Time {
+	if s.ackTimer == nil {
+		return nil
+	}
+
+	return s.ackTimer.C()
+}
+
+func (s *fsm13) takePendingACKs() []protocol.RecordNumber {
+	if s.ackTimer != nil {
+		s.ackTimer.Stop()
+		s.ackTimer = nil
+	}
+	records := s.pendingACKs
+	s.pendingACKs = nil
+	slices.SortFunc(records, func(a, b protocol.RecordNumber) int {
+		return cmp.Or(cmp.Compare(a.Epoch, b.Epoch), cmp.Compare(a.SequenceNumber, b.SequenceNumber))
+	})
+
+	return slices.Compact(records)
 }
 
 func (s *fsm13) handlePreviousFlightRetransmit(ctx context.Context, conn Conn, recordsToACK []protocol.RecordNumber, ackResult ACKResult) (receivedFlightTransition, error) {
