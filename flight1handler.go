@@ -5,6 +5,7 @@ package dtls
 
 import (
 	"context"
+	"net"
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
@@ -126,7 +127,7 @@ func flight1Generate(
 		})
 	}
 
-	if len(cfg.serverName) > 0 {
+	if shouldSendServerName(cfg.serverName) {
 		extensions = append(extensions, &extension.ServerName{ServerName: cfg.serverName})
 	}
 
@@ -189,4 +190,9 @@ func flight1Generate(
 			},
 		},
 	}, nil, nil
+}
+
+// RFC 6066 excludes IP literals from SNI, but certificate verification still uses them.
+func shouldSendServerName(serverName string) bool {
+	return len(serverName) > 0 && net.ParseIP(serverName) == nil
 }

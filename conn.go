@@ -170,13 +170,6 @@ func createConn(
 		workerInterval = config.FlightInterval
 	}
 
-	serverName := config.ServerName
-	// Do not allow the use of an IP address literal as an SNI value.
-	// See RFC 6066, Section 3.
-	if net.ParseIP(serverName) != nil {
-		serverName = ""
-	}
-
 	curves := config.EllipticCurves
 	if len(curves) == 0 {
 		curves = defaultCurves
@@ -212,7 +205,7 @@ func createConn(
 		extendedMasterSecret:          config.ExtendedMasterSecret,
 		localSRTPProtectionProfiles:   config.SRTPProtectionProfiles,
 		localSRTPMasterKeyIdentifier:  config.SRTPMasterKeyIdentifier,
-		serverName:                    serverName,
+		serverName:                    config.ServerName,
 		supportedProtocols:            config.SupportedProtocols,
 		clientAuth:                    config.ClientAuth,
 		localCertificates:             config.Certificates,

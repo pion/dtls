@@ -351,7 +351,7 @@ func flight3Generate(
 		})
 	}
 
-	if len(cfg.serverName) > 0 {
+	if shouldSendServerName(cfg.serverName) {
 		extensions = append(extensions, &extension.ServerName{ServerName: cfg.serverName})
 	}
 
