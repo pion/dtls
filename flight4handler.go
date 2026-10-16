@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/x509"
 
@@ -245,6 +246,7 @@ func flight4ProcessClientFlight(state *State, cache *handshakeCache, cfg *handsh
 				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 			state.IdentityHint = clientKeyExchange.IdentityHint
+			state.pskHash = sha256.Sum256(psk)
 			switch state.cipherSuite.KeyExchangeAlgorithm() {
 			case CipherSuiteKeyExchangeAlgorithmPsk:
 				preMasterSecret = prf.PSKPreMasterSecret(psk)

@@ -6,6 +6,7 @@ package dtls
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"slices"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
@@ -259,6 +260,7 @@ func handleServerKeyExchange(
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		state.IdentityHint = keyExchangeMessage.IdentityHint
+		state.pskHash = sha256.Sum256(psk)
 		switch state.cipherSuite.KeyExchangeAlgorithm() {
 		case types.KeyExchangeAlgorithmPsk:
 			state.preMasterSecret = prf.PSKPreMasterSecret(psk)

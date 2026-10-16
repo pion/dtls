@@ -57,6 +57,14 @@ func (s Session) usable(cfg *handshakeConfig, isClient bool) bool { //nolint:cyc
 	if suite == nil {
 		return false
 	}
+	if suite.AuthenticationType() == CipherSuiteAuthenticationTypePreSharedKey {
+		if cfg.localPSKCallback == nil {
+			return false
+		}
+		key, err := cfg.localPSKCallback(s.IdentityHint)
+
+		return err == nil && sha256.Sum256(key) == s.PSKHash
+	}
 	if isClient {
 		return true
 	}
