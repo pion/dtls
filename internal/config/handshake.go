@@ -316,10 +316,9 @@ func (c *HandshakeConfig) getCertificateForNameLocked(serverName string) *tls.Ce
 		return cert
 	}
 
-	labels := strings.Split(name, ".")
-	for i := range labels {
-		labels[i] = "*"
-		candidate := strings.Join(labels, ".")
+	// A certificate wildcard replaces only the left-most DNS label.
+	if dot := strings.IndexByte(name, '.'); dot >= 0 {
+		candidate := "*" + name[dot:]
 		if cert, ok := c.nameToCertificate[candidate]; ok {
 			return cert
 		}
