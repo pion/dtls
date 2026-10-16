@@ -41,6 +41,7 @@ var (
 	ErrInvalidHelloRetryRequest             = stderrors.New("invalid HelloRetryRequest")
 	ErrInvalidECDSASignature                = stderrors.New("ECDSA signature contained zero or negative values")
 	ErrInvalidPrivateKey                    = stderrors.New("invalid private key type")
+	ErrPeerRSAKeyTooLarge                   = stderrors.New("peer RSA key exceeds 8192 bits")
 	ErrInvalidSignatureAlgorithm            = stderrors.New("invalid signature algorithm")
 	ErrInvalidExtendedMasterSecretType      = stderrors.New("invalid extended master secret type")
 	ErrNilRemoteAddr                        = stderrors.New("remote address cannot be nil")

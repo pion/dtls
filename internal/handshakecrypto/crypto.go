@@ -28,6 +28,21 @@ type ecdsaSignature struct {
 	R, S *big.Int
 }
 
+// Match crypto/tls's default limit on peer RSA keys.
+const maxPeerRSAKeyBits = 8192
+
+func parsePeerCertificate(raw []byte) (*x509.Certificate, error) {
+	cert, err := x509.ParseCertificate(raw)
+	if err != nil {
+		return nil, err
+	}
+	if key, ok := cert.PublicKey.(*rsa.PublicKey); ok && key.N.BitLen() > maxPeerRSAKeyBits {
+		return nil, dtlserrors.ErrPeerRSAKeyTooLarge
+	}
+
+	return cert, nil
+}
+
 func ValueKeyMessage(clientRandom, serverRandom, publicKey []byte, namedCurve elliptic.Curve) []byte {
 	serverECDHParams := make([]byte, 4)
 	serverECDHParams[0] = 3 // named curve
@@ -222,7 +237,7 @@ func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorith
 	if len(rawCertificates) == 0 {
 		return dtlserrors.ErrLengthMismatch
 	}
-	certificate, err := x509.ParseCertificate(rawCertificates[0])
+	certificate, err := parsePeerCertificate(rawCertificates[0])
 	if err != nil {
 		return err
 	}
@@ -291,7 +306,7 @@ func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
 
 	certs := make([]*x509.Certificate, 0, len(rawCertificates))
 	for _, rawCert := range rawCertificates {
-		cert, err := x509.ParseCertificate(rawCert)
+		cert, err := parsePeerCertificate(rawCert)
 		if err != nil {
 			return nil, err
 		}
