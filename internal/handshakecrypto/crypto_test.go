@@ -362,7 +362,7 @@ func TestValidateCertificateSignatureAlgorithms(t *testing.T) {
 		"Multi-cert chain with one disallowed intermediate fails": {certs: []certSpec{{x509.SHA256WithRSA, false}, {x509.SHA384WithRSA, false}, {x509.SHA512WithRSA, true}}, allowed: []signaturehash.Algorithm{rsa256}, wantErr: dtlserrors.ErrInvalidCertificateSignatureAlgorithm},
 		"ECDSA certificates": {certs: []certSpec{{x509.ECDSAWithSHA256, false}, {x509.ECDSAWithSHA384, false}, {x509.ECDSAWithSHA512, true}}, allowed: []signaturehash.Algorithm{{Hash: hash.SHA256, Signature: signature.ECDSA}, ecdsa384}},
 		"RSA-PSS certificates": {
-			certs: []certSpec{{x509.SHA256WithRSAPSS, false}, {x509.SHA384WithRSAPSS, true}}, allowed: []signaturehash.Algorithm{rsa256},
+			certs: []certSpec{{x509.SHA256WithRSAPSS, false}, {x509.SHA384WithRSAPSS, true}}, allowed: []signaturehash.Algorithm{{Hash: hash.SHA256, Signature: signature.RSA_PSS_RSAE_SHA256}},
 		},
 		"Ed25519 certificates": {certs: []certSpec{{x509.PureEd25519, false}, {x509.PureEd25519, true}}, allowed: []signaturehash.Algorithm{{Hash: hash.None, Signature: signature.Ed25519}}},
 		"Unsupported certificate algorithm": {
