@@ -18,6 +18,8 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/hash"
 	"github.com/pion/dtls/v4/pkg/crypto/signature"
@@ -26,6 +28,30 @@ import (
 
 type ecdsaSignature struct {
 	R, S *big.Int
+}
+
+func VerifyCertificateKeyType(rawCertificates [][]byte, suite cryptosuite.Suite) error {
+	if len(rawCertificates) == 0 {
+		return dtlserrors.ErrInvalidCertificate
+	}
+	cert, err := parsePeerCertificate(rawCertificates[0])
+	if err != nil {
+		return err
+	}
+	var keyType clientcertificate.Type
+	switch cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		keyType = clientcertificate.RSASign
+	case *ecdsa.PublicKey, ed25519.PublicKey:
+		keyType = clientcertificate.ECDSASign
+	default:
+		return dtlserrors.ErrInvalidCertificate
+	}
+	if keyType != suite.CertificateType() {
+		return dtlserrors.ErrInvalidCertificate
+	}
+
+	return nil
 }
 
 // Match crypto/tls's default limit on peer RSA keys.

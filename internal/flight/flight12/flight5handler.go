@@ -239,6 +239,9 @@ func initializeCipherSuite(state *dtlsstate.State12, cache *dtlsflight.Cache, cf
 	}
 
 	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate { //nolint:nestif
+		if err = dtlscrypto.VerifyCertificateKeyType(state.PeerCertificates, state.CipherSuite); err != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+		}
 		// Verify that the pair of hash algorithm and signiture is listed.
 		var validSignatureScheme bool
 		for _, ss := range cfg.LocalSignatureSchemes {
