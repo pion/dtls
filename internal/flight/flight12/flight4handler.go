@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/x509"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
@@ -53,11 +54,22 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
-	state.HandshakeRecvSequence = finishedPull.NextSequence
-
-	if _, ok := finishedPull.Messages[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
+	finished, ok := finishedPull.Messages[handshake.TypeFinished].(*handshake.MessageFinished)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
+
+	transcript := cache.PullAndMerge(append(handshakeRulesThroughClientKeyExchange(cfg.InitialEpoch),
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificateVerify, Epoch: cfg.InitialEpoch, IsClient: true},
+	)...)
+	expected, err := prf.VerifyDataClient(state.MasterSecret, transcript, state.CipherSuite.HashFunc())
+	if err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	if subtle.ConstantTimeCompare(expected, finished.VerifyData) != 1 {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrVerifyDataMismatch
+	}
+	state.HandshakeRecvSequence = finishedPull.NextSequence
 
 	// empty certificate list is valid for PSK suites.
 	// https://www.rfc-editor.org/rfc/rfc4279.html#section-2
