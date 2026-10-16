@@ -116,8 +116,8 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 		0x37, 0x4d, 0x34, 0x15, 0x18,
 	}
 
-	cache.push(rawCertificate, 0, 0, handshake.TypeCertificate, true)
-	cache.push(rawClientKeyExchange, 0, 1, handshake.TypeClientKeyExchange, true)
+	assert.NoError(t, cache.push(rawCertificate, 0, 0, handshake.TypeCertificate, true))
+	assert.NoError(t, cache.push(rawClientKeyExchange, 0, 1, handshake.TypeClientKeyExchange, true))
 
 	_, _, err := flight4Parse(context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)

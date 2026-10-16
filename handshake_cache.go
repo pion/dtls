@@ -13,6 +13,13 @@ import (
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 )
 
+// Bound payload storage and metadata, including empty messages. Allow room for
+// both peers' certificate flights and the remaining transcript.
+const (
+	handshakeCacheMaxSize  = 4 * fragmentBufferMaxSize
+	handshakeCacheMaxCount = 1000
+)
+
 type handshakeCacheItem struct {
 	typ             handshake.Type
 	isClient        bool
@@ -30,6 +37,8 @@ type handshakeCachePullRule struct {
 
 type handshakeCache struct {
 	cache                         []*handshakeCacheItem
+	size                          int
+	complete                      bool
 	mu                            sync.Mutex
 	clientHelloRetransmit         *fragments
 	clientHelloRetransmitSequence uint16
@@ -39,17 +48,40 @@ func newHandshakeCache() *handshakeCache {
 	return &handshakeCache{}
 }
 
-func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, typ handshake.Type, isClient bool) {
+func (h *handshakeCache) push(data []byte, epoch, messageSequence uint16, typ handshake.Type, isClient bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	if h.complete {
+		return nil
+	}
+	for _, item := range h.cache {
+		if item.epoch == epoch && item.messageSequence == messageSequence && item.isClient == isClient {
+			return nil
+		}
+	}
+	if len(h.cache) >= handshakeCacheMaxCount || len(data) > handshakeCacheMaxSize-h.size {
+		return errHandshakeCacheOverflow
+	}
+	h.size += len(data)
 	h.cache = append(h.cache, &handshakeCacheItem{
-		data:            data,
+		data:            bytes.Clone(data),
 		epoch:           epoch,
 		messageSequence: messageSequence,
 		typ:             typ,
 		isClient:        isClient,
 	})
+
+	return nil
+}
+
+// finish preserves the transcript for retransmissions without retaining new messages.
+func (h *handshakeCache) finish() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.complete = true
+	h.clientHelloRetransmit = nil
 }
 
 // returns a list handshakes that match the requested rules

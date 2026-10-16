@@ -421,19 +421,21 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 		if c.retransmit != nil && c.retransmit(pkt) {
 			isRetransmit = true
 		}
-		if handshake, ok := pkt.record.Content.(*handshake.Handshake); ok {
+		if handshake, ok := pkt.record.Content.(*handshake.Handshake); ok { //nolint:nestif
 			handshakeRaw, err := pkt.record.Marshal()
 			if err != nil {
 				return err
 			}
 
-			c.handshakeCache.push(
+			if err = c.handshakeCache.push(
 				handshakeRaw[recordlayer.FixedHeaderSize:],
 				pkt.record.Header.Epoch,
 				handshake.Header.MessageSequence,
 				handshake.Header.Type,
 				c.state.isClient,
-			)
+			); err != nil {
+				return err
+			}
 
 			content, err := handshake.Message.Marshal()
 			if err != nil {
@@ -445,13 +447,15 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 			if err != nil {
 				return err
 			}
-			c.otherEndCache.push(
+			if err = c.otherEndCache.push(
 				append(hdr, content...),
 				pkt.record.Header.Epoch,
 				handshake.Header.MessageSequence,
 				handshake.Header.Type,
 				c.state.isClient,
-			)
+			); err != nil {
+				return err
+			}
 		}
 	}
 	go func() {

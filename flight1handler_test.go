@@ -265,17 +265,17 @@ func TestFlight1_Process_ServerHelloLateArrival(t *testing.T) { //nolint:maintid
 		0x0e, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00,
 	}
-	cache.push(certificate2, 0, 2, handshake.TypeCertificate, false)
-	cache.push(serverKeyExchange, 0, 3, handshake.TypeServerKeyExchange, false)
-	cache.push(certificateRequest, 0, 4, handshake.TypeCertificateRequest, false)
-	cache.push(serverHelloDone, 0, 5, handshake.TypeServerHelloDone, false)
+	assert.NoError(t, cache.push(certificate2, 0, 2, handshake.TypeCertificate, false))
+	assert.NoError(t, cache.push(serverKeyExchange, 0, 3, handshake.TypeServerKeyExchange, false))
+	assert.NoError(t, cache.push(certificateRequest, 0, 4, handshake.TypeCertificateRequest, false))
+	assert.NoError(t, cache.push(serverHelloDone, 0, 5, handshake.TypeServerHelloDone, false))
 
 	_, alt, err := flight1Parse(context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)
 	assert.Nil(t, alt)
 
-	cache.push(serverHello, 0, 0, handshake.TypeServerHello, false)
-	cache.push(certificate1, 0, 1, handshake.TypeCertificate, false)
+	assert.NoError(t, cache.push(serverHello, 0, 0, handshake.TypeServerHello, false))
+	assert.NoError(t, cache.push(certificate1, 0, 1, handshake.TypeCertificate, false))
 	_, alt, err = flight1Parse(context.TODO(), mockConn, state, cache, cfg)
 	assert.NoError(t, err)
 	assert.Nil(t, alt)

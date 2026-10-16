@@ -144,6 +144,8 @@ var (
 	errFailedToAccessPoolReadBuffer = &InternalError{Err: errors.New("failed to access pool read buffer")}
 	//nolint:err113
 	errFragmentBufferOverflow = &InternalError{Err: errors.New("fragment buffer overflow")}
+	//nolint:err113
+	errHandshakeCacheOverflow = &InternalError{Err: errors.New("handshake cache overflow")}
 
 	//nolint:err113
 	errEmptyCertificates = &FatalError{Err: errors.New("certificates option requires at least one certificate")}

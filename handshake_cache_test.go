@@ -4,12 +4,14 @@
 package dtls
 
 import (
+	"context"
 	"testing"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
+	"github.com/pion/logging"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -120,7 +122,7 @@ func TestHandshakeCacheSinglePush(t *testing.T) {
 	} {
 		h := newHandshakeCache()
 		for _, i := range test.Input {
-			h.push(i.data, i.epoch, i.messageSequence, i.typ, i.isClient)
+			assert.NoError(t, h.push(i.data, i.epoch, i.messageSequence, i.typ, i.isClient))
 		}
 		verifyData := h.pullAndMerge(test.Rule...)
 		assert.Equal(t, test.Expected, verifyData)
@@ -210,7 +212,7 @@ func TestHandshakeCacheSessionHash(t *testing.T) {
 	} {
 		h := newHandshakeCache()
 		for _, i := range test.Input {
-			h.push(i.data, i.epoch, i.messageSequence, i.typ, i.isClient)
+			assert.NoError(t, h.push(i.data, i.epoch, i.messageSequence, i.typ, i.isClient))
 		}
 
 		cipherSuite := ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
@@ -309,11 +311,113 @@ func TestClientHelloRetransmit(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			cache := newHandshakeCache()
-			cache.push(original[recordlayer.FixedHeaderSize:], 0, 1, handshake.TypeClientHello, true)
+			assert.NoError(t, cache.push(original[recordlayer.FixedHeaderSize:], 0, 1, handshake.TypeClientHello, true))
 
 			for i, step := range testCase.steps {
 				assert.Equal(t, step.wantComplete, cache.isClientHelloRetransmit(step.packet), "step %d", i)
 			}
 		})
 	}
+}
+
+func TestHandshakeCacheLimits(t *testing.T) {
+	t.Run("duplicates preserve original transcript", func(t *testing.T) {
+		cache := newHandshakeCache()
+		original := []byte{1, 2, 3}
+		assert.NoError(t, cache.push(original, 1, 4, handshake.TypeFinished, true))
+		original[0] = 9
+		for range handshakeCacheMaxCount + 1 {
+			assert.NoError(t, cache.push([]byte{4}, 1, 4, handshake.TypeCertificate, true))
+		}
+		assert.Len(t, cache.cache, 1)
+		assert.Equal(t, []byte{1, 2, 3}, cache.cache[0].data)
+		assert.Equal(t, 3, cache.size)
+		assert.NoError(t, cache.push([]byte{4}, 1, 4, handshake.TypeFinished, false))
+		assert.NoError(t, cache.push([]byte{4}, 2, 4, handshake.TypeFinished, true))
+		assert.Len(t, cache.cache, 3)
+	})
+	t.Run("empty messages have a count limit", func(t *testing.T) {
+		cache := newHandshakeCache()
+		for i := range uint16(handshakeCacheMaxCount) {
+			assert.NoError(t, cache.push(nil, 0, i, handshake.TypeServerHelloDone, false))
+		}
+		err := cache.push(nil, 0, handshakeCacheMaxCount, handshake.TypeServerHelloDone, false)
+		assert.ErrorIs(t, err, errHandshakeCacheOverflow)
+		assert.Len(t, cache.cache, handshakeCacheMaxCount)
+	})
+	t.Run("payload bytes have a limit", func(t *testing.T) {
+		cache := newHandshakeCache()
+		assert.NoError(t, cache.push(make([]byte, handshakeCacheMaxSize), 0, 0, handshake.TypeCertificate, false))
+		assert.ErrorIs(t, cache.push([]byte{1}, 0, 1, handshake.TypeCertificate, true), errHandshakeCacheOverflow)
+		assert.Len(t, cache.cache, 1)
+		assert.Equal(t, handshakeCacheMaxSize, cache.size)
+	})
+}
+
+// Exercise both OOM paths: fresh inbound messages across sequence wraparound,
+// and repeated outbound Finished caching after handshake completion.
+func TestHandshakeCachePostHandshakeFlood(t *testing.T) {
+	conn := &Conn{
+		handshakeCache:         newHandshakeCache(),
+		fragmentBuffer:         newFragmentBuffer(),
+		log:                    logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		replayProtectionWindow: 64,
+	}
+	assert.NoError(t, conn.handshakeCache.push([]byte{1}, 1, 0, handshake.TypeFinished, false))
+	assert.True(t, conn.setHandshakeCompletedSuccessfully())
+	for i := range uint64(1<<16 + 1) {
+		header := handshake.Header{
+			Type:            handshake.TypeServerHelloDone,
+			MessageSequence: uint16(i), //nolint:gosec // Exercise wraparound.
+		}
+		payload, err := header.Marshal()
+		assert.NoError(t, err)
+		record := recordlayer.Header{
+			ContentType:    protocol.ContentTypeHandshake,
+			Version:        protocol.Version1_2,
+			SequenceNumber: i,
+			ContentLen:     handshake.HeaderLength,
+		}
+		raw, err := record.Marshal()
+		assert.NoError(t, err)
+		hs, _, alert, err := conn.handleIncomingPacket(context.Background(), append(raw, payload...), nil, false)
+		assert.NoError(t, err)
+		assert.Nil(t, alert)
+		assert.True(t, hs)
+	}
+	finished := &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: []byte{1}}}
+	pkt := &packet{record: &recordlayer.RecordLayer{
+		Header: recordlayer.Header{Version: protocol.Version1_2, Epoch: 1}, Content: finished,
+	}}
+	for range handshakeCacheMaxCount + 1 {
+		assert.NoError(t, conn.cacheHandshakePacket(pkt, finished))
+	}
+	assert.Len(t, conn.handshakeCache.cache, 1)
+	assert.Equal(t, []byte{1}, conn.handshakeCache.cache[0].data)
+	assert.Equal(t, 1, conn.handshakeCache.size)
+}
+
+func TestHandshakeCacheOverflowAbortsHandshake(t *testing.T) {
+	conn := &Conn{
+		handshakeCache:         newHandshakeCache(),
+		fragmentBuffer:         newFragmentBuffer(),
+		log:                    logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		replayProtectionWindow: 64,
+	}
+	for i := range uint16(handshakeCacheMaxCount) {
+		assert.NoError(t, conn.handshakeCache.push(nil, 0, i+1, handshake.TypeClientHello, true))
+	}
+	message := &handshake.Handshake{Message: &handshake.MessageServerHelloDone{}}
+	record := &recordlayer.RecordLayer{
+		Header:  recordlayer.Header{Version: protocol.Version1_2},
+		Content: message,
+	}
+	raw, err := record.Marshal()
+	assert.NoError(t, err)
+	_, _, fatalAlert, err := conn.handleIncomingPacket(context.Background(), raw, nil, false)
+	assert.ErrorIs(t, err, errHandshakeCacheOverflow)
+	assert.NotNil(t, fatalAlert)
+	assert.Len(t, conn.handshakeCache.cache, handshakeCacheMaxCount)
+	err = conn.cacheHandshakePacket(&packet{record: record}, message)
+	assert.ErrorIs(t, err, errHandshakeCacheOverflow)
 }

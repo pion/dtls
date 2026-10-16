@@ -634,15 +634,13 @@ func (c *Conn) cacheHandshakePacket(pkt *packet, dtlsHandshake *handshake.Handsh
 		srvCliStr(c.state.isClient), dtlsHandshake.Header.Type.String(),
 		pkt.record.Header.Epoch, dtlsHandshake.Header.MessageSequence)
 
-	c.handshakeCache.push(
+	return c.handshakeCache.push(
 		handshakeRaw[recordlayer.FixedHeaderSize:],
 		pkt.record.Header.Epoch,
 		dtlsHandshake.Header.MessageSequence,
 		dtlsHandshake.Header.Type,
 		c.state.isClient,
 	)
-
-	return nil
 }
 
 type closeContext struct {
@@ -1162,7 +1160,9 @@ func (c *Conn) handleIncomingPacket(
 
 				continue
 			}
-			c.handshakeCache.push(out, epoch, header.MessageSequence, header.Type, !c.state.isClient)
+			if err := c.handshakeCache.push(out, epoch, header.MessageSequence, header.Type, !c.state.isClient); err != nil {
+				return false, false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
 		}
 
 		return true, isRetransmit, nil, nil
@@ -1273,7 +1273,12 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 }
 
 func (c *Conn) setHandshakeCompletedSuccessfully() bool {
-	return c.handshakeCompletedSuccessfully.CompareAndSwap(false, true)
+	if !c.handshakeCompletedSuccessfully.CompareAndSwap(false, true) {
+		return false
+	}
+	c.handshakeCache.finish()
+
+	return true
 }
 
 func (c *Conn) isHandshakeCompletedSuccessfully() bool {
