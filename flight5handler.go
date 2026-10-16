@@ -153,7 +153,7 @@ func flight5Generate(
 
 	// handshakeMessageServerKeyExchange is optional for PSK
 	if len(serverKeyExchangeData) == 0 {
-		alertPtr, err := handleServerKeyExchange(conn, state, cfg, &handshake.MessageServerKeyExchange{})
+		alertPtr, err := handleServerKeyExchange(cache, state, cfg, &handshake.MessageServerKeyExchange{})
 		if err != nil {
 			return nil, alertPtr, err
 		}

@@ -108,6 +108,10 @@ var (
 		Err: errors.New("client requested zero or more elliptic curves that are not supported by the server"),
 	}
 	//nolint:err113
+	errServerSelectedUnofferedCurve = &FatalError{
+		Err: errors.New("server selected an elliptic curve not offered by the client"),
+	}
+	//nolint:err113
 	errUnsupportedProtocolVersion = &FatalError{Err: errors.New("unsupported protocol version")}
 	//nolint:err113
 	errPSKAndIdentityMustBeSetForClient = &FatalError{

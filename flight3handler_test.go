@@ -11,13 +11,80 @@ import (
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
+	"github.com/pion/dtls/v3/pkg/protocol"
+	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/extension"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/transport/v5/dpipe"
 	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestServerKeyExchangeCurveOffer(t *testing.T) {
+	for _, suiteID := range []CipherSuiteID{
+		TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
+		TLS_PSK_WITH_AES_128_GCM_SHA256,
+	} {
+		t.Run(suiteID.String(), func(t *testing.T) {
+			for _, offered := range []bool{false, true} {
+				name := "unoffered"
+				if offered {
+					name = "offered"
+				}
+				t.Run(name, func(t *testing.T) {
+					peerKey, err := elliptic.GenerateKeypair(elliptic.P384)
+					require.NoError(t, err)
+					state := &State{cipherSuite: cipherSuiteForID(suiteID, nil)}
+					cfg := &handshakeConfig{ellipticCurves: []elliptic.Curve{elliptic.P256}}
+					if offered {
+						cfg.ellipticCurves = append(cfg.ellipticCurves, elliptic.P384)
+					}
+					pskCalls := 0
+					if suiteID != TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 {
+						cfg.localPSKCallback = func([]byte) ([]byte, error) {
+							pskCalls++
+
+							return []byte("test PSK"), nil
+						}
+					}
+					message := &handshake.MessageServerKeyExchange{
+						NamedCurve: elliptic.P384,
+						PublicKey:  peerKey.PublicKey,
+					}
+					if suiteID == TLS_PSK_WITH_AES_128_GCM_SHA256 {
+						message = &handshake.MessageServerKeyExchange{}
+					}
+					cache := newHandshakeCache()
+					cacheFlight4TestMessage(t, cache, 0, 0, &handshake.MessageClientHello{
+						Version: protocol.Version1_2, CompressionMethods: defaultCompressionMethods(),
+						Extensions: []extension.Extension{
+							&extension.SupportedEllipticCurves{EllipticCurves: cfg.ellipticCurves},
+						},
+					})
+					alertPtr, err := handleServerKeyExchange(cache, state, cfg, message)
+					if !offered && suiteID != TLS_PSK_WITH_AES_128_GCM_SHA256 {
+						require.ErrorIs(t, err, errServerSelectedUnofferedCurve)
+						require.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, alertPtr)
+						require.Nil(t, state.localKeypair)
+						require.Empty(t, state.preMasterSecret)
+						require.Zero(t, pskCalls)
+
+						return
+					}
+					require.NoError(t, err)
+					require.Nil(t, alertPtr)
+					require.NotEmpty(t, state.preMasterSecret)
+					if suiteID != TLS_PSK_WITH_AES_128_GCM_SHA256 {
+						require.Equal(t, elliptic.P384, state.localKeypair.Curve)
+					}
+				})
+			}
+		})
+	}
+}
 
 // Assert that SupportedEllipticCurves is only sent when a ECC CipherSuite is available.
 func TestSupportedEllipticCurves(t *testing.T) {
