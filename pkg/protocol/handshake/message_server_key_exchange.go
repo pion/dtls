@@ -79,8 +79,8 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 		return errCipherSuiteUnset
 	}
 
-	hintLength := binary.BigEndian.Uint16(data)
-	if int(hintLength) <= len(data)-2 && m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmPsk) {
+	hintLength := int(binary.BigEndian.Uint16(data))
+	if hintLength <= len(data)-2 && m.KeyExchangeAlgorithm.Has(types.KeyExchangeAlgorithmPsk) {
 		m.IdentityHint = append([]byte{}, data[2:2+hintLength]...)
 		data = data[2+hintLength:]
 	}
