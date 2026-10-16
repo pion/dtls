@@ -328,19 +328,19 @@ func TestFromCertificate(t *testing.T) {
 		{
 			name:     "SHA256WithRSAPSS",
 			sigAlg:   x509.SHA256WithRSAPSS,
-			expected: Algorithm{Hash: hash.SHA256, Signature: signature.RSA},
+			expected: Algorithm{Hash: hash.SHA256, Signature: signature.RSA_PSS_RSAE_SHA256},
 			wantErr:  false,
 		},
 		{
 			name:     "SHA384WithRSAPSS",
 			sigAlg:   x509.SHA384WithRSAPSS,
-			expected: Algorithm{Hash: hash.SHA384, Signature: signature.RSA},
+			expected: Algorithm{Hash: hash.SHA384, Signature: signature.RSA_PSS_RSAE_SHA384},
 			wantErr:  false,
 		},
 		{
 			name:     "SHA512WithRSAPSS",
 			sigAlg:   x509.SHA512WithRSAPSS,
-			expected: Algorithm{Hash: hash.SHA512, Signature: signature.RSA},
+			expected: Algorithm{Hash: hash.SHA512, Signature: signature.RSA_PSS_RSAE_SHA512},
 			wantErr:  false,
 		},
 		{

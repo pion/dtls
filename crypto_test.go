@@ -465,7 +465,7 @@ func TestValidateCertificateSignatureAlgorithms(t *testing.T) {
 			createTestCert(x509.SHA384WithRSAPSS, true), // Root
 		}
 		allowed := []signaturehash.Algorithm{
-			{Hash: hash.SHA256, Signature: signature.RSA},
+			{Hash: hash.SHA256, Signature: signature.RSA_PSS_RSAE_SHA256},
 		}
 		err := validateCertificateSignatureAlgorithms(certs, allowed)
 		assert.NoError(t, err)

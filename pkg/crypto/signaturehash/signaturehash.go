@@ -127,13 +127,22 @@ func FromCertificate(cert *x509.Certificate) (Algorithm, error) { //nolint:cyclo
 	var sigAlg signature.Algorithm
 
 	switch cert.SignatureAlgorithm {
-	case x509.SHA256WithRSA, x509.SHA256WithRSAPSS:
+	case x509.SHA256WithRSAPSS:
+		hashAlg = hash.SHA256
+		sigAlg = signature.RSA_PSS_RSAE_SHA256
+	case x509.SHA384WithRSAPSS:
+		hashAlg = hash.SHA384
+		sigAlg = signature.RSA_PSS_RSAE_SHA384
+	case x509.SHA512WithRSAPSS:
+		hashAlg = hash.SHA512
+		sigAlg = signature.RSA_PSS_RSAE_SHA512
+	case x509.SHA256WithRSA:
 		hashAlg = hash.SHA256
 		sigAlg = signature.RSA
-	case x509.SHA384WithRSA, x509.SHA384WithRSAPSS:
+	case x509.SHA384WithRSA:
 		hashAlg = hash.SHA384
 		sigAlg = signature.RSA
-	case x509.SHA512WithRSA, x509.SHA512WithRSAPSS:
+	case x509.SHA512WithRSA:
 		hashAlg = hash.SHA512
 		sigAlg = signature.RSA
 	case x509.ECDSAWithSHA256:
