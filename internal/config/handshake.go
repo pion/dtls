@@ -350,3 +350,28 @@ func (c *HandshakeConfig) GetClientCertificate(cri *CertificateRequestInfo) (*tl
 func (c *HandshakeConfig) SendServerName() bool {
 	return len(c.ServerName) > 0 && net.ParseIP(c.ServerName) == nil
 }
+
+func FilterCipherSuitesForCertificate(
+	cert *tls.Certificate,
+	cipherSuites []cryptosuite.Suite,
+) []cryptosuite.Suite {
+	if cert == nil || cert.PrivateKey == nil {
+		return cipherSuites
+	}
+	signer, ok := cert.PrivateKey.(crypto.Signer)
+	if !ok {
+		return cipherSuites
+	}
+
+	var certType clientcertificate.Type
+	switch signer.Public().(type) {
+	case ed25519.PublicKey, *ecdsa.PublicKey:
+		certType = clientcertificate.ECDSASign
+	case *rsa.PublicKey:
+		certType = clientcertificate.RSASign
+	}
+
+	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool {
+		return !suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate && certType != suite.CertificateType()
+	})
+}

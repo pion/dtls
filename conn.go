@@ -356,27 +356,12 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 	c.handshakeDone = handshakeDone
 	c.closeLock.Unlock()
 
-	// rfc5246#section-7.4.3
-	// In addition, the hash and signature algorithms MUST be compatible
-	// with the key in the server's end-entity certificate.
-	common := dtlsstate.CommonState(c.state)
-	if !common.IsClient {
-		cert, err := c.handshakeConfig.GetCertificate(&dtlsconfig.ClientHelloInfo{})
-		if err != nil && !errors.Is(err, dtlserrors.ErrNoCertificates) {
-			return err
-		}
-		c.handshakeConfig.LocalCipherSuites = filterCipherSuitesForCertificate(
-			cert,
-			c.handshakeConfig.LocalCipherSuites,
-		)
-	}
-
 	start, err := c.prepareHandshakeStart(ctx)
 	if err != nil {
 		return err
 	}
 
-	common = dtlsstate.CommonState(c.state)
+	common := dtlsstate.CommonState(c.state)
 	c.handshakeConfig.LocalCipherSuites = filterCipherSuitesForVersion(c.handshakeConfig.LocalCipherSuites, common.LocalVersion)
 	if len(c.handshakeConfig.LocalCipherSuites) == 0 {
 		return dtlserrors.ErrNoAvailableCipherSuites

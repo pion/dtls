@@ -399,7 +399,11 @@ func generateServerHello(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConf
 
 func serverCertificateFlight(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	var pkts []*dtlsflight.Outbound
-	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: state.ServerName, CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()}, RandomBytes: state.RemoteRandom.RandomBytes})
+	certificate := state.ServerCertificate
+	var err error
+	if certificate == nil {
+		certificate, err = cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{ServerName: state.ServerName, CipherSuites: []cryptosuite.ID{state.CipherSuite.ID()}, RandomBytes: state.RemoteRandom.RandomBytes})
+	}
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 	}

@@ -28,7 +28,6 @@ import (
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
-	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -1241,31 +1240,6 @@ func validateCipherSuite(suite cryptosuite.Suite) error { //nolint:cyclop
 	}
 
 	return nil
-}
-
-func filterCipherSuitesForCertificate(
-	cert *tls.Certificate,
-	cipherSuites []cryptosuite.Suite,
-) []cryptosuite.Suite {
-	if cert == nil || cert.PrivateKey == nil {
-		return cipherSuites
-	}
-	signer, ok := cert.PrivateKey.(crypto.Signer)
-	if !ok {
-		return cipherSuites
-	}
-
-	var certType clientcertificate.Type
-	switch signer.Public().(type) {
-	case ed25519.PublicKey, *ecdsa.PublicKey:
-		certType = clientcertificate.ECDSASign
-	case *rsa.PublicKey:
-		certType = clientcertificate.RSASign
-	}
-
-	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool {
-		return !suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate && certType != suite.CertificateType()
-	})
 }
 
 // effectiveProtocolVersionRange restricts a configured version range to the

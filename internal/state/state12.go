@@ -4,6 +4,7 @@
 package state
 
 import (
+	"crypto/tls"
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
@@ -18,8 +19,9 @@ type State12 struct {
 	Protection cryptosuite.Protection
 	usage      trafficUsage
 
-	PreMasterSecret []byte
-	MasterSecret    []byte
+	PreMasterSecret   []byte
+	MasterSecret      []byte
+	ServerCertificate *tls.Certificate
 
 	ExtendedMasterSecret        bool
 	RemoteSupportsRenegotiation bool

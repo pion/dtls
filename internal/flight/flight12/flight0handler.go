@@ -122,6 +122,24 @@ func negotiateClientHello(clientHello *handshake.MessageClientHello, state *dtls
 		}
 	}
 
+	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate {
+		offeredIDs := make([]cryptosuite.ID, len(cipherSuites))
+		for i, suite := range cipherSuites {
+			offeredIDs[i] = suite.ID()
+		}
+		certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{
+			ServerName: state.ServerName, CipherSuites: offeredIDs, RandomBytes: state.RemoteRandom.RandomBytes, Hello: clientHello,
+		})
+		if err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
+		}
+		state.ServerCertificate = certificate
+		usable := dtlsconfig.FilterCipherSuitesForCertificate(certificate, cfg.LocalCipherSuites)
+		if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, usable); !ok {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrCipherSuiteNoIntersection
+		}
+	}
+
 	if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS
 	}
