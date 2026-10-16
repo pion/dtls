@@ -11,6 +11,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -396,6 +397,22 @@ func (c *HandshakeConfig) UsableSession(s internalstate.Session, isClient bool) 
 	}
 	if suite == nil {
 		return false
+	}
+	if suite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey {
+		var key []byte
+		var err error
+		if isClient {
+			if c.LocalPSKCallback == nil {
+				return false
+			}
+			key, err = c.LocalPSKCallback(bytes.Clone(s.IdentityHint))
+		} else {
+			if c.SelectPSK == nil {
+				return false
+			}
+			_, key, _, err = c.SelectPSK([][]byte{bytes.Clone(s.IdentityHint)})
+		}
+		return err == nil && len(key) > 0 && sha256.Sum256(key) == s.PSKHash
 	}
 	return isClient || c.ClientAuth == NoClientCert || c.ClientAuth == RequestClientCert
 }

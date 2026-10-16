@@ -130,6 +130,8 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 			state.ResumeSession = &session
 			state.SessionID = session.ID
 			state.MasterSecret = session.Secret
+			state.IdentityHint = bytes.Clone(session.IdentityHint)
+			state.PSKHash = session.PSKHash
 		}
 	}
 

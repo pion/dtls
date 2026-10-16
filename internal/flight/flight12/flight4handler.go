@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/x509"
 
@@ -223,6 +224,7 @@ func flight4ProcessClientFlight(state *dtlsstate.State12, cache *dtlsflight.Cach
 				return false, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrPSKNotNegotiated
 			}
 			state.IdentityHint = bytes.Clone(clientKeyExchange.IdentityHint)
+			state.PSKHash = sha256.Sum256(psk)
 			switch state.CipherSuite.KeyExchangeAlgorithm() {
 			case cryptosuite.KeyExchangeAlgorithmPsk:
 				preMasterSecret = prf.PSKPreMasterSecret(psk)

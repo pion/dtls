@@ -6,6 +6,7 @@ package flight12
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
@@ -266,6 +267,7 @@ func handleServerKeyExchange(_ dtlsflight.Conn, state *dtlsstate.State12, cfg *d
 			return &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		state.IdentityHint = bytes.Clone(keyExchangeMessage.IdentityHint)
+		state.PSKHash = sha256.Sum256(psk)
 		switch state.CipherSuite.KeyExchangeAlgorithm() {
 		case cryptosuite.KeyExchangeAlgorithmPsk:
 			state.PreMasterSecret = prf.PSKPreMasterSecret(psk)
