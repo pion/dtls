@@ -6,6 +6,7 @@ package dtls
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/x509"
 )
 
 // Session store data needed in resumption.
@@ -66,11 +67,54 @@ func (s Session) usable(cfg *handshakeConfig, isClient bool) bool { //nolint:cyc
 		return err == nil && sha256.Sum256(key) == s.PSKHash
 	}
 	if isClient {
-		return true
+		if len(s.PeerCertificates) == 0 {
+			return false
+		}
+		// Check the cached chain and custom policy before offering resumption
+		// so that changes can fall back to the server's current certificate.
+		chains, err := verifySessionCertificate(s.PeerCertificates, cfg)
+		if err != nil {
+			return false
+		}
+
+		return cfg.verifyPeerCertificate == nil || cfg.verifyPeerCertificate(s.PeerCertificates, chains) == nil
 	}
 
 	// Client-authenticated sessions are not stored by this implementation.
 	return cfg.clientAuth == NoClientCert || cfg.clientAuth == RequestClientCert
+}
+
+func verifyResumedConnection(state *State, cfg *handshakeConfig) error {
+	if state.isClient && state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
+		// The peer callback already accepted the cached certificate before we
+		// offered resumption. Recheck expiry without calling the callback twice.
+		_, err := verifySessionCertificate(state.PeerCertificates, cfg)
+		if err != nil {
+			return err
+		}
+	}
+	if cfg.verifyConnection != nil {
+		clone, err := state.clone()
+		if err != nil {
+			return err
+		}
+
+		return cfg.verifyConnection(clone)
+	}
+
+	return nil
+}
+
+func verifySessionCertificate(rawCertificates [][]byte, cfg *handshakeConfig) ([][]*x509.Certificate, error) {
+	if cfg.insecureSkipVerify {
+		return nil, nil //nolint:nilnil // Normal certificate verification is explicitly disabled.
+	}
+	algs := cfg.localCertSignatureSchemes
+	if len(algs) == 0 {
+		algs = cfg.localSignatureSchemes
+	}
+
+	return verifyServerCert(rawCertificates, cfg.rootCAs, cfg.serverName, algs)
 }
 
 // SessionStore defines methods needed for session resumption.

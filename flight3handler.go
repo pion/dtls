@@ -231,6 +231,9 @@ func handleResumption(
 	if !bytes.Equal(expectedVerifyData, finished.VerifyData) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errVerifyDataMismatch
 	}
+	if err := verifyResumedConnection(state, cfg); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+	}
 
 	clientRandom := state.localRandom.MarshalFixed()
 	cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)

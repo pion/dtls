@@ -104,6 +104,12 @@ type Config struct { //nolint:dupl
 	// setting InsecureSkipVerify, or (for a server) when ClientAuth is
 	// RequestClientCert or RequireAnyClientCert, then this callback will
 	// be considered but the verifiedChains will always be nil.
+	//
+	// Before offering session resumption, clients also call it with the cached
+	// server certificates. An error rejects the cached session and triggers a
+	// full handshake. If a full handshake occurs, the callback runs again for
+	// the certificate received from the server. A successful resumed handshake
+	// does not call it again; VerifyConnection runs after verifying Finished.
 	VerifyPeerCertificate func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
 
 	// VerifyConnection, if not nil, is called after normal certificate
@@ -113,7 +119,7 @@ type Config struct { //nolint:dupl
 	//
 	// If normal verification fails then the handshake will abort before
 	// considering this callback. This callback will run for all connections
-	// regardless of InsecureSkipVerify or ClientAuth settings.
+	// including resumed sessions, regardless of InsecureSkipVerify or ClientAuth settings.
 	VerifyConnection func(*State) error
 
 	// RootCAs defines the set of root certificate authorities
