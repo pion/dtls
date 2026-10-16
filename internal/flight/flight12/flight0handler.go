@@ -60,13 +60,11 @@ func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12
 		return 0, nil, err
 	}
 
-	nextFlight := Flight2
-
-	if cfg.InsecureSkipHelloVerify {
-		nextFlight = Flight4
+	if !cfg.InsecureSkipHelloVerify {
+		return Flight2, nil, nil
 	}
 
-	return negotiateClientHello(clientHello, state, cfg, nextFlight)
+	return negotiateClientHello(clientHello, state, cfg, Flight4)
 }
 
 //nolint:cyclop
@@ -170,7 +168,7 @@ func handleHelloResume(
 	cfg *dtlsconfig.HandshakeConfig,
 	next Flight,
 ) (Flight, *alert.Alert, error) {
-	if len(sessionID) == 0 || !cfg.HasSessionStore {
+	if next == Flight2 || len(sessionID) == 0 || !cfg.HasSessionStore {
 		return next, nil, nil
 	}
 	session, err := cfg.GetSession(sessionID)
