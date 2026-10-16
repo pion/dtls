@@ -85,7 +85,6 @@ type listener struct {
 func (l *listener) Accept() (net.PacketConn, net.Addr, error) {
 	select {
 	case c := <-l.acceptCh:
-		l.connWG.Add(1)
 
 		return c, c.raddr.Load().(net.Addr), nil //nolint:forcetypeassert
 
@@ -116,6 +115,7 @@ func (l *listener) Close() error {
 			case c := <-l.acceptCh:
 				if !c.closing.Swap(true) {
 					c.listener.nConns.Add(-1)
+					l.connWG.Done()
 					close(c.doneCh)
 					l.removeRoutes(c)
 					_ = c.buffer.Close()
@@ -290,11 +290,13 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 	}
 	conn = l.newPacketConn(raddr)
 	l.nConns.Add(1)
+	l.connWG.Add(1)
 	select {
 	case l.acceptCh <- conn:
 		l.addresses[key] = conn
 	default:
 		l.nConns.Add(-1)
+		l.connWG.Done()
 		_ = conn.buffer.Close()
 
 		return nil, false, ErrListenQueueExceeded
