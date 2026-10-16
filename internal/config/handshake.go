@@ -155,8 +155,8 @@ type HandshakeConfig struct {
 	MaxEarlyDataSize              uint32
 	EnableEarlyData               bool
 	ClaimEarlyData                func(ticket []byte, expiresAt time.Time) (bool, error)
-	GetSession                    func(key []byte) (id, secret []byte, err error)
-	SetSession                    func(key, id, secret []byte) error
+	GetSession                    func(key []byte) (internalstate.Session, error)
+	SetSession                    func(key []byte, session internalstate.Session) error
 	SetSessionTicket              func(key, id, secret []byte, ticket internalstate.SessionTicket) error
 	GetSessionTicket              func(key []byte, serverName string) (*internalstate.PSK, error)
 	DelSession                    func(key []byte) error
@@ -374,4 +374,22 @@ func FilterCipherSuitesForCertificate(
 	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool {
 		return !suite.Capabilities().SupportsVersion(protocol.Version1_3) && suite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate && certType != suite.CertificateType()
 	})
+}
+
+// UsableSession rejects legacy sessions and sessions belonging to another role.
+func (c *HandshakeConfig) UsableSession(s internalstate.Session, isClient bool) bool {
+	if s.Ticket != nil || s.Version != 1 || s.IsClient != isClient || len(s.ID) == 0 || len(s.Secret) != 48 {
+		return false
+	}
+	var suite CipherSuite
+	for _, candidate := range c.LocalCipherSuites {
+		if candidate.ID() == s.CipherSuiteID {
+			suite = candidate
+			break
+		}
+	}
+	if suite == nil {
+		return false
+	}
+	return isClient || c.ClientAuth == NoClientCert || c.ClientAuth == RequestClientCert
 }

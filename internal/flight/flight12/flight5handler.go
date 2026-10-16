@@ -52,7 +52,7 @@ func flight5Parse(_ context.Context, conn dtlsflight.Conn, state *dtlsstate.Stat
 
 	if len(state.SessionID) > 0 {
 		cfg.Log.Tracef("[handshake] save new session: %x", state.SessionID)
-		if err := cfg.SetSession(conn.SessionKey(), state.SessionID, state.MasterSecret); err != nil {
+		if err := cfg.SetSession(conn.SessionKey(), state.Session()); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}

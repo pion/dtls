@@ -511,7 +511,7 @@ func serverCIDExtension(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfi
 func finishClientFlight(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	if len(state.SessionID) > 0 && cfg.HasSessionStore {
 		cfg.Log.Tracef("[handshake] save new session: %x", state.SessionID)
-		if err := cfg.SetSession(state.SessionID, state.SessionID, state.MasterSecret); err != nil {
+		if err := cfg.SetSession(state.SessionID, state.Session()); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}

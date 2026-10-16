@@ -4,6 +4,7 @@
 package flight12
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"slices"
@@ -162,13 +163,13 @@ func negotiateClientHello(clientHello *handshake.MessageClientHello, state *dtls
 
 func handleHelloResume(sessionID []byte, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, next Flight) (Flight, *alert.Alert, error) {
 	if len(sessionID) > 0 && cfg.HasSessionStore {
-		if id, secret, err := cfg.GetSession(sessionID); err != nil {
+		if session, err := cfg.GetSession(sessionID); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		} else if id != nil {
+		} else if cfg.UsableSession(session, false) && bytes.Equal(session.ID, sessionID) && session.CipherSuiteID == state.CipherSuite.ID() {
 			cfg.Log.Tracef("[handshake] resume session: %x", sessionID)
 
 			state.SessionID = sessionID
-			state.MasterSecret = secret
+			state.MasterSecret = session.Secret
 
 			if err := state.InitCipherSuite(); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err

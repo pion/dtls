@@ -2223,7 +2223,7 @@ func TestDetachedEarlyDataNegotiation(t *testing.T) {
 	require.NoError(t, err)
 	for _, scenario := range []string{"accepted", "replay", "policy error", "no policy", "retry", "stale age", "expired", "context changed", "reduced limit", "cid", "srtp", earlyDataSRTPChanged, "alpn", "alpn changed", "alpn removed"} {
 		t.Run(scenario, func(t *testing.T) {
-			ticket := Session{ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, 32), Ticket: &SessionTicket{
+			ticket := Session{Version: 1, IsClient: true, ID: []byte("ticket"), Secret: bytes.Repeat([]byte{0x42}, 32), Ticket: &SessionTicket{
 				CipherSuite: cryptosuite.TLS_AES_128_GCM_SHA256, CreatedAt: time.Now().Add(-time.Second),
 				Lifetime: 60, AgeAdd: ^uint32(0), MaxEarlyDataSize: 32, PeerCertificates: certificate.Certificate,
 			}}
@@ -2232,6 +2232,7 @@ func TestDetachedEarlyDataNegotiation(t *testing.T) {
 			clientStore := &earlyDataTestStore{session: ticket}
 			serverTicket := *ticket.Ticket
 			ticket.Ticket = &serverTicket
+			ticket.IsClient = false
 			serverStore := &earlyDataTestStore{session: ticket, claimed: scenario == "replay"}
 			serverTicket.CreatedAt = serverTicket.CreatedAt.Add(-map[string]time.Duration{
 				"stale age": 29 * time.Second, "expired": time.Minute,

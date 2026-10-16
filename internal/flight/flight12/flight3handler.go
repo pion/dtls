@@ -119,7 +119,10 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 		state.RemoteRandom = serverHelloMsg.Random
 		cfg.Log.Tracef("[handshake] use cipher suite: %s", selectedCipherSuite.String())
 
-		if len(serverHelloMsg.SessionID) > 0 && bytes.Equal(state.SessionID, serverHelloMsg.SessionID) {
+		if state.ResumeSession != nil && len(serverHelloMsg.SessionID) > 0 && bytes.Equal(state.ResumeSession.ID, serverHelloMsg.SessionID) {
+			if state.ResumeSession.CipherSuiteID != state.CipherSuite.ID() {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrInvalidCipherSuite
+			}
 			next, dtlsAlert, err := handleResumption(ctx, conn, state, cache, cfg)
 			if next != 0 && err == nil {
 				state.CommitNegotiatedExtensions(decision)
@@ -129,9 +132,9 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 			return next, dtlsAlert, err
 		}
 
-		if cfg.HasSessionStore && len(state.SessionID) > 0 {
+		if cfg.HasSessionStore && state.ResumeSession != nil {
 			cfg.Log.Tracef("[handshake] clean old session : %s", state.SessionID)
-			if err := cfg.DelSession(state.SessionID); err != nil {
+			if err := cfg.DelSession(conn.SessionKey()); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
 		}
@@ -143,6 +146,7 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 		}
 
 		state.MasterSecret = []byte{}
+		state.ResumeSession = nil
 	}
 
 	var serverFlightPull dtlsflight.HandshakeCachePullResult

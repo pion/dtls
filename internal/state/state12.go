@@ -4,9 +4,12 @@
 package state
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"crypto/tls"
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/util"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
@@ -21,6 +24,8 @@ type State12 struct {
 
 	PreMasterSecret   []byte
 	MasterSecret      []byte
+	ResumeSession     *Session
+	PSKHash           [sha256.Size]byte
 	ServerCertificate *tls.Certificate
 
 	ExtendedMasterSecret        bool
@@ -123,4 +128,28 @@ func (s *State12) Usage() (sealed, failed uint64) { return s.usage.counts() }
 func (s *State12) RestoreUsage(sealed, failed uint64) {
 	s.usage.sealed.Store(sealed)
 	s.usage.failed.Store(failed)
+}
+
+// Session stores authenticated resumption metadata for either protocol version.
+type Session struct {
+	ID                   []byte
+	Secret               []byte //nolint:gosec // Session stores intentionally retain the resumption secret.
+	Ticket               *SessionTicket
+	Version              uint8
+	IsClient             bool
+	CipherSuiteID        cryptosuite.ID
+	ExtendedMasterSecret bool
+	PeerCertificates     [][]byte
+	IdentityHint         []byte
+	PSKHash              [sha256.Size]byte
+}
+
+// Session snapshots the authenticated DTLS 1.2 session.
+func (s *State12) Session() Session {
+	return Session{
+		ID: bytes.Clone(s.SessionID), Secret: bytes.Clone(s.MasterSecret),
+		Version: 1, IsClient: s.IsClient, CipherSuiteID: s.CipherSuite.ID(),
+		ExtendedMasterSecret: s.ExtendedMasterSecret, PeerCertificates: util.CloneByteSlices(s.PeerCertificates),
+		IdentityHint: bytes.Clone(s.IdentityHint), PSKHash: s.PSKHash,
+	}
 }

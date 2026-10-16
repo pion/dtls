@@ -6,11 +6,13 @@ package dtls
 import (
 	"bytes"
 	"crypto"
+	"crypto/sha256"
 	"time"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/protocol"
 )
 
@@ -22,9 +24,20 @@ type Session struct {
 	// ID stores a DTLS 1.2 session ID or a DTLS 1.3 ticket identity.
 	ID []byte
 	// Secret stores a DTLS 1.2 master secret or a DTLS 1.3 resumption PSK.
-	Secret []byte //nolint:gosec // no real risk of exporting the secret.
+	Secret []byte //nolint:gosec // Session stores intentionally retain the resumption secret.
 	// Ticket is non-nil for DTLS 1.3 sessions.
 	Ticket *SessionTicket
+	// Version identifies entries with authentication and negotiation metadata.
+	// Legacy entries without this metadata require a full handshake.
+	Version uint8
+	// IsClient binds the session to the endpoint role that authenticated it.
+	IsClient bool
+	// The following fields retain DTLS 1.2 negotiation and authentication state.
+	CipherSuiteID        cryptosuite.ID
+	ExtendedMasterSecret bool
+	PeerCertificates     [][]byte
+	IdentityHint         []byte
+	PSKHash              [sha256.Size]byte
 }
 
 // ticketPSK ignores expired tickets and sessions from other protocol versions or names.
@@ -65,6 +78,8 @@ func validSessionTicketAge(age time.Duration, lifetime uint32) bool {
 }
 
 // SessionStore defines methods needed for session resumption.
+// Stores must preserve every Session field, including authentication metadata.
+// Entries containing only an ID and Secret require a full handshake.
 type SessionStore interface {
 	// Set save a session.
 	// For client, use server name as key.

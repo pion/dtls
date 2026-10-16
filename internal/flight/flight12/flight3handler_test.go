@@ -125,6 +125,7 @@ func TestFlight3RejectsUnsolicitedServerHelloExtension(t *testing.T) {
 func TestFlight3DoesNotCommitConnectionIDBeforeSuccess(t *testing.T) {
 	state := newTestState12()
 	state.IsClient, state.SessionID = true, []byte{1}
+	state.ResumeSession = &dtlsstate.Session{ID: state.SessionID}
 	recordCH12(t, &state.LocalClientHelloSnapshots, &extension.ConnectionID{CID: []byte{0xc1}})
 	suite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	cfg := &dtlsconfig.HandshakeConfig{LocalCipherSuites: []dtlsconfig.CipherSuite{suite}, HasSessionStore: true, DelSession: func([]byte) error { return dtlserrors.ErrInvalidPacket }, Log: logging.NewDefaultLoggerFactory().NewLogger("dtls")}
@@ -134,7 +135,7 @@ func TestFlight3DoesNotCommitConnectionIDBeforeSuccess(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
 
-	_, dtlsAlert, err := parseForTest(t, Flight3, t.Context(), nil, state, cache, cfg)
+	_, dtlsAlert, err := parseForTest(t, Flight3, t.Context(), &flight1TestMockFlightConn{}, state, cache, cfg)
 	require.ErrorIs(t, err, dtlserrors.ErrInvalidPacket)
 	assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlsAlert)
 	assert.False(t, state.LocalCIDOffered || state.RemoteCIDOffered)
