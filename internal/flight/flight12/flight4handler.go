@@ -81,7 +81,7 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 			}
 		}
 
-		return Flight6, nil, nil
+		return finishClientFlight(state, cfg)
 	}
 
 	switch cfg.ClientAuth {
@@ -109,7 +109,7 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 		}
 	}
 
-	return Flight6, nil, nil
+	return finishClientFlight(state, cfg)
 }
 
 // Retain progress while waiting for CertificateVerify and Finished.
@@ -262,13 +262,6 @@ func flight4ProcessClientFlight(state *dtlsstate.State12, cache *dtlsflight.Cach
 			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
-	}
-
-	if len(state.SessionID) > 0 {
-		cfg.Log.Tracef("[handshake] save new session: %x", state.SessionID)
-		if err := cfg.SetSession(state.SessionID, state.SessionID, state.MasterSecret); err != nil {
-			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
 	}
 
 	state.HandshakeRecvSequence = pull.NextSequence
@@ -509,4 +502,15 @@ func serverCIDExtension(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfi
 	}
 
 	return &extension.ConnectionID{CID: cid}, nil
+}
+
+func finishClientFlight(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
+	if len(state.SessionID) > 0 && cfg.HasSessionStore {
+		cfg.Log.Tracef("[handshake] save new session: %x", state.SessionID)
+		if err := cfg.SetSession(state.SessionID, state.SessionID, state.MasterSecret); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
+
+	return Flight6, nil, nil
 }
