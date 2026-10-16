@@ -58,6 +58,9 @@ func (m *MessageCertificate) MarshalTo(out []byte) (int, error) {
 
 	for _, cert := range m.Certificate {
 		// Certificate Length
+		if len(cert) == 0 {
+			return 0, dtlserrors.ErrLengthMismatch
+		}
 		//nolint:gosec // G115
 		util.PutBigEndianUint24(out[offset:], uint32(len(cert)))
 		offset += handshakeMessageCertificateLengthFieldSize
@@ -79,12 +82,16 @@ func (m *MessageCertificate) Unmarshal(data []byte) error {
 		return dtlserrors.ErrLengthMismatch
 	}
 
+	m.Certificate = nil
 	offset := handshakeMessageCertificateLengthFieldSize
 	for offset < len(data) {
+		if len(data)-offset < handshakeMessageCertificateLengthFieldSize {
+			return dtlserrors.ErrLengthMismatch
+		}
 		certificateLen := int(util.BigEndianUint24(data[offset:]))
 		offset += handshakeMessageCertificateLengthFieldSize
 
-		if offset+certificateLen > len(data) {
+		if certificateLen == 0 || offset+certificateLen > len(data) {
 			return dtlserrors.ErrLengthMismatch
 		}
 
