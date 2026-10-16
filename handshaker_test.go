@@ -382,6 +382,7 @@ func (c *flightTestConn) WritePackets( //nolint:cyclop
 ) (*dtlshandshake.WriteResult, error) {
 	time.Sleep(c.delay)
 	isRetransmit := false
+	isClientHelloRetransmit := false
 	for _, pkt := range pkts {
 		if c.filter != nil && !c.filter(pkt) {
 			continue
@@ -407,12 +408,16 @@ func (c *flightTestConn) WritePackets( //nolint:cyclop
 			if err != nil {
 				return nil, err
 			}
-			c.otherEndCache.Push(append(hdr, content...), pkt.Epoch, handshake.Header.MessageSequence, handshake.Header.Type, c.state.IsClient)
+			hdr = append(hdr, content...)
+			if c.state.IsClient && pkt.Epoch == 0 {
+				isClientHelloRetransmit = isClientHelloRetransmit || c.otherEndCache.IsClientHelloRetransmit(hdr)
+			}
+			c.otherEndCache.Push(hdr, pkt.Epoch, handshake.Header.MessageSequence, handshake.Header.Type, c.state.IsClient)
 		}
 	}
 	go func() {
 		select {
-		case c.otherEndRecv <- dtlshandshake.RecvHandshakeState{Done: make(chan struct{}), IsRetransmit: isRetransmit}:
+		case c.otherEndRecv <- dtlshandshake.RecvHandshakeState{Done: make(chan struct{}), IsRetransmit: isRetransmit, IsClientHelloRetransmit: isClientHelloRetransmit}:
 		case <-c.done:
 		}
 	}()

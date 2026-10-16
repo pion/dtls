@@ -184,6 +184,9 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:c
 				return StateErrored, err
 			}
 			if nextFlight == 0 {
+				if state.IsClientHelloRetransmit && s.currentFlight == dtlsflight12.Flight2 {
+					return StateSending, nil
+				}
 				if state.IsClientHelloRetransmit &&
 					(s.currentFlight == dtlsflight12.Flight4 || s.currentFlight == dtlsflight12.Flight4b) &&
 					!time.Now().Before(s.peerRetransmitAfter) {

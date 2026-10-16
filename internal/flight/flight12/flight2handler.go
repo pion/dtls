@@ -16,7 +16,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-func flight2Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
+func flight2Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
 	)
@@ -24,9 +24,8 @@ func flight2Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 		return 0, nil, pull.Err
 	}
 	if !pull.Ready {
-		// Client may retransmit the first ClientHello when HelloVerifyRequest is dropped.
-		// Parse as flight 0 in this case.
-		return flight0Parse(ctx, conn, state, cache, cfg)
+		// Only a repeated ClientHello makes the FSM resend the cookie challenge.
+		return 0, nil, nil
 	}
 	state.HandshakeRecvSequence = pull.NextSequence
 
