@@ -259,7 +259,8 @@ func createConn(
 		replayProtectionWindow: uint(replayProtectionWindow), //nolint:gosec // G115
 
 		state: State{
-			isClient: isClient,
+			isClient:             isClient,
+			remoteSequenceNumber: &atomic.Uint64{},
 		},
 	}
 
@@ -1034,6 +1035,9 @@ func (c *Conn) handleIncomingPacket(
 	if header.Epoch > 1 {
 		return false, false, nil, nil
 	}
+	if header.Epoch > 0 && header.SequenceNumber < c.state.remoteReplayCutoff {
+		return false, false, nil, nil
+	}
 	if header.Epoch > remoteEpoch {
 		if header.Epoch > remoteEpoch+1 {
 			c.log.Debugf("discarded future packet (epoch: %d, seq: %d)",
@@ -1064,6 +1068,22 @@ func (c *Conn) handleIncomingPacket(
 		)
 
 		return false, false, nil, nil
+	}
+
+	markReplay := markPacketAsValid
+	markPacketAsValid = func() bool {
+		latest := markReplay()
+		if header.Epoch > 0 {
+			next := header.SequenceNumber + 1
+			for previous := c.state.remoteSequenceNumber.Load(); next > previous; {
+				if c.state.remoteSequenceNumber.CompareAndSwap(previous, next) {
+					break
+				}
+				previous = c.state.remoteSequenceNumber.Load()
+			}
+		}
+
+		return latest
 	}
 
 	// originalCID indicates whether the original record had content type
