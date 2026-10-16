@@ -2332,6 +2332,9 @@ func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protoco
 	if prepared.number.Epoch == 0 {
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrApplicationDataEpochZero
 	}
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 && prepared.number.Epoch == dtlsflight13.EpochHandshake {
+		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrInvalidContentType
+	}
 	if ok, err := c.acceptEarlyApplicationData(prepared.number.Epoch, uint64(len(content.Data))); !ok || err != nil {
 		outcome := packetOutcome{}
 		if err != nil {
@@ -2343,7 +2346,8 @@ func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protoco
 
 	isLatestSeqNum := prepared.markPacketAsValid()
 	if c.detached != nil {
-		c.detached.publishApplicationData(content.Data)
+		early := dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 && prepared.number.Epoch == dtlsflight13.EpochEarlyData
+		c.detached.publishApplicationData(content.Data, early)
 
 		return isLatestSeqNum, packetOutcome{}, nil
 	}

@@ -70,10 +70,12 @@ type DetachedConn struct {
 	inbound chan addrPkt
 	driveMu sync.Mutex
 
-	eventMu    sync.Mutex
-	events     []DetachedEvent
-	nextEvent  int
-	eventReady chan struct{}
+	eventMu   sync.Mutex
+	events    []DetachedEvent
+	nextEvent int
+	// Match Conn's single-record pre-handshake application buffer.
+	pendingApplicationData *DetachedEvent
+	eventReady             chan struct{}
 
 	started         bool
 	earlyDataStatus dtlsstate.EarlyDataStatus
@@ -317,29 +319,49 @@ func (c *DetachedConn) publishDatagrams(datagrams [][]byte, addr net.Addr) {
 	c.publishEvent(DetachedEvent{Kind: DetachedWriteDatagrams, Datagrams: datagrams, Addr: addr})
 }
 
-func (c *DetachedConn) publishApplicationData(data []byte) {
-	c.publishEvent(DetachedEvent{Kind: DetachedApplicationData, Data: data})
+func (c *DetachedConn) publishApplicationData(data []byte, early bool) {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	event := DetachedEvent{Kind: DetachedApplicationData, Data: data}
+	if !early && !c.established.Load() {
+		if c.pendingApplicationData == nil {
+			c.pendingApplicationData = &event
+		}
+
+		return
+	}
+	c.publishEventLocked(event)
 }
 
 func (c *DetachedConn) publishEvent(event DetachedEvent) {
 	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	c.publishEventLocked(event)
+}
+
+func (c *DetachedConn) publishEventLocked(event DetachedEvent) {
 	c.events = append(c.events, event)
 	select {
 	case c.eventReady <- struct{}{}:
 	default:
 	}
-	c.eventMu.Unlock()
 }
 
 func (c *DetachedConn) markQuiescent() {
 	c.publishEarlyDataStatus()
+	c.eventMu.Lock()
 	if c.conn.isHandshakeCompletedSuccessfully() && c.established.CompareAndSwap(false, true) {
 		if state, ok := c.conn.state.(*dtlsstate.State13); ok && state.TrafficKeys != nil {
 			state.TrafficKeys.Discard(dtlsflight13.EpochEarlyData)
 		}
-		c.publishEvent(DetachedEvent{Kind: DetachedHandshakeDone})
+		c.publishEventLocked(DetachedEvent{Kind: DetachedHandshakeDone})
+		if c.pendingApplicationData != nil {
+			c.publishEventLocked(*c.pendingApplicationData)
+			c.pendingApplicationData = nil
+		}
 	}
 
+	c.eventMu.Unlock()
 	select {
 	case c.blocked <- struct{}{}:
 	case <-c.terminal:
@@ -372,7 +394,10 @@ func (c *DetachedConn) terminate(err error, closeConn bool) {
 		if closeConn {
 			_ = c.conn.close(false) //nolint:contextcheck
 		}
-		c.publishEvent(DetachedEvent{Kind: DetachedClosed, Err: err})
+		c.eventMu.Lock()
+		c.pendingApplicationData = nil
+		c.publishEventLocked(DetachedEvent{Kind: DetachedClosed, Err: err})
+		c.eventMu.Unlock()
 		close(c.terminal)
 	})
 }
