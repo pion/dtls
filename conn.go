@@ -2088,6 +2088,9 @@ func (c *Conn) prepareLegacyPacket(buf []byte, rAddr net.Addr, bufferLease *read
 	// DTLS 1.2 requires accepting old epochs until the handshake completes:
 	// https://datatracker.ietf.org/doc/html/rfc6347#section-4.1
 	common := dtlsstate.CommonState(c.state)
+	if common.LocalVersion == protocol.Version1_2 && header.Epoch() > 1 {
+		return incomingPacketState{}, false, nil
+	}
 	if header.Epoch() == 0 && header.ContentType() == protocol.ContentTypeAlert && common.RemoteEpoch() != 0 &&
 		(common.LocalVersion == protocol.Version1_3 || c.isHandshakeCompletedSuccessfully()) {
 		c.log.Debug("discarded alert from the old plaintext epoch")
@@ -2298,6 +2301,9 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 
 func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr net.Addr, bufferLease *readBufferLease) bool {
 	common := dtlsstate.CommonState(c.state)
+	if prepared.number.Epoch != 0 || common.LocalVersion == protocol.Version1_3 {
+		return false
+	}
 	if !c.hasInboundRecordProtection() {
 		if bufferLease != nil {
 			if ok := bufferLease.enqueue(addrPkt{rAddr: rAddr, data: prepared.raw}); ok {
