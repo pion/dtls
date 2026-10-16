@@ -307,6 +307,9 @@ func WithInsecureHashes(allow bool) Option {
 }
 
 // WithVerifyPeerCertificate sets the peer certificate verification callback.
+// DTLS 1.2 clients also call it on cached certificates before offering resumption.
+// Rejection falls back to a full handshake, where the callback runs again on
+// the newly received certificate. Accepted resumption calls it only once.
 // Returns an error if the callback is nil.
 func WithVerifyPeerCertificate(fn func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error) Option {
 	return valueOption(func(c *dtlsConfig) *func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
@@ -315,6 +318,7 @@ func WithVerifyPeerCertificate(fn func(rawCerts [][]byte, verifiedChains [][]*x5
 }
 
 // WithVerifyConnection sets the connection verification callback.
+// The callback also runs after Finished on resumed connections.
 // Returns an error if the callback is nil.
 func WithVerifyConnection(fn func(*State) error) Option {
 	return valueOption(func(c *dtlsConfig) *func(*State) error { return &c.verifyConnection }, fn, optionError(fn == nil, dtlserrors.ErrNilVerifyConnection))

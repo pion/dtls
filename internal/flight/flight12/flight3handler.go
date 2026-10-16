@@ -151,6 +151,8 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 
 		state.MasterSecret = []byte{}
 		state.ResumeSession = nil
+		state.PeerCertificates = nil
+		state.IdentityHint = nil
 	}
 
 	var serverFlightPull dtlsflight.HandshakeCachePullResult
@@ -238,6 +240,9 @@ func handleResumption(ctx context.Context, c dtlsflight.Conn, state *dtlsstate.S
 	}
 	if !bytes.Equal(expectedVerifyData, finished.VerifyData) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrVerifyDataMismatch
+	}
+	if err := cfg.VerifyResumedConnection(state); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 	}
 
 	clientRandom := state.LocalRandom.MarshalFixed()

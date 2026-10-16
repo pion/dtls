@@ -24,6 +24,7 @@ import (
 
 	"github.com/pion/dtls/v4/internal/ech"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	internalstate "github.com/pion/dtls/v4/internal/state"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
@@ -378,20 +379,23 @@ func FilterCipherSuitesForCertificate(
 }
 
 // UsableSession rejects legacy sessions and sessions belonging to another role.
-func (c *HandshakeConfig) UsableSession(s internalstate.Session, isClient bool) bool {
-	if s.Ticket != nil || s.Version != 1 || s.IsClient != isClient || len(s.ID) == 0 || len(s.Secret) != 48 {
+//
+//nolint:cyclop // Check role, negotiated parameters, and current authentication policy.
+func (c *HandshakeConfig) UsableSession(session internalstate.Session, isClient bool) bool {
+	if session.Ticket != nil || session.Version != 1 || session.IsClient != isClient || len(session.ID) == 0 || len(session.Secret) != 48 {
 		return false
 	}
-	if c.ExtendedMasterSecret == RequireExtendedMasterSecret && !s.ExtendedMasterSecret {
+	if c.ExtendedMasterSecret == RequireExtendedMasterSecret && !session.ExtendedMasterSecret {
 		return false
 	}
-	if c.ExtendedMasterSecret == DisableExtendedMasterSecret && s.ExtendedMasterSecret {
+	if c.ExtendedMasterSecret == DisableExtendedMasterSecret && session.ExtendedMasterSecret {
 		return false
 	}
 	var suite CipherSuite
 	for _, candidate := range c.LocalCipherSuites {
-		if candidate.ID() == s.CipherSuiteID {
+		if candidate.ID() == session.CipherSuiteID {
 			suite = candidate
+
 			break
 		}
 	}
@@ -399,20 +403,63 @@ func (c *HandshakeConfig) UsableSession(s internalstate.Session, isClient bool) 
 		return false
 	}
 	if suite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey {
-		var key []byte
-		var err error
-		if isClient {
-			if c.LocalPSKCallback == nil {
-				return false
-			}
-			key, err = c.LocalPSKCallback(bytes.Clone(s.IdentityHint))
-		} else {
-			if c.SelectPSK == nil {
-				return false
-			}
-			_, key, _, err = c.SelectPSK([][]byte{bytes.Clone(s.IdentityHint)})
-		}
-		return err == nil && len(key) > 0 && sha256.Sum256(key) == s.PSKHash
+		return c.usableSessionPSK(session, isClient)
 	}
-	return isClient || c.ClientAuth == NoClientCert || c.ClientAuth == RequestClientCert
+	if isClient {
+		if len(session.PeerCertificates) == 0 {
+			return false
+		}
+		chains, err := c.verifySessionCertificate(session.PeerCertificates)
+		if err != nil {
+			return false
+		}
+
+		return c.VerifyPeerCertificate == nil || c.VerifyPeerCertificate(session.PeerCertificates, chains) == nil
+	}
+
+	return c.ClientAuth == NoClientCert || c.ClientAuth == RequestClientCert
+}
+
+func (c *HandshakeConfig) verifySessionCertificate(raw [][]byte) ([][]*x509.Certificate, error) {
+	if c.InsecureSkipVerify {
+		return nil, nil
+	} //nolint:nilnil // Verification was explicitly disabled.
+	algs := c.LocalCertSignatureSchemes
+	if len(algs) == 0 {
+		algs = c.LocalSignatureSchemes
+	}
+
+	return dtlscrypto.VerifyServerCert(raw, c.RootCAs, c.ServerName, algs)
+}
+
+// VerifyResumedConnection applies current authentication policy after Finished.
+func (c *HandshakeConfig) VerifyResumedConnection(state *internalstate.State12) error {
+	if state.IsClient && state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate {
+		if _, err := c.verifySessionCertificate(state.PeerCertificates); err != nil {
+			return err
+		}
+	}
+	if c.VerifyConnection != nil {
+		return c.VerifyConnection(state)
+	}
+
+	return nil
+}
+
+func (c *HandshakeConfig) usableSessionPSK(session internalstate.Session, isClient bool) bool {
+	var key []byte
+	var err error
+	if isClient {
+		if c.LocalPSKCallback == nil {
+			return false
+		}
+		key, err = c.LocalPSKCallback(bytes.Clone(session.IdentityHint))
+	} else {
+		if c.SelectPSK == nil {
+			return false
+		}
+		_, key, _, err = c.SelectPSK([][]byte{bytes.Clone(session.IdentityHint)})
+	}
+
+	return err == nil && len(key) > 0 && sha256.Sum256(key) == session.PSKHash
 }

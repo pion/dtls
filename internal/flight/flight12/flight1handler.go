@@ -132,6 +132,7 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 			state.MasterSecret = session.Secret
 			state.IdentityHint = bytes.Clone(session.IdentityHint)
 			state.PSKHash = session.PSKHash
+			state.PeerCertificates = session.PeerCertificates
 		}
 	}
 

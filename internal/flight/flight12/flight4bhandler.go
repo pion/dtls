@@ -50,6 +50,9 @@ func flight4bParse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State1
 	if !bytes.Equal(expectedVerifyData, finished.VerifyData) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrVerifyDataMismatch
 	}
+	if err := cfg.VerifyResumedConnection(state); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+	}
 
 	// Other party may re-transmit the last  Keep state to be Flight4b.
 	return Flight4b, nil, nil
