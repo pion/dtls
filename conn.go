@@ -2007,7 +2007,11 @@ func (c *Conn) handleFutureCiphertextPacket(epochLow uint8, remoteEpoch uint64, 
 	}
 }
 
+//nolint:cyclop // Apply replay checks for both record formats and restored state.
 func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool, bool) {
+	if state, ok := c.state.(*dtlsstate.State12); ok && epoch != 0 && sequenceNumber < state.RemoteReplayCutoff {
+		return nil, false
+	}
 	if state, ok := c.state.(*dtlsstate.State13); ok {
 		if cutoff, restored := state.ReplayCutoff[epoch]; restored && sequenceNumber <= cutoff {
 			return nil, false
@@ -2025,6 +2029,15 @@ func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool,
 		c.log.Debugf("discarded duplicated packet (epoch: %d, seq: %d)", epoch, sequenceNumber)
 
 		return nil, false
+	}
+
+	if _, ok := c.state.(*dtlsstate.State12); ok && epoch != 0 {
+		return func() bool {
+			latest := accept()
+			common.UpdateRemoteSequenceNumber(epoch, sequenceNumber)
+
+			return latest
+		}, true
 	}
 
 	return accept, true

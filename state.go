@@ -25,6 +25,7 @@ import (
 // encoding.BinaryUnmarshaler.
 type State struct {
 	handshakeComplete         bool
+	remoteSequenceNumber      uint64
 	localEpoch, remoteEpoch   uint64
 	localRandom, remoteRandom handshake.Random
 	masterSecret              []byte
@@ -119,6 +120,7 @@ func remainingUsage(limit, used uint64) uint64 {
 
 type serializedState struct {
 	HandshakeComplete     bool
+	RemoteSequenceNumber  uint64
 	ECHAccepted           bool
 	ServerName            string
 	DTLS13                *serializedState13
@@ -162,6 +164,9 @@ func generateState(active dtlsstate.Active) (*State, error) {
 		state.KeyUsage = keyUsageStats12(internalState)
 		state.masterSecret = bytes.Clone(internalState.MasterSecret)
 		state.handshakeComplete = internalState.HandshakeComplete.Load()
+		if highest, seen := common.HighestRemoteSequenceNumber(common.RemoteEpoch()); seen {
+			state.remoteSequenceNumber = highest + 1
+		}
 	case *dtlsstate.State13:
 		state.version = protocol.Version1_3
 		state.KeyUsage = keyUsageStats(internalState)
@@ -249,6 +254,7 @@ func (s *State) serialize() (*serializedState, error) {
 
 	return &serializedState{
 		HandshakeComplete:     s.handshakeComplete,
+		RemoteSequenceNumber:  s.remoteSequenceNumber,
 		DTLS13:                s.state13,
 		ExporterMasterSecret:  s.exporterMasterSecret,
 		KeyUsage:              s.KeyUsage,
@@ -277,6 +283,7 @@ func (s *State) serialize() (*serializedState, error) {
 
 func (s *State) deserialize(serialized serializedState) {
 	s.handshakeComplete = serialized.HandshakeComplete
+	s.remoteSequenceNumber = serialized.RemoteSequenceNumber
 	s.state13 = serialized.DTLS13
 	s.exporterMasterSecret = bytes.Clone(serialized.ExporterMasterSecret)
 	s.KeyUsage = serialized.KeyUsage
@@ -361,6 +368,10 @@ func (s *State) generateInternalState() (dtlsstate.Active, error) {
 
 	state := &dtlsstate.State{Common: s.restoreCommonState(cipherSuite, protocol.Version1_2), MasterSecret: bytes.Clone(s.masterSecret)}
 	state.HandshakeComplete.Store(true)
+	state.RemoteReplayCutoff = s.remoteSequenceNumber
+	if s.remoteSequenceNumber > 0 {
+		state.UpdateRemoteSequenceNumber(s.remoteEpoch, s.remoteSequenceNumber-1)
+	}
 	if s.KeyUsage != nil {
 		state.RestoreUsage(s.KeyUsage.SealedRecords, s.KeyUsage.AuthenticationFailures)
 	}

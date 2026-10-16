@@ -20,7 +20,8 @@ import (
 
 // State12 holds state that is meaningful only for DTLS 1.2.
 type State12 struct {
-	HandshakeComplete atomic.Bool
+	HandshakeComplete  atomic.Bool
+	RemoteReplayCutoff uint64
 	*Common
 	Protection cryptosuite.Protection
 	usage      trafficUsage
