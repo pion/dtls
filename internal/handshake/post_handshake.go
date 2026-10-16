@@ -240,7 +240,6 @@ func (p *postHandshake) initialize() {
 }
 
 func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn) error {
-	applicationBlocked := false
 	for i := 0; i < len(p.queue); {
 		command := p.queue[i]
 		if err, canceled := canceledPostHandshakeCommand(command); canceled {
@@ -249,8 +248,10 @@ func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn)
 
 			continue
 		}
-		if !p.commandEligible(command.Kind, applicationBlocked) {
-			applicationBlocked = applicationBlocked || command.KeyUpdate.Required
+		if !p.commandEligible(command.Kind) {
+			// Keep a required response queued until the outstanding update is ACKed.
+			// Application records may still use the current keys.
+			// https://www.rfc-editor.org/rfc/rfc9147.html#section-8
 			i++
 
 			continue
@@ -268,7 +269,7 @@ func (p *postHandshake) startQueuedPostHandshake(ctx context.Context, conn Conn)
 	return nil
 }
 
-func (p *postHandshake) commandEligible(kind postHandshakeCommandKind, applicationBlocked bool) bool {
+func (p *postHandshake) commandEligible(kind postHandshakeCommandKind) bool {
 	var category postHandshakeCategory
 	switch kind {
 	case commandSendKeyUpdate:
@@ -277,8 +278,6 @@ func (p *postHandshake) commandEligible(kind postHandshakeCommandKind, applicati
 		category = postHandshakeNewConnectionID
 	case commandSendRequestConnectionID:
 		return true
-	case commandSendApplicationData:
-		return !applicationBlocked
 	default:
 		// tickets may overlap, and invalid commands must reach validation.
 		return true
@@ -735,6 +734,11 @@ func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message 
 func (p *postHandshake) queueRequiredKeyUpdateResponse(request handshake.KeyUpdateRequest) {
 	if request != handshake.KeyUpdateRequested {
 		return
+	}
+	for _, queued := range p.queue {
+		if queued.Kind == commandSendKeyUpdate && queued.KeyUpdate.Required {
+			return
+		}
 	}
 	command := postHandshakeCommand{Kind: commandSendKeyUpdate, KeyUpdate: keyUpdateCommand{Request: handshake.KeyUpdateNotRequested, Required: true}}
 	insertAt := len(p.queue)

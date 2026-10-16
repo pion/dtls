@@ -581,10 +581,10 @@ func TestRequiredKeyUpdateResponsesAreSerialized(t *testing.T) {
 	require.NoError(t, post.handleKeyUpdate(
 		context.Background(), conn, request, dtlsflight13.EpochApplication+1,
 	))
-	require.Len(t, post.queue, 2)
+	require.Len(t, post.queue, 1)
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
-	require.Len(t, post.queue, 1)
+	require.Empty(t, post.queue)
 	require.Len(t, conn.writtenPackets, 1)
 	require.Len(t, post.flights, 1)
 	for id := range post.flights {
@@ -593,7 +593,7 @@ func TestRequiredKeyUpdateResponsesAreSerialized(t *testing.T) {
 
 	require.NoError(t, post.startQueuedPostHandshake(context.Background(), conn))
 	assert.Empty(t, post.queue)
-	assert.Len(t, conn.writtenPackets, 2)
+	assert.Len(t, conn.writtenPackets, 1)
 }
 
 func TestApplicationDataChangesEpochOnlyAfterKeyUpdateACK(t *testing.T) {
