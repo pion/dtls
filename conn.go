@@ -961,9 +961,7 @@ func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *hand
 
 	c.log.Tracef("[handshake:%v] -> %s (epoch: %d, seq: %d)", srvCliStr(dtlsstate.CommonState(c.state).IsClient), dtlsHandshake.Header.Type.String(), outbound.Epoch, dtlsHandshake.Header.MessageSequence)
 
-	c.handshakeCache.Push(handshakeRaw, outbound.Epoch, dtlsHandshake.Header.MessageSequence, dtlsHandshake.Header.Type, dtlsstate.CommonState(c.state).IsClient)
-
-	return nil
+	return c.pushHandshake(handshakeRaw, outbound.Epoch, dtlsHandshake.Header.MessageSequence, dtlsHandshake.Header.Type, dtlsstate.CommonState(c.state).IsClient)
 }
 
 func (c *Conn) contextWithClose(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -2244,7 +2242,8 @@ func (c *Conn) validateLegacyCID(header recordlayer.ParsedRecord) bool {
 	return false
 }
 
-func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumber, markPacketAsValid func() bool) (packetOutcome, bool) {
+//nolint:cyclop // Reassemble, acknowledge, and cache each protocol version.
+func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumber, markPacketAsValid func() bool) (packetOutcome, bool, error) {
 	c.syncFragmentBufferHandshakeSequence()
 	result, err := c.fragmentBuffer.Push(number.Epoch, content)
 	if err != nil {
@@ -2252,7 +2251,7 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 		// [RFC6347 Section-4.1.2.7]
 		c.log.Debugf("defragment failed: %s", err)
 
-		return packetOutcome{}, false
+		return packetOutcome{}, false, nil
 	}
 
 	isLatestSeqNum := markPacketAsValid()
@@ -2270,7 +2269,9 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 
 			continue
 		}
-		c.handshakeCache.Push(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient)
+		if err := c.pushHandshake(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient); err != nil {
+			return packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}}, isLatestSeqNum, err
+		}
 	}
 
 	common := dtlsstate.CommonState(c.state)
@@ -2281,7 +2282,7 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 		retransmitStart:   result.IsRetransmitStart,
 		clientHelloRetransmit: !common.IsClient && common.LocalVersion == protocol.Version1_2 &&
 			number.Epoch == 0 && result.IsRetransmit && c.handshakeCache.IsClientHelloRetransmit(content),
-	}, isLatestSeqNum
+	}, isLatestSeqNum, nil
 }
 
 func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr net.Addr, bufferLease *readBufferLease) bool {
@@ -2425,14 +2426,14 @@ func (c *Conn) handleIncomingPacket(ctx context.Context, buf []byte, rAddr net.A
 	}
 	prepared.markPacketAsValid = c.rrc.WrapReplayMarker(prepared.markPacketAsValid, rAddr, len(buf), c.RemoteAddr, c.cidPathMigrationPolicy == CIDPathMigrationRRC && dtlsstate.CommonState(c.state).RRCNegotiated)
 	if prepared.contentType == protocol.ContentTypeHandshake {
-		outcome, isLatestSeqNum := c.bufferHandshakeRecord(
+		outcome, isLatestSeqNum, cacheErr := c.bufferHandshakeRecord(
 			prepared.content,
 			prepared.number,
 			prepared.markPacketAsValid,
 		)
 		returnRoutabilityConn{conn: c}.HandleCandidate(ctx, dtlsstate.CommonState(c.state).RRCNegotiated, prepared.originalCID, isLatestSeqNum, rAddr)
 
-		return outcome, nil
+		return outcome, cacheErr
 	}
 
 	content, err := unmarshalRecordContent(prepared.contentType, prepared.content)
@@ -3201,4 +3202,13 @@ func (c *Conn) acceptEarlyApplicationData(epoch, size uint64) (bool, error) {
 	state.EarlyDataBytes += size
 
 	return true, nil
+}
+
+func (c *Conn) pushHandshake(data []byte, epoch uint64, sequence uint16, typ handshake.Type, isClient bool) error {
+	if dtlsstate.CommonState(c.state).LocalVersion != protocol.Version1_3 {
+		return c.handshakeCache.PushBounded12(data, epoch, sequence, typ, isClient)
+	}
+	c.handshakeCache.Push(data, epoch, sequence, typ, isClient)
+
+	return nil
 }

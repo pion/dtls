@@ -216,6 +216,7 @@ var (
 	ErrInvalidClientKeyExchange  = stderrors.New("unable to determine if ClientKeyExchange is a public key or PSK Identity")
 	ErrInvalidSignHashAlgorithm  = stderrors.New("invalid signature/hash algorithm")
 	ErrCookieTooLong             = stderrors.New("cookie must not be longer than 255 bytes")
+	ErrHandshakeCacheOverflow    = stderrors.New("handshake cache exceeded its memory limit")
 	ErrSessionEMSMismatch        = stderrors.New("extended master secret does not match the resumed session")
 	ErrSessionIDTooLong          = stderrors.New("session ID must not be longer than 255 bytes")
 	ErrCertificateTypesTooLong   = stderrors.New("certificate types must not be longer than 255 entries")

@@ -77,6 +77,9 @@ func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
 		s.closed,
 		s.establishment,
 		func(state State) {
+			if state == StateFinished {
+				s.cache.Finish12()
+			}
 			s.cfg.Log.Tracef(
 				"[handshake:%s] %s: %s",
 				sideString(s.state.IsClient),

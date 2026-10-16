@@ -18,6 +18,8 @@ import (
 )
 
 type Cache struct {
+	size                          int
+	complete                      bool
 	cache                         []*HandshakeCacheItem
 	mu                            sync.Mutex
 	clientHelloRetransmit         []byte
@@ -519,4 +521,35 @@ func (h *Cache) SessionHash(hf prf.HashFunc, epoch uint64, additional ...[]byte)
 	}
 
 	return hash.Sum(nil), nil
+}
+
+// PushBounded12 retains a DTLS 1.2 transcript within a fixed per-connection budget.
+// DTLS 1.3 has a separate post-handshake message lifecycle.
+func (h *Cache) PushBounded12(data []byte, epoch uint64, sequence uint16, typ handshake.Type, isClient bool) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.complete {
+		return nil
+	}
+	for _, item := range h.cache {
+		if item.Epoch == epoch && item.MessageSequence == sequence && item.IsClient == isClient && item.Typ == typ {
+			return nil
+		}
+	}
+	const maxBytes = 8_000_000
+	const maxMessages = 1000
+	if len(h.cache) >= maxMessages || len(data) > maxBytes-h.size {
+		return dtlserrors.ErrHandshakeCacheOverflow
+	}
+	h.cache = append(h.cache, &HandshakeCacheItem{Data: bytes.Clone(data), Epoch: epoch, MessageSequence: sequence, Typ: typ, IsClient: isClient})
+	h.size += len(data)
+
+	return nil
+}
+
+// Finish12 freezes the completed transcript while allowing final-flight retransmission.
+func (h *Cache) Finish12() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.complete = true
 }
