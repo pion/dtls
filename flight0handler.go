@@ -112,8 +112,8 @@ func negotiateClientHello(
 			sawSupportedGroups = true
 			offeredEllipticCurves = ext.EllipticCurves
 		case *extension.UseSRTP:
-			profile, ok := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
-			if !ok {
+			profile, found := findMatchingSRTPProfile(cfg.localSRTPProtectionProfiles, ext.ProtectionProfiles)
+			if !found {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerNoMatchingSRTPProfile
 			}
 			state.setSRTPProtectionProfile(profile)
@@ -144,6 +144,23 @@ func negotiateClientHello(
 	// expect one to be sent.
 	if state.remoteConnectionID == nil {
 		state.setLocalConnectionID(nil)
+	}
+	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate {
+		offeredIDs := make([]CipherSuiteID, len(cipherSuites))
+		for i, suite := range cipherSuites {
+			offeredIDs[i] = suite.ID()
+		}
+		certificate, err := cfg.getCertificate(&ClientHelloInfo{
+			ServerName: state.serverName, CipherSuites: offeredIDs, RandomBytes: state.remoteRandom.RandomBytes,
+		})
+		if err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
+		}
+		state.serverCertificate = certificate
+		usable := filterCipherSuitesForCertificate(certificate, cfg.localCipherSuites)
+		if state.cipherSuite, ok = findMatchingCipherSuite(cipherSuites, usable); !ok {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errCipherSuiteNoIntersection
+		}
 	}
 
 	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {

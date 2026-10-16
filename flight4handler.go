@@ -412,11 +412,15 @@ func flight4Generate(
 
 	switch {
 	case state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate:
-		certificate, err := cfg.getCertificate(&ClientHelloInfo{
-			ServerName:   state.serverName,
-			CipherSuites: []ciphersuite.ID{state.cipherSuite.ID()},
-			RandomBytes:  state.remoteRandom.RandomBytes,
-		})
+		certificate := state.serverCertificate
+		var err error
+		if certificate == nil {
+			certificate, err = cfg.getCertificate(&ClientHelloInfo{
+				ServerName:   state.serverName,
+				CipherSuites: []ciphersuite.ID{state.cipherSuite.ID()},
+				RandomBytes:  state.remoteRandom.RandomBytes,
+			})
+		}
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 		}

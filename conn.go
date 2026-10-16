@@ -305,17 +305,6 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 	c.handshakeDone = handshakeDone
 	c.closeLock.Unlock()
 
-	// rfc5246#section-7.4.3
-	// In addition, the hash and signature algorithms MUST be compatible
-	// with the key in the server's end-entity certificate.
-	if !c.state.isClient {
-		cert, err := c.handshakeConfig.getCertificate(&ClientHelloInfo{})
-		if err != nil && !errors.Is(err, errNoCertificates) {
-			return err
-		}
-		c.handshakeConfig.localCipherSuites = filterCipherSuitesForCertificate(cert, c.handshakeConfig.localCipherSuites)
-	}
-
 	var initialFlight flightVal
 	var initialFSMState handshakeState
 

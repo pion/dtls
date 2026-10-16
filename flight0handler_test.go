@@ -5,6 +5,7 @@ package dtls
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"slices"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
+	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	dtlsnet "github.com/pion/dtls/v3/pkg/net"
@@ -366,7 +368,10 @@ func testClientHelloRetry(t *testing.T, first, retry *handshake.MessageClientHel
 	cache := newHandshakeCache()
 	suites, err := parseCipherSuites(nil, nil, true, false)
 	require.NoError(t, err)
+	cert, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
 	cfg := &handshakeConfig{
+		localCertificates:           []tls.Certificate{cert},
 		localCipherSuites:           suites,
 		ellipticCurves:              defaultCurves,
 		localSRTPProtectionProfiles: []SRTPProtectionProfile{SRTP_AES128_CM_HMAC_SHA1_80},

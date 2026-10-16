@@ -6,6 +6,7 @@ package dtls
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/gob"
 	"errors"
 	"sync/atomic"
@@ -24,6 +25,7 @@ type State struct {
 	localSequenceNumber       []uint64 // uint48
 	localRandom, remoteRandom handshake.Random
 	masterSecret              []byte
+	serverCertificate         *tls.Certificate
 	cipherSuite               CipherSuite // nil if a cipherSuite hasn't been chosen
 	CipherSuiteID             CipherSuiteID
 
