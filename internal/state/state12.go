@@ -41,6 +41,8 @@ type State12 struct {
 	LocalVerifyData            []byte
 	LocalKeySignature          []byte
 
+	ClientKeyExchange        *handshake.MessageClientKeyExchange
+	ClientFlightProcessed    bool
 	PeerCertificatesVerified bool
 
 	remoteServerKeyExchange *handshake.MessageServerKeyExchange
