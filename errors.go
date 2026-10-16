@@ -56,6 +56,8 @@ var (
 	//nolint:err113
 	errCookieMismatch = &FatalError{Err: errors.New("client+server cookie does not match")}
 	//nolint:err113
+	errClientHelloChanged = &FatalError{Err: errors.New("client hello changed after hello verify request")}
+	//nolint:err113
 	errIdentityNoPSK = &FatalError{Err: errors.New("PSK Identity Hint provided but PSK is nil")}
 	//nolint:err113
 	errInvalidCertificate = &FatalError{Err: errors.New("no certificate provided")}

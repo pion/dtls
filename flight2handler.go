@@ -6,6 +6,7 @@ package dtls
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 
 	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
@@ -28,7 +29,6 @@ func flight2Parse(
 		// Parse as flight 0 in this case.
 		return flight0Parse(ctx, c, state, cache, cfg)
 	}
-	state.handshakeRecvSequence = seq
 
 	var clientHello *handshake.MessageClientHello
 
@@ -47,8 +47,30 @@ func flight2Parse(
 	if !bytes.Equal(state.cookie, clientHello.Cookie) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.AccessDenied}, errCookieMismatch
 	}
+	helloHash, err := clientHelloNegotiationHash(clientHello)
+	if err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+	}
+	if helloHash != state.initialClientHelloHash {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errClientHelloChanged
+	}
+	state.handshakeRecvSequence = seq
 
-	return flight4, nil, nil
+	return negotiateClientHello(clientHello, state, cfg, flight4)
+}
+
+// RFC 6347 section 4.2.1 requires these core parameters to stay unchanged
+// across HelloVerifyRequest. Extensions are negotiated from the retry.
+func clientHelloNegotiationHash(hello *handshake.MessageClientHello) ([sha256.Size]byte, error) {
+	normalized := *hello
+	normalized.Cookie = nil
+	normalized.Extensions = nil
+	raw, err := normalized.Marshal()
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+
+	return sha256.Sum256(raw), nil
 }
 
 func flight2Generate(

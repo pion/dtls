@@ -6,6 +6,7 @@ package dtls
 import (
 	"bytes"
 	"context"
+	"slices"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite/types"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
@@ -295,7 +296,8 @@ func flight3Generate(
 		})
 	}
 
-	if state.namedCurve != 0 {
+	// Match flight1Generate: plain PSK must not add curve extensions on retry.
+	if slices.ContainsFunc(cfg.localCipherSuites, func(suite CipherSuite) bool { return suite.ECC() }) {
 		extensions = append(extensions, []extension.Extension{
 			&extension.SupportedEllipticCurves{
 				EllipticCurves: cfg.ellipticCurves,

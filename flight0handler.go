@@ -19,7 +19,6 @@ import (
 // https://datatracker.ietf.org/doc/html/rfc5746#section-3.3.
 const renegotiationInfoSCSV uint16 = 0x00ff
 
-//nolint:cyclop,gocognit
 func flight0Parse(
 	_ context.Context,
 	_ flightConn,
@@ -53,6 +52,36 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, errUnsupportedProtocolVersion
 	}
 
+	helloHash, err := clientHelloNegotiationHash(clientHello)
+	if err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+	}
+	state.initialClientHelloHash = helloHash
+	nextFlight := flight2
+	if cfg.insecureSkipHelloVerify {
+		nextFlight = flight4
+	}
+
+	return negotiateClientHello(clientHello, state, cfg, nextFlight)
+}
+
+//nolint:cyclop,gocognit,gocyclo
+func negotiateClientHello(
+	clientHello *handshake.MessageClientHello, state *State, cfg *handshakeConfig, nextFlight flightVal,
+) (flightVal, *alert.Alert, error) {
+	// Discard every negotiation result from the previous ClientHello. The first
+	// ClientHello is excluded from the authenticated handshake transcript.
+	state.remoteSupportsRenegotiation = false
+	state.setSRTPProtectionProfile(0)
+	state.remoteSRTPMasterKeyIdentifier = nil
+	state.extendedMasterSecret = false
+	state.serverName = ""
+	state.peerSupportedProtocols = nil
+	state.setLocalConnectionID(nil)
+	state.remoteConnectionID = nil
+	state.remoteCertSignatureSchemes = nil
+	state.localKeypair = nil
+	state.namedCurve = cfg.ellipticCurves[0]
 	state.remoteRandom = clientHello.Random
 
 	cipherSuites := []CipherSuite{}
@@ -67,6 +96,7 @@ func flight0Parse(
 		}
 	}
 
+	var ok bool
 	if state.cipherSuite, ok = findMatchingCipherSuite(cipherSuites, cfg.localCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errCipherSuiteNoIntersection
 	}
@@ -118,12 +148,6 @@ func flight0Parse(
 
 	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !state.extendedMasterSecret {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errServerRequiredButNoClientEMS
-	}
-
-	nextFlight := flight2
-
-	if cfg.insecureSkipHelloVerify {
-		nextFlight = flight4
 	}
 
 	flight, resumeAlert, err := handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
