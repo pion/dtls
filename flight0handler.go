@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"slices"
@@ -255,11 +256,14 @@ func handleHelloResume(
 	if len(sessionID) > 0 && cfg.sessionStore != nil {
 		if s, err := cfg.sessionStore.Get(sessionID); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		} else if s.ID != nil {
+		} else if s.usable(cfg, false) && bytes.Equal(s.ID, sessionID) &&
+			s.CipherSuiteID == state.cipherSuite.ID() {
 			cfg.log.Tracef("[handshake] resume session: %x", sessionID)
 
 			state.SessionID = sessionID
 			state.masterSecret = s.Secret
+			state.IdentityHint = bytes.Clone(s.IdentityHint)
+			state.PeerCertificates = s.PeerCertificates
 
 			if err := state.initCipherSuite(); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err

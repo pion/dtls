@@ -559,7 +559,7 @@ func flight4Generate(
 
 func finishClientFlight(state *State, cfg *handshakeConfig) (flightVal, *alert.Alert, error) {
 	if len(state.SessionID) > 0 && cfg.sessionStore != nil {
-		if err := cfg.sessionStore.Set(state.SessionID, Session{ID: state.SessionID, Secret: state.masterSecret}); err != nil {
+		if err := cfg.sessionStore.Set(state.SessionID, state.session()); err != nil {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 	}

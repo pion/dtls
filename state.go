@@ -26,6 +26,8 @@ type State struct {
 	localRandom, remoteRandom handshake.Random
 	masterSecret              []byte
 	serverCertificate         *tls.Certificate
+	pskHash                   [sha256.Size]byte
+	resumeSession             *Session
 	cipherSuite               CipherSuite // nil if a cipherSuite hasn't been chosen
 	CipherSuiteID             CipherSuiteID
 

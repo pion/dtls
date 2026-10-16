@@ -2929,11 +2929,18 @@ func TestSessionResume(t *testing.T) {
 				"2e942a37aca5241deb2295b5fcedac221c7078d2503d2b62aeb48c880d7da73c001238b708559686b9da6e829c05ead7",
 			)
 
-			s := Session{ID: id, Secret: secret}
+			cert, certErr := selfsign.GenerateSelfSigned()
+			assert.NoError(t, certErr)
+			s := Session{
+				ID: id, Secret: secret, Version: 1,
+				CipherSuiteID: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, ExtendedMasterSecret: true,
+			}
 
 			ca, cb := dpipe.Pipe()
 
 			_ = ss.Set(id, s)
+			s.IsClient = true
+			s.PeerCertificates = cert.Certificate
 			_ = ss.Set([]byte(ca.RemoteAddr().String()+"_example.com"), s)
 
 			go func() {

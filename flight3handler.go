@@ -118,15 +118,24 @@ func flight3Parse(
 		state.remoteRandom = serverHelloMsg.Random
 		cfg.log.Tracef("[handshake] use cipher suite: %s", selectedCipherSuite.String())
 
-		if len(serverHelloMsg.SessionID) > 0 && bytes.Equal(state.SessionID, serverHelloMsg.SessionID) {
+		// Only the session offered in ClientHello can be resumed. A full
+		// handshake's ServerHello may be parsed again while its flight arrives.
+		if state.resumeSession != nil && bytes.Equal(state.resumeSession.ID, serverHelloMsg.SessionID) {
+			if state.resumeSession.CipherSuiteID != state.cipherSuite.ID() {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidCipherSuite
+			}
+
 			return handleResumption(ctx, conn, state, cache, cfg)
 		}
 
-		if len(state.SessionID) > 0 {
+		if state.resumeSession != nil {
 			cfg.log.Tracef("[handshake] clean old session : %s", state.SessionID)
-			if err := cfg.sessionStore.Del(state.SessionID); err != nil {
+			if err := cfg.sessionStore.Del(conn.sessionKey()); err != nil {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 			}
+			state.resumeSession = nil
+			state.PeerCertificates = nil
+			state.IdentityHint = nil
 		}
 
 		if cfg.sessionStore == nil {

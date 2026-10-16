@@ -150,7 +150,12 @@ func TestFlight0ResumeIgnoresCurveConfig(t *testing.T) {
 	secret, _ := hex.DecodeString(
 		"2e942a37aca5241deb2295b5fcedac221c7078d2503d2b62aeb48c880d7da73c001238b708559686b9da6e829c05ead7",
 	)
-	sess := Session{ID: id, Secret: secret}
+	cert, certErr := selfsign.GenerateSelfSigned()
+	require.NoError(t, certErr)
+	sess := Session{
+		ID: id, Secret: secret, Version: 1,
+		CipherSuiteID: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, ExtendedMasterSecret: true,
+	}
 
 	ca, cb := dpipe.Pipe()
 	defer func() {
@@ -158,6 +163,8 @@ func TestFlight0ResumeIgnoresCurveConfig(t *testing.T) {
 		_ = cb.Close()
 	}()
 	_ = ss.Set(id, sess)
+	sess.IsClient = true
+	sess.PeerCertificates = cert.Certificate
 	_ = ss.Set([]byte(ca.RemoteAddr().String()+"_example.com"), sess)
 
 	type result struct {

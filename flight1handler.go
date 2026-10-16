@@ -4,6 +4,7 @@
 package dtls
 
 import (
+	"bytes"
 	"context"
 	"net"
 
@@ -139,11 +140,14 @@ func flight1Generate(
 		cfg.log.Tracef("[handshake] try to resume session")
 		if s, err := cfg.sessionStore.Get(conn.sessionKey()); err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		} else if s.ID != nil {
+		} else if s.usable(cfg, true) {
 			cfg.log.Tracef("[handshake] get saved session: %x", s.ID)
 
 			state.SessionID = s.ID
 			state.masterSecret = s.Secret
+			state.PeerCertificates = s.PeerCertificates
+			state.IdentityHint = bytes.Clone(s.IdentityHint)
+			state.resumeSession = &s
 		}
 	}
 
