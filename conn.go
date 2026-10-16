@@ -1212,10 +1212,19 @@ func (c *Conn) handleIncomingPacket(
 
 		isLatestSeqNum = markPacketAsValid()
 
-		select {
-		case c.decrypted <- content.Data:
-		case <-c.closed.Done():
-		case <-ctx.Done():
+		if !c.isHandshakeCompletedSuccessfully() {
+			// Read waits for the handshake to complete. Never block its packet
+			// reader on early application data: Finished may still be pending.
+			select {
+			case c.decrypted <- content.Data:
+			default:
+			}
+		} else {
+			select {
+			case c.decrypted <- content.Data:
+			case <-c.closed.Done():
+			case <-ctx.Done():
+			}
 		}
 
 	default:

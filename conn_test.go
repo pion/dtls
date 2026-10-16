@@ -3804,3 +3804,67 @@ func TestCertificateVerifyHonorsLocalSignatureSchemes(t *testing.T) {
 		})
 	}
 }
+
+func TestEarlyApplicationDataDoesNotBlockFinished(t *testing.T) {
+	for _, isClient := range []bool{false, true} {
+		t.Run(fmt.Sprint(isClient), func(t *testing.T) {
+			ca, cb := dpipe.Pipe()
+			defer ca.Close() //nolint:errcheck
+			defer cb.Close() //nolint:errcheck
+			certificate, err := selfsign.GenerateSelfSigned()
+			if !assert.NoError(t, err) {
+				return
+			}
+			conn, err := createConn(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+				Certificates: []tls.Certificate{certificate}, InsecureSkipVerify: true,
+			}, isClient, nil)
+			if !assert.NoError(t, err) {
+				return
+			}
+			conn.state.cipherSuite = &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
+			peer := &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
+			secret, random := make([]byte, 48), make([]byte, 32)
+			assert.NoError(t, conn.state.cipherSuite.Init(secret, random, random, isClient))
+			assert.NoError(t, peer.Init(secret, random, random, !isClient))
+			conn.setRemoteEpoch(1)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var records [][]byte
+			for seq := range 3 {
+				record := &recordlayer.RecordLayer{
+					Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: 1, SequenceNumber: uint64(seq)},
+					Content: &protocol.ApplicationData{Data: []byte{byte(seq)}},
+				}
+				if seq == 2 {
+					record.Content = &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: make([]byte, 12)}}
+				}
+				raw, marshalErr := record.Marshal()
+				assert.NoError(t, marshalErr)
+				raw, encryptErr := peer.Encrypt(record, raw)
+				assert.NoError(t, encryptErr)
+				records = append(records, raw)
+			}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for _, raw := range records {
+					_, _, alertPtr, packetErr := conn.handleIncomingPacket(ctx, raw, ca.RemoteAddr(), true)
+					assert.NoError(t, packetErr)
+					assert.Nil(t, alertPtr)
+				}
+			}()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				cancel()
+				<-done
+				assert.FailNow(t, "early application data blocked Finished processing")
+			}
+			assert.False(t, conn.isHandshakeCompletedSuccessfully())
+			assert.Len(t, conn.decrypted, 1)
+			assert.Equal(t, []byte{0}, <-conn.decrypted)
+			finished := conn.handshakeCache.pull(handshakeCachePullRule{handshake.TypeFinished, 1, !isClient, false})
+			assert.NotNil(t, finished[0], "Finished must reach the handshake parser")
+		})
+	}
+}
