@@ -307,7 +307,7 @@ func flight3Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
 
-	if len(cfg.ServerName) > 0 {
+	if cfg.SendServerName() {
 		extensions = append(extensions, &extension.ServerNameOffer{ServerName: cfg.ServerName})
 	}
 

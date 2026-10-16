@@ -700,7 +700,7 @@ func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 		signatureSchemes:            signatureSchemes,
 		certificateSignatureSchemes: certSignatureSchemes,
 		ellipticCurves:              effectiveEllipticCurves(config.EllipticCurves),
-		serverName:                  effectiveServerName(config.ServerName),
+		serverName:                  config.ServerName,
 		cidPathMigrationPolicy:      config.CIDPathMigrationPolicy,
 	}, nil
 }
@@ -739,16 +739,6 @@ func effectiveReplayProtectionWindow(replayProtectionWindow int) int {
 	}
 
 	return replayProtectionWindow
-}
-
-func effectiveServerName(serverName string) string {
-	// Do not allow the use of an IP address literal as an SNI value.
-	// See RFC 6066, Section 3.
-	if net.ParseIP(serverName) != nil {
-		return ""
-	}
-
-	return serverName
 }
 
 func effectiveEllipticCurves(curves []elliptic.Curve) []elliptic.Curve {

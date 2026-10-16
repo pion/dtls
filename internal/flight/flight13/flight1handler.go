@@ -97,7 +97,7 @@ func flight1Generate(
 		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes)})
 	}
 
-	if len(cfg.ServerName) > 0 {
+	if cfg.SendServerName() {
 		extensions = append(extensions, &extension.ServerNameOffer{ServerName: cfg.ServerName})
 	}
 

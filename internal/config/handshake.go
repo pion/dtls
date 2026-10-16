@@ -345,3 +345,8 @@ func (c *HandshakeConfig) GetClientCertificate(cri *CertificateRequestInfo) (*tl
 
 	return new(tls.Certificate), nil
 }
+
+// SendServerName omits IP literals from SNI while retaining them for verification.
+func (c *HandshakeConfig) SendServerName() bool {
+	return len(c.ServerName) > 0 && net.ParseIP(c.ServerName) == nil
+}
