@@ -2328,6 +2328,7 @@ func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr 
 	return prepared.markPacketAsValid()
 }
 
+//nolint:cyclop // Route early, detached, and established application data.
 func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protocol.ApplicationData, prepared incomingPacketState) (bool, packetOutcome, error) {
 	if prepared.number.Epoch == 0 {
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrApplicationDataEpochZero
@@ -2344,6 +2345,15 @@ func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protoco
 	isLatestSeqNum := prepared.markPacketAsValid()
 	if c.detached != nil {
 		c.detached.publishApplicationData(content.Data)
+
+		return isLatestSeqNum, packetOutcome{}, nil
+	}
+	// Read waits for handshake completion; keep the reader free to process Finished.
+	if !c.isHandshakeCompletedSuccessfully() {
+		select {
+		case c.decrypted <- content.Data:
+		default:
+		}
 
 		return isLatestSeqNum, packetOutcome{}, nil
 	}
@@ -2534,7 +2544,7 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 }
 
 func (c *Conn) isHandshakeCompletedSuccessfully() bool {
-	return c.handshakeEstablished.Established()
+	return c.handshakeEstablished != nil && c.handshakeEstablished.Established()
 }
 
 func (c *Conn) negotiateVersionServer(ctx context.Context) error {
