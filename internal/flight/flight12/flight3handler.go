@@ -83,6 +83,7 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 			}
 		}()
 
+		state.NegotiatedProtocol = ""
 		for _, v := range serverHelloMsg.Extensions {
 			switch ext := v.(type) {
 			case *extension12.ExtendedMasterSecret:
@@ -90,6 +91,11 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 					state.ExtendedMasterSecret = true
 				}
 			case *extension.ALPNSelection:
+				raw, offered := offer.Extension(extension.TypeALPN)
+				var protocols extension.ALPNOffer
+				if !offered || protocols.UnmarshalData(raw.Data) != nil || !slices.Contains(protocols.Protocols, ext.Protocol) {
+					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrALPNNoAppProto
+				}
 				state.NegotiatedProtocol = ext.Protocol
 			}
 		}
