@@ -152,8 +152,8 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 		return dtlserrors.ErrCipherSuiteUnset
 	}
 
-	hintLength := binary.BigEndian.Uint16(data)
-	if int(hintLength) <= len(data)-2 && m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmPsk) {
+	hintLength := int(binary.BigEndian.Uint16(data))
+	if hintLength <= len(data)-2 && m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmPsk) {
 		m.IdentityHint = bytes.Clone(data[2 : 2+hintLength])
 		data = data[2+hintLength:]
 	}
