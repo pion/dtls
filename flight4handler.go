@@ -132,7 +132,7 @@ func flight4Parse(
 //
 //nolint:gocognit,gocyclo,lll,cyclop,maintidx
 func flight4ProcessClientFlight(state *State, cache *handshakeCache, cfg *handshakeConfig) (bool, *alert.Alert, error) {
-	if state.clientKeyExchange == nil {
+	if state.clientKeyExchange == nil { //nolint:nestif
 		seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
 			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, true},
 			handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
@@ -149,6 +149,9 @@ func flight4ProcessClientFlight(state *State, cache *handshakeCache, cfg *handsh
 		}
 
 		if h, hasCert := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
+			if cfg.clientAuth == NoClientCert {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, errInvalidCertificate
+			}
 			state.PeerCertificates = h.Certificate
 			// If the client offer its certificate, just disable session resumption.
 			// Otherwise, we have to store the certificate identitfication and expire time.

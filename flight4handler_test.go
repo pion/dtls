@@ -68,7 +68,7 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 		cipherSuite: &flight4TestMockCipherSuite{t: t},
 	}
 	cache := newHandshakeCache()
-	cfg := &handshakeConfig{}
+	cfg := &handshakeConfig{clientAuth: RequireAnyClientCert}
 
 	rawCertificate := []byte{
 		0x0b, 0x00, 0x01, 0x9b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
