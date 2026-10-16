@@ -124,6 +124,9 @@ func flight3Parse(
 			if state.resumeSession.CipherSuiteID != state.cipherSuite.ID() {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, errInvalidCipherSuite
 			}
+			if state.resumeSession.ExtendedMasterSecret != state.extendedMasterSecret {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errSessionEMSMismatch
+			}
 
 			return handleResumption(ctx, conn, state, cache, cfg)
 		}

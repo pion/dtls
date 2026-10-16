@@ -74,6 +74,8 @@ var (
 	//nolint:err113
 	errInvalidExtendedMasterSecretType = &FatalError{Err: errors.New("invalid extended master secret type")}
 	//nolint:err113
+	errSessionEMSMismatch = &FatalError{Err: errors.New("extended master secret does not match the resumed session")}
+	//nolint:err113
 	errInvalidCertificateSignatureAlgorithm = &FatalError{
 		Err: errors.New("certificate uses a signature algorithm that is not allowed"),
 	}

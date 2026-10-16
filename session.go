@@ -40,6 +40,12 @@ func (s Session) usable(cfg *handshakeConfig, isClient bool) bool { //nolint:cyc
 	if s.Version != 1 || s.IsClient != isClient || len(s.ID) == 0 || len(s.Secret) != 48 {
 		return false
 	}
+	if cfg.extendedMasterSecret == RequireExtendedMasterSecret && !s.ExtendedMasterSecret {
+		return false
+	}
+	if cfg.extendedMasterSecret == DisableExtendedMasterSecret && s.ExtendedMasterSecret {
+		return false
+	}
 	var suite CipherSuite
 	for _, candidate := range cfg.localCipherSuites {
 		if candidate.ID() == s.CipherSuiteID {
