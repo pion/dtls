@@ -414,6 +414,7 @@ func (c *flightTestConn) notify(context.Context, alert.Level, alert.Description)
 func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error { //nolint:cyclop
 	time.Sleep(c.delay)
 	isRetransmit := false
+	isClientHello := false
 	for _, pkt := range pkts {
 		if c.filter != nil && !c.filter(pkt) {
 			continue
@@ -421,7 +422,8 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 		if c.retransmit != nil && c.retransmit(pkt) {
 			isRetransmit = true
 		}
-		if handshake, ok := pkt.record.Content.(*handshake.Handshake); ok { //nolint:nestif
+		if hs, ok := pkt.record.Content.(*handshake.Handshake); ok { //nolint:nestif
+			isClientHello = isClientHello || hs.Message.Type() == handshake.TypeClientHello
 			handshakeRaw, err := pkt.record.Marshal()
 			if err != nil {
 				return err
@@ -430,28 +432,28 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 			if err = c.handshakeCache.push(
 				handshakeRaw[recordlayer.FixedHeaderSize:],
 				pkt.record.Header.Epoch,
-				handshake.Header.MessageSequence,
-				handshake.Header.Type,
+				hs.Header.MessageSequence,
+				hs.Header.Type,
 				c.state.isClient,
 			); err != nil {
 				return err
 			}
 
-			content, err := handshake.Message.Marshal()
+			content, err := hs.Message.Marshal()
 			if err != nil {
 				return err
 			}
-			handshake.Header.Length = uint32(len(content))         //nolint:gosec // G115
-			handshake.Header.FragmentLength = uint32(len(content)) //nolint:gosec // G115
-			hdr, err := handshake.Header.Marshal()
+			hs.Header.Length = uint32(len(content))         //nolint:gosec // G115
+			hs.Header.FragmentLength = uint32(len(content)) //nolint:gosec // G115
+			hdr, err := hs.Header.Marshal()
 			if err != nil {
 				return err
 			}
 			if err = c.otherEndCache.push(
 				append(hdr, content...),
 				pkt.record.Header.Epoch,
-				handshake.Header.MessageSequence,
-				handshake.Header.Type,
+				hs.Header.MessageSequence,
+				hs.Header.Type,
 				c.state.isClient,
 			); err != nil {
 				return err
@@ -460,7 +462,9 @@ func (c *flightTestConn) writePackets(_ context.Context, pkts []*packet) error {
 	}
 	go func() {
 		select {
-		case c.otherEndRecv <- recvHandshakeState{done: make(chan struct{}), isRetransmit: isRetransmit}:
+		case c.otherEndRecv <- recvHandshakeState{
+			done: make(chan struct{}), isRetransmit: isRetransmit, isClientHelloRetransmit: isClientHello,
+		}:
 		case <-c.done:
 		}
 	}()

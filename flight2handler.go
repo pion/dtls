@@ -15,8 +15,8 @@ import (
 )
 
 func flight2Parse(
-	ctx context.Context,
-	c flightConn,
+	_ context.Context,
+	_ flightConn,
 	state *State,
 	cache *handshakeCache,
 	cfg *handshakeConfig,
@@ -25,9 +25,8 @@ func flight2Parse(
 		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
 	)
 	if !ok {
-		// Client may retransmit the first ClientHello when HelloVerifyRequest is dropped.
-		// Parse as flight 0 in this case.
-		return flight0Parse(ctx, c, state, cache, cfg)
+		// The FSM retransmits the cached response only for a repeated ClientHello.
+		return 0, nil, nil
 	}
 
 	var clientHello *handshake.MessageClientHello

@@ -312,7 +312,9 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 			}
 			if nextFlight == 0 {
 				if s.shouldRetransmitClientHello(state) {
-					s.backoffPeerRetransmit()
+					if s.currentFlight != flight2 {
+						s.backoffPeerRetransmit()
+					}
 
 					return handshakeSending, nil
 				}
@@ -378,6 +380,10 @@ func (s *handshakeFSM) backoffRetransmit() {
 // Allow the first repeated ClientHello to recover a lost response immediately.
 // After any retransmission, further repeats must wait for the backed-off interval.
 func (s *handshakeFSM) shouldRetransmitClientHello(state recvHandshakeState) bool {
+	if state.isClientHelloRetransmit && s.currentFlight == flight2 {
+		return true
+	}
+
 	return state.isClientHelloRetransmit &&
 		(s.currentFlight == flight4 || s.currentFlight == flight4b) &&
 		!time.Now().Before(s.peerRetransmitAfter)
