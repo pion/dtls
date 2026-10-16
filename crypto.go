@@ -16,6 +16,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/pion/dtls/v3/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/crypto/hash"
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
@@ -24,6 +25,30 @@ import (
 
 type ecdsaSignature struct {
 	R, S *big.Int
+}
+
+func verifyCertificateKeyType(rawCertificates [][]byte, suite CipherSuite) error {
+	if len(rawCertificates) == 0 {
+		return errInvalidCertificate
+	}
+	cert, err := parsePeerCertificate(rawCertificates[0])
+	if err != nil {
+		return err
+	}
+	var keyType clientcertificate.Type
+	switch cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		keyType = clientcertificate.RSASign
+	case *ecdsa.PublicKey, ed25519.PublicKey:
+		keyType = clientcertificate.ECDSASign
+	default:
+		return errInvalidCertificate
+	}
+	if keyType != suite.CertificateType() {
+		return errInvalidCertificate
+	}
+
+	return nil
 }
 
 // Match crypto/tls's default limit to bound peer-controlled RSA verification work.

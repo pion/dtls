@@ -351,6 +351,9 @@ func initializeCipherSuite(
 	}
 
 	if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypeCertificate { //nolint:nestif
+		if err = verifyCertificateKeyType(state.PeerCertificates, state.cipherSuite); err != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+		}
 		// Verify that the pair of hash algorithm and signiture is listed.
 		var validSignatureScheme bool
 		for _, ss := range cfg.localSignatureSchemes {
