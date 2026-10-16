@@ -92,7 +92,7 @@ func flight4Parse(
 			}
 		}
 
-		return flight6, nil, nil
+		return finishClientFlight(state, cfg)
 	}
 
 	switch cfg.clientAuth {
@@ -124,7 +124,7 @@ func flight4Parse(
 		}
 	}
 
-	return flight6, nil, nil
+	return finishClientFlight(state, cfg)
 }
 
 // flight4ProcessClientFlight retains progress while waiting for CertificateVerify.
@@ -298,17 +298,6 @@ func flight4ProcessClientFlight(state *State, cache *handshakeCache, cfg *handsh
 			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 		}
 		cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
-	}
-
-	if len(state.SessionID) > 0 {
-		s := Session{
-			ID:     state.SessionID,
-			Secret: state.masterSecret,
-		}
-		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
-		if err := cfg.sessionStore.Set(state.SessionID, s); err != nil {
-			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
 	}
 
 	state.handshakeRecvSequence = seq
@@ -566,4 +555,14 @@ func flight4Generate(
 	})
 
 	return pkts, nil, nil
+}
+
+func finishClientFlight(state *State, cfg *handshakeConfig) (flightVal, *alert.Alert, error) {
+	if len(state.SessionID) > 0 && cfg.sessionStore != nil {
+		if err := cfg.sessionStore.Set(state.SessionID, Session{ID: state.SessionID, Secret: state.masterSecret}); err != nil {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
+
+	return flight6, nil, nil
 }

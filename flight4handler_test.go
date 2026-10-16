@@ -328,6 +328,6 @@ func TestFlight4StoresSessionOnce(t *testing.T) {
 		require.Nil(t, alertPtr)
 		require.Zero(t, flight)
 	}
-	require.Equal(t, 1, store.calls)
+	require.Zero(t, store.calls, "an unfinished handshake must not publish a resumable session")
 	require.Equal(t, 1, pskCalls)
 }
