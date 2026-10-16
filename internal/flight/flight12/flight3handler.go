@@ -241,6 +241,11 @@ func handleServerKeyExchange(_ dtlsflight.Conn, state *dtlsstate.State12, cfg *d
 	if keyExchangeMessage.NamedCurve == elliptic.X25519MLKEM768 {
 		return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrUnsupportedEllipticCurveVersion
 	}
+	if state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
+		if err = validateServerSelectedCurve(state, keyExchangeMessage.NamedCurve); err != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+		}
+	}
 
 	if cfg.LocalPSKCallback != nil { //nolint:nestif
 		var psk []byte
@@ -358,4 +363,18 @@ func flight3Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 func isExtendedMasterSecretRequested(policy dtlsconfig.ExtendedMasterSecretType) bool {
 	return policy == dtlsconfig.RequestExtendedMasterSecret ||
 		policy == dtlsconfig.RequireExtendedMasterSecret
+}
+
+func validateServerSelectedCurve(state *dtlsstate.State12, curve elliptic.Curve) error {
+	hello, err := negotiation.ClientHelloFromSnapshot(state.LocalClientHelloSnapshots.Current())
+	if err != nil {
+		return err
+	}
+	for _, value := range hello.Extensions {
+		if groups, ok := value.(*extension.SupportedGroups); ok && !slices.Contains(groups.Groups, curve) {
+			return dtlserrors.ErrServerSelectedUnofferedCurve
+		}
+	}
+
+	return nil
 }
