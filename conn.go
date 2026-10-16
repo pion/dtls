@@ -1024,6 +1024,9 @@ func (c *Conn) handleIncomingPacket(
 	}
 	// Validate epoch
 	remoteEpoch := c.state.getRemoteEpoch()
+	if header.Epoch > 1 {
+		return false, false, nil, nil
+	}
 	if header.Epoch > remoteEpoch {
 		if header.Epoch > remoteEpoch+1 {
 			c.log.Debugf("discarded future packet (epoch: %d, seq: %d)",
@@ -1168,6 +1171,9 @@ func (c *Conn) handleIncomingPacket(
 
 		return false, false, a, &alertError{content}
 	case *protocol.ChangeCipherSpec:
+		if header.Epoch != 0 {
+			return false, false, nil, nil
+		}
 		if c.state.cipherSuite == nil || !c.state.cipherSuite.IsInitialized() {
 			if enqueue {
 				if ok := c.enqueueEncryptedPackets(addrPkt{rAddr, buf}); ok {
