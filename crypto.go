@@ -26,6 +26,21 @@ type ecdsaSignature struct {
 	R, S *big.Int
 }
 
+// Match crypto/tls's default limit to bound peer-controlled RSA verification work.
+const maxPeerRSAKeyBits = 8192
+
+func parsePeerCertificate(raw []byte) (*x509.Certificate, error) {
+	cert, err := x509.ParseCertificate(raw)
+	if err != nil {
+		return nil, err
+	}
+	if key, ok := cert.PublicKey.(*rsa.PublicKey); ok && key.N.BitLen() > maxPeerRSAKeyBits {
+		return nil, errPeerRSAKeyTooLarge
+	}
+
+	return cert, nil
+}
+
 func valueKeyMessage(clientRandom, serverRandom, publicKey []byte, namedCurve elliptic.Curve) []byte {
 	serverECDHParams := make([]byte, 4)
 	serverECDHParams[0] = 3 // named curve
@@ -179,7 +194,7 @@ func verifyKeySignature(
 	if len(rawCertificates) == 0 {
 		return errLengthMismatch
 	}
-	certificate, err := x509.ParseCertificate(rawCertificates[0])
+	certificate, err := parsePeerCertificate(rawCertificates[0])
 	if err != nil {
 		return err
 	}
@@ -298,7 +313,7 @@ func verifyCertificateVerify(
 	if len(rawCertificates) == 0 {
 		return errLengthMismatch
 	}
-	certificate, err := x509.ParseCertificate(rawCertificates[0])
+	certificate, err := parsePeerCertificate(rawCertificates[0])
 	if err != nil {
 		return err
 	}
@@ -366,7 +381,7 @@ func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {
 
 	certs := make([]*x509.Certificate, 0, len(rawCertificates))
 	for _, rawCert := range rawCertificates {
-		cert, err := x509.ParseCertificate(rawCert)
+		cert, err := parsePeerCertificate(rawCert)
 		if err != nil {
 			return nil, err
 		}

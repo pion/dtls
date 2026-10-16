@@ -12,6 +12,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -573,6 +574,48 @@ func TestHandshakeSignatureSchemeBinding(t *testing.T) {
 				require.ErrorIs(t, keySignErr, errInvalidSignatureAlgorithm)
 				_, certSignErr := generateCertificateVerify(message, tc.key, tc.hash, tc.signature)
 				require.ErrorIs(t, certSignErr, errInvalidSignatureAlgorithm)
+			}
+		})
+	}
+}
+
+func TestPeerRSAKeySizeLimit(t *testing.T) {
+	issuer, err := ecdsa.GenerateKey(cryptoelliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{SerialNumber: big.NewInt(1)}
+	issuerDER, err := x509.CreateCertificate(rand.Reader, template, template, issuer.Public(), issuer)
+	require.NoError(t, err)
+	for _, bits := range []int{2048, 8191, 8192, 8193, 131072} {
+		t.Run(fmt.Sprint(bits), func(t *testing.T) {
+			// An attacker needs only a public modulus, not an expensive RSA keypair.
+			modulus := new(big.Int).Lsh(big.NewInt(1), uint(bits-1)) //nolint:gosec // fixed positive test sizes
+			modulus.Add(modulus, big.NewInt(1))
+			key := &rsa.PublicKey{N: modulus, E: 65537}
+			der, certErr := x509.CreateCertificate(rand.Reader, template, template, key, issuer)
+			require.NoError(t, certErr)
+			_, parseErr := loadCerts([][]byte{der})
+			if bits > maxPeerRSAKeyBits {
+				require.ErrorIs(t, parseErr, errPeerRSAKeyTooLarge)
+			} else {
+				require.NoError(t, parseErr)
+			}
+			for _, algorithm := range []signature.Algorithm{signature.RSA, signature.RSA_PSS_RSAE_SHA256} {
+				keyErr := verifyKeySignature([]byte("handshake"), nil, hash.SHA256, algorithm, [][]byte{der})
+				verifyErr := verifyCertificateVerify([]byte("handshake"), hash.SHA256, algorithm, nil, [][]byte{der})
+				expected := errKeySignatureMismatch
+				if bits > maxPeerRSAKeyBits {
+					expected = errPeerRSAKeyTooLarge
+				}
+				require.ErrorIs(t, keyErr, expected)
+				require.ErrorIs(t, verifyErr, expected)
+			}
+			if bits > maxPeerRSAKeyBits {
+				// Also reject oversized intermediate keys before x509 chain verification.
+				chain := [][]byte{issuerDER, der}
+				_, clientErr := verifyClientCert(chain, nil, nil)
+				_, serverErr := verifyServerCert(chain, nil, "", nil)
+				require.ErrorIs(t, clientErr, errPeerRSAKeyTooLarge)
+				require.ErrorIs(t, serverErr, errPeerRSAKeyTooLarge)
 			}
 		})
 	}

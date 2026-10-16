@@ -108,6 +108,8 @@ var (
 		Err: errors.New("client requested zero or more elliptic curves that are not supported by the server"),
 	}
 	//nolint:err113
+	errPeerRSAKeyTooLarge = &FatalError{Err: errors.New("peer RSA key exceeds 8192 bits")}
+	//nolint:err113
 	errServerSelectedUnofferedCurve = &FatalError{
 		Err: errors.New("server selected an elliptic curve not offered by the client"),
 	}
