@@ -116,7 +116,7 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 //
 //nolint:cyclop
 func flight4ProcessClientFlight(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (bool, *alert.Alert, error) {
-	if state.ClientKeyExchange == nil {
+	if state.ClientKeyExchange == nil { //nolint:nestif // Commit the client flight only after its required key exchange arrives.
 		pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: true},
 			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
@@ -136,6 +136,9 @@ func flight4ProcessClientFlight(state *dtlsstate.State12, cache *dtlsflight.Cach
 		}
 
 		if h, hasCert := pull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
+			if cfg.ClientAuth == dtlsconfig.NoClientCert {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, dtlserrors.ErrInvalidCertificate
+			}
 			state.PeerCertificates = util.CloneByteSlices(h.Certificate)
 			// If the client offer its certificate, just disable session resumption.
 			// Otherwise, we have to store the certificate identitfication and expire time.

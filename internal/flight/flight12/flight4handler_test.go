@@ -61,7 +61,7 @@ func TestFlight4_Process_CertificateVerify(t *testing.T) {
 	state := newTestState12()
 	state.CipherSuite = &flight4TestMockCipherSuite{Suite: ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), t: t}
 	cache := dtlsflight.NewCache()
-	cfg := &dtlsconfig.HandshakeConfig{}
+	cfg := &dtlsconfig.HandshakeConfig{ClientAuth: dtlsconfig.RequestClientCert}
 
 	rawCertificate := []byte{
 		0x0b, 0x00, 0x01, 0x9b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
