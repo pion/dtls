@@ -152,37 +152,57 @@ func negotiateClientHello(clientHello *handshake.MessageClientHello, state *dtls
 	if flight != Flight4b && state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
 		if fallback := selectNonECDHEFallback(cfg, cipherSuites, offeredGroups, sawGroups); fallback != nil {
 			state.CipherSuite = fallback
+
 			return flight, nil, nil
 		}
 		if dtlsAlert, err := selectAcceptCurve(state, cfg, offeredGroups, sawGroups); err != nil {
 			return 0, dtlsAlert, err
 		}
 	}
+
 	return flight, nil, nil
 }
 
-func handleHelloResume(sessionID []byte, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, next Flight) (Flight, *alert.Alert, error) {
-	if len(sessionID) > 0 && cfg.HasSessionStore {
-		if session, err := cfg.GetSession(sessionID); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		} else if cfg.UsableSession(session, false) && bytes.Equal(session.ID, sessionID) && session.CipherSuiteID == state.CipherSuite.ID() {
-			cfg.Log.Tracef("[handshake] resume session: %x", sessionID)
+//nolint:cyclop // Validate cached authentication and negotiation before installing keys.
+func handleHelloResume(
+	sessionID []byte,
+	state *dtlsstate.State12,
+	cfg *dtlsconfig.HandshakeConfig,
+	next Flight,
+) (Flight, *alert.Alert, error) {
+	if len(sessionID) == 0 || !cfg.HasSessionStore {
+		return next, nil, nil
+	}
+	session, err := cfg.GetSession(sessionID)
+	if err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	if !cfg.UsableSession(session, false) || !bytes.Equal(session.ID, sessionID) {
+		return next, nil, nil
+	}
+	// RFC 7627 section 5.3 requires aborting an EMS session's
+	// abbreviated handshake when the client omits the extension.
+	if session.ExtendedMasterSecret && !state.ExtendedMasterSecret {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrSessionEMSMismatch
+	}
+	if session.CipherSuiteID != state.CipherSuite.ID() || session.ExtendedMasterSecret != state.ExtendedMasterSecret {
+		return next, nil, nil
+	}
+	cfg.Log.Tracef("[handshake] resume session: %x", sessionID)
 
-			state.SessionID = sessionID
-			state.MasterSecret = session.Secret
+	state.SessionID = sessionID
+	state.MasterSecret = session.Secret
+	state.IdentityHint = bytes.Clone(session.IdentityHint)
+	state.PeerCertificates = session.PeerCertificates
 
-			if err := state.InitCipherSuite(); err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-
-			clientRandom := state.LocalRandom.MarshalFixed()
-			cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
-
-			return Flight4b, nil, nil
-		}
+	if err := state.InitCipherSuite(); err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
-	return next, nil, nil
+	clientRandom := state.LocalRandom.MarshalFixed()
+	cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
+
+	return Flight4b, nil, nil
 }
 
 func flight0Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {

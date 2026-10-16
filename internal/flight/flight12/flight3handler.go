@@ -123,6 +123,9 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 			if state.ResumeSession.CipherSuiteID != state.CipherSuite.ID() {
 				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, dtlserrors.ErrInvalidCipherSuite
 			}
+			if state.ResumeSession.ExtendedMasterSecret != state.ExtendedMasterSecret {
+				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrSessionEMSMismatch
+			}
 			next, dtlsAlert, err := handleResumption(ctx, conn, state, cache, cfg)
 			if next != 0 && err == nil {
 				state.CommitNegotiatedExtensions(decision)

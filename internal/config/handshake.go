@@ -381,6 +381,12 @@ func (c *HandshakeConfig) UsableSession(s internalstate.Session, isClient bool) 
 	if s.Ticket != nil || s.Version != 1 || s.IsClient != isClient || len(s.ID) == 0 || len(s.Secret) != 48 {
 		return false
 	}
+	if c.ExtendedMasterSecret == RequireExtendedMasterSecret && !s.ExtendedMasterSecret {
+		return false
+	}
+	if c.ExtendedMasterSecret == DisableExtendedMasterSecret && s.ExtendedMasterSecret {
+		return false
+	}
 	var suite CipherSuite
 	for _, candidate := range c.LocalCipherSuites {
 		if candidate.ID() == s.CipherSuiteID {
