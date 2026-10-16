@@ -62,6 +62,9 @@ func flight0Parse(
 	if cfg.insecureSkipHelloVerify {
 		nextFlight = flight4
 	}
+	if nextFlight == flight2 {
+		return flight2, nil, nil
+	}
 
 	return negotiateClientHello(clientHello, state, cfg, nextFlight)
 }
@@ -254,7 +257,7 @@ func handleHelloResume(
 	cfg *handshakeConfig,
 	next flightVal,
 ) (flightVal, *alert.Alert, error) {
-	if len(sessionID) == 0 || cfg.sessionStore == nil {
+	if next == flight2 || len(sessionID) == 0 || cfg.sessionStore == nil {
 		return next, nil, nil
 	}
 	session, err := cfg.sessionStore.Get(sessionID)
