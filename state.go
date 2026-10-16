@@ -68,6 +68,10 @@ type State struct {
 	localKeySignature          []byte                    // cached keySignature
 	peerCertificatesVerified   bool
 
+	// Server-side client flight progress, reset when starting a handshake.
+	clientKeyExchange     *handshake.MessageClientKeyExchange
+	clientFlightProcessed bool
+
 	replayDetector []replaydetector.ReplayDetector
 
 	peerSupportedProtocols []string

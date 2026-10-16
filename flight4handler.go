@@ -30,172 +30,10 @@ func flight4Parse(
 	cache *handshakeCache,
 	cfg *handshakeConfig,
 ) (flightVal, *alert.Alert, error) {
-	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
-		handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, true},
-		handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
-		handshakeCachePullRule{handshake.TypeCertificateVerify, cfg.initialEpoch, true, true},
-	)
-	if !ok {
-		// No valid message received. Keep reading
-		return 0, nil, nil
-	}
-
-	// Validate type
-	var clientKeyExchange *handshake.MessageClientKeyExchange
-	if clientKeyExchange, ok = msgs[handshake.TypeClientKeyExchange].(*handshake.MessageClientKeyExchange); !ok {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
-	}
-
-	if h, hasCert := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
-		state.PeerCertificates = h.Certificate
-		// If the client offer its certificate, just disable session resumption.
-		// Otherwise, we have to store the certificate identitfication and expire time.
-		// And we have to check whether this certificate expired, revoked or changed.
-		//
-		// https://curl.se/docs/CVE-2016-5419.html
-		state.SessionID = nil
-	}
-
-	//nolint:nestif
-	if verify, hasVerify := msgs[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasVerify {
-		if len(state.PeerCertificates) == 0 {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errCertificateVerifyNoCertificate
-		}
-
-		plainText := cache.pullAndMerge(
-			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
-			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, false},
-			handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
-		)
-
-		// Verify that the pair of hash algorithm and signiture is listed.
-		var validSignatureScheme bool
-		for _, ss := range cfg.localSignatureSchemes {
-			if ss.Hash == verify.HashAlgorithm && ss.Signature == verify.SignatureAlgorithm {
-				validSignatureScheme = true
-
-				break
-			}
-		}
-		if !validSignatureScheme {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoAvailableSignatureSchemes
-		}
-
-		if err := verifyCertificateVerify(
-			plainText,
-			verify.HashAlgorithm,
-			verify.SignatureAlgorithm,
-			verify.Signature,
-			state.PeerCertificates,
-		); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
-		}
-		var chains [][]*x509.Certificate
-		var err error
-		var verified bool
-		if cfg.clientAuth >= VerifyClientCertIfGiven {
-			// Use cert-specific algorithms if present, otherwise fall back to signature_algorithms per RFC 8446
-			certAlgs := cfg.localCertSignatureSchemes
-			if len(certAlgs) == 0 {
-				certAlgs = cfg.localSignatureSchemes
-			}
-			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs, certAlgs); err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
-			}
-			verified = true
-		}
-		if cfg.verifyPeerCertificate != nil {
-			if err := cfg.verifyPeerCertificate(state.PeerCertificates, chains); err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
-			}
-		}
-		state.peerCertificatesVerified = verified
-	} else if len(state.PeerCertificates) > 0 {
-		// A certificate was received, but we haven't seen a CertificateVerify
-		// keep reading until we receive one
-		return 0, nil, nil
-	}
-
-	if !state.cipherSuite.IsInitialized() { //nolint:nestif
-		serverRandom := state.localRandom.MarshalFixed()
-		clientRandom := state.remoteRandom.MarshalFixed()
-
-		var err error
-		var preMasterSecret []byte
-		if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypePreSharedKey {
-			var psk []byte
-			if psk, err = cfg.localPSKCallback(clientKeyExchange.IdentityHint); err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-			state.IdentityHint = clientKeyExchange.IdentityHint
-			switch state.cipherSuite.KeyExchangeAlgorithm() {
-			case CipherSuiteKeyExchangeAlgorithmPsk:
-				preMasterSecret = prf.PSKPreMasterSecret(psk)
-			case (CipherSuiteKeyExchangeAlgorithmPsk | CipherSuiteKeyExchangeAlgorithmEcdhe):
-				if preMasterSecret, err = prf.EcdhePSKPreMasterSecret(
-					psk,
-					clientKeyExchange.PublicKey,
-					state.localKeypair.PrivateKey,
-					state.localKeypair.Curve,
-				); err != nil {
-					return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-				}
-			default:
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidCipherSuite
-			}
-		} else {
-			preMasterSecret, err = prf.PreMasterSecret(
-				clientKeyExchange.PublicKey,
-				state.localKeypair.PrivateKey,
-				state.localKeypair.Curve,
-			)
-			if err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
-			}
-		}
-
-		if state.extendedMasterSecret {
-			var sessionHash []byte
-			sessionHash, err = cache.sessionHash(state.cipherSuite.HashFunc(), cfg.initialEpoch)
-			if err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-
-			state.masterSecret, err = prf.ExtendedMasterSecret(preMasterSecret, sessionHash, state.cipherSuite.HashFunc())
-			if err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-		} else {
-			state.masterSecret, err = prf.MasterSecret(
-				preMasterSecret,
-				clientRandom[:],
-				serverRandom[:],
-				state.cipherSuite.HashFunc(),
-			)
-			if err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-		}
-
-		if err := state.cipherSuite.Init(state.masterSecret, clientRandom[:], serverRandom[:], false); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
-		cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
-	}
-
-	if len(state.SessionID) > 0 {
-		s := Session{
-			ID:     state.SessionID,
-			Secret: state.masterSecret,
-		}
-		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
-		if err := cfg.sessionStore.Set(state.SessionID, s); err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	if !state.clientFlightProcessed {
+		ready, alertPtr, err := flight4ProcessClientFlight(state, cache, cfg)
+		if !ready || err != nil {
+			return 0, alertPtr, err
 		}
 	}
 
@@ -204,7 +42,7 @@ func flight4Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 
-	seq, msgs, ok = cache.fullPullMap(seq, state.cipherSuite,
+	seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
 		handshakeCachePullRule{handshake.TypeFinished, cfg.initialEpoch + 1, true, false},
 	)
 	if !ok {
@@ -264,6 +102,194 @@ func flight4Parse(
 	}
 
 	return flight6, nil, nil
+}
+
+// flight4ProcessClientFlight retains progress while waiting for CertificateVerify.
+// Once verified, the client flight must not be processed again for retransmissions.
+//
+//nolint:gocognit,gocyclo,lll,cyclop,maintidx
+func flight4ProcessClientFlight(state *State, cache *handshakeCache, cfg *handshakeConfig) (bool, *alert.Alert, error) {
+	if state.clientKeyExchange == nil {
+		seq, msgs, ok := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
+			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, true},
+			handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
+		)
+		if !ok {
+			// No valid message received. Keep reading
+			return false, nil, nil
+		}
+
+		// Validate type
+		var clientKeyExchange *handshake.MessageClientKeyExchange
+		if clientKeyExchange, ok = msgs[handshake.TypeClientKeyExchange].(*handshake.MessageClientKeyExchange); !ok {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+		}
+
+		if h, hasCert := msgs[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
+			state.PeerCertificates = h.Certificate
+			// If the client offer its certificate, just disable session resumption.
+			// Otherwise, we have to store the certificate identitfication and expire time.
+			// And we have to check whether this certificate expired, revoked or changed.
+			//
+			// https://curl.se/docs/CVE-2016-5419.html
+			state.SessionID = nil
+		}
+
+		state.clientKeyExchange = clientKeyExchange
+		state.handshakeRecvSequence = seq
+	}
+	clientKeyExchange := state.clientKeyExchange
+	seq, msgs, _ := cache.fullPullMap(state.handshakeRecvSequence, state.cipherSuite,
+		handshakeCachePullRule{handshake.TypeCertificateVerify, cfg.initialEpoch, true, true},
+	)
+	//nolint:nestif
+	if verify, hasVerify := msgs[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasVerify {
+		if len(state.PeerCertificates) == 0 {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, errCertificateVerifyNoCertificate
+		}
+
+		plainText := cache.pullAndMerge(
+			handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
+			handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
+			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, false},
+			handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
+			handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, false},
+			handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
+			handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, false},
+			handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
+		)
+
+		// Verify that the pair of hash algorithm and signiture is listed.
+		var validSignatureScheme bool
+		for _, ss := range cfg.localSignatureSchemes {
+			if ss.Hash == verify.HashAlgorithm && ss.Signature == verify.SignatureAlgorithm {
+				validSignatureScheme = true
+
+				break
+			}
+		}
+		if !validSignatureScheme {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, errNoAvailableSignatureSchemes
+		}
+
+		if err := verifyCertificateVerify(
+			plainText,
+			verify.HashAlgorithm,
+			verify.SignatureAlgorithm,
+			verify.Signature,
+			state.PeerCertificates,
+		); err != nil {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+		}
+		var chains [][]*x509.Certificate
+		var err error
+		var verified bool
+		if cfg.clientAuth >= VerifyClientCertIfGiven {
+			// Use cert-specific algorithms if present, otherwise fall back to signature_algorithms per RFC 8446
+			certAlgs := cfg.localCertSignatureSchemes
+			if len(certAlgs) == 0 {
+				certAlgs = cfg.localSignatureSchemes
+			}
+			if chains, err = verifyClientCert(state.PeerCertificates, cfg.clientCAs, certAlgs); err != nil {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+			}
+			verified = true
+		}
+		if cfg.verifyPeerCertificate != nil {
+			if err := cfg.verifyPeerCertificate(state.PeerCertificates, chains); err != nil {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+			}
+		}
+		state.peerCertificatesVerified = verified
+	} else if len(state.PeerCertificates) > 0 {
+		// A certificate was received, but we haven't seen a CertificateVerify
+		// keep reading until we receive one
+		return false, nil, nil
+	}
+
+	if !state.cipherSuite.IsInitialized() { //nolint:nestif
+		serverRandom := state.localRandom.MarshalFixed()
+		clientRandom := state.remoteRandom.MarshalFixed()
+
+		var err error
+		var preMasterSecret []byte
+		if state.cipherSuite.AuthenticationType() == CipherSuiteAuthenticationTypePreSharedKey {
+			var psk []byte
+			if psk, err = cfg.localPSKCallback(clientKeyExchange.IdentityHint); err != nil {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+			state.IdentityHint = clientKeyExchange.IdentityHint
+			switch state.cipherSuite.KeyExchangeAlgorithm() {
+			case CipherSuiteKeyExchangeAlgorithmPsk:
+				preMasterSecret = prf.PSKPreMasterSecret(psk)
+			case (CipherSuiteKeyExchangeAlgorithmPsk | CipherSuiteKeyExchangeAlgorithmEcdhe):
+				if preMasterSecret, err = prf.EcdhePSKPreMasterSecret(
+					psk,
+					clientKeyExchange.PublicKey,
+					state.localKeypair.PrivateKey,
+					state.localKeypair.Curve,
+				); err != nil {
+					return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+				}
+			default:
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, errInvalidCipherSuite
+			}
+		} else {
+			preMasterSecret, err = prf.PreMasterSecret(
+				clientKeyExchange.PublicKey,
+				state.localKeypair.PrivateKey,
+				state.localKeypair.Curve,
+			)
+			if err != nil {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+			}
+		}
+
+		if state.extendedMasterSecret {
+			var sessionHash []byte
+			sessionHash, err = cache.sessionHash(state.cipherSuite.HashFunc(), cfg.initialEpoch)
+			if err != nil {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+
+			state.masterSecret, err = prf.ExtendedMasterSecret(preMasterSecret, sessionHash, state.cipherSuite.HashFunc())
+			if err != nil {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+		} else {
+			state.masterSecret, err = prf.MasterSecret(
+				preMasterSecret,
+				clientRandom[:],
+				serverRandom[:],
+				state.cipherSuite.HashFunc(),
+			)
+			if err != nil {
+				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+			}
+		}
+
+		if err := state.cipherSuite.Init(state.masterSecret, clientRandom[:], serverRandom[:], false); err != nil {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+		cfg.writeKeyLog(keyLogLabelTLS12, clientRandom[:], state.masterSecret)
+	}
+
+	if len(state.SessionID) > 0 {
+		s := Session{
+			ID:     state.SessionID,
+			Secret: state.masterSecret,
+		}
+		cfg.log.Tracef("[handshake] save new session: %x", s.ID)
+		if err := cfg.sessionStore.Set(state.SessionID, s); err != nil {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+	}
+
+	state.handshakeRecvSequence = seq
+	state.clientKeyExchange = nil
+	state.clientFlightProcessed = true
+
+	return true, nil, nil
 }
 
 //nolint:gocognit,cyclop,maintidx

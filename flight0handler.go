@@ -241,6 +241,8 @@ func flight0Generate(
 	cfg *handshakeConfig,
 ) ([]*packet, *alert.Alert, error) {
 	// Initialize
+	state.clientKeyExchange = nil
+	state.clientFlightProcessed = false
 	if !cfg.insecureSkipHelloVerify {
 		state.cookie = make([]byte, cookieLength)
 		if _, err := rand.Read(state.cookie); err != nil {
