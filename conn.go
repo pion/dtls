@@ -2881,16 +2881,12 @@ func (c *Conn) readAndBufferNoFSM(ctx context.Context) error {
 }
 
 func (c *Conn) classifyReadLoopError(err error) readLoopErrorAction {
+	if c.detached != nil && c.isConnectionClosed() {
+		return readLoopStop
+	}
 	var receivedAlert *alertError
 	if errors.As(err, &receivedAlert) {
-		if receivedAlert.IsFatalOrCloseNotify() {
-			return readLoopCloseAndStop
-		}
-		if c.isHandshakeCompletedSuccessfully() {
-			return readLoopDeliverAndContinue
-		}
-
-		return readLoopContinue
+		return c.classifyReadAlert(receivedAlert)
 	}
 
 	switch {
@@ -2911,7 +2907,22 @@ func (c *Conn) classifyReadLoopError(err error) readLoopErrorAction {
 	}
 }
 
+func (c *Conn) classifyReadAlert(receivedAlert *alertError) readLoopErrorAction {
+	if receivedAlert.IsFatalOrCloseNotify() {
+		return readLoopCloseAndStop
+	}
+	if c.isHandshakeCompletedSuccessfully() {
+		return readLoopDeliverAndContinue
+	}
+
+	return readLoopContinue
+}
+
 func (c *Conn) deliverReadError(ctx context.Context, err error) {
+	// Detached connections have no Read consumer. Fatal errors use the terminal event.
+	if c.detached != nil {
+		return
+	}
 	select {
 	case c.decrypted <- err:
 	case <-c.closed.Done():
