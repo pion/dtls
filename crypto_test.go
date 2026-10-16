@@ -4,7 +4,12 @@
 package dtls
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	cryptoelliptic "crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"math/big"
@@ -15,6 +20,7 @@ import (
 	"github.com/pion/dtls/v3/pkg/crypto/signature"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // RSA-PSS certificate with id-RSASSA-PSS OID (1.2.840.113549.1.1.10)
@@ -501,4 +507,73 @@ func TestValidateCertificateSignatureAlgorithms(t *testing.T) {
 		err := validateCertificateSignatureAlgorithms(certs, allowed)
 		assert.NoError(t, err)
 	})
+}
+
+// A valid signature must not authenticate a different scheme, or an empty digest
+// in place of the handshake transcript (ANT-2026-0Q4PYECH).
+func TestHandshakeSignatureSchemeBinding(t *testing.T) {
+	block, _ := pem.Decode([]byte(rawPrivateKey))
+	rsaKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	require.NoError(t, err)
+	ecdsaKey, err := ecdsa.GenerateKey(cryptoelliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	message := []byte("handshake transcript")
+	cases := []struct {
+		name        string
+		key         crypto.Signer
+		hash        hash.Algorithm
+		signature   signature.Algorithm
+		signingHash hash.Algorithm
+		pss         bool
+		valid       bool
+	}{
+		{"RSA", rsaKey, hash.SHA256, signature.RSA, hash.SHA256, false, true},
+		{"ECDSA", ecdsaKey, hash.SHA256, signature.ECDSA, hash.SHA256, false, true},
+		{"Ed25519", edKey, hash.Ed25519, signature.Ed25519, hash.Ed25519, false, true},
+		{"RSA PSS", rsaKey, hash.SHA256, signature.RSA_PSS_RSAE_SHA256, hash.SHA256, true, true},
+		{"RSA labeled ECDSA", rsaKey, hash.SHA256, signature.ECDSA, hash.SHA256, false, false},
+		{"ECDSA labeled RSA", ecdsaKey, hash.SHA256, signature.RSA, hash.SHA256, false, false},
+		{"Ed25519 labeled ECDSA", edKey, hash.SHA256, signature.ECDSA, hash.Ed25519, false, false},
+		{"Ed25519 wrong hash", edKey, hash.SHA256, signature.Ed25519, hash.Ed25519, false, false},
+		{"RSA empty digest labeled Ed25519", rsaKey, hash.Ed25519, signature.Ed25519, hash.None, false, false},
+		{"RSA empty digest scheme 0801", rsaKey, hash.Ed25519, signature.RSA, hash.None, false, false},
+		{"RSA no hash", rsaKey, hash.None, signature.RSA, hash.None, false, false},
+		{"RSA unknown hash", rsaKey, hash.Algorithm(255), signature.RSA, hash.None, false, false},
+		{"ECDSA empty digest", ecdsaKey, hash.Ed25519, signature.ECDSA, hash.None, false, false},
+		{"RSA PSS wrong hash", rsaKey, hash.SHA384, signature.RSA_PSS_RSAE_SHA256, hash.SHA384, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			template := &x509.Certificate{SerialNumber: big.NewInt(1)}
+			cert, certErr := x509.CreateCertificate(rand.Reader, template, template, tc.key.Public(), tc.key)
+			require.NoError(t, certErr)
+			digest := tc.signingHash.Digest(message)
+			if tc.signingHash == hash.Ed25519 {
+				digest = message
+			}
+			var opts crypto.SignerOpts = tc.signingHash.CryptoHash()
+			if tc.pss {
+				opts = &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: tc.signingHash.CryptoHash()}
+			}
+			sig, signErr := tc.key.Sign(rand.Reader, digest, opts)
+			require.NoError(t, signErr)
+			keyErr := verifyKeySignature(message, sig, tc.hash, tc.signature, [][]byte{cert})
+			certVerifyErr := verifyCertificateVerify(message, tc.hash, tc.signature, sig, [][]byte{cert})
+			if tc.valid {
+				require.NoError(t, keyErr)
+				require.NoError(t, certVerifyErr)
+				require.Error(t, verifyKeySignature([]byte("changed transcript"), sig, tc.hash, tc.signature, [][]byte{cert}))
+				require.Error(t, verifyCertificateVerify([]byte("changed transcript"), tc.hash, tc.signature, sig, [][]byte{cert}))
+			} else {
+				require.ErrorIs(t, keyErr, errInvalidSignatureAlgorithm)
+				require.ErrorIs(t, certVerifyErr, errInvalidSignatureAlgorithm)
+				_, keySignErr := generateKeySignature(nil, nil, nil, elliptic.X25519, tc.key, tc.hash, tc.signature)
+				require.ErrorIs(t, keySignErr, errInvalidSignatureAlgorithm)
+				_, certSignErr := generateCertificateVerify(message, tc.key, tc.hash, tc.signature)
+				require.ErrorIs(t, certSignErr, errInvalidSignatureAlgorithm)
+			}
+		})
+	}
 }
