@@ -24,6 +24,7 @@ import (
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and
 // encoding.BinaryUnmarshaler.
 type State struct {
+	handshakeComplete         bool
 	localEpoch, remoteEpoch   uint64
 	localRandom, remoteRandom handshake.Random
 	masterSecret              []byte
@@ -117,6 +118,7 @@ func remainingUsage(limit, used uint64) uint64 {
 }
 
 type serializedState struct {
+	HandshakeComplete     bool
 	ECHAccepted           bool
 	ServerName            string
 	DTLS13                *serializedState13
@@ -159,6 +161,7 @@ func generateState(active dtlsstate.Active) (*State, error) {
 		state.version = protocol.Version1_2
 		state.KeyUsage = keyUsageStats12(internalState)
 		state.masterSecret = bytes.Clone(internalState.MasterSecret)
+		state.handshakeComplete = internalState.HandshakeComplete.Load()
 	case *dtlsstate.State13:
 		state.version = protocol.Version1_3
 		state.KeyUsage = keyUsageStats(internalState)
@@ -245,6 +248,7 @@ func (s *State) serialize() (*serializedState, error) {
 	}
 
 	return &serializedState{
+		HandshakeComplete:     s.handshakeComplete,
 		DTLS13:                s.state13,
 		ExporterMasterSecret:  s.exporterMasterSecret,
 		KeyUsage:              s.KeyUsage,
@@ -272,6 +276,7 @@ func (s *State) serialize() (*serializedState, error) {
 }
 
 func (s *State) deserialize(serialized serializedState) {
+	s.handshakeComplete = serialized.HandshakeComplete
 	s.state13 = serialized.DTLS13
 	s.exporterMasterSecret = bytes.Clone(serialized.ExporterMasterSecret)
 	s.KeyUsage = serialized.KeyUsage
@@ -330,6 +335,8 @@ func (s *State) cipherSuite() (cryptosuite.Suite, error) {
 
 // generateInternalState is the inverse of generateState: it expands the public
 // State into the internal state used by the connection internals.
+//
+//nolint:cyclop // Validate either protocol version before restoring its keys.
 func (s *State) generateInternalState() (dtlsstate.Active, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
@@ -345,11 +352,15 @@ func (s *State) generateInternalState() (dtlsstate.Active, error) {
 	if s.version == protocol.Version1_3 {
 		return s.generateInternalState13(cipherSuite)
 	}
+	if !s.handshakeComplete {
+		return nil, dtlserrors.ErrInvalidExportedState
+	}
 	if !cipherSuite.Capabilities().SupportsVersion(protocol.Version1_2) {
 		return nil, dtlserrors.ErrInvalidCipherSuite
 	}
 
 	state := &dtlsstate.State{Common: s.restoreCommonState(cipherSuite, protocol.Version1_2), MasterSecret: bytes.Clone(s.masterSecret)}
+	state.HandshakeComplete.Store(true)
 	if s.KeyUsage != nil {
 		state.RestoreUsage(s.KeyUsage.SealedRecords, s.KeyUsage.AuthenticationFailures)
 	}
@@ -581,8 +592,12 @@ func restoreTrafficGenerations(state *dtlsstate.State13, suite cryptosuite.Traff
 	return nil
 }
 
-// MarshalBinary is a binary.BinaryMarshaler.MarshalBinary implementation.
+// MarshalBinary exports an established connection snapshot. Resume it only once;
+// reusing a snapshot or continuing to send on the original reuses nonces.
 func (s *State) MarshalBinary() ([]byte, error) {
+	if s.version != protocol.Version1_3 && !s.handshakeComplete {
+		return nil, dtlserrors.ErrInvalidExportedState
+	}
 	serialized, err := s.serialize()
 	if err != nil {
 		return nil, err
@@ -598,11 +613,16 @@ func (s *State) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary is a binary.BinaryUnmarshaler.UnmarshalBinary implementation.
+//
+//nolint:cyclop // Validate decoded state for both protocol versions.
 func (s *State) UnmarshalBinary(data []byte) error {
 	enc := gob.NewDecoder(bytes.NewBuffer(data))
 	var serialized serializedState
 	if err := enc.Decode(&serialized); err != nil {
 		return err
+	}
+	if serialized.Version != protocol.Version1_3 && !serialized.HandshakeComplete {
+		return dtlserrors.ErrInvalidExportedState
 	}
 	s.deserialize(serialized)
 	if s.CipherSuiteID == 0 {

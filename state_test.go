@@ -19,8 +19,8 @@ import (
 func TestStateRejectsDTLS12EpochOverflow(t *testing.T) {
 	for _, epoch := range []uint64{1 << 16, 1 << 32, ^uint64(0)} {
 		for _, state := range []State{
-			{localEpoch: epoch, CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-			{remoteEpoch: epoch, CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			{handshakeComplete: true, localEpoch: epoch, CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
+			{handshakeComplete: true, remoteEpoch: epoch, CipherSuiteID: cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		} {
 			_, err := state.MarshalBinary()
 			require.ErrorIs(t, err, dtlserrors.ErrEpochOverflow)

@@ -69,6 +69,9 @@ func resolveResumeCipherSuite(state *State, config *dtlsConfig) (cryptosuite.Sui
 
 // Resume imports an already established dtls connection using a specific dtls state.
 func Resume(state *State, conn net.PacketConn, rAddr net.Addr, opts ...Option) (*Conn, error) {
+	if state == nil {
+		return nil, dtlserrors.ErrInvalidExportedState
+	}
 	apply := Option.applyServer
 	if state.isClient {
 		apply = Option.applyClient

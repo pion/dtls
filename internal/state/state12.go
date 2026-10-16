@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
+	"sync/atomic"
+
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/internal/util"
@@ -18,6 +20,7 @@ import (
 
 // State12 holds state that is meaningful only for DTLS 1.2.
 type State12 struct {
+	HandshakeComplete atomic.Bool
 	*Common
 	Protection cryptosuite.Protection
 	usage      trafficUsage

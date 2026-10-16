@@ -523,7 +523,7 @@ func TestOptionConfiguration(t *testing.T) {
 				state := &State{
 					isClient: testCase.isClient, version: protocol.Version1_2,
 					CipherSuiteID: cryptosuite.TLS_PSK_WITH_AES_128_CCM_8,
-					masterSecret:  make([]byte, 48), localEpoch: 1, remoteEpoch: 1,
+					masterSecret:  make([]byte, 48), localEpoch: 1, remoteEpoch: 1, handshakeComplete: true,
 				}
 				var conn *Conn
 				conn, err = Resume(state, ca, ca.RemoteAddr(), testCase.resumeOpts...)

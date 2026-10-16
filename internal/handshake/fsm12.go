@@ -79,6 +79,7 @@ func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
 		func(state State) {
 			if state == StateFinished {
 				s.cache.Finish12()
+				s.state.HandshakeComplete.Store(true)
 			}
 			s.cfg.Log.Tracef(
 				"[handshake:%s] %s: %s",
