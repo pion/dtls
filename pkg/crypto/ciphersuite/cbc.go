@@ -8,6 +8,7 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/binary"
 	"hash"
 
@@ -143,14 +144,10 @@ func (c *CBC) Decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 	// Padding+MAC needs to be checked in constant time
 	// Otherwise we reveal information about the level of correctness
 	paddingLen, paddingGood := examinePadding(body)
-	if paddingGood != 255 {
-		return nil, errInvalidMAC
-	}
-
 	macSize := mac.Size()
-	if len(body) < macSize {
-		return nil, errInvalidMAC
-	}
+	macSpaceGood := subtle.ConstantTimeLessOrEq(paddingLen, len(body)-macSize)
+	paddingAndSpaceGood := int(paddingGood&1) & macSpaceGood
+	paddingLen = subtle.ConstantTimeSelect(paddingAndSpaceGood, paddingLen, 1)
 
 	dataEnd := len(body) - macSize - paddingLen
 
@@ -167,7 +164,8 @@ func (c *CBC) Decrypt(header recordlayer.Header, in []byte) ([]byte, error) {
 		)
 	}
 	// Compute Local MAC and compare
-	if err != nil || !hmac.Equal(actualMAC, expectedMAC) {
+	macGood := subtle.ConstantTimeCompare(actualMAC, expectedMAC)
+	if err != nil || macGood&paddingAndSpaceGood != 1 {
 		return nil, errInvalidMAC
 	}
 

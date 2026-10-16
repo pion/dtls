@@ -39,7 +39,7 @@ func (p *InnerPlaintext) Unmarshal(data []byte) error {
 		}
 		i--
 	}
-	if i == 0 {
+	if i < 0 {
 		return errBufferTooSmall
 	}
 	p.RealType = protocol.ContentType(data[i])
