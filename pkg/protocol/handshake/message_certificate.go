@@ -29,6 +29,9 @@ func (m *MessageCertificate) Marshal() ([]byte, error) {
 	total := handshakeMessageCertificateLengthFieldSize
 
 	for _, cert := range m.Certificate {
+		if len(cert) == 0 {
+			return nil, errLengthMismatch
+		}
 		total += handshakeMessageCertificateLengthFieldSize + len(cert)
 	}
 
@@ -65,12 +68,16 @@ func (m *MessageCertificate) Unmarshal(data []byte) error {
 		return errLengthMismatch
 	}
 
+	m.Certificate = nil
 	offset := handshakeMessageCertificateLengthFieldSize
 	for offset < len(data) {
+		if len(data)-offset < handshakeMessageCertificateLengthFieldSize {
+			return errLengthMismatch
+		}
 		certificateLen := int(util.BigEndianUint24(data[offset:]))
 		offset += handshakeMessageCertificateLengthFieldSize
 
-		if offset+certificateLen > len(data) {
+		if certificateLen == 0 || offset+certificateLen > len(data) {
 			return errLengthMismatch
 		}
 
