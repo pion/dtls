@@ -185,73 +185,103 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 func TestFlight4ProcessesClientFlightOnce(t *testing.T) {
 	for _, clientAuth := range []ClientAuthType{RequireAnyClientCert, RequireAndVerifyClientCert} {
 		t.Run(fmt.Sprint(clientAuth), func(t *testing.T) {
-			certificate, err := selfsign.GenerateSelfSigned()
-			require.NoError(t, err)
-			roots := x509.NewCertPool()
-			parsed, err := x509.ParseCertificate(certificate.Certificate[0])
-			require.NoError(t, err)
-			roots.AddCert(parsed)
-			keypair, err := elliptic.GenerateKeypair(elliptic.P256)
-			require.NoError(t, err)
-			state := &State{cipherSuite: &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}, localKeypair: keypair}
-			cache := newHandshakeCache()
-			calls := 0
-			cfg := &handshakeConfig{
-				clientAuth:            clientAuth,
-				clientCAs:             roots,
-				localSignatureSchemes: signaturehash.Algorithms(),
-				verifyPeerCertificate: func([][]byte, [][]*x509.Certificate) error {
-					calls++
+			for _, finishedCase := range []struct {
+				name   string
+				mutate func([]byte) []byte
+			}{
+				{"valid", nil},
+				{"corrupt", func(data []byte) []byte {
+					data[0] ^= 1
 
-					return nil
-				},
+					return data
+				}},
+				{"empty", func([]byte) []byte { return nil }},
+				{"short", func(data []byte) []byte { return data[:len(data)-1] }},
+				{"long", func(data []byte) []byte { return append(data, 0) }},
+			} {
+				t.Run(finishedCase.name, func(t *testing.T) {
+					certificate, err := selfsign.GenerateSelfSigned()
+					require.NoError(t, err)
+					roots := x509.NewCertPool()
+					parsed, err := x509.ParseCertificate(certificate.Certificate[0])
+					require.NoError(t, err)
+					roots.AddCert(parsed)
+					keypair, err := elliptic.GenerateKeypair(elliptic.P256)
+					require.NoError(t, err)
+					state := &State{cipherSuite: &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}, localKeypair: keypair}
+					cache := newHandshakeCache()
+					calls := 0
+					cfg := &handshakeConfig{
+						clientAuth:            clientAuth,
+						clientCAs:             roots,
+						localSignatureSchemes: signaturehash.Algorithms(),
+						verifyPeerCertificate: func([][]byte, [][]*x509.Certificate) error {
+							calls++
+
+							return nil
+						},
+					}
+					certRaw := cacheFlight4TestMessage(t, cache, 0, 0, &handshake.MessageCertificate{
+						Certificate: certificate.Certificate,
+					})
+					keyRaw := cacheFlight4TestMessage(t, cache, 0, 1, &handshake.MessageClientKeyExchange{
+						PublicKey: keypair.PublicKey,
+					})
+					conn := &flight4TestMockFlightConn{}
+					flight, alertPtr, err := flight4Parse(context.Background(), conn, state, cache, cfg)
+					require.NoError(t, err)
+					require.Nil(t, alertPtr)
+					require.Zero(t, flight)
+					require.Zero(t, calls)
+					originalCert := &state.PeerCertificates[0][0]
+					for range 100 {
+						flight, alertPtr, err = flight4Parse(context.Background(), conn, state, cache, cfg)
+						require.NoError(t, err)
+						require.Nil(t, alertPtr)
+						require.Zero(t, flight)
+						require.Same(t, originalCert, &state.PeerCertificates[0][0], "certificate must not be decoded again")
+					}
+					require.False(t, state.cipherSuite.IsInitialized())
+					signer, ok := certificate.PrivateKey.(crypto.Signer)
+					require.True(t, ok)
+					transcript := append([]byte{}, certRaw...)
+					transcript = append(transcript, keyRaw...)
+					sig, err := generateCertificateVerify(transcript, signer, hash.SHA256, signature.ECDSA)
+					require.NoError(t, err)
+					verifyRaw := cacheFlight4TestMessage(t, cache, 0, 2, &handshake.MessageCertificateVerify{
+						HashAlgorithm: hash.SHA256, SignatureAlgorithm: signature.ECDSA, Signature: sig,
+					})
+					for range 100 {
+						flight, alertPtr, err = flight4Parse(context.Background(), conn, state, cache, cfg)
+						require.NoError(t, err)
+						require.Nil(t, alertPtr)
+						require.Zero(t, flight)
+						require.Equal(t, 1, calls)
+						require.Same(t, originalCert, &state.PeerCertificates[0][0])
+					}
+					require.True(t, state.cipherSuite.IsInitialized())
+					transcript = append(transcript, verifyRaw...)
+					verifyData, err := prf.VerifyDataClient(state.masterSecret, transcript, state.cipherSuite.HashFunc())
+					require.NoError(t, err)
+					if finishedCase.mutate != nil {
+						verifyData = finishedCase.mutate(verifyData)
+					}
+					cacheFlight4TestMessage(t, cache, 1, 3, &handshake.MessageFinished{VerifyData: verifyData})
+					flight, alertPtr, err = flight4Parse(context.Background(), conn, state, cache, cfg)
+					if finishedCase.mutate != nil {
+						require.ErrorIs(t, err, errVerifyDataMismatch)
+						require.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, alertPtr)
+						require.Zero(t, flight)
+						require.Equal(t, 3, state.handshakeRecvSequence)
+
+						return
+					}
+					require.NoError(t, err)
+					require.Nil(t, alertPtr)
+					require.Equal(t, flight6, flight)
+					require.Equal(t, 1, calls)
+				})
 			}
-			certRaw := cacheFlight4TestMessage(t, cache, 0, 0, &handshake.MessageCertificate{
-				Certificate: certificate.Certificate,
-			})
-			keyRaw := cacheFlight4TestMessage(t, cache, 0, 1, &handshake.MessageClientKeyExchange{PublicKey: keypair.PublicKey})
-			conn := &flight4TestMockFlightConn{}
-			flight, alertPtr, err := flight4Parse(context.Background(), conn, state, cache, cfg)
-			require.NoError(t, err)
-			require.Nil(t, alertPtr)
-			require.Zero(t, flight)
-			require.Zero(t, calls)
-			originalCert := &state.PeerCertificates[0][0]
-			for range 100 {
-				flight, alertPtr, err = flight4Parse(context.Background(), conn, state, cache, cfg)
-				require.NoError(t, err)
-				require.Nil(t, alertPtr)
-				require.Zero(t, flight)
-				require.Same(t, originalCert, &state.PeerCertificates[0][0], "certificate must not be decoded again")
-			}
-			require.False(t, state.cipherSuite.IsInitialized())
-			signer, ok := certificate.PrivateKey.(crypto.Signer)
-			require.True(t, ok)
-			transcript := append([]byte{}, certRaw...)
-			transcript = append(transcript, keyRaw...)
-			sig, err := generateCertificateVerify(transcript, signer, hash.SHA256, signature.ECDSA)
-			require.NoError(t, err)
-			verifyRaw := cacheFlight4TestMessage(t, cache, 0, 2, &handshake.MessageCertificateVerify{
-				HashAlgorithm: hash.SHA256, SignatureAlgorithm: signature.ECDSA, Signature: sig,
-			})
-			for range 100 {
-				flight, alertPtr, err = flight4Parse(context.Background(), conn, state, cache, cfg)
-				require.NoError(t, err)
-				require.Nil(t, alertPtr)
-				require.Zero(t, flight)
-				require.Equal(t, 1, calls)
-				require.Same(t, originalCert, &state.PeerCertificates[0][0])
-			}
-			require.True(t, state.cipherSuite.IsInitialized())
-			transcript = append(transcript, verifyRaw...)
-			verifyData, err := prf.VerifyDataClient(state.masterSecret, transcript, state.cipherSuite.HashFunc())
-			require.NoError(t, err)
-			cacheFlight4TestMessage(t, cache, 1, 3, &handshake.MessageFinished{VerifyData: verifyData})
-			flight, alertPtr, err = flight4Parse(context.Background(), conn, state, cache, cfg)
-			require.NoError(t, err)
-			require.Nil(t, alertPtr)
-			require.Equal(t, flight6, flight)
-			require.Equal(t, 1, calls)
 		})
 	}
 }

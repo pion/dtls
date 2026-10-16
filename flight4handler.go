@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/x509"
 
 	"github.com/pion/dtls/v3/internal/ciphersuite"
@@ -49,11 +50,33 @@ func flight4Parse(
 		// No valid message received. Keep reading
 		return 0, nil, nil
 	}
-	state.handshakeRecvSequence = seq
-
-	if _, ok = msgs[handshake.TypeFinished].(*handshake.MessageFinished); !ok {
+	finished, ok := msgs[handshake.TypeFinished].(*handshake.MessageFinished)
+	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
+
+	// Authenticate the full client transcript before accepting the handshake.
+	// pullAndMerge selects the cookie-bearing ClientHello and excludes both
+	// HelloVerifyRequest and the Finished message being verified.
+	transcript := cache.pullAndMerge(
+		handshakeCachePullRule{handshake.TypeClientHello, cfg.initialEpoch, true, false},
+		handshakeCachePullRule{handshake.TypeServerHello, cfg.initialEpoch, false, false},
+		handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, false, false},
+		handshakeCachePullRule{handshake.TypeServerKeyExchange, cfg.initialEpoch, false, false},
+		handshakeCachePullRule{handshake.TypeCertificateRequest, cfg.initialEpoch, false, false},
+		handshakeCachePullRule{handshake.TypeServerHelloDone, cfg.initialEpoch, false, false},
+		handshakeCachePullRule{handshake.TypeCertificate, cfg.initialEpoch, true, false},
+		handshakeCachePullRule{handshake.TypeClientKeyExchange, cfg.initialEpoch, true, false},
+		handshakeCachePullRule{handshake.TypeCertificateVerify, cfg.initialEpoch, true, false},
+	)
+	expectedVerifyData, err := prf.VerifyDataClient(state.masterSecret, transcript, state.cipherSuite.HashFunc())
+	if err != nil {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	if subtle.ConstantTimeCompare(expectedVerifyData, finished.VerifyData) != 1 {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, errVerifyDataMismatch
+	}
+	state.handshakeRecvSequence = seq
 
 	// empty certificate list is valid for PSK suites.
 	// https://www.rfc-editor.org/rfc/rfc4279.html#section-2
