@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/x509"
+	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
@@ -157,9 +158,11 @@ func flight5Generate(conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtls
 			merged...,
 		)
 
-		// Find compatible signature scheme
-
-		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(state.RemoteCertRequestAlgs, signer, protocol.Version1_2)
+		// Honor local policy while retaining the peer's preference order.
+		schemes := slices.DeleteFunc(slices.Clone(state.RemoteCertRequestAlgs), func(scheme signaturehash.Algorithm) bool {
+			return !slices.Contains(cfg.LocalSignatureSchemes, scheme)
+		})
+		signatureHashAlgo, err := signaturehash.SelectSignatureScheme(schemes, signer, protocol.Version1_2)
 		if err != nil {
 			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, err
 		}
