@@ -12,6 +12,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
@@ -53,6 +54,32 @@ func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 
+	state.RemoteClientHelloSnapshots.Reset()
+	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
+		return 0, nil, err
+	}
+
+	nextFlight := Flight2
+
+	if cfg.InsecureSkipHelloVerify {
+		nextFlight = Flight4
+	}
+
+	return negotiateClientHello(clientHello, state, cfg, nextFlight)
+}
+
+//nolint:cyclop
+func negotiateClientHello(clientHello *handshake.MessageClientHello, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, nextFlight Flight) (Flight, *alert.Alert, error) {
+	state.RemoteSupportsRenegotiation = false
+	state.ExtendedMasterSecret = false
+	state.ServerName = ""
+	state.PeerSupportedProtocols = nil
+	state.RemoteCertSignatureSchemes = nil
+	state.LocalKeypair = nil
+	state.NamedCurve = 0
+	if curves := supportedEllipticCurves(cfg.EllipticCurves); len(curves) > 0 {
+		state.NamedCurve = curves[0]
+	}
 	state.RemoteRandom = clientHello.Random
 
 	cipherSuites := []dtlsconfig.CipherSuite{}
@@ -67,21 +94,18 @@ func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12
 		}
 	}
 
+	var ok bool
 	if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, cfg.LocalCipherSuites); !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection
 	}
 
+	var offeredGroups []elliptic.Curve
+	var sawGroups bool
 	for _, val := range clientHello.Extensions {
 		switch ext := val.(type) {
 		case *extension.SupportedGroups:
-			if len(ext.Groups) == 0 {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves
-			}
-			namedCurve, ok := selectEllipticCurve(cfg.EllipticCurves, ext.Groups)
-			if !ok {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves
-			}
-			state.NamedCurve = namedCurve
+			sawGroups = true
+			offeredGroups = ext.Groups
 		case *extension12.ExtendedMasterSecret:
 			if cfg.ExtendedMasterSecret != dtlsconfig.DisableExtendedMasterSecret {
 				state.ExtendedMasterSecret = true
@@ -102,26 +126,20 @@ func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS
 	}
 
-	if state.LocalKeypair == nil {
-		var err error
-		state.LocalKeypair, err = elliptic.GenerateKeypair(state.NamedCurve)
-		if err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+	flight, resumeAlert, err := handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
+	if err != nil || resumeAlert != nil {
+		return flight, resumeAlert, err
+	}
+	if flight != Flight4b && state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
+		if fallback := selectNonECDHEFallback(cfg, cipherSuites, offeredGroups, sawGroups); fallback != nil {
+			state.CipherSuite = fallback
+			return flight, nil, nil
+		}
+		if dtlsAlert, err := selectAcceptCurve(state, cfg, offeredGroups, sawGroups); err != nil {
+			return 0, dtlsAlert, err
 		}
 	}
-
-	state.RemoteClientHelloSnapshots.Reset()
-	if err := state.RemoteClientHelloSnapshots.RecordWire(pull.Items[0].Raw.Data); err != nil {
-		return 0, nil, err
-	}
-
-	nextFlight := Flight2
-
-	if cfg.InsecureSkipHelloVerify {
-		nextFlight = Flight4
-	}
-
-	return handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
+	return flight, nil, nil
 }
 
 func handleHelloResume(sessionID []byte, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, next Flight) (Flight, *alert.Alert, error) {
@@ -172,4 +190,48 @@ func flight0Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 	}
 
 	return nil, nil, nil
+}
+
+func selectNonECDHEFallback(
+	cfg *dtlsconfig.HandshakeConfig, suites []dtlsconfig.CipherSuite, offered []elliptic.Curve, offeredPresent bool,
+) dtlsconfig.CipherSuite {
+	if !offeredPresent {
+		return nil
+	}
+	if _, shared := selectEllipticCurve(supportedEllipticCurves(cfg.EllipticCurves), offered); shared {
+		return nil
+	}
+
+	usable := slices.DeleteFunc(slices.Clone(suites), func(suite dtlsconfig.CipherSuite) bool {
+		return suite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe)
+	})
+	fallback, _ := dtlsflight.FindMatchingCipherSuite(usable, cfg.LocalCipherSuites)
+
+	return fallback
+}
+
+func selectAcceptCurve(
+	state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, offered []elliptic.Curve, offeredPresent bool,
+) (*alert.Alert, error) {
+	if offeredPresent && len(offered) == 0 {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves
+	}
+
+	if len(offered) > 0 {
+		namedCurve, ok := selectEllipticCurve(supportedEllipticCurves(cfg.EllipticCurves), offered)
+		if !ok {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoSupportedEllipticCurves
+		}
+		state.NamedCurve = namedCurve
+	}
+
+	if state.LocalKeypair == nil {
+		keypair, err := elliptic.GenerateKeypair(state.NamedCurve)
+		if err != nil {
+			return &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+		}
+		state.LocalKeypair = keypair
+	}
+
+	return nil, nil //nolint:nilnil // no alert or error
 }

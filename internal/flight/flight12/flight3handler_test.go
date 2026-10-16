@@ -165,10 +165,15 @@ func TestFlight2RejectsChangedConnectionID(t *testing.T) {
 func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 	state := newTestState12()
 	state.Cookie, state.HandshakeRecvSequence = []byte{0xc0}, 1
-	recordCH12(t, &state.RemoteClientHelloSnapshots,
-		extension.Raw{Type: 0xfefe, Data: []byte{0x01}},
-	)
-	retry := &handshake.MessageClientHello{Version: protocol.Version1_2, Cookie: state.Cookie, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: []extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}}}
+
+	suite := ciphersuite.ForID(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8)
+	retry := &handshake.MessageClientHello{Version: protocol.Version1_2, CipherSuiteIDs: []uint16{uint16(suite.ID())}, CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: []extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x01}}}}
+	_, snapshot, err := negotiation.FinalizeClientHello(retry, nil)
+	require.NoError(t, err)
+	require.NoError(t, state.RemoteClientHelloSnapshots.Record(snapshot))
+	retry.Cookie = state.Cookie
+	retry.Extensions = []extension.Value{extension.Raw{Type: 0xfefe, Data: []byte{0x02}}}
+
 	rawRetry, err := (&handshake.Handshake{
 		Header: handshake.Header{MessageSequence: 1}, Message: retry,
 	}).Marshal()
@@ -176,7 +181,7 @@ func TestFlight2CommitsValidatedClientHello2AsCurrentOffer(t *testing.T) {
 	cache := dtlsflight.NewCache()
 	cache.Push(rawRetry, 0, 1, handshake.TypeClientHello, true)
 
-	next, dtlsAlert, err := parseForTest(t, Flight2, t.Context(), nil, state, cache, &dtlsconfig.HandshakeConfig{EllipticCurves: []elliptic.Curve{elliptic.X25519}})
+	next, dtlsAlert, err := parseForTest(t, Flight2, t.Context(), nil, state, cache, &dtlsconfig.HandshakeConfig{LocalCipherSuites: []dtlsconfig.CipherSuite{suite}, EllipticCurves: []elliptic.Curve{elliptic.X25519}})
 	require.NoError(t, err)
 	require.Nil(t, dtlsAlert)
 	assert.Equal(t, Flight4, next)

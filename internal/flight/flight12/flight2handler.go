@@ -49,7 +49,7 @@ func flight2Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 	}
 	state.RemoteClientHelloSnapshots = snapshots
 
-	return Flight4, nil, nil
+	return negotiateClientHello(clientHello, state, cfg, Flight4)
 }
 
 func flight2Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.Cache, _ *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
