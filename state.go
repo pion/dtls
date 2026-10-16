@@ -21,6 +21,7 @@ import (
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and
 // encoding.BinaryUnmarshaler.
 type State struct {
+	handshakeComplete         bool
 	localEpoch, remoteEpoch   atomic.Value
 	localSequenceNumber       []uint64 // uint48
 	localRandom, remoteRandom handshake.Random
@@ -87,6 +88,7 @@ type State struct {
 }
 
 type serializedState struct {
+	HandshakeComplete     bool
 	LocalEpoch            uint16
 	RemoteEpoch           uint16
 	LocalRandom           [handshake.RandomLength]byte
@@ -130,6 +132,7 @@ func (s *State) serialize() (*serializedState, error) {
 	epoch := s.getLocalEpoch()
 
 	return &serializedState{
+		HandshakeComplete:     s.handshakeComplete,
 		LocalEpoch:            s.getLocalEpoch(),
 		RemoteEpoch:           s.getRemoteEpoch(),
 		CipherSuiteID:         cipherSuiteID,
@@ -149,6 +152,7 @@ func (s *State) serialize() (*serializedState, error) {
 }
 
 func (s *State) deserialize(serialized serializedState) {
+	s.handshakeComplete = serialized.HandshakeComplete
 	// Set epoch values
 	epoch := serialized.LocalEpoch
 	s.localEpoch.Store(serialized.LocalEpoch)
@@ -194,6 +198,9 @@ func (s *State) deserialize(serialized serializedState) {
 }
 
 func (s *State) initCipherSuite() error {
+	if s.cipherSuite == nil {
+		return errCipherSuiteNotSet
+	}
 	if s.cipherSuite.IsInitialized() {
 		return nil
 	}
@@ -214,9 +221,10 @@ func (s *State) initCipherSuite() error {
 	return nil
 }
 
-// MarshalBinary is a binary.BinaryMarshaler.MarshalBinary implementation.
+// MarshalBinary exports a snapshot of an established connection.
+// Resume the exported state only once; duplicating it reuses cryptographic nonces.
 func (s *State) MarshalBinary() ([]byte, error) {
-	serialized, err := s.serialize()
+	serialized, err := s.export()
 	if err != nil {
 		return nil, err
 	}
@@ -236,6 +244,9 @@ func (s *State) UnmarshalBinary(data []byte) error {
 	var serialized serializedState
 	if err := enc.Decode(&serialized); err != nil {
 		return err
+	}
+	if !serialized.HandshakeComplete {
+		return errInvalidExportedState
 	}
 
 	s.deserialize(serialized)
@@ -312,4 +323,12 @@ func (s *State) setLocalConnectionID(v []byte) {
 // RemoteRandomBytes returns the remote client hello random bytes.
 func (s *State) RemoteRandomBytes() [handshake.RandomBytesLength]byte {
 	return s.remoteRandom.RandomBytes
+}
+
+func (s *State) export() (*serializedState, error) {
+	if !s.handshakeComplete {
+		return nil, errInvalidExportedState
+	}
+
+	return s.serialize()
 }

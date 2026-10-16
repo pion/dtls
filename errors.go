@@ -318,3 +318,6 @@ func netError(err error) error {
 
 	return &FatalError{Err: err}
 }
+
+//nolint:err113
+var errInvalidExportedState = &FatalError{Err: errors.New("connection state is incomplete")}

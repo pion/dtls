@@ -1277,6 +1277,12 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 }
 
 func (c *Conn) setHandshakeCompletedSuccessfully() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.isHandshakeCompletedSuccessfully() {
+		return false
+	}
+	c.state.handshakeComplete = true
 	if !c.handshakeCompletedSuccessfully.CompareAndSwap(false, true) {
 		return false
 	}

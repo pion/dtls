@@ -8,18 +8,27 @@ import (
 )
 
 // Resume imports an already established dtls connection using a specific dtls state.
+// Serialized state must be resumed only once.
 //
 // Deprecated: Use ResumeWithOptions instead.
 func Resume(state *State, conn net.PacketConn, rAddr net.Addr, config *Config) (*Conn, error) {
-	if err := state.initCipherSuite(); err != nil {
-		return nil, err
-	}
-
 	if config == nil {
 		return nil, errNoConfigProvided
 	}
 
 	if err := validateConfig(config); err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, errInvalidExportedState
+	}
+	serialized, err := state.export()
+	if err != nil {
+		return nil, err
+	}
+	state = &State{}
+	state.deserialize(*serialized)
+	if err := state.initCipherSuite(); err != nil {
 		return nil, err
 	}
 
