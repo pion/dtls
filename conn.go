@@ -2257,6 +2257,9 @@ func (c *Conn) validateLegacyCID(header recordlayer.ParsedRecord) bool {
 
 //nolint:cyclop // Reassemble, acknowledge, and cache each protocol version.
 func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumber, markPacketAsValid func() bool) (packetOutcome, bool, error) {
+	if !c.validHandshakeRecordEpoch(content, number.Epoch) {
+		return packetOutcome{}, false, nil
+	}
 	c.syncFragmentBufferHandshakeSequence()
 	result, err := c.fragmentBuffer.Push(number.Epoch, content)
 	if err != nil {
@@ -2296,6 +2299,49 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 		clientHelloRetransmit: !common.IsClient && common.LocalVersion == protocol.Version1_2 &&
 			number.Epoch == 0 && result.IsRetransmit && c.handshakeCache.IsClientHelloRetransmit(content),
 	}, isLatestSeqNum, nil
+}
+
+// Validate every fragment before any can advance reassembly or enter the cache.
+// https://www.rfc-editor.org/rfc/rfc9147.html#section-6.1
+func (c *Conn) validHandshakeRecordEpoch(content []byte, epoch uint64) bool {
+	common := dtlsstate.CommonState(c.state)
+	if common.LocalVersion != protocol.Version1_3 {
+		return true
+	}
+	for len(content) != 0 {
+		var header handshake.Header
+		if header.Unmarshal(content) != nil || !c.validHandshakeFragmentEpoch(header, epoch) {
+			return false
+		}
+		end := handshake.HeaderLength + int(header.FragmentLength)
+		if end > len(content) {
+			return false
+		}
+		content = content[end:]
+	}
+
+	return true
+}
+
+func (c *Conn) validHandshakeFragmentEpoch(header handshake.Header, epoch uint64) bool {
+	switch header.Type {
+	case handshake.TypeClientHello, handshake.TypeServerHello:
+		if epoch != 0 {
+			return false
+		}
+		common := dtlsstate.CommonState(c.state)
+		if max(common.LocalEpoch(), common.RemoteEpoch()) >= dtlsflight13.EpochHandshake {
+			// Old hellos may signal retransmission, but cannot consume a new sequence.
+			return int(header.MessageSequence) < dtlsstate.HandshakeRecvSequence(c.state)
+		}
+
+		return true
+	case handshake.TypeNewSessionTicket, handshake.TypeKeyUpdate,
+		handshake.TypeNewConnectionID, handshake.TypeRequestConnectionID:
+		return epoch >= dtlsflight13.EpochApplication
+	default:
+		return epoch == dtlsflight13.EpochHandshake
+	}
 }
 
 func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr net.Addr, bufferLease *readBufferLease) bool {
