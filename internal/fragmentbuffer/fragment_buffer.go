@@ -6,6 +6,7 @@ package fragmentbuffer
 
 import (
 	"bytes"
+	"math"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -52,6 +53,7 @@ type FragmentBuffer struct {
 	cache map[uint16]*fragments
 
 	currentMessageSequenceNumber uint16
+	sequenceExhausted            bool
 
 	totalBufferSize    int
 	totalFragmentCount int
@@ -69,7 +71,7 @@ func (f *FragmentBuffer) size() int {
 
 // AdvanceTo discards fragments for message sequences before messageSequence.
 func (f *FragmentBuffer) AdvanceTo(messageSequence uint16) {
-	if messageSequence <= f.currentMessageSequenceNumber {
+	if f.sequenceExhausted || messageSequence <= f.currentMessageSequenceNumber {
 		return
 	}
 
@@ -234,7 +236,7 @@ func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (resu
 	newFragments := map[fragmentKey]struct{}{}
 	for _, candidate := range parsed {
 		header := candidate.header
-		if header.MessageSequence < f.currentMessageSequenceNumber {
+		if f.sequenceExhausted || header.MessageSequence < f.currentMessageSequenceNumber {
 			result.IsRetransmit = true
 			result.IsRetransmitStart = result.IsRetransmitStart || header.FragmentOffset == 0
 
@@ -264,7 +266,7 @@ func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (resu
 func (f *FragmentBuffer) commitFragments(epoch uint64, parsed []parsedFragment) {
 	for _, candidate := range parsed {
 		header := candidate.header
-		if header.MessageSequence < f.currentMessageSequenceNumber {
+		if f.sequenceExhausted || header.MessageSequence < f.currentMessageSequenceNumber {
 			continue
 		}
 
@@ -284,6 +286,10 @@ func (f *FragmentBuffer) commitFragments(epoch uint64, parsed []parsedFragment) 
 
 // Pop returns the next complete handshake message and its record epoch.
 func (f *FragmentBuffer) Pop() (content []byte, epoch uint64) {
+	if f.sequenceExhausted {
+		return nil, 0
+	}
+
 	frags, ok := f.cache[f.currentMessageSequenceNumber]
 	if !ok {
 		return nil, 0
@@ -320,7 +326,13 @@ func (f *FragmentBuffer) Pop() (content []byte, epoch uint64) {
 	f.totalFragmentCount -= len(frags.fragmentByOffset)
 
 	delete(f.cache, f.currentMessageSequenceNumber)
-	f.currentMessageSequenceNumber++
+	// Deliver the final sequence once, then treat all further input as old.
+	// Wrapping would let new content reuse an authenticated message sequence.
+	if f.currentMessageSequenceNumber == math.MaxUint16 {
+		f.sequenceExhausted = true
+	} else {
+		f.currentMessageSequenceNumber++
+	}
 
 	return append(rawHeader, rawMessage...), messageEpoch
 }
