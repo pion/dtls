@@ -823,3 +823,19 @@ func TestNewConnectionIDEmptySpareAndLocalLimits(t *testing.T) {
 	post.state.CID.Negotiated = false
 	assert.ErrorIs(t, post.validateNewConnectionIDCommand(newConnectionIDCommand{NumCIDs: 1}), dtlserrors.ErrUnexpectedPostHandshakeMessage)
 }
+
+func TestPostHandshakeIgnoresMessagesWithoutApplicationProtection(t *testing.T) {
+	for _, epoch := range []uint64{0, 1, 2} {
+		state := dtlsstate.NewState13(true)
+		cache := dtlsflight.NewCache()
+		// Malformed data must not even be decoded or generate an alert.
+		cache.Push([]byte{0xff}, epoch, 0, handshake.TypeNewSessionTicket, false)
+		post := newPostHandshake(handshakeContext{
+			state: &state, cache: cache, cfg: &dtlsconfig.HandshakeConfig{},
+		})
+		conn := &postHandshakeAlertConn{}
+		require.NoError(t, post.processPostHandshakeMessages(context.Background(), conn))
+		assert.Empty(t, conn.notifications)
+		assert.Zero(t, state.HandshakeRecvSequence)
+	}
+}

@@ -19,6 +19,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -478,6 +479,9 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 			!p.state.IsClient,
 		)
 		if !ok {
+			return nil
+		}
+		if item.Epoch < dtlsflight13.EpochApplication {
 			return nil
 		}
 

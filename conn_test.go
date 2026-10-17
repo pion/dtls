@@ -2535,3 +2535,73 @@ func TestReadDeadlineAfterHandshake(t *testing.T) {
 		require.Equal(t, "hello", string(buf[:n]))
 	}
 }
+
+func TestDTLS13RejectsWrongHandshakeEpochBeforeBuffering(t *testing.T) {
+	for _, typ := range []handshake.Type{
+		handshake.TypeFinished, handshake.TypeEncryptedExtensions,
+		handshake.TypeNewSessionTicket, handshake.TypeKeyUpdate,
+		handshake.TypeNewConnectionID, handshake.TypeRequestConnectionID,
+	} {
+		t.Run(typ.String(), func(t *testing.T) {
+			conn, _ := newTestConnWithReadProtection(t)
+			for _, epoch := range []uint64{0, 1} {
+				raw, err := (&handshake.Header{Type: typ}).Marshal()
+				require.NoError(t, err)
+				marked := false
+				outcome, latest, err := conn.bufferHandshakeRecord(raw, protocol.RecordNumber{Epoch: epoch}, func() bool {
+					marked = true
+
+					return true
+				})
+				require.NoError(t, err)
+				assert.False(t, outcome.containsHandshake)
+				assert.False(t, latest)
+				assert.False(t, marked)
+				_, cached := conn.handshakeCache.PullExact(0, false)
+				assert.False(t, cached)
+			}
+			// Rejected plaintext must not consume the real flight's sequence.
+			raw := encryptedExtensionsHandshakeWithSequence(t, 0)
+			outcome, _, err := conn.bufferHandshakeRecord(raw, protocol.RecordNumber{Epoch: dtlsflight13.EpochHandshake}, func() bool { return true })
+			require.NoError(t, err)
+			assert.True(t, outcome.containsHandshake)
+			item, cached := conn.handshakeCache.PullExact(0, false)
+			require.True(t, cached)
+			assert.Equal(t, dtlsflight13.EpochHandshake, item.Epoch)
+		})
+	}
+}
+
+func TestDTLS13HandshakeEpochValidation(t *testing.T) {
+	conn, _ := newTestConnWithReadProtection(t)
+	state, err := dtlsstate.As13(conn.state)
+	require.NoError(t, err)
+	state.HandshakeRecvSequence = 1
+
+	oldHello, err := (&handshake.Header{Type: handshake.TypeServerHello}).Marshal()
+	require.NoError(t, err)
+	outcome, _, err := conn.bufferHandshakeRecord(oldHello, protocol.RecordNumber{}, func() bool { return true })
+	require.NoError(t, err)
+	assert.True(t, outcome.retransmit)
+	_, cached := conn.handshakeCache.PullExact(0, false)
+	assert.False(t, cached)
+
+	newHello, err := (&handshake.Header{Type: handshake.TypeServerHello, MessageSequence: 1}).Marshal()
+	require.NoError(t, err)
+	assert.False(t, conn.validHandshakeRecordEpoch(newHello, 0))
+	for _, typ := range []handshake.Type{handshake.TypeNewSessionTicket, handshake.TypeKeyUpdate, handshake.TypeNewConnectionID, handshake.TypeRequestConnectionID} {
+		raw, marshalErr := (&handshake.Header{Type: typ, MessageSequence: 1}).Marshal()
+		require.NoError(t, marshalErr)
+		assert.False(t, conn.validHandshakeRecordEpoch(raw, dtlsflight13.EpochHandshake))
+		assert.True(t, conn.validHandshakeRecordEpoch(raw, dtlsflight13.EpochApplication))
+		assert.True(t, conn.validHandshakeRecordEpoch(raw, dtlsflight13.EpochApplication+1))
+		// A valid hello cannot hide a later invalid fragment in the same record.
+		assert.False(t, conn.validHandshakeRecordEpoch(append(append([]byte{}, oldHello...), raw...), 0))
+	}
+	conn.setRemoteEpoch(0)
+	assert.True(t, conn.validHandshakeRecordEpoch(newHello, 0))
+	conn.setLocalEpoch(dtlsflight13.EpochHandshake)
+	assert.False(t, conn.validHandshakeRecordEpoch(newHello, 0))
+	state.LocalVersion = protocol.Version1_2
+	assert.True(t, conn.validHandshakeRecordEpoch(newHello, 0))
+}
