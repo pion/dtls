@@ -46,6 +46,25 @@ func NewCache() *Cache {
 	return &Cache{}
 }
 
+// DiscardRemoteAfter removes speculative messages received after the hello
+// that selected DTLS 1.3. They arrived before version-specific epoch checks.
+func (h *Cache) DiscardRemoteAfter(sequence uint16, isClient bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	retained := h.cache[:0]
+	h.size = 0
+	for _, item := range h.cache {
+		if item.IsClient == isClient && item.MessageSequence > sequence {
+			continue
+		}
+		retained = append(retained, item)
+		h.size += len(item.Data)
+	}
+	clear(h.cache[len(retained):])
+	h.cache = retained
+}
+
 // IsClientHelloRetransmit recognizes a complete, unchanged copy of the latest
 // epoch-zero ClientHello, even when its fragmentation differs. Content starts
 // with a handshake header; the caller must check the record epoch and sender.

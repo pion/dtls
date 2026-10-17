@@ -2535,3 +2535,100 @@ func TestReadDeadlineAfterHandshake(t *testing.T) {
 		require.Equal(t, "hello", string(buf[:n]))
 	}
 }
+
+func pushEpochTestHandshake(t *testing.T, conn *Conn, header handshake.Header, epoch uint64) packetOutcome {
+	t.Helper()
+	raw, err := header.Marshal()
+	require.NoError(t, err)
+	raw = append(raw, make([]byte, header.FragmentLength)...)
+	outcome, _, err := conn.bufferHandshakeRecord(raw, protocol.RecordNumber{Epoch: epoch}, func() bool { return true })
+	require.NoError(t, err)
+
+	return outcome
+}
+
+func TestDTLS13HandshakeEpochValidation(t *testing.T) {
+	conn, _ := newTestConnWithReadProtection(t)
+	for _, typ := range []handshake.Type{
+		handshake.TypeFinished, handshake.TypeEncryptedExtensions,
+		handshake.TypeNewSessionTicket, handshake.TypeKeyUpdate, handshake.TypeNewConnectionID, handshake.TypeRequestConnectionID,
+	} {
+		for _, epoch := range []uint64{0, 1} {
+			assert.False(t, pushEpochTestHandshake(t, conn, handshake.Header{Type: typ}, epoch).containsHandshake)
+		}
+		if typ != handshake.TypeFinished && typ != handshake.TypeEncryptedExtensions {
+			assert.False(t, pushEpochTestHandshake(t, conn, handshake.Header{Type: typ}, 2).containsHandshake)
+		}
+	}
+	// Invalid records must leave sequence zero available for the real flight.
+	pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeEncryptedExtensions}, 2)
+	item, ok := conn.handshakeCache.PullExact(0, false)
+	require.True(t, ok)
+	assert.Equal(t, uint64(2), item.Epoch)
+	for _, sequence := range []uint16{1, 2} {
+		assert.True(t, pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeNewSessionTicket, MessageSequence: sequence}, uint64(sequence)+2).containsHandshake)
+	}
+}
+
+func TestDTLS13FutureHelloDoesNotConsumeProtectedSequence(t *testing.T) {
+	for _, typ := range []handshake.Type{handshake.TypeClientHello, handshake.TypeServerHello} {
+		conn, _ := newTestConnWithReadProtection(t)
+		state, err := dtlsstate.As13(conn.state)
+		require.NoError(t, err)
+		state.IsClient, state.HandshakeRecvSequence = typ == handshake.TypeServerHello, 1
+		conn.setRemoteEpoch(0)
+		for _, length := range []uint32{1, 2} {
+			future := handshake.Header{Type: typ, MessageSequence: 2, Length: 2, FragmentLength: length}
+			assert.False(t, pushEpochTestHandshake(t, conn, future, 0).containsHandshake)
+		}
+		hello := handshake.Header{Type: typ, MessageSequence: 1}
+		assert.True(t, pushEpochTestHandshake(t, conn, hello, 0).containsHandshake)
+		state.HandshakeRecvSequence = 2
+		conn.setLocalEpoch(2)
+		assert.True(t, pushEpochTestHandshake(t, conn, hello, 0).retransmit)
+		assert.False(t, pushEpochTestHandshake(t, conn, handshake.Header{Type: typ, MessageSequence: 2}, 0).containsHandshake)
+		pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeFinished, MessageSequence: 2}, 2)
+		item, ok := conn.handshakeCache.PullExact(2, !state.IsClient)
+		require.True(t, ok)
+		assert.Equal(t, uint64(2), item.Epoch)
+		assert.Equal(t, handshake.TypeFinished, item.Typ)
+	}
+}
+
+func TestVersionSelectionDiscardsSpeculativeDTLS13Handshake(t *testing.T) {
+	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+		for _, isClient := range []bool{false, true} {
+			conn, _ := newTestConnWithReadProtection(t)
+			common := dtlsstate.CommonState(conn.state)
+			common.LocalVersion, common.IsClient = 0, isClient
+			conn.setRemoteEpoch(0)
+			helloType := handshake.TypeClientHello
+			if isClient {
+				helloType = handshake.TypeServerHello
+			}
+			pushEpochTestHandshake(t, conn, handshake.Header{Type: helloType}, 0)
+			pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeFinished, MessageSequence: 1}, 0)
+			pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeCertificate, MessageSequence: 2, Length: 2, FragmentLength: 1}, 0)
+			conn.handshakeCache.Push(nil, 0, 1, helloType, isClient)
+			oldBuffer := conn.fragmentBuffer
+			conn.setNegotiatedVersion([]protocol.Version{version}, version)
+			_, ok := conn.handshakeCache.PullExact(0, !isClient)
+			require.True(t, ok, "preserve the negotiating hello")
+			_, ok = conn.handshakeCache.PullExact(1, isClient)
+			require.True(t, ok, "preserve the local transcript")
+			_, ok = conn.handshakeCache.PullExact(1, !isClient)
+			require.Equal(t, version == protocol.Version1_2, ok)
+			if version == protocol.Version1_2 {
+				require.Same(t, oldBuffer, conn.fragmentBuffer)
+
+				continue
+			}
+			for _, sequence := range []uint16{1, 2} {
+				pushEpochTestHandshake(t, conn, handshake.Header{Type: handshake.TypeFinished, MessageSequence: sequence}, 2)
+				item, cached := conn.handshakeCache.PullExact(sequence, !isClient)
+				require.True(t, cached, "discard speculative messages and partial fragments")
+				assert.Equal(t, uint64(2), item.Epoch)
+			}
+		}
+	}
+}

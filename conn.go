@@ -2257,6 +2257,9 @@ func (c *Conn) validateLegacyCID(header recordlayer.ParsedRecord) bool {
 
 //nolint:cyclop // Reassemble, acknowledge, and cache each protocol version.
 func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumber, markPacketAsValid func() bool) (packetOutcome, bool, error) {
+	if !c.validHandshakeRecordEpoch(content, number.Epoch) {
+		return packetOutcome{}, false, nil
+	}
 	c.syncFragmentBufferHandshakeSequence()
 	result, err := c.fragmentBuffer.Push(number.Epoch, content)
 	if err != nil {
@@ -2296,6 +2299,51 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 		clientHelloRetransmit: !common.IsClient && common.LocalVersion == protocol.Version1_2 &&
 			number.Epoch == 0 && result.IsRetransmit && c.handshakeCache.IsClientHelloRetransmit(content),
 	}, isLatestSeqNum, nil
+}
+
+// Validate every fragment before any can advance reassembly or enter the cache.
+// https://www.rfc-editor.org/rfc/rfc9147.html#section-6.1
+func (c *Conn) validHandshakeRecordEpoch(content []byte, epoch uint64) bool {
+	common := dtlsstate.CommonState(c.state)
+	if common.LocalVersion != protocol.Version1_3 {
+		return true
+	}
+	for len(content) != 0 {
+		var header handshake.Header
+		if header.Unmarshal(content) != nil || !c.validHandshakeFragmentEpoch(header, epoch) {
+			return false
+		}
+		end := handshake.HeaderLength + int(header.FragmentLength)
+		if end > len(content) {
+			return false
+		}
+		content = content[end:]
+	}
+
+	return true
+}
+
+func (c *Conn) validHandshakeFragmentEpoch(header handshake.Header, epoch uint64) bool {
+	switch header.Type {
+	case handshake.TypeClientHello, handshake.TypeServerHello:
+		if epoch != 0 {
+			return false
+		}
+		common := dtlsstate.CommonState(c.state)
+		if max(common.LocalEpoch(), common.RemoteEpoch()) >= dtlsflight13.EpochHandshake {
+			// Old hellos may signal retransmission, but cannot consume a new sequence.
+			return int(header.MessageSequence) < dtlsstate.HandshakeRecvSequence(c.state)
+		}
+
+		// Before keys are installed, only the expected hello or an old one
+		// can be received. Future hellos must not reserve encrypted sequences.
+		return int(header.MessageSequence) <= dtlsstate.HandshakeRecvSequence(c.state)
+	case handshake.TypeNewSessionTicket, handshake.TypeKeyUpdate,
+		handshake.TypeNewConnectionID, handshake.TypeRequestConnectionID:
+		return epoch >= dtlsflight13.EpochApplication
+	default:
+		return epoch == dtlsflight13.EpochHandshake
+	}
 }
 
 func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr net.Addr, bufferLease *readBufferLease) bool {
@@ -2825,10 +2873,21 @@ func (c *Conn) selectRemoteVersion(remote []protocol.Version) error {
 
 func (c *Conn) setNegotiatedVersion(remote []protocol.Version, chosen protocol.Version) {
 	common := dtlsstate.CommonState(c.state)
+	wasUnselected := common.LocalVersion == 0
 	common.RemoteVersions = remote
 	common.LocalVersion = chosen
 	if chosen == protocol.Version1_3 {
 		c.state = dtlsstate.Activate13(c.state)
+		if wasUnselected && c.handshakeCache != nil {
+			// Only the peer's initial hello was needed to choose the version.
+			// Drop speculative later messages and fragments, including any
+			// sequence progress they made before epoch checks were active.
+			c.handshakeCache.DiscardRemoteAfter(0, !common.IsClient)
+			c.fragmentBuffer = dtlsfragmentbuffer.New()
+			if _, ok := c.handshakeCache.PullExact(0, !common.IsClient); ok {
+				c.fragmentBuffer.AdvanceTo(1)
+			}
+		}
 
 		return
 	}
