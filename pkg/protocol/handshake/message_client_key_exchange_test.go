@@ -9,6 +9,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	types "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandshakeMessageClientKeyExchange(t *testing.T) {
@@ -24,6 +25,52 @@ func TestHandshakeMessageClientKeyExchange(t *testing.T) {
 	raw, err := c.Marshal()
 	assert.NoError(t, err)
 	assert.Equal(t, rawClientKeyExchange, raw)
+}
+
+func TestHandshakeMessageClientKeyExchange_ECDHEPSK(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		data      []byte
+		identity  []byte
+		publicKey []byte
+		wantErr   error
+	}{
+		{
+			name: "empty identity without key length", data: []byte{0, 0},
+			wantErr: dtlserrors.ErrBufferTooSmall,
+		},
+		{
+			name: "identity consumes body", data: []byte{0, 1, 42},
+			wantErr: dtlserrors.ErrBufferTooSmall,
+		},
+		{
+			name: "truncated public key", data: []byte{0, 1, 42, 2, 1},
+			wantErr: dtlserrors.ErrBufferTooSmall,
+		},
+		{
+			name: "valid exchange", data: []byte{0, 1, 42, 2, 1, 2},
+			identity: []byte{42}, publicKey: []byte{1, 2},
+		},
+		{
+			name: "key excludes trailing bytes", data: []byte{0, 1, 42, 2, 1, 2, 99},
+			identity: []byte{42}, publicKey: []byte{1, 2},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			message := &MessageClientKeyExchange{
+				KeyExchangeAlgorithm: types.KeyExchangeAlgorithmPsk | types.KeyExchangeAlgorithmEcdhe,
+			}
+			err := message.Unmarshal(test.data)
+			if test.wantErr != nil {
+				require.ErrorIs(t, err, test.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.identity, message.IdentityHint)
+			assert.Equal(t, test.publicKey, message.PublicKey)
+		})
+	}
 }
 
 func TestHandshakeMessageClientKeyExchange_PublicKeyTooLong(t *testing.T) {

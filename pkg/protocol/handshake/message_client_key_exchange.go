@@ -121,12 +121,16 @@ func (m *MessageClientKeyExchange) Unmarshal(data []byte) error {
 	}
 
 	if m.KeyExchangeAlgorithm.Has(ciphersuite.KeyExchangeAlgorithmEcdhe) {
+		if offset >= len(data) {
+			return dtlserrors.ErrBufferTooSmall
+		}
+
 		publicKeyLength := int(data[offset])
 		if publicKeyLength > len(data)-1-offset {
 			return dtlserrors.ErrBufferTooSmall
 		}
 
-		m.PublicKey = bytes.Clone(data[offset+1:])
+		m.PublicKey = bytes.Clone(data[offset+1 : offset+1+publicKeyLength])
 	}
 
 	return nil
