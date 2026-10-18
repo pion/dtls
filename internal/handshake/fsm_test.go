@@ -1759,3 +1759,39 @@ func TestECHRetryConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestHandshakeFSM13TicketBeforeFinalACK(t *testing.T) {
+	fixture := newNoHRRFlight13Fixture(t)
+	fsm := clientFSMThroughServerFlight13(t, fixture)
+	conn := &flightTestConn{}
+	_, err := fsm.prepare(t.Context(), conn)
+	require.NoError(t, err)
+	fsm.state.SetLocalEpoch(dtlsflight13.EpochApplication)
+	finished := protocol.RecordNumber{Epoch: 2, SequenceNumber: 10}
+	fsm.flightACK.track(&WriteResult{TrackedRecords: []SentHandshakeRecord{{
+		Number: finished, Fragments: []SentHandshakeFragment{{MessageSequence: 1, Length: 32}},
+	}}})
+	sequence := fsm.state.HandshakeRecvSequence
+	wire, err := (&handshake.Handshake{
+		Header:  handshake.Header{MessageSequence: uint16(sequence)}, //nolint:gosec // small fixture sequence
+		Message: &handshake.MessageNewSessionTicket{Ticket: []byte{1}},
+	}).Marshal()
+	require.NoError(t, err)
+	fsm.cache.Push(wire, 3, uint16(sequence), handshake.TypeNewSessionTicket, false) //nolint:gosec // small fixture sequence
+	received := RecvHandshakeState{HasHandshake: true, RecordsToACK: []protocol.RecordNumber{{Epoch: 3, SequenceNumber: 11}}}
+	for range 2 {
+		transition, receiveErr := fsm.handleReceivedFlight(t.Context(), conn, received)
+		require.NoError(t, receiveErr)
+		assert.Equal(t, StateWaiting, transition.state)
+		assert.NotEmpty(t, fsm.flightACK.pending, "ticket must not acknowledge Finished")
+		assert.Equal(t, sequence+1, fsm.state.HandshakeRecvSequence, "process ticket only once")
+	}
+	ack, ok := conn.writtenPackets[0].Content.(*protocol.ACK)
+	require.True(t, ok)
+	assert.Equal(t, received.RecordsToACK, ack.Records)
+	transition, err := fsm.handleReceivedFlight(t.Context(), conn, RecvHandshakeState{
+		ACKs: []protocol.ACK{{Records: []protocol.RecordNumber{finished}}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StateFinished, transition.state)
+}

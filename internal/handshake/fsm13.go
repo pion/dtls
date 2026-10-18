@@ -398,8 +398,8 @@ func (s *fsm13) handleReceivedFlight( //nolint:cyclop
 	if !received.HasHandshake && len(received.ACKs) != 0 {
 		return s.transitionAfterACK(ackResult, false), nil
 	}
-	if received.HasHandshake && received.IsRetransmit && s.currentFlight.IsLastSendFlight() {
-		return s.handlePreviousFlightRetransmit(ctx, conn, received.RecordsToACK, ackResult)
+	if s.currentFlight.IsLastSendFlight() {
+		return s.handleFinalFlightReceive(ctx, conn, received, ackResult)
 	}
 
 	nextFlight, err := s.parseReceivedFlight(ctx, conn, s.currentFlight)
@@ -465,16 +465,15 @@ func (s *fsm13) takePendingACKs() []protocol.RecordNumber {
 	return slices.Compact(records)
 }
 
-func (s *fsm13) handlePreviousFlightRetransmit(ctx context.Context, conn Conn, recordsToACK []protocol.RecordNumber, ackResult ACKResult) (receivedFlightTransition, error) {
-	// A duplicate peer flight means it didn't receive our response.
-	// ACK the duplicate and retransmit the pending final flight.
-	// check WAIT exit 3:
-	// https://datatracker.ietf.org/doc/html/rfc9147#section-5.8.1
-	if err := sendACK(ctx, conn, s.state.LocalEpoch(), recordsToACK); err != nil {
+func (s *fsm13) handleFinalFlightReceive(ctx context.Context, conn Conn, received RecvHandshakeState, ackResult ACKResult) (receivedFlightTransition, error) {
+	// Tickets may arrive before the final ACK. Process them without treating
+	// them as an acknowledgement of our Finished. Duplicate peer flights still
+	// trigger retransmission of the pending final flight.
+	if err := s.postHandshake.handlePostHandshakeReceive(ctx, conn, received); err != nil {
 		return receivedFlightTransition{}, err
 	}
 
-	return s.transitionAfterACK(ackResult, true), nil
+	return s.transitionAfterACK(ackResult, received.IsRetransmit), nil
 }
 
 func (s *fsm13) prepareFlightACKTracking(flights []*dtlsflight.Outbound, retransmit bool) {

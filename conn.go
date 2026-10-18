@@ -2257,7 +2257,7 @@ func (c *Conn) validateLegacyCID(header recordlayer.ParsedRecord) bool {
 
 //nolint:cyclop // Reassemble, acknowledge, and cache each protocol version.
 func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumber, markPacketAsValid func() bool) (packetOutcome, bool, error) {
-	if !c.validHandshakeRecordEpoch(content, number.Epoch) {
+	if len(content) == 0 || !c.validHandshakeRecordEpoch(content, number.Epoch) {
 		return packetOutcome{}, false, nil
 	}
 	c.syncFragmentBufferHandshakeSequence()

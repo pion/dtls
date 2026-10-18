@@ -2632,3 +2632,17 @@ func TestVersionSelectionDiscardsSpeculativeDTLS13Handshake(t *testing.T) {
 		}
 	}
 }
+
+func TestEmptyHandshakeRecordIsIgnored(t *testing.T) {
+	conn, _ := newTestConnWithReadProtection(t)
+	for _, epoch := range []uint64{0, 2, 3} {
+		outcome, latest, err := conn.bufferHandshakeRecord(nil, protocol.RecordNumber{Epoch: epoch}, func() bool {
+			assert.Fail(t, "empty records must not update replay state")
+
+			return true
+		})
+		require.NoError(t, err)
+		assert.False(t, outcome.containsHandshake)
+		assert.False(t, latest)
+	}
+}
