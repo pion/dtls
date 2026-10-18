@@ -11,6 +11,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"encoding/hex"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -521,7 +522,8 @@ func TestOptionConfiguration(t *testing.T) {
 					_ = cb.Close()
 				})
 				state := &State{
-					isClient: testCase.isClient, version: protocol.Version1_2,
+					resumeToken: new(atomic.Bool),
+					isClient:    testCase.isClient, version: protocol.Version1_2,
 					CipherSuiteID: cryptosuite.TLS_PSK_WITH_AES_128_CCM_8,
 					masterSecret:  make([]byte, 48), localEpoch: 1, remoteEpoch: 1, handshakeComplete: true,
 				}
