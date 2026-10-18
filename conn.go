@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
@@ -222,6 +223,8 @@ type Conn struct {
 	handshakeEstablished *dtlshandshake.Establishment
 	handshakeMutex       sync.Mutex
 	handshakeDone        chan struct{}
+	handshakeLoops       *sync.WaitGroup
+	exporting            atomic.Bool
 	writeLock            sync.Mutex
 
 	encryptedPackets []addrPkt
@@ -752,6 +755,8 @@ func (c *Conn) Close() error {
 }
 
 // ConnectionState returns basic DTLS details about the connection.
+// Calling MarshalBinary on the returned state stops this connection and
+// prepares the state for Resume. Inspection alone does not stop the connection.
 // Note that this replaced the `Export` function of v1.
 func (c *Conn) ConnectionState() (State, bool) {
 	c.writeLock.Lock()
@@ -765,6 +770,8 @@ func (c *Conn) ConnectionState() (State, bool) {
 	if state13, ok := c.state.(*dtlsstate.State13); ok && c.handshakeEstablished != nil && c.isHandshakeCompletedSuccessfully() {
 		state.state13 = snapshotState13(state13)
 	}
+
+	state.sourceConn = c
 
 	return *state, true
 }
@@ -1090,6 +1097,9 @@ func (c *Conn) prepareRecord(outbound *dtlsflight.Outbound) ([]byte, error) {
 }
 
 func (c *Conn) allocateLocalSequenceNumber(epoch uint64) (uint64, error) {
+	if c.exporting.Load() {
+		return 0, ErrConnClosed
+	}
 	common := dtlsstate.CommonState(c.state)
 	if common.LocalVersion != protocol.Version1_3 && epoch > 0xffff {
 		return 0, dtlserrors.ErrEpochOverflow
@@ -3016,6 +3026,9 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 
 	var handshakeLoopsFinished sync.WaitGroup
 	handshakeLoopsFinished.Add(2)
+	c.closeLock.Lock()
+	c.handshakeLoops = &handshakeLoopsFinished
+	c.closeLock.Unlock()
 
 	// Handshake routine should be live until close.
 	// The other party may request retransmission of the last flight to cope with packet drop.
@@ -3164,7 +3177,9 @@ func (c *Conn) close(byUser bool) error {
 			// even if the underlying connection is already closed.
 			_ = c.notify(context.Background(), alert.Warning, alert.CloseNotify)
 		}
-		c.clearConnectionIDs()
+		if !c.exporting.Load() {
+			c.clearConnectionIDs()
+		}
 	}
 
 	if c.detached != nil {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"slices"
+	"sync/atomic"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
@@ -29,14 +30,54 @@ func resumeWithConfig(state *State, conn net.PacketConn, rAddr net.Addr, config 
 	if err != nil {
 		return nil, err
 	}
-	state.cipherSuiteDescriptor = selected
+	copyState := *state
+	copyState.cipherSuiteDescriptor = selected
 
-	internalState, err := state.generateInternalState()
+	internalState, err := copyState.generateInternalState()
 	if err != nil {
 		return nil, err
 	}
+	if state.resumeToken == nil || !state.resumeToken.CompareAndSwap(false, true) {
+		return nil, dtlserrors.ErrInvalidExportedState
+	}
 
 	return createConn(conn, rAddr, config, state.isClient, internalState)
+}
+
+// exportState stops the source before capturing its final record counters.
+func (c *Conn) exportState() (State, error) {
+	if !c.isHandshakeCompletedSuccessfully() {
+		return State{}, dtlserrors.ErrInvalidExportedState
+	}
+	c.handshakeMutex.Lock()
+	defer c.handshakeMutex.Unlock()
+	c.closeLock.Lock()
+	if c.isConnectionClosed() || c.exporting.Load() || !c.isHandshakeCompletedSuccessfully() {
+		c.closeLock.Unlock()
+
+		return State{}, dtlserrors.ErrInvalidExportedState
+	}
+	c.exporting.Store(true)
+	loops := c.handshakeLoops
+	c.closeLock.Unlock()
+	err := c.close(false)
+	if c.detached != nil {
+		c.detached.terminate(ErrConnClosed, false)
+	}
+	if loops != nil {
+		loops.Wait()
+	}
+	if err != nil {
+		return State{}, err
+	}
+	state, ok := c.ConnectionState()
+	if !ok {
+		return State{}, dtlserrors.ErrInvalidExportedState
+	}
+	state.sourceConn = nil
+	state.resumeToken = new(atomic.Bool)
+
+	return state, nil
 }
 
 func resolveResumeCipherSuite(state *State, config *dtlsConfig) (cryptosuite.Suite, error) {
@@ -67,7 +108,10 @@ func resolveResumeCipherSuite(state *State, config *dtlsConfig) (cryptosuite.Sui
 	return nil, &invalidCipherSuiteError{state.CipherSuiteID}
 }
 
-// Resume imports an already established dtls connection using a specific dtls state.
+// Resume imports state handed off by MarshalBinary, either directly or after
+// UnmarshalBinary. Live inspection snapshots cannot be resumed. Resume consumes
+// the state;
+// serialized copies must not be reused, including in another process.
 func Resume(state *State, conn net.PacketConn, rAddr net.Addr, opts ...Option) (*Conn, error) {
 	if state == nil {
 		return nil, dtlserrors.ErrInvalidExportedState

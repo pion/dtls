@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"math"
+	"sync/atomic"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
@@ -24,6 +25,8 @@ import (
 // State holds the dtls connection state and implements both encoding.BinaryMarshaler and
 // encoding.BinaryUnmarshaler.
 type State struct {
+	sourceConn                *Conn
+	resumeToken               *atomic.Bool
 	handshakeComplete         bool
 	remoteSequenceNumber      uint64
 	localEpoch, remoteEpoch   uint64
@@ -119,6 +122,7 @@ func remainingUsage(limit, used uint64) uint64 {
 }
 
 type serializedState struct {
+	Handoff               bool
 	HandshakeComplete     bool
 	RemoteSequenceNumber  uint64
 	ECHAccepted           bool
@@ -229,6 +233,9 @@ func (s *State) Role() Role {
 }
 
 func (s *State) serialize() (*serializedState, error) {
+	if s.resumeToken != nil && s.resumeToken.Load() {
+		return nil, dtlserrors.ErrInvalidExportedState
+	}
 	// 0 (TLS_NULL_WITH_NULL_NULL) is never negotiated, so it signals an unset suite.
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
@@ -253,6 +260,7 @@ func (s *State) serialize() (*serializedState, error) {
 	}
 
 	return &serializedState{
+		Handoff:               s.resumeToken != nil,
 		HandshakeComplete:     s.handshakeComplete,
 		RemoteSequenceNumber:  s.remoteSequenceNumber,
 		DTLS13:                s.state13,
@@ -282,6 +290,11 @@ func (s *State) serialize() (*serializedState, error) {
 }
 
 func (s *State) deserialize(serialized serializedState) {
+	s.sourceConn = nil
+	s.resumeToken = nil
+	if serialized.Handoff {
+		s.resumeToken = new(atomic.Bool)
+	}
 	s.handshakeComplete = serialized.HandshakeComplete
 	s.remoteSequenceNumber = serialized.RemoteSequenceNumber
 	s.state13 = serialized.DTLS13
@@ -603,9 +616,19 @@ func restoreTrafficGenerations(state *dtlsstate.State13, suite cryptosuite.Traff
 	return nil
 }
 
-// MarshalBinary exports an established connection snapshot. Resume it only once;
-// reusing a snapshot or continuing to send on the original reuses nonces.
+// MarshalBinary hands off the source connection and serializes its final state.
+// For a ConnectionState snapshot, it stops the source without close_notify,
+// closes its transport, and refreshes this state with the final record counters.
+// The source cannot be used again once shutdown begins, even if export fails.
+// Resume the state at most once across all processes and serialized copies.
 func (s *State) MarshalBinary() ([]byte, error) {
+	if s.sourceConn != nil {
+		state, err := s.sourceConn.exportState()
+		if err != nil {
+			return nil, err
+		}
+		*s = state
+	}
 	if s.version != protocol.Version1_3 && !s.handshakeComplete {
 		return nil, dtlserrors.ErrInvalidExportedState
 	}
