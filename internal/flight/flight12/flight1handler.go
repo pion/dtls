@@ -58,6 +58,10 @@ func flight1Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 
 //nolint:cyclop
 func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	// A new handshake must authenticate the peer and derive fresh record keys,
+	// even when an earlier attempt on this connection timed out.
+	state.Protection = nil
+	state.LocalVerifyData = nil
 	state.ResetConnectionIDs()
 	state.SetSRTPProtectionProfile(0)
 	state.LocalClientHelloSnapshots.Reset()

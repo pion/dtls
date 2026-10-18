@@ -20,7 +20,32 @@ import (
 	"github.com/pion/logging"
 	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestFlight1RestartAuthenticatesPeer(t *testing.T) {
+	state := newTestState12()
+	state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_PSK_WITH_AES_128_GCM_SHA256)
+	state.MasterSecret = make([]byte, 48)
+	require.NoError(t, state.InitCipherSuite())
+	state.LocalVerifyData = []byte{1}
+	cache := dtlsflight.NewCache()
+	cfg := &dtlsconfig.HandshakeConfig{EllipticCurves: []elliptic.Curve{elliptic.X25519}}
+	_, alt, err := flight1Generate(&flight1TestMockFlightConn{}, state, cache, cfg)
+	require.NoError(t, err)
+	require.Nil(t, alt)
+	require.Nil(t, state.Protection)
+	require.Empty(t, state.LocalVerifyData)
+
+	// A fresh server flight without a certificate must not inherit the old
+	// connection's authentication or keys.
+	state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+	alt, err = initializeCipherSuite(state, cache, cfg, &handshake.MessageServerKeyExchange{}, nil)
+	require.Error(t, err)
+	require.NotNil(t, alt)
+	assert.Equal(t, alert.BadCertificate, alt.Description)
+	assert.Nil(t, state.Protection)
+}
 
 type flight1TestMockFlightConn struct{}
 
