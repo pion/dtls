@@ -538,6 +538,7 @@ func testPionE2ESimplePSK(t *testing.T, server, client func(*comm), opts ...dtls
 		dtls.TLS_PSK_WITH_AES_256_CCM_8,
 		dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
 		dtls.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
+		dtls.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256,
 	} {
 		t.Run(cipherSuite.String(), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

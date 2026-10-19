@@ -599,6 +599,12 @@ func TestPSK(t *testing.T) {
 			CipherSuites:   []CipherSuiteID{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256},
 		},
 		{
+			Name:           "TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256",
+			ServerIdentity: nil,
+			ClientIdentity: []byte("Client Identity"),
+			CipherSuites:   []CipherSuiteID{TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256},
+		},
+		{
 			Name:           "Client identity empty",
 			ServerIdentity: nil,
 			ClientIdentity: []byte{},
