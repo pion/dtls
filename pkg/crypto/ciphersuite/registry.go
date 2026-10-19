@@ -27,6 +27,7 @@ const (
 	TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 ID = 0xcca9 // nolint: revive,staticcheck
 	TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   ID = 0xcca8 // nolint: revive,staticcheck
 	TLS_PSK_WITH_CHACHA20_POLY1305_SHA256         ID = 0xccab // nolint: revive,staticcheck
+	TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256   ID = 0xccac // nolint: revive,staticcheck
 	TLS_AES_128_GCM_SHA256                        ID = 0x1301 // nolint: revive,staticcheck
 	TLS_AES_256_GCM_SHA384                        ID = 0x1302 // nolint: revive,staticcheck
 	TLS_CHACHA20_POLY1305_SHA256                  ID = 0x1303 // nolint: revive,staticcheck
@@ -52,6 +53,8 @@ func (i ID) String() string { //nolint:cyclop
 		return "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256"
 	case TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:
 		return "TLS_PSK_WITH_CHACHA20_POLY1305_SHA256"
+	case TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256:
+		return "TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256"
 	}
 
 	return tls.CipherSuiteName(uint16(i))

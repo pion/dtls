@@ -306,6 +306,38 @@ func sendClientHello(cookie []byte, ca net.Conn, sequenceNumber uint64, extensio
 	return nil
 }
 
+func TestECDHEPSKHandshake(t *testing.T) {
+	for _, id := range []cryptosuite.ID{
+		cryptosuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256,
+		cryptosuite.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256,
+	} {
+		t.Run(id.String(), func(t *testing.T) {
+			client, server := handshakePair(t, []ClientOption{
+				WithCipherSuites(id),
+				WithPSK(func() ([]PSK, error) {
+					return []PSK{{Identity: []byte("client"), Key: []byte("key")}}, nil
+				}, nil),
+			}, []ServerOption{
+				WithCipherSuites(id),
+				WithPSK(nil, func(identities [][]byte) (*PSK, error) {
+					return &PSK{Identity: identities[0], Key: []byte("key")}, nil
+				}),
+			})
+			for _, result := range []handshakeResult{client, server} {
+				require.NoError(t, result.configErr)
+				require.NoError(t, result.handshakeError)
+				state, ok := result.conn.ConnectionState()
+				require.True(t, ok)
+				require.Equal(t, id, state.CipherSuiteID)
+			}
+			serverState, ok := server.conn.ConnectionState()
+			require.True(t, ok)
+			require.Equal(t, []byte("client"), serverState.IdentityHint)
+			exchangeResumeData(t, client.conn, server.conn)
+		})
+	}
+}
+
 func TestExportKeyingMaterial(t *testing.T) {
 	const exportLabel = "EXTRACTOR-dtls_srtp"
 
