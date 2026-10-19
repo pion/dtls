@@ -105,6 +105,7 @@ Pion DTLS supports DTLS 1.2 and DTLS 1.3. We welcome contributions and bug fixes
 ##### DTLS 1.2: ECDHE & PSK
 
 * TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5489][rfc5489])
+* TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
 
 #### Excluded Features
 * DTLS 1.0

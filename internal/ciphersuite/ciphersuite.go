@@ -263,6 +263,7 @@ var builtinCipherSuites = map[cryptosuite.ID]cryptosuite.Suite{
 	cryptosuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: newSuite12(cryptosuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, clientcertificate.ECDSASign, cryptosuite.KeyExchangeAlgorithmEcdhe, sha256.New, protection12ChaCha20Poly1305, 32, nil, 0),
 	cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:   newSuite12(cryptosuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, clientcertificate.RSASign, cryptosuite.KeyExchangeAlgorithmEcdhe, sha256.New, protection12ChaCha20Poly1305, 32, nil, 0),
 	cryptosuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256:         newSuite12(cryptosuite.TLS_PSK_WITH_CHACHA20_POLY1305_SHA256, 0, cryptosuite.KeyExchangeAlgorithmPsk, sha256.New, protection12ChaCha20Poly1305, 32, nil, 0),
+	cryptosuite.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256:   newSuite12(cryptosuite.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256, 0, cryptosuite.KeyExchangeAlgorithmPsk|cryptosuite.KeyExchangeAlgorithmEcdhe, sha256.New, protection12ChaCha20Poly1305, 32, nil, 0),
 	cryptosuite.TLS_AES_128_GCM_SHA256:                        newSuite13(cryptosuite.TLS_AES_128_GCM_SHA256, sha256.New, protection13AESGCM, tls13AES128GCMKeyLen),
 	cryptosuite.TLS_AES_256_GCM_SHA384:                        newSuite13(cryptosuite.TLS_AES_256_GCM_SHA384, sha512.New384, protection13AESGCM, tls13AES256GCMKeyLen),
 	cryptosuite.TLS_CHACHA20_POLY1305_SHA256:                  newSuite13(cryptosuite.TLS_CHACHA20_POLY1305_SHA256, sha256.New, protection13ChaCha20Poly1305, 0),
