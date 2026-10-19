@@ -85,6 +85,7 @@ We would love contributions that fall under the 'Planned Features' and any bug f
 ##### ECDHE & PSK
 
 * TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256 ([RFC 5489][rfc5489])
+* TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 ([RFC 7905][rfc7905])
 
 #### Planned Features
 * DTLS 1.3 ([RFC 9147][rfc9147])
