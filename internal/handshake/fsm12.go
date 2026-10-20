@@ -201,7 +201,15 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:c
 
 				break
 			}
-			if !state.IsRetransmit {
+			if s.currentFlight == dtlsflight12.Flight3 && nextFlight == dtlsflight12.Flight3 {
+				// A new cookie must not bypass or reset the retry backoff.
+				select {
+				case <-retransmitTimer.C():
+					handleRetransmitTimeout(true, &s.retransmitInterval, s.cfg)
+				case <-ctx.Done():
+					return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
+				}
+			} else if !state.IsRetransmit {
 				s.retransmitInterval = s.cfg.InitialRetransmitInterval
 			}
 			s.cfg.Log.Tracef("[handshake:%s] %s -> %s", sideString(s.state.IsClient), s.currentFlight.String(), nextFlight.String())

@@ -1795,3 +1795,53 @@ func TestHandshakeFSM13TicketBeforeFinalACK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StateFinished, transition.state)
 }
+
+func TestCookieResponsesBackoff(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		cfg := &dtlsconfig.HandshakeConfig{
+			InitialRetransmitInterval: time.Hour, DisableRetransmitBackoff: disabled,
+			Log: logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		}
+		cache := dtlsflight.NewCache()
+		state := dtlsstate.NewState12(true)
+		fsm := &fsm12{state: &state, cache: cache, cfg: cfg, currentFlight: dtlsflight12.Flight1, retransmitInterval: cfg.InitialRetransmitInterval}
+		conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+		for sequence, cookie := range []byte{1, 1, 2, 3} {
+			seq := uint16(sequence) //nolint:gosec // Small test sequence.
+			raw, err := (&handshake.Handshake{
+				Header: handshake.Header{MessageSequence: seq},
+				Message: &handshake.MessageHelloVerifyRequest{
+					Version: protocol.Version1_2, Cookie: []byte{cookie},
+				},
+			}).Marshal()
+			require.NoError(t, err)
+			cache.Push(raw, 0, seq, handshake.TypeHelloVerifyRequest, false)
+			conn.recvHandshake <- RecvHandshakeState{Done: make(chan struct{})}
+			interval := fsm.retransmitInterval
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			started := time.Now()
+			next, err := fsm.wait(ctx, conn)
+			cancel()
+			if sequence == 3 {
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.Equal(t, StateErrored, next)
+
+				continue
+			}
+			require.NoError(t, err)
+			require.Equal(t, StatePreparing, next)
+			if sequence > 0 {
+				assert.GreaterOrEqual(t, time.Since(started), interval)
+				if !disabled {
+					interval *= 2
+				}
+				assert.Equal(t, interval, fsm.retransmitInterval)
+			}
+			if sequence == 0 {
+				fsm.retransmitInterval = 5 * time.Millisecond
+			} else if sequence == 2 {
+				fsm.retransmitInterval = time.Hour
+			}
+		}
+	}
+}
