@@ -321,7 +321,15 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 
 				break
 			}
-			if !state.isRetransmit {
+			if s.currentFlight == flight3 && nextFlight == flight3 {
+				// A new cookie doesn't bypass or reset the retry backoff.
+				select {
+				case <-retransmitTimer.C:
+					s.backoffRetransmit()
+				case <-ctx.Done():
+					return handshakeErrored, ctx.Err()
+				}
+			} else if !state.isRetransmit {
 				s.retransmitInterval = s.cfg.initialRetransmitInterval
 			}
 			s.cfg.log.Tracef(

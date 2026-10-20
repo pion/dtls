@@ -14,13 +14,64 @@ import (
 
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v3/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v3/pkg/protocol"
 	"github.com/pion/dtls/v3/pkg/protocol/alert"
 	"github.com/pion/dtls/v3/pkg/protocol/handshake"
 	"github.com/pion/dtls/v3/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
 	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCookieResponsesBackoff(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		cfg := &handshakeConfig{
+			initialRetransmitInterval: time.Hour, disableRetransmitBackoff: disabled,
+			log: logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+		}
+		cache := newHandshakeCache()
+		fsm := newHandshakeFSM(&State{isClient: true}, cache, cfg, flight1)
+		conn := &flightTestConn{recv: make(chan recvHandshakeState, 1)}
+		for sequence, cookie := range []byte{1, 1, 2, 3} {
+			seq := uint16(sequence) //nolint:gosec // Small test sequence.
+			raw, err := (&handshake.Handshake{
+				Header: handshake.Header{MessageSequence: seq},
+				Message: &handshake.MessageHelloVerifyRequest{
+					Version: protocol.Version1_2, Cookie: []byte{cookie},
+				},
+			}).Marshal()
+			require.NoError(t, err)
+			require.NoError(t, cache.push(raw, 0, seq, handshake.TypeHelloVerifyRequest, false))
+			conn.recv <- recvHandshakeState{done: make(chan struct{})}
+			interval := fsm.retransmitInterval
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			started := time.Now()
+			next, err := fsm.wait(ctx, conn)
+			cancel()
+			if sequence == 3 {
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.Equal(t, handshakeErrored, next)
+
+				continue
+			}
+			require.NoError(t, err)
+			require.Equal(t, handshakePreparing, next)
+			if sequence > 0 {
+				assert.GreaterOrEqual(t, time.Since(started), interval)
+				if !disabled {
+					interval *= 2
+				}
+				assert.Equal(t, interval, fsm.retransmitInterval)
+			}
+			if sequence == 0 {
+				fsm.retransmitInterval = 5 * time.Millisecond
+			} else if sequence == 2 {
+				fsm.retransmitInterval = time.Hour
+			}
+		}
+	}
+}
 
 const nonZeroRetransmitInterval = 100 * time.Millisecond
 

@@ -2437,22 +2437,28 @@ func TestMultipleHelloVerifyRequest(t *testing.T) {
 		assert.NoError(t, ca.Close())
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	deadline, _ := ctx.Deadline()
+	assert.NoError(t, cb.SetReadDeadline(deadline))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	defer wg.Wait()
 	go func() {
 		defer wg.Done()
-		_, _ = testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{}, false)
+		_, _ = testClient(ctx, dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+			FlightInterval: 100 * time.Millisecond,
+		}, false)
 	}()
 
 	for i, cookie := range cookies {
 		// read client hello
 		resp := make([]byte, 1024)
 		n, err := cb.Read(resp)
-		assert.NoError(t, err)
+		if !assert.NoError(t, err) {
+			return
+		}
 
 		record := &recordlayer.RecordLayer{}
 		assert.NoError(t, record.Unmarshal(resp[:n]))
