@@ -516,6 +516,10 @@ func (c *Conn) Close() error {
 
 // ConnectionState returns basic DTLS details about the connection.
 // Note that this replaced the `Export` function of v1.
+//
+// This is a snapshot: the connection remains active. Restoring
+// it can reuse encryption nonces if the original sends any further records.
+// See ResumeWithOptions for the safety requirements for state restoration.
 func (c *Conn) ConnectionState() (State, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
