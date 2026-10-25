@@ -36,7 +36,6 @@ import (
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
-	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
@@ -2809,19 +2808,7 @@ func (c *Conn) pickVersionFromClientHello() (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	var remote []protocol.Version
-	seenSupportedVersions := false
-	for _, e := range ch.Extensions {
-		if sv, ok := e.(*extension13.OfferedVersions); ok { //nolint:govet
-			seenSupportedVersions = true
-			remote = sv.Versions
-
-			break
-		}
-	}
-	if !seenSupportedVersions {
-		remote = []protocol.Version{ch.Version}
-	}
+	remote := dtlsflight.ClientHelloVersions(ch)
 
 	chosen, ok := dtlsconfig.SelectVersion(remote, c.handshakeConfig.MinVersion, c.handshakeConfig.MaxVersion)
 	if !ok {

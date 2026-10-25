@@ -51,7 +51,7 @@ func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if clientHello.Version != protocol.Version1_2 {
+	if clientHello.Version != protocol.Version1_2 || !slices.Contains(dtlsflight.ClientHelloVersions(clientHello), protocol.Version1_2) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 

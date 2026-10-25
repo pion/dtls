@@ -23,6 +23,7 @@ import (
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	dtlsflight12 "github.com/pion/dtls/v4/internal/flight/flight12"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
 	dtlsfragmentbuffer "github.com/pion/dtls/v4/internal/fragmentbuffer"
 	dtlshandshake "github.com/pion/dtls/v4/internal/handshake"
@@ -3163,5 +3164,38 @@ func TestFlight13_0ParseRejectsNoSharedGroup(t *testing.T) {
 			assert.Zero(t, next)
 			assert.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, received)
 		}
+	}
+}
+
+func TestFlight13_0ParseRejectsVersionMismatch(t *testing.T) {
+	for _, extensions := range [][]extension.Value{
+		nil,
+		{&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_2}}},
+	} {
+		cfg := testHandshakeConfig13(t)
+		cfg.LocalCipherSuites = []dtlsconfig.CipherSuite{ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)}
+		cache := dtlsflight.NewCache()
+		pushFlight13_0ClientHello(t, cache, cfg, extensions)
+		next, alt, err := flight13ParseForTest(t, dtlsflight13.Flight0, context.Background(), &handshakeTestContext13{
+			state: newTestState13(t, false), cache: cache, cfg: cfg,
+		})
+		require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
+		require.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, alt)
+		require.Zero(t, next)
+	}
+}
+
+func TestFlight12RejectsVersionMismatchBeforeCipherSuites(t *testing.T) {
+	for _, flight := range []dtlsflight12.Flight{dtlsflight12.Flight0, dtlsflight12.Flight2} {
+		t.Run(flight.String(), func(t *testing.T) {
+			cfg := testHandshakeConfig13(t)
+			cache := dtlsflight.NewCache()
+			pushFlight13_0ClientHello(t, cache, cfg, requiredClientHello13Extensions(t, cfg))
+			next, alt, err, ok := dtlsflight12.Parse(t.Context(), flight, nil, dtlsstate.Activate12(newTestState13(t, false)), cache, cfg)
+			require.True(t, ok)
+			require.ErrorIs(t, err, dtlserrors.ErrUnsupportedProtocolVersion)
+			require.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, alt)
+			require.Zero(t, next)
+		})
 	}
 }

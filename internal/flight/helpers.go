@@ -15,7 +15,9 @@ import (
 	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
+	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
@@ -163,4 +165,16 @@ func CipherSuiteIDs(cipherSuites []dtlsconfig.CipherSuite) []uint16 {
 	}
 
 	return ids
+}
+
+// ClientHelloVersions returns the offered versions, using the legacy version only
+// when supported_versions is absent.
+func ClientHelloVersions(hello *handshake.MessageClientHello) []protocol.Version {
+	for _, value := range hello.Extensions {
+		if versions, ok := value.(*extension13.OfferedVersions); ok {
+			return versions.Versions
+		}
+	}
+
+	return []protocol.Version{hello.Version}
 }

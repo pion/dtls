@@ -66,7 +66,7 @@ func flight0Parse(
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if clientHello.Version != protocol.Version1_2 {
+	if clientHello.Version != protocol.Version1_2 || !slices.Contains(dtlsflight.ClientHelloVersions(clientHello), protocol.Version1_3) {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
 	}
 	state.RemoteRandom = clientHello.Random
@@ -86,13 +86,6 @@ func flight0Parse(
 
 	if failure := processClientHelloExtensions(state, clientHello); failure != nil {
 		return 0, failure.alert, failure.err
-	}
-
-	if !slices.Contains(state.RemoteVersions, protocol.Version1_3) {
-		// nolint:godox
-		// TODO: This should actually handover the state machine to DTLS 1.2
-
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidProtocolVersionState
 	}
 
 	if failure := flightCtx.handleInboundHandshake(pull.Items); failure != nil {
