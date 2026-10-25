@@ -1268,12 +1268,20 @@ func (c *Conn) sealRecordContent( //nolint:cyclop
 		return nil, err
 	}
 
-	innerPlaintext, err := recordlayer.MarshalInnerPlaintext(plaintext, contentType, 0)
+	var paddingLen uint
+	if c.paddingLengthGenerator != nil {
+		paddingLen = c.paddingLengthGenerator(uint(len(plaintext)))
+	}
+	if paddingLen > maxDTLS13InnerPlaintextLen {
+		return nil, dtlserrors.ErrInvalidPacketLength
+	}
+	padding := int(paddingLen)
+	if len(plaintext) >= maxDTLS13InnerPlaintextLen-padding {
+		return nil, dtlserrors.ErrInvalidPacketLength
+	}
+	innerPlaintext, err := recordlayer.MarshalInnerPlaintext(plaintext, contentType, padding)
 	if err != nil {
 		return nil, err
-	}
-	if len(innerPlaintext) > maxDTLS13InnerPlaintextLen {
-		return nil, dtlserrors.ErrInvalidPacketLength
 	}
 	header := recordlayer.CiphertextConfig{EpochLow: uint8(epoch & 0x3), SequenceNumber: uint16(seq & 0xffff), TwoByteSequence: true, LengthPresent: true}
 	if state13, ok := c.state.(*dtlsstate.State13); ok &&
@@ -1301,7 +1309,7 @@ func (c *Conn) sealRecordContent( //nolint:cyclop
 		return nil, cryptosuite.ErrInvalidCapabilities
 	}
 	if protectedLen < sampleLen {
-		innerPlaintext, err = recordlayer.MarshalInnerPlaintext(plaintext, contentType, sampleLen-protectedLen)
+		innerPlaintext, err = recordlayer.MarshalInnerPlaintext(plaintext, contentType, padding+sampleLen-protectedLen)
 		if err != nil {
 			return nil, err
 		}

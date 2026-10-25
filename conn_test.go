@@ -819,6 +819,7 @@ func TestFragmentBuffer_Retransmission(t *testing.T) {
 func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	defer test.CheckRoutines(t)()
 	defer test.TimeOut(10 * time.Second).Stop()
+	padding := WithPaddingLengthGenerator(func(length uint) uint { return 255 - length%256 })
 
 	ca, cb := packetPipe()
 	var applicationEpochWrites atomic.Int32
@@ -838,13 +839,13 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 
 	clientCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	client, err := Client(ca, ca.RemoteAddr(), WithCertificates(clientCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3))
+	client, err := Client(ca, ca.RemoteAddr(), WithCertificates(clientCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), padding)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	server, err := Server(serverTransport, serverTransport.RemoteAddr(), WithCertificates(serverCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3))
+	server, err := Server(serverTransport, serverTransport.RemoteAddr(), WithCertificates(serverCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), padding)
 	require.NoError(t, err)
 	defer func() { _ = server.Close() }()
 
@@ -872,6 +873,9 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	innerPlaintext, err := protection.OpenRecord(ciphertext.Header, 0, ciphertext.EncryptedRecord)
 	require.NoError(t, err)
 	require.Equal(t, protocol.ContentTypeACK, innerPlaintext.RealType)
+	protectedLen, err := protection.capabilities.ProtectedLen((len(innerPlaintext.Content)/256 + 1) * 256)
+	require.NoError(t, err)
+	assert.Len(t, ciphertext.EncryptedRecord, protectedLen)
 	var ack protocol.ACK
 	require.NoError(t, ack.Unmarshal(innerPlaintext.Content))
 	require.NotEmpty(t, ack.Records)
@@ -1406,6 +1410,39 @@ func TestSealRecordContentAcceptsMaximumContent(t *testing.T) {
 	require.NoError(t, err)
 	innerPlaintext := openTestProtectedRecord(t, peerProtection, rawRecord)
 	assert.Equal(t, plaintext, innerPlaintext.Content)
+}
+
+func TestSealRecordContentPadding(t *testing.T) {
+	for _, length := range []int{0, 1, 200, maxPlaintextRecordLen} {
+		for _, padding := range []uint{0, 1, 255, maxPlaintextRecordLen, ^uint(0)} {
+			t.Run(fmt.Sprintf("length=%d/padding=%d", length, padding), func(t *testing.T) {
+				conn, peer := newTestConnWithWriteProtection(t)
+				calls := 0
+				conn.paddingLengthGenerator = func(contentLen uint) uint {
+					assert.EqualValues(t, length, contentLen)
+					calls++
+
+					return padding
+				}
+				plaintext := bytes.Repeat([]byte{0x5a}, length)
+				raw, err := conn.sealRecordContent(dtlsflight13.EpochApplication, 0, protocol.ContentTypeApplicationData, plaintext)
+				assert.Equal(t, 1, calls)
+				if padding > maxPlaintextRecordLen-uint(len(plaintext)) {
+					assert.ErrorIs(t, err, dtlserrors.ErrInvalidPacketLength)
+
+					return
+				}
+				require.NoError(t, err)
+				record := unmarshalCiphertextRecordForTest(t, raw, 0)
+				unpaddedLen, err := peer.capabilities.ProtectedLen(length + 1)
+				require.NoError(t, err)
+				assert.EqualValues(t, padding, len(record.EncryptedRecord)-unpaddedLen)
+				opened := openTestProtectedRecord(t, peer, raw)
+				assert.Equal(t, plaintext, opened.Content)
+				assert.Equal(t, protocol.ContentTypeApplicationData, opened.RealType)
+			})
+		}
+	}
 }
 
 func TestSealRecordContentUsesNegotiatedConnectionID(t *testing.T) {
