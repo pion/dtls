@@ -2095,6 +2095,10 @@ func (c *Conn) prepareLegacyPacket(buf []byte, rAddr net.Addr, bufferLease *read
 	if common.LocalVersion == protocol.Version1_2 && header.Epoch() > 1 {
 		return incomingPacketState{}, false, nil
 	}
+	// Keep handshake retransmissions available for last-flight recovery.
+	if header.Epoch() == 0 && c.isHandshakeCompletedSuccessfully() && header.ContentType() != protocol.ContentTypeHandshake {
+		return incomingPacketState{}, false, nil
+	}
 	if header.Epoch() == 0 && header.ContentType() == protocol.ContentTypeAlert && common.RemoteEpoch() != 0 &&
 		(common.LocalVersion == protocol.Version1_3 || c.isHandshakeCompletedSuccessfully()) {
 		c.log.Debug("discarded alert from the old plaintext epoch")

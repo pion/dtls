@@ -2045,6 +2045,9 @@ func TestHandleIncomingPacketControlRecordEpoch(t *testing.T) {
 		content     protocol.Content
 	}{
 		{name: "DTLS12/close_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}},
+		{name: "DTLS12/data_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &protocol.ApplicationData{Data: []byte("plaintext")}},
+		{name: "DTLS12/CCS_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &protocol.ChangeCipherSpec{}},
+		{name: "DTLS12/ACK_after_handshake", version: protocol.Version1_2, remoteEpoch: 1, content: &protocol.ACK{}},
 		{name: "DTLS13/alert_after_keys", version: protocol.Version1_3, remoteEpoch: 2, content: &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}},
 		{name: "ACK/before_keys", version: protocol.Version1_3, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}}}},
 		{name: "ACK/after_keys", version: protocol.Version1_3, remoteEpoch: 3, content: &protocol.ACK{Records: []protocol.RecordNumber{{Epoch: 2}}}},
