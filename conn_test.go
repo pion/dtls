@@ -3612,6 +3612,32 @@ func TestFragmentBuffer_Retransmission(t *testing.T) {
 	assert.True(t, isRetransmission)
 }
 
+func TestDiscardLatePlaintextRecords(t *testing.T) {
+	conn := &Conn{log: logging.NewDefaultLoggerFactory().NewLogger("dtls")}
+	conn.setRemoteEpoch(1)
+	conn.handshakeCompletedSuccessfully.Store(true)
+	for _, content := range []protocol.Content{
+		&alert.Alert{Level: alert.Warning, Description: alert.CloseNotify},
+		&protocol.ApplicationData{Data: []byte("plaintext")},
+		&protocol.ChangeCipherSpec{},
+	} {
+		record := &recordlayer.RecordLayer{
+			Header: recordlayer.Header{Version: protocol.Version1_2}, Content: content,
+		}
+		raw, err := record.Marshal()
+		if !assert.NoError(t, err) {
+			return
+		}
+		for _, packet := range [][]byte{raw, append(bytes.Clone(raw[:recordlayer.FixedHeaderSize]), 0)} {
+			hs, retransmit, response, err := conn.handleIncomingPacket(t.Context(), packet, nil, false)
+			assert.NoError(t, err)
+			assert.Nil(t, response)
+			assert.False(t, hs)
+			assert.False(t, retransmit)
+		}
+	}
+}
+
 func TestConnectionState(t *testing.T) {
 	ca, cb := dpipe.Pipe()
 

@@ -1030,9 +1030,9 @@ func (c *Conn) handleIncomingPacket(
 	// Validate epoch
 	remoteEpoch := c.state.getRemoteEpoch()
 	// DTLS 1.2 accepts old epochs until the handshake completes (RFC 6347, Section 4.1).
-	if header.Epoch == 0 && header.ContentType == protocol.ContentTypeAlert && remoteEpoch != 0 &&
+	if header.Epoch == 0 && header.ContentType != protocol.ContentTypeHandshake && remoteEpoch != 0 &&
 		c.isHandshakeCompletedSuccessfully() {
-		c.log.Debug("discarded alert from the old plaintext epoch")
+		c.log.Debug("discarded control record from the old plaintext epoch")
 
 		return false, false, nil, nil
 	}
