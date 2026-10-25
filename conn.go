@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/fips140"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -76,6 +77,7 @@ type Conn struct {
 	handshakeCompletedSuccessfully atomic.Bool
 	handshakeMutex                 sync.Mutex
 	handshakeDone                  chan struct{}
+	handshakeSnapshot              atomic.Pointer[serializedState]
 	writeLock                      sync.Mutex
 
 	encryptedPackets []addrPkt
@@ -266,8 +268,26 @@ func createConn(
 
 	conn.setRemoteEpoch(0)
 	conn.setLocalEpoch(0)
+	conn.configureSnapshotCallbacks()
 
 	return conn, nil
+}
+
+func (c *Conn) configureSnapshotCallbacks() {
+	if verify := c.handshakeConfig.verifyConnection; verify != nil {
+		c.handshakeConfig.verifyConnection = func(state *State) error {
+			c.publishHandshakeState()
+
+			return verify(state)
+		}
+	}
+	if verify := c.handshakeConfig.verifyPeerCertificate; verify != nil {
+		c.handshakeConfig.verifyPeerCertificate = func(certs [][]byte, chains [][]*x509.Certificate) error {
+			c.publishHandshakeState()
+
+			return verify(certs, chains)
+		}
+	}
 }
 
 // Handshake runs the client or server DTLS handshake
@@ -521,6 +541,18 @@ func (c *Conn) Close() error {
 // it can reuse encryption nonces if the original sends any further records.
 // See ResumeWithOptions for the safety requirements for state restoration.
 func (c *Conn) ConnectionState() (State, bool) {
+	if c.handshakeConfig != nil && !c.isHandshakeCompletedSuccessfully() {
+		snapshot := c.handshakeSnapshot.Load()
+		if snapshot != nil {
+			var state State
+			state.deserialize(snapshot.clone())
+
+			return state, true
+		}
+		if !c.isHandshakeCompletedSuccessfully() {
+			return State{}, false
+		}
+	}
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	stateClone, err := c.state.clone()
@@ -529,6 +561,22 @@ func (c *Conn) ConnectionState() (State, bool) {
 	}
 
 	return *stateClone, true
+}
+
+func (c *Conn) publishHandshakeState() {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	if c.isHandshakeCompletedSuccessfully() {
+		return
+	}
+	if int(c.state.getLocalEpoch()) >= len(c.state.localSequenceNumber) {
+		return
+	}
+	state, err := c.state.serialize()
+	if err == nil {
+		snapshot := state.clone()
+		c.handshakeSnapshot.Store(&snapshot)
+	}
 }
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile.
@@ -1267,6 +1315,8 @@ func (c *Conn) handleIncomingPacket(
 }
 
 func (c *Conn) recvHandshake() <-chan recvHandshakeState {
+	c.publishHandshakeState()
+
 	return c.handshakeRecv
 }
 
@@ -1310,6 +1360,7 @@ func (c *Conn) setHandshakeCompletedSuccessfully() bool {
 	if !c.handshakeCompletedSuccessfully.CompareAndSwap(false, true) {
 		return false
 	}
+	c.handshakeSnapshot.Store(nil)
 	c.handshakeCache.finish()
 
 	return true
@@ -1331,6 +1382,7 @@ func (c *Conn) handshake(
 	done := make(chan struct{})
 	ctxRead, cancelRead := context.WithCancel(context.Background())
 	cfg.onFlightState = func(_ flightVal, s handshakeState) {
+		c.publishHandshakeState()
 		if s == handshakeFinished && c.setHandshakeCompletedSuccessfully() {
 			close(done)
 		}

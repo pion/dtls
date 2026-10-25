@@ -3640,44 +3640,67 @@ func TestDiscardLatePlaintextRecords(t *testing.T) {
 
 func TestConnectionState(t *testing.T) {
 	ca, cb := dpipe.Pipe()
+	defer func() { _ = ca.Close(); _ = cb.Close() }()
+	certificate, err := selfsign.GenerateSelfSigned()
+	if !assert.NoError(t, err) {
+		return
+	}
+	var client, server *Conn
+	verify := func(conn *Conn) error {
+		snapshot, ok := conn.ConnectionState()
+		if !assert.True(t, ok) {
+			return errCipherSuiteNotSet
+		}
+		if len(snapshot.PeerCertificates) > 0 {
+			original := snapshot.PeerCertificates[0][0]
+			snapshot.PeerCertificates[0][0] ^= 1
+			fresh, _ := conn.ConnectionState()
+			assert.Equal(t, original, fresh.PeerCertificates[0][0])
+		}
 
-	// Setup client
-	clientCfg := &Config{}
-	clientCert, err := selfsign.GenerateSelfSigned()
-	assert.NoError(t, err)
-
-	clientCfg.Certificates = []tls.Certificate{clientCert}
-	clientCfg.InsecureSkipVerify = true
-	client, err := Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), clientCfg)
-	assert.NoError(t, err)
-	defer func() {
-		_ = client.Close()
-	}()
-
+		return nil
+	}
+	client, err = Client(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{
+		InsecureSkipVerify:    true,
+		VerifyConnection:      func(*State) error { return verify(client) },
+		VerifyPeerCertificate: func([][]byte, [][]*x509.Certificate) error { return verify(client) },
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer func() { _ = client.Close() }()
+	server, err = Server(dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{
+		Certificates:     []tls.Certificate{certificate},
+		VerifyConnection: func(*State) error { return verify(server) },
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer func() { _ = server.Close() }()
 	_, ok := client.ConnectionState()
 	assert.False(t, ok)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	errorChannel := make(chan error)
-	go func() {
-		errC := client.HandshakeContext(ctx)
-		errorChannel <- errC
-	}()
-
-	// Setup server
-	server, err := testServer(ctx, dtlsnet.PacketConnFromConn(cb), cb.RemoteAddr(), &Config{}, true)
-	assert.NoError(t, err)
-
-	defer func() {
-		_ = server.Close()
-	}()
-
-	err = <-errorChannel
-	assert.NoError(t, err)
-
-	_, ok = client.ConnectionState()
-	assert.True(t, ok)
+	done := make(chan error, 2)
+	go func() { done <- client.HandshakeContext(ctx) }()
+	go func() { done <- server.HandshakeContext(ctx) }()
+	poll := time.NewTicker(time.Millisecond)
+	defer poll.Stop()
+	for completed := 0; completed < 2; {
+		select {
+		case err := <-done:
+			assert.NoError(t, err)
+			completed++
+		case <-poll.C:
+			_, _ = client.ConnectionState()
+			_, _ = server.ConnectionState()
+		}
+	}
+	for _, conn := range []*Conn{client, server} {
+		_, ok = conn.ConnectionState()
+		assert.True(t, ok)
+		assert.Nil(t, conn.handshakeSnapshot.Load())
+	}
 }
 
 func TestMultiHandshake(t *testing.T) {

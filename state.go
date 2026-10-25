@@ -112,6 +112,23 @@ type serializedState struct {
 
 var errCipherSuiteNotSet = &InternalError{Err: errors.New("cipher suite not set")} //nolint:err113
 
+func (s *serializedState) clone() serializedState {
+	state := *s
+	state.MasterSecret = bytes.Clone(s.MasterSecret)
+	state.IdentityHint = bytes.Clone(s.IdentityHint)
+	state.SessionID = bytes.Clone(s.SessionID)
+	state.LocalConnectionID = bytes.Clone(s.LocalConnectionID)
+	state.RemoteConnectionID = bytes.Clone(s.RemoteConnectionID)
+	if s.PeerCertificates != nil {
+		state.PeerCertificates = make([][]byte, len(s.PeerCertificates))
+		for i, cert := range s.PeerCertificates {
+			state.PeerCertificates[i] = bytes.Clone(cert)
+		}
+	}
+
+	return state
+}
+
 func (s *State) clone() (*State, error) {
 	serialized, err := s.serialize()
 	if err != nil {
