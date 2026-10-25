@@ -97,6 +97,44 @@ func TestFragmentBuffer_Overflow(t *testing.T) {
 	assert.Nil(t, content)
 }
 
+func TestFragmentBufferDuplicateBatch(t *testing.T) {
+	buffer := New()
+	var batch []byte
+	for offset := range uint32(990) {
+		batch = append(batch, marshalHandshakeContent(t, handshake.Header{
+			Type: handshake.TypeCertificate, Length: 1000, FragmentOffset: offset, FragmentLength: 1,
+		})...)
+	}
+	_, err := buffer.Push(0, batch)
+	require.NoError(t, err)
+	_, err = buffer.Push(0, batch)
+	require.NoError(t, err)
+	assert.Equal(t, 990, buffer.totalFragmentCount)
+	assert.Equal(t, 990, buffer.totalBufferSize)
+	batch[len(batch)-1] ^= 1
+	_, err = buffer.Push(0, batch)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidPacket)
+}
+
+func TestFragmentBufferCachedNeighbors(t *testing.T) {
+	buffer := New()
+	header := func(offset, length uint32) handshake.Header {
+		return handshake.Header{Type: handshake.TypeCertificate, Length: 10, FragmentOffset: offset, FragmentLength: length}
+	}
+	_, err := buffer.Push(0, marshalHandshakeContent(t, header(6, 2), header(2, 2)))
+	require.NoError(t, err)
+	for _, candidate := range []handshake.Header{header(0, 3), header(3, 2), header(4, 3)} {
+		_, err = buffer.Push(0, marshalHandshakeContent(t, candidate))
+		require.ErrorIs(t, err, dtlserrors.ErrInvalidPacket)
+		assert.Equal(t, []uint32{2, 6}, buffer.cache[0].offsets)
+	}
+	_, err = buffer.Push(0, marshalHandshakeContent(t, header(8, 2), header(0, 2), header(4, 2)))
+	require.NoError(t, err)
+	assert.Equal(t, []uint32{0, 2, 4, 6, 8}, buffer.cache[0].offsets)
+	content, _ := buffer.Pop()
+	assert.Equal(t, marshalHandshakeContent(t, header(0, 10)), content)
+}
+
 func TestFragmentBuffer_TooSmall(t *testing.T) {
 	fragmentBuffer := New()
 

@@ -7,6 +7,7 @@ package fragmentbuffer
 import (
 	"bytes"
 	"math"
+	"slices"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -33,14 +34,9 @@ type parsedFragment struct {
 	data   []byte
 }
 
-type batchMessage struct {
-	handshakeType handshake.Type
-	length        uint32
-	fragments     map[uint32]parsedFragment
-}
-
 type fragments struct {
 	fragmentByOffset map[uint32]*fragment
+	offsets          []uint32
 	fragmentsLength  uint32
 	handshakeLength  uint32
 	handshakeType    handshake.Type
@@ -139,15 +135,51 @@ func parseFragments(content []byte) ([]parsedFragment, error) {
 }
 
 func (f *FragmentBuffer) validateFragments(epoch uint64, parsed []parsedFragment) error {
-	batch := map[uint16]*batchMessage{}
-	for _, candidate := range parsed {
+	slices.SortFunc(parsed, func(a, b parsedFragment) int {
+		if a.header.MessageSequence != b.header.MessageSequence {
+			return int(a.header.MessageSequence) - int(b.header.MessageSequence)
+		}
+
+		return int(a.header.FragmentOffset) - int(b.header.FragmentOffset)
+	})
+	for i, candidate := range parsed {
 		if err := validateFragmentBounds(candidate.header); err != nil {
 			return err
 		}
 		if err := f.validateCachedFragment(epoch, candidate); err != nil {
 			return err
 		}
-		if err := validateBatchFragment(batch, candidate); err != nil {
+		if i == 0 || parsed[i-1].header.MessageSequence != candidate.header.MessageSequence {
+			continue
+		}
+		previous := parsed[i-1]
+		if previous.header.Type != candidate.header.Type || previous.header.Length != candidate.header.Length {
+			return dtlserrors.ErrInvalidPacket
+		}
+		if err := validateFragmentPair(previous.header, previous.data, candidate.header, candidate.data); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (f *FragmentBuffer) validateCachedFragment(epoch uint64, candidate parsedFragment) error {
+	header := candidate.header
+	cached := f.cache[header.MessageSequence]
+	if cached == nil {
+		return nil
+	}
+	if cached.epoch != epoch || cached.handshakeType != header.Type || cached.handshakeLength != header.Length {
+		return dtlserrors.ErrInvalidPacket
+	}
+	if existing := cached.fragmentByOffset[header.FragmentOffset]; existing != nil {
+		return validateFragmentPair(existing.handshakeHeader, existing.data, header, candidate.data)
+	}
+	index, _ := slices.BinarySearch(cached.offsets, header.FragmentOffset)
+	for _, offset := range cached.offsets[max(0, index-1):min(len(cached.offsets), index+1)] {
+		existing := cached.fragmentByOffset[offset]
+		if err := validateFragmentPair(existing.handshakeHeader, existing.data, header, candidate.data); err != nil {
 			return err
 		}
 	}
@@ -159,56 +191,6 @@ func validateFragmentBounds(header handshake.Header) error {
 	if header.FragmentOffset > header.Length ||
 		header.FragmentLength > header.Length-header.FragmentOffset {
 		return dtlserrors.ErrInvalidPacket
-	}
-
-	return nil
-}
-
-func (f *FragmentBuffer) validateCachedFragment(epoch uint64, candidate parsedFragment) error {
-	header := candidate.header
-	cached, ok := f.cache[header.MessageSequence]
-	if !ok {
-		return nil
-	}
-	if cached.handshakeType != header.Type ||
-		cached.handshakeLength != header.Length ||
-		cached.epoch != epoch {
-		return dtlserrors.ErrInvalidPacket
-	}
-
-	for _, existing := range cached.fragmentByOffset {
-		if err := validateFragmentPair(
-			existing.handshakeHeader,
-			existing.data,
-			header,
-			candidate.data,
-		); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func validateBatchFragment(batch map[uint16]*batchMessage, candidate parsedFragment) error {
-	header := candidate.header
-	message, ok := batch[header.MessageSequence]
-	if !ok {
-		batch[header.MessageSequence] = &batchMessage{handshakeType: header.Type, length: header.Length, fragments: map[uint32]parsedFragment{header.FragmentOffset: candidate}}
-
-		return nil
-	}
-	if message.handshakeType != header.Type || message.length != header.Length {
-		return dtlserrors.ErrInvalidPacket
-	}
-
-	for _, existing := range message.fragments {
-		if err := validateFragmentPair(existing.header, existing.data, header, candidate.data); err != nil {
-			return err
-		}
-	}
-	if _, ok = message.fragments[header.FragmentOffset]; !ok {
-		message.fragments[header.FragmentOffset] = candidate
 	}
 
 	return nil
@@ -264,6 +246,7 @@ func (f *FragmentBuffer) prospectiveResourceUsage(parsed []parsedFragment) (resu
 }
 
 func (f *FragmentBuffer) commitFragments(epoch uint64, parsed []parsedFragment) {
+	added := map[uint16][]uint32{}
 	for _, candidate := range parsed {
 		header := candidate.header
 		if f.sequenceExhausted || header.MessageSequence < f.currentMessageSequenceNumber {
@@ -276,12 +259,32 @@ func (f *FragmentBuffer) commitFragments(epoch uint64, parsed []parsedFragment) 
 			f.cache[header.MessageSequence] = messageFragments
 		}
 		if _, ok = messageFragments.fragmentByOffset[header.FragmentOffset]; !ok {
+			added[header.MessageSequence] = append(added[header.MessageSequence], header.FragmentOffset)
 			messageFragments.fragmentByOffset[header.FragmentOffset] = &fragment{handshakeHeader: header, data: bytes.Clone(candidate.data)}
 			messageFragments.fragmentsLength += header.FragmentLength
 			f.totalBufferSize += int(header.FragmentLength)
 			f.totalFragmentCount++
 		}
 	}
+	for sequence, offsets := range added {
+		message := f.cache[sequence]
+		message.offsets = mergeOffsets(message.offsets, offsets)
+	}
+}
+
+func mergeOffsets(existing, added []uint32) []uint32 {
+	merged := slices.Grow(existing, len(added))[:len(existing)+len(added)]
+	for i, j, k := len(existing)-1, len(added)-1, len(merged)-1; j >= 0; k-- {
+		if i >= 0 && merged[i] > added[j] {
+			merged[k] = merged[i]
+			i--
+		} else {
+			merged[k] = added[j]
+			j--
+		}
+	}
+
+	return merged
 }
 
 // Pop returns the next complete handshake message and its record epoch.
