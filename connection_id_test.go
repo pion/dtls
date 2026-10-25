@@ -80,6 +80,20 @@ func TestPathTransport(t *testing.T) {
 	assert.ErrorIs(t, context.Cause(path.lifetime), ErrConnClosed)
 }
 
+func TestPathTransportReadUnblocksOnClose(t *testing.T) {
+	conn := &Conn{closed: closer.NewCloser()}
+	transport := &pathTransport{conn: conn, start: func() {}}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := transport.ReadFromContext(ctx, make([]byte, 1500))
+		done <- err
+	}()
+	conn.closed.Close()
+	assert.ErrorIs(t, <-done, net.ErrClosed)
+}
+
 func TestRandomConnectionIDGenerator(t *testing.T) {
 	cases := map[string]struct {
 		reason string

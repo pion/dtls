@@ -849,6 +849,8 @@ func (t *pathTransport) ReadFromContext(ctx context.Context, buffer []byte) (int
 			return n, packet.addr, packet.err
 		case <-ctx.Done():
 			return 0, nil, ctx.Err()
+		case <-t.conn.closed.Done():
+			return 0, nil, net.ErrClosed
 		}
 	}
 }
