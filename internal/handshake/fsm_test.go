@@ -1816,7 +1816,8 @@ func TestCookieResponsesBackoff(t *testing.T) {
 			}).Marshal()
 			require.NoError(t, err)
 			cache.Push(raw, 0, seq, handshake.TypeHelloVerifyRequest, false)
-			conn.recvHandshake <- RecvHandshakeState{Done: make(chan struct{})}
+			received := RecvHandshakeState{Done: make(chan struct{})}
+			conn.recvHandshake <- received
 			interval := fsm.retransmitInterval
 			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 			started := time.Now()
@@ -1830,6 +1831,9 @@ func TestCookieResponsesBackoff(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, StatePreparing, next)
+			assertFlight13RecvDoneOpen(t, received)
+			fsm.received.release()
+			assertFlight13RecvDoneClosed(t, received)
 			if sequence > 0 {
 				assert.GreaterOrEqual(t, time.Since(started), interval)
 				if !disabled {

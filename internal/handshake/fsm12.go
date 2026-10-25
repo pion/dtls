@@ -63,6 +63,7 @@ type fsm12 struct {
 	cfg                    *dtlsconfig.HandshakeConfig
 	closed                 chan struct{}
 	establishment          *Establishment
+	received               recvHandshakeLease
 }
 
 func NewFSM12(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight12.Flight, initialFlights []*dtlsflight.Outbound, establishment *Establishment) FSM {
@@ -70,6 +71,8 @@ func NewFSM12(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig
 }
 
 func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
+	defer s.received.release()
+
 	return runHandshakeFSM(
 		ctx,
 		conn,
@@ -156,11 +159,13 @@ func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
 }
 
 func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:cyclop
+	s.received.release()
 	retransmitTimer := s.cfg.NewTimer(s.retransmitInterval)
 	defer retransmitTimer.Stop()
 	for {
 		select {
 		case state := <-conn.RecvHandshake():
+			s.received.retain(state)
 			nextFlight, dtlsAlert, err, ok := dtlsflight12.Parse(
 				ctx,
 				s.currentFlight,
@@ -176,7 +181,6 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:c
 
 				return StateErrored, dtlserrors.ErrInvalidFlight
 			}
-			close(state.Done)
 			if dtlsAlert != nil {
 				if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
 					if err != nil {
@@ -198,6 +202,8 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:c
 
 					return StateSending, nil
 				}
+
+				s.received.release()
 
 				break
 			}
@@ -243,9 +249,10 @@ func (s *fsm12) backoffPeerRetransmit() {
 }
 
 func (s *fsm12) finish(ctx context.Context, c Conn) (State, error) {
+	s.received.release()
 	select {
 	case state := <-c.RecvHandshake():
-		close(state.Done)
+		s.received.retain(state)
 		if s.state.IsClient {
 			return StateFinished, nil
 		}
