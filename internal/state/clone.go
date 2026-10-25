@@ -27,6 +27,7 @@ func Clone13ForVerification(state *State13, peerCertificates [][]byte) *State13 
 	state.sequenceMu.Lock()
 	common.LocalSequenceNumber = maps.Clone(state.LocalSequenceNumber)
 	common.RemoteSequenceNumber = maps.Clone(state.RemoteSequenceNumber)
+	common.highestRemoteEpoch = state.highestRemoteEpoch
 	common.exhaustedLocalEpoch = maps.Clone(state.exhaustedLocalEpoch)
 	state.sequenceMu.Unlock()
 	common.LocalRandom = state.LocalRandom

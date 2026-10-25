@@ -2044,7 +2044,11 @@ func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool,
 		}, true
 	}
 
-	return accept, true
+	return func() bool {
+		latest := accept()
+
+		return latest && epoch >= common.HighestRemoteEpoch()
+	}, true
 }
 
 func (c *Conn) queueIfCipherSuiteUninitialized(rAddr net.Addr, buf []byte, bufferLease *readBufferLease, message string) bool {

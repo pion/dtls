@@ -1995,6 +1995,24 @@ func (r sealedTestRecord) parsed(t *testing.T) recordlayer.ParsedRecord {
 	return parsed
 }
 
+func TestReplayMarkerUsesReceivedEpoch(t *testing.T) {
+	conn, _ := newTestConnWithReadProtection(t)
+	common := dtlsstate.CommonState(conn.state)
+	common.UpdateRemoteSequenceNumber(3, 10)
+	common.SetRemoteEpoch(4) // KeyUpdate installs keys before receiving epoch 4.
+	for _, tc := range []struct {
+		epoch, sequence uint64
+		latest          bool
+	}{{2, 99, false}, {3, 11, true}, {4, 0, true}, {3, 12, false}} {
+		common.UpdateRemoteSequenceNumber(tc.epoch, tc.sequence)
+		accept, ok := conn.replayMarker(tc.epoch, tc.sequence, ^uint64(0))
+		require.True(t, ok)
+		assert.Equal(t, tc.latest, accept())
+		_, ok = conn.replayMarker(tc.epoch, tc.sequence, ^uint64(0))
+		assert.False(t, ok)
+	}
+}
+
 func TestDiscardMalformedDatagrams(t *testing.T) {
 	conn, _ := newTestConnWithReadProtection(t)
 	for value := range 256 {

@@ -27,6 +27,7 @@ type Common struct {
 	sequenceMu                sync.Mutex
 	LocalSequenceNumber       map[uint64]uint64
 	RemoteSequenceNumber      map[uint64]uint64
+	highestRemoteEpoch        uint64
 	exhaustedLocalEpoch       map[uint64]bool
 	LocalRandom, RemoteRandom handshake.Random
 	CipherSuite               cryptosuite.Suite // nil if a cipherSuite hasn't been chosen
@@ -159,6 +160,15 @@ func (s *Common) UpdateRemoteSequenceNumber(epoch, sequenceNumber uint64) {
 		s.RemoteSequenceNumber = make(map[uint64]uint64)
 	}
 	s.RemoteSequenceNumber[epoch] = max(s.RemoteSequenceNumber[epoch], sequenceNumber)
+	s.highestRemoteEpoch = max(s.highestRemoteEpoch, epoch)
+}
+
+// HighestRemoteEpoch is the newest epoch actually received, not merely keyed.
+func (s *Common) HighestRemoteEpoch() uint64 {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+
+	return s.highestRemoteEpoch
 }
 
 func (s *Common) SetSRTPProtectionProfile(profile extension.SRTPProtectionProfile) {
