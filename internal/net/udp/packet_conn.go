@@ -409,13 +409,18 @@ func (c *PacketConn) SetRemoteAddr(addr net.Addr) error {
 		return io.EOF
 	}
 	key := keyForAddress(addr)
-	if owner := c.listener.addresses[key]; owner != nil && owner != c {
+	owner := c.listener.addresses[key]
+	if owner != nil && owner != c && (len(c.cids) == 0 || c.listener.datagramRouter == nil) {
 		return ErrAddressInUse
 	}
 	if c.listener.addresses[c.address] == c {
 		delete(c.listener.addresses, c.address)
 	}
-	c.listener.addresses[key] = c
+	// CID routing remains unambiguous even if another connection owns the
+	// address route. Preserve that route rather than displacing its owner.
+	if owner == nil || owner == c {
+		c.listener.addresses[key] = c
+	}
 	c.address = key
 	c.raddr.Store(addr)
 

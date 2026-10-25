@@ -725,6 +725,29 @@ func newCIDAliasTestConn(t *testing.T, l *listener, port int) *PacketConn {
 	return conn
 }
 
+func TestCIDMigrationToOccupiedAddress(t *testing.T) {
+	packetListener := &listener{cids: make(map[string]*PacketConn), addresses: make(map[addressKey]*PacketConn)}
+	conn := newCIDAliasTestConn(t, packetListener, 1)
+	other := newCIDAliasTestConn(t, packetListener, 2)
+	addr, ok := other.raddr.Load().(net.Addr)
+	assert.True(t, ok)
+	assert.ErrorIs(t, conn.SetRemoteAddr(addr), ErrAddressInUse)
+	assert.NoError(t, conn.RegisterCID([]byte("cid")))
+	assert.ErrorIs(t, conn.SetRemoteAddr(addr), ErrAddressInUse)
+	assert.Same(t, conn, packetListener.addresses[conn.address])
+	packetListener.datagramRouter = func(buf []byte) (string, bool) { return string(buf), true }
+	assert.NoError(t, conn.SetRemoteAddr(addr))
+	assert.Equal(t, addr, conn.raddr.Load())
+	assert.Same(t, other, packetListener.addresses[keyForAddress(addr)])
+	assert.Same(t, conn, packetListener.cids["cid"])
+	routed, ok, err := packetListener.getConn(addr, []byte("cid"))
+	assert.NoError(t, err)
+	assert.True(t, ok)
+	assert.Same(t, conn, routed)
+	assert.NoError(t, conn.Close())
+	assert.Same(t, other, packetListener.addresses[keyForAddress(addr)])
+}
+
 func TestPacketConnCIDAliases(t *testing.T) {
 	l := &listener{
 		cids:      make(map[string]*PacketConn),
