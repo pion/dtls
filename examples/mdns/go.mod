@@ -3,7 +3,7 @@ module github.com/pion/dtls/v4/examples/mdns
 go 1.25.0
 
 require (
-	github.com/pion/dtls/v4 v4.0.0-rc.6
+	github.com/pion/dtls/v4 v4.0.0-rc.7
 	github.com/pion/mdns/v2 v2.2.2
 	golang.org/x/net v0.55.0
 )
