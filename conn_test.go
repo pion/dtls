@@ -1995,6 +1995,15 @@ func (r sealedTestRecord) parsed(t *testing.T) recordlayer.ParsedRecord {
 	return parsed
 }
 
+func TestDiscardMalformedDatagrams(t *testing.T) {
+	conn, _ := newTestConnWithReadProtection(t)
+	for value := range 256 {
+		summary, err := conn.processDatagram(t.Context(), []byte{byte(value)}, nil, &readBufferLease{conn: conn})
+		require.NoError(t, err)
+		assert.Equal(t, datagramProcessingSummary{}, summary)
+	}
+}
+
 func TestHandleIncomingPacketControlRecordEpoch(t *testing.T) {
 	t.Cleanup(test.CheckRoutines(t))
 	defer test.TimeOut(10 * time.Second).Stop()

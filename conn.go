@@ -1554,14 +1554,12 @@ func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSu
 func (c *Conn) processDatagram(ctx context.Context, datagram []byte, rAddr net.Addr, bufferLease *readBufferLease) (datagramProcessingSummary, error) {
 	pkts, err := c.unpackDatagram(datagram)
 	if len(pkts) == 0 {
-		// Discards incomplete records or missing CIDs without terminating the handshake.
-		if errors.Is(err, recordlayer.ErrInvalidPacketLength) || errors.Is(err, dtlserrors.ErrInvalidCiphertextHeader) {
+		// Framing errors are unauthenticated input, not connection failures.
+		if err != nil {
 			c.log.Debugf("discarded datagram: %v", err)
-
-			return datagramProcessingSummary{}, nil
 		}
 
-		return datagramProcessingSummary{}, err
+		return datagramProcessingSummary{}, nil
 	}
 
 	if err != nil {
