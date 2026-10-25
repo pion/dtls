@@ -1995,6 +1995,52 @@ func (r sealedTestRecord) parsed(t *testing.T) recordlayer.ParsedRecord {
 	return parsed
 }
 
+func TestConnectionStateDuringHandshake(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			ca, cb := packetPipe()
+			defer ca.Close() //nolint:errcheck
+			defer cb.Close() //nolint:errcheck
+			var client *Conn
+			client, err = Client(ca, ca.RemoteAddr(), WithInsecureSkipVerify(true), WithMaxVersion(protocol.Version1_3), WithVerifyConnection(func(*State) error {
+				snapshot, ok := client.ConnectionState()
+				assert.True(t, ok)
+				assert.Equal(t, version, snapshot.NegotiatedVersion())
+
+				return nil
+			}))
+			require.NoError(t, err)
+			server, err := Server(cb, cb.RemoteAddr(), WithCertificates(certificate), WithMaxVersion(version))
+			require.NoError(t, err)
+			defer client.Close() //nolint:errcheck
+			defer server.Close() //nolint:errcheck
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			done := make(chan error, 2)
+			go func() { done <- client.HandshakeContext(ctx) }()
+			go func() { done <- server.HandshakeContext(ctx) }()
+			poll := time.NewTicker(time.Millisecond)
+			defer poll.Stop()
+			for completed := 0; completed < 2; {
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+					completed++
+				case <-poll.C:
+					for _, conn := range []*Conn{client, server} {
+						snapshot, _ := conn.ConnectionState()
+						if len(snapshot.PeerCertificates) > 0 {
+							snapshot.PeerCertificates[0][0] ^= 1
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestReplayMarkerUsesReceivedEpoch(t *testing.T) {
 	conn, _ := newTestConnWithReadProtection(t)
 	common := dtlsstate.CommonState(conn.state)

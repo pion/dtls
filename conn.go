@@ -7,6 +7,7 @@ package dtls
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -160,10 +161,14 @@ func (c handshakeConn) Notify(ctx context.Context, level alert.Level, desc alert
 }
 
 func (c handshakeConn) WritePackets(ctx context.Context, pkts []*dtlsflight.Outbound) (*dtlshandshake.WriteResult, error) {
+	c.conn.publishHandshakeState()
+
 	return c.conn.writePacketsWithResult(ctx, pkts)
 }
 
 func (c handshakeConn) RecvHandshake() <-chan dtlshandshake.RecvHandshakeState {
+	c.conn.publishHandshakeState()
+
 	return c.conn.recvHandshake()
 }
 
@@ -224,6 +229,7 @@ type Conn struct {
 	handshakeMutex       sync.Mutex
 	handshakeDone        chan struct{}
 	handshakeLoops       *sync.WaitGroup
+	handshakeSnapshot    atomic.Pointer[State]
 	exporting            atomic.Bool
 	writeLock            sync.Mutex
 
@@ -306,6 +312,20 @@ func newConn(nextConn net.PacketConn, rAddr net.Addr, configValues connConfigVal
 		state: dtlsstate.NewActive(isClient),
 	}
 	dtlsstate.CommonState(conn.state).ServerName = handshakeConfig.ServerName
+	if verify := handshakeConfig.VerifyConnection; verify != nil {
+		handshakeConfig.VerifyConnection = func(state dtlsstate.Active) error {
+			conn.publishHandshakeState()
+
+			return verify(state)
+		}
+	}
+	if verify := handshakeConfig.VerifyPeerCertificate; verify != nil {
+		handshakeConfig.VerifyPeerCertificate = func(certs [][]byte, chains [][]*x509.Certificate) error {
+			conn.publishHandshakeState()
+
+			return verify(certs, chains)
+		}
+	}
 	if nextConn != nil {
 		conn.nextConn = netctx.NewPacketConn(nextConn)
 		conn.packetConn, _ = nextConn.(*udp.PacketConn)
@@ -755,8 +775,25 @@ func (c *Conn) Close() error {
 }
 
 // ConnectionState returns basic DTLS details about the connection.
+// During a handshake it returns the latest published handshake snapshot.
 // Note that this replaced the `Export` function of v1.
 func (c *Conn) ConnectionState() (State, bool) {
+	if c.handshakeEstablished != nil && !c.isHandshakeCompletedSuccessfully() {
+		snapshot := c.handshakeSnapshot.Load()
+		if snapshot == nil {
+			return State{}, false
+		}
+		state := *snapshot
+		state.PeerCertificates = util.CloneByteSlices(snapshot.PeerCertificates)
+		state.IdentityHint = bytes.Clone(snapshot.IdentityHint)
+		state.SessionID = bytes.Clone(snapshot.SessionID)
+		if snapshot.KeyUsage != nil {
+			usage := *snapshot.KeyUsage
+			state.KeyUsage = &usage
+		}
+
+		return state, true
+	}
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 	c.lock.RLock()
@@ -770,6 +807,18 @@ func (c *Conn) ConnectionState() (State, bool) {
 	}
 
 	return *state, true
+}
+
+// Called by the handshake owner at flight boundaries and before verification
+// callbacks. Readers never inspect the mutable handshake state directly.
+func (c *Conn) publishHandshakeState() {
+	if c.isHandshakeCompletedSuccessfully() {
+		return
+	}
+	state, err := generateState(c.state)
+	if err == nil {
+		c.handshakeSnapshot.Store(state)
+	}
 }
 
 // SelectedSRTPProtectionProfile returns the selected SRTPProtectionProfile.
