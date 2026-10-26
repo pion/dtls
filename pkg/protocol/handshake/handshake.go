@@ -187,7 +187,7 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 
 	switch Type(data[0]) {
 	case TypeHelloRequest:
-		return dtlserrors.ErrNotImplemented
+		return dtlserrors.ErrUnsupportedHandshakeType
 	case TypeClientHello:
 		h.Message = &MessageClientHello{}
 	case TypeHelloVerifyRequest:
@@ -219,7 +219,7 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 	case TypeKeyUpdate:
 		h.Message = &MessageKeyUpdate{}
 	default:
-		return dtlserrors.ErrNotImplemented
+		return dtlserrors.ErrUnsupportedHandshakeType
 	}
 
 	return h.Message.Unmarshal(data[HeaderLength:])

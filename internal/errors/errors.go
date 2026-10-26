@@ -233,7 +233,7 @@ var (
 		"server hello can not be created without a compression method",
 	)
 	ErrInvalidCompressionMethod         = stderrors.New("invalid or unknown compression method")
-	ErrNotImplemented                   = stderrors.New("feature has not been implemented yet")
+	ErrUnsupportedHandshakeType         = stderrors.New("unsupported handshake type")
 	ErrInvalidCertificateRequestContext = stderrors.New("invalid certificate request context")
 	ErrInvalidCertificateEntry          = stderrors.New("invalid certificate entry")
 	ErrCertificateRequestContextTooLong = stderrors.New(
