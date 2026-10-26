@@ -91,6 +91,7 @@ var (
 	ErrKeySignatureVerifyUnimplemented   = stderrors.New("unable to verify key signature, unimplemented")
 	ErrLengthMismatch                    = stderrors.New("data length and declared length do not match")
 	ErrSequenceNumberOverflow            = stderrors.New("sequence number overflow")
+	ErrInvalidInternalState              = stderrors.New("invalid internal state")
 	ErrInvalidFSMTransition              = stderrors.New("invalid state machine transition")
 	ErrFailedToAccessPoolReadBuffer      = stderrors.New("failed to access pool read buffer")
 	ErrFragmentBufferOverflow            = stderrors.New("fragment buffer overflow")

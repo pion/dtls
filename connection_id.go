@@ -629,7 +629,7 @@ func (p *Path) obtainCID(ctx context.Context) error {
 	}
 	updater, ok := p.transport.conn.fsm.(dtlshandshake.ConnectionIDUpdater)
 	if !ok {
-		return dtlserrors.ErrNotImplemented
+		return dtlserrors.ErrInvalidInternalState
 	}
 	if err := updater.RequestConnectionIDs(ctx, 1); err != nil {
 		return err

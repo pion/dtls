@@ -577,7 +577,7 @@ func (p *postHandshake) prepareNewConnectionID(command newConnectionIDCommand) (
 func (p *postHandshake) startNewConnectionID(ctx context.Context, conn Conn, command postHandshakeCommand) error {
 	cidConn, ok := conn.(connectionIDConn)
 	if !ok {
-		return rejectPostHandshakeCommand(command, dtlserrors.ErrNotImplemented)
+		return rejectPostHandshakeCommand(command, dtlserrors.ErrInvalidInternalState)
 	}
 	if p.state.HandshakeSendSequence > math.MaxUint16 {
 		return dtlserrors.ErrHandshakeSequenceOverflow
@@ -641,7 +641,7 @@ func (p *postHandshake) handleNewConnectionID(ctx context.Context, conn Conn, me
 	}
 	cidConn, ok := conn.(connectionIDConn)
 	if !ok {
-		return dtlserrors.ErrNotImplemented
+		return dtlserrors.ErrInvalidInternalState
 	}
 	if err := cidConn.CommitPeerConnectionIDs(message); err != nil {
 		return err
@@ -958,7 +958,7 @@ func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeF
 	if flight.PendingWrite != nil {
 		keyConn, ok := conn.(keyUpdateCommitConn)
 		if !ok {
-			completionErr = dtlserrors.ErrNotImplemented
+			completionErr = dtlserrors.ErrInvalidInternalState
 		} else {
 			completionErr = keyConn.CommitLocalKeyUpdate(flight.PendingWrite)
 		}

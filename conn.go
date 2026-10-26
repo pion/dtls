@@ -717,7 +717,7 @@ func (c *Conn) keyUpdateFSM(ctx context.Context) (dtlshandshake.KeyUpdater, erro
 
 	updater, ok := c.fsm.(dtlshandshake.KeyUpdater)
 	if !ok {
-		return nil, dtlserrors.ErrNotImplemented
+		return nil, dtlserrors.ErrInvalidInternalState
 	}
 
 	return updater, nil
@@ -742,7 +742,7 @@ func (c *Conn) writeApplicationData(ctx context.Context, pkts []*dtlsflight.Outb
 	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
 		writer, ok := c.fsm.(dtlshandshake.ApplicationDataWriter)
 		if !ok {
-			return dtlserrors.ErrNotImplemented
+			return dtlserrors.ErrInvalidInternalState
 		}
 
 		return writer.WriteApplicationData(ctx, pkts)
