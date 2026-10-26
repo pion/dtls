@@ -85,7 +85,6 @@ var (
 
 	ErrInvalidFlight                         = stderrors.New("invalid flight number")
 	ErrFlightUnimplemented13                 = stderrors.New("unimplemented DTLS 1.3 flight")
-	ErrStateUnimplemented13                  = stderrors.New("unimplemented DTLS 1.3 handshake state")
 	ErrHandshakeTranscriptMissingClientHello = stderrors.New(
 		"DTLS 1.3 client transcript missing initial ClientHello",
 	)
