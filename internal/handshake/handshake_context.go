@@ -93,7 +93,7 @@ func (c *handshakeContext) parseReceivedFlight(ctx context.Context, conn Conn, c
 			return 0, alertErr
 		}
 
-		return 0, dtlserrors.ErrFlightUnimplemented13
+		return 0, dtlserrors.ErrInvalidFlight
 	}
 	if err = notifyAlert(ctx, conn, dtlsAlert, err); err != nil {
 		return 0, err

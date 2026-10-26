@@ -2691,7 +2691,7 @@ func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbound, error) {
 	gen, _, ok := dtlsflight13.GetGenerator(dtlsflight13.Flight1)
 	if !ok {
-		return nil, dtlserrors.ErrFlightUnimplemented13
+		return nil, dtlserrors.ErrInvalidFlight
 	}
 	state13 := dtlsstate.Activate13(c.state)
 	c.state = state13

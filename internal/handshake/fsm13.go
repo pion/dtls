@@ -273,7 +273,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 	)
 	gen, retransmit, ok := dtlsflight13.GetGenerator(s.currentFlight)
 	if !ok {
-		err = dtlserrors.ErrFlightUnimplemented13
+		err = dtlserrors.ErrInvalidFlight
 		dtlsAlert = &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}
 	} else {
 		pkts, dtlsAlert, err = gen(conn, s.state, s.cache, s.cfg, s.transcript.FinalizeClientHello)

@@ -84,7 +84,6 @@ var (
 	ErrNotAcceptableCertificateChain    = stderrors.New("certificate chain is not signed by an acceptable CA")
 
 	ErrInvalidFlight                         = stderrors.New("invalid flight number")
-	ErrFlightUnimplemented13                 = stderrors.New("unimplemented DTLS 1.3 flight")
 	ErrHandshakeTranscriptMissingClientHello = stderrors.New(
 		"DTLS 1.3 client transcript missing initial ClientHello",
 	)
