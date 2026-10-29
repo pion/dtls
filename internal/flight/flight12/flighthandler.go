@@ -19,6 +19,9 @@ const keyLogLabel = "CLIENT_RANDOM"
 const (
 	cookieLength  = 20
 	sessionLength = 32
+
+	downgradeSentinel12 = "DOWNGRD\x01"
+	downgradeSentinel10 = "DOWNGRD\x00"
 )
 
 type flightParser func(

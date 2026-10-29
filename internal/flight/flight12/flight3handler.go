@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
@@ -63,6 +64,11 @@ func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 	if hasServerHello { //nolint:nestif
 		if serverHelloMsg.Version != protocol.Version1_2 {
 			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
+		}
+		if cfg.MaxVersion == protocol.Version1_3 &&
+			(bytes.HasSuffix(serverHelloMsg.Random.RandomBytes[:], []byte(downgradeSentinel12)) ||
+				bytes.HasSuffix(serverHelloMsg.Random.RandomBytes[:], []byte(downgradeSentinel10))) {
+			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, fmt.Errorf("downgrade sentinel in DTLS 1.2 ServerHello: %w", dtlserrors.ErrInvalidServerHello)
 		}
 		offer := state.LocalClientHelloSnapshots.Current()
 		if validationErr := negotiation.ValidateServerHello12Context(serverHelloMsg); validationErr != nil {

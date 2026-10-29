@@ -225,6 +225,11 @@ func flight0Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.
 	if err := state.LocalRandom.Populate(); err != nil {
 		return nil, nil, err
 	}
+	if cfg.MaxVersion == protocol.Version1_3 {
+		// Mark the server random for downgrade protection.
+		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.3
+		copy(state.LocalRandom.RandomBytes[handshake.RandomBytesLength-len(downgradeSentinel12):], downgradeSentinel12)
+	}
 
 	return nil, nil, nil
 }

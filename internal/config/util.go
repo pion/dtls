@@ -51,10 +51,10 @@ func SelectVersion(
 }
 
 func versionAtLeast(version, minVersion protocol.Version) bool {
-	// DTLS encodes newer versions as numerically smaller Minor bytes.
-	return version.Minor() <= minVersion.Minor()
+	// DTLS encodes newer versions as numerically smaller values.
+	return version <= minVersion
 }
 
 func versionAtMost(version, maxVersion protocol.Version) bool {
-	return version.Minor() >= maxVersion.Minor()
+	return version >= maxVersion
 }

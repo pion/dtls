@@ -2860,8 +2860,10 @@ func (c *Conn) pickVersionFromServerResponse() (bool, error) {
 		return true, nil
 	}
 
-	if hvr, ok := pull.Messages[handshake.TypeHelloVerifyRequest].(*handshake.MessageHelloVerifyRequest); ok {
-		if err := c.selectRemoteVersion([]protocol.Version{hvr.Version}); err != nil {
+	if _, ok := pull.Messages[handshake.TypeHelloVerifyRequest].(*handshake.MessageHelloVerifyRequest); ok {
+		// HelloVerifyRequest does not negotiate the protocol version.
+		// https://www.rfc-editor.org/rfc/rfc6347.html#section-4.2.1
+		if err := c.selectRemoteVersion([]protocol.Version{protocol.Version1_2}); err != nil {
 			return false, err
 		}
 

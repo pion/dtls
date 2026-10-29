@@ -5,6 +5,7 @@ package flight12
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/pion/dtls/v4/internal/ciphersuite"
@@ -24,6 +25,42 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFlight3Downgrade(t *testing.T) {
+	for _, flight := range []Flight{Flight1, Flight3} {
+		for _, maxVersion := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+			for _, suffix := range []string{"ordinary", "DOWNGRD\x00", "DOWNGRD\x01"} {
+				t.Run(fmt.Sprintf("%s/%04x/%x", flight, maxVersion, suffix), func(t *testing.T) {
+					state := newTestState12()
+					recordCH12(t, &state.LocalClientHelloSnapshots)
+					suite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+					cfg := &dtlsconfig.HandshakeConfig{
+						MaxVersion: maxVersion, LocalCipherSuites: []dtlsconfig.CipherSuite{suite},
+						Log: logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+					}
+					cipherSuiteID := uint16(suite.ID())
+					hello := &handshake.MessageServerHello{
+						Version: protocol.Version1_2, CipherSuiteID: &cipherSuiteID,
+						CompressionMethod: dtlsflight.DefaultCompressionMethods()[0],
+					}
+					copy(hello.Random.RandomBytes[handshake.RandomBytesLength-8:], suffix)
+					raw, err := (&handshake.Handshake{Message: hello}).Marshal()
+					require.NoError(t, err)
+					cache := dtlsflight.NewCache()
+					cache.Push(raw, 0, 0, handshake.TypeServerHello, false)
+					_, failure, err := parseForTest(t, flight, t.Context(), nil, state, cache, cfg)
+					if maxVersion == protocol.Version1_3 && suffix != "ordinary" {
+						require.ErrorIs(t, err, dtlserrors.ErrInvalidServerHello)
+						require.Equal(t, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, failure)
+					} else {
+						require.NoError(t, err)
+						require.Nil(t, failure)
+					}
+				})
+			}
+		}
+	}
+}
 
 func TestFlight3GenerateReusesHookOnlyConnectionIDAfterVersionDowngrade(t *testing.T) {
 	for name, cid := range map[string][]byte{
