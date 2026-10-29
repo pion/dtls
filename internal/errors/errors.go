@@ -281,12 +281,11 @@ var (
 	ErrInvalidUnifiedHeaderFormat = stderrors.New("invalid dtls 1.3 unified header format")
 	ErrAntiAmplificationLimit     = stderrors.New("return routability check anti-amplification limit exceeded")
 
-	ErrCipherSuiteNotInit                        = stderrors.New("CipherSuite has not been initialized")
-	ErrCipherSuiteRecordProtectionNotImplemented = stderrors.New("DTLS 1.3 cipher suite record protection is not implemented")
-	ErrNotEnoughRoomForNonce                     = stderrors.New("buffer not long enough to contain nonce")
-	ErrDecryptPacket                             = stderrors.New("failed to decrypt packet")
-	ErrInvalidMAC                                = stderrors.New("invalid mac")
-	ErrFailedToCast                              = stderrors.New("failed to cast")
+	ErrCipherSuiteNotInit    = stderrors.New("CipherSuite has not been initialized")
+	ErrNotEnoughRoomForNonce = stderrors.New("buffer not long enough to contain nonce")
+	ErrDecryptPacket         = stderrors.New("failed to decrypt packet")
+	ErrInvalidMAC            = stderrors.New("invalid mac")
+	ErrFailedToCast          = stderrors.New("failed to cast")
 
 	ErrCCMInvalidBlockSize   = stderrors.New("ccm: NewCCM requires 128-bit block cipher")
 	ErrCCMInvalidTagSize     = stderrors.New("ccm: tagsize must be 4, 6, 8, 10, 12, 14, or 16")

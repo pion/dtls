@@ -1399,7 +1399,7 @@ func TestSealRecordContentUsesWriteTrafficGeneration(t *testing.T) {
 	assertTrafficKeyTestRecord(t, handshakeProtection, handshakeRecord, []byte("handshake"))
 
 	_, err = conn.sealRecordContent(4, 0, protocol.ContentTypeApplicationData, nil)
-	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+	assert.ErrorIs(t, err, dtlserrors.ErrCipherSuiteNotInit)
 }
 
 func TestSealRecordContentAcceptsMaximumContent(t *testing.T) {

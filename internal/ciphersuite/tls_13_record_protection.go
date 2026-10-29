@@ -86,7 +86,7 @@ func newChaCha20Poly1305RecordTrafficProtection13(hashFunc func() hash.Hash, tra
 // Mask generates the record-number mask for a caller-validated ciphertext sample.
 func (r *recordTrafficProtection13) Mask(sample []byte) ([]byte, error) {
 	if r.sequenceNumberMaskFn == nil {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return nil, dtlserrors.ErrInvalidInternalState
 	}
 
 	return r.sequenceNumberMaskFn(r.sequenceNumberKey, sample)

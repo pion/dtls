@@ -129,11 +129,11 @@ func newRecordProtection13ForTest(suite tls13RecordProtectionSuite, localTraffic
 	}
 	local, ok := localProtection.(*recordTrafficProtection13)
 	if !ok {
-		return nil, fmt.Errorf("%w: unexpected local type %T", dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented, localProtection)
+		return nil, fmt.Errorf("%w: unexpected local type %T", dtlserrors.ErrInvalidInternalState, localProtection)
 	}
 	remote, ok := remoteProtection.(*recordTrafficProtection13)
 	if !ok {
-		return nil, fmt.Errorf("%w: unexpected remote type %T", dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented, remoteProtection)
+		return nil, fmt.Errorf("%w: unexpected remote type %T", dtlserrors.ErrInvalidInternalState, remoteProtection)
 	}
 
 	return &recordProtectionPair13{

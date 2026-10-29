@@ -5,6 +5,7 @@ package dtlshandshake
 
 import (
 	"context"
+	"fmt"
 
 	dtlsciphersuite "github.com/pion/dtls/v4/internal/ciphersuite"
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
@@ -125,7 +126,7 @@ func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
 		return err
 	}
 	if writeProtection == nil {
-		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return dtlserrors.ErrInvalidInternalState
 	}
 	readTrafficSecret, err := dtlsciphersuite.NewTrafficSecret(readSecret)
 	if err != nil {
@@ -136,7 +137,7 @@ func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
 		return err
 	}
 	if readProtection == nil {
-		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return dtlserrors.ErrInvalidInternalState
 	}
 	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: epoch, Generation: 0, Secret: writeSecret, Protection: writeProtection}, &dtlsstate.TrafficGeneration{Epoch: epoch, Generation: 0, Secret: readSecret, Protection: readProtection})
 
@@ -160,8 +161,11 @@ func directionalTrafficSecrets(
 	secrets dtlsstate.TrafficSecrets,
 	isClient bool,
 ) (write, read []byte, err error) {
-	if len(secrets.Client) == 0 || len(secrets.Server) == 0 {
-		return nil, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	if len(secrets.Client) == 0 {
+		return nil, nil, fmt.Errorf("%w: missing client traffic secret", dtlserrors.ErrInvalidProtectionInput)
+	}
+	if len(secrets.Server) == 0 {
+		return nil, nil, fmt.Errorf("%w: missing server traffic secret", dtlserrors.ErrInvalidProtectionInput)
 	}
 	if isClient {
 		return secrets.Client, secrets.Server, nil

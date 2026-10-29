@@ -648,7 +648,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 
 				return state
 			}(),
-			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+			err: dtlserrors.ErrInvalidProtectionInput,
 		},
 		{
 			name: "missing server application secret",
@@ -659,7 +659,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 
 				return state
 			}(),
-			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+			err: dtlserrors.ErrInvalidProtectionInput,
 		},
 		{
 			name: "handshake protection initialized without application secrets",
@@ -671,7 +671,7 @@ func TestInitApplicationRecordProtection13RejectsInvalidState(t *testing.T) {
 
 				return state
 			}(),
-			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+			err: dtlserrors.ErrInvalidProtectionInput,
 		},
 	}
 
@@ -723,7 +723,7 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 
 				return state
 			}(),
-			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+			err: dtlserrors.ErrInvalidProtectionInput,
 		},
 		{
 			name: "missing server secret",
@@ -736,7 +736,7 @@ func TestInitHandshakeRecordProtection13RejectsInvalidState(t *testing.T) {
 
 				return state
 			}(),
-			err: dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented,
+			err: dtlserrors.ErrInvalidProtectionInput,
 		},
 	}
 

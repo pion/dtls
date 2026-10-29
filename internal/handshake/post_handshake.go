@@ -712,11 +712,11 @@ func fatalPostHandshakeAlert(ctx context.Context, conn Conn, description alert.D
 
 func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message *handshake.MessageKeyUpdate, epoch uint64) error {
 	if p.state.TrafficKeys == nil {
-		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return dtlserrors.ErrCipherSuiteNotInit
 	}
 	current, ok := p.state.TrafficKeys.CurrentRead()
 	if !ok || current.Protection == nil {
-		return dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return dtlserrors.ErrCipherSuiteNotInit
 	}
 	if current.Epoch != epoch || p.state.RemoteEpoch() != epoch {
 		return fatalPostHandshakeAlert(ctx, conn, alert.UnexpectedMessage)
@@ -852,11 +852,11 @@ func (p *postHandshake) startFlight(ctx context.Context, conn Conn, flight *reli
 
 func (p *postHandshake) buildKeyUpdateFlight(request handshake.KeyUpdateRequest, completion *postHandshakeCompletion) (*reliablePostHandshakeFlight, error) {
 	if p.state.TrafficKeys == nil {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return nil, dtlserrors.ErrCipherSuiteNotInit
 	}
 	current, ok := p.state.TrafficKeys.CurrentWrite()
 	if !ok || current.Protection == nil {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return nil, dtlserrors.ErrCipherSuiteNotInit
 	}
 	if current.Epoch != p.state.LocalEpoch() {
 		return nil, dtlserrors.ErrInvalidEpoch
@@ -903,7 +903,7 @@ func (p *postHandshake) nextTrafficGeneration(current *dtlsstate.TrafficGenerati
 		return nil, err
 	}
 	if nextProtection == nil {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return nil, dtlserrors.ErrInvalidInternalState
 	}
 
 	return &dtlsstate.TrafficGeneration{Epoch: current.Epoch + 1, Generation: current.Generation + 1, Secret: nextSecret, Protection: nextProtection}, nil

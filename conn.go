@@ -1158,7 +1158,7 @@ func marshalRecordContent(content protocol.Content) (protocol.ContentType, []byt
 		*protocol.ChangeCipherSpec,
 		*protocol.ReturnRoutabilityCheck:
 	default:
-		return 0, nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return 0, nil, dtlserrors.ErrInvalidContentType
 	}
 
 	plaintext, err := content.Marshal()
@@ -1376,12 +1376,15 @@ func applySequenceNumberMask(
 
 func (c *Conn) writeTrafficGeneration(epoch uint64) (*dtlsstate.TrafficGeneration, error) {
 	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok || state13.TrafficKeys == nil {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	if !ok {
+		return nil, dtlserrors.ErrInvalidInternalState
+	}
+	if state13.TrafficKeys == nil {
+		return nil, dtlserrors.ErrCipherSuiteNotInit
 	}
 	generation, ok := state13.TrafficKeys.Write(epoch)
 	if !ok || generation.Protection == nil {
-		return nil, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+		return nil, dtlserrors.ErrCipherSuiteNotInit
 	}
 
 	return generation, nil
@@ -1859,15 +1862,18 @@ type openedRecord struct {
 
 func (c *Conn) openCiphertextRecord(record recordlayer.ParsedRecord) (openedRecord, uint64, uint64, error) {
 	state13, ok := c.state.(*dtlsstate.State13)
-	if !ok || state13.TrafficKeys == nil {
-		return openedRecord{}, 0, 0, dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented
+	if !ok {
+		return openedRecord{}, 0, 0, dtlserrors.ErrInvalidInternalState
+	}
+	if state13.TrafficKeys == nil {
+		return openedRecord{}, 0, 0, dtlserrors.ErrCipherSuiteNotInit
 	}
 	generation, ok := state13.TrafficKeys.ReadCandidate(record.EpochLow(), max(state13.RemoteEpoch(), dtlsflight13.EpochEarlyData))
 	if !ok {
 		return openedRecord{}, 0, 0, dtlserrors.ErrInvalidEpoch
 	}
 	if generation.Protection == nil {
-		return openedRecord{}, 0, 0, operationalProtectionError(dtlserrors.ErrCipherSuiteRecordProtectionNotImplemented)
+		return openedRecord{}, 0, 0, operationalProtectionError(dtlserrors.ErrCipherSuiteNotInit)
 	}
 	plaintext, sequence, err := c.openCiphertextWithGeneration(record, generation)
 	if err != nil {
