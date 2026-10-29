@@ -202,7 +202,7 @@ func GenerateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 		return signer.Sign(rand.Reader, hashed, hashAlgorithm.CryptoHash())
 	}
 
-	return nil, dtlserrors.ErrKeySignatureGenerateUnimplemented
+	return nil, dtlserrors.ErrInvalidSignatureAlgorithm
 }
 
 func VerifyKeySignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte) error {
@@ -322,7 +322,7 @@ func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorith
 		return nil
 	}
 
-	return dtlserrors.ErrKeySignatureVerifyUnimplemented
+	return dtlserrors.ErrInvalidSignatureAlgorithm
 }
 
 func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {

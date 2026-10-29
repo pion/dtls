@@ -87,17 +87,15 @@ var (
 	ErrHandshakeTranscriptMissingClientHello = stderrors.New(
 		"DTLS 1.3 client transcript missing initial ClientHello",
 	)
-	ErrKeySignatureGenerateUnimplemented = stderrors.New("unable to generate key signature, unimplemented")
-	ErrKeySignatureVerifyUnimplemented   = stderrors.New("unable to verify key signature, unimplemented")
-	ErrLengthMismatch                    = stderrors.New("data length and declared length do not match")
-	ErrSequenceNumberOverflow            = stderrors.New("sequence number overflow")
-	ErrInvalidInternalState              = stderrors.New("invalid internal state")
-	ErrInvalidFSMTransition              = stderrors.New("invalid state machine transition")
-	ErrFailedToAccessPoolReadBuffer      = stderrors.New("failed to access pool read buffer")
-	ErrFragmentBufferOverflow            = stderrors.New("fragment buffer overflow")
-	ErrCipherSuiteNotSet                 = stderrors.New("cipher suite not set")
-	ErrHandshakeSequenceOverflow         = stderrors.New("handshake message sequence overflow")
-	ErrUnexpectedPostHandshakeMessage    = stderrors.New("unexpected DTLS 1.3 post-handshake message")
+	ErrLengthMismatch                 = stderrors.New("data length and declared length do not match")
+	ErrSequenceNumberOverflow         = stderrors.New("sequence number overflow")
+	ErrInvalidInternalState           = stderrors.New("invalid internal state")
+	ErrInvalidFSMTransition           = stderrors.New("invalid state machine transition")
+	ErrFailedToAccessPoolReadBuffer   = stderrors.New("failed to access pool read buffer")
+	ErrFragmentBufferOverflow         = stderrors.New("fragment buffer overflow")
+	ErrCipherSuiteNotSet              = stderrors.New("cipher suite not set")
+	ErrHandshakeSequenceOverflow      = stderrors.New("handshake message sequence overflow")
+	ErrUnexpectedPostHandshakeMessage = stderrors.New("unexpected DTLS 1.3 post-handshake message")
 
 	ErrEmptyCertificates = stderrors.New(
 		"certificates option requires at least one certificate",
