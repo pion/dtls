@@ -626,18 +626,27 @@ func udpPort(conn *net.UDPConn) uint16 {
 }
 
 func newDetachedConn(role roleConfig, peer net.Addr) (*dtls.DetachedConn, error) {
-	pskCallback := func([]byte) ([]byte, error) { return []byte("pion-mdns-handshake"), nil }
+	psk := dtls.PSK{Identity: []byte("mdns-demo"), Key: []byte("pion-mdns-handshake")}
 	if role.isClient {
 		return dtls.DetachedClient(peer,
-			dtls.WithPSK(pskCallback),
-			dtls.WithPSKIdentityHint([]byte("mdns-demo")),
+			dtls.WithPSK(func() ([]dtls.PSK, error) {
+				return []dtls.PSK{psk}, nil
+			}, nil),
 			dtls.WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 			dtls.WithFlightInterval(2*time.Second),
 		)
 	}
 
 	return dtls.DetachedServer(peer,
-		dtls.WithPSK(pskCallback),
+		dtls.WithPSK(nil, func(identities [][]byte) (*dtls.PSK, error) {
+			for _, identity := range identities {
+				if bytes.Equal(identity, psk.Identity) {
+					return &psk, nil
+				}
+			}
+
+			return nil, nil
+		}),
 		dtls.WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
 		dtls.WithFlightInterval(2*time.Second),
 	)
