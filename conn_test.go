@@ -1599,7 +1599,7 @@ func testLatestCIDControlRecordStartsRRC(
 
 func TestRRCRequiresProtectionPolicyAndNegotiation(t *testing.T) {
 	for name, test := range map[string]struct {
-		policy     cidPathMigrationPolicy
+		policy     CIDPathMigrationPolicy
 		negotiated bool
 		epoch      uint16
 	}{
@@ -1636,7 +1636,7 @@ func TestRRCRequiresProtectionPolicyAndNegotiation(t *testing.T) {
 
 func TestWriteRRCRequiresPolicyAndNegotiation(t *testing.T) {
 	for name, test := range map[string]struct {
-		policy     cidPathMigrationPolicy
+		policy     CIDPathMigrationPolicy
 		negotiated bool
 	}{
 		"PolicyDisabled": {policy: CIDPathMigrationReject, negotiated: true},
@@ -1656,7 +1656,7 @@ func TestCIDPathMigrationPolicies(t *testing.T) {
 	activeAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1), Port: 5000}
 	candidateAddr := &net.UDPAddr{IP: net.IPv4(192, 0, 2, 2), Port: 6000}
 	for name, test := range map[string]struct {
-		policy       cidPathMigrationPolicy
+		policy       CIDPathMigrationPolicy
 		expectedAddr net.Addr
 		expectedLog  string
 	}{

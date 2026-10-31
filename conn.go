@@ -255,7 +255,7 @@ type Conn struct {
 
 	handshakeConfig *dtlsconfig.HandshakeConfig
 
-	cidPathMigrationPolicy cidPathMigrationPolicy
+	cidPathMigrationPolicy CIDPathMigrationPolicy
 	registeredLocalCID     []byte
 	registeredReceiveCIDs  *dtlsstate.CIDReceiveSet
 	rrc                    dtlsrrc.Manager

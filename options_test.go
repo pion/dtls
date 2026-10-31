@@ -150,7 +150,7 @@ func TestNilCallbackOptionsReturnError(t *testing.T) {
 
 func TestWithConnectionID(t *testing.T) {
 	for name, test := range map[string]struct {
-		policy    cidPathMigrationPolicy
+		policy    CIDPathMigrationPolicy
 		enableRRC bool
 	}{
 		"Reject": {policy: CIDPathMigrationReject},

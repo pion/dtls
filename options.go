@@ -85,7 +85,7 @@ type dtlsConfig struct {
 	InsecureSkipVerifyHello       bool
 	ReceiveCIDLength              int
 	ConnectionIDGenerator         func() []byte
-	CIDPathMigrationPolicy        cidPathMigrationPolicy
+	CIDPathMigrationPolicy        CIDPathMigrationPolicy
 	PaddingLengthGenerator        func(uint) uint
 	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
 	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
@@ -506,7 +506,8 @@ func WithGetClientCertificate(fn func(*CertificateRequestInfo) (*tls.Certificate
 	}, fn, optionError(fn == nil, dtlserrors.ErrNilGetClientCertificate))
 }
 
-type cidPathMigrationPolicy uint8
+// CIDPathMigrationPolicy controls how connection IDs permit peer address changes.
+type CIDPathMigrationPolicy uint8
 
 const (
 	// CIDPathMigrationReject retains the current peer address and logs CID path
@@ -514,7 +515,7 @@ const (
 	// strategy is configured
 	// https://datatracker.ietf.org/doc/html/rfc9146#section-6
 	// https://datatracker.ietf.org/doc/html/rfc9147#section-11
-	CIDPathMigrationReject cidPathMigrationPolicy = iota
+	CIDPathMigrationReject CIDPathMigrationPolicy = iota
 	// CIDPathMigrationUnsafe immediately accepts an authenticated CID path.
 	// It is intended only for transports, such as ICE, that validate paths
 	// outside DTLS.
@@ -530,7 +531,7 @@ const (
 // return IDs of the same length, at most 255 bytes.
 // A zero length advertises support for sending a peer's CID without asking the
 // peer to send one in return.
-func WithConnectionID(generator func() []byte, policy cidPathMigrationPolicy) Option {
+func WithConnectionID(generator func() []byte, policy CIDPathMigrationPolicy) Option {
 	var generatorMu sync.Mutex
 
 	return sharedOption(func(config *dtlsConfig) error {
@@ -672,7 +673,7 @@ type connConfigValues struct {
 	certificateSignatureSchemes []signaturehash.Algorithm
 	ellipticCurves              []elliptic.Curve
 	serverName                  string
-	cidPathMigrationPolicy      cidPathMigrationPolicy
+	cidPathMigrationPolicy      CIDPathMigrationPolicy
 }
 
 func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
