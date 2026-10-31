@@ -114,6 +114,10 @@ type CertificateRequestInfo struct {
 	// SignatureSchemes lists the signature schemes that the server is
 	// willing to verify.
 	SignatureSchemes []tls.SignatureScheme
+
+	// version is the DTLS version negotiated for this connection.
+	// If zero, SupportsCertificate uses DTLS 1.3 rules.
+	version protocol.Version
 }
 
 // SupportsCertificate returns nil if the provided certificate is supported by
@@ -131,5 +135,10 @@ func (cri *CertificateRequestInfo) SupportsCertificate(certificate *tls.Certific
 		}
 	}
 
-	return (&dtlsconfig.CertificateRequestInfo{CertificateTypes: cri.CertificateTypes, AcceptableCAs: cri.AcceptableCAs, SignatureSchemes: signatureSchemes, Version: protocol.Version1_3}).SupportsCertificate(certificate)
+	version := cri.version
+	if version == 0 {
+		version = protocol.Version1_3
+	}
+
+	return (&dtlsconfig.CertificateRequestInfo{CertificateTypes: cri.CertificateTypes, AcceptableCAs: cri.AcceptableCAs, SignatureSchemes: signatureSchemes, Version: version}).SupportsCertificate(certificate)
 }

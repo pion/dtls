@@ -204,6 +204,7 @@ func generateClientCertificate(state *dtlsstate.State12, cache *dtlsflight.Cache
 	reqInfo := dtlsconfig.CertificateRequestInfo{Version: protocol.Version1_2}
 	if r, ok2 := pull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
 		reqInfo.CertificateTypes = append([]clientcertificate.Type{}, r.CertificateTypes...)
+		reqInfo.SignatureSchemes = slices.Clone(r.SignatureHashAlgorithms)
 		reqInfo.AcceptableCAs = make([][]byte, len(r.CertificateAuthoritiesNames))
 		for i := range r.CertificateAuthoritiesNames {
 			reqInfo.AcceptableCAs[i] = bytes.Clone(r.CertificateAuthoritiesNames[i])

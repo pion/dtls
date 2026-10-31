@@ -839,7 +839,7 @@ func adaptGetClientCertificate(getClientCertificate func(*CertificateRequestInfo
 			signatureSchemes = append(signatureSchemes, tls.SignatureScheme(uint16(raw[0])<<8|uint16(raw[1])))
 		}
 
-		return getClientCertificate(&CertificateRequestInfo{CertificateTypes: info.CertificateTypes, AcceptableCAs: info.AcceptableCAs, SignatureSchemes: signatureSchemes})
+		return getClientCertificate(&CertificateRequestInfo{CertificateTypes: info.CertificateTypes, AcceptableCAs: info.AcceptableCAs, SignatureSchemes: signatureSchemes, version: info.Version})
 	}
 }
 
