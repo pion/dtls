@@ -184,41 +184,23 @@ func pullProtectedHandshakeFlight(cache *dtlsflight.Cache, rules []dtlsflight.Ha
 }
 
 func decodeProtectedHandshake(data []byte) (*handshake.Handshake, error) {
-	header := &handshake.Header{}
-	if err := header.Unmarshal(data); err != nil {
+	parsed := &handshake.Handshake{Version: protocol.Version1_3}
+	if err := parsed.Header.Unmarshal(data); err != nil {
 		return nil, err
 	}
 
-	message, err := unmarshalProtectedHandshakeMessage(header.Type, data[handshake.HeaderLength:])
-	if err != nil {
-		return nil, err
-	}
-
-	return &handshake.Handshake{Header: *header, Message: message}, nil
-}
-
-func unmarshalProtectedHandshakeMessage(typ handshake.Type, body []byte) (handshake.Message, error) {
-	var msg handshake.Message
-	switch typ {
-	case handshake.TypeEncryptedExtensions:
-		msg = &handshake.MessageEncryptedExtensions{}
-	case handshake.TypeCertificateRequest:
-		msg = &handshake.MessageCertificateRequest13{}
-	case handshake.TypeCertificate:
-		msg = &handshake.MessageCertificate13{}
-	case handshake.TypeCertificateVerify:
-		msg = &handshake.MessageCertificateVerify{}
-	case handshake.TypeFinished:
-		msg = &handshake.MessageFinished{}
+	switch parsed.Header.Type {
+	case handshake.TypeEncryptedExtensions, handshake.TypeCertificateRequest, handshake.TypeCertificate,
+		handshake.TypeCertificateVerify, handshake.TypeFinished:
 	default:
 		return nil, dtlserrors.ErrInvalidHandshakeTranscriptMessage
 	}
 
-	if err := msg.Unmarshal(body); err != nil {
+	if err := parsed.Unmarshal(data); err != nil {
 		return nil, err
 	}
 
-	return msg, nil
+	return parsed, nil
 }
 
 func getFlightParser(f Flight) (flightParser, bool) {

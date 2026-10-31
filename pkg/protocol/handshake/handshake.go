@@ -121,6 +121,10 @@ type Handshake struct {
 	Message Message
 
 	KeyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm
+
+	// Version selects version-dependent message formats during Unmarshal.
+	// Zero uses DTLS 1.3.
+	Version protocol.Version
 }
 
 // ContentType returns what kind of content this message is carying.
@@ -199,7 +203,7 @@ func (h *Handshake) Unmarshal(data []byte) error {
 		return dtlserrors.ErrLengthMismatch
 	}
 
-	message, err := newHandshakeMessage(Type(data[0]), h.KeyExchangeAlgorithm)
+	message, err := newHandshakeMessage(Type(data[0]), h.KeyExchangeAlgorithm, h.Version)
 	if err != nil {
 		return err
 	}
@@ -208,7 +212,30 @@ func (h *Handshake) Unmarshal(data []byte) error {
 	return h.Message.Unmarshal(data[HeaderLength:])
 }
 
-func newHandshakeMessage(messageType Type, keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm) (Message, error) {
+func newHandshakeMessage(messageType Type, keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm, version protocol.Version) (Message, error) {
+	if version != 0 && version != protocol.Version1_2 && version != protocol.Version1_3 {
+		return nil, dtlserrors.ErrUnsupportedProtocolVersion
+	}
+
+	switch messageType {
+	case TypeCertificate:
+		if version == protocol.Version1_2 {
+			return &MessageCertificate{}, nil
+		}
+
+		return &MessageCertificate13{}, nil
+	case TypeCertificateRequest:
+		if version == protocol.Version1_2 {
+			return &MessageCertificateRequest{}, nil
+		}
+
+		return &MessageCertificateRequest13{}, nil
+	default:
+		return newCommonHandshakeMessage(messageType, keyExchangeAlgorithm)
+	}
+}
+
+func newCommonHandshakeMessage(messageType Type, keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm) (Message, error) {
 	switch messageType {
 	case TypeClientHello:
 		return &MessageClientHello{}, nil
@@ -216,12 +243,8 @@ func newHandshakeMessage(messageType Type, keyExchangeAlgorithm ciphersuite.KeyE
 		return &MessageHelloVerifyRequest{}, nil
 	case TypeServerHello:
 		return &MessageServerHello{}, nil
-	case TypeCertificate:
-		return &MessageCertificate{}, nil
 	case TypeServerKeyExchange:
 		return &MessageServerKeyExchange{KeyExchangeAlgorithm: keyExchangeAlgorithm}, nil
-	case TypeCertificateRequest:
-		return &MessageCertificateRequest{}, nil
 	case TypeServerHelloDone:
 		return &MessageServerHelloDone{}, nil
 	case TypeClientKeyExchange:

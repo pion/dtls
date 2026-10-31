@@ -19,6 +19,7 @@ import (
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/internal/util"
 	"github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"golang.org/x/crypto/cryptobyte"
 )
@@ -487,6 +488,7 @@ func (t *Transcript) AppendVerifiedInbound(
 
 	h := &handshake.Handshake{
 		KeyExchangeAlgorithm: keyExchangeAlgorithm,
+		Version:              protocol.Version1_3,
 	}
 	if err := h.Unmarshal(raw); err != nil {
 		return err

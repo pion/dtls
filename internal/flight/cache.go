@@ -14,6 +14,7 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/prf"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
@@ -412,7 +413,7 @@ func (h *Cache) decodeGenericHandshakeItem(item *HandshakeCacheItem, expectedTyp
 		expectedSequence,
 		context,
 		func(data []byte) (*handshake.Handshake, error) {
-			parsed := &handshake.Handshake{KeyExchangeAlgorithm: keyExchangeAlgorithm}
+			parsed := &handshake.Handshake{KeyExchangeAlgorithm: keyExchangeAlgorithm, Version: protocol.Version1_2}
 			if err := parsed.Unmarshal(data); err != nil {
 				return nil, err
 			}

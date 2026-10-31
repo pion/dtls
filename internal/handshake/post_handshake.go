@@ -490,7 +490,7 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 			item.Typ,
 			uint16(p.state.HandshakeRecvSequence), //nolint:gosec // bounded above
 			func(data []byte) (*handshake.Handshake, error) {
-				parsed := &handshake.Handshake{}
+				parsed := &handshake.Handshake{Version: protocol.Version1_3}
 				if err := parsed.Unmarshal(data); err != nil {
 					return nil, err
 				}
