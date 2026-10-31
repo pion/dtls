@@ -2820,3 +2820,30 @@ func TestDTLS12DiscardsACK(t *testing.T) {
 		})
 	}
 }
+
+func TestDeferChangeCipherSpecUntilVersionSelection(t *testing.T) {
+	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+		t.Run(fmt.Sprintf("%04x", version), func(t *testing.T) {
+			conn, _ := newTestConnWithReadProtection(t)
+			common := dtlsstate.CommonState(conn.state)
+			common.LocalVersion = 0
+			conn.setRemoteEpoch(0)
+			raw, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
+				ContentType: protocol.ContentTypeChangeCipherSpec, Version: protocol.Version1_2,
+			}, []byte{2})
+			require.NoError(t, err)
+			outcome, err := conn.handleIncomingPacket(t.Context(), raw, nil, &readBufferLease{conn: conn}, false)
+			require.NoError(t, err)
+			require.Equal(t, packetOutcome{}, outcome)
+			require.Len(t, conn.encryptedPackets, 1)
+			conn.setNegotiatedVersion([]protocol.Version{version}, version)
+			_, err = conn.handleIncomingPacket(t.Context(), conn.encryptedPackets[0].data, nil, nil, false)
+			if version == protocol.Version1_2 {
+				require.ErrorIs(t, err, dtlserrors.ErrInvalidCipherSpec)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Zero(t, common.RemoteEpoch())
+		})
+	}
+}

@@ -2175,6 +2175,13 @@ func (c *Conn) prepareLegacyPacket(buf []byte, rAddr net.Addr, bufferLease *read
 	if c.handleFutureLegacyPacket(header, rAddr, buf, bufferLease) {
 		return incomingPacketState{}, false, nil
 	}
+	if common.LocalVersion == 0 && header.ContentType() == protocol.ContentTypeChangeCipherSpec {
+		if bufferLease != nil {
+			bufferLease.enqueue(addrPkt{rAddr: rAddr, data: buf})
+		}
+
+		return incomingPacketState{}, false, nil
+	}
 
 	markPacketAsValid, ok := c.replayMarker(uint64(header.Epoch()), header.SequenceNumber(), recordlayer.MaxSequenceNumber)
 	if !ok {
