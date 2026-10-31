@@ -32,6 +32,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 	"github.com/pion/logging"
 )
 
@@ -89,7 +90,7 @@ type dtlsConfig struct {
 	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
 	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
-	CertificateRequestMessageHook func(handshake.MessageCertificateRequest) handshake.Message
+	CertificateRequestMessageHook func(handshake12.MessageCertificateRequest) handshake.Message
 	OnConnectionAttempt           func(net.Addr) error
 	MinVersion                    protocol.Version
 	MaxVersion                    protocol.Version
@@ -630,8 +631,8 @@ func WithServerHelloMessageHook(fn func(handshake.MessageServerHello) handshake.
 // WithCertificateRequestMessageHook sets the certificate request message hook.
 // Returns an error if the hook is nil.
 // This option is only applicable to servers.
-func WithCertificateRequestMessageHook(fn func(handshake.MessageCertificateRequest) handshake.Message) ServerOption {
-	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(handshake.MessageCertificateRequest) handshake.Message {
+func WithCertificateRequestMessageHook(fn func(handshake12.MessageCertificateRequest) handshake.Message) ServerOption {
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(handshake12.MessageCertificateRequest) handshake.Message {
 		return &c.CertificateRequestMessageHook
 	}, fn, optionError(fn == nil, dtlserrors.ErrNilCertificateRequestMessageHook)))
 }

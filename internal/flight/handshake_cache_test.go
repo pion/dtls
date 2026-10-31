@@ -14,6 +14,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -362,7 +363,7 @@ func TestHandshakeCachePullOptionalRules(t *testing.T) {
 	})
 
 	t.Run("unexpected message", func(t *testing.T) {
-		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageCertificate{})
+		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake12.MessageCertificate{})
 		cache := dtlsflight.NewCache()
 		cache.Push(raw, 0, 0, handshake.TypeCertificate, false)
 
@@ -397,7 +398,7 @@ func TestHandshakeCacheFullPullMapOneOfItems(t *testing.T) {
 	})
 
 	t.Run("unexpected message", func(t *testing.T) {
-		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake.MessageCertificate{})
+		raw := marshalHandshakeCacheTestMessage(t, 0, &handshake12.MessageCertificate{})
 		cache := dtlsflight.NewCache()
 		cache.Push(raw, 0, 0, handshake.TypeCertificate, false)
 

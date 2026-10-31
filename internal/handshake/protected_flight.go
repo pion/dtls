@@ -17,6 +17,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 )
 
 // VerifyAndAppendProtectedHandshakeCacheItems verifies a DTLS 1.3 protected
@@ -79,7 +80,7 @@ func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCache
 	hs := item.Parsed
 	if len(f.state.PSK) != 0 {
 		switch hs.Message.(type) {
-		case *handshake.MessageCertificate13, *handshake.MessageCertificateVerify, *handshake.MessageCertificateRequest13:
+		case *handshake13.MessageCertificate, *handshake.MessageCertificateVerify, *handshake13.MessageCertificateRequest:
 			return pskHandshakeError(alert.UnexpectedMessage, dtlserrors.ErrInvalidHandshakeTranscriptMessage)
 		}
 	}
@@ -87,7 +88,7 @@ func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCache
 	switch msg := hs.Message.(type) {
 	case *handshake.MessageEncryptedExtensions:
 		return f.processEncryptedExtensions(item.Raw, hs, msg)
-	case *handshake.MessageCertificate13:
+	case *handshake13.MessageCertificate:
 		return f.processCertificate(item.Raw, hs, msg)
 	case *handshake.MessageCertificateVerify:
 		return f.processCertificateVerify(item.Raw, hs, msg)
@@ -98,7 +99,7 @@ func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCache
 	}
 }
 
-func (f *protectedHandshakeFlight) processCertificate(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, certificate *handshake.MessageCertificate13) error {
+func (f *protectedHandshakeFlight) processCertificate(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, certificate *handshake13.MessageCertificate) error {
 	f.hasCertificate = true
 	f.peerCertificates = rawCertificatesFromCertificate(certificate)
 	if len(f.peerCertificates) == 0 {
@@ -176,7 +177,7 @@ func (f *protectedHandshakeFlight) append(item *dtlsflight.HandshakeCacheItem, p
 	)
 }
 
-func rawCertificatesFromCertificate(certificate *handshake.MessageCertificate13) [][]byte {
+func rawCertificatesFromCertificate(certificate *handshake13.MessageCertificate) [][]byte {
 	out := make([][]byte, 0, len(certificate.CertificateList))
 	for _, entry := range certificate.CertificateList {
 		out = append(out, bytes.Clone(entry.CertificateData))

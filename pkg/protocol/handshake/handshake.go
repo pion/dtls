@@ -6,36 +6,38 @@ package handshake
 
 import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/internal/util"
 	"github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/protocol"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 )
 
-// Type is the unique identifier for each handshake message
+// Type is the unique identifier for each handshake message.
 // https://tools.ietf.org/html/rfc5246#section-7.4
-type Type uint8
+type Type = handshakewire.Type
 
 // Types of DTLS Handshake messages we know about.
 const (
-	TypeHelloRequest        Type = 0
-	TypeClientHello         Type = 1
-	TypeServerHello         Type = 2
-	TypeHelloVerifyRequest  Type = 3
-	TypeNewSessionTicket    Type = 4
-	TypeEncryptedExtensions Type = 8
-	TypeRequestConnectionID Type = 9
-	TypeNewConnectionID     Type = 10
-	TypeCertificate         Type = 11
-	TypeServerKeyExchange   Type = 12
-	TypeCertificateRequest  Type = 13
-	TypeServerHelloDone     Type = 14
-	TypeCertificateVerify   Type = 15
-	TypeClientKeyExchange   Type = 16
-	TypeFinished            Type = 20
-	TypeKeyUpdate           Type = 24
-
+	TypeHelloRequest        = handshakewire.TypeHelloRequest
+	TypeClientHello         = handshakewire.TypeClientHello
+	TypeServerHello         = handshakewire.TypeServerHello
+	TypeHelloVerifyRequest  = handshakewire.TypeHelloVerifyRequest
+	TypeNewSessionTicket    = handshakewire.TypeNewSessionTicket
+	TypeEncryptedExtensions = handshakewire.TypeEncryptedExtensions
+	TypeRequestConnectionID = handshakewire.TypeRequestConnectionID
+	TypeNewConnectionID     = handshakewire.TypeNewConnectionID
+	TypeCertificate         = handshakewire.TypeCertificate
+	TypeServerKeyExchange   = handshakewire.TypeServerKeyExchange
+	TypeCertificateRequest  = handshakewire.TypeCertificateRequest
+	TypeServerHelloDone     = handshakewire.TypeServerHelloDone
+	TypeCertificateVerify   = handshakewire.TypeCertificateVerify
+	TypeClientKeyExchange   = handshakewire.TypeClientKeyExchange
+	TypeFinished            = handshakewire.TypeFinished
+	TypeKeyUpdate           = handshakewire.TypeKeyUpdate
 	// TypeMessageHash is a synthetic TLS 1.3 transcript-only handshake type.
-	TypeMessageHash Type = 254
+	TypeMessageHash = handshakewire.TypeMessageHash
 )
 
 // HelloRetryRequestRandom is set as the Random value of a ServerHello
@@ -43,62 +45,6 @@ const (
 // See RFC 8446 Section 4.1.3.
 func HelloRetryRequestRandom() []byte {
 	return []byte{0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91, 0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C}
-}
-
-// String returns the string representation of this type.
-func (t Type) String() string {
-	switch t {
-	case TypeClientHello:
-		return "ClientHello"
-	case TypeServerHello:
-		return "ServerHello"
-	case TypeHelloVerifyRequest:
-		return "HelloVerifyRequest"
-	case TypeCertificate:
-		return "TypeCertificate"
-	case TypeServerKeyExchange:
-		return "ServerKeyExchange"
-	case TypeCertificateRequest:
-		return "CertificateRequest"
-	case TypeCertificateVerify:
-		return "CertificateVerify"
-	case TypeFinished:
-		return "Finished"
-	default:
-		return t.legacyName()
-	}
-}
-
-func (t Type) legacyName() string {
-	switch t {
-	case TypeHelloRequest:
-		return "HelloRequest"
-	case TypeServerHelloDone:
-		return "ServerHelloDone"
-	case TypeClientKeyExchange:
-		return "ClientKeyExchange"
-	default:
-		return t.dtls13Name()
-	}
-}
-
-func (t Type) dtls13Name() string {
-	switch t {
-	case TypeNewSessionTicket:
-		return "NewSessionTicket"
-	case TypeEncryptedExtensions:
-		return "EncryptedExtensions"
-	case TypeRequestConnectionID:
-		return "RequestConnectionID"
-	case TypeNewConnectionID:
-		return "NewConnectionID"
-	case TypeKeyUpdate:
-		return "KeyUpdate"
-	case TypeMessageHash:
-		return "MessageHash"
-	default:
-		return ""
-	}
 }
 
 // Message is the body of a Handshake datagram.
@@ -220,16 +166,16 @@ func newHandshakeMessage(messageType Type, keyExchangeAlgorithm ciphersuite.KeyE
 	switch messageType {
 	case TypeCertificate:
 		if version == protocol.Version1_2 {
-			return &MessageCertificate{}, nil
+			return &handshake12.MessageCertificate{}, nil
 		}
 
-		return &MessageCertificate13{}, nil
+		return &handshake13.MessageCertificate{}, nil
 	case TypeCertificateRequest:
 		if version == protocol.Version1_2 {
-			return &MessageCertificateRequest{}, nil
+			return &handshake12.MessageCertificateRequest{}, nil
 		}
 
-		return &MessageCertificateRequest13{}, nil
+		return &handshake13.MessageCertificateRequest{}, nil
 	default:
 		return newCommonHandshakeMessage(messageType, keyExchangeAlgorithm)
 	}

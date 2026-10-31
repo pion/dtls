@@ -5,6 +5,7 @@ package handshake
 
 import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 )
 
@@ -59,7 +60,7 @@ func (m *MessageEncryptedExtensions) Unmarshal(data []byte) error {
 		return dtlserrors.ErrBufferTooSmall
 	}
 
-	extensions, err := decodeExtensionList(data, extensionContextEncryptedExtensions)
+	extensions, err := handshakewire.DecodeExtensionList(data, handshakewire.ContextEncryptedExtensions)
 	if err != nil {
 		return err
 	}

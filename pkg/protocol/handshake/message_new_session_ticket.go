@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 )
 
@@ -134,7 +135,7 @@ func (m *MessageNewSessionTicket) Unmarshal(data []byte) error {
 	ticket := bytes.Clone(data[offset : offset+ticketLength])
 	offset += ticketLength
 
-	extensions, err := decodeExtensionList(data[offset:], extensionContextNewSessionTicket)
+	extensions, err := handshakewire.DecodeExtensionList(data[offset:], handshakewire.ContextNewSessionTicket)
 	if err != nil {
 		return err
 	}

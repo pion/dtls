@@ -1,22 +1,23 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package handshake
+package dtls13
 
 import (
 	"bytes"
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"golang.org/x/crypto/cryptobyte"
 )
 
-// MessageCertificateRequest13 represents the CertificateRequest handshake message for DTLS 1.3.
+// MessageCertificateRequest represents the CertificateRequest handshake message for DTLS 1.3.
 // This message is used by the server to request a certificate from the client.
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.3.2
-type MessageCertificateRequest13 struct {
+type MessageCertificateRequest struct {
 	// CertificateRequestContext is an opaque value that the server creates
 	// to bind the client's certificate to the handshake context.
 	CertificateRequestContext []byte
@@ -27,8 +28,8 @@ type MessageCertificateRequest13 struct {
 }
 
 // Type returns the handshake message type.
-func (m MessageCertificateRequest13) Type() Type {
-	return TypeCertificateRequest
+func (m MessageCertificateRequest) Type() handshakewire.Type {
+	return handshakewire.TypeCertificateRequest
 }
 
 const (
@@ -37,7 +38,7 @@ const (
 	certReq13MinLength        = 3
 )
 
-// Marshal encodes the MessageCertificateRequest13 into its wire format.
+// Marshal encodes the MessageCertificateRequest into its wire format.
 //
 // Wire format:
 //
@@ -45,7 +46,7 @@ const (
 //	[0-255]   certificate_request_context data
 //	[2 bytes] extensions length (from extension.MarshalList)
 //	[variable] extensions data
-func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
+func (m *MessageCertificateRequest) Marshal() ([]byte, error) {
 	extensions, marshalSize, err := m.prepareMarshal()
 	if err != nil {
 		return nil, err
@@ -58,12 +59,12 @@ func (m *MessageCertificateRequest13) Marshal() ([]byte, error) {
 }
 
 // MarshalSize returns the size needed for MarshalTo.
-func (m *MessageCertificateRequest13) MarshalSize() int {
+func (m *MessageCertificateRequest) MarshalSize() int {
 	return 1 + len(m.CertificateRequestContext) + extension.MarshalListSize(m.Extensions)
 }
 
 // MarshalTo encodes like Marshal but in a pre-allocate buffer.
-func (m *MessageCertificateRequest13) MarshalTo(out []byte) (int, error) {
+func (m *MessageCertificateRequest) MarshalTo(out []byte) (int, error) {
 	extensions, marshalSize, err := m.prepareMarshal()
 	if err != nil {
 		return 0, err
@@ -77,7 +78,7 @@ func (m *MessageCertificateRequest13) MarshalTo(out []byte) (int, error) {
 	return marshalSize, nil
 }
 
-func (m *MessageCertificateRequest13) prepareMarshal() ([]byte, int, error) {
+func (m *MessageCertificateRequest) prepareMarshal() ([]byte, int, error) {
 	// Validate certificate_request_context length
 	if len(m.CertificateRequestContext) > certReq13ContextMaxLength {
 		return nil, 0, dtlserrors.ErrCertificateRequestContextTooLong
@@ -109,7 +110,7 @@ func (m *MessageCertificateRequest13) prepareMarshal() ([]byte, int, error) {
 	return extensions, marshalSize, nil
 }
 
-func (m *MessageCertificateRequest13) marshalTo(out, extensions []byte) {
+func (m *MessageCertificateRequest) marshalTo(out, extensions []byte) {
 	n := 0
 	out[0] = byte(len(m.CertificateRequestContext)) //nolint:gosec // G115
 	n += 1
@@ -117,8 +118,8 @@ func (m *MessageCertificateRequest13) marshalTo(out, extensions []byte) {
 	copy(out[n:], extensions)
 }
 
-// Unmarshal decodes the MessageCertificateRequest13 from its wire format.
-func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
+// Unmarshal decodes the MessageCertificateRequest from its wire format.
+func (m *MessageCertificateRequest) Unmarshal(data []byte) error {
 	// Validate minimum data length
 	if len(data) < certReq13MinLength {
 		return dtlserrors.ErrBufferTooSmall
@@ -144,7 +145,7 @@ func (m *MessageCertificateRequest13) Unmarshal(data []byte) error {
 		return dtlserrors.ErrLengthMismatch
 	}
 
-	extensions, err := decodeExtensionList([]byte(str), extensionContextCertificateRequest)
+	extensions, err := handshakewire.DecodeExtensionList([]byte(str), handshakewire.ContextCertificateRequest)
 	if err != nil {
 		return err
 	}

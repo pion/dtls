@@ -23,6 +23,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -139,7 +140,7 @@ func marshalProtectedTestHandshake(t *testing.T, sequence uint16, message handsh
 }
 
 func TestHandleFlight3ProtectedHandshakeRetainsCertificateRequest(t *testing.T) {
-	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}}
+	request := &handshake13.MessageCertificateRequest{Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}}
 	items := []dtlsflight.DecodedHandshakeCacheItem{{Raw: &dtlsflight.HandshakeCacheItem{Typ: handshake.TypeCertificateRequest}, Parsed: &handshake.Handshake{Message: request}}}
 	flightCtx := &handshakeContext{
 		state: &dtlsstate.State13{Common: &dtlsstate.Common{}},
@@ -189,7 +190,7 @@ func TestFlight3ParseClearsConnectionIDAfterInvalidEncryptedExtensions(t *testin
 
 func TestFlight5ClientCertificateClonesCertificateAuthorities(t *testing.T) {
 	authority := []byte{0x01, 0x02}
-	request := &handshake.MessageCertificateRequest13{Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}, &extension13.CertificateAuthorities{Authorities: [][]byte{authority}}}}
+	request := &handshake13.MessageCertificateRequest{Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}, &extension13.CertificateAuthorities{Authorities: [][]byte{authority}}}}
 	cfg := &dtlsconfig.HandshakeConfig{
 		LocalGetClientCertificate: func(info *dtlsconfig.CertificateRequestInfo) (*tls.Certificate, error) {
 			info.AcceptableCAs[0][0] = 0xff

@@ -16,6 +16,8 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,19 +76,19 @@ func TestHandshakeMarshalToReturnsChildByteCount(t *testing.T) {
 }
 
 func TestHandshakeMessageDispatch(t *testing.T) {
-	certificate12 := &handshake.MessageCertificate{Certificate: [][]byte{{0x01, 0x02}}}
-	request12 := &handshake.MessageCertificateRequest{
+	certificate12 := &handshake12.MessageCertificate{Certificate: [][]byte{{0x01, 0x02}}}
+	request12 := &handshake12.MessageCertificateRequest{
 		CertificateTypes:        []clientcertificate.Type{clientcertificate.ECDSASign},
 		SignatureHashAlgorithms: []signaturehash.Algorithm{{Hash: hash.SHA256, Signature: signature.ECDSA}},
 	}
-	certificate13 := &handshake.MessageCertificate13{
+	certificate13 := &handshake13.MessageCertificate{
 		CertificateRequestContext: []byte{0x03},
-		CertificateList: []handshake.CertificateEntry13{{
+		CertificateList: []handshake13.CertificateEntry{{
 			CertificateData: []byte{0x01, 0x02},
 			Extensions:      []extension.Value{extension.Raw{Type: 0xfafa, Data: []byte{0x04}}},
 		}},
 	}
-	request13 := &handshake.MessageCertificateRequest13{
+	request13 := &handshake13.MessageCertificateRequest{
 		CertificateRequestContext: []byte{0x03},
 		Extensions:                []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}},
 	}
@@ -96,12 +98,12 @@ func TestHandshakeMessageDispatch(t *testing.T) {
 		message handshake.Message
 	}{
 		{"Default/Certificate", 0, certificate13},
-		{"Default/EmptyCertificate", 0, &handshake.MessageCertificate13{}},
+		{"Default/EmptyCertificate", 0, &handshake13.MessageCertificate{}},
 		{"Default/CertificateRequest", 0, request13},
 		{"DTLS12/Certificate", protocol.Version1_2, certificate12},
 		{"DTLS12/CertificateRequest", protocol.Version1_2, request12},
 		{"DTLS13/Certificate", protocol.Version1_3, certificate13},
-		{"DTLS13/EmptyCertificate", protocol.Version1_3, &handshake.MessageCertificate13{}},
+		{"DTLS13/EmptyCertificate", protocol.Version1_3, &handshake13.MessageCertificate{}},
 		{"DTLS13/CertificateRequest", protocol.Version1_3, request13},
 		{"NewSessionTicket", 0, &handshake.MessageNewSessionTicket{
 			TicketLifetime: 1, TicketAgeAdd: 2, TicketNonce: []byte{0x03}, Ticket: []byte{0x04},

@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package handshake
+// Package dtls12 implements certificate message wire formats for DTLS 1.2.
+package dtls12
 
 import (
 	"bytes"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/internal/util"
 )
 
@@ -19,8 +21,8 @@ type MessageCertificate struct {
 }
 
 // Type returns the Handshake Type.
-func (m MessageCertificate) Type() Type {
-	return TypeCertificate
+func (m MessageCertificate) Type() handshakewire.Type {
+	return handshakewire.TypeCertificate
 }
 
 const (

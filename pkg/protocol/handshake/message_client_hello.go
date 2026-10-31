@@ -10,6 +10,7 @@ import (
 
 	"github.com/pion/dtls/v4/internal/clienthello"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
@@ -167,7 +168,7 @@ func (m *MessageClientHello) Unmarshal(data []byte) error {
 	if err != nil {
 		return err
 	}
-	m.Extensions, err = decodeRawExtensions(wire.Extensions, extensionContextClientHello)
+	m.Extensions, err = handshakewire.DecodeRawExtensions(wire.Extensions, handshakewire.ContextClientHello)
 
 	return err
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 )
 
 func flight5Parse(_ context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
@@ -202,7 +203,7 @@ func generateClientCertificate(state *dtlsstate.State12, cache *dtlsflight.Cache
 		return nil, nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrClientCertificateRequired
 	}
 	reqInfo := dtlsconfig.CertificateRequestInfo{Version: protocol.Version1_2}
-	if r, ok2 := pull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok2 {
+	if r, ok2 := pull.Messages[handshake.TypeCertificateRequest].(*handshake12.MessageCertificateRequest); ok2 {
 		reqInfo.CertificateTypes = append([]clientcertificate.Type{}, r.CertificateTypes...)
 		reqInfo.SignatureSchemes = slices.Clone(r.SignatureHashAlgorithms)
 		reqInfo.AcceptableCAs = make([][]byte, len(r.CertificateAuthoritiesNames))
@@ -226,7 +227,7 @@ func generateClientCertificate(state *dtlsstate.State12, cache *dtlsflight.Cache
 			return nil, nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrInvalidPrivateKey
 		}
 	}
-	packet := &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake.MessageCertificate{Certificate: certificate.Certificate}}}
+	packet := &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake12.MessageCertificate{Certificate: certificate.Certificate}}}
 
 	return packet, signer, nil, nil
 }

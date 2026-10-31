@@ -44,6 +44,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 	"github.com/pion/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -443,14 +444,14 @@ func (f flight13ProtectedServerFlightFixture) cacheWithCertificate(t *testing.T,
 func marshalCertificate13(t *testing.T, seq uint16, rawCertificates [][]byte) []byte {
 	t.Helper()
 
-	entries := make([]handshake.CertificateEntry13, 0, len(rawCertificates))
+	entries := make([]handshake13.CertificateEntry, 0, len(rawCertificates))
 	for _, rawCertificate := range rawCertificates {
-		entries = append(entries, handshake.CertificateEntry13{
+		entries = append(entries, handshake13.CertificateEntry{
 			CertificateData: rawCertificate,
 		})
 	}
 
-	raw, err := (&handshake.Handshake{Header: handshake.Header{MessageSequence: seq}, Message: &handshake.MessageCertificate13{CertificateList: entries}}).Marshal()
+	raw, err := (&handshake.Handshake{Header: handshake.Header{MessageSequence: seq}, Message: &handshake13.MessageCertificate{CertificateList: entries}}).Marshal()
 	require.NoError(t, err)
 
 	return raw
@@ -531,7 +532,7 @@ func TestFlight13_5GenerateSelectsClientCertificateBySignatureScheme(t *testing.
 		Hash:      dtlshash.SHA256,
 		Signature: signature.ECDSA,
 	}
-	request := &handshake.MessageCertificateRequest13{CertificateRequestContext: []byte("request"), Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{ecdsaSHA256})}}}
+	request := &handshake13.MessageCertificateRequest{CertificateRequestContext: []byte("request"), Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs([]signaturehash.Algorithm{ecdsaSHA256})}}}
 	cfg := testHandshakeConfig13(t)
 	cfg.LocalCertificates = []tls.Certificate{rsaCertificate, ecdsaCertificate}
 	state := newTestState13(t, true)
@@ -544,7 +545,7 @@ func TestFlight13_5GenerateSelectsClientCertificateBySignatureScheme(t *testing.
 
 	certificateHandshake, ok := packets[0].Content.(*handshake.Handshake)
 	require.True(t, ok)
-	certificateMessage, ok := certificateHandshake.Message.(*handshake.MessageCertificate13)
+	certificateMessage, ok := certificateHandshake.Message.(*handshake13.MessageCertificate)
 	require.True(t, ok)
 	require.Len(t, certificateMessage.CertificateList, 1)
 	assert.Equal(t, ecdsaCertificate.Certificate[0], certificateMessage.CertificateList[0].CertificateData)
@@ -2189,13 +2190,13 @@ func TestFlight13_4Generate(t *testing.T) {
 				require.NoError(t, err)
 				require.Nil(t, dtlsAlert)
 
-				var certificateRequest *handshake.MessageCertificateRequest13
+				var certificateRequest *handshake13.MessageCertificateRequest
 				for _, pkt := range pkts {
 					handshakePacket, ok := pkt.Content.(*handshake.Handshake)
 					if !ok {
 						continue
 					}
-					request, ok := handshakePacket.Message.(*handshake.MessageCertificateRequest13)
+					request, ok := handshakePacket.Message.(*handshake13.MessageCertificateRequest)
 					if !ok {
 						continue
 					}
@@ -2273,7 +2274,7 @@ func TestFlight13_4Generate(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, dtlsflight13.EpochHandshake, pkts[2].Epoch)
 		assert.True(t, pkts[2].Protection == dtlsflight.ProtectionCiphertext)
-		certificateMessage, ok := certificateHandshake.Message.(*handshake.MessageCertificate13)
+		certificateMessage, ok := certificateHandshake.Message.(*handshake13.MessageCertificate)
 		require.True(t, ok)
 		assert.Empty(t, certificateMessage.CertificateRequestContext)
 		require.Len(t, certificateMessage.CertificateList, len(certificate.Certificate))

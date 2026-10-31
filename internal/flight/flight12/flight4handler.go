@@ -30,6 +30,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension12 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 )
 
 func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
@@ -161,7 +162,7 @@ func processClientKeyExchange(state *dtlsstate.State12, cache *dtlsflight.Cache,
 		return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 	}
 
-	if h, hasCert := pull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
+	if h, hasCert := pull.Messages[handshake.TypeCertificate].(*handshake12.MessageCertificate); hasCert {
 		if cfg.ClientAuth == dtlsconfig.NoClientCert {
 			return false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, dtlserrors.ErrInvalidCertificate
 		}
@@ -424,7 +425,7 @@ func serverCertificateFlight(state *dtlsstate.State12, cfg *dtlsconfig.Handshake
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 	}
 
-	pkts = append(pkts, &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake.MessageCertificate{Certificate: certificate.Certificate}}})
+	pkts = append(pkts, &dtlsflight.Outbound{Content: &handshake.Handshake{Message: &handshake12.MessageCertificate{Certificate: certificate.Certificate}}})
 
 	serverRandom := state.LocalRandom.MarshalFixed()
 	clientRandom := state.RemoteRandom.MarshalFixed()
@@ -470,7 +471,7 @@ func serverCertificateFlight(state *dtlsstate.State12, cfg *dtlsconfig.Handshake
 			certificateAuthorities = cfg.ClientCAs.Subjects()
 		}
 
-		certReq := &handshake.MessageCertificateRequest{CertificateTypes: []clientcertificate.Type{clientcertificate.RSASign, clientcertificate.ECDSASign}, SignatureHashAlgorithms: cfg.LocalSignatureSchemes, CertificateAuthoritiesNames: certificateAuthorities}
+		certReq := &handshake12.MessageCertificateRequest{CertificateTypes: []clientcertificate.Type{clientcertificate.RSASign, clientcertificate.ECDSASign}, SignatureHashAlgorithms: cfg.LocalSignatureSchemes, CertificateAuthoritiesNames: certificateAuthorities}
 
 		var content handshake.Handshake
 

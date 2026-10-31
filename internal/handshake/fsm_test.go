@@ -33,6 +33,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 	"github.com/pion/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1032,7 +1033,7 @@ func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
 	}
 
 	certificateHandshake := fsm.flights[0].Content.(*handshake.Handshake)         //nolint:forcetypeassert
-	certificate := certificateHandshake.Message.(*handshake.MessageCertificate13) //nolint:forcetypeassert
+	certificate := certificateHandshake.Message.(*handshake13.MessageCertificate) //nolint:forcetypeassert
 	assert.Equal(t, []byte{0x01, 0x02, 0x03}, certificate.CertificateRequestContext)
 	require.Len(t, certificate.CertificateList, len(clientCertificate.Certificate))
 	for i, entry := range certificate.CertificateList {
@@ -1117,7 +1118,7 @@ func TestHandshakeFSM13ClientFlight5WithoutClientCertificate(t *testing.T) {
 
 			if test.expectedTypes[0] == handshake.TypeCertificate {
 				hs := fsm.flights[0].Content.(*handshake.Handshake)         //nolint:forcetypeassert
-				certificate := hs.Message.(*handshake.MessageCertificate13) //nolint:forcetypeassert
+				certificate := hs.Message.(*handshake13.MessageCertificate) //nolint:forcetypeassert
 				assert.Empty(t, certificate.CertificateRequestContext)
 				assert.Empty(t, certificate.CertificateList)
 				assert.Equal(t, []transcriptMessage{{ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 1}, Type: handshake.TypeCertificate}, {ID: transcriptMessageID{sender: transcriptSenderClient, Seq: 2}, Type: handshake.TypeFinished}}, fsm.transcript.order[7:])
@@ -1357,7 +1358,7 @@ func addCertificateRequestToServerFlight13(t *testing.T, fixture noHRRFlight13Fi
 		Epoch: dtlsflight13.EpochHandshake,
 		Content: &handshake.Handshake{
 			Header:  handshake.Header{MessageSequence: 2},
-			Message: &handshake.MessageCertificateRequest13{CertificateRequestContext: requestContext, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(fixture.cfg.LocalSignatureSchemes)}}},
+			Message: &handshake13.MessageCertificateRequest{CertificateRequestContext: requestContext, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(fixture.cfg.LocalSignatureSchemes)}}},
 		},
 		Protection: dtlsflight.ProtectionCiphertext,
 	}
@@ -1734,7 +1735,7 @@ func TestECHAuthenticatedRejection(t *testing.T) {
 			if name == "client certificate" {
 				msg, ok := fsm.flights[0].Content.(*handshake.Handshake)
 				require.True(t, ok)
-				require.Equal(t, &handshake.MessageCertificate13{CertificateRequestContext: []byte("context")}, msg.Message)
+				require.Equal(t, &handshake13.MessageCertificate{CertificateRequestContext: []byte("context")}, msg.Message)
 			}
 			if name != "no retry configs" {
 				require.Equal(t, []byte{0, 4, 0x12, 0x34, 0, 0}, rejection.RetryConfigList)

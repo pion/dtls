@@ -1,21 +1,22 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package handshake
+package dtls13
 
 import (
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandshakeMessageCertificateRequest13(t *testing.T) {
+func TestHandshakeMessageCertificateRequest(t *testing.T) {
 	cases := map[string]struct {
 		rawCertificateRequest    []byte
-		parsedCertificateRequest *MessageCertificateRequest13
+		parsedCertificateRequest *MessageCertificateRequest
 		expErr                   error
 	}{
 		"valid - no context, single signature algorithm": {
@@ -27,7 +28,7 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 				0x00, 0x02, // signature_algorithms length = 2
 				0x04, 0x03, // ECDSA-SHA256
 			},
-			parsedCertificateRequest: &MessageCertificateRequest13{CertificateRequestContext: []byte{}, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}},
+			parsedCertificateRequest: &MessageCertificateRequest{CertificateRequestContext: []byte{}, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}},
 		},
 		"valid - with context, multiple signature algorithms": {
 			rawCertificateRequest: []byte{
@@ -41,7 +42,7 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 				0x04, 0x01, // RSA-PKCS1-SHA256
 				0x05, 0x03, // ECDSA-SHA384
 			},
-			parsedCertificateRequest: &MessageCertificateRequest13{CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04}, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0401, 0x0503}}}},
+			parsedCertificateRequest: &MessageCertificateRequest{CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04}, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0401, 0x0503}}}},
 		},
 		"invalid - missing signature_algorithms": {
 			rawCertificateRequest: []byte{
@@ -58,7 +59,7 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			c := &MessageCertificateRequest13{}
+			c := &MessageCertificateRequest{}
 			err := c.Unmarshal(testCase.rawCertificateRequest)
 
 			if testCase.expErr != nil {
@@ -76,12 +77,12 @@ func TestHandshakeMessageCertificateRequest13(t *testing.T) {
 	}
 }
 
-func TestMessageCertificateRequest13_Type(t *testing.T) {
-	m := &MessageCertificateRequest13{}
-	assert.Equal(t, TypeCertificateRequest, m.Type())
+func TestMessageCertificateRequest_Type(t *testing.T) {
+	m := &MessageCertificateRequest{}
+	assert.Equal(t, handshakewire.TypeCertificateRequest, m.Type())
 }
 
-func TestMessageCertificateRequest13_ValidContexts(t *testing.T) {
+func TestMessageCertificateRequest_ValidContexts(t *testing.T) {
 	maxContext := make([]byte, certReq13ContextMaxLength)
 	for i := range maxContext {
 		maxContext[i] = byte(i)
@@ -97,26 +98,26 @@ func TestMessageCertificateRequest13_ValidContexts(t *testing.T) {
 		{"maximum length", maxContext, []uint16{0x0403}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			msg := &MessageCertificateRequest13{CertificateRequestContext: test.context, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: test.schemes}}}
-			marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
+			msg := &MessageCertificateRequest{CertificateRequestContext: test.context, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: test.schemes}}}
+			marshalUnmarshalMessageCertificateRequestAndVerifyMatch(t, msg)
 		})
 	}
 }
 
-func TestMessageCertificateRequest13_MultipleExtensions(t *testing.T) {
+func TestMessageCertificateRequest_MultipleExtensions(t *testing.T) {
 	// Build (valid) message with multiple extensions
 	// (signature_algorithms, which must be present, and an unknown extension)
-	msg := &MessageCertificateRequest13{
+	msg := &MessageCertificateRequest{
 		CertificateRequestContext: []byte{0x01, 0x02, 0x03, 0x04},
 		Extensions:                []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403, 0x0503, 0x0601}}, extension.Raw{Type: 0xfefe, Data: []byte{0x00, 0x0e, 0x00, 0x00, 0x0b, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm'}}},
 	}
-	marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(t, msg)
+	marshalUnmarshalMessageCertificateRequestAndVerifyMatch(t, msg)
 }
 
-func TestMessageCertificateRequest13_ContextTooLong(t *testing.T) {
+func TestMessageCertificateRequest_ContextTooLong(t *testing.T) {
 	// Build (invalid) message with context exceeding the max size
 	tooLongContext := make([]byte, certReq13ContextMaxLength+1)
-	msg := &MessageCertificateRequest13{CertificateRequestContext: tooLongContext, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}}
+	msg := &MessageCertificateRequest{CertificateRequestContext: tooLongContext, Extensions: []extension.Value{&extension.SignatureAlgorithms{Schemes: []uint16{0x0403}}}}
 
 	raw, err := msg.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrCertificateRequestContextTooLong)
@@ -129,27 +130,27 @@ func TestMessageCertificateRequest13_ContextTooLong(t *testing.T) {
 	assert.Equal(t, []byte{0xaa, 0xbb, 0xcc}, out)
 }
 
-func TestMessageCertificateRequest13_MissingSignatureAlgorithms(t *testing.T) {
+func TestMessageCertificateRequest_MissingSignatureAlgorithms(t *testing.T) {
 	// Build (invalid) message with no signature_algorithms extension
-	msg := &MessageCertificateRequest13{}
+	msg := &MessageCertificateRequest{}
 
 	raw, err := msg.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrMissingSignatureAlgorithmsExtension)
 	assert.Nil(t, raw)
 }
 
-func TestMessageCertificateRequest13_UnmarshalInvalidContext(t *testing.T) {
+func TestMessageCertificateRequest_UnmarshalInvalidContext(t *testing.T) {
 	// Define (invalid) serialized message (data smaller than advertised context length)
 	data := []byte{
 		0x05,                   // context length = 5
 		0x01, 0x02, 0x03, 0x04, // only 2 bytes
 	}
 
-	err := (&MessageCertificateRequest13{}).Unmarshal(data)
+	err := (&MessageCertificateRequest{}).Unmarshal(data)
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateRequestContext)
 }
 
-func TestMessageCertificateRequest13_UnmarshalInvalidExtensions(t *testing.T) {
+func TestMessageCertificateRequest_UnmarshalInvalidExtensions(t *testing.T) {
 	tests := []struct {
 		name string
 		data []byte
@@ -176,13 +177,13 @@ func TestMessageCertificateRequest13_UnmarshalInvalidExtensions(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := (&MessageCertificateRequest13{}).Unmarshal(test.data)
+			err := (&MessageCertificateRequest{}).Unmarshal(test.data)
 			assert.ErrorIs(t, err, dtlserrors.ErrInvalidExtensionsLength)
 		})
 	}
 }
 
-func FuzzMessageCertificateRequest13(f *testing.F) {
+func FuzzMessageCertificateRequest(f *testing.F) {
 	// Seed with valid minimal message (signature_algorithms extension)
 	f.Add([]byte{
 		0x00,       // context length = 0
@@ -218,20 +219,20 @@ func FuzzMessageCertificateRequest13(f *testing.F) {
 	f.Add([]byte{0xFF, 0xFF, 0xFF})
 
 	f.Fuzz(func(_ *testing.T, data []byte) {
-		_ = (&MessageCertificateRequest13{}).Unmarshal(data)
+		_ = (&MessageCertificateRequest{}).Unmarshal(data)
 	})
 }
 
-// marshalUnmarshalMessageCertificateRequest13AndVerifyMatch marshals and
-// unmarshals a MessageCertificateRequest13, then verifies that the message
+// marshalUnmarshalMessageCertificateRequestAndVerifyMatch marshals and
+// unmarshals a MessageCertificateRequest, then verifies that the message
 // before and after have matching properties.
-func marshalUnmarshalMessageCertificateRequest13AndVerifyMatch(
+func marshalUnmarshalMessageCertificateRequestAndVerifyMatch(
 	t *testing.T,
-	in *MessageCertificateRequest13,
+	in *MessageCertificateRequest,
 ) {
 	t.Helper()
 
-	out := &MessageCertificateRequest13{}
+	out := &MessageCertificateRequest{}
 
 	// Marshal, then unmarshal
 	marshaled, err := in.Marshal()

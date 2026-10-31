@@ -24,6 +24,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension12 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls12"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 )
 
 func flight3Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (next Flight, dtlsAlert *alert.Alert, err error) {
@@ -135,7 +136,7 @@ func parseServerKeyFlight(conn dtlsflight.Conn, state *dtlsstate.State12, cache 
 	}
 	state.HandshakeRecvSequence = serverFlightPull.NextSequence
 
-	if h, ok := serverFlightPull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); ok {
+	if h, ok := serverFlightPull.Messages[handshake.TypeCertificate].(*handshake12.MessageCertificate); ok {
 		state.PeerCertificates = util.CloneByteSlices(h.Certificate)
 	} else if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrInvalidCertificate
@@ -151,7 +152,7 @@ func parseServerKeyFlight(conn dtlsflight.Conn, state *dtlsstate.State12, cache 
 		state.SetRemoteServerKeyExchange(nil)
 	}
 
-	if creq, ok := serverFlightPull.Messages[handshake.TypeCertificateRequest].(*handshake.MessageCertificateRequest); ok {
+	if creq, ok := serverFlightPull.Messages[handshake.TypeCertificateRequest].(*handshake12.MessageCertificateRequest); ok {
 		state.RemoteCertRequestAlgs = slices.Clone(creq.SignatureHashAlgorithms)
 		state.RemoteRequestedCertificate = true
 	}
