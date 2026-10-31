@@ -17,6 +17,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 )
 
 func flight5Generate(
@@ -41,14 +42,14 @@ func flight5ClientAuthPackets(
 	}
 
 	if flightCtx.state.ECH != nil && flightCtx.state.ECH.Rejected {
-		return []*dtlsflight.Outbound{HandshakePacket(&handshake.MessageCertificate13{CertificateRequestContext: bytes.Clone(certificateRequest.CertificateRequestContext)})}, nil, nil
+		return []*dtlsflight.Outbound{HandshakePacket(&handshake13.MessageCertificate{CertificateRequestContext: bytes.Clone(certificateRequest.CertificateRequestContext)})}, nil, nil
 	}
 	certificate, err := flight5ClientCertificate(flightCtx.cfg, certificateRequest)
 	if err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
 	}
 	if len(certificate.Certificate) == 0 {
-		return []*dtlsflight.Outbound{HandshakePacket(&handshake.MessageCertificate13{CertificateRequestContext: append([]byte(nil), certificateRequest.CertificateRequestContext...)})}, nil, nil
+		return []*dtlsflight.Outbound{HandshakePacket(&handshake13.MessageCertificate{CertificateRequestContext: append([]byte(nil), certificateRequest.CertificateRequestContext...)})}, nil, nil
 	}
 
 	signer, ok := certificate.PrivateKey.(crypto.Signer)
@@ -63,7 +64,7 @@ func flight5ClientAuthPackets(
 	}
 
 	return []*dtlsflight.Outbound{
-		HandshakePacket(&handshake.MessageCertificate13{
+		HandshakePacket(&handshake13.MessageCertificate{
 			CertificateRequestContext: append(
 				[]byte(nil),
 				certificateRequest.CertificateRequestContext...,
@@ -80,7 +81,7 @@ func flight5ClientAuthPackets(
 	}, nil, nil
 }
 
-func flight5ClientCertificate(cfg *dtlsconfig.HandshakeConfig, request *handshake.MessageCertificateRequest13) (*tls.Certificate, error) {
+func flight5ClientCertificate(cfg *dtlsconfig.HandshakeConfig, request *handshake13.MessageCertificateRequest) (*tls.Certificate, error) {
 	requestInfo := &dtlsconfig.CertificateRequestInfo{SignatureSchemes: certificateRequestSignatureSchemes(request), Version: protocol.Version1_3}
 	for _, ext := range request.Extensions {
 		if authorities, ok := ext.(*extension13.CertificateAuthorities); ok {
@@ -105,7 +106,7 @@ func flight5ClientCertificate(cfg *dtlsconfig.HandshakeConfig, request *handshak
 }
 
 func certificateRequestSignatureSchemes(
-	request *handshake.MessageCertificateRequest13,
+	request *handshake13.MessageCertificateRequest,
 ) []signaturehash.Algorithm {
 	for _, ext := range request.Extensions {
 		if algorithms, ok := ext.(*extension.SignatureAlgorithms); ok {
@@ -116,10 +117,10 @@ func certificateRequestSignatureSchemes(
 	return nil
 }
 
-func certificateEntries(certificates [][]byte) []handshake.CertificateEntry13 {
-	entries := make([]handshake.CertificateEntry13, 0, len(certificates))
+func certificateEntries(certificates [][]byte) []handshake13.CertificateEntry {
+	entries := make([]handshake13.CertificateEntry, 0, len(certificates))
 	for _, certificate := range certificates {
-		entries = append(entries, handshake.CertificateEntry13{
+		entries = append(entries, handshake13.CertificateEntry{
 			CertificateData: bytes.Clone(certificate),
 		})
 	}

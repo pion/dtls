@@ -23,6 +23,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 )
 
 // flight4Parse processes the client's protected final flight. The parser is
@@ -309,12 +310,12 @@ func serverCertificatePackets(state *dtlsstate.State13, cfg *dtlsconfig.Handshak
 				Authorities: cfg.ClientCAs.Subjects(),
 			})
 		}
-		m := handshake.MessageCertificateRequest13{}
+		m := handshake13.MessageCertificateRequest{}
 		m.Extensions = certificateRequestExtensions
 		pkts = append(pkts, HandshakePacket(&m))
 	}
 	pkts = append(pkts,
-		HandshakePacket(&handshake.MessageCertificate13{
+		HandshakePacket(&handshake13.MessageCertificate{
 			CertificateList: certificateEntries(certificate.Certificate),
 		}),
 		CertificateVerifyPacket(

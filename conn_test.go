@@ -35,6 +35,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 	"github.com/pion/logging"
 	"github.com/pion/transport/v5/deadline"
@@ -987,7 +988,7 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 	protection := &sequenceRecordingProtection{capabilities: cipherSuite.Capabilities()}
 	commonState := &dtlsstate.Common{LocalVersion: protocol.Version1_2, LocalSequenceNumber: map[uint64]uint64{1: firstSequence}, RemoteConnectionID: remoteCID, CipherSuite: cipherSuite}
 	conn := &Conn{maximumTransmissionUnit: 10, paddingLengthGenerator: func(uint) uint { return 0 }, state: &dtlsstate.State12{Common: commonState, Protection: protection}}
-	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)}}}
+	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake12.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)}}}
 	_, err := dtlsHandshake.Marshal()
 	require.NoError(t, err)
 
@@ -1039,7 +1040,7 @@ func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
 func TestProcessProtectedHandshakePacketFiltersACKedFragments(t *testing.T) {
 	conn, _ := newTestConnWithWriteProtection(t)
 	conn.maximumTransmissionUnit = 10
-	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)}}}
+	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake12.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)}}}
 	_, err := dtlsHandshake.Marshal()
 	require.NoError(t, err)
 

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package handshake
+package dtls13
 
 import (
 	"crypto/rand"
@@ -13,13 +13,14 @@ import (
 	"time"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/cryptobyte"
 )
 
-func TestHandshakeMessageCertificate13(t *testing.T) {
+func TestHandshakeMessageCertificate(t *testing.T) {
 	// This is the same certificate from TestHandshakeMessageCertificate (DTLS 1.2)
 	certDER := []byte{
 		0x30, 0x82, 0x01, 0x85, 0x30, 0x82, 0x01, 0x2b, 0x02, 0x14,
@@ -51,7 +52,7 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 
 	tests := map[string]struct {
 		rawCertificate    []byte
-		parsedCertificate *MessageCertificate13
+		parsedCertificate *MessageCertificate
 		expErr            error
 	}{
 		"valid - no context, single cert, no extensions": {
@@ -60,7 +61,7 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 				0x00, 0x01, 0x8E, // certificate_list length = 398 (3 + 393 + 2)
 				0x00, 0x01, 0x89, // cert_data length = 393
 			}, append(certDER, []byte{0x00, 0x00}...)...), // cert_data + extensions length = 0
-			parsedCertificate: &MessageCertificate13{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry13{{CertificateData: certDER, Extensions: []extension.Value{}}}},
+			parsedCertificate: &MessageCertificate{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry{{CertificateData: certDER, Extensions: []extension.Value{}}}},
 		},
 		"valid - with context, single cert, no extensions": {
 			rawCertificate: append([]byte{
@@ -69,14 +70,14 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 				0x00, 0x01, 0x8E, // certificate_list length = 398 (3 + 393 + 2)
 				0x00, 0x01, 0x89, // cert_data length = 393
 			}, append(certDER, []byte{0x00, 0x00}...)...), // cert_data + extensions length = 0
-			parsedCertificate: &MessageCertificate13{CertificateRequestContext: []byte{0x01, 0x02}, CertificateList: []CertificateEntry13{{CertificateData: certDER, Extensions: []extension.Value{}}}},
+			parsedCertificate: &MessageCertificate{CertificateRequestContext: []byte{0x01, 0x02}, CertificateList: []CertificateEntry{{CertificateData: certDER, Extensions: []extension.Value{}}}},
 		},
 		"valid - no context, empty cert list": {
 			rawCertificate: []byte{
 				0x00,             // context length = 0
 				0x00, 0x00, 0x00, // certificate_list length = 0
 			},
-			parsedCertificate: &MessageCertificate13{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry13{}},
+			parsedCertificate: &MessageCertificate{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry{}},
 		},
 		"invalid - buffer too small": {
 			rawCertificate: []byte{0x00},
@@ -86,7 +87,7 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			cert := &MessageCertificate13{}
+			cert := &MessageCertificate{}
 			err := cert.Unmarshal(test.rawCertificate)
 
 			if test.expErr != nil {
@@ -111,48 +112,48 @@ func TestHandshakeMessageCertificate13(t *testing.T) {
 	}
 }
 
-func TestMessageCertificate13_Type(t *testing.T) {
-	m := &MessageCertificate13{}
-	assert.Equal(t, TypeCertificate, m.Type())
+func TestMessageCertificate_Type(t *testing.T) {
+	m := &MessageCertificate{}
+	assert.Equal(t, handshakewire.TypeCertificate, m.Type())
 }
 
-func TestMessageCertificate13_MultipleCertificates(t *testing.T) {
+func TestMessageCertificate_MultipleCertificates(t *testing.T) {
 	// Build (valid) message with multiple certificates
-	msg := &MessageCertificate13{
+	msg := &MessageCertificate{
 		CertificateRequestContext: []byte{},
-		CertificateList:           []CertificateEntry13{{CertificateData: []byte{0x01, 0x02, 0x03}, Extensions: []extension.Value{}}, {CertificateData: []byte{0x04, 0x05, 0x06, 0x07}, Extensions: []extension.Value{}}, {CertificateData: []byte{0x08, 0x09}, Extensions: []extension.Value{}}},
+		CertificateList:           []CertificateEntry{{CertificateData: []byte{0x01, 0x02, 0x03}, Extensions: []extension.Value{}}, {CertificateData: []byte{0x04, 0x05, 0x06, 0x07}, Extensions: []extension.Value{}}, {CertificateData: []byte{0x08, 0x09}, Extensions: []extension.Value{}}},
 	}
-	marshalUnmarshalMessageCertificate13AndVerifyMatch(t, msg, nil)
+	marshalUnmarshalMessageCertificateAndVerifyMatch(t, msg, nil)
 }
 
-func TestMessageCertificate13_MaxContextLength(t *testing.T) {
+func TestMessageCertificate_MaxContextLength(t *testing.T) {
 	// Build (valid) message with context of exactly the max size
 	context := make([]byte, cert13ContextMaxLength)
 	for i := range context {
 		context[i] = byte(i)
 	}
-	msg := &MessageCertificate13{CertificateRequestContext: context, CertificateList: []CertificateEntry13{{CertificateData: []byte{0x00}, Extensions: []extension.Value{}}}}
-	marshalUnmarshalMessageCertificate13AndVerifyMatch(t, msg, nil)
+	msg := &MessageCertificate{CertificateRequestContext: context, CertificateList: []CertificateEntry{{CertificateData: []byte{0x00}, Extensions: []extension.Value{}}}}
+	marshalUnmarshalMessageCertificateAndVerifyMatch(t, msg, nil)
 }
 
-func TestMessageCertificate13_ContextTooLong(t *testing.T) {
+func TestMessageCertificate_ContextTooLong(t *testing.T) {
 	// Build (invalid) message with context exceeding the max size
 	context := make([]byte, cert13ContextMaxLength+1)
-	msg := &MessageCertificate13{CertificateRequestContext: context, CertificateList: []CertificateEntry13{{CertificateData: []byte{0x00}, Extensions: nil}}}
+	msg := &MessageCertificate{CertificateRequestContext: context, CertificateList: []CertificateEntry{{CertificateData: []byte{0x00}, Extensions: nil}}}
 
 	_, err := msg.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrCertificateRequestContextTooLong)
 }
 
-func TestMessageCertificate13_EmptyCertData(t *testing.T) {
+func TestMessageCertificate_EmptyCertData(t *testing.T) {
 	// Build (invalid) message with empty certificate data
-	msg := &MessageCertificate13{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry13{{CertificateData: []byte{}, Extensions: []extension.Value{}}}}
+	msg := &MessageCertificate{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry{{CertificateData: []byte{}, Extensions: []extension.Value{}}}}
 
 	_, err := msg.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateEntry)
 }
 
-func TestMessageCertificate13_CertDataOneByteOverBoundary(t *testing.T) {
+func TestMessageCertificate_CertDataOneByteOverBoundary(t *testing.T) {
 	// Test cert_data at 2^24-1-4 bytes (one byte over the single-cert-no-ext limit)
 	// Serialized size = 3 + (0xffffff-4) + 2 = 0x1000000 (exceeds 2^24-1)
 	certData := make([]byte, 0xffffff-4) // 2^24-1-4 bytes
@@ -160,13 +161,13 @@ func TestMessageCertificate13_CertDataOneByteOverBoundary(t *testing.T) {
 		certData[i] = byte(i)
 	}
 
-	msg := &MessageCertificate13{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry13{{CertificateData: certData, Extensions: []extension.Value{}}}}
+	msg := &MessageCertificate{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry{{CertificateData: certData, Extensions: []extension.Value{}}}}
 
 	_, err := msg.Marshal()
 	assert.ErrorIs(t, err, dtlserrors.ErrCertificateListTooLong)
 }
 
-func TestMessageCertificate13_MultipleCertsExceedingBoundary(t *testing.T) {
+func TestMessageCertificate_MultipleCertsExceedingBoundary(t *testing.T) {
 	// Test multiple certs that individually are fine but together exceed the limit
 	// Two certs of ~8MB each should exceed 2^24-1 total
 	certData1 := make([]byte, 0x800000) // 8MB
@@ -176,14 +177,14 @@ func TestMessageCertificate13_MultipleCertsExceedingBoundary(t *testing.T) {
 		certData2[i] = byte(i + 1)
 	}
 
-	msg := &MessageCertificate13{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry13{{CertificateData: certData1, Extensions: []extension.Value{}}, {CertificateData: certData2, Extensions: []extension.Value{}}}}
+	msg := &MessageCertificate{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry{{CertificateData: certData1, Extensions: []extension.Value{}}, {CertificateData: certData2, Extensions: []extension.Value{}}}}
 
 	_, err := msg.Marshal()
 	// Total serialized = 2 * (3 + 0x800000 + 2) = 2 * 0x800005 = 0x100000A (exceeds 0xffffff)
 	assert.ErrorIs(t, err, dtlserrors.ErrCertificateListTooLong)
 }
 
-func TestMessageCertificate13_CertListAtExactBoundary(t *testing.T) {
+func TestMessageCertificate_CertListAtExactBoundary(t *testing.T) {
 	// Test that we can marshal a certificate_list of exactly 2^24-1 bytes
 	// We need to account for all overhead: 3 (cert prefix) + cert_data + 2 (ext prefix)
 	// So cert_data should be 0xffffff - 5
@@ -192,7 +193,7 @@ func TestMessageCertificate13_CertListAtExactBoundary(t *testing.T) {
 		certData[i] = byte(i)
 	}
 
-	msg := &MessageCertificate13{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry13{{CertificateData: certData, Extensions: []extension.Value{}}}}
+	msg := &MessageCertificate{CertificateRequestContext: []byte{}, CertificateList: []CertificateEntry{{CertificateData: certData, Extensions: []extension.Value{}}}}
 
 	data, err := msg.Marshal()
 	assert.NoError(t, err)
@@ -204,13 +205,13 @@ func TestMessageCertificate13_CertListAtExactBoundary(t *testing.T) {
 	assert.Equal(t, 0xffffff, certListLen, "certificate_list should be exactly at 2^24-1")
 
 	// Verify round-trip
-	out := &MessageCertificate13{}
+	out := &MessageCertificate{}
 	err = out.Unmarshal(data)
 	assert.NoError(t, err)
 	assert.Equal(t, len(msg.CertificateList[0].CertificateData), len(out.CertificateList[0].CertificateData))
 }
 
-func TestMessageCertificate13_UnmarshalBufferTooSmall(t *testing.T) {
+func TestMessageCertificate_UnmarshalBufferTooSmall(t *testing.T) {
 	// Define (invalid) serialized messages (data too small)
 	tests := []struct {
 		name string
@@ -223,13 +224,13 @@ func TestMessageCertificate13_UnmarshalBufferTooSmall(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := (&MessageCertificate13{}).Unmarshal(test.data)
+			err := (&MessageCertificate{}).Unmarshal(test.data)
 			assert.ErrorIs(t, err, dtlserrors.ErrBufferTooSmall)
 		})
 	}
 }
 
-func TestMessageCertificate13_UnmarshalLengthMismatch(t *testing.T) {
+func TestMessageCertificate_UnmarshalLengthMismatch(t *testing.T) {
 	// Define (invalid) serialized message (certificate_list
 	// length says 10, but only 5 bytes follow)
 	data := []byte{
@@ -238,12 +239,12 @@ func TestMessageCertificate13_UnmarshalLengthMismatch(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, 0x00, // only 5 bytes
 	}
 
-	err := (&MessageCertificate13{}).Unmarshal(data)
+	err := (&MessageCertificate{}).Unmarshal(data)
 	// With cryptobyte, this will fail when trying to read the certificate_list
 	assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateEntry)
 }
 
-func TestMessageCertificate13_UnmarshalInvalidCertEntry(t *testing.T) {
+func TestMessageCertificate_UnmarshalInvalidCertEntry(t *testing.T) {
 	tests := []struct {
 		name string
 		data []byte
@@ -271,7 +272,7 @@ func TestMessageCertificate13_UnmarshalInvalidCertEntry(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := (&MessageCertificate13{}).Unmarshal(test.data)
+			err := (&MessageCertificate{}).Unmarshal(test.data)
 			assert.ErrorIs(t, err, dtlserrors.ErrInvalidCertificateEntry)
 		})
 	}
@@ -333,7 +334,7 @@ func TestParseCertificateEntry_GeneratedCertificateWithExtensions(t *testing.T) 
 	assert.Equal(t, x509.RSA, parsedCert.PublicKeyAlgorithm)
 }
 
-func FuzzMessageCertificate13(f *testing.F) {
+func FuzzMessageCertificate(f *testing.F) {
 	// Seed with valid minimal message (empty context, empty cert list)
 	f.Add([]byte{
 		0x00,             // context length = 0
@@ -361,18 +362,18 @@ func FuzzMessageCertificate13(f *testing.F) {
 	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF})
 
 	f.Fuzz(func(_ *testing.T, data []byte) {
-		_ = (&MessageCertificate13{}).Unmarshal(data)
+		_ = (&MessageCertificate{}).Unmarshal(data)
 	})
 }
 
-// marshalUnmarshalMessageCertificate13AndVerifyMatch marshals and
-// unmarshals a MessageCertificate13, then verifies that the message
+// marshalUnmarshalMessageCertificateAndVerifyMatch marshals and
+// unmarshals a MessageCertificate, then verifies that the message
 // before and after have matching properties.
-func marshalUnmarshalMessageCertificate13AndVerifyMatch(t *testing.T, in *MessageCertificate13, out *MessageCertificate13) {
+func marshalUnmarshalMessageCertificateAndVerifyMatch(t *testing.T, in *MessageCertificate, out *MessageCertificate) {
 	t.Helper()
 
 	if out == nil {
-		out = &MessageCertificate13{}
+		out = &MessageCertificate{}
 	}
 
 	// Marshal, then unmarshal

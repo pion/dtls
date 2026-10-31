@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package handshake
+package dtls12
 
 import (
 	"crypto/tls"
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/pkg/crypto/clientcertificate"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 )
@@ -32,8 +33,8 @@ const (
 )
 
 // Type returns the Handshake Type.
-func (m MessageCertificateRequest) Type() Type {
-	return TypeCertificateRequest
+func (m MessageCertificateRequest) Type() handshakewire.Type {
+	return handshakewire.TypeCertificateRequest
 }
 
 // MarshalSize returns the minimal size required for MarshalTo.

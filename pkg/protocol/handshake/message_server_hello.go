@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
@@ -175,7 +176,7 @@ func (m *MessageServerHello) Unmarshal(data []byte) error {
 func (m *MessageServerHello) unmarshalExtensions(data []byte, currOffset int) error {
 	if len(data) <= currOffset {
 		context := serverHelloExtensionContext(m.Random, nil)
-		extensions, err := decodeRawExtensions(nil, context)
+		extensions, err := handshakewire.DecodeRawExtensions(nil, context)
 		if err != nil {
 			return err
 		}
@@ -186,16 +187,16 @@ func (m *MessageServerHello) unmarshalExtensions(data []byte, currOffset int) er
 
 	rawExtensions, err := extension.ParseList(data[currOffset:])
 	if err != nil {
-		context := extensionContextServerHello12
+		context := handshakewire.ContextServerHello12
 		randomBytes := m.Random.MarshalFixed()
 		if bytes.Equal(randomBytes[:], HelloRetryRequestRandom()) {
-			context = extensionContextHelloRetryRequest
+			context = handshakewire.ContextHelloRetryRequest
 		}
 
 		return fmt.Errorf("extensions in %s: %w: %w", context, err, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
 	}
 	context := serverHelloExtensionContext(m.Random, rawExtensions)
-	extensions, err := decodeRawExtensions(rawExtensions, context)
+	extensions, err := handshakewire.DecodeRawExtensions(rawExtensions, context)
 	if err != nil {
 		return err
 	}

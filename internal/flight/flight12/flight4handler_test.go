@@ -18,6 +18,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -142,7 +143,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 		LocalCertificates:     []tls.Certificate{cert},
 		LocalSignatureSchemes: signaturehash.Algorithms(),
 		ClientAuth:            dtlsconfig.RequestClientCert,
-		CertificateRequestMessageHook: func(mcr handshake.MessageCertificateRequest) handshake.Message {
+		CertificateRequestMessageHook: func(mcr handshake12.MessageCertificateRequest) handshake.Message {
 			mcr.SignatureHashAlgorithms = []signaturehash.Algorithm{}
 
 			return &mcr
@@ -155,7 +156,7 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 	for _, p := range pkts {
 		if h, ok := p.Content.(*handshake.Handshake); ok {
 			if h.Message.Type() == handshake.TypeCertificateRequest {
-				mcr := &handshake.MessageCertificateRequest{}
+				mcr := &handshake12.MessageCertificateRequest{}
 				msg, err := h.Message.Marshal()
 				assert.NoError(t, err)
 				assert.NoError(t, mcr.Unmarshal(msg))

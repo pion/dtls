@@ -21,6 +21,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 )
 
 func flight3Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshakeContext) (Flight, *alert.Alert, error) {
@@ -265,7 +266,7 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 			if failure != nil {
 				return failure
 			}
-		case *handshake.MessageCertificateRequest13:
+		case *handshake13.MessageCertificateRequest:
 			flightCtx.state.RemoteCertificateRequest = message
 		}
 	}

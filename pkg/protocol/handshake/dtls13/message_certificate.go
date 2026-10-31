@@ -1,23 +1,25 @@
 // SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
 // SPDX-License-Identifier: MIT
 
-package handshake
+// Package dtls13 implements certificate message wire formats for DTLS 1.3.
+package dtls13
 
 import (
 	"bytes"
 	"encoding/binary"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
+	"github.com/pion/dtls/v4/internal/handshakewire"
 	"github.com/pion/dtls/v4/internal/util"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"golang.org/x/crypto/cryptobyte"
 )
 
-// CertificateEntry13 represents a single certificate entry in the DTLS 1.3 Certificate message.
+// CertificateEntry represents a single certificate entry in the DTLS 1.3 Certificate message.
 // Each entry contains certificate data and optional per-certificate extensions.
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2
-type CertificateEntry13 struct {
+type CertificateEntry struct {
 	// CertificateData contains the DER-encoded X.509 certificate.
 	// Can be empty for certain contexts (e.g., RawPublicKey mode).
 	CertificateData []byte
@@ -27,11 +29,11 @@ type CertificateEntry13 struct {
 	Extensions []extension.Value
 }
 
-// MessageCertificate13 represents the Certificate handshake message for DTLS 1.3.
+// MessageCertificate represents the Certificate handshake message for DTLS 1.3.
 // This message is used to transport the certificate chain and associated extensions.
 //
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2
-type MessageCertificate13 struct {
+type MessageCertificate struct {
 	// CertificateRequestContext is an opaque value that binds this certificate
 	// to a specific CertificateRequest (for client certificates) or is empty
 	// for server certificates.
@@ -39,12 +41,12 @@ type MessageCertificate13 struct {
 
 	// CertificateList contains the certificate chain with each entry having
 	// optional per-certificate extensions.
-	CertificateList []CertificateEntry13
+	CertificateList []CertificateEntry
 }
 
 // Type returns the handshake message type.
-func (m MessageCertificate13) Type() Type {
-	return TypeCertificate
+func (m MessageCertificate) Type() handshakewire.Type {
+	return handshakewire.TypeCertificate
 }
 
 const (
@@ -55,7 +57,7 @@ const (
 	cert13ExtLengthFieldSize     = 2
 )
 
-// Marshal encodes the MessageCertificate13 into its wire format.
+// Marshal encodes the MessageCertificate into its wire format.
 //
 // Wire format:
 //
@@ -67,7 +69,7 @@ const (
 //	  [variable] cert_data (DER certificate)
 //	  [2 bytes]  extensions length (from extension.MarshalList)
 //	  [variable] extensions data
-func (m *MessageCertificate13) Marshal() ([]byte, error) {
+func (m *MessageCertificate) Marshal() ([]byte, error) {
 	extensions, certsSize, marshalSize, err := m.prepareMarshal()
 	if err != nil {
 		return nil, err
@@ -80,11 +82,11 @@ func (m *MessageCertificate13) Marshal() ([]byte, error) {
 }
 
 // MarshalSize returns the minimal size required for MarshalTo.
-func (m *MessageCertificate13) MarshalSize() int {
+func (m *MessageCertificate) MarshalSize() int {
 	return 1 + len(m.CertificateRequestContext) + cert13CertLengthFieldSize + m.certsSize()
 }
 
-func (m *MessageCertificate13) certsSize() int {
+func (m *MessageCertificate) certsSize() int {
 	certificateListSize := 0
 	for i := range m.CertificateList {
 		entry := &m.CertificateList[i]
@@ -97,7 +99,7 @@ func (m *MessageCertificate13) certsSize() int {
 }
 
 // MarshalTo is same as Marshal but uses a pre-allocated buffer.
-func (m *MessageCertificate13) MarshalTo(out []byte) (int, error) {
+func (m *MessageCertificate) MarshalTo(out []byte) (int, error) {
 	extensions, certsSize, marshalSize, err := m.prepareMarshal()
 	if err != nil {
 		return 0, err
@@ -111,7 +113,7 @@ func (m *MessageCertificate13) MarshalTo(out []byte) (int, error) {
 	return marshalSize, nil
 }
 
-func (m *MessageCertificate13) prepareMarshal() ([][]byte, int, int, error) {
+func (m *MessageCertificate) prepareMarshal() ([][]byte, int, int, error) {
 	// Validate certificate_request_context length
 	if len(m.CertificateRequestContext) > cert13ContextMaxLength {
 		return nil, 0, 0, dtlserrors.ErrCertificateRequestContextTooLong
@@ -145,7 +147,7 @@ func (m *MessageCertificate13) prepareMarshal() ([][]byte, int, int, error) {
 	return extensions, certsSize, marshalSize, nil
 }
 
-func (m *MessageCertificate13) marshalTo(out []byte, extensions [][]byte, certsSize int) {
+func (m *MessageCertificate) marshalTo(out []byte, extensions [][]byte, certsSize int) {
 	// Start with certificate_request_context (1-byte length prefix)
 	//nolint:gosec // G115: certificate_request_context length is validated to be <= 255 above.
 	offset := 0
@@ -172,7 +174,7 @@ func (m *MessageCertificate13) marshalTo(out []byte, extensions [][]byte, certsS
 }
 
 // parseCertificate13Entry parses a single certificate entry from the cryptobyte string.
-func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error) {
+func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry, error) {
 	// Read cert_data with 3-byte length prefix
 	var certData cryptobyte.String
 	if !str.ReadUint24LengthPrefixed(&certData) {
@@ -200,7 +202,7 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 
 	// Unmarshal extensions data
 	extensionsData := []byte(*str)[:cert13ExtLengthFieldSize+int(extensionsLen)]
-	extensions, err := decodeExtensionList(extensionsData, extensionContextCertificateEntry)
+	extensions, err := handshakewire.DecodeExtensionList(extensionsData, handshakewire.ContextCertificateEntry)
 	if err != nil {
 		return nil, err
 	}
@@ -210,14 +212,14 @@ func parseCertificate13Entry(str *cryptobyte.String) (*CertificateEntry13, error
 		return nil, dtlserrors.ErrInvalidCertificateEntry
 	}
 
-	entry := &CertificateEntry13{CertificateData: certDataBytes}
+	entry := &CertificateEntry{CertificateData: certDataBytes}
 	entry.Extensions = extensions
 
 	return entry, nil
 }
 
-// Unmarshal decodes the MessageCertificate13 from its wire format.
-func (m *MessageCertificate13) Unmarshal(data []byte) error {
+// Unmarshal decodes the MessageCertificate from its wire format.
+func (m *MessageCertificate) Unmarshal(data []byte) error {
 	// Validate minimum data length
 	if len(data) < cert13ContextLengthFieldSize+cert13CertLengthFieldSize {
 		return dtlserrors.ErrBufferTooSmall
@@ -244,7 +246,7 @@ func (m *MessageCertificate13) Unmarshal(data []byte) error {
 	}
 
 	// Parse certificate_list
-	m.CertificateList = []CertificateEntry13{}
+	m.CertificateList = []CertificateEntry{}
 	for len(certificateListData) > 0 {
 		entry, err := parseCertificate13Entry(&certificateListData)
 		if err != nil {

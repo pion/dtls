@@ -16,7 +16,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	extension13 "github.com/pion/dtls/v4/pkg/protocol/extension/dtls13"
-	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 )
 
 // PSK associates an offered identity state with its secret, hash, and binder label.
@@ -260,7 +260,7 @@ type State13 struct {
 
 	// RemoteCertificateRequest is the authenticated and decoded request
 	// kept for the client's final flight.
-	RemoteCertificateRequest *handshake.MessageCertificateRequest13
+	RemoteCertificateRequest *handshake13.MessageCertificateRequest
 }
 
 // HandshakeSequences snapshots the counters while post-handshake messages advance them.
