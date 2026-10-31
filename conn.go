@@ -2782,7 +2782,9 @@ func (c *Conn) notify(ctx context.Context, level alert.Level, desc alert.Descrip
 			Description: desc,
 		},
 	}
-	if c.isHandshakeCompletedSuccessfully() {
+	// DTLS 1.3 protects alerts as soon as handshake traffic keys are in use.
+	if c.isHandshakeCompletedSuccessfully() ||
+		(common.LocalVersion == protocol.Version1_3 && common.LocalEpoch() >= dtlsflight13.EpochHandshake) {
 		outbound.Protection = dtlsflight.ProtectionCiphertext
 	}
 

@@ -2857,3 +2857,26 @@ func TestDeferChangeCipherSpecUntilVersionSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestDTLS13ClientCertificateRejectionAlertsPeer(t *testing.T) {
+	serverCertificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	clientCertificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	a, b := packetPipe()
+	client, err := Client(a, a.RemoteAddr(), WithCertificates(clientCertificate), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3))
+	require.NoError(t, err)
+	server, err := Server(b, b.RemoteAddr(), WithCertificates(serverCertificate), WithClientAuth(VerifyClientCertIfGiven), WithMinVersion(protocol.Version1_3))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close(); _ = a.Close(); _ = b.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	clientDone := make(chan error, 1)
+	go func() { clientDone <- client.HandshakeContext(ctx) }()
+	require.ErrorIs(t, server.HandshakeContext(ctx), dtlserrors.ErrCertificateVerificationFailed)
+	clientErr := <-clientDone
+	var receivedAlert *alertError
+	require.ErrorAs(t, clientErr, &receivedAlert)
+	require.Equal(t, alert.Fatal, receivedAlert.Level)
+	require.Equal(t, alert.BadCertificate, receivedAlert.Description)
+}
