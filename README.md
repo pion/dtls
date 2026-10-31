@@ -113,12 +113,17 @@ Pion DTLS supports DTLS 1.2 and DTLS 1.3. We welcome contributions and bug fixes
 * Compression
 
 #### Pion DTLS
-For a DTLS 1.2 Server that listens on 127.0.0.1:4444
+
+The library enables DTLS 1.2 and DTLS 1.3 by default, preferring DTLS 1.3.
+Use `WithMaxVersion(protocol.Version1_2)` to restrict a connection to DTLS 1.2,
+or `WithMinVersion(protocol.Version1_3)` to require DTLS 1.3.
+
+For a DTLS server that listens on 127.0.0.1:4444
 ```sh
 go run examples/listen/selfsign/main.go
 ```
 
-For a DTLS 1.2 Client that connects to 127.0.0.1:4444
+For a DTLS client that connects to 127.0.0.1:4444
 ```sh
 go run examples/dial/selfsign/main.go
 ```
