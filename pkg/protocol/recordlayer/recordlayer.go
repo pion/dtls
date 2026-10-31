@@ -288,7 +288,7 @@ func nextRecord(datagram []byte, config UnpackDatagramConfig) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if payloadLen > len(datagram)-headerLen || unified && !isValidDTLSCiphertextRecordLen(payloadLen) || !unified && len(datagram) <= headerLen {
+	if payloadLen > len(datagram)-headerLen || unified && !isValidDTLSCiphertextRecordLen(payloadLen) {
 		return nil, ErrInvalidPacketLength
 	}
 	if !unified {

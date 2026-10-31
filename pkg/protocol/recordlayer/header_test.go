@@ -112,12 +112,10 @@ func FuzzHeaderCIDUnmarshal(f *testing.F) {
 }
 
 func FuzzRecordLayer_MarshalScan_RoundTrip(f *testing.F) {
+	f.Add([]byte{}, uint16(0), uint64(0))
 	f.Add([]byte{1}, uint16(0), uint64(0))
 	f.Add([]byte{1, 2, 3}, uint16(1), uint64(5))
 	f.Fuzz(func(t *testing.T, payload []byte, epoch uint16, sequence uint64) {
-		if len(payload) == 0 {
-			payload = []byte{0}
-		}
 		if len(payload) > 1<<14 {
 			payload = payload[:1<<14]
 		}
@@ -135,7 +133,7 @@ func FuzzRecordLayer_MarshalScan_RoundTrip(f *testing.F) {
 		require.NoError(t, err)
 		require.Equal(t, sequence, r.SequenceNumber())
 		require.Equal(t, epoch, r.Epoch())
-		require.Equal(t, payload, r.Payload())
+		require.True(t, bytes.Equal(payload, r.Payload()))
 	})
 }
 
@@ -148,9 +146,6 @@ func FuzzRecordLayer_UnpackDatagram_RoundTrip(f *testing.F) {
 		var datagram []byte
 		var want [][]byte
 		for i, payload := range payloads {
-			if len(payload) == 0 {
-				payload = []byte{0}
-			}
 			if len(payload) > 1<<14 {
 				payload = payload[:1<<14]
 			}
