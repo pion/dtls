@@ -349,14 +349,14 @@ func TestX25519MLKEM768RequiresDTLS13(t *testing.T) {
 
 func TestSelectedCipherSuitesConstrainProtocolVersion(t *testing.T) {
 	t.Run("DTLS13SuitesSelectDTLS13", func(t *testing.T) {
-		client, err := newOptionsClient(t, WithMaxVersion(protocol.Version1_3), WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256))
+		client, err := newOptionsClient(t, WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256))
 		require.NoError(t, err)
 		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MinVersion)
 		require.Equal(t, protocol.Version1_3, client.handshakeConfig.MaxVersion)
 	})
 
 	t.Run("DTLS12SuitesSelectDTLS12", func(t *testing.T) {
-		client, err := newOptionsClient(t, WithMaxVersion(protocol.Version1_3), WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256))
+		client, err := newOptionsClient(t, WithCipherSuites(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256))
 		require.NoError(t, err)
 		require.Equal(t, protocol.Version1_2, client.handshakeConfig.MinVersion)
 		require.Equal(t, protocol.Version1_2, client.handshakeConfig.MaxVersion)
@@ -377,6 +377,8 @@ func TestDefaultsAreApplied(t *testing.T) {
 	for _, server := range []bool{false, true} {
 		conn, err := newSharedOptionsConn(t, server)
 		require.NoError(t, err)
+		require.Equal(t, protocol.Version1_2, conn.handshakeConfig.MinVersion)
+		require.Equal(t, protocol.Version1_3, conn.handshakeConfig.MaxVersion)
 		require.Equal(t, dtlsconfig.ExtendedMasterSecretType(RequestExtendedMasterSecret), conn.handshakeConfig.ExtendedMasterSecret)
 		require.Equal(t, time.Second, conn.handshakeConfig.InitialRetransmitInterval)
 		require.Equal(t, defaultMTU, conn.maximumTransmissionUnit)

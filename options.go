@@ -572,15 +572,15 @@ func WithClientHelloMessageHook(fn func(handshake.MessageClientHello) handshake.
 	}, fn, optionError(fn == nil, dtlserrors.ErrNilClientHelloMessageHook))
 }
 
-// WithMinVersion sets the minimum TLS version that is acceptable.
-// By default, DTLS 1.2 is currently used as the minimum as it's the only supported version.
+// WithMinVersion sets the minimum DTLS version that is acceptable.
+// By default, DTLS 1.2 is used as the minimum.
 func WithMinVersion(version protocol.Version) Option {
 	return valueOption(func(c *dtlsConfig) *protocol.Version { return &c.MinVersion }, version,
 		optionError(version != protocol.Version1_2 && version != protocol.Version1_3, dtlserrors.ErrUnsupportedProtocolVersion))
 }
 
-// WithMaxVersion sets the maximum TLS version that is acceptable.
-// By default, DTLS 1.2 is currently used as the maximum.
+// WithMaxVersion sets the maximum DTLS version that is acceptable.
+// By default, DTLS 1.3 is used as the maximum.
 func WithMaxVersion(version protocol.Version) Option {
 	return valueOption(func(c *dtlsConfig) *protocol.Version { return &c.MaxVersion }, version,
 		optionError(version != protocol.Version1_2 && version != protocol.Version1_3, dtlserrors.ErrUnsupportedProtocolVersion))

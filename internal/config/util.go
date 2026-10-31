@@ -13,8 +13,8 @@ func NormalizeProtocolVersionRange(
 		minVersion = protocol.Version1_2
 	}
 
-	if maxVersion != protocol.Version1_3 {
-		maxVersion = protocol.Version1_2
+	if maxVersion != protocol.Version1_2 {
+		maxVersion = protocol.Version1_3
 	}
 
 	return minVersion, maxVersion

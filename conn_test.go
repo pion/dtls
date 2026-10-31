@@ -103,8 +103,18 @@ func TestSequenceNumberOverflow(t *testing.T) {
 	defer report()
 
 	t.Run("ApplicationData", func(t *testing.T) {
-		ca, cb, err := pipeMemory()
-		assert.NoError(t, err)
+		// DTLS 1.3 rotates traffic keys; this checks DTLS 1.2 sequence exhaustion.
+		certificate, err := selfsign.GenerateSelfSigned()
+		require.NoError(t, err)
+		client, server := handshakePair(t,
+			[]ClientOption{WithInsecureSkipVerify(true), WithMaxVersion(protocol.Version1_2)},
+			[]ServerOption{WithCertificates(certificate), WithMaxVersion(protocol.Version1_2)},
+		)
+		for _, result := range []handshakeResult{client, server} {
+			require.NoError(t, result.configErr)
+			require.NoError(t, result.handshakeError)
+		}
+		ca, cb := client.conn, server.conn
 
 		dtlsstate.CommonState(ca.state).SetLocalSequenceNumber(1, recordlayer.MaxSequenceNumber)
 		n, werr := ca.Write(make([]byte, 100))
