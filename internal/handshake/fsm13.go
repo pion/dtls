@@ -427,7 +427,7 @@ func (s *fsm13) transitionAfterReceivedFlight(ctx context.Context, conn Conn, re
 			s.ackTimer = s.cfg.NewTimer(s.retransmitInterval / 4)
 		}
 
-		return s.transitionAfterACK(ackResult, received.IsRetransmit), nil
+		return s.transitionAfterACK(ackResult, received.IsRetransmitStart), nil
 	}
 
 	// A response implicitly acknowledges the completed flight. The server's
@@ -481,12 +481,12 @@ func (s *fsm13) takePendingACKs() []protocol.RecordNumber {
 func (s *fsm13) handleFinalFlightReceive(ctx context.Context, conn Conn, received RecvHandshakeState, ackResult ACKResult) (receivedFlightTransition, error) {
 	// Tickets may arrive before the final ACK. Process them without treating
 	// them as an acknowledgement of our Finished. Duplicate peer flights still
-	// trigger retransmission of the pending final flight.
+	// trigger retransmission of the pending final flight on offset-zero fragments.
 	if err := s.postHandshake.handlePostHandshakeReceive(ctx, conn, received); err != nil {
 		return receivedFlightTransition{}, err
 	}
 
-	return s.transitionAfterACK(ackResult, received.IsRetransmit), nil
+	return s.transitionAfterACK(ackResult, received.IsRetransmitStart), nil
 }
 
 func (s *fsm13) prepareFlightACKTracking(flights []*dtlsflight.Outbound, retransmit bool) {
