@@ -60,8 +60,8 @@ func (m *MessageCertificateVerify) MarshalTo(out []byte) (int, error) {
 		return 0, dtlserrors.ErrBufferTooSmall
 	}
 
-	out[0] = byte(m.HashAlgorithm)                                //nolint:gosec // G115
-	out[1] = byte(m.SignatureAlgorithm)                           //nolint:gosec // G115
+	algorithm := signaturehash.Algorithm{Hash: m.HashAlgorithm, Signature: m.SignatureAlgorithm}
+	copy(out[:2], algorithm.Marshal())
 	binary.BigEndian.PutUint16(out[2:], uint16(len(m.Signature))) //nolint:gosec // G115
 	copy(out[4:], m.Signature)
 
@@ -69,6 +69,14 @@ func (m *MessageCertificateVerify) MarshalTo(out []byte) (int, error) {
 }
 
 func (m *MessageCertificateVerify) validateMarshal() error {
+	if m.SignatureAlgorithm.IsPSS() {
+		if m.HashAlgorithm != m.SignatureAlgorithm.GetPSSHash() {
+			return dtlserrors.ErrInvalidSignHashAlgorithm
+		}
+
+		return nil
+	}
+
 	if m.HashAlgorithm > 0xFF || m.SignatureAlgorithm > 0xFF {
 		return dtlserrors.ErrInvalidSignHashAlgorithm
 	}

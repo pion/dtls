@@ -4,12 +4,14 @@
 package handshake
 
 import (
+	"fmt"
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	"github.com/pion/dtls/v4/pkg/crypto/hash"
 	"github.com/pion/dtls/v4/pkg/crypto/signature"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandshakeMessageCertificateVerify(t *testing.T) {
@@ -31,19 +33,59 @@ func TestHandshakeMessageCertificateVerify(t *testing.T) {
 	assert.Equal(t, rawCertificateVerify, raw)
 }
 
-func TestHandshakeMessageCertificateVerify_InvalidAlgorithmValue(t *testing.T) {
-	cert := &MessageCertificateVerify{HashAlgorithm: hash.Algorithm(0x100), SignatureAlgorithm: signature.RSA, Signature: []byte{0x00}}
+func TestHandshakeMessageCertificateVerifyPSS(t *testing.T) {
+	for _, scheme := range []struct {
+		signature signature.Algorithm
+		hash      hash.Algorithm
+		wire      byte
+	}{
+		{signature.RSA_PSS_RSAE_SHA256, hash.SHA256, 0x04},
+		{signature.RSA_PSS_RSAE_SHA384, hash.SHA384, 0x05},
+		{signature.RSA_PSS_RSAE_SHA512, hash.SHA512, 0x06},
+		{signature.RSA_PSS_PSS_SHA256, hash.SHA256, 0x09},
+		{signature.RSA_PSS_PSS_SHA384, hash.SHA384, 0x0a},
+		{signature.RSA_PSS_PSS_SHA512, hash.SHA512, 0x0b},
+	} {
+		t.Run(fmt.Sprintf("%04x", scheme.signature), func(t *testing.T) {
+			raw := []byte{0x08, scheme.wire, 0x00, 0x02, 0xaa, 0xbb}
+			var message MessageCertificateVerify
+			require.NoError(t, message.Unmarshal(raw))
+			require.Equal(t, scheme.hash, message.HashAlgorithm)
+			require.Equal(t, scheme.signature, message.SignatureAlgorithm)
 
-	raw, err := cert.Marshal()
-	assert.ErrorIs(t, err, dtlserrors.ErrInvalidSignHashAlgorithm)
-	assert.Nil(t, raw)
+			encoded, err := message.Marshal()
+			require.NoError(t, err)
+			require.Equal(t, raw, encoded)
 
-	out := make([]byte, cert.MarshalSize())
-	for i := range out {
-		out[i] = 0xaa
+			out := make([]byte, message.MarshalSize())
+			n, err := message.MarshalTo(out)
+			require.NoError(t, err)
+			require.Equal(t, len(raw), n)
+			require.Equal(t, raw, out)
+		})
 	}
-	n, err := cert.MarshalTo(out)
-	assert.ErrorIs(t, err, dtlserrors.ErrInvalidSignHashAlgorithm)
-	assert.Zero(t, n)
-	assert.NotContains(t, out, byte(0x00))
+}
+
+func TestHandshakeMessageCertificateVerify_InvalidAlgorithmValue(t *testing.T) {
+	for name, cert := range map[string]MessageCertificateVerify{
+		"hash overflow":      {HashAlgorithm: hash.Algorithm(0x100), SignatureAlgorithm: signature.RSA},
+		"signature overflow": {HashAlgorithm: hash.SHA256, SignatureAlgorithm: signature.Algorithm(0x100)},
+		"PSS hash mismatch":  {HashAlgorithm: hash.SHA384, SignatureAlgorithm: signature.RSA_PSS_RSAE_SHA256},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cert.Signature = []byte{0x00}
+			raw, err := cert.Marshal()
+			assert.ErrorIs(t, err, dtlserrors.ErrInvalidSignHashAlgorithm)
+			assert.Nil(t, raw)
+
+			out := make([]byte, cert.MarshalSize())
+			for i := range out {
+				out[i] = 0xaa
+			}
+			n, err := cert.MarshalTo(out)
+			assert.ErrorIs(t, err, dtlserrors.ErrInvalidSignHashAlgorithm)
+			assert.Zero(t, n)
+			assert.NotContains(t, out, byte(0x00))
+		})
+	}
 }
