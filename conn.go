@@ -2084,6 +2084,11 @@ func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool,
 		}
 	}
 	common := dtlsstate.CommonState(c.state)
+	// Speculative plaintext records may be discarded after version selection.
+	// Do not let them advance the replay window, including during hello reassembly.
+	if common.LocalVersion == 0 && epoch == 0 {
+		return func() bool { return false }, true
+	}
 	if common.ReplayDetector == nil {
 		common.ReplayDetector = make(map[uint64]replaydetector.ReplayDetector)
 	}
