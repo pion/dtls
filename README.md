@@ -156,7 +156,7 @@ DTLS 1.3 supports external PSKs with `psk_ke` (PSK-only) and `psk_dhe_ke`
 (PSK with ephemeral ECDHE), using SHA-256 or SHA-384. Clients can offer multiple
 PSK identities per handshake for the server to select from.
 
-Pion DTLS also comes with examples that do key exchange via DTLS 1.2 PSK.
+The PSK examples use DTLS 1.3 by default, with `TLS_AES_128_GCM_SHA256`.
 
 #### Pion DTLS
 ```sh
@@ -167,12 +167,22 @@ go run examples/listen/psk/main.go
 go run examples/dial/psk/main.go
 ```
 
-#### OpenSSL
+To use DTLS 1.2 with `TLS_PSK_WITH_AES_128_CCM_8`, pass `-dtls12` to both:
+
+```sh
+go run examples/listen/psk/main.go -dtls12
+go run examples/dial/psk/main.go -dtls12
 ```
-  // Use with examples/dial/psk/main.go
+
+#### OpenSSL
+
+Run the Pion example with `-dtls12` when using these OpenSSL DTLS 1.2 commands.
+
+```
+  // Use with examples/dial/psk/main.go -dtls12
   openssl s_server -dtls1_2 -accept 4444 -nocert -psk abc123 -cipher PSK-AES128-CCM8
 
-  // Use with examples/listen/psk/main.go
+  // Use with examples/listen/psk/main.go -dtls12
   openssl s_client -dtls1_2 -connect 127.0.0.1:4444 -psk abc123 -cipher PSK-AES128-CCM8
 ```
 
