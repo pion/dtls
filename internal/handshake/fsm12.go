@@ -158,73 +158,17 @@ func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
 	return StateWaiting, nil
 }
 
-func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:cyclop
+func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) {
 	s.received.release()
 	retransmitTimer := s.cfg.NewTimer(s.retransmitInterval)
 	defer retransmitTimer.Stop()
 	for {
 		select {
 		case state := <-conn.RecvHandshake():
-			s.received.retain(state)
-			nextFlight, dtlsAlert, err, ok := dtlsflight12.Parse(
-				ctx,
-				s.currentFlight,
-				conn,
-				s.state,
-				s.cache,
-				s.cfg,
-			)
-			if !ok {
-				if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
-					return StateErrored, alertErr
-				}
-
-				return StateErrored, dtlserrors.ErrInvalidFlight
+			nextState, err := s.handleWaitingFlight(ctx, conn, state, retransmitTimer)
+			if nextState != StateWaiting || err != nil {
+				return nextState, err
 			}
-			if dtlsAlert != nil {
-				if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
-					if err != nil {
-						err = alertErr
-					}
-				}
-			}
-			if err != nil {
-				return StateErrored, err
-			}
-			if nextFlight == 0 {
-				if state.IsClientHelloRetransmit && s.currentFlight == dtlsflight12.Flight2 {
-					return StateSending, nil
-				}
-				if state.IsClientHelloRetransmit &&
-					(s.currentFlight == dtlsflight12.Flight4 || s.currentFlight == dtlsflight12.Flight4b) &&
-					!time.Now().Before(s.peerRetransmitAfter) {
-					s.backoffPeerRetransmit()
-
-					return StateSending, nil
-				}
-
-				s.received.release()
-
-				break
-			}
-			if s.currentFlight == dtlsflight12.Flight3 && nextFlight == dtlsflight12.Flight3 {
-				// A new cookie must not bypass or reset the retry backoff.
-				select {
-				case <-retransmitTimer.C():
-					handleRetransmitTimeout(true, &s.retransmitInterval, s.cfg)
-				case <-ctx.Done():
-					return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
-				}
-			} else if !state.IsRetransmit {
-				s.retransmitInterval = s.cfg.InitialRetransmitInterval
-			}
-			s.cfg.Log.Tracef("[handshake:%s] %s -> %s", sideString(s.state.IsClient), s.currentFlight.String(), nextFlight.String())
-			if nextFlight.IsLastRecvFlight() && s.currentFlight == nextFlight {
-				return StateFinished, nil
-			}
-			s.currentFlight = nextFlight
-
-			return StatePreparing, nil
 
 		case <-retransmitTimer.C():
 			if s.retransmit {
@@ -236,6 +180,82 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) { //nolint:c
 			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
 		}
 	}
+}
+
+func (s *fsm12) parseWaitingFlight(ctx context.Context, conn Conn) (dtlsflight12.Flight, error) {
+	nextFlight, dtlsAlert, err, ok := dtlsflight12.Parse(
+		ctx,
+		s.currentFlight,
+		conn,
+		s.state,
+		s.cache,
+		s.cfg,
+	)
+	if !ok {
+		if alertErr := conn.Notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
+			return 0, alertErr
+		}
+
+		return 0, dtlserrors.ErrInvalidFlight
+	}
+	if dtlsAlert != nil {
+		if alertErr := conn.Notify(ctx, dtlsAlert.Level, dtlsAlert.Description); alertErr != nil {
+			if err != nil {
+				err = alertErr
+			}
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	return nextFlight, nil
+}
+
+func (s *fsm12) handleIncompleteFlight(state RecvHandshakeState) (State, error) {
+	if state.IsClientHelloRetransmit && s.currentFlight == dtlsflight12.Flight2 {
+		return StateSending, nil
+	}
+	if state.IsClientHelloRetransmit &&
+		(s.currentFlight == dtlsflight12.Flight4 || s.currentFlight == dtlsflight12.Flight4b) &&
+		!time.Now().Before(s.peerRetransmitAfter) {
+		s.backoffPeerRetransmit()
+
+		return StateSending, nil
+	}
+
+	s.received.release()
+
+	return StateWaiting, nil
+}
+
+func (s *fsm12) handleWaitingFlight(ctx context.Context, conn Conn, state RecvHandshakeState, retransmitTimer dtlsconfig.Timer) (State, error) {
+	s.received.retain(state)
+	nextFlight, err := s.parseWaitingFlight(ctx, conn)
+	if err != nil {
+		return StateErrored, err
+	}
+	if nextFlight == 0 {
+		return s.handleIncompleteFlight(state)
+	}
+	if s.currentFlight == dtlsflight12.Flight3 && nextFlight == dtlsflight12.Flight3 {
+		// A new cookie must not bypass or reset the retry backoff.
+		select {
+		case <-retransmitTimer.C():
+			handleRetransmitTimeout(true, &s.retransmitInterval, s.cfg)
+		case <-ctx.Done():
+			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
+		}
+	} else if !state.IsRetransmit {
+		s.retransmitInterval = s.cfg.InitialRetransmitInterval
+	}
+	s.cfg.Log.Tracef("[handshake:%s] %s -> %s", sideString(s.state.IsClient), s.currentFlight.String(), nextFlight.String())
+	if nextFlight.IsLastRecvFlight() && s.currentFlight == nextFlight {
+		return StateFinished, nil
+	}
+	s.currentFlight = nextFlight
+
+	return StatePreparing, nil
 }
 
 // Rate-limit peer recovery separately from the configured retransmission timer.

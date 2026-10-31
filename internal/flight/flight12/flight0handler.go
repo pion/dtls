@@ -26,7 +26,6 @@ import (
 // https://datatracker.ietf.org/doc/html/rfc5746#section-3.3.
 const renegotiationInfoSCSV uint16 = 0x00ff
 
-//nolint:cyclop
 func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	pull := cache.FullPullMapItems(0, state.CipherSuite,
 		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
@@ -67,7 +66,6 @@ func flight0Parse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State12
 	return negotiateClientHello(clientHello, state, cfg, Flight4)
 }
 
-//nolint:cyclop
 func negotiateClientHello(clientHello *handshake.MessageClientHello, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, nextFlight Flight) (Flight, *alert.Alert, error) {
 	state.RemoteSupportsRenegotiation = false
 	state.ExtendedMasterSecret = false
@@ -98,6 +96,41 @@ func negotiateClientHello(clientHello *handshake.MessageClientHello, state *dtls
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrCipherSuiteNoIntersection
 	}
 
+	offeredGroups, sawGroups := processClientHello12Extensions(clientHello, state, cfg)
+
+	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate {
+		if dtlsAlert, err := selectClientHelloCertificate(clientHello, state, cfg, cipherSuites); err != nil {
+			return 0, dtlsAlert, err
+		}
+	}
+
+	return finishClientHelloNegotiation(clientHello, state, cfg, nextFlight, cipherSuites, offeredGroups, sawGroups)
+}
+
+func finishClientHelloNegotiation(clientHello *handshake.MessageClientHello, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, nextFlight Flight, cipherSuites []dtlsconfig.CipherSuite, offeredGroups []elliptic.Curve, sawGroups bool) (Flight, *alert.Alert, error) {
+	if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
+		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS
+	}
+
+	flight, resumeAlert, err := handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
+	if err != nil || resumeAlert != nil {
+		return flight, resumeAlert, err
+	}
+	if flight != Flight4b && state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
+		if fallback := selectNonECDHEFallback(cfg, cipherSuites, offeredGroups, sawGroups); fallback != nil {
+			state.CipherSuite = fallback
+
+			return flight, nil, nil
+		}
+		if dtlsAlert, err := selectAcceptCurve(state, cfg, offeredGroups, sawGroups); err != nil {
+			return 0, dtlsAlert, err
+		}
+	}
+
+	return flight, nil, nil
+}
+
+func processClientHello12Extensions(clientHello *handshake.MessageClientHello, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig) ([]elliptic.Curve, bool) {
 	var offeredGroups []elliptic.Curve
 	var sawGroups bool
 	for _, val := range clientHello.Extensions {
@@ -121,47 +154,10 @@ func negotiateClientHello(clientHello *handshake.MessageClientHello, state *dtls
 		}
 	}
 
-	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate {
-		offeredIDs := make([]cryptosuite.ID, len(cipherSuites))
-		for i, suite := range cipherSuites {
-			offeredIDs[i] = suite.ID()
-		}
-		certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{
-			ServerName: state.ServerName, CipherSuites: offeredIDs, RandomBytes: state.RemoteRandom.RandomBytes, Hello: clientHello,
-		})
-		if err != nil {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
-		}
-		state.ServerCertificate = certificate
-		usable := dtlsconfig.FilterCipherSuitesForCertificate(certificate, cfg.LocalCipherSuites)
-		if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, usable); !ok {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrCipherSuiteNoIntersection
-		}
-	}
-
-	if cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret && !state.ExtendedMasterSecret {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrServerRequiredButNoClientEMS
-	}
-
-	flight, resumeAlert, err := handleHelloResume(clientHello.SessionID, state, cfg, nextFlight)
-	if err != nil || resumeAlert != nil {
-		return flight, resumeAlert, err
-	}
-	if flight != Flight4b && state.CipherSuite.KeyExchangeAlgorithm().Has(cryptosuite.KeyExchangeAlgorithmEcdhe) {
-		if fallback := selectNonECDHEFallback(cfg, cipherSuites, offeredGroups, sawGroups); fallback != nil {
-			state.CipherSuite = fallback
-
-			return flight, nil, nil
-		}
-		if dtlsAlert, err := selectAcceptCurve(state, cfg, offeredGroups, sawGroups); err != nil {
-			return 0, dtlsAlert, err
-		}
-	}
-
-	return flight, nil, nil
+	return offeredGroups, sawGroups
 }
 
-//nolint:cyclop // Validate cached authentication and negotiation before installing keys.
+// Validate cached authentication and negotiation before installing keys.
 func handleHelloResume(
 	sessionID []byte,
 	state *dtlsstate.State12,
@@ -178,6 +174,11 @@ func handleHelloResume(
 	if !cfg.UsableSession(session, false) || !bytes.Equal(session.ID, sessionID) {
 		return next, nil, nil
 	}
+
+	return resumeServerSession(session, sessionID, state, cfg, next)
+}
+
+func resumeServerSession(session dtlsstate.Session, sessionID []byte, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, next Flight) (Flight, *alert.Alert, error) {
 	// RFC 7627 section 5.3 requires aborting an EMS session's
 	// abbreviated handshake when the client omits the extension.
 	if session.ExtendedMasterSecret && !state.ExtendedMasterSecret {
@@ -276,4 +277,25 @@ func selectAcceptCurve(
 	}
 
 	return nil, nil //nolint:nilnil // no alert or error
+}
+
+func selectClientHelloCertificate(clientHello *handshake.MessageClientHello, state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, cipherSuites []dtlsconfig.CipherSuite) (*alert.Alert, error) {
+	offeredIDs := make([]cryptosuite.ID, len(cipherSuites))
+	for i, suite := range cipherSuites {
+		offeredIDs[i] = suite.ID()
+	}
+	certificate, err := cfg.GetCertificate(&dtlsconfig.ClientHelloInfo{
+		ServerName: state.ServerName, CipherSuites: offeredIDs, RandomBytes: state.RemoteRandom.RandomBytes, Hello: clientHello,
+	})
+	if err != nil {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, err
+	}
+	state.ServerCertificate = certificate
+	usable := dtlsconfig.FilterCipherSuitesForCertificate(certificate, cfg.LocalCipherSuites)
+	var ok bool
+	if state.CipherSuite, ok = dtlsflight.FindMatchingCipherSuite(cipherSuites, usable); !ok {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrCipherSuiteNoIntersection
+	}
+
+	return nil, nil //nolint:nilnil
 }

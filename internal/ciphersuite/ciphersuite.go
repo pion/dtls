@@ -129,7 +129,6 @@ type directionalKeys12 struct {
 	remoteKey, remoteIV, remoteMAC []byte
 }
 
-//nolint:cyclop
 func (s *suite12) NewConnectionProtection(
 	material cryptosuite.KeyMaterial,
 ) (cryptosuite.Protection, error) {
@@ -151,26 +150,20 @@ func (s *suite12) NewConnectionProtection(
 		return nil, err
 	}
 
-	var protection cryptosuite.Protection
 	switch s.algorithm {
 	case protection12CCM:
-		protection, err = newCCM(s.ccmTagLen, directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV)
+		return newCCM(s.ccmTagLen, directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV)
 	case protection12GCM:
-		protection, err = newGCM(
+		return newGCM(
 			directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV,
 		)
 	case protection12CBC:
-		protection, err = newCBC(directional.localKey, directional.localIV, directional.localMAC, directional.remoteKey, directional.remoteIV, directional.remoteMAC, s.recordMACHash)
+		return newCBC(directional.localKey, directional.localIV, directional.localMAC, directional.remoteKey, directional.remoteIV, directional.remoteMAC, s.recordMACHash)
 	case protection12ChaCha20Poly1305:
-		protection, err = newChaCha20Poly1305(directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV)
+		return newChaCha20Poly1305(directional.localKey, directional.localIV, directional.remoteKey, directional.remoteIV)
 	default:
 		return nil, cryptosuite.ErrInvalidCapabilities
 	}
-	if err != nil {
-		return nil, err
-	}
-
-	return protection, nil
 }
 
 func selectDirectionalKeys12(keys *prf.EncryptionKeys, role cryptosuite.EndpointRole) (directionalKeys12, error) {

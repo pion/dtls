@@ -155,7 +155,7 @@ func needsClientKeypair(state *dtlsstate.State13) bool {
 	return state.LocalKeypair == nil || state.LocalKeypair.Curve != state.SelectedGroup || state.SelectedGroup == elliptic.X25519MLKEM768
 }
 
-func flight4Generate( //nolint:cyclop
+func flight4Generate(
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
 ) ([]*dtlsflight.Outbound, *alert.Alert, error) {
@@ -186,16 +186,9 @@ func flight4Generate( //nolint:cyclop
 	if err != nil {
 		return nil, nil, err
 	}
-	if cfg.ConnectionIDGenerator != nil && offer.Offered(extension.TypeConnectionID) {
-		localCID := state.LocalConnectionID()
-		if !state.CID.Negotiated {
-			localCID, err = cfg.GenerateConnectionID()
-			if err != nil {
-				return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-			localCID = bytes.Clone(localCID)
-		}
-		serverHelloExtensions = dtlsflight.AppendConnectionIDExtensions(serverHelloExtensions, localCID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
+	serverHelloExtensions, err = appendServerConnectionID(flightCtx, offer, serverHelloExtensions)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	serverHelloMessage := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: state.LocalRandom, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: serverHelloExtensions}
 	if err = flightCtx.confirmECH(serverHelloMessage); err != nil {
@@ -210,6 +203,12 @@ func flight4Generate( //nolint:cyclop
 		Content: &handshake.Handshake{Message: serverHelloMessage},
 	}
 
+	return generateProtectedServerFlight(flightCtx, serverHello, decision, srtpDecision)
+}
+
+func generateProtectedServerFlight(flightCtx *handshakeContext, serverHello *dtlsflight.Outbound, decision *negotiation.ConnectionID, srtpDecision negotiation.SRTPDecision) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	state, cfg := flightCtx.state, flightCtx.cfg
+	var err error
 	encryptedExtensionsList := []extension.Value{}
 	if state.NegotiatedProtocol != "" {
 		encryptedExtensionsList = append(encryptedExtensionsList, &extension.ALPNSelection{Protocol: state.NegotiatedProtocol})
@@ -244,6 +243,24 @@ func flight4Generate( //nolint:cyclop
 	dtlsflight.CommitSRTP(state.Common, srtpDecision)
 
 	return pkts, nil, nil
+}
+
+func appendServerConnectionID(flightCtx *handshakeContext, offer negotiation.ClientHelloSnapshot, extensions []extension.Value) ([]extension.Value, error) {
+	state, cfg := flightCtx.state, flightCtx.cfg
+	if cfg.ConnectionIDGenerator != nil && offer.Offered(extension.TypeConnectionID) {
+		localCID := state.LocalConnectionID()
+		if !state.CID.Negotiated {
+			var err error
+			localCID, err = cfg.GenerateConnectionID()
+			if err != nil {
+				return nil, err
+			}
+			localCID = bytes.Clone(localCID)
+		}
+		extensions = dtlsflight.AppendConnectionIDExtensions(extensions, localCID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
+	}
+
+	return extensions, nil
 }
 
 func serverCertificatePackets(state *dtlsstate.State13, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {

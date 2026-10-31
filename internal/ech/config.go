@@ -86,19 +86,15 @@ func ParseConfigList(data []byte) ([]Config, error) {
 	return configs, nil
 }
 
-func (config *Config) parseContents(input cryptobyte.String) error { //nolint:cyclop // Parse fields in wire order.
+func (config *Config) parseContents(input cryptobyte.String) error { // Parse fields in wire order.
 	var publicKey, suites, name cryptobyte.String
 	if !input.ReadUint8(&config.ConfigID) || !input.ReadUint16(&config.KemID) ||
 		!input.ReadUint16LengthPrefixed(&publicKey) || !input.ReadUint16LengthPrefixed(&suites) {
 		return ErrInvalid
 	}
 	config.PublicKey = bytes.Clone(publicKey)
-	for !suites.Empty() {
-		var suite CipherSuite
-		if !suites.ReadUint16(&suite.KDFID) || !suites.ReadUint16(&suite.AEADID) {
-			return ErrInvalid
-		}
-		config.SymmetricCipherSuite = append(config.SymmetricCipherSuite, suite)
+	if err := config.parseCipherSuites(suites); err != nil {
+		return err
 	}
 	if !input.ReadUint8(&config.MaxNameLength) || !input.ReadUint8LengthPrefixed(&name) {
 		return ErrInvalid
@@ -109,6 +105,18 @@ func (config *Config) parseContents(input cryptobyte.String) error { //nolint:cy
 		return ErrInvalid
 	}
 	config.Extensions = extensions
+
+	return nil
+}
+
+func (config *Config) parseCipherSuites(suites cryptobyte.String) error {
+	for !suites.Empty() {
+		var suite CipherSuite
+		if !suites.ReadUint16(&suite.KDFID) || !suites.ReadUint16(&suite.AEADID) {
+			return ErrInvalid
+		}
+		config.SymmetricCipherSuite = append(config.SymmetricCipherSuite, suite)
+	}
 
 	return nil
 }

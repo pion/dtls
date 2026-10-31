@@ -101,7 +101,7 @@ func FinalizeClientHelloWithPSKs(
 	return clientHello, snapshots.Current(), nil
 }
 
-func populatePSKBinders(hello *handshake.MessageClientHello, psks []dtlsstate.PSK, transcript *Transcript) error { //nolint:cyclop
+func populatePSKBinders(hello *handshake.MessageClientHello, psks []dtlsstate.PSK, transcript *Transcript) error {
 	// the shared finalizer has already decoded and validated the hooked hello.
 	if len(hello.Extensions) == 0 {
 		return dtlserrors.ErrPreSharedKeyFormat
@@ -112,14 +112,8 @@ func populatePSKBinders(hello *handshake.MessageClientHello, psks []dtlsstate.PS
 	}
 	// Hooks may restrict the offer to either supported mode.
 	// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.9
-	if !slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
-		modes, ok := value.(*extension13.PSKKeyExchangeModes)
-
-		return ok && len(modes.Modes) > 0 && !slices.ContainsFunc(modes.Modes, func(mode extension13.PSKKeyExchangeMode) bool {
-			return mode != extension13.PSKDHEKE && mode != extension13.PSKKE
-		})
-	}) {
-		return dtlserrors.ErrPreSharedKeyFormat
+	if err := validatePSKKeyExchangeModes(hello); err != nil {
+		return err
 	}
 	raw, err := (&handshake.Handshake{Message: hello}).Marshal()
 	if err != nil {
@@ -129,6 +123,12 @@ func populatePSKBinders(hello *handshake.MessageClientHello, psks []dtlsstate.PS
 	if err != nil {
 		return err
 	}
+
+	return computePSKBinders(canonical, offer, psks, transcript)
+}
+
+func computePSKBinders(canonical []byte, offer *extension13.OfferedPSKs, psks []dtlsstate.PSK, transcript *Transcript) error {
+	var err error
 	prefix := truncatePSKBinders(canonical, offer)
 	transcriptHashes := make(map[crypto.Hash][]byte, 2)
 	for i, psk := range psks {
@@ -148,6 +148,20 @@ func populatePSKBinders(hello *handshake.MessageClientHello, psks []dtlsstate.PS
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func validatePSKKeyExchangeModes(hello *handshake.MessageClientHello) error {
+	if !slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
+		modes, ok := value.(*extension13.PSKKeyExchangeModes)
+
+		return ok && len(modes.Modes) > 0 && !slices.ContainsFunc(modes.Modes, func(mode extension13.PSKKeyExchangeMode) bool {
+			return mode != extension13.PSKDHEKE && mode != extension13.PSKKE
+		})
+	}) {
+		return dtlserrors.ErrPreSharedKeyFormat
 	}
 
 	return nil
@@ -212,20 +226,13 @@ func truncatePSKBinders(canonical []byte, offer *extension13.OfferedPSKs) []byte
 	return canonical[:end:end]
 }
 
-func clientHelloWithPSKs(base *handshake.MessageClientHello, psks []dtlsstate.PSK) (*handshake.MessageClientHello, error) { //nolint:cyclop
+func clientHelloWithPSKs(base *handshake.MessageClientHello, psks []dtlsstate.PSK) (*handshake.MessageClientHello, error) {
 	if base == nil || len(psks) == 0 {
 		return nil, dtlserrors.ErrPreSharedKeyFormat
 	}
-	offer := &extension13.OfferedPSKs{}
-	for _, psk := range psks {
-		if len(psk.Identity) == 0 {
-			return nil, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
-		}
-		if len(psk.Secret) == 0 || (psk.Hash != crypto.SHA256 && psk.Hash != crypto.SHA384) || !psk.Hash.Available() || (psk.External && psk.ObfuscatedTicketAge != 0) {
-			return nil, dtlserrors.ErrPreSharedKeyFormat
-		}
-		offer.Identities = append(offer.Identities, extension13.PSKIdentity{Identity: bytes.Clone(psk.Identity), ObfuscatedTicketAge: psk.ObfuscatedTicketAge})
-		offer.Binders = append(offer.Binders, make([]byte, psk.Hash.Size()))
+	offer, err := offerPSKs(psks)
+	if err != nil {
+		return nil, err
 	}
 	clientHello := *base
 	modes := []extension13.PSKKeyExchangeMode{extension13.PSKDHEKE, extension13.PSKKE}
@@ -245,4 +252,20 @@ func clientHelloWithPSKs(base *handshake.MessageClientHello, psks []dtlsstate.PS
 	clientHello.Extensions = append(clientHello.Extensions, &extension13.PSKKeyExchangeModes{Modes: modes}, offer)
 
 	return &clientHello, nil
+}
+
+func offerPSKs(psks []dtlsstate.PSK) (*extension13.OfferedPSKs, error) {
+	offer := &extension13.OfferedPSKs{}
+	for _, psk := range psks {
+		if len(psk.Identity) == 0 {
+			return nil, dtlserrors.ErrPSKAndIdentityMustBeSetForClient
+		}
+		if len(psk.Secret) == 0 || (psk.Hash != crypto.SHA256 && psk.Hash != crypto.SHA384) || !psk.Hash.Available() || (psk.External && psk.ObfuscatedTicketAge != 0) {
+			return nil, dtlserrors.ErrPreSharedKeyFormat
+		}
+		offer.Identities = append(offer.Identities, extension13.PSKIdentity{Identity: bytes.Clone(psk.Identity), ObfuscatedTicketAge: psk.ObfuscatedTicketAge})
+		offer.Binders = append(offer.Binders, make([]byte, psk.Hash.Size()))
+	}
+
+	return offer, nil
 }

@@ -354,7 +354,7 @@ func (s *State) cipherSuite() (cryptosuite.Suite, error) {
 // generateInternalState is the inverse of generateState: it expands the public
 // State into the internal state used by the connection internals.
 //
-//nolint:cyclop // Validate either protocol version before restoring its keys.
+// Validate either protocol version before restoring its keys.
 func (s *State) generateInternalState() (dtlsstate.Active, error) {
 	if s.CipherSuiteID == 0 {
 		return nil, dtlserrors.ErrCipherSuiteNotSet
@@ -370,6 +370,11 @@ func (s *State) generateInternalState() (dtlsstate.Active, error) {
 	if s.version == protocol.Version1_3 {
 		return s.generateInternalState13(cipherSuite)
 	}
+
+	return s.generateInternalState12(cipherSuite)
+}
+
+func (s *State) generateInternalState12(cipherSuite cryptosuite.Suite) (*dtlsstate.State12, error) {
 	if !s.handshakeComplete {
 		return nil, dtlserrors.ErrInvalidExportedState
 	}
@@ -637,7 +642,7 @@ func (s *State) MarshalBinary() ([]byte, error) {
 
 // UnmarshalBinary is a binary.BinaryUnmarshaler.UnmarshalBinary implementation.
 //
-//nolint:cyclop // Validate decoded state for both protocol versions.
+// Validate decoded state for both protocol versions.
 func (s *State) UnmarshalBinary(data []byte) error {
 	enc := gob.NewDecoder(bytes.NewBuffer(data))
 	var serialized serializedState
@@ -651,6 +656,11 @@ func (s *State) UnmarshalBinary(data []byte) error {
 	if s.CipherSuiteID == 0 {
 		return dtlserrors.ErrCipherSuiteNotSet
 	}
+
+	return s.validateDecodedState()
+}
+
+func (s *State) validateDecodedState() error {
 	if s.version == protocol.Version1_3 {
 		if suite := ciphersuite.ForID(s.CipherSuiteID); suite != nil {
 			return s.validate13(suite)

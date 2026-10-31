@@ -111,12 +111,15 @@ func NewLegacyRecord(contentType protocol.ContentType, version protocol.Version,
 }
 
 // NewUnifiedRecord snapshots the clear, exact unified header used as AAD.
-//
-//nolint:cyclop
 func NewUnifiedRecord(epoch, sequenceNumber uint64, header []byte, protectedLen int) (cryptosuite.Record, error) {
 	if len(header) < 2 || !protocol.IsDTLS13Ciphertext(protocol.ContentType(header[0])) || protectedLen < 0 || protectedLen > math.MaxUint16 {
 		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
+
+	return newValidatedUnifiedRecord(epoch, sequenceNumber, header, protectedLen)
+}
+
+func newValidatedUnifiedRecord(epoch, sequenceNumber uint64, header []byte, protectedLen int) (cryptosuite.Record, error) {
 	sequenceEnd := len(header)
 	if header[0]&recordwire.LengthBit != 0 {
 		if len(header) < 4 || int(binary.BigEndian.Uint16(header[len(header)-2:])) != protectedLen {
@@ -132,11 +135,19 @@ func NewUnifiedRecord(epoch, sequenceNumber uint64, header []byte, protectedLen 
 	if cidLength < 0 || cidLength > math.MaxUint8 || (header[0]&recordwire.CIDBit != 0) != (cidLength != 0) || uint8(epoch&3) != header[0]&recordwire.EpochMask {
 		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
-	for i := 0; i < sequenceLen; i++ {
-		if header[sequenceEnd-1-i] != byte((sequenceNumber>>uint(8*i))&0xff) {
-			return nil, dtlserrors.ErrInvalidProtectionInput
-		}
+	if !unifiedSequenceMatches(header, sequenceEnd, sequenceLen, sequenceNumber) {
+		return nil, dtlserrors.ErrInvalidProtectionInput
 	}
 
 	return protectionRecord{recordNumber: sequenceNumber, authenticationData: bytes.Clone(header), protectedLen: protectedLen}, nil
+}
+
+func unifiedSequenceMatches(header []byte, sequenceEnd, sequenceLen int, sequenceNumber uint64) bool {
+	for i := range sequenceLen {
+		if header[sequenceEnd-1-i] != byte((sequenceNumber>>uint(8*i))&0xff) {
+			return false
+		}
+	}
+
+	return true
 }

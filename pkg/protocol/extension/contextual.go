@@ -37,40 +37,49 @@ func (s ServerNameOffer) MarshalData() ([]byte, error) {
 	return out, nil
 }
 
-func (s *ServerNameOffer) UnmarshalData(data []byte) error { //nolint:cyclop
+func (s *ServerNameOffer) UnmarshalData(data []byte) error {
 	if len(data) < 2 || int(binary.BigEndian.Uint16(data)) != len(data)-2 || len(data) == 2 {
 		return dtlserrors.ErrInvalidSNIFormat
 	}
 	data = data[2:]
 
+	name, err := parseServerNameList(data)
+	if err != nil {
+		return err
+	}
+	s.ServerName = name
+
+	return nil
+}
+
+func parseServerNameList(data []byte) (string, error) {
 	name := ""
 	for len(data) > 0 {
 		if len(data) < 3 {
-			return dtlserrors.ErrInvalidSNIFormat
+			return "", dtlserrors.ErrInvalidSNIFormat
 		}
 		nameType := data[0]
 		nameLen := int(binary.BigEndian.Uint16(data[1:]))
 		data = data[3:]
 		if nameLen == 0 || nameLen > len(data) {
-			return dtlserrors.ErrInvalidSNIFormat
+			return "", dtlserrors.ErrInvalidSNIFormat
 		}
 		if nameType == serverNameTypeDNSHostName {
 			if name != "" {
-				return dtlserrors.ErrInvalidSNIFormat
+				return "", dtlserrors.ErrInvalidSNIFormat
 			}
 			name = string(data[:nameLen])
 			if strings.HasSuffix(name, ".") {
-				return dtlserrors.ErrInvalidSNIFormat
+				return "", dtlserrors.ErrInvalidSNIFormat
 			}
 		}
 		data = data[nameLen:]
 	}
 	if name == "" {
-		return dtlserrors.ErrInvalidSNIFormat
+		return "", dtlserrors.ErrInvalidSNIFormat
 	}
-	s.ServerName = name
 
-	return nil
+	return name, nil
 }
 
 // ServerNameAck is the empty server acknowledgement payload.

@@ -172,7 +172,7 @@ func finalizeClientHelloWithoutPSK(hello *handshake.MessageClientHello, cfg *dtl
 	return dtlsflight.FinalizeClientHello(hello, cfg)
 }
 
-func clientPSKs(cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, conn dtlsflight.Conn) ([]dtlsstate.PSK, error) { //nolint:cyclop
+func clientPSKs(cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, conn dtlsflight.Conn) ([]dtlsstate.PSK, error) {
 	var psks []dtlsstate.PSK
 	if cfg.GetPSKs != nil {
 		var err error
@@ -188,47 +188,43 @@ func clientPSKs(cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientH
 	if err != nil || psk == nil {
 		return psks, err
 	}
+	if !usableClientTicket(cfg, hello, psk) {
+		return psks, nil
+	}
+
+	return append([]dtlsstate.PSK{*psk}, psks...), nil
+}
+
+func usableClientTicket(cfg *dtlsconfig.HandshakeConfig, hello *handshake.MessageClientHello, psk *dtlsstate.PSK) bool {
 	if !slices.ContainsFunc(cfg.LocalCipherSuites, func(suite dtlsconfig.CipherSuite) bool {
 		return suite.Capabilities().SupportsVersion(protocol.Version1_3) && slices.Contains(hello.CipherSuiteIDs, uint16(suite.ID())) && suite.HashFunc()().Size() == psk.Hash.Size()
 	}) || (len(psk.PeerCertificates) == 0 && cfg.GetPSKs == nil) {
-		return psks, nil
+		return false
 	}
+
 	if len(psk.PeerCertificates) != 0 && !cfg.InsecureSkipVerify {
 		algorithms := cfg.LocalCertSignatureSchemes
 		if len(algorithms) == 0 {
 			algorithms = cfg.LocalSignatureSchemes
 		}
 		if _, err := dtlscrypto.VerifyServerCert(psk.PeerCertificates, cfg.RootCAs, cfg.ServerName, algorithms); err != nil {
-			return psks, nil //nolint:nilerr // unusable cached certificate triggers a full handshake.
+			return false // An unusable cached certificate triggers a full handshake.
 		}
 	}
 
-	return append([]dtlsstate.PSK{*psk}, psks...), nil
+	return true
 }
 
 // selectPSK runs before ClientHello enters the transcript, including on retry.
 // An invalid binder for a recognized identity is fatal.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
-func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []byte) error { //nolint:cyclop
+func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []byte) error {
 	if c.cfg.SelectPSK == nil && c.cfg.GetSessionTicket == nil {
 		return nil
 	}
-	var offer *extension13.OfferedPSKs
-	var dhe, ke bool
 	c.state.PSK = nil
 	c.state.PSKOnly = false
-	for _, value := range hello.Extensions {
-		if value.ExtensionType() == extension.TypeEncryptedClientHello && c.state.ECHServer == nil {
-			return c.pskFallback()
-		}
-		switch ext := value.(type) {
-		case *extension13.OfferedPSKs:
-			offer = ext
-		case *extension13.PSKKeyExchangeModes:
-			dhe = slices.Contains(ext.Modes, extension13.PSKDHEKE)
-			ke = slices.Contains(ext.Modes, extension13.PSKKE)
-		}
-	}
+	offer, dhe, ke := c.readPSKOffer(hello)
 	// prefer DHE whenever a common group exists, this can require a retry.
 	dhe = dhe && slices.ContainsFunc(c.cfg.EllipticCurves, func(group elliptic.Curve) bool {
 		return slices.Contains(c.state.RemoteGroups, group)
@@ -236,6 +232,11 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	if offer == nil || (!dhe && !ke) {
 		return c.pskFallback()
 	}
+
+	return c.verifyOfferedPSK(hello, raw, offer, dhe)
+}
+
+func (c *handshakeContext) verifyOfferedPSK(hello *handshake.MessageClientHello, raw []byte, offer *extension13.OfferedPSKs, dhe bool) error {
 	i, psk, err := c.selectOfferedPSK(hello, offer, dhe)
 	if err != nil {
 		return pskHandshakeError(alert.HandshakeFailure, err)
@@ -262,6 +263,11 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	if err = VerifyPSKBinder(hashID.New, secret, transcriptHash, offer.Binders[i], psk.External); err != nil {
 		return pskHandshakeError(alert.DecryptError, err)
 	}
+
+	return c.installSelectedPSK(hello, raw, offer, dhe, i, psk, suite, secret, hashID)
+}
+
+func (c *handshakeContext) installSelectedPSK(hello *handshake.MessageClientHello, raw []byte, offer *extension13.OfferedPSKs, dhe bool, i int, psk *dtlsstate.PSK, suite dtlsconfig.CipherSuite, secret []byte, hashID crypto.Hash) error {
 	c.state.PSKOnly = !dhe
 	if c.state.PSKOnly {
 		c.state.KeyAgreementSecret = make([]byte, hashID.Size())
@@ -279,6 +285,25 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	}
 
 	return nil
+}
+
+func (c *handshakeContext) readPSKOffer(hello *handshake.MessageClientHello) (*extension13.OfferedPSKs, bool, bool) {
+	var offer *extension13.OfferedPSKs
+	var dhe, ke bool
+	for _, value := range hello.Extensions {
+		if value.ExtensionType() == extension.TypeEncryptedClientHello && c.state.ECHServer == nil {
+			return nil, false, false
+		}
+		switch ext := value.(type) {
+		case *extension13.OfferedPSKs:
+			offer = ext
+		case *extension13.PSKKeyExchangeModes:
+			dhe = slices.Contains(ext.Modes, extension13.PSKDHEKE)
+			ke = slices.Contains(ext.Modes, extension13.PSKKE)
+		}
+	}
+
+	return offer, dhe, ke
 }
 
 func (c *handshakeContext) selectOfferedPSK(hello *handshake.MessageClientHello, offer *extension13.OfferedPSKs, dhe bool) (int, *dtlsstate.PSK, error) {

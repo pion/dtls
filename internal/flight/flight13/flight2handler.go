@@ -16,7 +16,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-func flight2Parse( //nolint:cyclop
+func flight2Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
 	flightCtx *handshakeContext,
@@ -43,6 +43,11 @@ func flight2Parse( //nolint:cyclop
 		pull.Items = []dtlsflight.DecodedHandshakeCacheItem{logical}
 		pull.Messages[handshake.TypeClientHello] = logical.Parsed.Message
 	}
+
+	return parseRetryClientHello(flightCtx, pull)
+}
+
+func parseRetryClientHello(flightCtx *handshakeContext, pull dtlsflight.HandshakeCachePullResult) (Flight, *alert.Alert, error) {
 	clientHello, ok := pull.Messages[handshake.TypeClientHello].(*handshake.MessageClientHello)
 	if !ok {
 		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil

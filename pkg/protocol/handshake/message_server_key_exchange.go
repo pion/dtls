@@ -37,7 +37,7 @@ func (m MessageServerKeyExchange) Type() Type {
 }
 
 // MarshalSize returns the size required for MarshalTo.
-func (m *MessageServerKeyExchange) MarshalSize() int { //nolint:cyclop
+func (m *MessageServerKeyExchange) MarshalSize() int {
 	total := 0
 	if m.IdentityHint != nil {
 		total += 2 + len(m.IdentityHint)
@@ -51,26 +51,18 @@ func (m *MessageServerKeyExchange) MarshalSize() int { //nolint:cyclop
 	total += 1
 	total += len(m.PublicKey)
 
-	switch {
-	case m.HashAlgorithm != hash.None && len(m.Signature) == 0:
+	if m.validateMarshal() != nil {
 		return 0
-	case m.HashAlgorithm == hash.None && len(m.Signature) > 0:
-		return 0
-	case m.SignatureAlgorithm == signature.Anonymous && (m.HashAlgorithm != hash.None || len(m.Signature) > 0):
-		return 0
-	case m.SignatureAlgorithm == signature.Anonymous:
+	}
+	if m.SignatureAlgorithm == signature.Anonymous {
 		return total
 	}
 
-	total += 2 // signature hash length
-	total += 2
-	total += len(m.Signature)
-
-	return total
+	return total + 4 + len(m.Signature)
 }
 
 // MarshalTo encodes the Handshake into a pre-allocated buffer.
-func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) { //nolint:cyclop
+func (m *MessageServerKeyExchange) MarshalTo(out []byte) (int, error) {
 	if err := m.validateMarshal(); err != nil {
 		return 0, err
 	}
@@ -144,7 +136,7 @@ func (m *MessageServerKeyExchange) validateMarshal() error {
 }
 
 // Unmarshal populates the message from encoded data.
-func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclop
+func (m *MessageServerKeyExchange) Unmarshal(data []byte) error {
 	switch {
 	case len(data) < 2:
 		return dtlserrors.ErrBufferTooSmall
@@ -169,6 +161,10 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 		return dtlserrors.ErrLengthMismatch
 	}
 
+	return m.unmarshalECDHE(data)
+}
+
+func (m *MessageServerKeyExchange) unmarshalECDHE(data []byte) error {
 	if len(data) == 0 {
 		return dtlserrors.ErrBufferTooSmall
 	}
@@ -197,6 +193,10 @@ func (m *MessageServerKeyExchange) Unmarshal(data []byte) error { //nolint:cyclo
 	}
 	m.PublicKey = bytes.Clone(data[4:offset])
 
+	return m.unmarshalSignature(data, offset)
+}
+
+func (m *MessageServerKeyExchange) unmarshalSignature(data []byte, offset int) error {
 	// Anon connection doesn't contains hashAlgorithm, signatureAlgorithm, signature
 	if len(data) == offset {
 		return nil

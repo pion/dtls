@@ -140,52 +140,42 @@ func ParseSignatureSchemes(sigs []tls.SignatureScheme, insecureHashes bool) ([]A
 }
 
 // FromCertificate maps x509.SignatureAlgorithm to the corresponding Algorithm type.
-func FromCertificate(cert *x509.Certificate) (Algorithm, error) { //nolint:cyclop
-	var hashAlg hash.Algorithm
-	var sigAlg signature.Algorithm
-
+func FromCertificate(cert *x509.Certificate) (Algorithm, error) {
 	switch cert.SignatureAlgorithm {
 	case x509.SHA256WithRSAPSS:
-		hashAlg = hash.SHA256
-		sigAlg = signature.RSA_PSS_RSAE_SHA256
+		return Algorithm{Hash: hash.SHA256, Signature: signature.RSA_PSS_RSAE_SHA256}, nil
 	case x509.SHA384WithRSAPSS:
-		hashAlg = hash.SHA384
-		sigAlg = signature.RSA_PSS_RSAE_SHA384
+		return Algorithm{Hash: hash.SHA384, Signature: signature.RSA_PSS_RSAE_SHA384}, nil
 	case x509.SHA512WithRSAPSS:
-		hashAlg = hash.SHA512
-		sigAlg = signature.RSA_PSS_RSAE_SHA512
+		return Algorithm{Hash: hash.SHA512, Signature: signature.RSA_PSS_RSAE_SHA512}, nil
 	case x509.SHA256WithRSA:
-		hashAlg = hash.SHA256
-		sigAlg = signature.RSA
+		return Algorithm{Hash: hash.SHA256, Signature: signature.RSA}, nil
 	case x509.SHA384WithRSA:
-		hashAlg = hash.SHA384
-		sigAlg = signature.RSA
+		return Algorithm{Hash: hash.SHA384, Signature: signature.RSA}, nil
 	case x509.SHA512WithRSA:
-		hashAlg = hash.SHA512
-		sigAlg = signature.RSA
-	case x509.ECDSAWithSHA256:
-		hashAlg = hash.SHA256
-		sigAlg = signature.ECDSA
-	case x509.ECDSAWithSHA384:
-		hashAlg = hash.SHA384
-		sigAlg = signature.ECDSA
-	case x509.ECDSAWithSHA512:
-		hashAlg = hash.SHA512
-		sigAlg = signature.ECDSA
-	case x509.PureEd25519:
-		hashAlg = hash.None // Ed25519 doesn't use a separate hash
-		sigAlg = signature.Ed25519
+		return Algorithm{Hash: hash.SHA512, Signature: signature.RSA}, nil
 	case x509.SHA1WithRSA:
-		hashAlg = hash.SHA1
-		sigAlg = signature.RSA
+		return Algorithm{Hash: hash.SHA1, Signature: signature.RSA}, nil
+	default:
+		return fromNonRSACertificate(cert.SignatureAlgorithm)
+	}
+}
+
+func fromNonRSACertificate(algorithm x509.SignatureAlgorithm) (Algorithm, error) {
+	switch algorithm {
+	case x509.ECDSAWithSHA256:
+		return Algorithm{Hash: hash.SHA256, Signature: signature.ECDSA}, nil
+	case x509.ECDSAWithSHA384:
+		return Algorithm{Hash: hash.SHA384, Signature: signature.ECDSA}, nil
+	case x509.ECDSAWithSHA512:
+		return Algorithm{Hash: hash.SHA512, Signature: signature.ECDSA}, nil
+	case x509.PureEd25519:
+		return Algorithm{Hash: hash.None, Signature: signature.Ed25519}, nil
 	case x509.ECDSAWithSHA1:
-		hashAlg = hash.SHA1
-		sigAlg = signature.ECDSA
+		return Algorithm{Hash: hash.SHA1, Signature: signature.ECDSA}, nil
 	default:
 		return Algorithm{}, dtlserrors.ErrInvalidSignatureAlgorithm
 	}
-
-	return Algorithm{Hash: hashAlg, Signature: sigAlg}, nil
 }
 
 // Unmarshal translates a tls.SignatureScheme to a Algorithm.

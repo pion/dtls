@@ -414,7 +414,7 @@ func retryKeyShare(share *extension13.KeyShareEntry) *extension13.ClientKeyShare
 
 // Retry may update ages and binders, and remove identities with incompatible hashes.
 // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.1.2
-func retryPSKsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bool { //nolint:cyclop
+func retryPSKsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bool {
 	first, firstPresent := initial.Extension(extension.TypePreSharedKey)
 	second, secondPresent := retry.Extension(extension.TypePreSharedKey)
 	if !firstPresent {
@@ -427,6 +427,11 @@ func retryPSKsMatch(initial, retry ClientHelloSnapshot, request RetryRequest) bo
 	if secondPresent && retried.UnmarshalData(second.Data) != nil {
 		return false
 	}
+
+	return retryPSKIdentitiesMatch(offered, retried, request)
+}
+
+func retryPSKIdentitiesMatch(offered, retried extension13.OfferedPSKs, request RetryRequest) bool {
 	suite := ciphersuite.ForID(cryptosuite.ID(request.CipherSuiteID))
 	next := 0
 	for i, identity := range offered.Identities {

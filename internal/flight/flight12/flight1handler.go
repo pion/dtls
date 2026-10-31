@@ -6,10 +6,12 @@ package flight12
 import (
 	"bytes"
 	"context"
+	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
+	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/protocol"
@@ -56,7 +58,6 @@ func flight1Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 	return 0, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
 }
 
-//nolint:cyclop
 func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	// A new handshake must authenticate the peer and derive fresh record keys,
 	// even when an earlier attempt on this connection timed out.
@@ -85,44 +86,11 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 		state.LocalRandom.RandomBytes = cfg.HelloRandomBytesGenerator()
 	}
 
-	var extensions []extension.Value
-	if len(cfg.LocalSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)})
+	extensions := clientHello12SignatureExtensions(cfg)
+	if clientHelloHasECC(cfg) {
+		extensions = append(extensions, &extension.SupportedGroups{Groups: ellipticCurves}, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}})
 	}
-	extensions = append(extensions, &extension12.RenegotiationInfo{RenegotiatedConnection: 0})
-
-	if len(cfg.LocalCertSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes)})
-	}
-
-	var setEllipticCurveCryptographyClientHelloExtensions bool
-	for _, c := range cfg.LocalCipherSuites {
-		if c.ECC() {
-			setEllipticCurveCryptographyClientHelloExtensions = true
-
-			break
-		}
-	}
-
-	if setEllipticCurveCryptographyClientHelloExtensions {
-		extensions = append(extensions, []extension.Value{&extension.SupportedGroups{Groups: ellipticCurves}, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}}}...)
-	}
-
-	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
-		extensions = append(extensions, &extension.SRTPOffer{ProtectionProfiles: cfg.LocalSRTPProtectionProfiles, MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier})
-	}
-
-	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret || cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
-		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
-	}
-
-	if cfg.SendServerName() {
-		extensions = append(extensions, &extension.ServerNameOffer{ServerName: cfg.ServerName})
-	}
-
-	if len(cfg.SupportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
-	}
+	extensions = appendClientHello12Negotiation(extensions, cfg)
 
 	if cfg.HasSessionStore {
 		cfg.Log.Tracef("[handshake] try to resume session")
@@ -155,9 +123,18 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 
 	clientHello := &handshake.MessageClientHello{Version: protocol.Version1_2, SessionID: state.SessionID, Cookie: state.Cookie, Random: state.LocalRandom, CipherSuiteIDs: dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites), CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions}
 
+	return finalizeClientHello12(state, cfg, clientHello, false)
+}
+
+func finalizeClientHello12(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, clientHello *handshake.MessageClientHello, retry bool) ([]*dtlsflight.Outbound, *alert.Alert, error) {
 	clientHello, snapshot, err := dtlsflight.FinalizeClientHello(clientHello, cfg)
 	if err != nil {
 		return nil, nil, err
+	}
+	if retry && state.HasHelloVerifyRequest {
+		if err := negotiation.ValidateHelloVerifyRequestResponse(state.LocalClientHelloSnapshots.Initial(), snapshot, state.Cookie); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err := state.RecordLocalClientHello(snapshot); err != nil {
 		return nil, nil, err
@@ -169,4 +146,42 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 			Content: &content,
 		},
 	}, nil, nil
+}
+
+func clientHello12SignatureExtensions(cfg *dtlsconfig.HandshakeConfig) []extension.Value {
+	var extensions []extension.Value
+	if len(cfg.LocalSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)})
+	}
+	extensions = append(extensions, &extension12.RenegotiationInfo{RenegotiatedConnection: 0})
+
+	if len(cfg.LocalCertSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.CertificateSignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalCertSignatureSchemes)})
+	}
+
+	return extensions
+}
+
+func appendClientHello12Negotiation(extensions []extension.Value, cfg *dtlsconfig.HandshakeConfig) []extension.Value {
+	if len(cfg.LocalSRTPProtectionProfiles) > 0 {
+		extensions = append(extensions, &extension.SRTPOffer{ProtectionProfiles: cfg.LocalSRTPProtectionProfiles, MasterKeyIdentifier: cfg.LocalSRTPMasterKeyIdentifier})
+	}
+
+	if isExtendedMasterSecretRequested(cfg.ExtendedMasterSecret) {
+		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
+	}
+
+	if cfg.SendServerName() {
+		extensions = append(extensions, &extension.ServerNameOffer{ServerName: cfg.ServerName})
+	}
+
+	if len(cfg.SupportedProtocols) > 0 {
+		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
+	}
+
+	return extensions
+}
+
+func clientHelloHasECC(cfg *dtlsconfig.HandshakeConfig) bool {
+	return slices.ContainsFunc(cfg.LocalCipherSuites, func(suite dtlsconfig.CipherSuite) bool { return suite.ECC() })
 }

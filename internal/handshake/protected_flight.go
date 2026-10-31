@@ -136,15 +136,18 @@ func (f *protectedHandshakeFlight) processCertificateVerify(item *dtlsflight.Han
 	return f.append(item, parsedHandshake)
 }
 
-func (f *protectedHandshakeFlight) processFinished(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, finished *handshake.MessageFinished) error { //nolint:cyclop
+func (f *protectedHandshakeFlight) processFinished(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, finished *handshake.MessageFinished) error {
 	if len(f.peerCertificates) != 0 && !f.hasCertificateVerify {
 		return dtlserrors.ErrClientCertificateNotVerified
 	}
-	if !item.IsClient && len(f.state.PSK) == 0 && !f.hasCertificateVerify {
-		return dtlserrors.ErrCertificateVerifyNoCertificate
-	}
-	if item.IsClient && len(f.state.PSK) == 0 && clientCertificateRequired(f.cfg) && len(f.peerCertificates) == 0 {
-		return dtlserrors.ErrClientCertificateRequired
+	if len(f.state.PSK) == 0 {
+		if !item.IsClient {
+			if !f.hasCertificateVerify {
+				return dtlserrors.ErrCertificateVerifyNoCertificate
+			}
+		} else if clientCertificateRequired(f.cfg) && len(f.peerCertificates) == 0 {
+			return dtlserrors.ErrClientCertificateRequired
+		}
 	}
 	if err := verifyPeerFinished(
 		f.transcript,

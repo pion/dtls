@@ -128,7 +128,7 @@ func (m *MessageServerHello) marshalTo(out []byte, extensions extension.Prepared
 }
 
 // Unmarshal populates the message from encoded data.
-func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
+func (m *MessageServerHello) Unmarshal(data []byte) error {
 	if len(data) < 2+RandomLength {
 		return dtlserrors.ErrBufferTooSmall
 	}
@@ -169,6 +169,10 @@ func (m *MessageServerHello) Unmarshal(data []byte) error { //nolint:cyclop
 		return dtlserrors.ErrInvalidCompressionMethod
 	}
 
+	return m.unmarshalExtensions(data, currOffset)
+}
+
+func (m *MessageServerHello) unmarshalExtensions(data []byte, currOffset int) error {
 	if len(data) <= currOffset {
 		context := serverHelloExtensionContext(m.Random, nil)
 		extensions, err := decodeRawExtensions(nil, context)

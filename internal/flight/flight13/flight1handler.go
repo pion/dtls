@@ -20,7 +20,6 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-//nolint:cyclop
 func flight1Generate(
 	conn dtlsflight.Conn,
 	flightCtx *handshakeContext,
@@ -54,24 +53,12 @@ func flight1Generate(
 		state.LocalRandom.RandomBytes = cfg.HelloRandomBytesGenerator()
 	}
 
-	extensions := []extension.Value{}
-	if len(cfg.LocalSignatureSchemes) > 0 {
-		extensions = append(extensions, &extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)})
-	}
+	return generateInitialClientHello(conn, flightCtx)
+}
 
-	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret || cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
-		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
-	}
-
-	extensions = append(extensions, &extension12.RenegotiationInfo{
-		RenegotiatedConnection: 0,
-	})
-
-	extensions = append(extensions, &extension.SupportedGroups{Groups: cfg.EllipticCurves}, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}})
-
-	if len(cfg.SupportedProtocols) > 0 {
-		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
-	}
+func generateInitialClientHello(conn dtlsflight.Conn, flightCtx *handshakeContext) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	state, cfg := flightCtx.state, flightCtx.cfg
+	extensions := initialClientHelloExtensions(cfg)
 
 	entries := make([]extension13.KeyShareEntry, 0, len(cfg.EllipticCurves))
 	keypairs := make(map[elliptic.Curve]*elliptic.Keypair, len(cfg.EllipticCurves))
@@ -142,7 +129,29 @@ func flight1Generate(
 	}, nil, nil
 }
 
-// nolint:cyclop
+func initialClientHelloExtensions(cfg *dtlsconfig.HandshakeConfig) []extension.Value {
+	extensions := []extension.Value{}
+	if len(cfg.LocalSignatureSchemes) > 0 {
+		extensions = append(extensions, &extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)})
+	}
+
+	if cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret || cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret {
+		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
+	}
+
+	extensions = append(extensions, &extension12.RenegotiationInfo{
+		RenegotiatedConnection: 0,
+	})
+
+	extensions = append(extensions, &extension.SupportedGroups{Groups: cfg.EllipticCurves}, &extension12.SupportedPointFormats{PointFormats: []elliptic.CurvePointFormat{elliptic.CurvePointFormatUncompressed}})
+
+	if len(cfg.SupportedProtocols) > 0 {
+		extensions = append(extensions, &extension.ALPNOffer{Protocols: cfg.SupportedProtocols})
+	}
+
+	return extensions
+}
+
 func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshakeContext) (Flight, *alert.Alert, error) {
 	state := flightCtx.state
 	cache := flightCtx.cache
@@ -177,6 +186,12 @@ func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshak
 		// Parse as flight3.
 		return flight3Parse(ctx, conn, flightCtx)
 	}
+
+	return parseHelloRetryRequest(flightCtx, sh, pull)
+}
+
+func parseHelloRetryRequest(flightCtx *handshakeContext, sh *handshake.MessageServerHello, pull dtlsflight.HandshakeCachePullResult) (Flight, *alert.Alert, error) {
+	state, cfg := flightCtx.state, flightCtx.cfg
 	// Handle HelloRetryRequest
 	if err := flightCtx.acceptECH(pull.Items[0]); err != nil {
 		failure := protectedFlightParseFailure(err)
@@ -184,19 +199,8 @@ func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshak
 		return 0, failure.alert, failure.err
 	}
 
-	if sh.Version != protocol.Version1_0 && sh.Version != protocol.Version1_2 {
-		return 0, &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
-	}
-	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions); err != nil {
-		description := alert.IllegalParameter
-		switch {
-		case errors.Is(err, dtlserrors.ErrUnsupportedProtocolVersion):
-			description = alert.ProtocolVersion
-		case errors.Is(err, dtlserrors.ErrMissingSupportedVersionsExtension):
-			description = alert.MissingExtension
-		}
-
-		return 0, &alert.Alert{Level: alert.Fatal, Description: description}, err
+	if dtlsAlert, err := validateRetryRequestVersion(sh); err != nil {
+		return 0, dtlsAlert, err
 	}
 	if err := negotiation.ValidateServerHelloResponse(
 		state.LocalClientHelloSnapshots.Current(), sh,
@@ -225,4 +229,23 @@ func flight1Parse(ctx context.Context, conn dtlsflight.Conn, flightCtx *handshak
 	state.HandshakeRecvSequence = pull.NextSequence
 
 	return Flight3, nil, nil
+}
+
+func validateRetryRequestVersion(sh *handshake.MessageServerHello) (*alert.Alert, error) {
+	if sh.Version != protocol.Version1_0 && sh.Version != protocol.Version1_2 {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.ProtocolVersion}, dtlserrors.ErrUnsupportedProtocolVersion
+	}
+	if err := validateHelloRetryRequestSelectedVersion(sh.Extensions); err != nil {
+		description := alert.IllegalParameter
+		switch {
+		case errors.Is(err, dtlserrors.ErrUnsupportedProtocolVersion):
+			description = alert.ProtocolVersion
+		case errors.Is(err, dtlserrors.ErrMissingSupportedVersionsExtension):
+			description = alert.MissingExtension
+		}
+
+		return &alert.Alert{Level: alert.Fatal, Description: description}, err
+	}
+
+	return nil, nil //nolint:nilnil
 }

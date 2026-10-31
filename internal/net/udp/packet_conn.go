@@ -250,7 +250,7 @@ func (l *listener) readLoop() {
 }
 
 // getConn gets an existing connection or creates a new one.
-func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error) { //nolint:cyclop
+func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error) {
 	if l.datagramRouter != nil {
 		if cid, ok := l.datagramRouter(buf); ok {
 			l.routesMu.RLock()
@@ -278,6 +278,10 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 		return nil, false, nil
 	}
 
+	return l.acceptConn(raddr, key)
+}
+
+func (l *listener) acceptConn(raddr net.Addr, key addressKey) (*PacketConn, bool, error) {
 	l.acceptMu.Lock()
 	defer l.acceptMu.Unlock()
 	if !l.accepting.Load() {
@@ -285,10 +289,10 @@ func (l *listener) getConn(raddr net.Addr, buf []byte) (*PacketConn, bool, error
 	}
 	l.routesMu.Lock()
 	defer l.routesMu.Unlock()
-	if conn = l.addresses[key]; conn != nil {
+	if conn := l.addresses[key]; conn != nil {
 		return conn, !conn.closing.Load(), nil
 	}
-	conn = l.newPacketConn(raddr)
+	conn := l.newPacketConn(raddr)
 	l.nConns.Add(1)
 	l.connWG.Add(1)
 	select {

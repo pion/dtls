@@ -17,29 +17,23 @@ const (
 	Flight6
 )
 
-func (f Flight) String() string { //nolint:cyclop
-	switch f {
-	case Flight0:
-		return "Flight 0"
-	case Flight1:
-		return "Flight 1"
-	case Flight2:
-		return "Flight 2"
-	case Flight3:
-		return "Flight 3"
-	case Flight4:
-		return "Flight 4"
-	case Flight4b:
-		return "Flight 4b"
-	case Flight5:
-		return "Flight 5"
-	case Flight5b:
-		return "Flight 5b"
-	case Flight6:
-		return "Flight 6"
-	default:
-		return "Invalid Flight"
+func (f Flight) String() string {
+	names := [...]string{
+		Flight0:  "Flight 0",
+		Flight1:  "Flight 1",
+		Flight2:  "Flight 2",
+		Flight3:  "Flight 3",
+		Flight4:  "Flight 4",
+		Flight4b: "Flight 4b",
+		Flight5:  "Flight 5",
+		Flight5b: "Flight 5b",
+		Flight6:  "Flight 6",
 	}
+	if int(f) < len(names) && names[f] != "" {
+		return names[f]
+	}
+
+	return "Invalid Flight"
 }
 
 func (f Flight) IsLastSendFlight() bool {

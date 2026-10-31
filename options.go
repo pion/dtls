@@ -1053,7 +1053,7 @@ const (
 	DisableExtendedMasterSecret
 )
 
-func validateConfig(config *dtlsConfig) error { //nolint:cyclop
+func validateConfig(config *dtlsConfig) error {
 	if config == nil {
 		return dtlserrors.ErrNoConfigProvided
 	}
@@ -1072,9 +1072,7 @@ func validateConfig(config *dtlsConfig) error { //nolint:cyclop
 				return dtlserrors.ErrInvalidPrivateKey
 			}
 			switch signer.Public().(type) {
-			case ed25519.PublicKey:
-			case *ecdsa.PublicKey:
-			case *rsa.PublicKey:
+			case ed25519.PublicKey, *ecdsa.PublicKey, *rsa.PublicKey:
 			default:
 				return dtlserrors.ErrInvalidPrivateKey
 			}
@@ -1126,38 +1124,17 @@ func filterCipherSuitesForVersion(
 	return slices.DeleteFunc(slices.Clone(cipherSuites), func(suite cryptosuite.Suite) bool { return !suite.Capabilities().SupportsVersion(version) })
 }
 
-//nolint:cyclop
 func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() []cryptosuite.Suite, includeCertificateSuites, includePSKSuites bool, minVersion, maxVersion protocol.Version) ([]cryptosuite.Suite, error) {
-	customByID := make(map[cryptosuite.ID]cryptosuite.Suite)
-	var custom []cryptosuite.Suite
-	if customCipherSuites != nil {
-		custom = customCipherSuites()
-		for _, suite := range custom {
-			if suite == nil || ciphersuite.ForID(suite.ID()) != nil || customByID[suite.ID()] != nil {
-				return nil, dtlserrors.ErrInvalidCipherSuite
-			}
-			if err := validateCipherSuite(suite); err != nil {
-				return nil, err
-			}
-			customByID[suite.ID()] = suite
-		}
+	custom, customByID, err := customCipherSuiteRegistry(customCipherSuites)
+	if err != nil {
+		return nil, err
 	}
 
 	var cipherSuites []cryptosuite.Suite
 	if selectedIDs != nil {
-		cipherSuites = make([]cryptosuite.Suite, 0, len(selectedIDs))
-		for _, id := range selectedIDs {
-			suite := customByID[id]
-			if suite == nil {
-				suite = ciphersuite.ForID(id)
-			}
-			if suite == nil {
-				return nil, &invalidCipherSuiteError{id}
-			}
-			if err := validateCipherSuite(suite); err != nil {
-				return nil, err
-			}
-			cipherSuites = append(cipherSuites, suite)
+		cipherSuites, err = selectedCipherSuites(selectedIDs, customByID)
+		if err != nil {
+			return nil, err
 		}
 	} else {
 		for _, version := range dtlsconfig.SupportedVersionsRange(minVersion, maxVersion) {
@@ -1184,6 +1161,10 @@ func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() 
 		})
 	}
 
+	return filterCipherSuitesByAuthentication(cipherSuites, includeCertificateSuites, includePSKSuites)
+}
+
+func filterCipherSuitesByAuthentication(cipherSuites []cryptosuite.Suite, includeCertificateSuites, includePSKSuites bool) ([]cryptosuite.Suite, error) {
 	var foundCertificateSuite, foundPSKSuite, foundTrafficSuite bool
 	i := 0
 	for _, suite := range cipherSuites {
@@ -1207,19 +1188,61 @@ func selectCipherSuites(selectedIDs []cryptosuite.ID, customCipherSuites func() 
 		i++
 	}
 
+	return validateCipherSuiteAuthentication(cipherSuites[:i], includeCertificateSuites, includePSKSuites, foundCertificateSuite, foundPSKSuite, foundTrafficSuite)
+}
+
+func validateCipherSuiteAuthentication(cipherSuites []cryptosuite.Suite, includeCertificateSuites, includePSKSuites, foundCertificateSuite, foundPSKSuite, foundTrafficSuite bool) ([]cryptosuite.Suite, error) {
 	switch {
 	case includeCertificateSuites && !foundCertificateSuite && !foundTrafficSuite:
 		return nil, dtlserrors.ErrNoAvailableCertificateCipherSuite
 	case includePSKSuites && !foundPSKSuite && !foundTrafficSuite:
 		return nil, dtlserrors.ErrNoAvailablePSKCipherSuite
-	case i == 0:
+	case len(cipherSuites) == 0:
 		return nil, dtlserrors.ErrNoAvailableCipherSuites
 	}
 
-	return cipherSuites[:i], nil
+	return cipherSuites, nil
 }
 
-func validateCipherSuite(suite cryptosuite.Suite) error { //nolint:cyclop
+func customCipherSuiteRegistry(customCipherSuites func() []cryptosuite.Suite) ([]cryptosuite.Suite, map[cryptosuite.ID]cryptosuite.Suite, error) {
+	customByID := make(map[cryptosuite.ID]cryptosuite.Suite)
+	var custom []cryptosuite.Suite
+	if customCipherSuites != nil {
+		custom = customCipherSuites()
+		for _, suite := range custom {
+			if suite == nil || ciphersuite.ForID(suite.ID()) != nil || customByID[suite.ID()] != nil {
+				return nil, nil, dtlserrors.ErrInvalidCipherSuite
+			}
+			if err := validateCipherSuite(suite); err != nil {
+				return nil, nil, err
+			}
+			customByID[suite.ID()] = suite
+		}
+	}
+
+	return custom, customByID, nil
+}
+
+func selectedCipherSuites(selectedIDs []cryptosuite.ID, customByID map[cryptosuite.ID]cryptosuite.Suite) ([]cryptosuite.Suite, error) {
+	cipherSuites := make([]cryptosuite.Suite, 0, len(selectedIDs))
+	for _, id := range selectedIDs {
+		suite := customByID[id]
+		if suite == nil {
+			suite = ciphersuite.ForID(id)
+		}
+		if suite == nil {
+			return nil, &invalidCipherSuiteError{id}
+		}
+		if err := validateCipherSuite(suite); err != nil {
+			return nil, err
+		}
+		cipherSuites = append(cipherSuites, suite)
+	}
+
+	return cipherSuites, nil
+}
+
+func validateCipherSuite(suite cryptosuite.Suite) error {
 	if suite == nil || suite.ID() == 0 {
 		return dtlserrors.ErrInvalidCipherSuite
 	}
@@ -1232,6 +1255,10 @@ func validateCipherSuite(suite cryptosuite.Suite) error { //nolint:cyclop
 		return dtlserrors.ErrInvalidCipherSuite
 	}
 
+	return validateCipherSuiteVersion(suite)
+}
+
+func validateCipherSuiteVersion(suite cryptosuite.Suite) error {
 	switch suite.Capabilities().Version() {
 	case protocol.Version1_2:
 		if _, ok := suite.(cryptosuite.ConnectionSuite); !ok {

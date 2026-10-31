@@ -95,7 +95,7 @@ func activateApplicationRecordProtection(ctx context.Context, conn Conn, state *
 	return conn.HandleQueuedPackets(ctx)
 }
 
-func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
+func initRecordProtectionFromTrafficSecrets(
 	state *dtlsstate.State13,
 	epoch uint64,
 	secrets dtlsstate.TrafficSecrets,
@@ -117,31 +117,33 @@ func initRecordProtectionFromTrafficSecrets( //nolint:cyclop
 	if err != nil {
 		return err
 	}
-	writeTrafficSecret, err := dtlsciphersuite.NewTrafficSecret(writeSecret)
+	writeProtection, err := trafficProtection(tls13CipherSuite, writeSecret)
 	if err != nil {
 		return err
 	}
-	writeProtection, err := tls13CipherSuite.NewTrafficProtection(writeTrafficSecret)
+	readProtection, err := trafficProtection(tls13CipherSuite, readSecret)
 	if err != nil {
 		return err
-	}
-	if writeProtection == nil {
-		return dtlserrors.ErrInvalidInternalState
-	}
-	readTrafficSecret, err := dtlsciphersuite.NewTrafficSecret(readSecret)
-	if err != nil {
-		return err
-	}
-	readProtection, err := tls13CipherSuite.NewTrafficProtection(readTrafficSecret)
-	if err != nil {
-		return err
-	}
-	if readProtection == nil {
-		return dtlserrors.ErrInvalidInternalState
 	}
 	state.TrafficKeys.Install(&dtlsstate.TrafficGeneration{Epoch: epoch, Generation: 0, Secret: writeSecret, Protection: writeProtection}, &dtlsstate.TrafficGeneration{Epoch: epoch, Generation: 0, Secret: readSecret, Protection: readProtection})
 
 	return nil
+}
+
+func trafficProtection(suite cryptosuite.TrafficSuite, secret []byte) (cryptosuite.TrafficProtection, error) {
+	trafficSecret, err := dtlsciphersuite.NewTrafficSecret(secret)
+	if err != nil {
+		return nil, err
+	}
+	protection, err := suite.NewTrafficProtection(trafficSecret)
+	if err != nil {
+		return nil, err
+	}
+	if protection == nil {
+		return nil, dtlserrors.ErrInvalidInternalState
+	}
+
+	return protection, nil
 }
 
 func recordProtectionCipherSuite(state *dtlsstate.State13) (cryptosuite.TrafficSuite, error) {

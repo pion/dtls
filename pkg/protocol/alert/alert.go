@@ -68,7 +68,7 @@ const (
 	ECHRequired            Description = 121
 )
 
-func (d Description) String() string { //nolint:cyclop
+func (d Description) String() string {
 	switch d {
 	case CloseNotify:
 		return "CloseNotify"
@@ -86,6 +86,13 @@ func (d Description) String() string { //nolint:cyclop
 		return "HandshakeFailure"
 	case NoCertificate:
 		return "NoCertificate"
+	default:
+		return d.certificateName()
+	}
+}
+
+func (d Description) certificateName() string {
+	switch d {
 	case BadCertificate:
 		return "BadCertificate"
 	case UnsupportedCertificate:
@@ -102,6 +109,13 @@ func (d Description) String() string { //nolint:cyclop
 		return "UnknownCA"
 	case AccessDenied:
 		return "AccessDenied"
+	default:
+		return d.negotiationName()
+	}
+}
+
+func (d Description) negotiationName() string {
+	switch d {
 	case DecodeError:
 		return "DecodeError"
 	case DecryptError:
@@ -118,6 +132,13 @@ func (d Description) String() string { //nolint:cyclop
 		return "InternalError"
 	case UserCanceled:
 		return "UserCanceled"
+	default:
+		return d.extensionName()
+	}
+}
+
+func (d Description) extensionName() string {
+	switch d {
 	case NoRenegotiation:
 		return "NoRenegotiation"
 	case MissingExtension:

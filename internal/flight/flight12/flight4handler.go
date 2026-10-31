@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/x509"
+	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
@@ -31,7 +32,6 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-//nolint:cyclop
 func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	if !state.ClientFlightProcessed {
 		ready, dtlsAlert, err := flight4ProcessClientFlight(state, cache, cfg)
@@ -72,37 +72,17 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 	}
 	state.HandshakeRecvSequence = finishedPull.NextSequence
 
+	return finishVerifiedClientFlight(state, cfg)
+}
+
+func finishVerifiedClientFlight(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error) {
 	// empty certificate list is valid for PSK suites.
 	// https://www.rfc-editor.org/rfc/rfc4279.html#section-2
 	// https://www.rfc-editor.org/rfc/rfc5246.html#section-7.4.6
-	if state.CipherSuite.AuthenticationType() != cryptosuite.AuthenticationTypeCertificate {
-		if cfg.VerifyConnection != nil {
-			if err := cfg.VerifyConnection(state); err != nil {
-				return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
-			}
+	if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypeCertificate {
+		if dtlsAlert, err := validateClientAuth(state, cfg); err != nil {
+			return 0, dtlsAlert, err
 		}
-
-		return finishClientFlight(state, cfg)
-	}
-
-	switch cfg.ClientAuth {
-	case dtlsconfig.RequireAnyClientCert:
-		if len(state.PeerCertificates) == 0 {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrClientCertificateRequired
-		}
-	case dtlsconfig.VerifyClientCertIfGiven:
-		if len(state.PeerCertificates) > 0 && !state.PeerCertificatesVerified {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, dtlserrors.ErrClientCertificateNotVerified
-		}
-	case dtlsconfig.RequireAndVerifyClientCert:
-		if len(state.PeerCertificates) == 0 {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrClientCertificateRequired
-		}
-		if !state.PeerCertificatesVerified {
-			return 0, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, dtlserrors.ErrClientCertificateNotVerified
-		}
-	case dtlsconfig.NoClientCert, dtlsconfig.RequestClientCert:
-		// go to Flight6
 	}
 	if cfg.VerifyConnection != nil {
 		if err := cfg.VerifyConnection(state); err != nil {
@@ -113,44 +93,23 @@ func flight4Parse(ctx context.Context, conn dtlsflight.Conn, state *dtlsstate.St
 	return finishClientFlight(state, cfg)
 }
 
+func validateClientAuth(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig) (*alert.Alert, error) {
+	if (cfg.ClientAuth == dtlsconfig.RequireAnyClientCert || cfg.ClientAuth == dtlsconfig.RequireAndVerifyClientCert) && len(state.PeerCertificates) == 0 {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrClientCertificateRequired
+	}
+	if (cfg.ClientAuth == dtlsconfig.VerifyClientCertIfGiven || cfg.ClientAuth == dtlsconfig.RequireAndVerifyClientCert) && len(state.PeerCertificates) > 0 && !state.PeerCertificatesVerified {
+		return &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, dtlserrors.ErrClientCertificateNotVerified
+	}
+
+	return nil, nil //nolint:nilnil
+}
+
 // Retain progress while waiting for CertificateVerify and Finished.
-//
-//nolint:cyclop
 func flight4ProcessClientFlight(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (bool, *alert.Alert, error) {
-	if state.ClientKeyExchange == nil { //nolint:nestif // Commit the client flight only after its required key exchange arrives.
-		pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: true},
-			dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
-		)
-		if pull.Err != nil {
-			return false, nil, pull.Err
+	if state.ClientKeyExchange == nil {
+		if ready, dtlsAlert, err := processClientKeyExchange(state, cache, cfg); !ready || err != nil {
+			return ready, dtlsAlert, err
 		}
-		if !pull.Ready {
-			// No valid message received. Keep reading
-			return false, nil, nil
-		}
-
-		// Validate type
-		clientKeyExchange, ok := pull.Messages[handshake.TypeClientKeyExchange].(*handshake.MessageClientKeyExchange)
-		if !ok {
-			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
-		}
-
-		if h, hasCert := pull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
-			if cfg.ClientAuth == dtlsconfig.NoClientCert {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, dtlserrors.ErrInvalidCertificate
-			}
-			state.PeerCertificates = util.CloneByteSlices(h.Certificate)
-			// If the client offer its certificate, just disable session resumption.
-			// Otherwise, we have to store the certificate identitfication and expire time.
-			// And we have to check whether this certificate expired, revoked or changed.
-			//
-			// https://curl.se/docs/CVE-2016-5419.html
-			state.SessionID = nil
-		}
-
-		state.ClientKeyExchange = clientKeyExchange
-		state.HandshakeRecvSequence = pull.NextSequence
 	}
 	clientKeyExchange := state.ClientKeyExchange
 	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
@@ -161,109 +120,19 @@ func flight4ProcessClientFlight(state *dtlsstate.State12, cache *dtlsflight.Cach
 	}
 	//nolint:nestif
 	if verify, hasVerify := pull.Messages[handshake.TypeCertificateVerify].(*handshake.MessageCertificateVerify); hasVerify {
-		if len(state.PeerCertificates) == 0 {
-			return false, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrCertificateVerifyNoCertificate
+		if _, dtlsAlert, err := verifyClientCertificateMessage(state, cache, cfg, verify); err != nil {
+			return false, dtlsAlert, err
 		}
-
-		plainText := cache.PullAndMerge(handshakeRulesThroughClientKeyExchange(cfg.InitialEpoch)...)
-
-		// Verify that the pair of hash algorithm and signiture is listed.
-		var validSignatureScheme bool
-		for _, ss := range cfg.LocalSignatureSchemes {
-			if ss.Hash == verify.HashAlgorithm && ss.Signature == verify.SignatureAlgorithm {
-				validSignatureScheme = true
-
-				break
-			}
-		}
-		if !validSignatureScheme {
-			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoAvailableSignatureSchemes
-		}
-
-		if err := dtlscrypto.VerifyCertificateVerify(plainText, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, state.PeerCertificates); err != nil {
-			return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
-		}
-		var chains [][]*x509.Certificate
-		var err error
-		var verified bool
-		if cfg.ClientAuth >= dtlsconfig.VerifyClientCertIfGiven {
-			// Use cert-specific algorithms if present, otherwise fall back to signature_algorithms per RFC 8446
-			certAlgs := cfg.LocalCertSignatureSchemes
-			if len(certAlgs) == 0 {
-				certAlgs = cfg.LocalSignatureSchemes
-			}
-			if chains, err = dtlscrypto.VerifyClientCert(state.PeerCertificates, cfg.ClientCAs, certAlgs); err != nil {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
-			}
-			verified = true
-		}
-		if cfg.VerifyPeerCertificate != nil {
-			if err := cfg.VerifyPeerCertificate(state.PeerCertificates, chains); err != nil {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
-			}
-		}
-		state.PeerCertificatesVerified = verified
 	} else if len(state.PeerCertificates) > 0 {
 		// A certificate was received, but we haven't seen a CertificateVerify
 		// keep reading until we receive one
 		return false, nil, nil
 	}
 
-	if state.Protection == nil { //nolint:nestif
-		serverRandom := state.LocalRandom.MarshalFixed()
-		clientRandom := state.RemoteRandom.MarshalFixed()
-
-		var err error
-		var preMasterSecret []byte
-		if state.CipherSuite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey {
-			var psk []byte
-			if _, psk, _, err = cfg.SelectPSK([][]byte{clientKeyExchange.IdentityHint}); err != nil {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-			if len(psk) == 0 {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrPSKNotNegotiated
-			}
-			state.IdentityHint = bytes.Clone(clientKeyExchange.IdentityHint)
-			state.PSKHash = sha256.Sum256(psk)
-			switch state.CipherSuite.KeyExchangeAlgorithm() {
-			case cryptosuite.KeyExchangeAlgorithmPsk:
-				preMasterSecret = prf.PSKPreMasterSecret(psk)
-			case (cryptosuite.KeyExchangeAlgorithmPsk | cryptosuite.KeyExchangeAlgorithmEcdhe):
-				if preMasterSecret, err = prf.EcdhePSKPreMasterSecret(psk, clientKeyExchange.PublicKey, state.LocalKeypair.PrivateKey, state.LocalKeypair.Curve); err != nil {
-					return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-				}
-			default:
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidCipherSuite
-			}
-		} else {
-			preMasterSecret, err = prf.PreMasterSecret(clientKeyExchange.PublicKey, state.LocalKeypair.PrivateKey, state.LocalKeypair.Curve)
-			if err != nil {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
-			}
+	if state.Protection == nil {
+		if _, dtlsAlert, err := initializeServerCipherSuite(state, cache, cfg, clientKeyExchange); err != nil {
+			return false, dtlsAlert, err
 		}
-
-		if state.ExtendedMasterSecret {
-			var sessionHash []byte
-			sessionHash, err = cache.SessionHash(state.CipherSuite.HashFunc(), cfg.InitialEpoch)
-			if err != nil {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-
-			state.MasterSecret, err = prf.ExtendedMasterSecret(preMasterSecret, sessionHash, state.CipherSuite.HashFunc())
-			if err != nil {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-		} else {
-			state.MasterSecret, err = prf.MasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.CipherSuite.HashFunc())
-			if err != nil {
-				return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-			}
-		}
-
-		if err := state.InitCipherSuite(); err != nil {
-			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		}
-		cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
 	}
 
 	state.HandshakeRecvSequence = pull.NextSequence
@@ -271,6 +140,151 @@ func flight4ProcessClientFlight(state *dtlsstate.State12, cache *dtlsflight.Cach
 	state.ClientFlightProcessed = true
 
 	return true, nil, nil
+}
+
+func processClientKeyExchange(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (bool, *alert.Alert, error) {
+	pull := cache.FullPullMapItems(state.HandshakeRecvSequence, state.CipherSuite,
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeCertificate, Epoch: cfg.InitialEpoch, IsClient: true, Optional: true},
+		dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientKeyExchange, Epoch: cfg.InitialEpoch, IsClient: true, Optional: false},
+	)
+	if pull.Err != nil {
+		return false, nil, pull.Err
+	}
+	if !pull.Ready {
+		// No valid message received. Keep reading
+		return false, nil, nil
+	}
+
+	// Validate type
+	clientKeyExchange, ok := pull.Messages[handshake.TypeClientKeyExchange].(*handshake.MessageClientKeyExchange)
+	if !ok {
+		return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, nil
+	}
+
+	if h, hasCert := pull.Messages[handshake.TypeCertificate].(*handshake.MessageCertificate); hasCert {
+		if cfg.ClientAuth == dtlsconfig.NoClientCert {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}, dtlserrors.ErrInvalidCertificate
+		}
+		state.PeerCertificates = util.CloneByteSlices(h.Certificate)
+		// If the client offer its certificate, just disable session resumption.
+		// Otherwise, we have to store the certificate identitfication and expire time.
+		// And we have to check whether this certificate expired, revoked or changed.
+		//
+		// https://curl.se/docs/CVE-2016-5419.html
+		state.SessionID = nil
+	}
+
+	state.ClientKeyExchange = clientKeyExchange
+	state.HandshakeRecvSequence = pull.NextSequence
+
+	return true, nil, nil
+}
+
+func verifyClientCertificateMessage(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, verify *handshake.MessageCertificateVerify) (bool, *alert.Alert, error) {
+	if len(state.PeerCertificates) == 0 {
+		return false, &alert.Alert{Level: alert.Fatal, Description: alert.NoCertificate}, dtlserrors.ErrCertificateVerifyNoCertificate
+	}
+
+	plainText := cache.PullAndMerge(handshakeRulesThroughClientKeyExchange(cfg.InitialEpoch)...)
+
+	// Verify that the pair of hash algorithm and signiture is listed.
+	if !slices.Contains(cfg.LocalSignatureSchemes, signaturehash.Algorithm{Hash: verify.HashAlgorithm, Signature: verify.SignatureAlgorithm}) {
+		return false, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoAvailableSignatureSchemes
+	}
+
+	if err := dtlscrypto.VerifyCertificateVerify(plainText, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, state.PeerCertificates); err != nil {
+		return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+	}
+
+	var chains [][]*x509.Certificate
+	var err error
+	var verified bool
+	if cfg.ClientAuth >= dtlsconfig.VerifyClientCertIfGiven {
+		// Use cert-specific algorithms if present, otherwise fall back to signature_algorithms per RFC 8446
+		certAlgs := cfg.LocalCertSignatureSchemes
+		if len(certAlgs) == 0 {
+			certAlgs = cfg.LocalSignatureSchemes
+		}
+		if chains, err = dtlscrypto.VerifyClientCert(state.PeerCertificates, cfg.ClientCAs, certAlgs); err != nil {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+		}
+		verified = true
+	}
+	if cfg.VerifyPeerCertificate != nil {
+		if err := cfg.VerifyPeerCertificate(state.PeerCertificates, chains); err != nil {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
+		}
+	}
+	state.PeerCertificatesVerified = verified
+
+	return true, nil, nil
+}
+
+func initializeServerCipherSuite(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, clientKeyExchange *handshake.MessageClientKeyExchange) (bool, *alert.Alert, error) {
+	serverRandom := state.LocalRandom.MarshalFixed()
+	clientRandom := state.RemoteRandom.MarshalFixed()
+
+	preMasterSecret, dtlsAlert, err := clientPreMasterSecret(state, cfg, clientKeyExchange)
+	if err != nil {
+		return false, dtlsAlert, err
+	}
+
+	if state.ExtendedMasterSecret {
+		var sessionHash []byte
+		sessionHash, err = cache.SessionHash(state.CipherSuite.HashFunc(), cfg.InitialEpoch)
+		if err != nil {
+			return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+		}
+
+		state.MasterSecret, err = prf.ExtendedMasterSecret(preMasterSecret, sessionHash, state.CipherSuite.HashFunc())
+	} else {
+		state.MasterSecret, err = prf.MasterSecret(preMasterSecret, clientRandom[:], serverRandom[:], state.CipherSuite.HashFunc())
+	}
+	if err != nil {
+		return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+
+	if err := state.InitCipherSuite(); err != nil {
+		return false, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	cfg.WriteKeyLog(keyLogLabel, clientRandom[:], state.MasterSecret)
+
+	return true, nil, nil
+}
+
+func clientPreMasterSecret(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, clientKeyExchange *handshake.MessageClientKeyExchange) ([]byte, *alert.Alert, error) {
+	if state.CipherSuite.AuthenticationType() != cryptosuite.AuthenticationTypePreSharedKey {
+		secret, err := prf.PreMasterSecret(clientKeyExchange.PublicKey, state.LocalKeypair.PrivateKey, state.LocalKeypair.Curve)
+		if err != nil {
+			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.IllegalParameter}, err
+		}
+
+		return secret, nil, nil
+	}
+	_, psk, _, err := cfg.SelectPSK([][]byte{clientKeyExchange.IdentityHint})
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	if len(psk) == 0 {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.HandshakeFailure}, dtlserrors.ErrPSKNotNegotiated
+	}
+	state.IdentityHint = bytes.Clone(clientKeyExchange.IdentityHint)
+	state.PSKHash = sha256.Sum256(psk)
+
+	var secret []byte
+	switch state.CipherSuite.KeyExchangeAlgorithm() {
+	case cryptosuite.KeyExchangeAlgorithmPsk:
+		return prf.PSKPreMasterSecret(psk), nil, nil
+	case cryptosuite.KeyExchangeAlgorithmPsk | cryptosuite.KeyExchangeAlgorithmEcdhe:
+		secret, err = prf.EcdhePSKPreMasterSecret(psk, clientKeyExchange.PublicKey, state.LocalKeypair.PrivateKey, state.LocalKeypair.Curve)
+	default:
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, dtlserrors.ErrInvalidCipherSuite
+	}
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+
+	return secret, nil, nil
 }
 
 func flight4Generate(_ dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {

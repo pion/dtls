@@ -380,9 +380,9 @@ func FilterCipherSuitesForCertificate(
 
 // UsableSession rejects legacy sessions and sessions belonging to another role.
 //
-//nolint:cyclop // Check role, negotiated parameters, and current authentication policy.
+// Check role, negotiated parameters, and current authentication policy.
 func (c *HandshakeConfig) UsableSession(session internalstate.Session, isClient bool) bool {
-	if session.Ticket != nil || session.Version != 1 || session.IsClient != isClient || len(session.ID) == 0 || len(session.Secret) != 48 {
+	if !validSessionMetadata(session, isClient) {
 		return false
 	}
 	if c.ExtendedMasterSecret == RequireExtendedMasterSecret && !session.ExtendedMasterSecret {
@@ -405,6 +405,11 @@ func (c *HandshakeConfig) UsableSession(session internalstate.Session, isClient 
 	if suite.AuthenticationType() == cryptosuite.AuthenticationTypePreSharedKey {
 		return c.usableSessionPSK(session, isClient)
 	}
+
+	return c.usableCertificateSession(session, isClient)
+}
+
+func (c *HandshakeConfig) usableCertificateSession(session internalstate.Session, isClient bool) bool {
 	if isClient {
 		if len(session.PeerCertificates) == 0 {
 			return false
@@ -418,6 +423,10 @@ func (c *HandshakeConfig) UsableSession(session internalstate.Session, isClient 
 	}
 
 	return c.ClientAuth == NoClientCert || c.ClientAuth == RequestClientCert
+}
+
+func validSessionMetadata(session internalstate.Session, isClient bool) bool {
+	return session.Ticket == nil && session.Version == 1 && session.IsClient == isClient && len(session.ID) != 0 && len(session.Secret) == 48
 }
 
 func (c *HandshakeConfig) verifySessionCertificate(raw [][]byte) ([][]*x509.Certificate, error) {

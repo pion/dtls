@@ -46,16 +46,44 @@ func HelloRetryRequestRandom() []byte {
 }
 
 // String returns the string representation of this type.
-func (t Type) String() string { //nolint:cyclop
+func (t Type) String() string {
 	switch t {
-	case TypeHelloRequest:
-		return "HelloRequest"
 	case TypeClientHello:
 		return "ClientHello"
 	case TypeServerHello:
 		return "ServerHello"
 	case TypeHelloVerifyRequest:
 		return "HelloVerifyRequest"
+	case TypeCertificate:
+		return "TypeCertificate"
+	case TypeServerKeyExchange:
+		return "ServerKeyExchange"
+	case TypeCertificateRequest:
+		return "CertificateRequest"
+	case TypeCertificateVerify:
+		return "CertificateVerify"
+	case TypeFinished:
+		return "Finished"
+	default:
+		return t.legacyName()
+	}
+}
+
+func (t Type) legacyName() string {
+	switch t {
+	case TypeHelloRequest:
+		return "HelloRequest"
+	case TypeServerHelloDone:
+		return "ServerHelloDone"
+	case TypeClientKeyExchange:
+		return "ClientKeyExchange"
+	default:
+		return t.dtls13Name()
+	}
+}
+
+func (t Type) dtls13Name() string {
+	switch t {
 	case TypeNewSessionTicket:
 		return "NewSessionTicket"
 	case TypeEncryptedExtensions:
@@ -64,27 +92,13 @@ func (t Type) String() string { //nolint:cyclop
 		return "RequestConnectionID"
 	case TypeNewConnectionID:
 		return "NewConnectionID"
-	case TypeCertificate:
-		return "TypeCertificate"
-	case TypeServerKeyExchange:
-		return "ServerKeyExchange"
-	case TypeCertificateRequest:
-		return "CertificateRequest"
-	case TypeServerHelloDone:
-		return "ServerHelloDone"
-	case TypeCertificateVerify:
-		return "CertificateVerify"
-	case TypeClientKeyExchange:
-		return "ClientKeyExchange"
-	case TypeFinished:
-		return "Finished"
 	case TypeKeyUpdate:
 		return "KeyUpdate"
 	case TypeMessageHash:
 		return "MessageHash"
+	default:
+		return ""
 	}
-
-	return ""
 }
 
 // Message is the body of a Handshake datagram.
@@ -173,7 +187,7 @@ func (h *Handshake) MarshalTo(out []byte) (int, error) {
 }
 
 // Unmarshal decodes a handshake from a binary message.
-func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
+func (h *Handshake) Unmarshal(data []byte) error {
 	if err := h.Header.Unmarshal(data); err != nil {
 		return err
 	}
@@ -185,42 +199,55 @@ func (h *Handshake) Unmarshal(data []byte) error { //nolint:cyclop
 		return dtlserrors.ErrLengthMismatch
 	}
 
-	switch Type(data[0]) {
-	case TypeHelloRequest:
-		return dtlserrors.ErrUnsupportedHandshakeType
-	case TypeClientHello:
-		h.Message = &MessageClientHello{}
-	case TypeHelloVerifyRequest:
-		h.Message = &MessageHelloVerifyRequest{}
-	case TypeServerHello:
-		h.Message = &MessageServerHello{}
-	case TypeNewSessionTicket:
-		h.Message = &MessageNewSessionTicket{}
-	case TypeEncryptedExtensions:
-		h.Message = &MessageEncryptedExtensions{}
-	case TypeRequestConnectionID:
-		h.Message = &MessageRequestConnectionID{}
-	case TypeNewConnectionID:
-		h.Message = &MessageNewConnectionID{}
-	case TypeCertificate:
-		h.Message = &MessageCertificate{}
-	case TypeServerKeyExchange:
-		h.Message = &MessageServerKeyExchange{KeyExchangeAlgorithm: h.KeyExchangeAlgorithm}
-	case TypeCertificateRequest:
-		h.Message = &MessageCertificateRequest{}
-	case TypeServerHelloDone:
-		h.Message = &MessageServerHelloDone{}
-	case TypeClientKeyExchange:
-		h.Message = &MessageClientKeyExchange{KeyExchangeAlgorithm: h.KeyExchangeAlgorithm}
-	case TypeFinished:
-		h.Message = &MessageFinished{}
-	case TypeCertificateVerify:
-		h.Message = &MessageCertificateVerify{}
-	case TypeKeyUpdate:
-		h.Message = &MessageKeyUpdate{}
-	default:
-		return dtlserrors.ErrUnsupportedHandshakeType
+	message, err := newHandshakeMessage(Type(data[0]), h.KeyExchangeAlgorithm)
+	if err != nil {
+		return err
 	}
+	h.Message = message
 
 	return h.Message.Unmarshal(data[HeaderLength:])
+}
+
+func newHandshakeMessage(messageType Type, keyExchangeAlgorithm ciphersuite.KeyExchangeAlgorithm) (Message, error) {
+	switch messageType {
+	case TypeClientHello:
+		return &MessageClientHello{}, nil
+	case TypeHelloVerifyRequest:
+		return &MessageHelloVerifyRequest{}, nil
+	case TypeServerHello:
+		return &MessageServerHello{}, nil
+	case TypeCertificate:
+		return &MessageCertificate{}, nil
+	case TypeServerKeyExchange:
+		return &MessageServerKeyExchange{KeyExchangeAlgorithm: keyExchangeAlgorithm}, nil
+	case TypeCertificateRequest:
+		return &MessageCertificateRequest{}, nil
+	case TypeServerHelloDone:
+		return &MessageServerHelloDone{}, nil
+	case TypeClientKeyExchange:
+		return &MessageClientKeyExchange{KeyExchangeAlgorithm: keyExchangeAlgorithm}, nil
+	default:
+		return newAdditionalHandshakeMessage(messageType)
+	}
+}
+
+func newAdditionalHandshakeMessage(messageType Type) (Message, error) {
+	switch messageType {
+	case TypeFinished:
+		return &MessageFinished{}, nil
+	case TypeNewSessionTicket:
+		return &MessageNewSessionTicket{}, nil
+	case TypeEncryptedExtensions:
+		return &MessageEncryptedExtensions{}, nil
+	case TypeRequestConnectionID:
+		return &MessageRequestConnectionID{}, nil
+	case TypeNewConnectionID:
+		return &MessageNewConnectionID{}, nil
+	case TypeCertificateVerify:
+		return &MessageCertificateVerify{}, nil
+	case TypeKeyUpdate:
+		return &MessageKeyUpdate{}, nil
+	default:
+		return nil, dtlserrors.ErrUnsupportedHandshakeType
+	}
 }

@@ -245,8 +245,6 @@ type UnpackDatagramConfig struct {
 }
 
 // UnpackDatagram returns borrowed records from a datagram.
-//
-//nolint:cyclop
 func UnpackDatagram(datagram []byte, config UnpackDatagramConfig) (records [][]byte, err error) {
 	if err = validateUnpackDatagramConfig(config); err != nil {
 		return nil, err
@@ -261,7 +259,7 @@ func UnpackDatagram(datagram []byte, config UnpackDatagramConfig) (records [][]b
 		if err != nil {
 			break
 		}
-		cidPresent = cidPresent || (unified && record[0]&recordwire.CIDBit != 0) || record[0] == byte(protocol.ContentTypeConnectionID)
+		cidPresent = cidPresent || recordHasCID(record, unified)
 		records = append(records, record)
 		datagram = datagram[len(record):]
 	}
@@ -275,14 +273,17 @@ func UnpackDatagram(datagram []byte, config UnpackDatagramConfig) (records [][]b
 	return records, err
 }
 
-//nolint:cyclop
+func recordHasCID(record []byte, unified bool) bool {
+	return (unified && record[0]&recordwire.CIDBit != 0) || record[0] == byte(protocol.ContentTypeConnectionID)
+}
+
 func nextRecord(datagram []byte, config UnpackDatagramConfig) ([]byte, error) {
 	contentType := protocol.ContentType(datagram[0])
 	unified := protocol.IsDTLS13Ciphertext(contentType)
-	if config.TargetVersion == protocol.Version1_2 && unified ||
-		config.TargetVersion == protocol.Version1_3 && !unified && !isDTLS13PlaintextContentType(contentType) {
-		return nil, dtlserrors.ErrInvalidContentType
+	if err := validateRecordContentType(contentType, unified, config.TargetVersion); err != nil {
+		return nil, err
 	}
+
 	headerLen, payloadLen, err := recordwire.DecodeHeader(datagram, config.CIDLength)
 	if err != nil {
 		return nil, err
@@ -291,16 +292,33 @@ func nextRecord(datagram []byte, config UnpackDatagramConfig) ([]byte, error) {
 		return nil, ErrInvalidPacketLength
 	}
 	if !unified {
-		epoch := binary.BigEndian.Uint16(datagram[3:5])
-		if config.TargetVersion == protocol.Version1_3 && epoch != 0 {
-			return nil, dtlserrors.ErrInvalidEpoch
-		}
-		if config.CIDRequired && epoch != 0 && contentType != protocol.ContentTypeConnectionID {
-			return nil, dtlserrors.ErrInvalidCiphertextHeader
+		if err := validateLegacyRecordHeader(datagram, contentType, config); err != nil {
+			return nil, err
 		}
 	}
 
 	return datagram[:headerLen+payloadLen], nil
+}
+
+func validateRecordContentType(contentType protocol.ContentType, unified bool, version protocol.Version) error {
+	if version == protocol.Version1_2 && unified ||
+		version == protocol.Version1_3 && !unified && !isDTLS13PlaintextContentType(contentType) {
+		return dtlserrors.ErrInvalidContentType
+	}
+
+	return nil
+}
+
+func validateLegacyRecordHeader(datagram []byte, contentType protocol.ContentType, config UnpackDatagramConfig) error {
+	epoch := binary.BigEndian.Uint16(datagram[3:5])
+	if config.TargetVersion == protocol.Version1_3 && epoch != 0 {
+		return dtlserrors.ErrInvalidEpoch
+	}
+	if config.CIDRequired && epoch != 0 && contentType != protocol.ContentTypeConnectionID {
+		return dtlserrors.ErrInvalidCiphertextHeader
+	}
+
+	return nil
 }
 
 func validateUnpackDatagramConfig(config UnpackDatagramConfig) error {

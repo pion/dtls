@@ -360,8 +360,6 @@ func (c *Conn) Handshake() error {
 //
 // Most uses of this package need not call HandshakeContext explicitly: the
 // first [Conn.Read] or [Conn.Write] will call it automatically.
-//
-//nolint:cyclop
 func (c *Conn) HandshakeContext(ctx context.Context) error {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
@@ -592,7 +590,7 @@ func Server(conn net.PacketConn, raddr net.Addr, opts ...ServerOption) (*Conn, e
 // Before the handshake completes, Read also performs handshake reads and writes.
 // Set both read and write deadlines (or use SetDeadline) to bound that I/O,
 // or call HandshakeContext explicitly. Deadlines are not reset after the handshake.
-func (c *Conn) Read(buff []byte) (n int, err error) { //nolint:cyclop
+func (c *Conn) Read(buff []byte) (n int, err error) {
 	if err := c.Handshake(); err != nil {
 		return 0, err
 	}
@@ -613,19 +611,27 @@ func (c *Conn) Read(buff []byte) (n int, err error) { //nolint:cyclop
 			if !ok {
 				return 0, io.EOF
 			}
-			switch val := out.(type) {
-			case ([]byte):
-				if len(buff) < len(val) {
-					return 0, dtlserrors.ErrBufferTooSmall
-				}
-				copy(buff, val)
-
-				return len(val), nil
-			case (error):
-				return 0, val
+			if n, handled, err := copyDecrypted(buff, out); handled {
+				return n, err
 			}
 		}
 	}
+}
+
+func copyDecrypted(buff []byte, out any) (int, bool, error) {
+	switch val := out.(type) {
+	case ([]byte):
+		if len(buff) < len(val) {
+			return 0, true, dtlserrors.ErrBufferTooSmall
+		}
+		copy(buff, val)
+
+		return len(val), true, nil
+	case (error):
+		return 0, true, val
+	}
+
+	return 0, false, nil
 }
 
 // Write writes len(payload) bytes from payload to the DTLS connection.
@@ -1176,7 +1182,7 @@ func validProtection(protection dtlsflight.Protection) bool {
 	return protection == dtlsflight.ProtectionPlaintext || protection == dtlsflight.ProtectionCiphertext
 }
 
-func (c *Conn) encodeRecord( //nolint:cyclop
+func (c *Conn) encodeRecord(
 	epoch uint64,
 	seq uint64,
 	contentType protocol.ContentType,
@@ -1204,21 +1210,11 @@ func (c *Conn) encodeRecord( //nolint:cyclop
 		SequenceNumber: seq,
 	}
 	payload := plaintext
-	if protection == dtlsflight.ProtectionCiphertext && common.LocalVersion == protocol.Version1_2 && c.state.ShouldWrapConnectionID() {
-		if len(plaintext)+1 > maxCIDInnerPlaintextLen {
-			return nil, dtlserrors.ErrInvalidPacketLength
-		}
-		paddingLen := c.paddingLengthGenerator(uint(len(plaintext)))
-		if paddingLen > uint(maxCIDInnerPlaintextLen-len(plaintext)-1) { //nolint:gosec // Non-negative and bounded.
-			return nil, dtlserrors.ErrInvalidPacketLength
-		}
+	if c.shouldWrapLegacyCID(protection) {
 		var err error
-		payload, err = recordlayer.MarshalInnerPlaintext(plaintext, contentType, int(paddingLen)) //nolint:gosec // Bounded by maxCIDInnerPlaintextLen above.
+		payload, err = c.marshalLegacyCIDPlaintext(plaintext, contentType)
 		if err != nil {
 			return nil, err
-		}
-		if len(payload) > maxCIDInnerPlaintextLen {
-			return nil, dtlserrors.ErrInvalidPacketLength
 		}
 		header.ContentType = protocol.ContentTypeConnectionID
 		header.ConnectionID = bytes.Clone(common.RemoteConnectionID)
@@ -1226,6 +1222,16 @@ func (c *Conn) encodeRecord( //nolint:cyclop
 	if protection != dtlsflight.ProtectionCiphertext {
 		return recordlayer.MarshalRecord(header, payload)
 	}
+
+	return c.sealLegacyRecord(header, payload)
+}
+
+func (c *Conn) shouldWrapLegacyCID(protection dtlsflight.Protection) bool {
+	return protection == dtlsflight.ProtectionCiphertext && dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_2 && c.state.ShouldWrapConnectionID()
+}
+
+func (c *Conn) sealLegacyRecord(header recordlayer.RecordConfig, payload []byte) ([]byte, error) {
+	common := dtlsstate.CommonState(c.state)
 	if common.CipherSuite == nil {
 		return nil, dtlserrors.ErrCipherSuiteNotInit
 	}
@@ -1252,7 +1258,26 @@ func (c *Conn) encodeRecord( //nolint:cyclop
 	return recordlayer.MarshalRecord(header, protected)
 }
 
-func (c *Conn) sealRecordContent( //nolint:cyclop
+func (c *Conn) marshalLegacyCIDPlaintext(plaintext []byte, contentType protocol.ContentType) ([]byte, error) {
+	if len(plaintext)+1 > maxCIDInnerPlaintextLen {
+		return nil, dtlserrors.ErrInvalidPacketLength
+	}
+	paddingLen := c.paddingLengthGenerator(uint(len(plaintext)))
+	if paddingLen > uint(maxCIDInnerPlaintextLen-len(plaintext)-1) { //nolint:gosec // Non-negative and bounded.
+		return nil, dtlserrors.ErrInvalidPacketLength
+	}
+	payload, err := recordlayer.MarshalInnerPlaintext(plaintext, contentType, int(paddingLen)) //nolint:gosec // Bounded by maxCIDInnerPlaintextLen above.
+	if err != nil {
+		return nil, err
+	}
+	if len(payload) > maxCIDInnerPlaintextLen {
+		return nil, dtlserrors.ErrInvalidPacketLength
+	}
+
+	return payload, nil
+}
+
+func (c *Conn) sealRecordContent(
 	epoch uint64,
 	seq uint64,
 	contentType protocol.ContentType,
@@ -1267,26 +1292,11 @@ func (c *Conn) sealRecordContent( //nolint:cyclop
 		return nil, err
 	}
 
-	var paddingLen uint
-	if c.paddingLengthGenerator != nil {
-		paddingLen = c.paddingLengthGenerator(uint(len(plaintext)))
-	}
-	if paddingLen > maxDTLS13InnerPlaintextLen {
-		return nil, dtlserrors.ErrInvalidPacketLength
-	}
-	padding := int(paddingLen)
-	if len(plaintext) >= maxDTLS13InnerPlaintextLen-padding {
-		return nil, dtlserrors.ErrInvalidPacketLength
-	}
-	innerPlaintext, err := recordlayer.MarshalInnerPlaintext(plaintext, contentType, padding)
+	innerPlaintext, padding, err := c.marshalUnifiedInnerPlaintext(plaintext, contentType)
 	if err != nil {
 		return nil, err
 	}
-	header := recordlayer.CiphertextConfig{EpochLow: uint8(epoch & 0x3), SequenceNumber: uint16(seq & 0xffff), TwoByteSequence: true, LengthPresent: true}
-	if state13, ok := c.state.(*dtlsstate.State13); ok &&
-		state13.CID.Negotiated && state13.CID.Send.UseCID {
-		header.ConnectionID = bytes.Clone(state13.CID.Send.Active)
-	}
+	header := c.unifiedRecordHeader(epoch, seq)
 
 	capabilities, err := generation.Capabilities(dtlsstate.CommonState(c.state).CipherSuite)
 	if err != nil {
@@ -1295,31 +1305,25 @@ func (c *Conn) sealRecordContent( //nolint:cyclop
 	if !capabilities.SupportsVersion(protocol.Version1_3) {
 		return nil, cryptosuite.ErrInvalidCapabilities
 	}
-	protectedLen, err := capabilities.ProtectedLen(len(innerPlaintext))
+	innerPlaintext, protectedLen, sampleLen, err := padUnifiedPlaintext(capabilities, innerPlaintext, plaintext, contentType, padding)
 	if err != nil {
 		return nil, err
 	}
-	// Record-number encryption requires at least 16 bytes of ciphertext, so
-	// senders MUST pad short plaintexts to produce a suitable-length ciphertext.
-	//
-	// https://www.rfc-editor.org/rfc/rfc9147#section-4.2.3
-	sampleLen := capabilities.MaskLen()
-	if sampleLen <= 0 {
-		return nil, cryptosuite.ErrInvalidCapabilities
+
+	return sealUnifiedRecord(epoch, seq, header, generation, innerPlaintext, protectedLen, sampleLen)
+}
+
+func (c *Conn) unifiedRecordHeader(epoch, seq uint64) recordlayer.CiphertextConfig {
+	header := recordlayer.CiphertextConfig{EpochLow: uint8(epoch & 0x3), SequenceNumber: uint16(seq & 0xffff), TwoByteSequence: true, LengthPresent: true}
+	if state13, ok := c.state.(*dtlsstate.State13); ok &&
+		state13.CID.Negotiated && state13.CID.Send.UseCID {
+		header.ConnectionID = bytes.Clone(state13.CID.Send.Active)
 	}
-	if protectedLen < sampleLen {
-		innerPlaintext, err = recordlayer.MarshalInnerPlaintext(plaintext, contentType, padding+sampleLen-protectedLen)
-		if err != nil {
-			return nil, err
-		}
-		if len(innerPlaintext) > maxDTLS13InnerPlaintextLen {
-			return nil, dtlserrors.ErrInvalidPacketLength
-		}
-		protectedLen, err = capabilities.ProtectedLen(len(innerPlaintext))
-		if err != nil {
-			return nil, err
-		}
-	}
+
+	return header
+}
+
+func sealUnifiedRecord(epoch, seq uint64, header recordlayer.CiphertextConfig, generation *dtlsstate.TrafficGeneration, innerPlaintext []byte, protectedLen, sampleLen int) ([]byte, error) {
 	var headerBuffer [260]byte
 	clearHeader, err := recordwire.AppendUnifiedHeader(headerBuffer[:0], header.EpochLow, header.SequenceNumber, header.TwoByteSequence, header.ConnectionID, header.LengthPresent, protectedLen)
 	if err != nil {
@@ -1353,6 +1357,56 @@ func (c *Conn) sealRecordContent( //nolint:cyclop
 	}
 
 	return recordlayer.MarshalCiphertext(header, protected)
+}
+
+func (c *Conn) marshalUnifiedInnerPlaintext(plaintext []byte, contentType protocol.ContentType) ([]byte, int, error) {
+	var paddingLen uint
+	if c.paddingLengthGenerator != nil {
+		paddingLen = c.paddingLengthGenerator(uint(len(plaintext)))
+	}
+	if paddingLen > maxDTLS13InnerPlaintextLen {
+		return nil, 0, dtlserrors.ErrInvalidPacketLength
+	}
+	padding := int(paddingLen)
+	if len(plaintext) >= maxDTLS13InnerPlaintextLen-padding {
+		return nil, 0, dtlserrors.ErrInvalidPacketLength
+	}
+	innerPlaintext, err := recordlayer.MarshalInnerPlaintext(plaintext, contentType, padding)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return innerPlaintext, padding, nil
+}
+
+func padUnifiedPlaintext(capabilities cryptosuite.Capabilities, innerPlaintext, plaintext []byte, contentType protocol.ContentType, padding int) ([]byte, int, int, error) {
+	protectedLen, err := capabilities.ProtectedLen(len(innerPlaintext))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	// Record-number encryption requires at least 16 bytes of ciphertext, so
+	// senders MUST pad short plaintexts to produce a suitable-length ciphertext.
+	//
+	// https://www.rfc-editor.org/rfc/rfc9147#section-4.2.3
+	sampleLen := capabilities.MaskLen()
+	if sampleLen <= 0 {
+		return nil, 0, 0, cryptosuite.ErrInvalidCapabilities
+	}
+	if protectedLen < sampleLen {
+		innerPlaintext, err = recordlayer.MarshalInnerPlaintext(plaintext, contentType, padding+sampleLen-protectedLen)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if len(innerPlaintext) > maxDTLS13InnerPlaintextLen {
+			return nil, 0, 0, dtlserrors.ErrInvalidPacketLength
+		}
+		protectedLen, err = capabilities.ProtectedLen(len(innerPlaintext))
+		if err != nil {
+			return nil, 0, 0, err
+		}
+	}
+
+	return innerPlaintext, protectedLen, sampleLen, nil
 }
 
 func applySequenceNumberMask(
@@ -1883,7 +1937,7 @@ func (c *Conn) openCiphertextRecord(record recordlayer.ParsedRecord) (openedReco
 	return plaintext, sequence, generation.Epoch, nil
 }
 
-func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop
+func (c *Conn) openCiphertextWithGeneration(
 	record recordlayer.ParsedRecord,
 	generation *dtlsstate.TrafficGeneration,
 ) (openedRecord, uint64, error) {
@@ -1908,6 +1962,12 @@ func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop
 	if err != nil {
 		return openedRecord{}, 0, operationalProtectionError(err)
 	}
+
+	return c.openUnmaskedCiphertext(record, generation, capabilities, clearSequence)
+}
+
+func (c *Conn) openUnmaskedCiphertext(record recordlayer.ParsedRecord, generation *dtlsstate.TrafficGeneration, capabilities cryptosuite.Capabilities, clearSequence uint16) (openedRecord, uint64, error) {
+	common := dtlsstate.CommonState(c.state)
 	var headerBuffer [260]byte
 	clearHeader := headerBuffer[:len(record.HeaderBytes())]
 	copy(clearHeader, record.HeaderBytes())
@@ -1939,6 +1999,10 @@ func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop
 
 	common.UpdateRemoteSequenceNumber(generation.Epoch, sequenceNumber)
 
+	return c.parseUnifiedInnerPlaintext(plaintext, generation.Epoch, sequenceNumber)
+}
+
+func (c *Conn) parseUnifiedInnerPlaintext(plaintext []byte, epoch, sequenceNumber uint64) (openedRecord, uint64, error) {
 	content, realType, _, err := recordlayer.ParseInnerPlaintext(plaintext)
 	innerPlaintext := openedRecord{Content: content, RealType: realType}
 	if err != nil {
@@ -1947,8 +2011,8 @@ func (c *Conn) openCiphertextWithGeneration( //nolint:cyclop
 	if len(innerPlaintext.Content) > maxPlaintextRecordLen {
 		return openedRecord{}, 0, dtlserrors.ErrInvalidPacketLength
 	}
-	if generation.Epoch == dtlsflight13.EpochEarlyData &&
-		(common.IsClient || innerPlaintext.RealType != protocol.ContentTypeApplicationData) {
+	if epoch == dtlsflight13.EpochEarlyData &&
+		(dtlsstate.CommonState(c.state).IsClient || innerPlaintext.RealType != protocol.ContentTypeApplicationData) {
 		return openedRecord{}, 0, dtlserrors.ErrInvalidContentType
 	}
 
@@ -2073,15 +2137,10 @@ func (c *Conn) handleFutureCiphertextPacket(epochLow uint8, remoteEpoch uint64, 
 	}
 }
 
-//nolint:cyclop // Apply replay checks for both record formats and restored state.
+// Apply replay checks for both record formats and restored state.
 func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool, bool) {
-	if state, ok := c.state.(*dtlsstate.State12); ok && epoch != 0 && sequenceNumber < state.RemoteReplayCutoff {
+	if !c.passesReplayCutoff(epoch, sequenceNumber) {
 		return nil, false
-	}
-	if state, ok := c.state.(*dtlsstate.State13); ok {
-		if cutoff, restored := state.ReplayCutoff[epoch]; restored && sequenceNumber <= cutoff {
-			return nil, false
-		}
 	}
 	common := dtlsstate.CommonState(c.state)
 	// Speculative plaintext records may be discarded after version selection.
@@ -2118,6 +2177,19 @@ func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool,
 	}, true
 }
 
+func (c *Conn) passesReplayCutoff(epoch, sequenceNumber uint64) bool {
+	if state, ok := c.state.(*dtlsstate.State12); ok && epoch != 0 && sequenceNumber < state.RemoteReplayCutoff {
+		return false
+	}
+	if state, ok := c.state.(*dtlsstate.State13); ok {
+		if cutoff, restored := state.ReplayCutoff[epoch]; restored && sequenceNumber <= cutoff {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (c *Conn) queueIfCipherSuiteUninitialized(rAddr net.Addr, buf []byte, bufferLease *readBufferLease, message string) bool {
 	if c.hasInboundRecordProtection() {
 		return false
@@ -2147,29 +2219,13 @@ func (c *Conn) hasInboundRecordProtection() bool {
 	return ok && common.CipherSuite != nil && state12.Protection != nil
 }
 
-//nolint:cyclop
 func (c *Conn) prepareLegacyPacket(buf []byte, rAddr net.Addr, bufferLease *readBufferLease) (incomingPacketState, bool, error) {
-	raw := buf
 	header, ok := c.unmarshalLegacyHeader(buf)
 	if !ok {
 		return incomingPacketState{}, false, nil
 	}
-	// Discard old epoch-zero alerts following the earlier-epoch discard recommendation:
-	// https://datatracker.ietf.org/doc/html/rfc9147#section-4.2.1
-	// DTLS 1.2 requires accepting old epochs until the handshake completes:
-	// https://datatracker.ietf.org/doc/html/rfc6347#section-4.1
 	common := dtlsstate.CommonState(c.state)
-	if common.LocalVersion == protocol.Version1_2 && header.Epoch() > 1 {
-		return incomingPacketState{}, false, nil
-	}
-	// Keep handshake retransmissions available for last-flight recovery.
-	if header.Epoch() == 0 && c.isHandshakeCompletedSuccessfully() && header.ContentType() != protocol.ContentTypeHandshake {
-		return incomingPacketState{}, false, nil
-	}
-	if header.Epoch() == 0 && header.ContentType() == protocol.ContentTypeAlert && common.RemoteEpoch() != 0 &&
-		(common.LocalVersion == protocol.Version1_3 || c.isHandshakeCompletedSuccessfully()) {
-		c.log.Debug("discarded alert from the old plaintext epoch")
-
+	if !c.validLegacyEpoch(header) {
 		return incomingPacketState{}, false, nil
 	}
 	if c.handleFutureLegacyPacket(header, rAddr, buf, bufferLease) {
@@ -2183,6 +2239,11 @@ func (c *Conn) prepareLegacyPacket(buf []byte, rAddr net.Addr, bufferLease *read
 		return incomingPacketState{}, false, nil
 	}
 
+	return c.prepareLegacyContent(header, buf, rAddr, bufferLease)
+}
+
+func (c *Conn) prepareLegacyContent(header recordlayer.ParsedRecord, buf []byte, rAddr net.Addr, bufferLease *readBufferLease) (incomingPacketState, bool, error) {
+	common := dtlsstate.CommonState(c.state)
 	markPacketAsValid, ok := c.replayMarker(uint64(header.Epoch()), header.SequenceNumber(), recordlayer.MaxSequenceNumber)
 	if !ok {
 		return incomingPacketState{}, false, nil
@@ -2206,7 +2267,36 @@ func (c *Conn) prepareLegacyPacket(buf []byte, rAddr net.Addr, bufferLease *read
 		return incomingPacketState{}, false, nil
 	}
 
-	return incomingPacketState{raw: raw, content: content, contentType: contentType, number: protocol.RecordNumber{Epoch: uint64(header.Epoch()), SequenceNumber: header.SequenceNumber()}, markPacketAsValid: markPacketAsValid, originalCID: originalCID}, true, nil
+	return incomingPacketState{raw: buf, content: content, contentType: contentType, number: protocol.RecordNumber{Epoch: uint64(header.Epoch()), SequenceNumber: header.SequenceNumber()}, markPacketAsValid: markPacketAsValid, originalCID: originalCID}, true, nil
+}
+
+func (c *Conn) validLegacyEpoch(header recordlayer.ParsedRecord) bool {
+	// Discard old epoch-zero alerts following the earlier-epoch discard recommendation:
+	// https://datatracker.ietf.org/doc/html/rfc9147#section-4.2.1
+	// DTLS 1.2 requires accepting old epochs until the handshake completes:
+	// https://datatracker.ietf.org/doc/html/rfc6347#section-4.1
+	common := dtlsstate.CommonState(c.state)
+	if common.LocalVersion == protocol.Version1_2 && header.Epoch() > 1 {
+		return false
+	}
+	// Keep handshake retransmissions available for last-flight recovery.
+	if header.Epoch() == 0 && c.isHandshakeCompletedSuccessfully() && header.ContentType() != protocol.ContentTypeHandshake {
+		return false
+	}
+	if c.isOldPlaintextAlert(header) {
+		c.log.Debug("discarded alert from the old plaintext epoch")
+
+		return false
+	}
+
+	return true
+}
+
+func (c *Conn) isOldPlaintextAlert(header recordlayer.ParsedRecord) bool {
+	common := dtlsstate.CommonState(c.state)
+
+	return header.Epoch() == 0 && header.ContentType() == protocol.ContentTypeAlert && common.RemoteEpoch() != 0 &&
+		(common.LocalVersion == protocol.Version1_3 || c.isHandshakeCompletedSuccessfully())
 }
 
 func (c *Conn) unmarshalLegacyHeader(buf []byte) (recordlayer.ParsedRecord, bool) {
@@ -2299,7 +2389,7 @@ func (c *Conn) validateLegacyCIDPresence(header recordlayer.ParsedRecord) bool {
 	return false
 }
 
-func (c *Conn) decryptLegacyRecord( //nolint:cyclop
+func (c *Conn) decryptLegacyRecord(
 	header recordlayer.ParsedRecord,
 	protected []byte,
 ) ([]byte, error) {
@@ -2344,7 +2434,7 @@ func (c *Conn) validateLegacyCID(header recordlayer.ParsedRecord) bool {
 	return false
 }
 
-//nolint:cyclop // Reassemble, acknowledge, and cache each protocol version.
+// Reassemble, acknowledge, and cache each protocol version.
 func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumber, markPacketAsValid func() bool) (packetOutcome, bool, error) {
 	if len(content) == 0 || !c.validHandshakeRecordEpoch(content, number.Epoch) {
 		return packetOutcome{}, false, nil
@@ -2367,6 +2457,26 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 		c.lock.Unlock()
 	}
 
+	if err := c.cacheReassembledHandshakes(); err != nil {
+		return packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}}, isLatestSeqNum, err
+	}
+
+	return packetOutcome{
+		containsHandshake:     true,
+		retransmit:            result.IsRetransmit,
+		retransmitStart:       result.IsRetransmitStart,
+		clientHelloRetransmit: c.isClientHelloRetransmit(content, number, result.IsRetransmit),
+	}, isLatestSeqNum, nil
+}
+
+func (c *Conn) isClientHelloRetransmit(content []byte, number protocol.RecordNumber, isRetransmit bool) bool {
+	common := dtlsstate.CommonState(c.state)
+
+	return !common.IsClient && common.LocalVersion == protocol.Version1_2 &&
+		number.Epoch == 0 && isRetransmit && c.handshakeCache.IsClientHelloRetransmit(content)
+}
+
+func (c *Conn) cacheReassembledHandshakes() error {
 	for out, epoch := c.fragmentBuffer.Pop(); out != nil; out, epoch = c.fragmentBuffer.Pop() {
 		header := &handshake.Header{}
 		if err := header.Unmarshal(out); err != nil {
@@ -2375,19 +2485,11 @@ func (c *Conn) bufferHandshakeRecord(content []byte, number protocol.RecordNumbe
 			continue
 		}
 		if err := c.pushHandshake(out, epoch, header.MessageSequence, header.Type, !dtlsstate.CommonState(c.state).IsClient); err != nil {
-			return packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}}, isLatestSeqNum, err
+			return err
 		}
 	}
 
-	common := dtlsstate.CommonState(c.state)
-
-	return packetOutcome{
-		containsHandshake: true,
-		retransmit:        result.IsRetransmit,
-		retransmitStart:   result.IsRetransmitStart,
-		clientHelloRetransmit: !common.IsClient && common.LocalVersion == protocol.Version1_2 &&
-			number.Epoch == 0 && result.IsRetransmit && c.handshakeCache.IsClientHelloRetransmit(content),
-	}, isLatestSeqNum, nil
+	return nil
 }
 
 // Validate every fragment before any can advance reassembly or enter the cache.
@@ -2464,7 +2566,7 @@ func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr 
 	return prepared.markPacketAsValid()
 }
 
-//nolint:cyclop // Route early, detached, and established application data.
+// Route early, detached, and established application data.
 func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protocol.ApplicationData, prepared incomingPacketState) (bool, packetOutcome, error) {
 	if prepared.number.Epoch == 0 {
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, dtlserrors.ErrApplicationDataEpochZero
@@ -2481,6 +2583,10 @@ func (c *Conn) handleApplicationDataRecord(ctx context.Context, content *protoco
 		return false, outcome, err
 	}
 
+	return c.deliverApplicationDataRecord(ctx, content, prepared)
+}
+
+func (c *Conn) deliverApplicationDataRecord(ctx context.Context, content *protocol.ApplicationData, prepared incomingPacketState) (bool, packetOutcome, error) {
 	isLatestSeqNum := prepared.markPacketAsValid()
 	if c.detached != nil {
 		early := dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 && prepared.number.Epoch == dtlsflight13.EpochEarlyData
@@ -2708,7 +2814,6 @@ func (c *Conn) negotiateVersionServer(ctx context.Context) error {
 	}
 }
 
-//nolint:cyclop
 func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbound, error) {
 	gen, _, ok := dtlsflight13.GetGenerator(dtlsflight13.Flight1)
 	if !ok {
@@ -2735,6 +2840,10 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 		return nil, err
 	}
 
+	return c.waitVersionNegotiation(ctx, pkts)
+}
+
+func (c *Conn) waitVersionNegotiation(ctx context.Context, pkts []*dtlsflight.Outbound) ([]*dtlsflight.Outbound, error) {
 	interval := c.handshakeConfig.InitialRetransmitInterval
 	// Preserve the flight's retry deadline across reads, including discarded datagrams.
 	// DTLS 1.2: partial reads do not reset the timer:
@@ -3068,16 +3177,10 @@ func (c *Conn) deliverReadError(ctx context.Context, err error) {
 	}
 }
 
-//nolint:cyclop,contextcheck
+//nolint:contextcheck
 func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
-	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
-		if err := c.setupHandshakeFSM13(start); err != nil {
-			return err
-		}
-	} else {
-		if err := c.setupHandshakeFSM12(start); err != nil {
-			return err
-		}
+	if err := c.setupHandshakeFSM(start); err != nil {
+		return err
 	}
 
 	ctxRead, cancelRead := context.WithCancel(context.Background())
@@ -3103,14 +3206,7 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 	// The other party may request retransmission of the last flight to cope with packet drop.
 	go func() {
 		defer handshakeLoopsFinished.Done()
-		err := c.fsm.Run(ctxHs, handshakeConn{c}, start.fsmState)
-		if !errors.Is(err, context.Canceled) {
-			c.signalHandshakeTerminated(err)
-			select {
-			case firstErr <- err:
-			default:
-			}
-		}
+		c.runHandshakeFSM(ctxHs, start.fsmState, firstErr)
 	}()
 
 	go func() {
@@ -3128,42 +3224,7 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 		if start.postSetup != nil {
 			start.postSetup(ctxHs)
 		}
-		for {
-			err := c.readAndBuffer(ctxRead)
-			if err == nil {
-				continue
-			}
-
-			action := c.classifyReadLoopError(err)
-			if action == readLoopContinue {
-				c.signalHandshakeQuiescent()
-
-				continue
-			}
-			if action == readLoopDeliverAndContinue {
-				c.deliverReadError(ctxRead, err)
-				c.signalHandshakeQuiescent()
-
-				continue
-			}
-
-			select {
-			case firstErr <- err:
-			default:
-			}
-
-			if !errors.Is(err, context.Canceled) {
-				c.signalHandshakeTerminated(err)
-			}
-			if action == readLoopCloseAndStop {
-				if errors.Is(err, context.Canceled) {
-					c.log.Trace("handshake timeouts - closing underlying connection")
-				}
-				_ = c.close(false) //nolint:contextcheck
-			}
-
-			return
-		}
+		c.runHandshakeReader(ctxRead, firstErr)
 	}()
 
 	select {
@@ -3181,6 +3242,72 @@ func (c *Conn) handshake(ctx context.Context, start handshakeStart) error {
 		return c.translateHandshakeCtxError(ctx.Err())
 	case <-c.handshakeEstablished.Done():
 		return nil
+	}
+}
+
+func (c *Conn) setupHandshakeFSM(start handshakeStart) error {
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
+		if err := c.setupHandshakeFSM13(start); err != nil {
+			return err
+		}
+	} else {
+		if err := c.setupHandshakeFSM12(start); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+//nolint:contextcheck
+func (c *Conn) runHandshakeFSM(ctxHs context.Context, initialState dtlshandshake.State, firstErr chan<- error) {
+	err := c.fsm.Run(ctxHs, handshakeConn{c}, initialState)
+	if !errors.Is(err, context.Canceled) {
+		c.signalHandshakeTerminated(err)
+		select {
+		case firstErr <- err:
+		default:
+		}
+	}
+}
+
+//nolint:contextcheck
+func (c *Conn) runHandshakeReader(ctxRead context.Context, firstErr chan<- error) {
+	for {
+		err := c.readAndBuffer(ctxRead)
+		if err == nil {
+			continue
+		}
+
+		action := c.classifyReadLoopError(err)
+		if action == readLoopContinue {
+			c.signalHandshakeQuiescent()
+
+			continue
+		}
+		if action == readLoopDeliverAndContinue {
+			c.deliverReadError(ctxRead, err)
+			c.signalHandshakeQuiescent()
+
+			continue
+		}
+
+		select {
+		case firstErr <- err:
+		default:
+		}
+
+		if !errors.Is(err, context.Canceled) {
+			c.signalHandshakeTerminated(err)
+		}
+		if action == readLoopCloseAndStop {
+			if errors.Is(err, context.Canceled) {
+				c.log.Trace("handshake timeouts - closing underlying connection")
+			}
+			_ = c.close(false) //nolint:contextcheck
+		}
+
+		return
 	}
 }
 

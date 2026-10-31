@@ -39,7 +39,7 @@ type Generator func(
 	*dtlsconfig.HandshakeConfig,
 ) ([]*dtlsflight.Outbound, *alert.Alert, error)
 
-func getFlightParser(f Flight) (flightParser, bool) { //nolint:cyclop
+func getFlightParser(f Flight) (flightParser, bool) {
 	switch f {
 	case Flight0:
 		return flight0Parse, true
@@ -59,12 +59,12 @@ func getFlightParser(f Flight) (flightParser, bool) { //nolint:cyclop
 		return flight5bParse, true
 	case Flight6:
 		return flight6Parse, true
-	default:
-		return nil, false
 	}
+
+	return nil, false
 }
 
-func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) { //nolint:cyclop
+func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) {
 	switch f {
 	case Flight0:
 		return flight0Generate, true, true
@@ -86,9 +86,9 @@ func GetGenerator(f Flight) (gen Generator, retransmit bool, ok bool) { //nolint
 		return flight5bGenerate, true, true
 	case Flight6:
 		return flight6Generate, true, true
-	default:
-		return nil, false, false
 	}
+
+	return nil, false, false
 }
 
 func Parse(ctx context.Context, f Flight, conn dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) (Flight, *alert.Alert, error, bool) {

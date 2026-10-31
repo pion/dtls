@@ -65,7 +65,7 @@ func (o OIDFilters) MarshalData() ([]byte, error) {
 }
 
 // UnmarshalData decodes extension_data.
-func (o *OIDFilters) UnmarshalData(data []byte) error { //nolint:cyclop
+func (o *OIDFilters) UnmarshalData(data []byte) error {
 	if len(data) < 2 {
 		return dtlserrors.ErrLengthMismatch
 	}

@@ -58,8 +58,6 @@ func NegotiateSRTP(snapshot ClientHelloSnapshot, localProfiles []extension.SRTPP
 }
 
 // ValidateSRTPSelection validates one server selection against the exact offer.
-//
-//nolint:cyclop
 func ValidateSRTPSelection(snapshot ClientHelloSnapshot, responses []extension.Value, localProfiles []extension.SRTPProtectionProfile) (SRTPDecision, error) {
 	offer, offered, err := readSRTPOffer(snapshot)
 	if err != nil {
@@ -73,6 +71,10 @@ func ValidateSRTPSelection(snapshot ClientHelloSnapshot, responses []extension.V
 		return SRTPDecision{}, nil
 	}
 
+	return validateOfferedSRTPSelection(offer, responses, localProfiles)
+}
+
+func validateOfferedSRTPSelection(offer extension.SRTPOffer, responses []extension.Value, localProfiles []extension.SRTPProtectionProfile) (SRTPDecision, error) {
 	var selection *extension.SRTPSelection
 	for _, response := range responses {
 		if value, ok := response.(*extension.SRTPSelection); ok {

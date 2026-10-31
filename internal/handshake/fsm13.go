@@ -383,7 +383,7 @@ func (s *fsm13) finish(ctx context.Context, conn Conn) (State, error) {
 	return StateFinished, nil
 }
 
-func (s *fsm13) handleReceivedFlight( //nolint:cyclop
+func (s *fsm13) handleReceivedFlight(
 	ctx context.Context,
 	conn Conn,
 	received RecvHandshakeState,
@@ -406,14 +406,14 @@ func (s *fsm13) handleReceivedFlight( //nolint:cyclop
 	if err != nil {
 		return receivedFlightTransition{}, err
 	}
-	for _, record := range received.RecordsToACK {
-		s.pendingACKs = append(s.pendingACKs, record)
-		if len(s.pendingACKs) == maxPendingACKRecords {
-			if err = sendACK(ctx, conn, s.state.LocalEpoch(), s.takePendingACKs()); err != nil {
-				return receivedFlightTransition{}, err
-			}
-		}
+	if err := s.queueReceivedACKs(ctx, conn, received.RecordsToACK); err != nil {
+		return receivedFlightTransition{}, err
 	}
+
+	return s.transitionAfterReceivedFlight(ctx, conn, received, ackResult, nextFlight)
+}
+
+func (s *fsm13) transitionAfterReceivedFlight(ctx context.Context, conn Conn, received RecvHandshakeState, ackResult ACKResult, nextFlight dtlsflight13.Flight) (receivedFlightTransition, error) {
 	if nextFlight == 0 {
 		// HRR has no retransmission timer. Only the first fragment
 		// of a retried ClientHello triggers a replay.
@@ -441,6 +441,19 @@ func (s *fsm13) handleReceivedFlight( //nolint:cyclop
 	}
 
 	return transition, nil
+}
+
+func (s *fsm13) queueReceivedACKs(ctx context.Context, conn Conn, records []protocol.RecordNumber) error {
+	for _, record := range records {
+		s.pendingACKs = append(s.pendingACKs, record)
+		if len(s.pendingACKs) == maxPendingACKRecords {
+			if err := sendACK(ctx, conn, s.state.LocalEpoch(), s.takePendingACKs()); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *fsm13) ackTimerChannel() <-chan time.Time {

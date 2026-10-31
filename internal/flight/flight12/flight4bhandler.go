@@ -58,9 +58,7 @@ func flight4bParse(_ context.Context, _ dtlsflight.Conn, state *dtlsstate.State1
 	return Flight4b, nil, nil
 }
 
-//nolint:cyclop
 func flight4bGenerate(_ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig) ([]*dtlsflight.Outbound, *alert.Alert, error) {
-	var pkts []*dtlsflight.Outbound
 	offer := state.RemoteClientHelloSnapshots.Current()
 	srtpSelection, err := negotiation.NegotiateSRTP(offer, cfg.LocalSRTPProtectionProfiles, cfg.LocalSRTPMasterKeyIdentifier)
 	if err != nil {
@@ -73,7 +71,7 @@ func flight4bGenerate(_ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsfl
 			RenegotiatedConnection: 0,
 		})
 	}
-	if (cfg.ExtendedMasterSecret == dtlsconfig.RequestExtendedMasterSecret || cfg.ExtendedMasterSecret == dtlsconfig.RequireExtendedMasterSecret) && state.ExtendedMasterSecret {
+	if isExtendedMasterSecretRequested(cfg.ExtendedMasterSecret) && state.ExtendedMasterSecret {
 		extensions = append(extensions, &extension12.ExtendedMasterSecret{})
 	}
 	extensions = appendSRTPSelection(extensions, srtpSelection)
@@ -94,6 +92,12 @@ func flight4bGenerate(_ dtlsflight.Conn, state *dtlsstate.State12, cache *dtlsfl
 		extensions = dtlsflight.AppendConnectionIDExtensions(extensions, cid.CID, cfg.EnableRRC && offer.Offered(extension.TypeReturnRoutabilityCheck))
 	}
 
+	return generateResumedServerFlight(state, cache, cfg, offer, srtpSelection, extensions)
+}
+
+func generateResumedServerFlight(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, offer negotiation.ClientHelloSnapshot, srtpSelection negotiation.SRTPDecision, extensions []extension.Value) ([]*dtlsflight.Outbound, *alert.Alert, error) {
+	var pkts []*dtlsflight.Outbound
+	var err error
 	cipherSuiteID := uint16(state.CipherSuite.ID())
 	serverHelloMessage := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: state.LocalRandom, SessionID: state.SessionID, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: extensions}
 

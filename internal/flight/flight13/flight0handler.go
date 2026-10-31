@@ -17,7 +17,6 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 )
 
-//nolint:cyclop
 func flight0Parse(
 	_ context.Context,
 	_ dtlsflight.Conn,
@@ -71,6 +70,12 @@ func flight0Parse(
 	}
 	state.RemoteRandom = clientHello.Random
 
+	return negotiateInitialClientHello(flightCtx, clientHello, pull)
+}
+
+func negotiateInitialClientHello(flightCtx *handshakeContext, clientHello *handshake.MessageClientHello, pull dtlsflight.HandshakeCachePullResult) (Flight, *alert.Alert, error) {
+	state, cfg := flightCtx.state, flightCtx.cfg
+	var ok bool
 	cipherSuites := []dtlsconfig.CipherSuite{}
 	for _, id := range clientHello.CipherSuiteIDs {
 		if id == renegotiationInfoSCSV {
@@ -92,6 +97,11 @@ func flight0Parse(
 		return 0, failure.alert, failure.err
 	}
 
+	return selectInitialServerFlight(flightCtx, pull)
+}
+
+func selectInitialServerFlight(flightCtx *handshakeContext, pull dtlsflight.HandshakeCachePullResult) (Flight, *alert.Alert, error) {
+	state, cfg := flightCtx.state, flightCtx.cfg
 	nextFlight := Flight2
 
 	if !state.PSKOnly && !selectClientKeyShare(state, cfg) {

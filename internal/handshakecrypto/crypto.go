@@ -258,7 +258,6 @@ func VerifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hash.Algorith
 	return verifyCertificateSignature(handshakeBodies, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates)
 }
 
-//nolint:cyclop
 func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte) error {
 	if len(rawCertificates) == 0 {
 		return dtlserrors.ErrLengthMismatch
@@ -285,44 +284,52 @@ func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorith
 
 		return nil
 	case *ecdsa.PublicKey:
-		ecdsaSig := &ecdsaSignature{}
-		if _, err := asn1.Unmarshal(remoteKeySignature, ecdsaSig); err != nil {
-			return err
-		}
-		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
-			return dtlserrors.ErrInvalidECDSASignature
-		}
-		hashed := hashAlgorithm.Digest(message)
-		if !ecdsa.Verify(pubKey, hashed, ecdsaSig.R, ecdsaSig.S) {
-			return dtlserrors.ErrKeySignatureMismatch
-		}
-
-		return nil
+		return verifyECDSACertificateSignature(pubKey, message, remoteKeySignature, hashAlgorithm)
 	case *rsa.PublicKey:
-		hashed := hashAlgorithm.Digest(message)
+		return verifyRSACertificateSignature(pubKey, message, remoteKeySignature, hashAlgorithm, signatureAlgorithm)
+	}
 
-		// Use RSA-PSS verification if the signature algorithm is PSS
-		if signatureAlgorithm.IsPSS() {
-			pssOpts := &rsa.PSSOptions{
-				SaltLength: rsa.PSSSaltLengthEqualsHash,
-				Hash:       hashAlgorithm.CryptoHash(),
-			}
-			if err := rsa.VerifyPSS(pubKey, hashAlgorithm.CryptoHash(), hashed, remoteKeySignature, pssOpts); err != nil {
-				return dtlserrors.ErrKeySignatureMismatch
-			}
+	return dtlserrors.ErrInvalidSignatureAlgorithm
+}
 
-			return nil
+func verifyRSACertificateSignature(pubKey *rsa.PublicKey, message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm) error {
+	hashed := hashAlgorithm.Digest(message)
+
+	// Use RSA-PSS verification if the signature algorithm is PSS
+	if signatureAlgorithm.IsPSS() {
+		pssOpts := &rsa.PSSOptions{
+			SaltLength: rsa.PSSSaltLengthEqualsHash,
+			Hash:       hashAlgorithm.CryptoHash(),
 		}
-
-		// Otherwise use PKCS#1 v1.5
-		if rsa.VerifyPKCS1v15(pubKey, hashAlgorithm.CryptoHash(), hashed, remoteKeySignature) != nil {
+		if err := rsa.VerifyPSS(pubKey, hashAlgorithm.CryptoHash(), hashed, remoteKeySignature, pssOpts); err != nil {
 			return dtlserrors.ErrKeySignatureMismatch
 		}
 
 		return nil
 	}
 
-	return dtlserrors.ErrInvalidSignatureAlgorithm
+	// Otherwise use PKCS#1 v1.5
+	if rsa.VerifyPKCS1v15(pubKey, hashAlgorithm.CryptoHash(), hashed, remoteKeySignature) != nil {
+		return dtlserrors.ErrKeySignatureMismatch
+	}
+
+	return nil
+}
+
+func verifyECDSACertificateSignature(pubKey *ecdsa.PublicKey, message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm) error {
+	ecdsaSig := &ecdsaSignature{}
+	if _, err := asn1.Unmarshal(remoteKeySignature, ecdsaSig); err != nil {
+		return err
+	}
+	if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
+		return dtlserrors.ErrInvalidECDSASignature
+	}
+	hashed := hashAlgorithm.Digest(message)
+	if !ecdsa.Verify(pubKey, hashed, ecdsaSig.R, ecdsaSig.S) {
+		return dtlserrors.ErrKeySignatureMismatch
+	}
+
+	return nil
 }
 
 func loadCerts(rawCertificates [][]byte) ([]*x509.Certificate, error) {

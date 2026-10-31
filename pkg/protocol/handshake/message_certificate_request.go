@@ -122,7 +122,7 @@ func (m *MessageCertificateRequest) validateMarshal() error {
 }
 
 // Unmarshal populates the message from encoded data.
-func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cyclop
+func (m *MessageCertificateRequest) Unmarshal(data []byte) error {
 	if len(data) < messageCertificateRequestMinLength {
 		return dtlserrors.ErrBufferTooSmall
 	}
@@ -135,12 +135,7 @@ func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cycl
 		return dtlserrors.ErrBufferTooSmall
 	}
 
-	for i := range certificateTypesLength {
-		certType := clientcertificate.Type(data[offset+i])
-		if _, ok := clientcertificate.Types()[certType]; ok {
-			m.CertificateTypes = append(m.CertificateTypes, certType)
-		}
-	}
+	m.appendCertificateTypes(data[offset : offset+certificateTypesLength])
 	offset += certificateTypesLength
 	if len(data) < offset+2 {
 		return dtlserrors.ErrBufferTooSmall
@@ -169,6 +164,20 @@ func (m *MessageCertificateRequest) Unmarshal(data []byte) error { //nolint:cycl
 	if len(data) < offset+2 {
 		return dtlserrors.ErrBufferTooSmall
 	}
+
+	return m.unmarshalAuthorities(data, offset)
+}
+
+func (m *MessageCertificateRequest) appendCertificateTypes(data []byte) {
+	for i := range data {
+		certType := clientcertificate.Type(data[i])
+		if _, ok := clientcertificate.Types()[certType]; ok {
+			m.CertificateTypes = append(m.CertificateTypes, certType)
+		}
+	}
+}
+
+func (m *MessageCertificateRequest) unmarshalAuthorities(data []byte, offset int) error {
 	casLength := int(binary.BigEndian.Uint16(data[offset:]))
 	offset += 2
 	if (offset + casLength) > len(data) {

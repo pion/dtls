@@ -153,7 +153,7 @@ func (e *endpoint) write(data []byte) error { //nolint:contextcheck
 	return e.drainEventsLocked()
 }
 
-func (e *endpoint) drainEventsLocked() error { //nolint:cyclop
+func (e *endpoint) drainEventsLocked() error {
 	for {
 		event := e.conn.NextEvent()
 		switch event.Kind {
@@ -288,7 +288,7 @@ type roleConfig struct {
 
 // RunClient discovers the server and starts an interactive DTLS session.
 //
-//nolint:cyclop,contextcheck
+//nolint:contextcheck
 func RunClient(ctx context.Context) error {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -315,19 +315,9 @@ func RunClient(ctx context.Context) error {
 	completed := make(chan struct{}, 1)
 	errCh := make(chan error, 1)
 	peerEvents := make(chan mdns.ServiceEvent, 16)
-	report := func(err error) {
-		select {
-		case errCh <- err:
-		default:
-		}
-	}
+	report := func(err error) { reportClientError(errCh, err) }
 	mdnsConn.OnServiceDiscovered(func(event mdns.ServiceEvent) {
-		if event.Instance.Instance == role.peerInstance {
-			select {
-			case peerEvents <- event:
-			case <-sessionCtx.Done():
-			}
-		}
+		queueClientPeerEvent(sessionCtx, role, event, peerEvents)
 	})
 	if err = mdnsConn.Browse(sessionCtx, serviceType); err != nil {
 		return err
@@ -373,6 +363,22 @@ func RunClient(ctx context.Context) error {
 	return runInteractive(sessionCtx, role.name, ep, errCh)
 }
 
+func reportClientError(errCh chan<- error, err error) {
+	select {
+	case errCh <- err:
+	default:
+	}
+}
+
+func queueClientPeerEvent(sessionCtx context.Context, role roleConfig, event mdns.ServiceEvent, peerEvents chan<- mdns.ServiceEvent) {
+	if event.Instance.Instance == role.peerInstance {
+		select {
+		case peerEvents <- event:
+		case <-sessionCtx.Done():
+		}
+	}
+}
+
 // RunServer accepts and serves interactive DTLS sessions from multiple clients.
 func RunServer(ctx context.Context) error {
 	return runServer(ctx)
@@ -392,7 +398,7 @@ type sessionFailure struct {
 	err     error
 }
 
-//nolint:cyclop,contextcheck
+//nolint:contextcheck
 func runServer(ctx context.Context) error {
 	baseUDP, err := listenUDP()
 	if err != nil {
@@ -432,39 +438,22 @@ func runServer(ctx context.Context) error {
 		}
 	}()
 
+	return runServerSessionLoop(ctx, mdnsConn, peerEvents, connected, failures, sessions, input, inputErr)
+}
+
+//nolint:contextcheck
+func runServerSessionLoop(ctx context.Context, mdnsConn *mdns.Conn, peerEvents <-chan mdns.ServiceEvent, connected chan *serverSession, failures chan sessionFailure, sessions map[string]*serverSession, input <-chan string, inputErr <-chan error) error {
 	for {
 		select {
 		case event := <-peerEvents:
-			instance := event.Instance.Instance
-			if session := sessions[instance]; session != nil {
-				if handleErr := session.ep.handleMDNS(event); handleErr != nil {
-					fmt.Printf("server: client %q failed: %v\n", instance, handleErr)
-					delete(sessions, instance)
-					closeServerSession(mdnsConn, session)
-				}
-
-				continue
-			}
-			session, createErr := newServerSession(ctx, mdnsConn, event, connected, failures)
-			if createErr != nil {
-				fmt.Printf("server: reject client %q: %v\n", instance, createErr)
-
-				continue
-			}
-			sessions[instance] = session
-			fmt.Printf("server: discovered client %q at %s\n", instance, session.ep.peer)
+			handleServerPeerEvent(ctx, mdnsConn, event, connected, failures, sessions)
 		case session := <-connected:
 			if sessions[session.clientInstance] == session {
 				session.connected = true
 				fmt.Printf("server: client %q connected\n", session.clientInstance)
 			}
 		case failure := <-failures:
-			if sessions[failure.session.clientInstance] != failure.session {
-				continue
-			}
-			fmt.Printf("server: client %q disconnected: %v\n", failure.session.clientInstance, failure.err)
-			delete(sessions, failure.session.clientInstance)
-			closeServerSession(mdnsConn, failure.session)
+			handleServerSessionFailure(mdnsConn, sessions, failure)
 		case line := <-input:
 			if line != "" {
 				broadcast(sessions, line)
@@ -477,7 +466,39 @@ func runServer(ctx context.Context) error {
 	}
 }
 
-func newServerSession( //nolint:cyclop,contextcheck
+//nolint:contextcheck
+func handleServerPeerEvent(ctx context.Context, mdnsConn *mdns.Conn, event mdns.ServiceEvent, connected chan<- *serverSession, failures chan<- sessionFailure, sessions map[string]*serverSession) {
+	instance := event.Instance.Instance
+	if session := sessions[instance]; session != nil {
+		if handleErr := session.ep.handleMDNS(event); handleErr != nil {
+			fmt.Printf("server: client %q failed: %v\n", instance, handleErr)
+			delete(sessions, instance)
+			closeServerSession(mdnsConn, session)
+		}
+
+		return
+	}
+	session, createErr := newServerSession(ctx, mdnsConn, event, connected, failures)
+	if createErr != nil {
+		fmt.Printf("server: reject client %q: %v\n", instance, createErr)
+
+		return
+	}
+	sessions[instance] = session
+	fmt.Printf("server: discovered client %q at %s\n", instance, session.ep.peer)
+}
+
+//nolint:contextcheck
+func handleServerSessionFailure(mdnsConn *mdns.Conn, sessions map[string]*serverSession, failure sessionFailure) {
+	if sessions[failure.session.clientInstance] != failure.session {
+		return
+	}
+	fmt.Printf("server: client %q disconnected: %v\n", failure.session.clientInstance, failure.err)
+	delete(sessions, failure.session.clientInstance)
+	closeServerSession(mdnsConn, failure.session)
+}
+
+func newServerSession( //nolint:contextcheck
 	ctx context.Context,
 	mdnsConn *mdns.Conn,
 	event mdns.ServiceEvent,
@@ -518,20 +539,15 @@ func newServerSession( //nolint:cyclop,contextcheck
 		cancel:         cancel,
 	}
 	ep := &endpoint{
-		name:     role.name,
-		instance: role.instance,
-		conn:     conn,
-		mdns:     mdnsConn,
-		udp:      udpConn,
-		peer:     peer,
-		done:     sessionCtx.Done(),
-		onConnected: func() {
-			select {
-			case connected <- session:
-			case <-sessionCtx.Done():
-			}
-		},
-		sequence: uint64(time.Now().UnixNano()),
+		name:        role.name,
+		instance:    role.instance,
+		conn:        conn,
+		mdns:        mdnsConn,
+		udp:         udpConn,
+		peer:        peer,
+		done:        sessionCtx.Done(),
+		onConnected: func() { notifyServerConnected(sessionCtx, connected, session) },
+		sequence:    uint64(time.Now().UnixNano()),
 	}
 	session.ep = ep
 	ep.report = func(reportErr error) {
@@ -549,6 +565,13 @@ func newServerSession( //nolint:cyclop,contextcheck
 	go ep.readUDP()
 
 	return session, nil
+}
+
+func notifyServerConnected(sessionCtx context.Context, connected chan<- *serverSession, session *serverSession) {
+	select {
+	case connected <- session:
+	case <-sessionCtx.Done():
+	}
 }
 
 func closeServerSession(mdnsConn *mdns.Conn, session *serverSession) { //nolint:contextcheck
@@ -792,7 +815,7 @@ func datagramBytes(datagrams [][]byte) int {
 	return total
 }
 
-func decodeBatch(text []mdns.TXTEntry) (uint64, bool, [][]byte, error) { //nolint:cyclop
+func decodeBatch(text []mdns.TXTEntry) (uint64, bool, [][]byte, error) {
 	values := make(map[string][]byte, len(text))
 	for _, entry := range text {
 		values[strings.ToLower(entry.Key)] = entry.Value
@@ -812,6 +835,11 @@ func decodeBatch(text []mdns.TXTEntry) (uint64, bool, [][]byte, error) { //nolin
 			return 0, false, nil, fmt.Errorf("invalid ready state: %w", err)
 		}
 	}
+
+	return decodeBatchParts(values, sequence, ready)
+}
+
+func decodeBatchParts(values map[string][]byte, sequence uint64, ready bool) (uint64, bool, [][]byte, error) {
 	partCount, err := strconv.Atoi(string(values["parts"]))
 	if err != nil || partCount < 0 {
 		return 0, false, nil, errInvalidPartCount

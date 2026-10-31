@@ -7,6 +7,7 @@ package flight
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"sync"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
@@ -211,11 +212,11 @@ func (h *Cache) FullPullMapOneOfItems(startSeq int, cipherSuite dtlsconfig.Ciphe
 	)
 }
 
-func (h *Cache) pullOneOf( //nolint:cyclop
+func (h *Cache) pullOneOf(
 	startSeq int,
 	rules []HandshakeCachePullRule,
 ) (HandshakeCachePullRule, *HandshakeCacheItem, bool, error) {
-	if startSeq < 0 || startSeq > int(^uint16(0)) {
+	if !validHandshakeSequence(startSeq) {
 		return HandshakeCachePullRule{}, nil, true, fmt.Errorf("%w: %w", dtlserrors.ErrHandshakeSequenceOverflow, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})
 	}
 
@@ -230,19 +231,7 @@ func (h *Cache) pullOneOf( //nolint:cyclop
 			continue
 		}
 
-		matchedMetadata := false
-		matchedRule := -1
-		for i, rule := range rules {
-			if item.IsClient != rule.IsClient || item.Epoch != rule.Epoch {
-				continue
-			}
-			matchedMetadata = true
-			if item.Typ == rule.Typ {
-				matchedRule = i
-
-				break
-			}
-		}
+		matchedMetadata, matchedRule := matchingHandshakeRule(item, rules)
 		if !matchedMetadata {
 			continue
 		}
@@ -271,9 +260,28 @@ func (h *Cache) pullOneOf( //nolint:cyclop
 	return selectedRule, selectedItem, true, nil
 }
 
+func validHandshakeSequence(sequence int) bool {
+	return sequence >= 0 && sequence <= int(^uint16(0))
+}
+
+func matchingHandshakeRule(item *HandshakeCacheItem, rules []HandshakeCachePullRule) (bool, int) {
+	matchedMetadata := false
+	for i, rule := range rules {
+		if item.IsClient != rule.IsClient || item.Epoch != rule.Epoch {
+			continue
+		}
+		matchedMetadata = true
+		if item.Typ == rule.Typ {
+			return true, i
+		}
+	}
+
+	return matchedMetadata, -1
+}
+
 // PullSequential selects messages at consecutive sequence numbers. Missing
 // messages are incomplete.
-func (h *Cache) PullSequential( //nolint:cyclop
+func (h *Cache) PullSequential(
 	startSeq int,
 	rules ...HandshakeCachePullRule,
 ) HandshakeCacheItemPullResult {
@@ -282,31 +290,20 @@ func (h *Cache) PullSequential( //nolint:cyclop
 
 	items := make([]*HandshakeCacheItem, len(rules))
 	seq := startSeq
-	selected := 0
 	for i, rule := range rules {
-		if seq < 0 || seq > int(^uint16(0)) {
+		if !validHandshakeSequence(seq) {
 			return HandshakeCacheItemPullResult{NextSequence: startSeq, Ready: true, Err: fmt.Errorf("%w: %w", dtlserrors.ErrHandshakeSequenceOverflow, &alert.Alert{Level: alert.Fatal, Description: alert.DecodeError})}
 		}
 
-		conflicts := make([]*HandshakeCacheItem, 0, 1)
-		for _, item := range h.cache {
-			if item.IsClient != rule.IsClient || item.Epoch != rule.Epoch ||
-				item.MessageSequence != uint16(seq) { //nolint:gosec // seq is bounded above.
-				continue
-			}
-			if item.Typ == rule.Typ {
-				items[i] = item
-			} else {
-				conflicts = append(conflicts, item)
-			}
-		}
+		var conflicts []*HandshakeCacheItem
+		items[i], conflicts = h.sequentialCandidates(seq, rule)
 
 		if items[i] == nil {
 			if rule.Optional {
-				for _, conflict := range conflicts {
-					if !matchesAnyHandshakePullRule(conflict, rules[i+1:]) {
-						return unexpectedHandshakePull(startSeq)
-					}
+				if slices.ContainsFunc(conflicts, func(conflict *HandshakeCacheItem) bool {
+					return !matchesAnyHandshakePullRule(conflict, rules[i+1:])
+				}) {
+					return unexpectedHandshakePull(startSeq)
 				}
 
 				continue
@@ -321,10 +318,9 @@ func (h *Cache) PullSequential( //nolint:cyclop
 			return unexpectedHandshakePull(startSeq)
 		}
 
-		selected++
 		seq++
 	}
-	if selected == 0 {
+	if seq == startSeq {
 		return HandshakeCacheItemPullResult{NextSequence: startSeq}
 	}
 
@@ -335,14 +331,27 @@ func (h *Cache) PullSequential( //nolint:cyclop
 	}
 }
 
-func matchesAnyHandshakePullRule(item *HandshakeCacheItem, rules []HandshakeCachePullRule) bool {
-	for _, rule := range rules {
-		if item.Typ == rule.Typ && item.IsClient == rule.IsClient && item.Epoch == rule.Epoch {
-			return true
+func (h *Cache) sequentialCandidates(seq int, rule HandshakeCachePullRule) (selected *HandshakeCacheItem, conflicts []*HandshakeCacheItem) {
+	conflicts = make([]*HandshakeCacheItem, 0, 1)
+	for _, item := range h.cache {
+		if item.IsClient != rule.IsClient || item.Epoch != rule.Epoch ||
+			item.MessageSequence != uint16(seq) { //nolint:gosec // seq is bounded above.
+			continue
+		}
+		if item.Typ == rule.Typ {
+			selected = item
+		} else {
+			conflicts = append(conflicts, item)
 		}
 	}
 
-	return false
+	return selected, conflicts
+}
+
+func matchesAnyHandshakePullRule(item *HandshakeCacheItem, rules []HandshakeCachePullRule) bool {
+	return slices.ContainsFunc(rules, func(rule HandshakeCachePullRule) bool {
+		return item.Typ == rule.Typ && item.IsClient == rule.IsClient && item.Epoch == rule.Epoch
+	})
 }
 
 func unexpectedHandshakePull(startSeq int) HandshakeCacheItemPullResult {
@@ -474,7 +483,7 @@ func (i DecodedHandshakeCacheItem) Validate() error {
 	return nil
 }
 
-func validateDecodedHandshake( //nolint:cyclop
+func validateDecodedHandshake(
 	item *HandshakeCacheItem,
 	parsed *handshake.Handshake,
 ) error {
@@ -486,7 +495,9 @@ func validateDecodedHandshake( //nolint:cyclop
 	if err := rawHeader.Unmarshal(item.Data); err != nil {
 		return err
 	}
-	if rawHeader != parsed.Header || rawHeader.Type != item.Typ || rawHeader.MessageSequence != item.MessageSequence || rawHeader.FragmentOffset != 0 || rawHeader.FragmentLength != rawHeader.Length || len(item.Data) != handshake.HeaderLength+int(rawHeader.Length) || parsed.Message.Type() != rawHeader.Type {
+
+	expected := handshake.Header{Type: item.Typ, Length: rawHeader.Length, MessageSequence: item.MessageSequence, FragmentLength: rawHeader.Length}
+	if rawHeader != parsed.Header || rawHeader != expected || len(item.Data) != handshake.HeaderLength+int(rawHeader.Length) || parsed.Message.Type() != rawHeader.Type {
 		return dtlserrors.ErrInvalidHandshakeTranscriptMessage
 	}
 
