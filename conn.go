@@ -2195,6 +2195,9 @@ func (c *Conn) prepareLegacyPacket(buf []byte, rAddr net.Addr, bufferLease *read
 			return incomingPacketState{}, false, nil
 		}
 	}
+	if contentType == protocol.ContentTypeACK && common.LocalVersion == protocol.Version1_2 {
+		return incomingPacketState{}, false, nil
+	}
 
 	return incomingPacketState{raw: raw, content: content, contentType: contentType, number: protocol.RecordNumber{Epoch: uint64(header.Epoch()), SequenceNumber: header.SequenceNumber()}, markPacketAsValid: markPacketAsValid, originalCID: originalCID}, true, nil
 }

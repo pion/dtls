@@ -2799,3 +2799,24 @@ func TestEmptyHandshakeRecordIsIgnored(t *testing.T) {
 		assert.False(t, latest)
 	}
 }
+
+func TestDTLS12DiscardsACK(t *testing.T) {
+	for _, payload := range [][]byte{{0, 0}, {0}} {
+		t.Run(fmt.Sprintf("%x", payload), func(t *testing.T) {
+			conn, _ := newTestConnWithReadProtection(t)
+			common := &dtlsstate.Common{LocalVersion: protocol.Version1_2}
+			conn.state = &dtlsstate.State12{Common: common}
+			raw, err := recordlayer.MarshalRecord(recordlayer.RecordConfig{
+				ContentType: protocol.ContentTypeACK, Version: protocol.Version1_2, SequenceNumber: 1000000,
+			}, payload)
+			require.NoError(t, err)
+			outcome, err := conn.handleIncomingPacket(t.Context(), raw, nil, nil, false)
+			require.NoError(t, err)
+			require.Equal(t, packetOutcome{}, outcome)
+			if detector := common.ReplayDetector[0]; detector != nil {
+				_, acceptable := detector.Check(0)
+				require.True(t, acceptable, "ACKs must not consume replay sequence numbers")
+			}
+		})
+	}
+}
