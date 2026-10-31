@@ -22,6 +22,8 @@ import (
 
 	"github.com/pion/dtls/v4"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/mdns/v2"
 	"golang.org/x/net/ipv4"
 )
@@ -626,13 +628,17 @@ func udpPort(conn *net.UDPConn) uint16 {
 }
 
 func newDetachedConn(role roleConfig, peer net.Addr) (*dtls.DetachedConn, error) {
+	curves := dtls.WithEllipticCurves(elliptic.X25519)
 	psk := dtls.PSK{Identity: []byte("mdns-demo"), Key: []byte("pion-mdns-handshake")}
 	if role.isClient {
 		return dtls.DetachedClient(peer,
 			dtls.WithPSK(func() ([]dtls.PSK, error) {
 				return []dtls.PSK{psk}, nil
 			}, nil),
-			dtls.WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
+			dtls.WithMinVersion(protocol.Version1_3),
+			dtls.WithMaxVersion(protocol.Version1_3),
+			dtls.WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
+			curves,
 			dtls.WithFlightInterval(2*time.Second),
 		)
 	}
@@ -647,7 +653,10 @@ func newDetachedConn(role roleConfig, peer net.Addr) (*dtls.DetachedConn, error)
 
 			return nil, nil
 		}),
-		dtls.WithCipherSuites(cryptosuite.TLS_PSK_WITH_AES_128_CCM_8),
+		dtls.WithMinVersion(protocol.Version1_3),
+		dtls.WithMaxVersion(protocol.Version1_3),
+		dtls.WithCipherSuites(cryptosuite.TLS_AES_128_GCM_SHA256),
+		curves,
 		dtls.WithFlightInterval(2*time.Second),
 	)
 }
