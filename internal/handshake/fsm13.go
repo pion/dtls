@@ -260,7 +260,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 	if s.currentFlight == dtlsflight13.Flight4 {
 		s.state.NegotiatedProtocol, err = extension.ALPNProtocolSelection(s.cfg.SupportedProtocols, s.state.PeerSupportedProtocols)
 		if err != nil {
-			return StateErrored, pskHandshakeError(alert.NoApplicationProtocol, err)
+			return StateErrored, notifyAlert(ctx, conn, nil, pskHandshakeError(alert.NoApplicationProtocol, err))
 		}
 		if err = s.acceptEarlyData(); err != nil {
 			return StateErrored, err

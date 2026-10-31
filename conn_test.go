@@ -2880,3 +2880,25 @@ func TestDTLS13ClientCertificateRejectionAlertsPeer(t *testing.T) {
 	require.Equal(t, alert.Fatal, receivedAlert.Level)
 	require.Equal(t, alert.BadCertificate, receivedAlert.Description)
 }
+
+func TestDTLS13ALPNMismatchAlertsPeer(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	a, b := packetPipe()
+	client, err := Client(a, a.RemoteAddr(), WithInsecureSkipVerify(true),
+		WithMinVersion(protocol.Version1_3), WithSupportedProtocols("http/1.1"))
+	require.NoError(t, err)
+	server, err := Server(b, b.RemoteAddr(), WithCertificates(certificate),
+		WithMinVersion(protocol.Version1_3), WithSupportedProtocols("http/3"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close(); _ = a.Close(); _ = b.Close() })
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	clientDone := make(chan error, 1)
+	go func() { clientDone <- client.HandshakeContext(ctx) }()
+	require.ErrorIs(t, server.HandshakeContext(ctx), dtlserrors.ErrALPNNoAppProto)
+	var receivedAlert *alertError
+	require.ErrorAs(t, <-clientDone, &receivedAlert)
+	require.Equal(t, alert.Fatal, receivedAlert.Level)
+	require.Equal(t, alert.NoApplicationProtocol, receivedAlert.Description)
+}
