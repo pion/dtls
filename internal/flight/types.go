@@ -33,10 +33,16 @@ type Outbound struct {
 	TrackACK   bool
 	// HandshakeFragmentOffsets limits a retransmission to offset:length pairs.
 	HandshakeFragmentOffsets map[uint32]uint32
+	HandshakeFragments       []HandshakeFragment
 
 	// CertificateVerifySigner is local-only metadata used to populate an
 	// outbound CertificateVerify after the handshake messages have been committed.
 	CertificateVerifySigner crypto.Signer
+}
+
+type HandshakeFragment struct {
+	Header  handshake.Header
+	Padding uint
 }
 
 type HandshakeCacheItem struct {

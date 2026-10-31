@@ -830,14 +830,19 @@ func TestFragmentBuffer_Retransmission(t *testing.T) {
 func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 	defer test.CheckRoutines(t)()
 	defer test.TimeOut(10 * time.Second).Stop()
+	const mtu = 500
 	padding := WithPaddingLengthGenerator(func(length uint) uint { return 255 - length%256 })
 
 	ca, cb := packetPipe()
+	clientTransport := &connWithCallback{packetTestConn: ca, onWrite: func(raw []byte) {
+		assert.LessOrEqual(t, len(raw), mtu)
+	}}
 	var applicationEpochWrites atomic.Int32
 	ackRecord := make(chan []byte, 1)
 	serverTransport := &connWithCallback{
 		packetTestConn: cb,
 		onWrite: func(raw []byte) {
+			assert.LessOrEqual(t, len(raw), mtu)
 			if len(raw) > 0 && protocol.IsDTLS13Ciphertext(protocol.ContentType(raw[0])) && raw[0]&recordwire.EpochMask == byte(dtlsflight13.EpochApplication) {
 				applicationEpochWrites.Add(1)
 				select {
@@ -850,13 +855,13 @@ func TestDTLS13ServerSendsFinalACK(t *testing.T) {
 
 	clientCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	client, err := Client(ca, ca.RemoteAddr(), WithCertificates(clientCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), padding)
+	client, err := Client(clientTransport, ca.RemoteAddr(), WithCertificates(clientCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithMTU(mtu), padding)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
 	serverCert, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
-	server, err := Server(serverTransport, serverTransport.RemoteAddr(), WithCertificates(serverCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), padding)
+	server, err := Server(serverTransport, serverTransport.RemoteAddr(), WithCertificates(serverCert), WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithMaxVersion(protocol.Version1_3), WithMTU(mtu), padding)
 	require.NoError(t, err)
 	defer func() { _ = server.Close() }()
 
@@ -987,8 +992,8 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 	cipherSuite := ciphersuite.ForID(cryptosuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
 	protection := &sequenceRecordingProtection{capabilities: cipherSuite.Capabilities()}
 	commonState := &dtlsstate.Common{LocalVersion: protocol.Version1_2, LocalSequenceNumber: map[uint64]uint64{1: firstSequence}, RemoteConnectionID: remoteCID, CipherSuite: cipherSuite}
-	conn := &Conn{maximumTransmissionUnit: 10, paddingLengthGenerator: func(uint) uint { return 0 }, state: &dtlsstate.State12{Common: commonState, Protection: protection}}
-	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake12.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)}}}
+	conn := &Conn{maximumTransmissionUnit: 80, paddingLengthGenerator: func(length uint) uint { return 31 - length%32 }, state: &dtlsstate.State12{Common: commonState, Protection: protection}}
+	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake12.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 240)}}}
 	_, err := dtlsHandshake.Marshal()
 	require.NoError(t, err)
 
@@ -1003,6 +1008,7 @@ func TestProcessHandshakePacketCIDFragmentsUseAllocatedSequenceNumbers(t *testin
 
 	expectedSequences := make([]uint64, len(prepared))
 	for i, record := range prepared {
+		assert.LessOrEqual(t, len(record.raw), conn.maximumTransmissionUnit)
 		expectedSequence := firstSequence + uint64(i)
 		expectedSequences[i] = expectedSequence
 
@@ -1037,17 +1043,88 @@ func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
 	assert.Equal(t, expectedPlaintext, innerPlaintext.Content)
 }
 
+func TestHandshakeFragmentPadding(t *testing.T) {
+	fixedPadding := func(uint) uint { return 64 }
+	for _, tc := range []struct {
+		name              string
+		mtu, length, want int
+		padding           func(uint) uint
+	}{
+		{"NonMonotonic", 500, 800, 3, func(length uint) uint {
+			if length > 400 || length == 13 {
+				return 600
+			}
+
+			return 0
+		}},
+		{"LargeMTU", 20000, 32600, 2, fixedPadding},
+		{"AtPlaintextLimit", 20000, 32616, 2, fixedPadding},
+		{"OverPlaintextLimit", 20000, 32617, 3, fixedPadding},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn, peer := newTestConnWithWriteProtection(t)
+			conn.maximumTransmissionUnit, conn.paddingLengthGenerator = tc.mtu, tc.padding
+			payload := bytes.Repeat([]byte{0x5a}, tc.length)
+			message := &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: payload}}
+			records, err := conn.prepareHandshakeRecords(&dtlsflight.Outbound{
+				Epoch: dtlsflight13.EpochHandshake, Content: message, Protection: dtlsflight.ProtectionCiphertext, TrackACK: true,
+			}, message)
+			require.NoError(t, err)
+			require.Len(t, records, tc.want)
+			var reassembled []byte
+			for _, sent := range records {
+				assert.LessOrEqual(t, len(sent.raw), tc.mtu)
+				record := unmarshalCiphertextRecordForTest(t, sent.raw, 0)
+				opened, err := peer.OpenRecord(record.Header, sent.tracked.Number.SequenceNumber, record.EncryptedRecord)
+				require.NoError(t, err)
+				var header handshake.Header
+				require.NoError(t, header.Unmarshal(opened.Content))
+				assert.EqualValues(t, len(reassembled), header.FragmentOffset)
+				assert.EqualValues(t, len(payload), header.Length)
+				assert.EqualValues(t, len(opened.Content)-handshake.HeaderLength, header.FragmentLength)
+				reassembled = append(reassembled, opened.Content[handshake.HeaderLength:]...)
+			}
+			assert.Equal(t, payload, reassembled)
+		})
+	}
+	conn, _ := newTestConnWithWriteProtection(t)
+	conn.maximumTransmissionUnit = recordlayer.FixedHeaderSize + handshake.HeaderLength
+	message := &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: []byte{1}}}
+	_, err := conn.prepareHandshakeRecords(&dtlsflight.Outbound{Content: message}, message)
+	assert.ErrorIs(t, err, dtlserrors.ErrInvalidPacketLength)
+}
+
 func TestProcessProtectedHandshakePacketFiltersACKedFragments(t *testing.T) {
 	conn, _ := newTestConnWithWriteProtection(t)
-	conn.maximumTransmissionUnit = 10
-	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake12.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 24)}}}
+	conn.maximumTransmissionUnit = 80
+	conn.paddingLengthGenerator = func(uint) uint { return 13 }
+	state, ok := conn.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local"), ServerCID: []byte("peer")})
+	dtlsHandshake := &handshake.Handshake{Header: handshake.Header{MessageSequence: 9}, Message: &handshake12.MessageCertificate{Certificate: [][]byte{bytes.Repeat([]byte{0xaa}, 240)}}}
 	_, err := dtlsHandshake.Marshal()
 	require.NoError(t, err)
 
-	prepared, err := conn.prepareHandshakeRecords(&dtlsflight.Outbound{Epoch: dtlsflight13.EpochHandshake, Content: dtlsHandshake, Protection: dtlsflight.ProtectionCiphertext, TrackACK: true, HandshakeFragmentOffsets: map[uint32]uint32{10: 10}}, dtlsHandshake)
+	pkt := &dtlsflight.Outbound{Epoch: dtlsflight13.EpochHandshake, Content: dtlsHandshake, Protection: dtlsflight.ProtectionCiphertext, TrackACK: true}
+	prepared, err := conn.prepareHandshakeRecords(pkt, dtlsHandshake)
+	require.NoError(t, err)
+	require.Greater(t, len(prepared), 1)
+	for _, record := range prepared {
+		assert.LessOrEqual(t, len(record.raw), conn.maximumTransmissionUnit)
+	}
+	fragment := prepared[1].tracked.Fragments[0]
+	sequence := prepared[len(prepared)-1].tracked.Number.SequenceNumber
+	pkt.HandshakeFragmentOffsets = map[uint32]uint32{fragment.Offset: fragment.Length}
+	conn.paddingLengthGenerator = func(uint) uint {
+		assert.Fail(t, "retransmission recalculated padding")
+
+		return ^uint(0)
+	}
+	prepared, err = conn.prepareHandshakeRecords(pkt, dtlsHandshake)
 	require.NoError(t, err)
 	require.Len(t, prepared, 1)
-	assert.Equal(t, uint32(10), prepared[0].tracked.Fragments[0].Offset)
+	assert.Equal(t, fragment, prepared[0].tracked.Fragments[0])
+	assert.Greater(t, prepared[0].tracked.Number.SequenceNumber, sequence)
 }
 
 func TestProcessProtectedPacketWritesApplicationData(t *testing.T) {
