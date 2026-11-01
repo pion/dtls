@@ -1679,14 +1679,45 @@ func (c *Conn) fitHandshakeFragment(layout handshakeRecordLayout, length int, fi
 		switch {
 		case !fast:
 			length--
+
+			continue
 		case length > 1:
 			length = max(1, length+remaining)
-		default:
-			length, fast = initial-1, false
+
+			continue
 		}
+		length, err = c.handshakeFragmentSearchBound(layout, initial, fixedPadding)
+		if err != nil {
+			return 0, 0, err
+		}
+		minimum, fast = 1, false
 	}
 
 	return 0, 0, dtlserrors.ErrInvalidPacketLength
+}
+
+func (c *Conn) handshakeFragmentSearchBound(layout handshakeRecordLayout, length int, fixedPadding *uint) (int, error) {
+	if fixedPadding != nil || !layout.padded || c.paddingLengthGenerator == nil {
+		return 0, dtlserrors.ErrInvalidPacketLength
+	}
+	low, high := 1, length-1
+	for low <= high {
+		middle := low + (high-low)/2
+		remaining, err := layout.remaining(handshake.HeaderLength+middle, 0)
+		if err != nil {
+			return 0, err
+		}
+		if remaining >= 0 {
+			low = middle + 1
+		} else {
+			high = middle - 1
+		}
+	}
+	if high < 1 {
+		return 0, dtlserrors.ErrInvalidPacketLength
+	}
+
+	return high, nil
 }
 
 // readBufferPools caches read buffer pools by size so buffers are reused across

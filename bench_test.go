@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"testing"
 
+	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
 	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
+	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -53,5 +56,35 @@ func benchmarkConn(b *testing.B, payloadSize int64) {
 func BenchmarkConnReadWrite(b *testing.B) {
 	for _, n := range []int64{16, 128, 512, 1024, 2048} {
 		benchmarkConn(b, n)
+	}
+}
+
+func BenchmarkHandshakeFragmentFit(b *testing.B) {
+	capabilities, err := cryptosuite.NewAEADCapabilities(protocol.Version1_3, maxDTLS13InnerPlaintextLen, 0, 16, 16)
+	assert.NoError(b, err)
+	for _, tc := range []struct {
+		name    string
+		mtu     int
+		padding uint
+		fixed   bool
+	}{
+		{"FixedPaddingFailure", 80, 100, true},
+		{"NormalPadding", 80, 3, false},
+		{"UnfitCallback", 80, ^uint(0), false},
+		{"LargeMTUCallback", 20000, ^uint(0), false},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			conn := &Conn{paddingLengthGenerator: func(uint) uint { return tc.padding }}
+			layout := handshakeRecordLayout{capabilities: capabilities, mtu: tc.mtu, headerLen: 5, limit: maxDTLS13InnerPlaintextLen, padded: true}
+			length := min(layout.mtu-layout.headerLen-handshake.HeaderLength, maxPlaintextRecordLen-handshake.HeaderLength)
+			var fixed *uint
+			if tc.fixed {
+				fixed = &tc.padding
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				_, _, _ = conn.fitHandshakeFragment(layout, length, fixed)
+			}
+		})
 	}
 }

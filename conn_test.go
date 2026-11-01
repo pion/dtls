@@ -1045,11 +1045,22 @@ func TestProcessProtectedHandshakePacketWritesDTLS13Fragments(t *testing.T) {
 
 func TestHandshakeFragmentPadding(t *testing.T) {
 	fixedPadding := func(uint) uint { return 64 }
+	oneByteCalls := 0
 	for _, tc := range []struct {
 		name              string
 		mtu, length, want int
 		padding           func(uint) uint
 	}{
+		{"Stateful", 35, 2, 2, func(length uint) uint {
+			if length == handshake.HeaderLength+1 {
+				oneByteCalls++
+				if oneByteCalls > 1 {
+					return 0
+				}
+			}
+
+			return 1
+		}},
 		{"NonMonotonic", 500, 800, 3, func(length uint) uint {
 			if length > 400 || length == 13 {
 				return 600
