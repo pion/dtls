@@ -280,9 +280,6 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 	if encryptedExtensions == nil {
 		return nil
 	}
-	if failure := validateALPNResponse(flightCtx, encryptedExtensions); failure != nil {
-		return failure
-	}
 
 	return validateEarlyDataResponse(flightCtx.state, encryptedExtensions)
 }
@@ -439,6 +436,9 @@ func validateEncryptedExtensions(ctx *handshakeContext, offer negotiation.Client
 		}
 
 		return decision, &flightParseFailure{alert: dtlsAlert, err: err}
+	}
+	if failure := validateALPNResponse(ctx, message); failure != nil {
+		return decision, failure
 	}
 
 	return decision, nil
