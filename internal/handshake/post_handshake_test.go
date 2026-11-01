@@ -211,6 +211,7 @@ func TestPostHandshakeACKReliability(t *testing.T) {
 
 			return nil
 		},
+		LocalCertificates: testHandshakeConfig13(t).LocalCertificates,
 	}})
 	require.NoError(t, post.startNewSessionTicket(t.Context(), &flightTestConn{}, false))
 	flight := post.flights[postHandshakeFlightID{Category: postHandshakeNewSessionTicket}]
@@ -630,6 +631,7 @@ func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
 	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{
 		InitialRetransmitInterval: time.Second,
 		SetSessionTicket:          func(_, _, _ []byte, _ dtlsstate.SessionTicket) error { return nil },
+		LocalCertificates:         testHandshakeConfig13(t).LocalCertificates,
 	}})
 	applicationPacket := &dtlsflight.Outbound{Content: &protocol.ApplicationData{Data: []byte("after ticket")}, Protection: dtlsflight.ProtectionCiphertext}
 	post.queue = append(post.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket}, applicationDataCommand(applicationPacket))
@@ -708,6 +710,7 @@ func TestPostHandshakeIndependentCategories(t *testing.T) {
 	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{
 		InitialRetransmitInterval: time.Second,
 		SetSessionTicket:          func(_, _, _ []byte, _ dtlsstate.SessionTicket) error { return nil },
+		LocalCertificates:         testHandshakeConfig13(t).LocalCertificates,
 	}})
 	active := postHandshakeFlightID{Category: postHandshakeNewConnectionID}
 	post.flights[active] = &reliablePostHandshakeFlight{ID: active}

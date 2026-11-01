@@ -230,7 +230,7 @@ func (p *postHandshake) initialize() {
 	}
 	p.initialized = true
 
-	if !p.state.IsClient && p.cfg.ClientAuth == dtlsconfig.NoClientCert && p.cfg.SetSessionTicket != nil &&
+	if !p.state.IsClient && p.allowServerTickets() && p.cfg.SetSessionTicket != nil &&
 		p.state.RemoteClientHelloSnapshots.Current().Offered(extension.TypePSKKeyExchangeModes) {
 		p.queue = append(p.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket})
 	}
@@ -773,7 +773,7 @@ func (p *postHandshake) handleNewSessionTicket(ctx context.Context, conn Conn, m
 }
 
 func (p *postHandshake) startNewSessionTicket(ctx context.Context, conn Conn, isClient bool) error {
-	if p.cfg.SetSessionTicket == nil || p.cfg.ClientAuth != dtlsconfig.NoClientCert {
+	if p.cfg.SetSessionTicket == nil || !p.allowServerTickets() {
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
 	flight, err := p.prepareNewSessionTicket(isClient)

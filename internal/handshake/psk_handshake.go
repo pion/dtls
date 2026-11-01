@@ -296,7 +296,7 @@ func (c *handshakeContext) readPSKOffer(hello *handshake.MessageClientHello) (*e
 }
 
 func (c *handshakeContext) selectOfferedPSK(hello *handshake.MessageClientHello, offer *extension13.OfferedPSKs, dhe bool) (int, *dtlsstate.PSK, error) {
-	if dhe && c.cfg.ClientAuth == dtlsconfig.NoClientCert && c.cfg.GetSessionTicket != nil {
+	if dhe && c.allowServerTickets() && c.cfg.GetSessionTicket != nil {
 		if i, psk, err := c.selectSessionTicket(hello, offer); err != nil || psk != nil {
 			return i, psk, err
 		}
@@ -314,6 +314,10 @@ func (c *handshakeContext) selectOfferedPSK(hello *handshake.MessageClientHello,
 	}
 
 	return i, &dtlsstate.PSK{Secret: secret, Hash: hashID, External: true}, nil
+}
+
+func (c *handshakeContext) allowServerTickets() bool {
+	return c.cfg.ClientAuth == dtlsconfig.NoClientCert && (len(c.cfg.LocalCertificates) != 0 || c.cfg.LocalGetCertificate != nil)
 }
 
 func (c *handshakeContext) selectSessionTicket(hello *handshake.MessageClientHello, offer *extension13.OfferedPSKs) (int, *dtlsstate.PSK, error) {
