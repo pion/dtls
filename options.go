@@ -308,7 +308,7 @@ func WithInsecureHashes(allow bool) Option {
 }
 
 // WithVerifyPeerCertificate sets the peer certificate verification callback.
-// DTLS 1.2 clients also call it on cached certificates before offering resumption.
+// Clients also call it on cached certificates before offering resumption.
 // Rejection falls back to a full handshake, where the callback runs again on
 // the newly received certificate. Accepted resumption calls it only once.
 // Returns an error if the callback is nil.

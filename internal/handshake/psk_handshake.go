@@ -15,7 +15,6 @@ import (
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlsflight13 "github.com/pion/dtls/v4/internal/flight/flight13"
-	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	cryptosuite "github.com/pion/dtls/v4/pkg/crypto/ciphersuite"
@@ -202,17 +201,7 @@ func usableClientTicket(cfg *dtlsconfig.HandshakeConfig, hello *handshake.Messag
 		return false
 	}
 
-	if len(psk.PeerCertificates) != 0 && !cfg.InsecureSkipVerify {
-		algorithms := cfg.LocalCertSignatureSchemes
-		if len(algorithms) == 0 {
-			algorithms = cfg.LocalSignatureSchemes
-		}
-		if _, err := dtlscrypto.VerifyServerCert(psk.PeerCertificates, cfg.RootCAs, cfg.ServerName, algorithms); err != nil {
-			return false // An unusable cached certificate triggers a full handshake.
-		}
-	}
-
-	return true
+	return len(psk.PeerCertificates) == 0 || cfg.UsableServerCertificate(psk.PeerCertificates)
 }
 
 // selectPSK runs before ClientHello enters the transcript, including on retry.
