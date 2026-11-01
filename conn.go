@@ -2753,11 +2753,11 @@ func (c *Conn) deliverApplicationDataRecord(ctx context.Context, content *protoc
 func (c *Conn) handleRecordContent(ctx context.Context, content protocol.Content, prepared incomingPacketState, rAddr net.Addr, bufferLease *readBufferLease) (bool, packetOutcome, error) {
 	switch content := content.(type) {
 	case *protocol.ACK:
-		// The ACK's epoch must be at least that of every acknowledged record.
+		// During the handshake, the ACK epoch must cover every acknowledged record.
 		// Validate the entire ACK before applying it.
 		// https://datatracker.ietf.org/doc/html/rfc9147#section-7
 		for _, record := range content.Records {
-			if record.Epoch > prepared.number.Epoch {
+			if !c.isHandshakeCompletedSuccessfully() && record.Epoch > prepared.number.Epoch {
 				c.log.Debug("discarded ACK for a record from a higher epoch")
 
 				return false, packetOutcome{}, nil

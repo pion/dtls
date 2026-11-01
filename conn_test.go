@@ -2356,6 +2356,15 @@ func limitedTrafficPair(t *testing.T, version protocol.Version) (*Conn, *Conn) {
 	return client.conn, server.conn
 }
 
+func TestIndependentKeyUpdateEpochs(t *testing.T) {
+	client, _ := limitedTrafficPair(t, protocol.Version1_3)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for range 8 {
+		require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
+	}
+}
+
 func TestConnectionKeyUsage(t *testing.T) {
 	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
 		t.Run(fmt.Sprintf("%x", version), func(t *testing.T) {
