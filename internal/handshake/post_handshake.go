@@ -80,11 +80,7 @@ type postHandshakeFlightID struct {
 	MessageSequence uint16
 }
 
-type postHandshakeFragment struct {
-	MessageSequence uint16
-	Offset          uint32
-	Length          uint32
-}
+type postHandshakeFragment = SentHandshakeFragment
 
 type postHandshakeRecord struct {
 	Flight    postHandshakeFlightID
@@ -395,7 +391,7 @@ func (p *postHandshake) applyACK(ack protocol.ACK) []postHandshakeFlightID {
 		}
 
 		for _, fragment := range record.Fragments {
-			delete(flight.PendingFragments, fragment)
+			acknowledgeFragments(flight.PendingFragments, fragment)
 		}
 		delete(p.recordIndex, number)
 		if len(flight.PendingFragments) == 0 {
@@ -414,8 +410,7 @@ func (p *postHandshake) applyACK(ack protocol.ACK) []postHandshakeFlightID {
 func (p *postHandshake) registerTransmission(flight *reliablePostHandshakeFlight, records []SentHandshakeRecord, first bool) {
 	for _, record := range records {
 		fragments := make([]postHandshakeFragment, 0, len(record.Fragments))
-		for _, sent := range record.Fragments {
-			fragment := postHandshakeFragment(sent)
+		for _, fragment := range record.Fragments {
 			fragments = append(fragments, fragment)
 			if first {
 				flight.PendingFragments[fragment] = struct{}{}

@@ -839,3 +839,28 @@ func TestPostHandshakeIgnoresMessagesWithoutApplicationProtection(t *testing.T) 
 		assert.Zero(t, state.HandshakeRecvSequence)
 	}
 }
+
+func TestPostHandshakeACKAfterFragmentSplit(t *testing.T) {
+	for _, acknowledgeOriginal := range []bool{false, true} {
+		state := dtlsstate.NewState13(false)
+		post := newPostHandshake(handshakeContext{state: &state, cfg: &dtlsconfig.HandshakeConfig{InitialRetransmitInterval: time.Second}})
+		id := postHandshakeFlightID{Category: postHandshakeNewConnectionID, MessageSequence: 4}
+		flight := &reliablePostHandshakeFlight{ID: id, PendingFragments: make(map[postHandshakeFragment]struct{}), SentRecords: make(map[protocol.RecordNumber]struct{})}
+		post.flights[id] = flight
+		original := protocol.RecordNumber{Epoch: 3, SequenceNumber: 10}
+		left, right := protocol.RecordNumber{Epoch: 3, SequenceNumber: 11}, protocol.RecordNumber{Epoch: 3, SequenceNumber: 12}
+		post.registerTransmission(flight, []SentHandshakeRecord{{Number: original, Fragments: []SentHandshakeFragment{{MessageSequence: 4, Length: 20}}}}, true)
+		post.registerTransmission(flight, []SentHandshakeRecord{
+			{Number: left, Fragments: []SentHandshakeFragment{{MessageSequence: 4, Length: 8}}},
+			{Number: right, Fragments: []SentHandshakeFragment{{MessageSequence: 4, Offset: 8, Length: 12}}},
+		}, false)
+		assert.Empty(t, post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{left}}))
+		assert.Equal(t, map[postHandshakeFragment]struct{}{{MessageSequence: 4, Offset: 8, Length: 12}: {}}, flight.PendingFragments)
+		assert.Empty(t, post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{left}}))
+		if acknowledgeOriginal {
+			right = original
+		}
+		assert.Equal(t, []postHandshakeFlightID{id}, post.applyACK(protocol.ACK{Records: []protocol.RecordNumber{right}}))
+		assert.Empty(t, flight.PendingFragments)
+	}
+}

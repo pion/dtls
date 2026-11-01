@@ -2980,3 +2980,51 @@ func TestDTLS13ALPNMismatchAlertsPeer(t *testing.T) {
 	require.Equal(t, alert.Fatal, receivedAlert.Level)
 	require.Equal(t, alert.NoApplicationProtocol, receivedAlert.Description)
 }
+
+func TestHandshakeRetransmissionCIDGrowth(t *testing.T) {
+	conn, peer := newTestConnWithWriteProtection(t)
+	conn.maximumTransmissionUnit = 80
+	conn.paddingLengthGenerator = func(uint) uint { return 3 }
+	state, ok := conn.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	state.CommitNegotiatedExtensions(&negotiation.ConnectionID{ClientCID: []byte("local"), ServerCID: []byte("peer")})
+	conn.closed = closer.NewCloser()
+	adapter := handshakeConn{conn: conn}
+	require.NoError(t, adapter.CommitPeerConnectionIDs(&handshake.MessageNewConnectionID{Usage: handshake.ConnectionIDImmediate, CIDs: [][]byte{nil}}))
+	message := &handshake.Handshake{Message: &handshake.MessageNewConnectionID{Usage: handshake.ConnectionIDSpare, CIDs: [][]byte{bytes.Repeat([]byte{1}, 100)}}}
+	raw, err := message.Marshal()
+	require.NoError(t, err)
+	packet := &dtlsflight.Outbound{Epoch: dtlsflight13.EpochApplication, Content: message, Protection: dtlsflight.ProtectionCiphertext, TrackACK: true}
+	records, err := conn.prepareHandshakeRecords(packet, message)
+	require.NoError(t, err)
+	fragment := records[0].tracked.Fragments[0]
+	packet.HandshakeFragmentOffsets = map[uint32]uint32{fragment.Offset: fragment.Length}
+	conn.paddingLengthGenerator = func(uint) uint {
+		assert.Fail(t, "retransmission recalculated padding")
+
+		return 0
+	}
+	for _, cid := range [][]byte{[]byte("restored"), bytes.Repeat([]byte{2}, 32)} {
+		require.NoError(t, adapter.CommitPeerConnectionIDs(&handshake.MessageNewConnectionID{Usage: handshake.ConnectionIDImmediate, CIDs: [][]byte{cid}}))
+		records, err = conn.prepareHandshakeRecords(packet, message)
+		require.NoError(t, err)
+		require.Greater(t, len(records), 1)
+		var content []byte
+		for _, record := range records {
+			assert.LessOrEqual(t, len(record.raw), conn.maximumTransmissionUnit)
+			parsed := unmarshalCiphertextRecordForTest(t, record.raw, len(cid))
+			opened, openErr := peer.OpenRecord(parsed.Header, record.tracked.Number.SequenceNumber, parsed.EncryptedRecord)
+			require.NoError(t, openErr)
+			assert.EqualValues(t, int(fragment.Offset)+len(content), record.tracked.Fragments[0].Offset)
+			content = append(content, opened.Content[handshake.HeaderLength:]...)
+		}
+		assert.Len(t, content, int(fragment.Length))
+		assert.Equal(t, raw[handshake.HeaderLength+fragment.Offset:handshake.HeaderLength+fragment.Offset+fragment.Length], content)
+	}
+	remaining := records[1].tracked.Fragments[0]
+	packet.HandshakeFragmentOffsets = map[uint32]uint32{remaining.Offset: remaining.Length}
+	records, err = conn.prepareHandshakeRecords(packet, message)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.Equal(t, remaining, records[0].tracked.Fragments[0])
+}

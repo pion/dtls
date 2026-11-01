@@ -6,12 +6,14 @@ package dtls
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1470,12 +1472,13 @@ func (c *Conn) prepareHandshakeRecords(outbound *dtlsflight.Outbound, dtlsHandsh
 			return nil, err
 		}
 	}
-	rawPackets := make([]preparedRecord, 0, len(outbound.HandshakeFragments))
+	fragments, err := c.pendingHandshakeFragments(outbound)
+	if err != nil {
+		return nil, err
+	}
+	rawPackets := make([]preparedRecord, 0, len(fragments))
 	epoch := outbound.Epoch
-	for _, fragment := range outbound.HandshakeFragments {
-		if !selectHandshakeFragment(outbound.HandshakeFragmentOffsets, fragment.Header) {
-			continue
-		}
+	for _, fragment := range fragments {
 		handshakeFragment, err := marshalHandshakeFragment(fragment.Header, raw)
 		if err != nil {
 			return nil, err
@@ -1502,13 +1505,50 @@ func (c *Conn) prepareHandshakeRecords(outbound *dtlsflight.Outbound, dtlsHandsh
 	return rawPackets, nil
 }
 
-func selectHandshakeFragment(offsets map[uint32]uint32, header handshake.Header) bool {
+func selectHandshakeFragments(offsets map[uint32]uint32, header handshake.Header) []handshake.Header {
 	if offsets == nil {
-		return true
+		return []handshake.Header{header}
 	}
-	length, ok := offsets[header.FragmentOffset]
+	var selected []handshake.Header
+	for offset, length := range offsets {
+		start, end := max(offset, header.FragmentOffset), min(offset+length, header.FragmentOffset+header.FragmentLength)
+		if start < end || (length == 0 && header.FragmentLength == 0 && offset == header.FragmentOffset) {
+			fragment := header
+			fragment.FragmentOffset, fragment.FragmentLength = start, end-start
+			selected = append(selected, fragment)
+		}
+	}
+	slices.SortFunc(selected, func(a, b handshake.Header) int { return cmp.Compare(a.FragmentOffset, b.FragmentOffset) })
 
-	return ok && length == header.FragmentLength
+	return selected
+}
+
+func (c *Conn) pendingHandshakeFragments(outbound *dtlsflight.Outbound) ([]dtlsflight.HandshakeFragment, error) {
+	layout, err := c.handshakeRecordLayout(outbound)
+	if err != nil {
+		return nil, err
+	}
+	var fragments []dtlsflight.HandshakeFragment
+	for _, fragment := range outbound.HandshakeFragments {
+		for _, header := range selectHandshakeFragments(outbound.HandshakeFragmentOffsets, fragment.Header) {
+			remaining := header.FragmentLength
+			for {
+				length, _, err := c.fitHandshakeFragment(layout, int(remaining), &fragment.Padding)
+				if err != nil {
+					return nil, err
+				}
+				header.FragmentLength = length
+				fragments = append(fragments, dtlsflight.HandshakeFragment{Header: header, Padding: fragment.Padding})
+				remaining -= length
+				if remaining == 0 {
+					break
+				}
+				header.FragmentOffset += length
+			}
+		}
+	}
+
+	return fragments, nil
 }
 
 func (c *Conn) fragmentHandshake(outbound *dtlsflight.Outbound, header handshake.Header, raw []byte) ([]dtlsflight.HandshakeFragment, error) {
@@ -1523,7 +1563,7 @@ func (c *Conn) fragmentHandshake(outbound *dtlsflight.Outbound, header handshake
 	}
 	var fragments []dtlsflight.HandshakeFragment
 	for {
-		length, padding, err := c.fitHandshakeFragment(layout, min(len(content), limit))
+		length, padding, err := c.fitHandshakeFragment(layout, min(len(content), limit), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1619,7 +1659,7 @@ func (l handshakeRecordLayout) remaining(plaintextLen int, padding uint) (int, e
 	return min(l.limit-plaintextLen-extra, l.mtu-l.headerLen-protectedLen-extra), nil
 }
 
-func (c *Conn) fitHandshakeFragment(layout handshakeRecordLayout, length int) (uint32, uint, error) {
+func (c *Conn) fitHandshakeFragment(layout handshakeRecordLayout, length int, fixedPadding *uint) (uint32, uint, error) {
 	initial, fast := length, true
 	for minimum := min(1, initial); length >= minimum; {
 		if length < 0 || length > maxPlaintextRecordLen {
@@ -1627,7 +1667,7 @@ func (c *Conn) fitHandshakeFragment(layout handshakeRecordLayout, length int) (u
 		}
 		var padding uint
 		if layout.padded {
-			padding = c.recordPadding(handshake.HeaderLength+uint(length), nil)
+			padding = c.recordPadding(handshake.HeaderLength+uint(length), fixedPadding)
 		}
 		remaining, err := layout.remaining(handshake.HeaderLength+length, padding)
 		if err != nil {
