@@ -14,6 +14,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -304,7 +305,7 @@ func verifyPeerCertificateVerify(transcript *Transcript, cfg *dtlsconfig.Handsha
 		return err
 	}
 
-	return dtlscrypto.VerifyCertificateVerify(input, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, peerCertificates)
+	return dtlscrypto.VerifyCertificateVerify(input, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, peerCertificates, protocol.Version1_3)
 }
 
 func verifyPeerFinished(transcript *Transcript, state *dtlsstate.State13, cipherSuite dtlsconfig.CipherSuite, finished *handshake.MessageFinished, isClient bool) error {

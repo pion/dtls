@@ -4,7 +4,10 @@
 package handshakecrypto_test
 
 import (
+	"crypto/ecdsa"
+	cryptoelliptic "crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"math/big"
@@ -14,10 +17,40 @@ import (
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v4/pkg/crypto/hash"
+	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v4/pkg/crypto/signature"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCertificateVerifyVersionSchemes(t *testing.T) {
+	key, err := ecdsa.GenerateKey(cryptoelliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	certificate, err := selfsign.SelfSign(key)
+	require.NoError(t, err)
+	for _, algorithm := range []hash.Algorithm{hash.SHA256, hash.SHA384, hash.SHA224, hash.SHA1} {
+		signed, signErr := dtlscrypto.GenerateCertificateVerify([]byte("transcript"), key, algorithm, signature.ECDSA)
+		require.NoError(t, signErr)
+		for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+			verifyErr := dtlscrypto.VerifyCertificateVerify([]byte("transcript"), algorithm, signature.ECDSA, signed, certificate.Certificate, version)
+			if version == protocol.Version1_3 && algorithm != hash.SHA256 {
+				assert.ErrorIs(t, verifyErr, dtlserrors.ErrInvalidSignatureAlgorithm)
+			} else {
+				assert.NoError(t, verifyErr)
+			}
+		}
+	}
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	certificate, err = selfsign.SelfSign(rsaKey)
+	require.NoError(t, err)
+	signed, err := dtlscrypto.GenerateCertificateVerify([]byte("transcript"), rsaKey, hash.SHA256, signature.RSA)
+	require.NoError(t, err)
+	assert.NoError(t, dtlscrypto.VerifyCertificateVerify([]byte("transcript"), hash.SHA256, signature.RSA, signed, certificate.Certificate, protocol.Version1_2))
+	assert.ErrorIs(t, dtlscrypto.VerifyCertificateVerify([]byte("transcript"), hash.SHA256, signature.RSA, signed, certificate.Certificate, protocol.Version1_3), dtlserrors.ErrInvalidSignatureAlgorithm)
+}
 
 // RSA-PSS certificate with id-RSASSA-PSS OID (1.2.840.113549.1.1.10)
 // Generated with:

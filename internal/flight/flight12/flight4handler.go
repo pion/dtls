@@ -193,7 +193,7 @@ func verifyClientCertificateMessage(state *dtlsstate.State12, cache *dtlsflight.
 		return false, &alert.Alert{Level: alert.Fatal, Description: alert.InsufficientSecurity}, dtlserrors.ErrNoAvailableSignatureSchemes
 	}
 
-	if err := dtlscrypto.VerifyCertificateVerify(plainText, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, state.PeerCertificates); err != nil {
+	if err := dtlscrypto.VerifyCertificateVerify(plainText, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, state.PeerCertificates, protocol.Version1_2); err != nil {
 		return false, &alert.Alert{Level: alert.Fatal, Description: alert.BadCertificate}, err
 	}
 

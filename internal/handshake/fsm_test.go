@@ -492,8 +492,8 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	require.NoError(t, err)
 	certificateVerifyHandshake := fsm.flights[3].Content.(*handshake.Handshake)                   //nolint:forcetypeassert
 	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
-	require.NoError(t, dtlscrypto.VerifyCertificateVerify(serverVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, cfg.LocalCertificates[0].Certificate))
-	assert.Error(t, dtlscrypto.VerifyCertificateVerify(clientVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, cfg.LocalCertificates[0].Certificate))
+	require.NoError(t, dtlscrypto.VerifyCertificateVerify(serverVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, cfg.LocalCertificates[0].Certificate, protocol.Version1_3))
+	assert.Error(t, dtlscrypto.VerifyCertificateVerify(clientVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, cfg.LocalCertificates[0].Certificate, protocol.Version1_3))
 
 	finishedHandshake, ok := fsm.flights[4].Content.(*handshake.Handshake)
 	require.True(t, ok)
@@ -1049,7 +1049,7 @@ func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
 	certificateVerifyHandshake := fsm.flights[1].Content.(*handshake.Handshake)                   //nolint:forcetypeassert
 	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
 	require.NotEmpty(t, certificateVerify.Signature)
-	require.NoError(t, dtlscrypto.VerifyCertificateVerify(certificateVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, clientCertificate.Certificate))
+	require.NoError(t, dtlscrypto.VerifyCertificateVerify(certificateVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, clientCertificate.Certificate, protocol.Version1_3))
 
 	require.NoError(t, AppendOutboundHandshakeFlight(expectedTranscript, true, fixture.clientState.CipherSuite, fsm.flights[1:2]))
 	baseKey, err := ClientHandshakeFinishedBaseKey(fixture.clientState)
