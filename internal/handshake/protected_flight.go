@@ -101,6 +101,12 @@ func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCache
 }
 
 func (f *protectedHandshakeFlight) processCertificate(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, certificate *handshake13.MessageCertificate) error {
+	if item.IsClient && f.cfg.ClientAuth == dtlsconfig.NoClientCert {
+		return pskHandshakeError(alert.UnexpectedMessage, dtlserrors.ErrUnexpectedHandshakeMessage)
+	}
+	if len(certificate.CertificateRequestContext) != 0 {
+		return pskHandshakeError(alert.IllegalParameter, dtlserrors.ErrInvalidCertificateRequestContext)
+	}
 	f.hasCertificate = true
 	f.peerCertificates = rawCertificatesFromCertificate(certificate)
 	if len(f.peerCertificates) == 0 {
@@ -115,6 +121,9 @@ func (f *protectedHandshakeFlight) processCertificate(item *dtlsflight.Handshake
 }
 
 func (f *protectedHandshakeFlight) processCertificateVerify(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, verify *handshake.MessageCertificateVerify) error {
+	if item.IsClient && f.cfg.ClientAuth == dtlsconfig.NoClientCert {
+		return pskHandshakeError(alert.UnexpectedMessage, dtlserrors.ErrUnexpectedHandshakeMessage)
+	}
 	if !f.hasCertificate {
 		return dtlserrors.ErrCertificateVerifyNoCertificate
 	}
