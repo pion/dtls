@@ -211,19 +211,44 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	if c.cfg.SelectPSK == nil && c.cfg.GetSessionTicket == nil {
 		return nil
 	}
+	if len(c.state.Cookie) != 0 && !c.transcript.helloRetryApplied && c.deferPSKLookup(hello) {
+		return nil
+	}
 	c.state.PSK = nil
 	c.state.PSKOnly = false
 	c.state.IdentityHint = nil
 	offer, dhe, ke := c.readPSKOffer(hello)
-	// prefer DHE whenever a common group exists, this can require a retry.
-	dhe = dhe && slices.ContainsFunc(c.cfg.EllipticCurves, func(group elliptic.Curve) bool {
-		return slices.Contains(c.state.RemoteGroups, group)
-	})
 	if offer == nil || (!dhe && !ke) {
 		return c.pskFallback()
 	}
 
 	return c.verifyOfferedPSK(hello, raw, offer, dhe)
+}
+
+func (c *handshakeContext) deferPSKLookup(hello *handshake.MessageClientHello) bool {
+	offer, dhe, ke := c.readPSKOffer(hello)
+	if offer == nil || len(offer.Binders) == 0 {
+		return true
+	}
+	size := len(offer.Binders[0])
+	if slices.ContainsFunc(offer.Binders, func(binder extension13.PSKBinder) bool { return len(binder) != size }) {
+		return false
+	}
+	var hashID crypto.Hash
+	switch size {
+	case crypto.SHA256.Size():
+		hashID = crypto.SHA256
+	case crypto.SHA384.Size():
+		hashID = crypto.SHA384
+	default:
+		return false
+	}
+	if suite := c.pskCipherSuite(hello, hashID); suite != nil {
+		c.state.CipherSuite = suite
+	}
+	c.state.PSKOnly = ke && !dhe
+
+	return true
 }
 
 func (c *handshakeContext) verifyOfferedPSK(hello *handshake.MessageClientHello, raw []byte, offer *extension13.OfferedPSKs, dhe bool) error {
@@ -295,6 +320,10 @@ func (c *handshakeContext) readPSKOffer(hello *handshake.MessageClientHello) (*e
 			ke = slices.Contains(ext.Modes, extension13.PSKKE)
 		}
 	}
+	// Prefer DHE whenever a common group exists; this can require a retry.
+	dhe = dhe && slices.ContainsFunc(c.cfg.EllipticCurves, func(group elliptic.Curve) bool {
+		return slices.Contains(c.state.RemoteGroups, group)
+	})
 
 	return offer, dhe, ke
 }
