@@ -140,7 +140,7 @@ func ValidateHelloVerifyRequestResponse(initial, retry ClientHelloSnapshot, cook
 }
 
 // ValidateServerHelloAfterRetry binds the final ServerHello to the cipher
-// suite and selected group from the preceding HelloRetryRequest.
+// suite and, when using (EC)DHE, selected group from the HelloRetryRequest.
 func ValidateServerHelloAfterRetry(request RetryRequest, serverHello *handshake.MessageServerHello) error {
 	if !request.valid {
 		return negotiationError(dtlserrors.ErrInvalidServerHello, errRetryUnvalidatedRequest, alert.IllegalParameter)
@@ -148,21 +148,27 @@ func ValidateServerHelloAfterRetry(request RetryRequest, serverHello *handshake.
 	if serverHello == nil || serverHello.CipherSuiteID == nil || *serverHello.CipherSuiteID != request.CipherSuiteID {
 		return negotiationError(dtlserrors.ErrInvalidServerHello, errRetryFinalCipherSuite, alert.IllegalParameter)
 	}
-	if request.HasSelectedGroup {
-		var share *extension13.ServerKeyShare
-		for _, value := range serverHello.Extensions {
-			if candidate, ok := value.(*extension13.ServerKeyShare); ok {
-				share = candidate
+	if !request.HasSelectedGroup {
+		return nil
+	}
 
-				break
+	for _, value := range serverHello.Extensions {
+		if share, ok := value.(*extension13.ServerKeyShare); ok {
+			if share.Share.Group != request.SelectedGroup {
+				return negotiationError(dtlserrors.ErrInvalidServerHello, dtlserrors.ErrServerKeyShareUnknownGroup, alert.IllegalParameter)
 			}
+
+			return nil
 		}
-		if share == nil {
-			return negotiationError(dtlserrors.ErrInvalidServerHello, dtlserrors.ErrServerKeyShareMissing, alert.IllegalParameter)
-		}
-		if share.Share.Group != request.SelectedGroup {
-			return negotiationError(dtlserrors.ErrInvalidServerHello, dtlserrors.ErrServerKeyShareUnknownGroup, alert.IllegalParameter)
-		}
+	}
+	// Without a share, the server must select psk_ke. The caller validates
+	// the selected identity and that the client offered this PSK mode.
+	if !slices.ContainsFunc(serverHello.Extensions, func(value extension.Value) bool {
+		_, ok := value.(*extension13.SelectedPSK)
+
+		return ok
+	}) {
+		return negotiationError(dtlserrors.ErrInvalidServerHello, dtlserrors.ErrServerKeyShareMissing, alert.IllegalParameter)
 	}
 
 	return nil

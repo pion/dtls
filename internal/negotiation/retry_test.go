@@ -354,13 +354,21 @@ func TestValidateServerHelloAfterRetry(t *testing.T) {
 	for name, test := range map[string]struct {
 		serverHello *handshake.MessageServerHello
 		wantError   error
+		selectedPSK bool
 	}{
-		"valid":                {serverHello: serverHello(0x1301, validShare)},
-		"changed cipher suite": {serverHello: serverHello(0x1302, validShare), wantError: dtlserrors.ErrInvalidServerHello},
-		"missing share":        {serverHello: serverHello(0x1301, nil), wantError: dtlserrors.ErrServerKeyShareMissing},
-		"wrong group":          {serverHello: serverHello(0x1301, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: elliptic.P256, KeyExchange: []byte{0x01}}}), wantError: dtlserrors.ErrServerKeyShareUnknownGroup},
+		"valid":                         {serverHello: serverHello(0x1301, validShare)},
+		"changed cipher suite":          {serverHello: serverHello(0x1302, validShare), wantError: dtlserrors.ErrInvalidServerHello},
+		"missing share":                 {serverHello: serverHello(0x1301, nil), wantError: dtlserrors.ErrServerKeyShareMissing},
+		"wrong group":                   {serverHello: serverHello(0x1301, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: elliptic.P256, KeyExchange: []byte{0x01}}}), wantError: dtlserrors.ErrServerKeyShareUnknownGroup},
+		"PSK only":                      {serverHello: serverHello(0x1301, nil), selectedPSK: true},
+		"PSK with valid share":          {serverHello: serverHello(0x1301, validShare), selectedPSK: true},
+		"PSK with changed cipher suite": {serverHello: serverHello(0x1302, nil), selectedPSK: true, wantError: dtlserrors.ErrInvalidServerHello},
+		"PSK with wrong group":          {serverHello: serverHello(0x1301, &extension13.ServerKeyShare{Share: extension13.KeyShareEntry{Group: elliptic.P256, KeyExchange: []byte{0x01}}}), selectedPSK: true, wantError: dtlserrors.ErrServerKeyShareUnknownGroup},
 	} {
 		t.Run(name, func(t *testing.T) {
+			if test.selectedPSK {
+				test.serverHello.Extensions = append(test.serverHello.Extensions, &extension13.SelectedPSK{Identity: 0})
+			}
 			err := ValidateServerHelloAfterRetry(request, test.serverHello)
 			if test.wantError == nil {
 				require.NoError(t, err)
