@@ -1861,3 +1861,26 @@ func TestCookieResponsesBackoff(t *testing.T) {
 		}
 	}
 }
+
+func TestHandshakeFSMACKAfterFragmentSplit(t *testing.T) {
+	var flight reliableFlight
+	flight.reset()
+	original := protocol.RecordNumber{Epoch: 2, SequenceNumber: 1}
+	left, right := protocol.RecordNumber{Epoch: 2, SequenceNumber: 2}, protocol.RecordNumber{Epoch: 2, SequenceNumber: 3}
+	flight.track(&WriteResult{TrackedRecords: []SentHandshakeRecord{{Number: original, Fragments: []SentHandshakeFragment{{MessageSequence: 7, Length: 20}}}}})
+	retry := &WriteResult{TrackedRecords: []SentHandshakeRecord{
+		{Number: left, Fragments: []SentHandshakeFragment{{MessageSequence: 7, Length: 8}}},
+		{Number: right, Fragments: []SentHandshakeFragment{{MessageSequence: 7, Offset: 8, Length: 12}}},
+	}}
+	flight.track(retry)
+	partial := flight.acknowledge([]protocol.ACK{{Records: []protocol.RecordNumber{left}}})
+	require.Equal(t, []MessageACKProgress{{MessageSequence: 7, Changed: true}}, partial.Messages)
+	assert.Equal(t, map[uint32]uint32{8: 12}, flight.pendingForMessage(7))
+	flight.track(retry)
+	assert.Equal(t, map[uint32]uint32{8: 12}, flight.pendingForMessage(7))
+	complete := flight.acknowledge([]protocol.ACK{{Records: []protocol.RecordNumber{right}}})
+	assert.Equal(t, []MessageACKProgress{{MessageSequence: 7, Changed: true, Complete: true}}, complete.Messages)
+	assert.Empty(t, flight.pending)
+	flight.track(retry)
+	assert.Empty(t, flight.pending)
+}

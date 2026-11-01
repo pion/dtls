@@ -21,10 +21,13 @@ func (f *reliableFlight) track(result *WriteResult) {
 	if result == nil {
 		return
 	}
+	first := len(f.records) == 0
 	for _, record := range result.TrackedRecords {
 		f.records[record.Number] = record.Fragments
-		for _, fragment := range record.Fragments {
-			f.pending[fragment] = struct{}{}
+		if first {
+			for _, fragment := range record.Fragments {
+				f.pending[fragment] = struct{}{}
+			}
 		}
 	}
 }
