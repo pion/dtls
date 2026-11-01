@@ -2764,15 +2764,7 @@ func (c *Conn) handleRecordContent(ctx context.Context, content protocol.Content
 
 		return isLatestSeqNum, packetOutcome{receivedACK: &protocol.ACK{Records: append([]protocol.RecordNumber(nil), content.Records...)}}, nil
 	case *alert.Alert:
-		c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
-		var responseAlert *alert.Alert
-		if content.Description == alert.CloseNotify {
-			// Respond with a close_notify [RFC5246 Section 7.2.1]
-			responseAlert = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
-		}
-		prepared.markPacketAsValid()
-
-		return false, packetOutcome{responseAlert: responseAlert}, &alertError{content}
+		return c.handleAlertRecord(content, prepared.markPacketAsValid)
 	case *protocol.ChangeCipherSpec:
 		return c.handleChangeCipherSpecRecord(prepared, rAddr, bufferLease), packetOutcome{}, nil
 	case *protocol.ApplicationData:
@@ -2782,6 +2774,26 @@ func (c *Conn) handleRecordContent(ctx context.Context, content protocol.Content
 	default:
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, fmt.Errorf("%w: %d", dtlserrors.ErrUnhandledContextType, content.ContentType())
 	}
+}
+
+func (c *Conn) handleAlertRecord(content *alert.Alert, markPacketAsValid func() bool) (bool, packetOutcome, error) {
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
+		switch content.Description {
+		case alert.CloseNotify, alert.UserCanceled:
+			content.Level = alert.Warning
+		default:
+			content.Level = alert.Fatal
+		}
+	}
+	c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
+	var responseAlert *alert.Alert
+	if content.Description == alert.CloseNotify {
+		// Respond with a close_notify [RFC5246 Section 7.2.1]
+		responseAlert = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
+	}
+	markPacketAsValid()
+
+	return false, packetOutcome{responseAlert: responseAlert}, &alertError{content}
 }
 
 func unmarshalRecordContent(contentType protocol.ContentType, data []byte) (protocol.Content, error) {

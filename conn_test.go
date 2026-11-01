@@ -1179,6 +1179,29 @@ func TestDTLS13WarningPreservesHandshakeProgress(t *testing.T) {
 	assert.Empty(t, conn.pendingACKs)
 }
 
+func TestAlertLevelsByVersion(t *testing.T) {
+	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+		for _, description := range []alert.Description{alert.CloseNotify, alert.UserCanceled, alert.BadCertificate} {
+			for _, level := range []alert.Level{alert.Warning, alert.Fatal} {
+				conn, _ := newTestConnWithReadProtection(t)
+				dtlsstate.CommonState(conn.state).LocalVersion = version
+				message := &alert.Alert{Level: level, Description: description}
+				_, _, err := conn.handleRecordContent(t.Context(), message, incomingPacketState{markPacketAsValid: func() bool { return true }}, nil, nil)
+				var received *alertError
+				require.ErrorAs(t, err, &received)
+				want := level
+				if version == protocol.Version1_3 {
+					want = alert.Warning
+					if description == alert.BadCertificate {
+						want = alert.Fatal
+					}
+				}
+				assert.Equal(t, want, received.Level)
+			}
+		}
+	}
+}
+
 func TestOpenCiphertextRecordHandshake(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithReadProtection(t)
 	expectedPlaintext := encryptedExtensionsHandshake(t)
