@@ -1013,6 +1013,9 @@ func (c *Conn) prepareOutbound(outbound *dtlsflight.Outbound) ([]preparedRecord,
 }
 
 func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *handshake.Handshake) error {
+	if outbound.HandshakeFragments != nil {
+		return nil
+	}
 	handshakeRaw, err := dtlsHandshake.Marshal()
 	if err != nil {
 		return err
@@ -3657,8 +3660,12 @@ func (c *Conn) acceptEarlyApplicationData(epoch, size uint64) (bool, error) {
 }
 
 func (c *Conn) pushHandshake(data []byte, epoch uint64, sequence uint16, typ handshake.Type, isClient bool) error {
-	if dtlsstate.CommonState(c.state).LocalVersion != protocol.Version1_3 {
+	common := dtlsstate.CommonState(c.state)
+	if common.LocalVersion != protocol.Version1_3 {
 		return c.handshakeCache.PushBounded12(data, epoch, sequence, typ, isClient)
+	}
+	if isClient == common.IsClient && epoch >= dtlsflight13.EpochApplication {
+		return nil
 	}
 	c.handshakeCache.Push(data, epoch, sequence, typ, isClient)
 

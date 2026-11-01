@@ -2408,6 +2408,8 @@ func TestConnectionKeyUsage(t *testing.T) {
 
 			if version == protocol.Version1_3 {
 				require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
+				assert.Nil(t, server.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeKeyUpdate, Epoch: dtlsflight13.EpochApplication, IsClient: true})[0])
+				assert.Nil(t, client.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, IsClient: true})[0])
 				updated, ok := client.ConnectionState()
 				require.True(t, ok)
 				require.Equal(t, after.KeyUsage.WriteEpoch+1, updated.KeyUsage.WriteEpoch)

@@ -136,8 +136,27 @@ func (h *Cache) addClientHelloRetransmit(cached *HandshakeCacheItem, header hand
 func (h *Cache) Push(data []byte, epoch uint64, messageSequence uint16, typ handshake.Type, isClient bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-
 	h.cache = append(h.cache, &HandshakeCacheItem{Data: bytes.Clone(data), Epoch: epoch, MessageSequence: messageSequence, Typ: typ, IsClient: isClient})
+	h.size += len(data)
+}
+
+func (h *Cache) DiscardBefore(epoch uint64, sequence int, isClient bool) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	retained := h.cache[:0]
+	h.size = 0
+	for _, item := range h.cache {
+		if item.Epoch < epoch || (item.IsClient == isClient && int(item.MessageSequence) < sequence) {
+			continue
+		}
+		retained = append(retained, item)
+		h.size += len(item.Data)
+	}
+	clear(h.cache[len(retained):])
+	h.cache = retained
 }
 
 // PullExact returns the handshake message with the requested sequence and

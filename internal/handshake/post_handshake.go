@@ -229,6 +229,7 @@ func (p *postHandshake) initialize() {
 		return
 	}
 	p.initialized = true
+	p.cache.DiscardBefore(dtlsflight13.EpochApplication, p.state.HandshakeRecvSequence, !p.state.IsClient)
 
 	if !p.state.IsClient && p.allowServerTickets() && p.cfg.SetSessionTicket != nil &&
 		p.state.RemoteClientHelloSnapshots.Current().Offered(extension.TypePSKKeyExchangeModes) {
@@ -511,6 +512,7 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 		if err := p.handlePostHandshakeMessage(ctx, conn, message, item.Epoch); err != nil {
 			return err
 		}
+		p.cache.DiscardBefore(dtlsflight13.EpochApplication, p.state.HandshakeRecvSequence, !p.state.IsClient)
 	}
 
 	return dtlserrors.ErrHandshakeSequenceOverflow

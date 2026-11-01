@@ -301,6 +301,8 @@ func TestPostHandshakeReceiveNewSessionTicket(t *testing.T) {
 
 	require.NoError(t, receive())
 	assert.Equal(t, int(ticketRecvSequence)+1, state.HandshakeRecvSequence)
+	_, retained := cache.PullExact(ticketRecvSequence, false)
+	assert.False(t, retained)
 	require.Len(t, conn.writtenPackets, 1)
 	firstACK, ok := conn.writtenPackets[0].Content.(*protocol.ACK)
 	require.True(t, ok)
