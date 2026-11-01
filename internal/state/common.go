@@ -141,6 +141,28 @@ func (s *Common) SetLocalSequenceNumber(epoch, sequenceNumber uint64) {
 	s.LocalSequenceNumber[epoch] = sequenceNumber
 }
 
+func (s *Common) RetainTrafficCounters(keys *TrafficKeyState) {
+	s.sequenceMu.Lock()
+	defer s.sequenceMu.Unlock()
+	for epoch := range s.LocalSequenceNumber {
+		if epoch == 0 {
+			continue
+		}
+		if _, ok := keys.Write(epoch); !ok {
+			delete(s.LocalSequenceNumber, epoch)
+			delete(s.exhaustedLocalEpoch, epoch)
+		}
+	}
+	for epoch := range s.RemoteSequenceNumber {
+		if epoch == 0 {
+			continue
+		}
+		if _, ok := keys.Read(epoch); !ok {
+			delete(s.RemoteSequenceNumber, epoch)
+		}
+	}
+}
+
 // HighestRemoteSequenceNumber distinguishes an unseen epoch from one that received record zero.
 func (s *Common) HighestRemoteSequenceNumber(epoch uint64) (uint64, bool) {
 	s.sequenceMu.Lock()

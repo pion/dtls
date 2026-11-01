@@ -230,6 +230,7 @@ func (p *postHandshake) initialize() {
 	}
 	p.initialized = true
 	p.cache.DiscardBefore(dtlsflight13.EpochApplication, p.state.HandshakeRecvSequence, !p.state.IsClient)
+	p.retireTrafficKeys()
 
 	if !p.state.IsClient && p.allowServerTickets() && p.cfg.SetSessionTicket != nil &&
 		p.state.RemoteClientHelloSnapshots.Current().Offered(extension.TypePSKKeyExchangeModes) {
@@ -728,8 +729,23 @@ func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message 
 	p.state.TrafficKeys.Install(nil, next)
 	p.state.SetRemoteEpoch(next.Epoch)
 	p.state.AdvanceHandshakeRecvSequence()
+	p.retireTrafficKeys()
 
 	return conn.HandleQueuedPackets(ctx)
+}
+
+func (p *postHandshake) retireTrafficKeys() {
+	if p.state.TrafficKeys == nil {
+		return
+	}
+	var retained []uint64
+	if !p.initialized {
+		retained = append(retained, dtlsflight13.EpochHandshake)
+	}
+	for _, flight := range p.flights {
+		retained = append(retained, flight.Epoch)
+	}
+	p.state.TrafficKeys.RetainEpochs(retained)
 }
 
 func (p *postHandshake) queueRequiredKeyUpdateResponse(request handshake.KeyUpdateRequest) {
@@ -964,6 +980,7 @@ func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeF
 		delete(p.recordIndex, number)
 	}
 	delete(p.flights, id)
+	p.retireTrafficKeys()
 	if id.Category == postHandshakeRequestConnectionID && p.cidRequest != nil {
 		p.cidRequest.acked = true
 		p.completeConnectionIDRequest()

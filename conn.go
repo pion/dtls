@@ -1156,6 +1156,9 @@ func (c *Conn) allocateLocalSequenceNumber(epoch uint64) (uint64, error) {
 		return 0, ErrConnClosed
 	}
 	common := dtlsstate.CommonState(c.state)
+	if state, ok := c.state.(*dtlsstate.State13); ok && state.TrafficKeys != nil {
+		common.RetainTrafficCounters(state.TrafficKeys)
+	}
 	if common.LocalVersion != protocol.Version1_3 && epoch > 0xffff {
 		return 0, dtlserrors.ErrEpochOverflow
 	}
@@ -2277,6 +2280,7 @@ func (c *Conn) handleFutureCiphertextPacket(epochLow uint8, remoteEpoch uint64, 
 
 // Apply replay checks for both record formats and restored state.
 func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool, bool) {
+	c.pruneReplayEpochs()
 	if !c.passesReplayCutoff(epoch, sequenceNumber) {
 		return nil, false
 	}
@@ -2313,6 +2317,22 @@ func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool,
 
 		return latest && epoch >= common.HighestRemoteEpoch()
 	}, true
+}
+
+func (c *Conn) pruneReplayEpochs() {
+	state, ok := c.state.(*dtlsstate.State13)
+	if !ok || state.TrafficKeys == nil {
+		return
+	}
+	state.RetainTrafficCounters(state.TrafficKeys)
+	for epoch := range state.ReplayDetector {
+		if epoch == 0 {
+			continue
+		}
+		if _, retained := state.TrafficKeys.Read(epoch); !retained {
+			delete(state.ReplayDetector, epoch)
+		}
+	}
 }
 
 func (c *Conn) passesReplayCutoff(epoch, sequenceNumber uint64) bool {

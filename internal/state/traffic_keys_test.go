@@ -118,6 +118,22 @@ func TestTrafficKeyStateReadCandidate(t *testing.T) {
 	}
 }
 
+func TestTrafficKeyStateRetainsRequiredEpochs(t *testing.T) {
+	var keys TrafficKeyState
+	for epoch := uint64(2); epoch <= 10; epoch++ {
+		keys.Install(&TrafficGeneration{Epoch: epoch}, &TrafficGeneration{Epoch: epoch})
+	}
+	keys.RetainEpochs([]uint64{3})
+	_, ok := keys.Write(3)
+	assert.True(t, ok)
+	write, read := keys.Generations()
+	assert.Len(t, write, 2)
+	assert.Len(t, read, 4)
+	keys.RetainEpochs(nil)
+	_, ok = keys.Write(3)
+	assert.False(t, ok)
+}
+
 func TestTrafficGenerationCloneCopiesSecret(t *testing.T) {
 	suite := ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	factory := suite.(cryptosuite.TrafficSuite) //nolint:forcetypeassert // fixed built-in registry.

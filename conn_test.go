@@ -2218,6 +2218,9 @@ func TestConnectionStateDuringHandshake(t *testing.T) {
 
 func TestReplayMarkerUsesReceivedEpoch(t *testing.T) {
 	conn, _ := newTestConnWithReadProtection(t)
+	state, ok := conn.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{Epoch: 4})
 	common := dtlsstate.CommonState(conn.state)
 	common.UpdateRemoteSequenceNumber(3, 10)
 	common.SetRemoteEpoch(4) // KeyUpdate installs keys before receiving epoch 4.
@@ -2357,11 +2360,20 @@ func limitedTrafficPair(t *testing.T, version protocol.Version) (*Conn, *Conn) {
 }
 
 func TestIndependentKeyUpdateEpochs(t *testing.T) {
-	client, _ := limitedTrafficPair(t, protocol.Version1_3)
+	client, server := limitedTrafficPair(t, protocol.Version1_3)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for range 8 {
 		require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
+	}
+	for _, connection := range []*Conn{client, server} {
+		state, ok := connection.state.(*dtlsstate.State13)
+		require.True(t, ok)
+		write, read := state.TrafficKeys.Generations()
+		assert.LessOrEqual(t, len(write), 1)
+		assert.LessOrEqual(t, len(read), 4)
+		assert.LessOrEqual(t, len(state.ReplayDetector), 5)
+		assert.LessOrEqual(t, len(state.RemoteSequenceNumber), 5)
 	}
 }
 
