@@ -260,12 +260,7 @@ func (s *fsm12) handleWaitingFlight(ctx context.Context, conn Conn, state RecvHa
 
 // Rate-limit peer recovery separately from the configured retransmission timer.
 func (s *fsm12) backoffPeerRetransmit() {
-	if s.peerRetransmitInterval == 0 {
-		s.peerRetransmitInterval = time.Second
-	} else if !s.cfg.DisableRetransmitBackoff {
-		s.peerRetransmitInterval = min(s.peerRetransmitInterval, 30*time.Second) * 2
-	}
-	s.peerRetransmitAfter = time.Now().Add(s.peerRetransmitInterval)
+	backoffPeerRetransmit(&s.peerRetransmitAfter, &s.peerRetransmitInterval, s.cfg)
 }
 
 func (s *fsm12) finish(ctx context.Context, c Conn) (State, error) {

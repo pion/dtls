@@ -78,3 +78,12 @@ func handleWaitCancellation(retransmitInterval *time.Duration, cfg *dtlsconfig.H
 
 	return StateErrored, err
 }
+
+func backoffPeerRetransmit(after *time.Time, interval *time.Duration, cfg *dtlsconfig.HandshakeConfig) {
+	if *interval == 0 {
+		*interval = time.Second
+	} else {
+		handleRetransmitTimeout(true, interval, cfg)
+	}
+	*after = time.Now().Add(*interval)
+}

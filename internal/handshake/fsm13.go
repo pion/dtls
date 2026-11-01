@@ -73,13 +73,15 @@ import (
 const maxPendingACKRecords = 64
 
 type fsm13 struct {
-	currentFlight      dtlsflight13.Flight
-	flights            []*dtlsflight.Outbound
-	retransmit         bool
-	retransmitInterval time.Duration
-	flightACK          reliableFlight
-	pendingACKs        []protocol.RecordNumber
-	ackTimer           dtlsconfig.Timer
+	currentFlight          dtlsflight13.Flight
+	flights                []*dtlsflight.Outbound
+	retransmit             bool
+	retransmitInterval     time.Duration
+	peerRetransmitAfter    time.Time
+	peerRetransmitInterval time.Duration
+	flightACK              reliableFlight
+	pendingACKs            []protocol.RecordNumber
+	ackTimer               dtlsconfig.Timer
 	handshakeContext
 	closed        chan struct{}
 	establishment *Establishment
@@ -284,6 +286,9 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 	}
 
 	s.flights = pkts
+	s.retransmitInterval = s.cfg.InitialRetransmitInterval
+	s.peerRetransmitAfter = time.Time{}
+	s.peerRetransmitInterval = 0
 	s.prepareFlightACKTracking(s.flights, s.retransmit)
 	if err := s.commitPreparedFlight(conn, s.currentFlight, s.flights); err != nil {
 		return StateErrored, err
@@ -342,7 +347,7 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 				return StateErrored, err
 			}
 		case <-retransmitTimer.C():
-			return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg), nil
+			return s.retransmitTimeout(), nil
 		case <-ctx.Done():
 			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
 		}
@@ -390,10 +395,10 @@ func (s *fsm13) handleReceivedFlight(
 ) (receivedFlightTransition, error) {
 	// Keep the reader paused while this receive state is parsed.
 	s.received.retain(received)
-	if !received.IsRetransmit {
+	ackResult := s.flightACK.acknowledge(received.ACKs)
+	if len(ackResult.Messages) != 0 {
 		s.retransmitInterval = s.cfg.InitialRetransmitInterval
 	}
-	ackResult := s.flightACK.acknowledge(received.ACKs)
 	s.applyACKProgress(ackResult)
 	if !received.HasHandshake && len(received.ACKs) != 0 {
 		return s.transitionAfterACK(ackResult, false), nil
@@ -418,7 +423,7 @@ func (s *fsm13) transitionAfterReceivedFlight(ctx context.Context, conn Conn, re
 		// HRR has no retransmission timer. Only the first fragment
 		// of a retried ClientHello triggers a replay.
 		if s.currentFlight == dtlsflight13.Flight2 && received.IsRetransmitStart {
-			return receivedFlightTransition{state: StateSending}, nil
+			return receivedFlightTransition{state: s.peerRetransmit()}, nil
 		}
 		if len(s.pendingACKs) != 0 && s.ackTimer == nil {
 			// Allow the rest of the flight to arrive before acknowledging it.
@@ -523,11 +528,32 @@ func (s *fsm13) transitionAfterACK(result ACKResult, peerRetransmit bool) receiv
 
 		return receivedFlightTransition{state: StateWaiting}
 	}
-	if result.Empty || len(result.Messages) != 0 || peerRetransmit {
+	if len(result.Messages) != 0 {
 		return receivedFlightTransition{
 			state: handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg),
 		}
 	}
+	if (result.Empty || peerRetransmit) && s.retransmit {
+		return receivedFlightTransition{state: s.peerRetransmit()}
+	}
 
 	return receivedFlightTransition{state: StateWaiting}
+}
+
+func (s *fsm13) retransmitTimeout() State {
+	if s.retransmit {
+		backoffPeerRetransmit(&s.peerRetransmitAfter, &s.peerRetransmitInterval, s.cfg)
+	}
+
+	return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg)
+}
+
+func (s *fsm13) peerRetransmit() State {
+	now := time.Now()
+	if now.Before(s.peerRetransmitAfter) {
+		return StateWaiting
+	}
+	backoffPeerRetransmit(&s.peerRetransmitAfter, &s.peerRetransmitInterval, s.cfg)
+
+	return StateSending
 }
