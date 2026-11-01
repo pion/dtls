@@ -1163,6 +1163,22 @@ func TestProcessProtectedPacketWritesACK(t *testing.T) {
 	assert.Equal(t, expected, innerPlaintext.Content)
 }
 
+func TestDTLS13WarningPreservesHandshakeProgress(t *testing.T) {
+	conn, peer := newTestConnWithReadProtection(t)
+	handshakeRecord := sealTestProtectedHandshakeRecord(t, peer, encryptedExtensionsHandshake(t))
+	raw, err := handshakeRecord.Marshal()
+	require.NoError(t, err)
+	warning, err := peer.SealRecord(recordlayer.CiphertextConfig{EpochLow: 2}, 1, protocol.ContentTypeAlert, []byte{byte(alert.Warning), byte(alert.UserCanceled)})
+	require.NoError(t, err)
+	warningRaw, err := warning.Marshal()
+	require.NoError(t, err)
+	summary, err := conn.processDatagram(t.Context(), append(raw, warningRaw...), nil, &readBufferLease{conn: conn})
+	require.NoError(t, err)
+	assert.True(t, summary.containsHandshake)
+	assert.Equal(t, []protocol.RecordNumber{{Epoch: 2, SequenceNumber: 0}}, conn.takePendingACKs())
+	assert.Empty(t, conn.pendingACKs)
+}
+
 func TestOpenCiphertextRecordHandshake(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithReadProtection(t)
 	expectedPlaintext := encryptedExtensionsHandshake(t)

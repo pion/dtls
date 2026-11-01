@@ -2858,8 +2858,13 @@ func (c *Conn) processIncomingPacket(ctx context.Context, buf []byte, rAddr net.
 	}
 
 	var receivedAlert *alertError
-	if errors.As(err, &receivedAlert) && receivedAlert.IsFatalOrCloseNotify() {
-		return packetOutcome{}, receivedAlert
+	if errors.As(err, &receivedAlert) {
+		if receivedAlert.IsFatalOrCloseNotify() {
+			return packetOutcome{}, receivedAlert
+		}
+		if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
+			return outcome, nil
+		}
 	}
 
 	return outcome, err
