@@ -160,7 +160,7 @@ type HandshakeConfig struct {
 	ClaimEarlyData                func(ticket []byte, expiresAt time.Time) (bool, error)
 	GetSession                    func(key []byte) (internalstate.Session, error)
 	SetSession                    func(key []byte, session internalstate.Session) error
-	SetSessionTicket              func(key, id, secret []byte, ticket internalstate.SessionTicket) error
+	SetSessionTicket              func(key, id, secret, identity []byte, ticket internalstate.SessionTicket) error
 	GetSessionTicket              func(key []byte, serverName string) (*internalstate.PSK, error)
 	DelSession                    func(key []byte) error
 	RootCAs                       *x509.CertPool

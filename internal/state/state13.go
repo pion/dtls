@@ -25,6 +25,7 @@ import (
 type PSK struct {
 	Ticket              *SessionTicket
 	Identity            []byte
+	IdentityHint        []byte
 	Secret              []byte
 	Hash                crypto.Hash
 	External            bool

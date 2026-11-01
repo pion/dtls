@@ -904,8 +904,8 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 			return config.sessionStore.Set(key, Session(session))
 		}
 		handshakeConfig.DelSession = config.sessionStore.Del
-		handshakeConfig.SetSessionTicket = func(key, id, secret []byte, ticket dtlsstate.SessionTicket) error {
-			return config.sessionStore.Set(key, Session{ID: id, Secret: secret, Ticket: &ticket, Version: 1, IsClient: config.isClient})
+		handshakeConfig.SetSessionTicket = func(key, id, secret, identity []byte, ticket dtlsstate.SessionTicket) error {
+			return config.sessionStore.Set(key, Session{ID: id, Secret: secret, IdentityHint: identity, Ticket: &ticket, Version: 1, IsClient: config.isClient})
 		}
 		handshakeConfig.GetSessionTicket = func(key []byte, serverName string) (*dtlsstate.PSK, error) {
 			session, err := config.sessionStore.Get(key)

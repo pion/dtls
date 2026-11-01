@@ -387,7 +387,10 @@ func applyServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServerH
 	}
 	flightCtx.state.PSK = psk.Secret
 	flightCtx.state.PSKIdentity = selected.Identity
-	flightCtx.state.IdentityHint = bytes.Clone(psk.Identity)
+	flightCtx.state.IdentityHint = bytes.Clone(psk.IdentityHint)
+	if psk.External {
+		flightCtx.state.IdentityHint = bytes.Clone(psk.Identity)
+	}
 	flightCtx.state.PeerCertificates = util.CloneByteSlices(psk.PeerCertificates)
 
 	return nil

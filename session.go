@@ -32,11 +32,11 @@ type Session struct {
 	Version uint8
 	// IsClient binds the session to the endpoint role that authenticated it.
 	IsClient bool
-	// The following fields retain DTLS 1.2 negotiation and authentication state.
+	// The following fields retain negotiation and authentication state.
 	CipherSuiteID        cryptosuite.ID
 	ExtendedMasterSecret bool
 	PeerCertificates     [][]byte
-	IdentityHint         []byte
+	IdentityHint         []byte // Original PSK identity, including for DTLS 1.3 tickets.
 	PSKHash              [sha256.Size]byte
 }
 
@@ -65,6 +65,7 @@ func (s Session) ticketPSK(serverName string, now time.Time) *dtlsstate.PSK {
 			CreatedAt: ticket.CreatedAt, MaxEarlyDataSize: ticket.MaxEarlyDataSize, NegotiatedProtocol: ticket.NegotiatedProtocol,
 		},
 		Identity: bytes.Clone(s.ID), Secret: bytes.Clone(s.Secret), Hash: hashID,
+		IdentityHint: bytes.Clone(s.IdentityHint),
 		//nolint:gosec // Age is bounded to seven days, addition wraps modulo 2^32 https://datatracker.ietf.org/doc/html/rfc9846#section-4.3.11.1
 		ObfuscatedTicketAge: uint32(age.Milliseconds()) + ticket.AgeAdd,
 		PeerCertificates:    util.CloneByteSlices(ticket.PeerCertificates),

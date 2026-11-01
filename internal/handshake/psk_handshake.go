@@ -213,6 +213,7 @@ func (c *handshakeContext) selectPSK(hello *handshake.MessageClientHello, raw []
 	}
 	c.state.PSK = nil
 	c.state.PSKOnly = false
+	c.state.IdentityHint = nil
 	offer, dhe, ke := c.readPSKOffer(hello)
 	// prefer DHE whenever a common group exists, this can require a retry.
 	dhe = dhe && slices.ContainsFunc(c.cfg.EllipticCurves, func(group elliptic.Curve) bool {
@@ -264,7 +265,10 @@ func (c *handshakeContext) installSelectedPSK(hello *handshake.MessageClientHell
 	c.state.CipherSuite = suite
 	c.state.PSK = bytes.Clone(secret)
 	c.state.PSKIdentity = uint16(i) //nolint:gosec // bounded by uint16.
-	c.state.IdentityHint = bytes.Clone(offer.Identities[i].Identity)
+	c.state.IdentityHint = bytes.Clone(psk.IdentityHint)
+	if psk.External {
+		c.state.IdentityHint = bytes.Clone(offer.Identities[i].Identity)
+	}
 	if i == 0 && psk.Ticket != nil && slices.ContainsFunc(hello.Extensions, func(value extension.Value) bool {
 		return value.ExtensionType() == extension.TypeEarlyData
 	}) {

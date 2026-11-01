@@ -64,6 +64,7 @@ func TestSelectPSK(t *testing.T) {
 			require.NoError(t, err)
 			raw := rawHandshakeMessage13(t, 0, hello)
 			state := newTestState13(t, false)
+			state.IdentityHint = []byte("stale")
 			state.CipherSuite = cfg.LocalCipherSuites[0]
 			transcript := NewTranscript()
 			c := &handshakeContext{state: state, cfg: cfg, transcript: transcript}
@@ -86,6 +87,7 @@ func TestSelectPSK(t *testing.T) {
 				require.Equal(t, []byte("known"), state.IdentityHint)
 			} else {
 				require.Empty(t, state.PSK)
+				require.Empty(t, state.IdentityHint)
 			}
 		})
 	}
