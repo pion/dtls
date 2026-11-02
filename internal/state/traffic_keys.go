@@ -207,6 +207,24 @@ func (s *TrafficKeyState) Discard(epoch uint64) {
 	delete(s.readOld, epoch)
 }
 
+func (s *TrafficKeyState) RetainEpochs(writeEpochs []uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for epoch := range s.writeOld {
+		if !slices.Contains(writeEpochs, epoch) {
+			delete(s.writeOld, epoch)
+		}
+	}
+	if s.readCurrent == nil {
+		return
+	}
+	for epoch := range s.readOld {
+		if s.readCurrent.Epoch > epoch && s.readCurrent.Epoch-epoch > 3 {
+			delete(s.readOld, epoch)
+		}
+	}
+}
+
 // ReadCandidate selects the current or most recent past epoch with matching low bits.
 // A missing generation does not allow falling back to an older matching epoch.
 // https://www.rfc-editor.org/rfc/rfc9147.html#section-4.2.2

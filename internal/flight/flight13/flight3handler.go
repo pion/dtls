@@ -280,9 +280,6 @@ func handleFlight3ProtectedHandshake(flightCtx *handshakeContext, items []dtlsfl
 	if encryptedExtensions == nil {
 		return nil
 	}
-	if failure := validateALPNResponse(flightCtx, encryptedExtensions); failure != nil {
-		return failure
-	}
 
 	return validateEarlyDataResponse(flightCtx.state, encryptedExtensions)
 }
@@ -390,7 +387,10 @@ func applyServerPSK(flightCtx *handshakeContext, hello *handshake.MessageServerH
 	}
 	flightCtx.state.PSK = psk.Secret
 	flightCtx.state.PSKIdentity = selected.Identity
-	flightCtx.state.IdentityHint = bytes.Clone(psk.Identity)
+	flightCtx.state.IdentityHint = bytes.Clone(psk.IdentityHint)
+	if psk.External {
+		flightCtx.state.IdentityHint = bytes.Clone(psk.Identity)
+	}
 	flightCtx.state.PeerCertificates = util.CloneByteSlices(psk.PeerCertificates)
 
 	return nil
@@ -439,6 +439,9 @@ func validateEncryptedExtensions(ctx *handshakeContext, offer negotiation.Client
 		}
 
 		return decision, &flightParseFailure{alert: dtlsAlert, err: err}
+	}
+	if failure := validateALPNResponse(ctx, message); failure != nil {
+		return decision, failure
 	}
 
 	return decision, nil

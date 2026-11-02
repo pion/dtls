@@ -14,6 +14,7 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	dtlscrypto "github.com/pion/dtls/v4/internal/handshakecrypto"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
@@ -100,6 +101,12 @@ func (f *protectedHandshakeFlight) process(item dtlsflight.DecodedHandshakeCache
 }
 
 func (f *protectedHandshakeFlight) processCertificate(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, certificate *handshake13.MessageCertificate) error {
+	if item.IsClient && f.cfg.ClientAuth == dtlsconfig.NoClientCert {
+		return pskHandshakeError(alert.UnexpectedMessage, dtlserrors.ErrUnexpectedHandshakeMessage)
+	}
+	if len(certificate.CertificateRequestContext) != 0 {
+		return pskHandshakeError(alert.IllegalParameter, dtlserrors.ErrInvalidCertificateRequestContext)
+	}
 	f.hasCertificate = true
 	f.peerCertificates = rawCertificatesFromCertificate(certificate)
 	if len(f.peerCertificates) == 0 {
@@ -114,6 +121,9 @@ func (f *protectedHandshakeFlight) processCertificate(item *dtlsflight.Handshake
 }
 
 func (f *protectedHandshakeFlight) processCertificateVerify(item *dtlsflight.HandshakeCacheItem, parsedHandshake *handshake.Handshake, verify *handshake.MessageCertificateVerify) error {
+	if item.IsClient && f.cfg.ClientAuth == dtlsconfig.NoClientCert {
+		return pskHandshakeError(alert.UnexpectedMessage, dtlserrors.ErrUnexpectedHandshakeMessage)
+	}
 	if !f.hasCertificate {
 		return dtlserrors.ErrCertificateVerifyNoCertificate
 	}
@@ -304,7 +314,7 @@ func verifyPeerCertificateVerify(transcript *Transcript, cfg *dtlsconfig.Handsha
 		return err
 	}
 
-	return dtlscrypto.VerifyCertificateVerify(input, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, peerCertificates)
+	return dtlscrypto.VerifyCertificateVerify(input, verify.HashAlgorithm, verify.SignatureAlgorithm, verify.Signature, peerCertificates, protocol.Version1_3)
 }
 
 func verifyPeerFinished(transcript *Transcript, state *dtlsstate.State13, cipherSuite dtlsconfig.CipherSuite, finished *handshake.MessageFinished, isClient bool) error {

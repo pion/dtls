@@ -1163,6 +1163,45 @@ func TestProcessProtectedPacketWritesACK(t *testing.T) {
 	assert.Equal(t, expected, innerPlaintext.Content)
 }
 
+func TestDTLS13WarningPreservesHandshakeProgress(t *testing.T) {
+	conn, peer := newTestConnWithReadProtection(t)
+	handshakeRecord := sealTestProtectedHandshakeRecord(t, peer, encryptedExtensionsHandshake(t))
+	raw, err := handshakeRecord.Marshal()
+	require.NoError(t, err)
+	warning, err := peer.SealRecord(recordlayer.CiphertextConfig{EpochLow: 2}, 1, protocol.ContentTypeAlert, []byte{byte(alert.Warning), byte(alert.UserCanceled)})
+	require.NoError(t, err)
+	warningRaw, err := warning.Marshal()
+	require.NoError(t, err)
+	summary, err := conn.processDatagram(t.Context(), append(raw, warningRaw...), nil, &readBufferLease{conn: conn})
+	require.NoError(t, err)
+	assert.True(t, summary.containsHandshake)
+	assert.Equal(t, []protocol.RecordNumber{{Epoch: 2, SequenceNumber: 0}}, conn.takePendingACKs())
+	assert.Empty(t, conn.pendingACKs)
+}
+
+func TestAlertLevelsByVersion(t *testing.T) {
+	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
+		for _, description := range []alert.Description{alert.CloseNotify, alert.UserCanceled, alert.BadCertificate} {
+			for _, level := range []alert.Level{alert.Warning, alert.Fatal} {
+				conn, _ := newTestConnWithReadProtection(t)
+				dtlsstate.CommonState(conn.state).LocalVersion = version
+				message := &alert.Alert{Level: level, Description: description}
+				_, _, err := conn.handleRecordContent(t.Context(), message, incomingPacketState{markPacketAsValid: func() bool { return true }}, nil, nil)
+				var received *alertError
+				require.ErrorAs(t, err, &received)
+				want := level
+				if version == protocol.Version1_3 {
+					want = alert.Warning
+					if description == alert.BadCertificate {
+						want = alert.Fatal
+					}
+				}
+				assert.Equal(t, want, received.Level)
+			}
+		}
+	}
+}
+
 func TestOpenCiphertextRecordHandshake(t *testing.T) {
 	conn, peerCipherSuite := newTestConnWithReadProtection(t)
 	expectedPlaintext := encryptedExtensionsHandshake(t)
@@ -2179,6 +2218,9 @@ func TestConnectionStateDuringHandshake(t *testing.T) {
 
 func TestReplayMarkerUsesReceivedEpoch(t *testing.T) {
 	conn, _ := newTestConnWithReadProtection(t)
+	state, ok := conn.state.(*dtlsstate.State13)
+	require.True(t, ok)
+	state.TrafficKeys.Install(nil, &dtlsstate.TrafficGeneration{Epoch: 4})
 	common := dtlsstate.CommonState(conn.state)
 	common.UpdateRemoteSequenceNumber(3, 10)
 	common.SetRemoteEpoch(4) // KeyUpdate installs keys before receiving epoch 4.
@@ -2317,6 +2359,24 @@ func limitedTrafficPair(t *testing.T, version protocol.Version) (*Conn, *Conn) {
 	return client.conn, server.conn
 }
 
+func TestIndependentKeyUpdateEpochs(t *testing.T) {
+	client, server := limitedTrafficPair(t, protocol.Version1_3)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for range 8 {
+		require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
+	}
+	for _, connection := range []*Conn{client, server} {
+		state, ok := connection.state.(*dtlsstate.State13)
+		require.True(t, ok)
+		write, read := state.TrafficKeys.Generations()
+		assert.LessOrEqual(t, len(write), 1)
+		assert.LessOrEqual(t, len(read), 4)
+		assert.LessOrEqual(t, len(state.ReplayDetector), 5)
+		assert.LessOrEqual(t, len(state.RemoteSequenceNumber), 5)
+	}
+}
+
 func TestConnectionKeyUsage(t *testing.T) {
 	for _, version := range []protocol.Version{protocol.Version1_2, protocol.Version1_3} {
 		t.Run(fmt.Sprintf("%x", version), func(t *testing.T) {
@@ -2369,6 +2429,8 @@ func TestConnectionKeyUsage(t *testing.T) {
 
 			if version == protocol.Version1_3 {
 				require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
+				assert.Nil(t, server.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeKeyUpdate, Epoch: dtlsflight13.EpochApplication, IsClient: true})[0])
+				assert.Nil(t, client.handshakeCache.Pull(dtlsflight.HandshakeCachePullRule{Typ: handshake.TypeClientHello, IsClient: true})[0])
 				updated, ok := client.ConnectionState()
 				require.True(t, ok)
 				require.Equal(t, after.KeyUsage.WriteEpoch+1, updated.KeyUsage.WriteEpoch)

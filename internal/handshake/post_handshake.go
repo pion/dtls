@@ -229,8 +229,10 @@ func (p *postHandshake) initialize() {
 		return
 	}
 	p.initialized = true
+	p.cache.DiscardBefore(dtlsflight13.EpochApplication, p.state.HandshakeRecvSequence, !p.state.IsClient)
+	p.retireTrafficKeys()
 
-	if !p.state.IsClient && p.cfg.ClientAuth == dtlsconfig.NoClientCert && p.cfg.SetSessionTicket != nil &&
+	if !p.state.IsClient && p.allowServerTickets() && p.cfg.SetSessionTicket != nil &&
 		p.state.RemoteClientHelloSnapshots.Current().Offered(extension.TypePSKKeyExchangeModes) {
 		p.queue = append(p.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket})
 	}
@@ -511,6 +513,7 @@ func (p *postHandshake) processPostHandshakeMessages(ctx context.Context, conn C
 		if err := p.handlePostHandshakeMessage(ctx, conn, message, item.Epoch); err != nil {
 			return err
 		}
+		p.cache.DiscardBefore(dtlsflight13.EpochApplication, p.state.HandshakeRecvSequence, !p.state.IsClient)
 	}
 
 	return dtlserrors.ErrHandshakeSequenceOverflow
@@ -726,8 +729,23 @@ func (p *postHandshake) handleKeyUpdate(ctx context.Context, conn Conn, message 
 	p.state.TrafficKeys.Install(nil, next)
 	p.state.SetRemoteEpoch(next.Epoch)
 	p.state.AdvanceHandshakeRecvSequence()
+	p.retireTrafficKeys()
 
 	return conn.HandleQueuedPackets(ctx)
+}
+
+func (p *postHandshake) retireTrafficKeys() {
+	if p.state.TrafficKeys == nil {
+		return
+	}
+	var retained []uint64
+	if !p.initialized {
+		retained = append(retained, dtlsflight13.EpochHandshake)
+	}
+	for _, flight := range p.flights {
+		retained = append(retained, flight.Epoch)
+	}
+	p.state.TrafficKeys.RetainEpochs(retained)
 }
 
 func (p *postHandshake) queueRequiredKeyUpdateResponse(request handshake.KeyUpdateRequest) {
@@ -773,7 +791,7 @@ func (p *postHandshake) handleNewSessionTicket(ctx context.Context, conn Conn, m
 }
 
 func (p *postHandshake) startNewSessionTicket(ctx context.Context, conn Conn, isClient bool) error {
-	if p.cfg.SetSessionTicket == nil || p.cfg.ClientAuth != dtlsconfig.NoClientCert {
+	if p.cfg.SetSessionTicket == nil || !p.allowServerTickets() {
 		return dtlserrors.ErrUnexpectedPostHandshakeMessage
 	}
 	flight, err := p.prepareNewSessionTicket(isClient)
@@ -810,7 +828,7 @@ func (p *postHandshake) storeSessionTicket(key []byte, message *handshake.Messag
 		}
 	}
 
-	return p.cfg.SetSessionTicket(bytes.Clone(key), bytes.Clone(message.Ticket), secret, dtlsstate.SessionTicket{
+	return p.cfg.SetSessionTicket(bytes.Clone(key), bytes.Clone(message.Ticket), secret, bytes.Clone(p.state.IdentityHint), dtlsstate.SessionTicket{
 		MaxEarlyDataSize:   maxEarlyDataSize,
 		NegotiatedProtocol: p.state.NegotiatedProtocol,
 		CipherSuite:        p.state.CipherSuite.ID(), Lifetime: message.TicketLifetime,
@@ -962,6 +980,7 @@ func (p *postHandshake) completePostHandshakeFlight(conn Conn, id postHandshakeF
 		delete(p.recordIndex, number)
 	}
 	delete(p.flights, id)
+	p.retireTrafficKeys()
 	if id.Category == postHandshakeRequestConnectionID && p.cidRequest != nil {
 		p.cidRequest.acked = true
 		p.completeConnectionIDRequest()

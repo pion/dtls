@@ -492,8 +492,8 @@ func TestCommitPreparedFlightsInitializesProtectionBeforeProtectedPackets(t *tes
 	require.NoError(t, err)
 	certificateVerifyHandshake := fsm.flights[3].Content.(*handshake.Handshake)                   //nolint:forcetypeassert
 	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
-	require.NoError(t, dtlscrypto.VerifyCertificateVerify(serverVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, cfg.LocalCertificates[0].Certificate))
-	assert.Error(t, dtlscrypto.VerifyCertificateVerify(clientVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, cfg.LocalCertificates[0].Certificate))
+	require.NoError(t, dtlscrypto.VerifyCertificateVerify(serverVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, cfg.LocalCertificates[0].Certificate, protocol.Version1_3))
+	assert.Error(t, dtlscrypto.VerifyCertificateVerify(clientVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, cfg.LocalCertificates[0].Certificate, protocol.Version1_3))
 
 	finishedHandshake, ok := fsm.flights[4].Content.(*handshake.Handshake)
 	require.True(t, ok)
@@ -1049,7 +1049,7 @@ func TestHandshakeFSM13ClientFlight5WithCertificate(t *testing.T) {
 	certificateVerifyHandshake := fsm.flights[1].Content.(*handshake.Handshake)                   //nolint:forcetypeassert
 	certificateVerify := certificateVerifyHandshake.Message.(*handshake.MessageCertificateVerify) //nolint:forcetypeassert
 	require.NotEmpty(t, certificateVerify.Signature)
-	require.NoError(t, dtlscrypto.VerifyCertificateVerify(certificateVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, clientCertificate.Certificate))
+	require.NoError(t, dtlscrypto.VerifyCertificateVerify(certificateVerifyInput, certificateVerify.HashAlgorithm, certificateVerify.SignatureAlgorithm, certificateVerify.Signature, clientCertificate.Certificate, protocol.Version1_3))
 
 	require.NoError(t, AppendOutboundHandshakeFlight(expectedTranscript, true, fixture.clientState.CipherSuite, fsm.flights[1:2]))
 	baseKey, err := ClientHandshakeFinishedBaseKey(fixture.clientState)
@@ -1212,7 +1212,7 @@ func TestHandshakeFSM13ServerVerifiesClientCertificateVerify(t *testing.T) {
 	fixture := addCertificateRequestToServerFlight13(
 		t,
 		newNoHRRFlight13Fixture(t),
-		[]byte{0x01, 0x02, 0x03},
+		nil,
 	)
 	clientCertificate, err := selfsign.GenerateSelfSigned()
 	require.NoError(t, err)
@@ -1248,6 +1248,29 @@ func TestHandshakeFSM13ServerVerifiesClientCertificateVerify(t *testing.T) {
 	assert.Equal(t, records, ack.Records)
 	assert.Equal(t, clientCertificate.Certificate, fixture.serverState.PeerCertificates)
 	assert.Equal(t, 4, fixture.serverState.HandshakeRecvSequence)
+}
+
+func TestProtectedCertificatePolicy(t *testing.T) {
+	for _, tc := range []struct {
+		client bool
+		auth   dtlsconfig.ClientAuthType
+		value  []byte
+		alert  alert.Description
+	}{
+		{true, dtlsconfig.NoClientCert, nil, alert.UnexpectedMessage},
+		{true, dtlsconfig.RequestClientCert, []byte{1}, alert.IllegalParameter},
+		{false, dtlsconfig.NoClientCert, []byte{1}, alert.IllegalParameter},
+	} {
+		message := &handshake.Handshake{Message: &handshake13.MessageCertificate{CertificateRequestContext: tc.value}}
+		raw, err := message.Marshal()
+		require.NoError(t, err)
+		state := newTestState13(t, !tc.client)
+		flight := protectedHandshakeFlight{state: state, cfg: &dtlsconfig.HandshakeConfig{ClientAuth: tc.auth}, transcript: NewTranscript(), cipherSuite: state.CipherSuite}
+		err = flight.process(dtlsflight.DecodedHandshakeCacheItem{Raw: &dtlsflight.HandshakeCacheItem{Data: raw, Typ: handshake.TypeCertificate, IsClient: tc.client}, Parsed: message})
+		var failure *alert.Alert
+		require.ErrorAs(t, err, &failure)
+		assert.Equal(t, tc.alert, failure.Description)
+	}
 }
 
 func TestHandshakeFSM13RetransmittedFinalFlightDoesNotChangeTranscript(t *testing.T) {

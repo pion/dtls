@@ -864,6 +864,7 @@ func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
 		signature.ECDSA,
 		badSignature,
 		cert.Certificate,
+		protocol.Version1_3,
 	)
 	require.ErrorIs(t, err, dtlserrors.ErrKeySignatureMismatch)
 
@@ -872,7 +873,7 @@ func TestCertificateVerifyFailureDoesNotPoisonTranscript13(t *testing.T) {
 	assert.Equal(t, beforeBytes, transcript.Bytes())
 	assert.Equal(t, beforeHash, afterHash)
 
-	require.NoError(t, dtlscrypto.VerifyCertificateVerify(verifyInput, dtlshash.SHA256, signature.ECDSA, certVerifySignature, cert.Certificate))
+	require.NoError(t, dtlscrypto.VerifyCertificateVerify(verifyInput, dtlshash.SHA256, signature.ECDSA, certVerifySignature, cert.Certificate, protocol.Version1_3))
 	rawCertificateVerify := rawHandshakeMessage13(t, 2, &handshake.MessageCertificateVerify{HashAlgorithm: dtlshash.SHA256, SignatureAlgorithm: signature.ECDSA, Signature: certVerifySignature})
 	require.NoError(t, transcript.AppendVerifiedInbound(false, cipherSuite, rawCertificateVerify))
 	certificateVerify, err := canonicalHandshake(rawCertificateVerify)

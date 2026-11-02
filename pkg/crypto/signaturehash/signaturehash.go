@@ -8,6 +8,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -74,20 +75,10 @@ func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey, versi
 
 	is13 := version == protocol.Version1_3
 	for _, ss := range sigs {
-		// RSA-PSS is only supported in DTLS 1.3.
-		if !is13 && ss.Signature.IsPSS() {
+		if !ss.validForVersion(version) {
 			continue
 		}
-		// TLS 1.3 CertificateVerify signatures made with RSA keys must use
-		// RSASSA-PSS.
-		if is13 && ss.Signature == signature.RSA {
-			continue
-		}
-		// Skip schemes understood but not supported by pion/dtls.
-		if ss.Signature.IsUnsupported() {
-			continue
-		}
-		if ss.isCompatible(signer) {
+		if ss.isCompatible(signer, is13) {
 			return ss, nil
 		}
 	}
@@ -95,19 +86,36 @@ func SelectSignatureScheme(sigs []Algorithm, privateKey crypto.PrivateKey, versi
 	return Algorithm{}, dtlserrors.ErrNoAvailableSignatureSchemes
 }
 
+func (a Algorithm) validForVersion(version protocol.Version) bool {
+	if a.Signature.IsUnsupported() {
+		return false
+	}
+	if version != protocol.Version1_3 {
+		return !a.Signature.IsPSS()
+	}
+
+	return a.Signature != signature.RSA && !a.Hash.Insecure() && a.Hash != hash.SHA224
+}
+
 // isCompatible checks that given private key is compatible with the signature scheme.
-func (a *Algorithm) isCompatible(signer crypto.Signer) bool {
-	switch signer.Public().(type) {
+func (a *Algorithm) isCompatible(signer crypto.Signer, is13 bool) bool {
+	switch key := signer.Public().(type) {
 	case ed25519.PublicKey:
 		return a.Signature == signature.Ed25519
 	case *ecdsa.PublicKey:
-		return a.Signature == signature.ECDSA
+		return a.Signature == signature.ECDSA && (!is13 || a.matchesECDSACurve(key))
 	case *rsa.PublicKey:
 		// RSA keys are compatible with both PKCS#1 v1.5 and PSS signatures
 		return a.Signature == signature.RSA || a.Signature.IsPSS()
 	default:
 		return false
 	}
+}
+
+func (a Algorithm) matchesECDSACurve(key *ecdsa.PublicKey) bool {
+	return (key.Curve == elliptic.P256() && a.Hash == hash.SHA256) ||
+		(key.Curve == elliptic.P384() && a.Hash == hash.SHA384) ||
+		(key.Curve == elliptic.P521() && a.Hash == hash.SHA512)
 }
 
 // ParseSignatureSchemes translates []tls.SignatureScheme to []signatureHashAlgorithm.

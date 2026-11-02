@@ -160,7 +160,7 @@ type HandshakeConfig struct {
 	ClaimEarlyData                func(ticket []byte, expiresAt time.Time) (bool, error)
 	GetSession                    func(key []byte) (internalstate.Session, error)
 	SetSession                    func(key []byte, session internalstate.Session) error
-	SetSessionTicket              func(key, id, secret []byte, ticket internalstate.SessionTicket) error
+	SetSessionTicket              func(key, id, secret, identity []byte, ticket internalstate.SessionTicket) error
 	GetSessionTicket              func(key []byte, serverName string) (*internalstate.PSK, error)
 	DelSession                    func(key []byte) error
 	RootCAs                       *x509.CertPool
@@ -412,18 +412,22 @@ func (c *HandshakeConfig) UsableSession(session internalstate.Session, isClient 
 
 func (c *HandshakeConfig) usableCertificateSession(session internalstate.Session, isClient bool) bool {
 	if isClient {
-		if len(session.PeerCertificates) == 0 {
-			return false
-		}
-		chains, err := c.verifySessionCertificate(session.PeerCertificates)
-		if err != nil {
-			return false
-		}
-
-		return c.VerifyPeerCertificate == nil || c.VerifyPeerCertificate(session.PeerCertificates, chains) == nil
+		return c.UsableServerCertificate(session.PeerCertificates)
 	}
 
 	return c.ClientAuth == NoClientCert || c.ClientAuth == RequestClientCert
+}
+
+func (c *HandshakeConfig) UsableServerCertificate(raw [][]byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	chains, err := c.verifySessionCertificate(raw)
+	if err != nil {
+		return false
+	}
+
+	return c.VerifyPeerCertificate == nil || c.VerifyPeerCertificate(raw, chains) == nil
 }
 
 func validSessionMetadata(session internalstate.Session, isClient bool) bool {

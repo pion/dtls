@@ -206,11 +206,12 @@ func TestPostHandshakeACKReliability(t *testing.T) {
 	stored := 0
 	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{
 		InitialRetransmitInterval: time.Second,
-		SetSessionTicket: func(_, _, _ []byte, _ dtlsstate.SessionTicket) error {
+		SetSessionTicket: func(_, _, _, _ []byte, _ dtlsstate.SessionTicket) error {
 			stored++
 
 			return nil
 		},
+		LocalCertificates: testHandshakeConfig13(t).LocalCertificates,
 	}})
 	require.NoError(t, post.startNewSessionTicket(t.Context(), &flightTestConn{}, false))
 	flight := post.flights[postHandshakeFlightID{Category: postHandshakeNewSessionTicket}]
@@ -269,6 +270,7 @@ func TestPostHandshakeReceiveNewSessionTicket(t *testing.T) {
 	state.HandshakeRecvSequence = int(ticketRecvSequence)
 	state.CipherSuite = ciphersuite.ForID(cryptosuite.TLS_AES_128_GCM_SHA256)
 	state.KeySchedule.ResumptionMasterSecret = bytes.Repeat([]byte{0x33}, 32)
+	state.IdentityHint = []byte("original-psk-identity")
 
 	cache := dtlsflight.NewCache()
 	ticketWire, err := (&handshake.Handshake{Header: handshake.Header{Type: handshake.TypeNewSessionTicket, MessageSequence: ticketRecvSequence}, Message: &handshake.MessageNewSessionTicket{TicketLifetime: newSessionTicketLifetime, TicketNonce: []byte{1}, Ticket: []byte{2}}}).Marshal()
@@ -278,8 +280,11 @@ func TestPostHandshakeReceiveNewSessionTicket(t *testing.T) {
 	stored := 0
 	post := newPostHandshake(handshakeContext{state: &state, cache: cache, cfg: &dtlsconfig.HandshakeConfig{
 		InitialRetransmitInterval: time.Second,
-		SetSessionTicket: func(_, id, secret []byte, ticket dtlsstate.SessionTicket) error {
+		SetSessionTicket: func(_, id, secret, identity []byte, ticket dtlsstate.SessionTicket) error {
 			stored++
+			assert.Equal(t, []byte("original-psk-identity"), identity)
+			identity[0] ^= 1
+			assert.Equal(t, []byte("original-psk-identity"), state.IdentityHint)
 			assert.Equal(t, []byte{2}, id)
 			expected, err := DeriveResumptionPSK(state.CipherSuite.HashFunc(), state.KeySchedule.ResumptionMasterSecret, []byte{1})
 			require.NoError(t, err)
@@ -296,6 +301,8 @@ func TestPostHandshakeReceiveNewSessionTicket(t *testing.T) {
 
 	require.NoError(t, receive())
 	assert.Equal(t, int(ticketRecvSequence)+1, state.HandshakeRecvSequence)
+	_, retained := cache.PullExact(ticketRecvSequence, false)
+	assert.False(t, retained)
 	require.Len(t, conn.writtenPackets, 1)
 	firstACK, ok := conn.writtenPackets[0].Content.(*protocol.ACK)
 	require.True(t, ok)
@@ -459,7 +466,7 @@ func TestPrepareNewSessionTicket(t *testing.T) {
 		post.state = newPostHandshakeKeyUpdateTestState(t, isClient)
 		post.state.KeySchedule.ResumptionMasterSecret = make([]byte, 32)
 		var cached dtlsstate.SessionTicket
-		post.cfg.SetSessionTicket = func(_, _, _ []byte, ticket dtlsstate.SessionTicket) error {
+		post.cfg.SetSessionTicket = func(_, _, _, _ []byte, ticket dtlsstate.SessionTicket) error {
 			cached = ticket
 
 			return nil
@@ -629,7 +636,8 @@ func TestApplicationDataDoesNotWaitForNewSessionTicketACK(t *testing.T) {
 	state.KeySchedule.ResumptionMasterSecret = bytes.Repeat([]byte{0x33}, 32)
 	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{
 		InitialRetransmitInterval: time.Second,
-		SetSessionTicket:          func(_, _, _ []byte, _ dtlsstate.SessionTicket) error { return nil },
+		SetSessionTicket:          func(_, _, _, _ []byte, _ dtlsstate.SessionTicket) error { return nil },
+		LocalCertificates:         testHandshakeConfig13(t).LocalCertificates,
 	}})
 	applicationPacket := &dtlsflight.Outbound{Content: &protocol.ApplicationData{Data: []byte("after ticket")}, Protection: dtlsflight.ProtectionCiphertext}
 	post.queue = append(post.queue, postHandshakeCommand{Kind: commandSendNewSessionTicket}, applicationDataCommand(applicationPacket))
@@ -707,7 +715,8 @@ func TestPostHandshakeIndependentCategories(t *testing.T) {
 	state.KeySchedule.ResumptionMasterSecret = bytes.Repeat([]byte{0x33}, 32)
 	post := newPostHandshake(handshakeContext{state: state, cfg: &dtlsconfig.HandshakeConfig{
 		InitialRetransmitInterval: time.Second,
-		SetSessionTicket:          func(_, _, _ []byte, _ dtlsstate.SessionTicket) error { return nil },
+		SetSessionTicket:          func(_, _, _, _ []byte, _ dtlsstate.SessionTicket) error { return nil },
+		LocalCertificates:         testHandshakeConfig13(t).LocalCertificates,
 	}})
 	active := postHandshakeFlightID{Category: postHandshakeNewConnectionID}
 	post.flights[active] = &reliablePostHandshakeFlight{ID: active}

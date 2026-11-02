@@ -8,6 +8,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	cryptoelliptic "crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -24,6 +25,7 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/hash"
 	"github.com/pion/dtls/v4/pkg/crypto/signature"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
+	"github.com/pion/dtls/v4/pkg/protocol"
 )
 
 type ecdsaSignature struct {
@@ -207,7 +209,7 @@ func GenerateKeySignature(clientRandom, serverRandom, publicKey []byte, namedCur
 
 func VerifyKeySignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte) error {
 	return verifyCertificateSignature(
-		message, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates,
+		message, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates, protocol.Version1_2,
 	)
 }
 
@@ -254,11 +256,11 @@ func GenerateCertificateVerify(handshakeBodies []byte, signer crypto.Signer, has
 	return nil, dtlserrors.ErrInvalidSignatureAlgorithm
 }
 
-func VerifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, remoteKeySignature []byte, rawCertificates [][]byte) error {
-	return verifyCertificateSignature(handshakeBodies, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates)
+func VerifyCertificateVerify(handshakeBodies []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, remoteKeySignature []byte, rawCertificates [][]byte, version protocol.Version) error {
+	return verifyCertificateSignature(handshakeBodies, remoteKeySignature, hashAlgorithm, signatureAlgorithm, rawCertificates, version)
 }
 
-func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte) error {
+func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, rawCertificates [][]byte, version protocol.Version) error {
 	if len(rawCertificates) == 0 {
 		return dtlserrors.ErrLengthMismatch
 	}
@@ -272,7 +274,7 @@ func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorith
 		return err
 	}
 
-	if err := validateHandshakeSignatureScheme(certificate.PublicKey, hashAlgorithm, signatureAlgorithm); err != nil {
+	if err := validateVersionedSignatureScheme(certificate.PublicKey, hashAlgorithm, signatureAlgorithm, version); err != nil {
 		return err
 	}
 
@@ -290,6 +292,25 @@ func verifyCertificateSignature(message, remoteKeySignature []byte, hashAlgorith
 	}
 
 	return dtlserrors.ErrInvalidSignatureAlgorithm
+}
+
+func validateVersionedSignatureScheme(key crypto.PublicKey, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm, version protocol.Version) error {
+	if version == protocol.Version1_3 {
+		if signatureAlgorithm == signature.RSA || hashAlgorithm.Insecure() || hashAlgorithm == hash.SHA224 {
+			return dtlserrors.ErrInvalidSignatureAlgorithm
+		}
+		if publicKey, ok := key.(*ecdsa.PublicKey); ok && !matchesECDSACurve13(publicKey, hashAlgorithm) {
+			return dtlserrors.ErrInvalidSignatureAlgorithm
+		}
+	}
+
+	return validateHandshakeSignatureScheme(key, hashAlgorithm, signatureAlgorithm)
+}
+
+func matchesECDSACurve13(key *ecdsa.PublicKey, hashAlgorithm hash.Algorithm) bool {
+	return (key.Curve == cryptoelliptic.P256() && hashAlgorithm == hash.SHA256) ||
+		(key.Curve == cryptoelliptic.P384() && hashAlgorithm == hash.SHA384) ||
+		(key.Curve == cryptoelliptic.P521() && hashAlgorithm == hash.SHA512)
 }
 
 func verifyRSACertificateSignature(pubKey *rsa.PublicKey, message, remoteKeySignature []byte, hashAlgorithm hash.Algorithm, signatureAlgorithm signature.Algorithm) error {

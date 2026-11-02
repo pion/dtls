@@ -1013,6 +1013,9 @@ func (c *Conn) prepareOutbound(outbound *dtlsflight.Outbound) ([]preparedRecord,
 }
 
 func (c *Conn) cacheHandshake(outbound *dtlsflight.Outbound, dtlsHandshake *handshake.Handshake) error {
+	if outbound.HandshakeFragments != nil {
+		return nil
+	}
 	handshakeRaw, err := dtlsHandshake.Marshal()
 	if err != nil {
 		return err
@@ -1153,6 +1156,9 @@ func (c *Conn) allocateLocalSequenceNumber(epoch uint64) (uint64, error) {
 		return 0, ErrConnClosed
 	}
 	common := dtlsstate.CommonState(c.state)
+	if state, ok := c.state.(*dtlsstate.State13); ok && state.TrafficKeys != nil {
+		common.RetainTrafficCounters(state.TrafficKeys)
+	}
 	if common.LocalVersion != protocol.Version1_3 && epoch > 0xffff {
 		return 0, dtlserrors.ErrEpochOverflow
 	}
@@ -2274,6 +2280,7 @@ func (c *Conn) handleFutureCiphertextPacket(epochLow uint8, remoteEpoch uint64, 
 
 // Apply replay checks for both record formats and restored state.
 func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool, bool) {
+	c.pruneReplayEpochs()
 	if !c.passesReplayCutoff(epoch, sequenceNumber) {
 		return nil, false
 	}
@@ -2310,6 +2317,22 @@ func (c *Conn) replayMarker(epoch, sequenceNumber, maximum uint64) (func() bool,
 
 		return latest && epoch >= common.HighestRemoteEpoch()
 	}, true
+}
+
+func (c *Conn) pruneReplayEpochs() {
+	state, ok := c.state.(*dtlsstate.State13)
+	if !ok || state.TrafficKeys == nil {
+		return
+	}
+	state.RetainTrafficCounters(state.TrafficKeys)
+	for epoch := range state.ReplayDetector {
+		if epoch == 0 {
+			continue
+		}
+		if _, retained := state.TrafficKeys.Read(epoch); !retained {
+			delete(state.ReplayDetector, epoch)
+		}
+	}
 }
 
 func (c *Conn) passesReplayCutoff(epoch, sequenceNumber uint64) bool {
@@ -2750,11 +2773,11 @@ func (c *Conn) deliverApplicationDataRecord(ctx context.Context, content *protoc
 func (c *Conn) handleRecordContent(ctx context.Context, content protocol.Content, prepared incomingPacketState, rAddr net.Addr, bufferLease *readBufferLease) (bool, packetOutcome, error) {
 	switch content := content.(type) {
 	case *protocol.ACK:
-		// The ACK's epoch must be at least that of every acknowledged record.
+		// During the handshake, the ACK epoch must cover every acknowledged record.
 		// Validate the entire ACK before applying it.
 		// https://datatracker.ietf.org/doc/html/rfc9147#section-7
 		for _, record := range content.Records {
-			if record.Epoch > prepared.number.Epoch {
+			if !c.isHandshakeCompletedSuccessfully() && record.Epoch > prepared.number.Epoch {
 				c.log.Debug("discarded ACK for a record from a higher epoch")
 
 				return false, packetOutcome{}, nil
@@ -2764,15 +2787,7 @@ func (c *Conn) handleRecordContent(ctx context.Context, content protocol.Content
 
 		return isLatestSeqNum, packetOutcome{receivedACK: &protocol.ACK{Records: append([]protocol.RecordNumber(nil), content.Records...)}}, nil
 	case *alert.Alert:
-		c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
-		var responseAlert *alert.Alert
-		if content.Description == alert.CloseNotify {
-			// Respond with a close_notify [RFC5246 Section 7.2.1]
-			responseAlert = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
-		}
-		prepared.markPacketAsValid()
-
-		return false, packetOutcome{responseAlert: responseAlert}, &alertError{content}
+		return c.handleAlertRecord(content, prepared.markPacketAsValid)
 	case *protocol.ChangeCipherSpec:
 		return c.handleChangeCipherSpecRecord(prepared, rAddr, bufferLease), packetOutcome{}, nil
 	case *protocol.ApplicationData:
@@ -2782,6 +2797,26 @@ func (c *Conn) handleRecordContent(ctx context.Context, content protocol.Content
 	default:
 		return false, packetOutcome{responseAlert: &alert.Alert{Level: alert.Fatal, Description: alert.UnexpectedMessage}}, fmt.Errorf("%w: %d", dtlserrors.ErrUnhandledContextType, content.ContentType())
 	}
+}
+
+func (c *Conn) handleAlertRecord(content *alert.Alert, markPacketAsValid func() bool) (bool, packetOutcome, error) {
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
+		switch content.Description {
+		case alert.CloseNotify, alert.UserCanceled:
+			content.Level = alert.Warning
+		default:
+			content.Level = alert.Fatal
+		}
+	}
+	c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
+	var responseAlert *alert.Alert
+	if content.Description == alert.CloseNotify {
+		// Respond with a close_notify [RFC5246 Section 7.2.1]
+		responseAlert = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
+	}
+	markPacketAsValid()
+
+	return false, packetOutcome{responseAlert: responseAlert}, &alertError{content}
 }
 
 func unmarshalRecordContent(contentType protocol.ContentType, data []byte) (protocol.Content, error) {
@@ -2858,8 +2893,13 @@ func (c *Conn) processIncomingPacket(ctx context.Context, buf []byte, rAddr net.
 	}
 
 	var receivedAlert *alertError
-	if errors.As(err, &receivedAlert) && receivedAlert.IsFatalOrCloseNotify() {
-		return packetOutcome{}, receivedAlert
+	if errors.As(err, &receivedAlert) {
+		if receivedAlert.IsFatalOrCloseNotify() {
+			return packetOutcome{}, receivedAlert
+		}
+		if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 {
+			return outcome, nil
+		}
 	}
 
 	return outcome, err
@@ -3640,8 +3680,12 @@ func (c *Conn) acceptEarlyApplicationData(epoch, size uint64) (bool, error) {
 }
 
 func (c *Conn) pushHandshake(data []byte, epoch uint64, sequence uint16, typ handshake.Type, isClient bool) error {
-	if dtlsstate.CommonState(c.state).LocalVersion != protocol.Version1_3 {
+	common := dtlsstate.CommonState(c.state)
+	if common.LocalVersion != protocol.Version1_3 {
 		return c.handshakeCache.PushBounded12(data, epoch, sequence, typ, isClient)
+	}
+	if isClient == common.IsClient && epoch >= dtlsflight13.EpochApplication {
+		return nil
 	}
 	c.handshakeCache.Push(data, epoch, sequence, typ, isClient)
 

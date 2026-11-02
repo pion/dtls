@@ -196,6 +196,15 @@ func TestHandshakeCachePullExact(t *testing.T) {
 
 	_, ok = cache.PullExact(4, false)
 	assert.False(t, ok)
+	cache.Push([]byte{3}, 3, 4, handshake.TypeNewSessionTicket, false)
+	cache.DiscardBefore(3, 4, false)
+	_, ok = cache.PullExact(3, true)
+	assert.False(t, ok)
+	_, ok = cache.PullExact(3, false)
+	assert.False(t, ok)
+	item, ok = cache.PullExact(4, false)
+	require.True(t, ok)
+	assert.Equal(t, []byte{3}, item.Data)
 }
 
 func TestHandshakeCachePushCopiesData(t *testing.T) {

@@ -308,7 +308,7 @@ func WithInsecureHashes(allow bool) Option {
 }
 
 // WithVerifyPeerCertificate sets the peer certificate verification callback.
-// DTLS 1.2 clients also call it on cached certificates before offering resumption.
+// Clients also call it on cached certificates before offering resumption.
 // Rejection falls back to a full handshake, where the callback runs again on
 // the newly received certificate. Accepted resumption calls it only once.
 // Returns an error if the callback is nil.
@@ -904,8 +904,8 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 			return config.sessionStore.Set(key, Session(session))
 		}
 		handshakeConfig.DelSession = config.sessionStore.Del
-		handshakeConfig.SetSessionTicket = func(key, id, secret []byte, ticket dtlsstate.SessionTicket) error {
-			return config.sessionStore.Set(key, Session{ID: id, Secret: secret, Ticket: &ticket, Version: 1, IsClient: config.isClient})
+		handshakeConfig.SetSessionTicket = func(key, id, secret, identity []byte, ticket dtlsstate.SessionTicket) error {
+			return config.sessionStore.Set(key, Session{ID: id, Secret: secret, IdentityHint: identity, Ticket: &ticket, Version: 1, IsClient: config.isClient})
 		}
 		handshakeConfig.GetSessionTicket = func(key []byte, serverName string) (*dtlsstate.PSK, error) {
 			session, err := config.sessionStore.Get(key)

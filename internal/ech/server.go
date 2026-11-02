@@ -72,9 +72,7 @@ func (c *ServerContext) ProcessRetry(outer []byte) ([]byte, error) {
 
 func (c *ServerContext) decryptRetry(outer []byte, offer extension13.ECHClientHello) ([]byte, error) {
 	if c.Recipient == nil {
-		context, err := ProcessClientHello(outer, nil)
-
-		return context.Inner, err
+		return nil, serverError(alert.IllegalParameter, ErrInvalid)
 	}
 	if offer.ConfigID != c.ConfigID || (CipherSuite{KDFID: offer.KDF, AEADID: offer.AEAD}) != c.Suite || len(offer.Enc) != 0 {
 		return nil, serverError(alert.IllegalParameter, ErrInvalid)
@@ -117,7 +115,7 @@ func ProcessClientHello(outer []byte, keys []Key) (ServerContext, error) {
 		return ServerContext{}, serverError(description, err)
 	}
 	if offer.Type == extension13.ECHClientHelloInner {
-		return acceptForwardedInner(outer, exts)
+		return ServerContext{}, serverError(alert.IllegalParameter, ErrInvalid)
 	}
 	if len(keys) == 0 {
 		return ServerContext{}, nil
@@ -131,15 +129,6 @@ func ProcessClientHello(outer []byte, keys []Key) (ServerContext, error) {
 	}
 
 	return decryptClientHello(outer, aad, offer, keys)
-}
-
-// A forwarded logical inner must already have its outer references expanded.
-func acceptForwardedInner(inner []byte, exts []extension.Raw) (ServerContext, error) {
-	if extensionIndex(exts, extension.TypeECHOuterExtensions) >= 0 || !validInnerExtensions(exts) {
-		return ServerContext{}, serverError(alert.IllegalParameter, ErrInvalid)
-	}
-
-	return ServerContext{Inner: bytes.Clone(inner)}, nil
 }
 
 func decryptClientHello(outer, aad []byte, offer extension13.ECHClientHello, keys []Key) (ServerContext, error) {
