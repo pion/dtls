@@ -702,7 +702,9 @@ func TestFlight13_1GenerateRetainsPrivateKeysForAdvertisedShares(t *testing.T) {
 		}
 	}
 	require.NotNil(t, keyShare)
-	require.Len(t, keyShare.Shares, len(cfg.EllipticCurves))
+	// Only the most preferred group gets an initial key share.
+	require.Len(t, keyShare.Shares, 1)
+	require.Equal(t, cfg.EllipticCurves[0], keyShare.Shares[0].Group)
 	require.Len(t, state.LocalKeyEntries, len(keyShare.Shares))
 	require.Len(t, state.LocalKeypairs, len(keyShare.Shares))
 

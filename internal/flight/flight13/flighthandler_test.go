@@ -28,6 +28,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestInitialKeyShareGroups(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		curves []elliptic.Curve
+		want   []elliptic.Curve
+	}{
+		{
+			name:   "HybridFirstAddsX25519",
+			curves: []elliptic.Curve{elliptic.X25519MLKEM768, elliptic.X25519, elliptic.P256, elliptic.P384},
+			want:   []elliptic.Curve{elliptic.X25519MLKEM768, elliptic.X25519},
+		},
+		{
+			name:   "HybridFirstWithoutX25519",
+			curves: []elliptic.Curve{elliptic.X25519MLKEM768, elliptic.P256},
+			want:   []elliptic.Curve{elliptic.X25519MLKEM768},
+		},
+		{
+			name:   "HybridOnly",
+			curves: []elliptic.Curve{elliptic.X25519MLKEM768},
+			want:   []elliptic.Curve{elliptic.X25519MLKEM768},
+		},
+		{
+			name:   "ClassicalFirst",
+			curves: []elliptic.Curve{elliptic.X25519, elliptic.X25519MLKEM768, elliptic.P256, elliptic.P384},
+			want:   []elliptic.Curve{elliptic.X25519},
+		},
+		{
+			name:   "P256First",
+			curves: []elliptic.Curve{elliptic.P256, elliptic.X25519},
+			want:   []elliptic.Curve{elliptic.P256},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, initialKeyShareGroups(test.curves))
+		})
+	}
+}
+
 func TestProtectedFlightParseFailureClientCertificateRequired(t *testing.T) {
 	failure := protectedFlightParseFailure(dtlserrors.ErrClientCertificateRequired)
 	require.NotNil(t, failure)

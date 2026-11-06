@@ -6,6 +6,7 @@ package flight13
 import (
 	"context"
 	"errors"
+	"slices"
 
 	dtlsconfig "github.com/pion/dtls/v4/internal/config"
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
@@ -60,9 +61,10 @@ func generateInitialClientHello(conn dtlsflight.Conn, flightCtx *handshakeContex
 	state, cfg := flightCtx.state, flightCtx.cfg
 	extensions := initialClientHelloExtensions(cfg)
 
-	entries := make([]extension13.KeyShareEntry, 0, len(cfg.EllipticCurves))
-	keypairs := make(map[elliptic.Curve]*elliptic.Keypair, len(cfg.EllipticCurves))
-	for _, group := range cfg.EllipticCurves {
+	shareGroups := initialKeyShareGroups(cfg.EllipticCurves)
+	entries := make([]extension13.KeyShareEntry, 0, len(shareGroups))
+	keypairs := make(map[elliptic.Curve]*elliptic.Keypair, len(shareGroups))
+	for _, group := range shareGroups {
 		keypair, err := elliptic.GenerateKeypair(group)
 		if err != nil {
 			return nil, nil, err
@@ -127,6 +129,25 @@ func generateInitialClientHello(conn dtlsflight.Conn, flightCtx *handshakeContex
 			Content: &content,
 		},
 	}, nil, nil
+}
+
+// initialKeyShareGroups returns the groups that get a key share in the first
+// ClientHello: the most preferred group, plus X25519 when that group is the
+// X25519MLKEM768 hybrid and X25519 is also configured. A server that selects
+// another offered group asks for it with a HelloRetryRequest.
+//
+// This matches Go's crypto/tls client. One share per configured group would
+// push the ClientHello past the default MTU, and some DTLS servers drop a
+// fragmented first ClientHello.
+//
+// https://www.rfc-editor.org/rfc/rfc9846#section-4.3.8
+func initialKeyShareGroups(curves []elliptic.Curve) []elliptic.Curve {
+	groups := []elliptic.Curve{curves[0]}
+	if curves[0] == elliptic.X25519MLKEM768 && slices.Contains(curves[1:], elliptic.X25519) {
+		groups = append(groups, elliptic.X25519)
+	}
+
+	return groups
 }
 
 func initialClientHelloExtensions(cfg *dtlsconfig.HandshakeConfig) []extension.Value {
