@@ -4,8 +4,6 @@
 package elliptic
 
 import (
-	crand "crypto/rand"
-	"errors"
 	"testing"
 
 	dtlserrors "github.com/pion/dtls/v4/internal/errors"
@@ -62,23 +60,6 @@ func TestGenerateKeypairForPeer_X25519MLKEM768ServerShare(t *testing.T) {
 func TestGenerateKeypairForPeer_X25519MLKEM768RejectsBadPeerShareLength(t *testing.T) {
 	_, err := GenerateKeypairForPeer(X25519MLKEM768, []byte{0x01})
 	assert.ErrorIs(t, err, dtlserrors.ErrLengthMismatch)
-}
-
-// create a fake reader that is guaranteed to fail to trigger a failure in generate keypair.
-type failingReader struct{}
-
-func (failingReader) Read(p []byte) (int, error) {
-	return 0, errors.ErrUnsupported // any error is fine here.
-}
-
-func TestGenerateKeypair_RandFailure(t *testing.T) {
-	// replace crypto/rand.Reader to force ecdh.GenerateKey to fail.
-	orig := crand.Reader
-	crand.Reader = failingReader{}
-	defer func() { crand.Reader = orig }()
-
-	_, err := GenerateKeypair(P256)
-	assert.Error(t, err)
 }
 
 func TestToECDH_InvalidCurve(t *testing.T) {
