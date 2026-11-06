@@ -2848,7 +2848,7 @@ func (c *Conn) handleAlertRecord(content *alert.Alert, markPacketAsValid func() 
 	}
 	c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
 	var responseAlert *alert.Alert
-	if content.Description == alert.CloseNotify {
+	if content.Level == alert.Warning && content.Description == alert.CloseNotify {
 		c.closeNotifyReceived.Store(true)
 		// Respond with a close_notify [RFC5246 Section 7.2.1]
 		responseAlert = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
