@@ -478,7 +478,7 @@ func (c *Conn) Read(buff []byte) (n int, err error) { //nolint:cyclop
 }
 
 // readAfterClose is called once the connection is closed. A record queued
-// before the peer's close_notify is still valid (RFC 8446 Section 6.1) and is
+// before the peer's close_notify is still valid (RFC 5246 Section 7.2.1) and is
 // returned first. decrypted holds at most one record, so one receive is enough.
 func (c *Conn) readAfterClose(buff []byte) (int, error) {
 	if c.closedByCloseNotify() {
@@ -1288,7 +1288,7 @@ func (c *Conn) handleIncomingPacket(
 	case *alert.Alert:
 		c.log.Tracef("%s: <- %s", srvCliStr(c.state.isClient), content.String())
 		var a *alert.Alert
-		if content.Description == alert.CloseNotify {
+		if content.Level == alert.Warning && content.Description == alert.CloseNotify {
 			c.closeNotifyReceived.Store(true)
 			// Respond with a close_notify [RFC5246 Section 7.2.1]
 			a = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
