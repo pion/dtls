@@ -92,20 +92,12 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 	}
 	extensions = appendClientHello12Negotiation(extensions, cfg)
 
-	if cfg.HasSessionStore {
-		cfg.Log.Tracef("[handshake] try to resume session")
-		if session, err := cfg.GetSession(conn.SessionKey()); err != nil {
-			return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-		} else if cfg.UsableSession(session, true) {
-			cfg.Log.Tracef("[handshake] get saved session: %x", session.ID)
-
-			state.ResumeSession = &session
-			state.SessionID = session.ID
-			state.MasterSecret = session.Secret
-			state.IdentityHint = bytes.Clone(session.IdentityHint)
-			state.PSKHash = session.PSKHash
-			state.PeerCertificates = session.PeerCertificates
-		}
+	session, dtlsAlert, err := ResumableSession(conn, cfg)
+	if err != nil {
+		return nil, dtlsAlert, err
+	}
+	if session != nil {
+		ResumeSession(state, session)
 	}
 
 	// If we have a connection ID generator, use it. The CID may be zero length,
@@ -124,6 +116,35 @@ func flight1Generate(conn dtlsflight.Conn, state *dtlsstate.State12, _ *dtlsflig
 	clientHello := &handshake.MessageClientHello{Version: protocol.Version1_2, SessionID: state.SessionID, Cookie: state.Cookie, Random: state.LocalRandom, CipherSuiteIDs: dtlsflight.CipherSuiteIDs(cfg.LocalCipherSuites), CompressionMethods: dtlsflight.DefaultCompressionMethods(), Extensions: extensions}
 
 	return finalizeClientHello12(state, cfg, clientHello, false)
+}
+
+// ResumableSession returns the cached DTLS 1.2 session a client can offer to
+// resume, or nil when there is none.
+func ResumableSession(conn dtlsflight.Conn, cfg *dtlsconfig.HandshakeConfig) (*dtlsstate.Session, *alert.Alert, error) {
+	if !cfg.HasSessionStore {
+		return nil, nil, nil
+	}
+	cfg.Log.Tracef("[handshake] try to resume session")
+	session, err := cfg.GetSession(conn.SessionKey())
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	if !cfg.UsableSession(session, true) {
+		return nil, nil, nil
+	}
+	cfg.Log.Tracef("[handshake] get saved session: %x", session.ID)
+
+	return &session, nil, nil
+}
+
+// ResumeSession prepares a client to offer session in its ClientHello.
+func ResumeSession(state *dtlsstate.State12, session *dtlsstate.Session) {
+	state.ResumeSession = session
+	state.SessionID = session.ID
+	state.MasterSecret = session.Secret
+	state.IdentityHint = bytes.Clone(session.IdentityHint)
+	state.PSKHash = session.PSKHash
+	state.PeerCertificates = session.PeerCertificates
 }
 
 func finalizeClientHello12(state *dtlsstate.State12, cfg *dtlsconfig.HandshakeConfig, clientHello *handshake.MessageClientHello, retry bool) ([]*dtlsflight.Outbound, *alert.Alert, error) {

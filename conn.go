@@ -3037,6 +3037,10 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 	}
 	state13 := dtlsstate.Activate13(c.state)
 	c.state = state13
+	session12, err := c.offerSession12(state13)
+	if err != nil {
+		return nil, err
+	}
 	pkts, dtlsAlert, err := gen(adaptFlightConn(c), state13, c.handshakeCache, c.handshakeConfig,
 		dtlshandshake.NewTranscript().FinalizeClientHello)
 	if dtlsAlert != nil {
@@ -3049,14 +3053,43 @@ func (c *Conn) negotiateVersionClient(ctx context.Context) ([]*dtlsflight.Outbou
 	}
 
 	c.stampHandshakeSequence(pkts)
-	if err := dtlshandshake.ValidateClientHelloInitialFlights(pkts); err != nil {
+	if err = dtlshandshake.ValidateClientHelloInitialFlights(pkts); err != nil {
 		return nil, err
 	}
-	if err := c.writePackets(ctx, pkts); err != nil {
+	if err = c.writePackets(ctx, pkts); err != nil {
 		return nil, err
 	}
 
-	return c.waitVersionNegotiation(ctx, pkts)
+	flights, err := c.waitVersionNegotiation(ctx, pkts)
+	if err != nil {
+		return nil, err
+	}
+	c.resumeOfferedSession12(session12)
+
+	return flights, nil
+}
+
+// offerSession12 puts a cached DTLS 1.2 session in legacy_session_id, so a
+// DTLS 1.2 server can resume it. Nothing has been sent yet, so a session store
+// error needs no alert.
+//
+// https://www.rfc-editor.org/rfc/rfc9147#section-5.3
+func (c *Conn) offerSession12(state13 *dtlsstate.State13) (*dtlsstate.Session, error) {
+	session, _, err := dtlsflight12.ResumableSession(adaptFlightConn(c), c.handshakeConfig)
+	if err != nil || session == nil {
+		return nil, err
+	}
+	state13.SessionID = session.ID
+
+	return session, nil
+}
+
+// resumeOfferedSession12 restores the offered session after the server selects
+// DTLS 1.2, because switching to the DTLS 1.2 state drops it.
+func (c *Conn) resumeOfferedSession12(session *dtlsstate.Session) {
+	if state12, ok := c.state.(*dtlsstate.State12); ok && session != nil {
+		dtlsflight12.ResumeSession(state12, session)
+	}
 }
 
 func (c *Conn) waitVersionNegotiation(ctx context.Context, pkts []*dtlsflight.Outbound) ([]*dtlsflight.Outbound, error) {
