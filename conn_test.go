@@ -3111,3 +3111,78 @@ func TestHandshakeRetransmissionCIDGrowth(t *testing.T) {
 	require.Len(t, records, 1)
 	assert.Equal(t, remaining, records[0].tracked.Fragments[0])
 }
+
+func TestReadReturnsDataReceivedBeforeCloseNotify(t *testing.T) {
+	// Read used to pick randomly between the closed signal and pending data
+	// once both were ready, so repeat to make a regression fail reliably.
+	for range 16 {
+		client, server, err := pipeMemory()
+		assert.NoError(t, err)
+
+		_, err = client.Write([]byte("last"))
+		assert.NoError(t, err)
+		assert.NoError(t, client.Close())
+
+		// Do not Read until the server has processed the close_notify, so the
+		// record and the closure are both pending when Read is called.
+		assert.Eventually(t, server.isConnectionClosed, 5*time.Second, time.Millisecond)
+
+		buf := make([]byte, 16)
+		n, err := server.Read(buf)
+		assert.NoError(t, err)
+		assert.Equal(t, "last", string(buf[:n]))
+
+		_, err = server.Read(buf)
+		assert.ErrorIs(t, err, io.EOF)
+		assert.NoError(t, server.Close())
+	}
+}
+
+func TestReadDropsQueuedDataAfterLocalClose(t *testing.T) {
+	for range 16 {
+		client, server, err := pipeMemory()
+		assert.NoError(t, err)
+
+		_, err = client.Write([]byte("last"))
+		assert.NoError(t, err)
+		assert.Eventually(t, func() bool { return len(server.decrypted) == 1 }, 5*time.Second, time.Millisecond)
+
+		assert.NoError(t, server.Close())
+		_, err = server.Read(make([]byte, 16))
+		assert.ErrorIs(t, err, io.EOF)
+		assert.NoError(t, client.Close())
+	}
+}
+
+func TestReadDropsQueuedDataAfterFatalAlert(t *testing.T) {
+	// Read used to pick randomly between the closed signal and pending data,
+	// so repeat to make a regression fail reliably.
+	for range 16 {
+		client, server, err := pipeMemory()
+		assert.NoError(t, err)
+
+		_, err = client.Write([]byte("last"))
+		assert.NoError(t, err)
+		assert.NoError(t, client.notify(context.Background(), alert.Fatal, alert.InternalError))
+		assert.Eventually(t, server.isConnectionClosed, 5*time.Second, time.Millisecond)
+
+		_, err = server.Read(make([]byte, 16))
+		assert.ErrorIs(t, err, io.EOF)
+		assert.NoError(t, server.Close())
+		_ = client.Close()
+	}
+}
+
+func TestReadAfterCloseNotifyWithNothingQueued(t *testing.T) {
+	client, server, err := pipeMemory()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, client.Close())
+		assert.NoError(t, server.Close())
+	}()
+
+	// close_notify arrived but no record was queued before it.
+	server.closeNotifyReceived.Store(true)
+	_, err = server.readAfterClose(make([]byte, 16))
+	assert.ErrorIs(t, err, io.EOF)
+}

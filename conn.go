@@ -239,6 +239,9 @@ type Conn struct {
 	connectionClosedByUser bool
 	closeLock              sync.Mutex
 	closed                 *closer.Closer
+	// closeNotifyReceived is set when the peer ends the connection with
+	// close_notify, as opposed to a fatal alert or an internal failure.
+	closeNotifyReceived atomic.Bool
 
 	readDeadline  *deadline.Deadline
 	writeDeadline *deadline.Deadline
@@ -606,18 +609,53 @@ func (c *Conn) Read(buff []byte) (n int, err error) {
 	for {
 		select {
 		case <-c.closed.Done():
-			return 0, io.EOF
+			return c.readAfterClose(buff)
 		case <-c.readDeadline.Done():
 			return 0, dtlserrors.ErrDeadlineExceeded
 		case out, ok := <-c.decrypted:
-			if !ok {
-				return 0, io.EOF
-			}
-			if n, handled, err := copyDecrypted(buff, out); handled {
+			if n, handled, err := c.readQueued(buff, out, ok); handled {
 				return n, err
 			}
 		}
 	}
+}
+
+// readAfterClose is called once the connection is closed. A record queued
+// before the peer's close_notify is still valid (RFC 8446 Section 6.1) and is
+// returned first. decrypted holds at most one record, so one receive is enough.
+func (c *Conn) readAfterClose(buff []byte) (int, error) {
+	if c.closedByCloseNotify() {
+		select {
+		case out, ok := <-c.decrypted:
+			if n, handled, err := c.readQueued(buff, out, ok); handled {
+				return n, err
+			}
+		default:
+		}
+	}
+
+	return 0, io.EOF
+}
+
+// readQueued handles a value taken from decrypted. Once the connection is
+// closed, application data is handed out only if the peer closed it with
+// close_notify. After a fatal alert, an internal failure or a local Close it
+// is dropped and Read returns io.EOF.
+func (c *Conn) readQueued(buff []byte, out any, ok bool) (int, bool, error) {
+	if !ok || (c.isConnectionClosed() && !c.closedByCloseNotify()) {
+		return 0, true, io.EOF
+	}
+
+	return copyDecrypted(buff, out)
+}
+
+// closedByCloseNotify reports whether the peer ended the connection with
+// close_notify and it was not closed locally.
+func (c *Conn) closedByCloseNotify() bool {
+	c.closeLock.Lock()
+	defer c.closeLock.Unlock()
+
+	return c.closeNotifyReceived.Load() && !c.connectionClosedByUser
 }
 
 func copyDecrypted(buff []byte, out any) (int, bool, error) {
@@ -2811,6 +2849,7 @@ func (c *Conn) handleAlertRecord(content *alert.Alert, markPacketAsValid func() 
 	c.log.Tracef("%s: <- %s", srvCliStr(dtlsstate.CommonState(c.state).IsClient), content.String())
 	var responseAlert *alert.Alert
 	if content.Description == alert.CloseNotify {
+		c.closeNotifyReceived.Store(true)
 		// Respond with a close_notify [RFC5246 Section 7.2.1]
 		responseAlert = &alert.Alert{Level: alert.Warning, Description: alert.CloseNotify}
 	}
