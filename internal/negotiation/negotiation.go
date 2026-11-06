@@ -231,14 +231,64 @@ func FinalizeServerHello(base *handshake.MessageServerHello, hook func(handshake
 	if err != nil {
 		return nil, err
 	}
-	if ValidateServerHello12Context(serverHello) != nil {
-		return nil, invalidHook(dtlserrors.ErrInvalidServerHello, serverHello, dtlserrors.ErrInvalidServerHello)
+	if err := validateServerHelloContext(base, serverHello); err != nil {
+		return nil, invalidHook(dtlserrors.ErrInvalidServerHello, serverHello, err)
 	}
 	if err := ValidateServerHelloResponse(offer, serverHello); err != nil {
 		return nil, err
 	}
 
 	return serverHello, nil
+}
+
+func validateServerHelloContext(base, serverHello *handshake.MessageServerHello) error {
+	if ValidateServerHello12Context(base) == nil {
+		return ValidateServerHello12Context(serverHello)
+	}
+	if !sameServerHelloSelection(base, serverHello) {
+		return dtlserrors.ErrInvalidServerHello
+	}
+	baseRandom := base.Random.MarshalFixed()
+	random := serverHello.Random.MarshalFixed()
+	if bytes.Equal(baseRandom[:], handshake.HelloRetryRequestRandom()) != bytes.Equal(random[:], handshake.HelloRetryRequestRandom()) {
+		return dtlserrors.ErrInvalidServerHello
+	}
+	baseExtensions, err := marshalServerHelloSelections(base.Extensions)
+	if err != nil {
+		return err
+	}
+	extensions, err := marshalServerHelloSelections(serverHello.Extensions)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(baseExtensions, extensions) {
+		return dtlserrors.ErrInvalidServerHello
+	}
+
+	return nil
+}
+
+func sameServerHelloSelection(base, serverHello *handshake.MessageServerHello) bool {
+	return base.Version == serverHello.Version &&
+		*base.CipherSuiteID == *serverHello.CipherSuiteID &&
+		base.CompressionMethod.ID == serverHello.CompressionMethod.ID &&
+		bytes.Equal(base.SessionID, serverHello.SessionID)
+}
+
+func marshalServerHelloSelections(values []extension.Value) ([]byte, error) {
+	var selections []extension.Value
+	for _, value := range values {
+		switch value.ExtensionType() {
+		case extension.TypeSupportedVersions, extension.TypeKeyShare, extension.TypePreSharedKey, extension.TypeCookie:
+			selections = append(selections, value)
+		default:
+		}
+	}
+	slices.SortFunc(selections, func(a, b extension.Value) int {
+		return int(a.ExtensionType()) - int(b.ExtensionType())
+	})
+
+	return extension.MarshalList(selections)
 }
 
 // ConnectionIDOffer returns the offered connection ID and its presence.

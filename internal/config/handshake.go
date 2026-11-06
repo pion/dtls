@@ -33,7 +33,6 @@ import (
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
-	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 	"github.com/pion/logging"
 )
 
@@ -180,7 +179,7 @@ type HandshakeConfig struct {
 	InitialEpoch                  uint64
 	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
-	CertificateRequestMessageHook func(handshake12.MessageCertificateRequest) handshake.Message
+	CertificateRequestMessageHook func(handshake.Message) handshake.Message
 	ResumeState                   internalstate.Active
 	MinVersion                    protocol.Version
 	MaxVersion                    protocol.Version

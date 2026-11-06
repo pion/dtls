@@ -192,19 +192,35 @@ func flight4Generate(
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
 	serverHelloMessage := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: state.LocalRandom, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: serverHelloExtensions}
+	serverHelloMessage, err = finalizeServerHello(flightCtx, serverHelloMessage)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
+	state.LocalRandom = serverHelloMessage.Random
 	if err = flightCtx.confirmECH(serverHelloMessage); err != nil {
 		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
 	}
-	if _, err = serverHelloMessage.Marshal(); err != nil {
-		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
-	}
-	decision := negotiation.DecideConnectionID(offer, serverHelloExtensions)
+	decision := negotiation.DecideConnectionID(offer, serverHelloMessage.Extensions)
 
 	serverHello := &dtlsflight.Outbound{
 		Content: &handshake.Handshake{Message: serverHelloMessage},
 	}
 
 	return generateProtectedServerFlight(flightCtx, serverHello, decision, srtpDecision)
+}
+
+func finalizeServerHello(flightCtx *handshakeContext, message *handshake.MessageServerHello) (*handshake.MessageServerHello, error) {
+	cfg := flightCtx.cfg
+	message, err := dtlsflight.FinalizeServerHello(message, cfg.ServerHelloMessageHook,
+		flightCtx.state.RemoteClientHelloSnapshots.Current(), cfg.EnableRRC)
+	if err != nil {
+		return nil, err
+	}
+	if err := dtlsflight.ValidateHookedConnectionIDLength(message.Extensions, cfg, cfg.ServerHelloMessageHook != nil); err != nil {
+		return nil, err
+	}
+
+	return message, nil
 }
 
 func generateProtectedServerFlight(flightCtx *handshakeContext, serverHello *dtlsflight.Outbound, decision *negotiation.ConnectionID, srtpDecision negotiation.SRTPDecision) ([]*dtlsflight.Outbound, *alert.Alert, error) {
@@ -298,21 +314,7 @@ func serverCertificatePackets(state *dtlsstate.State13, cfg *dtlsconfig.Handshak
 
 	var pkts []*dtlsflight.Outbound
 	if cfg.ClientAuth > dtlsconfig.NoClientCert {
-		// RFC 8446 Section 4.3.2 requires signature_algorithms in the request.
-		// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
-		// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.3.2
-		certificateRequestExtensions := []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)}}
-		if cfg.ClientCAs != nil {
-			certificateRequestExtensions = append(certificateRequestExtensions, &extension13.CertificateAuthorities{
-				// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR
-				// because cert does not come from SystemCertPool and it's ok if certificate
-				// authorities is empty.
-				Authorities: cfg.ClientCAs.Subjects(),
-			})
-		}
-		m := handshake13.MessageCertificateRequest{}
-		m.Extensions = certificateRequestExtensions
-		pkts = append(pkts, HandshakePacket(&m))
+		pkts = append(pkts, HandshakePacket(serverCertificateRequest(cfg)))
 	}
 	pkts = append(pkts,
 		HandshakePacket(&handshake13.MessageCertificate{
@@ -328,4 +330,27 @@ func serverCertificatePackets(state *dtlsstate.State13, cfg *dtlsconfig.Handshak
 	)
 
 	return pkts, nil, nil
+}
+
+func serverCertificateRequest(cfg *dtlsconfig.HandshakeConfig) handshake.Message {
+	// RFC 8446 Section 4.3.2 requires signature_algorithms in the request.
+	// https://www.rfc-editor.org/rfc/rfc9147.html#section-5.1
+	// https://www.rfc-editor.org/rfc/rfc8446.html#section-4.3.2
+	certificateRequestExtensions := []extension.Value{&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(cfg.LocalSignatureSchemes)}}
+	if cfg.ClientCAs != nil {
+		certificateRequestExtensions = append(certificateRequestExtensions, &extension13.CertificateAuthorities{
+			// nolint:staticcheck // ignoring tlsCert.RootCAs.Subjects is deprecated ERR
+			// because cert does not come from SystemCertPool and it's ok if certificate
+			// authorities is empty.
+			Authorities: cfg.ClientCAs.Subjects(),
+		})
+	}
+	m := handshake13.MessageCertificateRequest{}
+	m.Extensions = certificateRequestExtensions
+	var message handshake.Message = &m
+	if cfg.CertificateRequestMessageHook != nil {
+		message = cfg.CertificateRequestMessageHook(message)
+	}
+
+	return message
 }

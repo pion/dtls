@@ -11,6 +11,8 @@ import (
 	dtlsflight "github.com/pion/dtls/v4/internal/flight"
 	"github.com/pion/dtls/v4/internal/negotiation"
 	dtlsstate "github.com/pion/dtls/v4/internal/state"
+	"github.com/pion/dtls/v4/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/alert"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
@@ -188,7 +190,12 @@ func srtpSnapshot13(
 	mki string,
 ) negotiation.ClientHelloSnapshot {
 	t.Helper()
-	extensions := []extension.Value{}
+	extensions := []extension.Value{
+		&extension13.OfferedVersions{Versions: []protocol.Version{protocol.Version1_3}},
+		&extension.SupportedGroups{Groups: []elliptic.Curve{elliptic.X25519}},
+		&extension.SignatureAlgorithms{Schemes: dtlsflight.SignatureSchemeIDs(signaturehash.Algorithms())},
+		&extension13.ClientKeyShare{},
+	}
 	if profile != 0 {
 		extensions = append(extensions, &extension.SRTPOffer{ProtectionProfiles: []extension.SRTPProtectionProfile{profile}, MasterKeyIdentifier: []byte(mki)})
 	}

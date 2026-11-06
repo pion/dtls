@@ -119,6 +119,10 @@ func flight2Generate(
 		})
 	}
 	serverHello := &handshake.MessageServerHello{Version: protocol.Version1_2, Random: random, CipherSuiteID: &cipherSuiteID, CompressionMethod: dtlsflight.DefaultCompressionMethods()[0], Extensions: exts}
+	serverHello, err := finalizeServerHello(flightCtx, serverHello)
+	if err != nil {
+		return nil, &alert.Alert{Level: alert.Fatal, Description: alert.InternalError}, err
+	}
 	request, err := negotiation.ValidateHelloRetryRequest(flightCtx.state.RemoteClientHelloSnapshots.Initial(), serverHello)
 	if err != nil {
 		return nil, nil, err

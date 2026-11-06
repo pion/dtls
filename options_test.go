@@ -24,6 +24,9 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
+	"github.com/pion/dtls/v4/pkg/protocol/handshake"
+	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
+	handshake13 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls13"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -644,4 +647,42 @@ func TestDefaultEllipticCurves(t *testing.T) {
 	server, err := buildServerConfig()
 	require.NoError(t, err)
 	assert.Equal(t, defaultCurves, defaultEllipticCurves(server))
+}
+
+func TestCertificateRequestMessageHook(t *testing.T) {
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name    string
+		version protocol.Version
+	}{
+		{"DTLS12", protocol.Version1_2},
+		{"DTLS13", protocol.Version1_3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			option := WithCertificateRequestMessageHook(func(request handshake.Message) handshake.Message {
+				switch request.(type) {
+				case *handshake12.MessageCertificateRequest:
+					assert.Equal(t, protocol.Version1_2, test.version)
+				case *handshake13.MessageCertificateRequest:
+					assert.Equal(t, protocol.Version1_3, test.version)
+				default:
+					assert.Failf(t, "unexpected certificate request type", "%T", request)
+				}
+				calls.Add(1)
+
+				return request
+			})
+			client, server := handshakePair(t, []ClientOption{
+				WithInsecureSkipVerify(true), WithMinVersion(test.version), WithMaxVersion(test.version),
+			}, []ServerOption{
+				WithCertificates(certificate), WithMinVersion(test.version), WithMaxVersion(test.version),
+				WithClientAuth(RequestClientCert), option,
+			})
+			require.NoError(t, client.handshakeError)
+			require.NoError(t, server.handshakeError)
+			assert.EqualValues(t, 1, calls.Load())
+		})
+	}
 }

@@ -32,7 +32,6 @@ import (
 	"github.com/pion/dtls/v4/pkg/crypto/signaturehash"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/handshake"
-	handshake12 "github.com/pion/dtls/v4/pkg/protocol/handshake/dtls12"
 	"github.com/pion/logging"
 )
 
@@ -90,7 +89,7 @@ type dtlsConfig struct {
 	HelloRandomBytesGenerator     func() [handshake.RandomBytesLength]byte
 	ClientHelloMessageHook        func(handshake.MessageClientHello) handshake.Message
 	ServerHelloMessageHook        func(handshake.MessageServerHello) handshake.Message
-	CertificateRequestMessageHook func(handshake12.MessageCertificateRequest) handshake.Message
+	CertificateRequestMessageHook func(handshake.Message) handshake.Message
 	OnConnectionAttempt           func(net.Addr) error
 	MinVersion                    protocol.Version
 	MaxVersion                    protocol.Version
@@ -623,7 +622,9 @@ func WithInsecureSkipVerifyHello(skip bool) ServerOption {
 	return serverOnlyOption(valueOption(func(c *dtlsConfig) *bool { return &c.InsecureSkipVerifyHello }, skip))
 }
 
-// WithServerHelloMessageHook sets the server hello message hook.
+// WithServerHelloMessageHook sets the server hello message hook for DTLS 1.2 and 1.3.
+// For DTLS 1.3, the hook is also called for HelloRetryRequest. It must preserve
+// the selected version, cipher suite, key share, PSK identity, and retry cookie.
 // Returns an error if the hook is nil.
 // This option is only applicable to servers.
 func WithServerHelloMessageHook(fn func(handshake.MessageServerHello) handshake.Message) ServerOption {
@@ -632,11 +633,13 @@ func WithServerHelloMessageHook(fn func(handshake.MessageServerHello) handshake.
 	}, fn, optionError(fn == nil, dtlserrors.ErrNilServerHelloMessageHook)))
 }
 
-// WithCertificateRequestMessageHook sets the certificate request message hook.
+// WithCertificateRequestMessageHook sets the certificate request message hook for DTLS 1.2 and 1.3.
+// The hook receives a *dtls12.MessageCertificateRequest or *dtls13.MessageCertificateRequest.
+// The returned handshake message replaces the original message.
 // Returns an error if the hook is nil.
 // This option is only applicable to servers.
-func WithCertificateRequestMessageHook(fn func(handshake12.MessageCertificateRequest) handshake.Message) ServerOption {
-	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(handshake12.MessageCertificateRequest) handshake.Message {
+func WithCertificateRequestMessageHook(fn func(handshake.Message) handshake.Message) ServerOption {
+	return serverOnlyOption(valueOption(func(c *dtlsConfig) *func(handshake.Message) handshake.Message {
 		return &c.CertificateRequestMessageHook
 	}, fn, optionError(fn == nil, dtlserrors.ErrNilCertificateRequestMessageHook)))
 }

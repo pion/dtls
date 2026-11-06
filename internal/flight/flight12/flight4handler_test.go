@@ -143,10 +143,12 @@ func TestFlight4_CertificateRequestHook(t *testing.T) {
 		LocalCertificates:     []tls.Certificate{cert},
 		LocalSignatureSchemes: signaturehash.Algorithms(),
 		ClientAuth:            dtlsconfig.RequestClientCert,
-		CertificateRequestMessageHook: func(mcr handshake12.MessageCertificateRequest) handshake.Message {
+		CertificateRequestMessageHook: func(message handshake.Message) handshake.Message {
+			mcr, ok := message.(*handshake12.MessageCertificateRequest)
+			assert.True(t, ok)
 			mcr.SignatureHashAlgorithms = []signaturehash.Algorithm{}
 
-			return &mcr
+			return mcr
 		},
 	}
 

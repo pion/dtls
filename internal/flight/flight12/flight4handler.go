@@ -476,7 +476,7 @@ func serverCertificateFlight(state *dtlsstate.State12, cfg *dtlsconfig.Handshake
 		var content handshake.Handshake
 
 		if cfg.CertificateRequestMessageHook != nil {
-			content = handshake.Handshake{Message: cfg.CertificateRequestMessageHook(*certReq)}
+			content = handshake.Handshake{Message: cfg.CertificateRequestMessageHook(certReq)}
 		} else {
 			content = handshake.Handshake{Message: certReq}
 		}
