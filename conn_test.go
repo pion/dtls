@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -3026,6 +3027,15 @@ func TestDTLS13ClientCertificateRejectionAlertsPeer(t *testing.T) {
 	go func() { clientDone <- client.HandshakeContext(ctx) }()
 	require.ErrorIs(t, server.HandshakeContext(ctx), dtlserrors.ErrCertificateVerificationFailed)
 	clientErr := <-clientDone
+	if clientErr == nil {
+		// The client may finish before the server rejects its certificate.
+		// Fatal alerts received after completion close the connection.
+		require.NoError(t, client.SetReadDeadline(time.Now().Add(2*time.Second)))
+		_, clientErr = client.Read(make([]byte, 1))
+		require.ErrorIs(t, clientErr, io.EOF)
+
+		return
+	}
 	var receivedAlert *alertError
 	require.ErrorAs(t, clientErr, &receivedAlert)
 	require.Equal(t, alert.Fatal, receivedAlert.Level)

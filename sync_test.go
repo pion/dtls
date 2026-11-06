@@ -9,15 +9,19 @@ package dtls
 
 import (
 	"context"
+	"net"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	dtlsstate "github.com/pion/dtls/v4/internal/state"
 	"github.com/pion/dtls/v4/pkg/crypto/selfsign"
 	"github.com/pion/dtls/v4/pkg/protocol"
 	"github.com/pion/dtls/v4/pkg/protocol/extension"
 	"github.com/pion/dtls/v4/pkg/protocol/recordlayer"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Assert that a DTLS Server only responds with RenegotiationInfo if a ClientHello contained that
@@ -88,5 +92,86 @@ func TestApplicationDataQueueLimited(t *testing.T) {
 		assert.NoError(t, ca.Close())
 		<-done
 		synctest.Wait()
+	})
+}
+
+type finishedACKTestConn struct {
+	net.PacketConn
+	server   *Conn
+	sequence uint64
+	acks     atomic.Int32
+}
+
+func (c *finishedACKTestConn) WriteTo(data []byte, addr net.Addr) (int, error) {
+	if len(data) != 0 && protocol.IsDTLS13Ciphertext(protocol.ContentType(data[0])) && data[0]&3 == 3 {
+		record, err := recordlayer.ParseRecord(data, 0)
+		if err != nil {
+			return 0, err
+		}
+		generation, err := c.server.writeTrafficGeneration(3)
+		if err != nil {
+			return 0, err
+		}
+		protection := testRecordProtection13{TrafficProtection: generation.Protection, capabilities: dtlsstate.CommonState(c.server.state).CipherSuite.Capabilities()}
+		header := recordlayer.CiphertextConfig{EpochLow: 3, SequenceNumber: uint16(record.SequenceNumber() & 0xffff), TwoByteSequence: record.SequenceBytes() == 2, LengthPresent: record.LengthPresent()}
+		opened, err := protection.OpenRecord(header, c.sequence, record.Payload())
+		c.sequence++
+		if err != nil {
+			return 0, err
+		}
+		if opened.RealType == protocol.ContentTypeACK && c.acks.Add(1) == 1 {
+			return len(data), nil
+		}
+	}
+
+	return c.PacketConn.WriteTo(data, addr)
+}
+
+func TestClientHandshakeCompletesBeforeFinishedACK(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		certificate, err := selfsign.GenerateSelfSigned()
+		require.NoError(t, err)
+		clientTransport, serverTransport := packetPipe()
+		filtered := &finishedACKTestConn{PacketConn: serverTransport}
+		client, err := Client(clientTransport, clientTransport.RemoteAddr(),
+			WithInsecureSkipVerify(true), WithMinVersion(protocol.Version1_3), WithFlightInterval(time.Second))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = client.Close() })
+		server, err := Server(filtered, serverTransport.RemoteAddr(), WithCertificates(certificate),
+			WithMinVersion(protocol.Version1_3), WithFlightInterval(time.Second))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = server.Close() })
+		filtered.server = server
+
+		// Finish the handshake and key update before Finished can be retransmitted.
+		started := time.Now()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second/2)
+		defer cancel()
+		done := make(chan error, 2)
+		go func() { done <- client.HandshakeContext(ctx) }()
+		go func() { done <- server.HandshakeContext(ctx) }()
+		require.NoError(t, <-done)
+		require.NoError(t, <-done)
+		require.NoError(t, client.UpdateKeys(ctx, KeyUpdateOptions{}))
+		_, err = client.Write([]byte("application data"))
+		require.NoError(t, err)
+		buffer := make([]byte, 64)
+		n, err := server.Read(buffer)
+		require.NoError(t, err)
+		require.Equal(t, "application data", string(buffer[:n]))
+		require.Less(t, time.Since(started), time.Second)
+		cancel() // Completion must leave retransmissions independent of this context.
+
+		acks := filtered.acks.Load()
+		time.Sleep(time.Second)
+		synctest.Wait()
+		require.Greater(t, filtered.acks.Load(), acks, "Finished must still be retransmitted")
+		state, ok := client.ConnectionState()
+		require.True(t, ok)
+		require.Equal(t, uint64(4), state.KeyUsage.WriteEpoch, "Finished retransmission must preserve updated keys")
+		acks = filtered.acks.Load()
+		time.Sleep(4 * time.Second)
+		synctest.Wait()
+		require.Equal(t, acks, filtered.acks.Load(), "ACK must stop final-flight retransmission")
 	})
 }

@@ -73,6 +73,7 @@ type flightTestConn struct {
 	writePackets        func(context.Context, []*dtlsflight.Outbound) error
 	recvHandshake       chan RecvHandshakeState
 	writtenPackets      []*dtlsflight.Outbound
+	pendingACKs         []protocol.RecordNumber
 }
 
 type handshakeTestTimer struct {
@@ -98,6 +99,13 @@ func (c *flightTestConn) WritePackets(
 	}
 
 	return &WriteResult{}, nil
+}
+
+func (c *flightTestConn) TakePendingACKs() []protocol.RecordNumber {
+	records := c.pendingACKs
+	c.pendingACKs = nil
+
+	return records
 }
 
 func (c *flightTestConn) RecvHandshake() <-chan RecvHandshakeState {
@@ -710,11 +718,18 @@ func TestHandshakeFSM13WaitParsesProtectedEncryptedExtensions(t *testing.T) {
 	require.NoError(t, err)
 
 	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+	conn.handleQueuedPackets = func(context.Context) error {
+		conn.pendingACKs = []protocol.RecordNumber{{Epoch: dtlsflight13.EpochHandshake, SequenceNumber: 0}}
+
+		return nil
+	}
 	recvState := RecvHandshakeState{Done: make(chan struct{})}
 	conn.recvHandshake <- recvState
 
 	nextState, err := fsm.wait(context.Background(), conn)
 	require.NoError(t, err)
+	assert.Empty(t, conn.pendingACKs, "the client's next flight implicitly acknowledges queued server records")
+	assert.Empty(t, conn.writtenPackets, "the server flight does not need an explicit ACK")
 	assert.Equal(t, StatePreparing, nextState)
 	assert.Equal(t, dtlsflight13.Flight5, fsm.currentFlight)
 	assert.Equal(t, 5, fixture.clientState.HandshakeRecvSequence)
@@ -993,6 +1008,7 @@ func TestHandshakeFSM13SendErrorReleasesReader(t *testing.T) {
 			nextState, err = fsm.send(context.Background(), conn)
 			require.ErrorIs(t, err, context.Canceled)
 			assert.Equal(t, StateErrored, nextState)
+			assert.False(t, fsm.establishment.Established())
 			assertFlight13RecvDoneClosed(t, recvState)
 		})
 	}
@@ -1824,11 +1840,14 @@ func TestHandshakeFSM13TicketBeforeFinalACK(t *testing.T) {
 	ack, ok := conn.writtenPackets[0].Content.(*protocol.ACK)
 	require.True(t, ok)
 	assert.Equal(t, received.RecordsToACK, ack.Records)
-	transition, err := fsm.handleReceivedFlight(t.Context(), conn, RecvHandshakeState{
+	finalACK := RecvHandshakeState{
+		Done: make(chan struct{}),
 		ACKs: []protocol.ACK{{Records: []protocol.RecordNumber{finished}}},
-	})
+	}
+	nextState, err := fsm.finishReceive(t.Context(), conn, finalACK)
 	require.NoError(t, err)
-	assert.Equal(t, StateFinished, transition.state)
+	assert.Equal(t, StateFinished, nextState)
+	assertFlight13RecvDoneClosed(t, finalACK)
 }
 
 func TestCookieResponsesBackoff(t *testing.T) {

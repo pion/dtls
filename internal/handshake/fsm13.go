@@ -77,6 +77,7 @@ type fsm13 struct {
 	flights                []*dtlsflight.Outbound
 	retransmit             bool
 	retransmitInterval     time.Duration
+	retransmitAt           time.Time
 	peerRetransmitAfter    time.Time
 	peerRetransmitInterval time.Duration
 	flightACK              reliableFlight
@@ -305,11 +306,15 @@ func (s *fsm13) send(ctx context.Context, conn Conn) (State, error) {
 		return StateErrored, err
 	}
 	s.flightACK.track(result)
+	s.retransmitAt = time.Now().Add(s.retransmitInterval)
+	if s.establishment.Established() {
+		return StateFinished, nil
+	}
 	finished, err := s.afterSend(ctx, conn, s.currentFlight)
 	if err != nil {
 		return StateErrored, err
 	}
-	if finished && len(s.flightACK.pending) == 0 {
+	if finished {
 		return StateFinished, nil
 	}
 
@@ -355,7 +360,16 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 }
 
 func (s *fsm13) finish(ctx context.Context, conn Conn) (State, error) {
-	s.postHandshake.initialize()
+	var finalFlightC <-chan time.Time
+	if s.currentFlight.IsLastSendFlight() && len(s.flightACK.pending) != 0 {
+		// Application traffic can flow while Finished awaits its ACK. Keep the
+		// original deadline across writes and retain handshake keys until ACKed.
+		timer := s.cfg.NewTimer(max(time.Until(s.retransmitAt), 0))
+		defer timer.Stop()
+		finalFlightC = timer.C()
+	} else {
+		s.postHandshake.initialize()
+	}
 	if err := s.postHandshake.startQueuedPostHandshake(ctx, conn); err != nil {
 		return StateErrored, err
 	}
@@ -367,25 +381,38 @@ func (s *fsm13) finish(ctx context.Context, conn Conn) (State, error) {
 
 	select {
 	case received := <-conn.RecvHandshake():
-		s.received.retain(received)
-		defer s.received.release()
-		if err := s.postHandshake.handlePostHandshakeReceive(ctx, conn, received); err != nil {
-			return StateErrored, err
-		}
+		return s.finishReceive(ctx, conn, received)
 
 	case command := <-s.postHandshake.commands:
 		s.postHandshake.queue = append(s.postHandshake.queue, command)
 
 	case now := <-timerC:
-		if err := s.postHandshake.retransmitPostHandshake(ctx, conn, now, s.cfg.DisableRetransmitBackoff); err != nil {
-			return StateErrored, err
-		}
+		return StateFinished, s.postHandshake.retransmitPostHandshake(ctx, conn, now, s.cfg.DisableRetransmitBackoff)
+
+	case <-finalFlightC:
+		return s.retransmitTimeout(), nil
 
 	case <-ctx.Done():
 		return StateErrored, ctx.Err()
 	}
 
 	return StateFinished, nil
+}
+
+func (s *fsm13) finishReceive(ctx context.Context, conn Conn, received RecvHandshakeState) (State, error) {
+	// Final-flight retransmits do not drain queued packets.
+	defer s.received.release()
+	if !s.postHandshake.initialized {
+		transition, err := s.handleReceivedFlight(ctx, conn, received)
+		if transition.state == StateSending {
+			return StateSending, err
+		}
+
+		return StateFinished, err
+	}
+	s.received.retain(received)
+
+	return StateFinished, s.postHandshake.handlePostHandshakeReceive(ctx, conn, received)
 }
 
 func (s *fsm13) handleReceivedFlight(
@@ -400,16 +427,19 @@ func (s *fsm13) handleReceivedFlight(
 		s.retransmitInterval = s.cfg.InitialRetransmitInterval
 	}
 	s.applyACKProgress(ackResult)
-	if !received.HasHandshake && len(received.ACKs) != 0 {
-		return s.transitionAfterACK(ackResult, false), nil
-	}
 	if s.currentFlight.IsLastSendFlight() {
 		return s.handleFinalFlightReceive(ctx, conn, received, ackResult)
+	}
+	if !received.HasHandshake && len(received.ACKs) != 0 {
+		return s.transitionAfterACK(ackResult, false), nil
 	}
 
 	nextFlight, err := s.parseReceivedFlight(ctx, conn, s.currentFlight)
 	if err != nil {
 		return receivedFlightTransition{}, err
+	}
+	if pendingConn, ok := conn.(pendingACKConn); ok {
+		received.RecordsToACK = append(received.RecordsToACK, pendingConn.TakePendingACKs()...)
 	}
 	if err := s.queueReceivedACKs(ctx, conn, received.RecordsToACK); err != nil {
 		return receivedFlightTransition{}, err
