@@ -631,3 +631,17 @@ func TestECHOptionRoles(t *testing.T) {
 	require.Nil(t, server.getECHKeys)
 	require.Equal(t, key.Config, server.echKeys[0].Config)
 }
+
+func TestDefaultEllipticCurves(t *testing.T) {
+	client, err := buildClientConfig()
+	require.NoError(t, err)
+	assert.Equal(t, defaultClientCurves, defaultEllipticCurves(client))
+
+	earlyDataClient, err := buildClientConfig(WithSessionStore(&earlyDataTestStore{}, WithMaxEarlyDataSize(32)))
+	require.NoError(t, err)
+	assert.Equal(t, defaultCurves, defaultEllipticCurves(earlyDataClient))
+
+	server, err := buildServerConfig()
+	require.NoError(t, err)
+	assert.Equal(t, defaultCurves, defaultEllipticCurves(server))
+}

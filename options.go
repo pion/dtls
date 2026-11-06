@@ -492,8 +492,11 @@ func WithSupportedProtocols(protocols ...string) Option {
 	return sliceOption(func(c *dtlsConfig) *[]string { return &c.SupportedProtocols }, protocols, dtlserrors.ErrEmptySupportedProtocols)
 }
 
-// WithEllipticCurves sets the elliptic curves.
+// WithEllipticCurves sets the elliptic curves in preference order.
 // For functional options, an explicitly empty slice is not allowed.
+// Clients default to X25519, X25519MLKEM768, P-256, P-384 and send a key
+// share for the first. Servers, and clients with early data enabled, default
+// to X25519MLKEM768, X25519, P-256, P-384.
 func WithEllipticCurves(curves ...elliptic.Curve) Option {
 	return sliceOption(func(c *dtlsConfig) *[]elliptic.Curve { return &c.EllipticCurves }, curves, dtlserrors.ErrEmptyEllipticCurves)
 }
@@ -652,12 +655,20 @@ const (
 	minReceiveBufferSize = 1
 )
 
-var defaultCurves = []elliptic.Curve{ //nolint:gochecknoglobals
-	elliptic.X25519MLKEM768,
-	elliptic.X25519,
-	elliptic.P256,
-	elliptic.P384,
-}
+var (
+	defaultCurves = []elliptic.Curve{ //nolint:gochecknoglobals
+		elliptic.X25519MLKEM768,
+		elliptic.X25519,
+		elliptic.P256,
+		elliptic.P384,
+	}
+	defaultClientCurves = []elliptic.Curve{ //nolint:gochecknoglobals
+		elliptic.X25519,
+		elliptic.X25519MLKEM768,
+		elliptic.P256,
+		elliptic.P384,
+	}
+)
 
 type connConfigValues struct {
 	logger                      logging.LeveledLogger
@@ -704,7 +715,7 @@ func newConnConfigValues(config *dtlsConfig) (connConfigValues, error) {
 		cipherSuites:                cipherSuites,
 		signatureSchemes:            signatureSchemes,
 		certificateSignatureSchemes: certSignatureSchemes,
-		ellipticCurves:              effectiveEllipticCurves(config.EllipticCurves),
+		ellipticCurves:              effectiveEllipticCurves(config.EllipticCurves, defaultEllipticCurves(config)),
 		serverName:                  config.ServerName,
 		cidPathMigrationPolicy:      config.CIDPathMigrationPolicy,
 	}, nil
@@ -746,9 +757,26 @@ func effectiveReplayProtectionWindow(replayProtectionWindow int) int {
 	return replayProtectionWindow
 }
 
-func effectiveEllipticCurves(curves []elliptic.Curve) []elliptic.Curve {
+// defaultEllipticCurves returns the curve preference used when none is set.
+//
+// Clients lead with X25519, so the first ClientHello carries one small key
+// share and fits in one datagram: some DTLS servers drop a fragmented first
+// ClientHello. Servers lead with X25519MLKEM768 and request it with a
+// HelloRetryRequest when the client offered it without a key share.
+//
+// Clients that offer early data also lead with X25519MLKEM768, because that
+// HelloRetryRequest would reject their early data.
+func defaultEllipticCurves(config *dtlsConfig) []elliptic.Curve {
+	if config.isClient && config.maxEarlyDataSize == 0 {
+		return defaultClientCurves
+	}
+
+	return defaultCurves
+}
+
+func effectiveEllipticCurves(curves, defaults []elliptic.Curve) []elliptic.Curve {
 	if len(curves) == 0 {
-		curves = defaultCurves
+		curves = defaults
 	}
 	if !fips140.Enabled() {
 		return curves
