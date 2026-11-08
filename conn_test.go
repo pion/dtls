@@ -40,6 +40,7 @@ import (
 	"github.com/pion/transport/v5/dpipe"
 	"github.com/pion/transport/v5/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -3874,8 +3875,17 @@ func TestCertificateVerifyHonorsLocalSignatureSchemes(t *testing.T) {
 }
 
 func TestEarlyApplicationDataDoesNotBlockFinished(t *testing.T) {
-	for _, isClient := range []bool{false, true} {
-		t.Run(fmt.Sprint(isClient), func(t *testing.T) {
+	for _, tc := range []struct {
+		isClient      bool
+		finishedFirst bool
+	}{
+		{false, false},
+		{false, true},
+		{true, false},
+		{true, true},
+	} {
+		t.Run(fmt.Sprintf("%s/finishedFirst=%t", srvCliStr(tc.isClient), tc.finishedFirst), func(t *testing.T) {
+			isClient := tc.isClient
 			ca, cb := dpipe.Pipe()
 			defer ca.Close() //nolint:errcheck
 			defer cb.Close() //nolint:errcheck
@@ -3895,16 +3905,24 @@ func TestEarlyApplicationDataDoesNotBlockFinished(t *testing.T) {
 			assert.NoError(t, conn.state.cipherSuite.Init(secret, random, random, isClient))
 			assert.NoError(t, peer.Init(secret, random, random, !isClient))
 			conn.setRemoteEpoch(1)
+			conn.fsm = &handshakeFSM{closed: make(chan struct{})}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			var contents []protocol.Content
+			for i := range maxAppDataPacketQueueSize + 1 {
+				contents = append(contents, &protocol.ApplicationData{Data: []byte{byte(i)}})
+			}
+			finishedRecord := &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: make([]byte, 12)}}
+			if tc.finishedFirst {
+				contents = append([]protocol.Content{finishedRecord}, contents...)
+			} else {
+				contents = append(contents, finishedRecord)
+			}
 			var records [][]byte
-			for seq := range 3 {
+			for seq, content := range contents {
 				record := &recordlayer.RecordLayer{
 					Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: 1, SequenceNumber: uint64(seq)},
-					Content: &protocol.ApplicationData{Data: []byte{byte(seq)}},
-				}
-				if seq == 2 {
-					record.Content = &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: make([]byte, 12)}}
+					Content: content,
 				}
 				raw, marshalErr := record.Marshal()
 				assert.NoError(t, marshalErr)
@@ -3912,29 +3930,65 @@ func TestEarlyApplicationDataDoesNotBlockFinished(t *testing.T) {
 				assert.NoError(t, encryptErr)
 				records = append(records, raw)
 			}
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				for _, raw := range records {
-					_, _, alertPtr, packetErr := conn.handleIncomingPacket(ctx, raw, ca.RemoteAddr(), true)
-					assert.NoError(t, packetErr)
-					assert.Nil(t, alertPtr)
-				}
-			}()
+			readErr := make(chan error, 1)
+			go func() { readErr <- conn.readAndBuffer(ctx) }()
+			_, err = cb.Write(bytes.Join(records, nil))
+			require.NoError(t, err)
 			select {
-			case <-done:
+			case received := <-conn.handshakeRecv:
+				close(received.done)
 			case <-time.After(time.Second):
+				close(conn.fsm.closed)
 				cancel()
-				<-done
+				<-readErr
 				assert.FailNow(t, "early application data blocked Finished processing")
 			}
+			require.NoError(t, <-readErr)
 			assert.False(t, conn.isHandshakeCompletedSuccessfully())
-			assert.Len(t, conn.decrypted, 1)
-			assert.Equal(t, []byte{0}, <-conn.decrypted)
+			assert.Empty(t, conn.decrypted)
+			require.Len(t, conn.earlyData, maxAppDataPacketQueueSize)
+			for seq, data := range conn.earlyData {
+				assert.Equal(t, []byte{byte(seq)}, data)
+			}
 			finished := conn.handshakeCache.pull(handshakeCachePullRule{handshake.TypeFinished, 1, !isClient, false})
 			assert.NotNil(t, finished[0], "Finished must reach the handshake parser")
 		})
 	}
+}
+
+func TestQueuedRecordsReplayInEpochOrder(t *testing.T) {
+	ca, cb := dpipe.Pipe()
+	defer ca.Close() //nolint:errcheck
+	defer cb.Close() //nolint:errcheck
+	conn, err := createConn(dtlsnet.PacketConnFromConn(ca), ca.RemoteAddr(), &Config{InsecureSkipVerify: true}, true, nil)
+	require.NoError(t, err)
+	conn.state.cipherSuite = &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
+	peer := &ciphersuite.TLSEcdheEcdsaWithAes128GcmSha256{}
+	secret, random := make([]byte, 48), make([]byte, 32)
+	require.NoError(t, conn.state.cipherSuite.Init(secret, random, random, true))
+	require.NoError(t, peer.Init(secret, random, random, false))
+
+	// Replay ChangeCipherSpec before Finished even when it arrives later.
+	finishedRecord := &recordlayer.RecordLayer{
+		Header:  recordlayer.Header{Version: protocol.Version1_2, Epoch: 1},
+		Content: &handshake.Handshake{Message: &handshake.MessageFinished{VerifyData: make([]byte, 12)}},
+	}
+	finished, err := finishedRecord.Marshal()
+	require.NoError(t, err)
+	finished, err = peer.Encrypt(finishedRecord, finished)
+	require.NoError(t, err)
+	changeCipherSpec, err := (&recordlayer.RecordLayer{
+		Header:  recordlayer.Header{Version: protocol.Version1_2, SequenceNumber: 5},
+		Content: &protocol.ChangeCipherSpec{},
+	}).Marshal()
+	require.NoError(t, err)
+	require.True(t, conn.enqueueEncryptedPackets(addrPkt{ca.RemoteAddr(), finished}))
+	require.True(t, conn.enqueueEncryptedPackets(addrPkt{ca.RemoteAddr(), changeCipherSpec}))
+
+	require.NoError(t, conn.handleQueuedPackets(context.Background()))
+	assert.Equal(t, uint16(1), conn.state.getRemoteEpoch())
+	pulled := conn.handshakeCache.pull(handshakeCachePullRule{handshake.TypeFinished, 1, false, false})
+	assert.NotNil(t, pulled[0], "Finished must reach the handshake parser")
 }
 
 func TestReadReturnsDataReceivedBeforeCloseNotify(t *testing.T) {
@@ -3960,6 +4014,44 @@ func TestReadReturnsDataReceivedBeforeCloseNotify(t *testing.T) {
 		_, err = server.Read(buf)
 		assert.ErrorIs(t, err, io.EOF)
 		assert.NoError(t, server.Close())
+	}
+}
+
+func TestReadReturnsEarlyDataFirst(t *testing.T) {
+	for _, closeNotify := range []bool{true, false} {
+		t.Run(fmt.Sprintf("closeNotify=%t", closeNotify), func(t *testing.T) {
+			client, server, err := pipeMemory()
+			require.NoError(t, err)
+			defer client.Close() //nolint:errcheck
+
+			// Seed early data to test ordering after handshake completion.
+			server.lock.Lock()
+			server.earlyData = [][]byte{[]byte("early 0"), []byte("early 1")}
+			server.hasEarlyData.Store(true)
+			server.lock.Unlock()
+			_, err = client.Write([]byte("late"))
+			require.NoError(t, err)
+			assert.Eventually(t, func() bool { return len(server.decrypted) == 1 }, 5*time.Second, time.Millisecond)
+
+			buf := make([]byte, 16)
+			if !closeNotify {
+				require.NoError(t, server.Close())
+				_, err = server.Read(buf)
+				assert.ErrorIs(t, err, io.EOF)
+
+				return
+			}
+			require.NoError(t, client.Close())
+			assert.Eventually(t, server.isConnectionClosed, 5*time.Second, time.Millisecond)
+			for _, want := range []string{"early 0", "early 1", "late"} {
+				n, readErr := server.Read(buf)
+				require.NoError(t, readErr)
+				assert.Equal(t, want, string(buf[:n]))
+			}
+			_, err = server.Read(buf)
+			assert.ErrorIs(t, err, io.EOF)
+			assert.NoError(t, server.Close())
+		})
 	}
 }
 
