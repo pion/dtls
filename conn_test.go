@@ -766,26 +766,64 @@ func TestHandleIncomingPacket13RejectsFixedHandshakeEpoch(t *testing.T) {
 }
 
 func TestOnConnectionAttemptConnectionOwnership(t *testing.T) {
-	expectedErr := errors.New("connection rejected") //nolint:err113
-	config, err := buildServerConfig(WithOnConnectionAttempt(func(net.Addr) error { return expectedErr }))
-	assert.NoError(t, err)
+	certificate, err := selfsign.GenerateSelfSigned()
+	require.NoError(t, err)
 
-	t.Run("Listener closes rejected accepted PacketConn", func(t *testing.T) {
-		ca, cb := packetPipe()
-		defer func() {
-			assert.NoError(t, ca.Close())
-		}()
-
-		conn := &closeTrackingPacketConn{PacketConn: cb}
-		l := &listener{
-			config: config,
-			parent: &singlePacketListener{conn: conn, raddr: cb.RemoteAddr()},
-		}
-
-		_, err := l.Accept()
-		assert.ErrorIs(t, err, expectedErr)
-		assert.True(t, conn.closed.Load())
+	t.Run("underlying listener error is returned", func(t *testing.T) {
+		l, err := NewListener(&queuedPacketListener{err: io.EOF}, WithCertificates(certificate))
+		require.NoError(t, err)
+		_, err = l.Accept()
+		assert.Same(t, io.EOF, err)
 	})
+
+	newPacketConn := func(t *testing.T) (*closeTrackingPacketConn, net.Addr) {
+		t.Helper()
+		ca, cb := packetPipe()
+		t.Cleanup(func() {
+			_ = ca.Close()
+			_ = cb.Close()
+		})
+
+		return &closeTrackingPacketConn{PacketConn: cb}, cb.RemoteAddr()
+	}
+
+	rejectionErr := errors.New("peer denied") //nolint:err113
+	for name, rejection := range map[string]error{
+		"plain":   rejectionErr,
+		"wrapped": fmt.Errorf("connection rejected: %w", rejectionErr),
+	} {
+		t.Run(name, func(t *testing.T) {
+			conn, addr := newPacketConn(t)
+			next, _ := newPacketConn(t)
+			attempts := 0
+			callback := WithOnConnectionAttempt(func(net.Addr) error {
+				attempts++
+				if attempts == 1 {
+					return rejection
+				}
+
+				return nil
+			})
+
+			l, err := NewListener(&queuedPacketListener{conn: conn, next: next, raddr: addr},
+				WithCertificates(certificate), callback)
+			require.NoError(t, err)
+			accepted, err := l.Accept()
+			require.NoError(t, err)
+			require.NoError(t, accepted.Close())
+			assert.Equal(t, 2, attempts)
+			assert.True(t, conn.closed.Load())
+
+			attempts = 0
+			direct, _ := newPacketConn(t)
+			_, err = Server(direct, addr, WithCertificates(certificate), callback)
+			assert.Same(t, rejection, err)
+			assert.False(t, direct.closed.Load())
+			attempts = 0
+			_, err = DetachedServer(addr, WithCertificates(certificate), callback)
+			assert.Same(t, rejection, err)
+		})
+	}
 }
 
 type closeTrackingPacketConn struct {
@@ -799,18 +837,26 @@ func (c *closeTrackingPacketConn) Close() error {
 	return c.PacketConn.Close()
 }
 
-type singlePacketListener struct {
+type queuedPacketListener struct {
 	conn  net.PacketConn
+	next  net.PacketConn
 	raddr net.Addr
+	err   error
 }
 
-func (l *singlePacketListener) Accept() (net.PacketConn, net.Addr, error) {
-	return l.conn, l.raddr, nil
+func (l *queuedPacketListener) Accept() (net.PacketConn, net.Addr, error) {
+	if l.conn == nil {
+		return nil, nil, l.err
+	}
+	conn := l.conn
+	l.conn, l.next = l.next, nil
+
+	return conn, l.raddr, nil
 }
 
-func (*singlePacketListener) Close() error { return nil }
+func (*queuedPacketListener) Close() error { return nil }
 
-func (*singlePacketListener) Addr() net.Addr { return nil }
+func (*queuedPacketListener) Addr() net.Addr { return nil }
 
 func TestFragmentBuffer_Retransmission(t *testing.T) {
 	fragmentBuffer := dtlsfragmentbuffer.New()

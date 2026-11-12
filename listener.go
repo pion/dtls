@@ -101,21 +101,33 @@ type listener struct {
 }
 
 // Accept waits for and returns the next connection to the listener.
-// You have to either close or read on all connection that are created.
+// Connections rejected by OnConnectionAttempt are closed and skipped.
+// Errors from the underlying listener are returned.
+// The handshake is performed on the first Read or Write.
 func (l *listener) Accept() (net.Conn, error) {
-	c, raddr, err := l.parent.Accept()
-	if err != nil {
-		return nil, err
+	for {
+		packetConn, raddr, err := l.parent.Accept()
+		if err != nil {
+			return nil, err
+		}
+
+		if l.config.OnConnectionAttempt != nil {
+			if err = l.config.OnConnectionAttempt(raddr); err != nil {
+				_ = packetConn.Close()
+
+				continue
+			}
+		}
+
+		conn, err := createConn(packetConn, raddr, l.config, false, nil)
+		if err != nil {
+			_ = packetConn.Close()
+
+			return nil, err
+		}
+
+		return conn, nil
 	}
-
-	conn, err := serverWithConfig(c, raddr, l.config)
-	if err != nil {
-		_ = c.Close()
-
-		return nil, err
-	}
-
-	return conn, nil
 }
 
 // Close closes the listener.
