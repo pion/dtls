@@ -93,6 +93,29 @@ type handshakeFSM struct {
 	cache                  *handshakeCache
 	cfg                    *handshakeConfig
 	closed                 chan struct{}
+	readerStart            chan struct{} // Closed once the FSM first waits for input
+	received               recvHandshakeLease
+}
+
+// recvHandshakeLease pauses reads while the FSM generates and sends a flight.
+// It protects shared state. After the final flight it stays held until the
+// handshake is marked complete, which happens before finish releases it.
+type recvHandshakeLease struct {
+	done chan struct{}
+}
+
+func (l *recvHandshakeLease) retain(state recvHandshakeState) {
+	l.release()
+	l.done = state.done
+}
+
+func (l *recvHandshakeLease) release() {
+	if l.done == nil {
+		return
+	}
+
+	close(l.done)
+	l.done = nil
 }
 
 type handshakeConfig struct {
@@ -177,6 +200,8 @@ func newHandshakeFSM(
 	s *State, cache *handshakeCache, cfg *handshakeConfig,
 	initialFlight flightVal,
 ) *handshakeFSM {
+	readerStart := make(chan struct{})
+
 	return &handshakeFSM{
 		currentFlight:      initialFlight,
 		state:              s,
@@ -184,12 +209,16 @@ func newHandshakeFSM(
 		cfg:                cfg,
 		retransmitInterval: cfg.initialRetransmitInterval,
 		closed:             make(chan struct{}),
+		readerStart:        readerStart,
+		// Hold reads until the initial flight is sent.
+		received: recvHandshakeLease{done: readerStart},
 	}
 }
 
 func (s *handshakeFSM) Run(ctx context.Context, conn flightConn, initialState handshakeState) error {
 	state := initialState
 	defer func() {
+		s.received.release()
 		close(s.closed)
 	}()
 	for {
@@ -284,6 +313,8 @@ func (s *handshakeFSM) send(ctx context.Context, c flightConn) (handshakeState, 
 }
 
 func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeState, error) { //nolint:gocognit,cyclop
+	s.received.release()
+
 	parse, errFlight := s.currentFlight.getFlightParser()
 	if errFlight != nil {
 		if alertErr := conn.notify(ctx, alert.Fatal, alert.InternalError); alertErr != nil {
@@ -295,11 +326,12 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 
 	retransmitTimer := time.NewTimer(s.retransmitInterval)
 	defer retransmitTimer.Stop()
+	cookieRetry := false
 	for {
 		select {
 		case state := <-conn.recvHandshake():
+			s.received.retain(state)
 			nextFlight, alert, err := parse(ctx, conn, s.state, s.cache, s.cfg)
-			close(state.done)
 			if alert != nil {
 				if alertErr := conn.notify(ctx, alert.Level, alert.Description); alertErr != nil {
 					if err != nil {
@@ -311,6 +343,7 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 				return handshakeErrored, err
 			}
 			if nextFlight == 0 {
+				s.received.release()
 				if s.shouldRetransmitClientHello(state) {
 					if s.currentFlight != flight2 {
 						s.backoffPeerRetransmit()
@@ -322,14 +355,13 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 				break
 			}
 			if s.currentFlight == flight3 && nextFlight == flight3 {
-				// A new cookie doesn't bypass or reset the retry backoff.
-				select {
-				case <-retransmitTimer.C:
-					s.backoffRetransmit()
-				case <-ctx.Done():
-					return handshakeErrored, ctx.Err()
-				}
-			} else if !state.isRetransmit {
+				// New cookies do not reset the timer.
+				s.received.release()
+				cookieRetry = true
+
+				break
+			}
+			if !state.isRetransmit {
 				s.retransmitInterval = s.cfg.initialRetransmitInterval
 			}
 			s.cfg.log.Tracef(
@@ -346,6 +378,11 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 			return handshakePreparing, nil
 
 		case <-retransmitTimer.C:
+			if cookieRetry {
+				s.backoffRetransmit()
+
+				return handshakePreparing, nil
+			}
 			if !s.retransmit {
 				return handshakeWaiting, nil
 			}
@@ -363,6 +400,8 @@ func (s *handshakeFSM) wait(ctx context.Context, conn flightConn) (handshakeStat
 }
 
 func (s *handshakeFSM) finish(ctx context.Context, c flightConn) (handshakeState, error) {
+	s.received.release()
+
 	select {
 	case state := <-c.recvHandshake():
 		close(state.done)

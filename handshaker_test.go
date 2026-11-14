@@ -73,6 +73,66 @@ func TestCookieResponsesBackoff(t *testing.T) {
 	}
 }
 
+func TestCookieRetryKeepsReceiving(t *testing.T) {
+	cfg := &handshakeConfig{
+		initialRetransmitInterval: time.Hour,
+		log:                       logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+	}
+	cache := newHandshakeCache()
+	fsm := newHandshakeFSM(&State{isClient: true}, cache, cfg, flight1)
+	conn := &flightTestConn{recv: make(chan recvHandshakeState, 1)}
+	receive := func(seq uint16, cookie byte) chan struct{} {
+		raw, err := (&handshake.Handshake{
+			Header: handshake.Header{MessageSequence: seq},
+			Message: &handshake.MessageHelloVerifyRequest{
+				Version: protocol.Version1_2, Cookie: []byte{cookie},
+			},
+		}).Marshal()
+		require.NoError(t, err)
+		require.NoError(t, cache.push(raw, 0, seq, handshake.TypeHelloVerifyRequest, false))
+		done := make(chan struct{})
+		conn.recv <- recvHandshakeState{done: done}
+
+		return done
+	}
+
+	handled := func(done chan struct{}) {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "a HelloVerifyRequest waited while the cookie retry was paced")
+		}
+	}
+
+	first := receive(0, 1)
+	next, err := fsm.wait(t.Context(), conn)
+	require.NoError(t, err)
+	require.Equal(t, handshakePreparing, next)
+	select {
+	case <-first:
+		require.FailNow(t, "reader resumed before flight 3 was generated")
+	default:
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	waitErr := make(chan error, 1)
+	go func() {
+		_, err := fsm.wait(ctx, conn)
+		waitErr <- err
+	}()
+	handled(receive(1, 2))
+	handled(receive(2, 3))
+	assert.Equal(t, []byte{3}, fsm.state.cookie)
+	select {
+	case err := <-waitErr:
+		require.FailNow(t, "the cookie retry did not wait for the timer", "%v", err)
+	default:
+	}
+	cancel()
+	require.ErrorIs(t, <-waitErr, context.Canceled)
+}
+
 const nonZeroRetransmitInterval = 100 * time.Millisecond
 
 // Test that writes to the key log are in the correct format and only applies
