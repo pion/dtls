@@ -235,6 +235,9 @@ type Conn struct {
 	writeLock            sync.Mutex
 
 	encryptedPackets []addrPkt
+	replayPending    atomic.Bool // Queued records wait for their epoch's handshake to finish
+	earlyData        [][]byte    // Pre-handshake DTLS 1.2 application data
+	hasEarlyData     atomic.Bool // Skip locking in Read when earlyData is empty
 
 	connectionClosedByUser bool
 	closeLock              sync.Mutex
@@ -606,6 +609,13 @@ func (c *Conn) Read(buff []byte) (n int, err error) {
 	default:
 	}
 
+	// Early data was received before anything in decrypted.
+	if data, ok := c.popEarlyData(); ok {
+		n, _, err := c.readQueued(buff, data, true)
+
+		return n, err
+	}
+
 	for {
 		select {
 		case <-c.closed.Done():
@@ -647,6 +657,52 @@ func (c *Conn) readQueued(buff []byte, out any, ok bool) (int, bool, error) {
 	}
 
 	return copyDecrypted(buff, out)
+}
+
+// queueEarlyData buffers pre-handshake DTLS 1.2 data without blocking Finished.
+// Excess records are discarded under RFC 6347 Section 4.1.
+// The reader is paused at handshake completion.
+func (c *Conn) queueEarlyData(data []byte) bool {
+	if dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 || c.isHandshakeCompletedSuccessfully() {
+		return false
+	}
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.isHandshakeCompletedSuccessfully() {
+		return false
+	}
+	if len(c.earlyData) < maxAppDataPacketQueueSize {
+		c.earlyData = append(c.earlyData, data)
+		c.hasEarlyData.Store(true)
+	} else {
+		c.log.Debug("discarded application data received before the handshake completed")
+	}
+
+	return true
+}
+
+// popEarlyData returns the oldest application data received before the
+// handshake completed.
+func (c *Conn) popEarlyData() ([]byte, bool) {
+	if !c.hasEarlyData.Load() {
+		return nil, false
+	}
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if len(c.earlyData) == 0 {
+		return nil, false
+	}
+	data := c.earlyData[0]
+	c.earlyData[0] = nil
+	c.earlyData = c.earlyData[1:]
+	if len(c.earlyData) == 0 {
+		c.earlyData = nil
+		c.hasEarlyData.Store(false)
+	}
+
+	return data, true
 }
 
 // closedByCloseNotify reports whether the peer ended the connection with
@@ -1787,12 +1843,37 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !summary.containsHandshake && len(summary.receivedACKs) == 0 {
+	handedOff := summary.containsHandshake || len(summary.receivedACKs) > 0
+	if handedOff {
+		c.handOffHandshake(summary)
+	}
+	replayed, err := c.replayReadyPackets(ctx)
+	if err != nil {
+		return err
+	}
+	if !handedOff && !replayed {
 		c.signalHandshakeQuiescent()
-
-		return nil
 	}
 
+	return nil
+}
+
+// readAfterStart reads the next datagram once the FSM lets the reader start.
+func (c *Conn) readAfterStart(ctx context.Context) error {
+	if starter, ok := c.fsm.(dtlshandshake.ReaderStarter); ok {
+		select {
+		case <-starter.ReaderStart():
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return c.readAndBuffer(ctx)
+}
+
+// handOffHandshake passes received handshake records and ACKs to the FSM and
+// waits until it lets the reader go on.
+func (c *Conn) handOffHandshake(summary datagramProcessingSummary) {
 	received := dtlshandshake.RecvHandshakeState{
 		Done:                    make(chan struct{}),
 		HasHandshake:            summary.containsHandshake,
@@ -1809,8 +1890,40 @@ func (c *Conn) readAndBuffer(ctx context.Context) error {
 		<-received.Done
 	case <-c.fsm.Done():
 	}
+}
 
-	return nil
+// replayReadyPackets replays queued DTLS 1.2 records after ChangeCipherSpec.
+// Verify Finished first so data and alerts cannot displace it from the replay
+// window or close the connection before verification.
+func (c *Conn) replayReadyPackets(ctx context.Context) (bool, error) {
+	if !c.replayPending.Load() {
+		return false, nil
+	}
+	var handedOff bool
+	if !c.isHandshakeCompletedSuccessfully() {
+		var err error
+		if handedOff, err = c.replayAndHandOff(ctx, true); err != nil || !c.isHandshakeCompletedSuccessfully() {
+			return handedOff, err
+		}
+	}
+	c.replayPending.Store(false)
+	replayed, err := c.replayAndHandOff(ctx, false)
+
+	return handedOff || replayed, err
+}
+
+// replayAndHandOff replays queued records and passes any handshake records
+// among them to the FSM.
+func (c *Conn) replayAndHandOff(ctx context.Context, handshakeOnly bool) (bool, error) {
+	summary, err := c.replayQueuedPackets(ctx, handshakeOnly)
+	var warning *alertError
+	if summary.containsHandshake && (err == nil || errors.As(err, &warning) && !warning.IsFatalOrCloseNotify()) {
+		c.handOffHandshake(summary)
+
+		return true, err
+	}
+
+	return false, err
 }
 
 func (c *Conn) readAndProcessDatagram(ctx context.Context) (datagramProcessingSummary, error) {
@@ -1888,32 +2001,91 @@ func (c *Conn) processDatagramPackets(ctx context.Context, pkts [][]byte, rAddr 
 }
 
 func (c *Conn) handleQueuedPackets(ctx context.Context) error {
+	_, err := c.replayQueuedPackets(ctx, false)
+
+	return err
+}
+
+// replayQueuedPackets replays records selected by handshakeOnly.
+// Warnings are deferred; fatal alerts and close_notify stop replay.
+func (c *Conn) replayQueuedPackets(ctx context.Context, handshakeOnly bool) (datagramProcessingSummary, error) {
 	if c.pendingCIDNegotiation() {
-		return nil
+		return datagramProcessingSummary{}, nil
 	}
 
+	var summary datagramProcessingSummary
+	var warning error
+	for _, p := range c.takeQueuedPackets(handshakeOnly) {
+		outcome, err := c.replayQueuedPacket(ctx, p)
+		summary.containsHandshake = summary.containsHandshake || outcome.containsHandshake
+		summary.retransmit = summary.retransmit || outcome.retransmit
+		summary.retransmitStart = summary.retransmitStart || outcome.retransmitStart
+		var e *alertError
+		if errors.As(err, &e) && !e.IsFatalOrCloseNotify() {
+			if warning == nil {
+				warning = e
+			}
+
+			continue
+		}
+		if err != nil {
+			return summary, err
+		}
+	}
+
+	return summary, warning
+}
+
+func (c *Conn) replayQueuedPacket(ctx context.Context, p addrPkt) (packetOutcome, error) {
+	if p.pendingCID && c.inboundCIDRequired() && !p.datagramContainsCID {
+		return packetOutcome{}, nil
+	}
+
+	return c.processIncomingPacket(ctx, p.data, p.rAddr, nil, p.datagramContainsCID) // don't re-enqueue
+}
+
+// takeQueuedPackets removes records selected by handshakeOnly for replay.
+// DTLS 1.2 records are sorted by epoch and sequence number.
+func (c *Conn) takeQueuedPackets(handshakeOnly bool) []addrPkt {
 	c.lock.Lock()
 	pkts := c.encryptedPackets
 	c.encryptedPackets = nil
+	if handshakeOnly {
+		pkts, c.encryptedPackets = splitHandshakeRecords(pkts)
+	}
 	c.lock.Unlock()
 
-	for _, p := range pkts {
-		if p.pendingCID && c.inboundCIDRequired() && !p.datagramContainsCID {
-			continue
+	if dtlsstate.CommonState(c.state).LocalVersion != protocol.Version1_3 {
+		// Epoch and sequence number sit at the same offsets in every DTLS 1.2
+		// record header, connection ID records included. Records queued before
+		// version selection may be shorter DTLS 1.3 records; they sort first.
+		key := func(p addrPkt) []byte {
+			if len(p.data) < 11 {
+				return nil
+			}
+
+			return p.data[3:11]
 		}
-		_, err := c.processIncomingPacket(
-			ctx,
-			p.data,
-			p.rAddr,
-			nil, // don't re-enqueue
-			p.datagramContainsCID,
-		)
-		if err != nil {
-			return err
+		slices.SortStableFunc(pkts, func(a, b addrPkt) int {
+			return bytes.Compare(key(a), key(b))
+		})
+	}
+
+	return pkts
+}
+
+// splitHandshakeRecords selects DTLS 1.2 handshake records.
+// CID records hide their type, so a CID-wrapped Finished must be retransmitted.
+func splitHandshakeRecords(pkts []addrPkt) (handshakes, rest []addrPkt) {
+	for _, p := range pkts {
+		if protocol.ContentType(p.data[0]) == protocol.ContentTypeHandshake {
+			handshakes = append(handshakes, p)
+		} else {
+			rest = append(rest, p)
 		}
 	}
 
-	return nil
+	return handshakes, rest
 }
 
 func (c *Conn) enqueueEncryptedPackets(packet addrPkt) bool {
@@ -2758,6 +2930,11 @@ func (c *Conn) handleChangeCipherSpecRecord(prepared incomingPacketState, rAddr 
 	}
 
 	c.setRemoteEpoch(newRemoteEpoch)
+	// Replay records that overtook ChangeCipherSpec after this datagram.
+	// Handshake-driven replay already drains its queue.
+	if bufferLease != nil {
+		c.replayPending.Store(true)
+	}
 
 	return prepared.markPacketAsValid()
 }
@@ -2788,6 +2965,9 @@ func (c *Conn) deliverApplicationDataRecord(ctx context.Context, content *protoc
 		early := dtlsstate.CommonState(c.state).LocalVersion == protocol.Version1_3 && prepared.number.Epoch == dtlsflight13.EpochEarlyData
 		c.detached.publishApplicationData(content.Data, early)
 
+		return isLatestSeqNum, packetOutcome{}, nil
+	}
+	if c.queueEarlyData(content.Data) {
 		return isLatestSeqNum, packetOutcome{}, nil
 	}
 	// Read waits for handshake completion; keep the reader free to process Finished.
@@ -3523,7 +3703,7 @@ func (c *Conn) runHandshakeFSM(ctxHs context.Context, initialState dtlshandshake
 //nolint:contextcheck
 func (c *Conn) runHandshakeReader(ctxRead context.Context, firstErr chan<- error) {
 	for {
-		err := c.readAndBuffer(ctxRead)
+		err := c.readAfterStart(ctxRead)
 		if err == nil {
 			continue
 		}

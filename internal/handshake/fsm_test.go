@@ -1885,8 +1885,10 @@ func TestCookieResponsesBackoff(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, StatePreparing, next)
-			assertFlight13RecvDoneOpen(t, received)
-			fsm.received.release()
+			if sequence == 0 {
+				assertFlight13RecvDoneOpen(t, received)
+				fsm.received.release()
+			}
 			assertFlight13RecvDoneClosed(t, received)
 			if sequence > 0 {
 				assert.GreaterOrEqual(t, time.Since(started), interval)
@@ -1901,6 +1903,91 @@ func TestCookieResponsesBackoff(t *testing.T) {
 				fsm.retransmitInterval = time.Hour
 			}
 		}
+	}
+}
+
+func TestCookieRetryKeepsReceiving(t *testing.T) {
+	cfg := &dtlsconfig.HandshakeConfig{
+		InitialRetransmitInterval: time.Hour,
+		Log:                       logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+	}
+	cache := dtlsflight.NewCache()
+	state := dtlsstate.NewState12(true)
+	fsm := &fsm12{state: &state, cache: cache, cfg: cfg, currentFlight: dtlsflight12.Flight1, retransmitInterval: cfg.InitialRetransmitInterval}
+	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState, 1)}
+	receive := func(seq uint16, cookie byte) RecvHandshakeState {
+		raw, err := (&handshake.Handshake{
+			Header: handshake.Header{MessageSequence: seq},
+			Message: &handshake.MessageHelloVerifyRequest{
+				Version: protocol.Version1_2, Cookie: []byte{cookie},
+			},
+		}).Marshal()
+		require.NoError(t, err)
+		cache.Push(raw, 0, seq, handshake.TypeHelloVerifyRequest, false)
+		received := RecvHandshakeState{Done: make(chan struct{})}
+		conn.recvHandshake <- received
+
+		return received
+	}
+	handled := func(received RecvHandshakeState) {
+		select {
+		case <-received.Done:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "a HelloVerifyRequest waited while the cookie retry was paced")
+		}
+	}
+
+	first := receive(0, 1)
+	next, err := fsm.wait(t.Context(), conn)
+	require.NoError(t, err)
+	require.Equal(t, StatePreparing, next)
+	assertFlight13RecvDoneOpen(t, first)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	waitErr := make(chan error, 1)
+	go func() {
+		_, err := fsm.wait(ctx, conn)
+		waitErr <- err
+	}()
+	handled(receive(1, 2))
+	handled(receive(2, 3))
+	assert.Equal(t, []byte{3}, state.Cookie)
+	select {
+	case err := <-waitErr:
+		require.FailNow(t, "the cookie retry did not wait for the timer", "%v", err)
+	default:
+	}
+	cancel()
+	require.ErrorIs(t, <-waitErr, context.Canceled)
+}
+
+func TestFSM12HoldsReaderUntilFirstWait(t *testing.T) {
+	cfg := &dtlsconfig.HandshakeConfig{
+		InitialRetransmitInterval: time.Hour,
+		Log:                       logging.NewDefaultLoggerFactory().NewLogger("dtls"),
+	}
+	state := dtlsstate.NewState12(true)
+	fsm := NewFSM12(&state, dtlsflight.NewCache(), cfg, dtlsflight12.Flight1, nil, NewEstablishment())
+	starter, ok := fsm.(ReaderStarter)
+	require.True(t, ok)
+	select {
+	case <-starter.ReaderStart():
+		require.FailNow(t, "the reader may start before the first flight is generated")
+	default:
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	conn := &flightTestConn{recvHandshake: make(chan RecvHandshakeState)}
+	machine, ok := fsm.(*fsm12)
+	require.True(t, ok)
+	_, err := machine.wait(ctx, conn)
+	require.ErrorIs(t, err, context.Canceled)
+	select {
+	case <-starter.ReaderStart():
+	default:
+		require.FailNow(t, "waiting for input must let the reader start")
 	}
 }
 

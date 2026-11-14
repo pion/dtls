@@ -63,11 +63,25 @@ type fsm12 struct {
 	cfg                    *dtlsconfig.HandshakeConfig
 	closed                 chan struct{}
 	establishment          *Establishment
+	readerStart            chan struct{} // Closed once the FSM first waits for input
 	received               recvHandshakeLease
+	cookieRetry            bool // A new cookie waits for the retransmit timer
 }
 
 func NewFSM12(state *dtlsstate.State12, cache *dtlsflight.Cache, cfg *dtlsconfig.HandshakeConfig, initialFlight dtlsflight12.Flight, initialFlights []*dtlsflight.Outbound, establishment *Establishment) FSM {
-	return &fsm12{currentFlight: initialFlight, flights: initialFlights, retransmit: initialFlights != nil, state: state, cache: cache, cfg: cfg, retransmitInterval: cfg.InitialRetransmitInterval, closed: make(chan struct{}), establishment: establishment}
+	readerStart := make(chan struct{})
+
+	return &fsm12{
+		currentFlight: initialFlight, flights: initialFlights, retransmit: initialFlights != nil, state: state, cache: cache, cfg: cfg,
+		retransmitInterval: cfg.InitialRetransmitInterval, closed: make(chan struct{}), establishment: establishment,
+		// Pause reads during initial flight generation.
+		readerStart: readerStart, received: recvHandshakeLease{done: readerStart},
+	}
+}
+
+// ReaderStart closes when the FSM first waits for input.
+func (s *fsm12) ReaderStart() <-chan struct{} {
+	return s.readerStart
 }
 
 func (s *fsm12) Run(ctx context.Context, conn Conn, initialState State) error {
@@ -160,17 +174,23 @@ func (s *fsm12) send(ctx context.Context, c Conn) (State, error) {
 
 func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) {
 	s.received.release()
+	s.cookieRetry = false
 	retransmitTimer := s.cfg.NewTimer(s.retransmitInterval)
 	defer retransmitTimer.Stop()
 	for {
 		select {
 		case state := <-conn.RecvHandshake():
-			nextState, err := s.handleWaitingFlight(ctx, conn, state, retransmitTimer)
+			nextState, err := s.handleWaitingFlight(ctx, conn, state)
 			if nextState != StateWaiting || err != nil {
 				return nextState, err
 			}
 
 		case <-retransmitTimer.C():
+			if s.cookieRetry {
+				handleRetransmitTimeout(true, &s.retransmitInterval, s.cfg)
+
+				return StatePreparing, nil
+			}
 			if s.retransmit {
 				s.backoffPeerRetransmit()
 			}
@@ -213,6 +233,8 @@ func (s *fsm12) parseWaitingFlight(ctx context.Context, conn Conn) (dtlsflight12
 }
 
 func (s *fsm12) handleIncompleteFlight(state RecvHandshakeState) (State, error) {
+	// No new flight is generated, so the reader can go on.
+	s.received.release()
 	if state.IsClientHelloRetransmit && s.currentFlight == dtlsflight12.Flight2 {
 		return StateSending, nil
 	}
@@ -224,12 +246,10 @@ func (s *fsm12) handleIncompleteFlight(state RecvHandshakeState) (State, error) 
 		return StateSending, nil
 	}
 
-	s.received.release()
-
 	return StateWaiting, nil
 }
 
-func (s *fsm12) handleWaitingFlight(ctx context.Context, conn Conn, state RecvHandshakeState, retransmitTimer dtlsconfig.Timer) (State, error) {
+func (s *fsm12) handleWaitingFlight(ctx context.Context, conn Conn, state RecvHandshakeState) (State, error) {
 	s.received.retain(state)
 	nextFlight, err := s.parseWaitingFlight(ctx, conn)
 	if err != nil {
@@ -239,14 +259,14 @@ func (s *fsm12) handleWaitingFlight(ctx context.Context, conn Conn, state RecvHa
 		return s.handleIncompleteFlight(state)
 	}
 	if s.currentFlight == dtlsflight12.Flight3 && nextFlight == dtlsflight12.Flight3 {
-		// A new cookie must not bypass or reset the retry backoff.
-		select {
-		case <-retransmitTimer.C():
-			handleRetransmitTimeout(true, &s.retransmitInterval, s.cfg)
-		case <-ctx.Done():
-			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
-		}
-	} else if !state.IsRetransmit {
+		// Keep receiving cookies without resetting backoff. Retry with the latest
+		// cookie when the timer fires; flight 3 does not modify reader state.
+		s.received.release()
+		s.cookieRetry = true
+
+		return StateWaiting, nil
+	}
+	if !state.IsRetransmit {
 		s.retransmitInterval = s.cfg.InitialRetransmitInterval
 	}
 	s.cfg.Log.Tracef("[handshake:%s] %s -> %s", sideString(s.state.IsClient), s.currentFlight.String(), nextFlight.String())
@@ -267,7 +287,8 @@ func (s *fsm12) finish(ctx context.Context, c Conn) (State, error) {
 	s.received.release()
 	select {
 	case state := <-c.RecvHandshake():
-		s.received.retain(state)
+		// Resending the last flight generates nothing, so the reader can go on.
+		close(state.Done)
 		if s.state.IsClient {
 			return StateFinished, nil
 		}

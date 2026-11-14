@@ -82,6 +82,11 @@ type FSM interface {
 	Run(ctx context.Context, conn Conn, initialState State) error
 }
 
+// ReaderStarter keeps the reader paused during initial flight generation.
+type ReaderStarter interface {
+	ReaderStart() <-chan struct{}
+}
+
 // Conn is the connection surface required by the DTLS handshake FSMs.
 type Conn interface {
 	dtlsflight.Conn
